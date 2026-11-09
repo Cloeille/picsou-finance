@@ -114,8 +114,6 @@ actually has; a passbook gets the header and stops there.
 | Valuation history | the property has `property_valuation` rows | date, estimate, low, high, price per m², source, confidence, sample size, source year |
 | Loan | the account carries a `DebtResponse` | lender, borrowed amount, rate, monthly payment, insurance, file fees, dates, financed account, plus the summary figures |
 | Amortization | the loan has a `Debt` row behind it | instalment no., date, capital, interest, insurance, payment, remaining balance |
-| Peer loan | `type == PEER_LOAN` and terms are configured | borrower, principal, dates, rate expressed in the period the member stated (annual or monthly), plan, cash account, note, closure, remaining capital, accrued/received interest, written-off |
-| Repayment journal | the peer loan has at least one repayment | paid on, amount, kind, interest part, capital part, note |
 
 **Transactions and balance-snapshot history are deliberately out of scope** for this iteration.
 They live in the GDPR export's `transactions.csv` / `balance_snapshots.csv` for anyone who needs
@@ -144,7 +142,6 @@ trade-offs that come with it.
 - `export/xlsx/SheetLabels.java` / `LabelKey.java` — heading resolution and the wire contract
 - `export/xlsx/AccountExportData.java` — one account's gathered data
 - `export/xlsx/DebtExportData.java` — one loan and its amortization
-- `export/xlsx/PeerLoanExportData.java` — one peer loan, its computed figures and the journal rows
 - `dto/AccountsExportRequest.java` — `(List<Long> accountIds, Map<String,String> labels)`
 - `config/RateLimitConfig.java` — `accountExportBuckets` bean + `createAccountExportBucket()`
 
@@ -236,9 +233,7 @@ Backend:
   percentage, no positions block without holdings, property cost basis and valuation history, a
   never-valued property keeping its metadata block, the loan rate written out of 100, the full
   schedule and nothing after it, a `LOAN` with no `Debt` row, and supplied labels replacing the
-  English headings. A `PEER_LOAN` sheet writes the terms, the rate in the stated period (a
-  monthly 2 % is printed as 2, not 24), the planned interest and the repayment journal with its
-  interest-first split.
+  English headings.
   Plus the summary blocks: the profile precedes the accounts and omits what is unstated, it
   disappears when nothing is stated, both rates are written out of 100, the plans block reports
   the total and the rate, the rate row is dropped with no stated income, the breakdown lists each

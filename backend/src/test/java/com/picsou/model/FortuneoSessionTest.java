@@ -1,6 +1,5 @@
 package com.picsou.model;
 
-import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.support.TestEntities;
 import org.junit.jupiter.api.Test;
@@ -18,13 +17,13 @@ class FortuneoSessionTest {
 
     @Test
     void guardedTransitionsKeepSyncFieldsConsistent() {
-        SidecarSession session = newSession();
+        FortuneoSession session = newSession();
 
         session.markQueued();
         session.markRunning(STARTED_AT);
         session.markSuccessful(COMPLETED_AT);
 
-        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(FortuneoSyncStatus.SUCCESS);
         assertThat(session.getLastSyncStartedAt()).isEqualTo(STARTED_AT);
         assertThat(session.getLastSyncCompletedAt()).isEqualTo(COMPLETED_AT);
         assertThat(session.getLastValidatedAt()).isEqualTo(COMPLETED_AT);
@@ -34,7 +33,7 @@ class FortuneoSessionTest {
 
     @Test
     void invalidTransitionIsRejected() {
-        SidecarSession session = newSession();
+        FortuneoSession session = newSession();
 
         assertThatThrownBy(() -> session.markRunning(STARTED_AT))
             .isInstanceOf(IllegalStateException.class)
@@ -43,13 +42,13 @@ class FortuneoSessionTest {
 
     @Test
     void failedTransitionStoresTypedErrorAndExpiresTheSession() {
-        SidecarSession session = newSession();
+        FortuneoSession session = newSession();
         session.markQueued();
         session.markRunning(STARTED_AT);
 
         session.markFailed(SidecarErrorCode.SESSION_EXPIRED, COMPLETED_AT);
 
-        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         assertThat(session.getLastSyncCompletedAt()).isEqualTo(COMPLETED_AT);
         assertThat(session.isActive()).isFalse();
@@ -57,30 +56,30 @@ class FortuneoSessionTest {
 
     @Test
     void queuedJobCanFailWhenExecutorRejectsIt() {
-        SidecarSession session = newSession();
+        FortuneoSession session = newSession();
         session.markQueued();
 
         session.markFailed(SidecarErrorCode.INTERNAL_ERROR, COMPLETED_AT);
 
-        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
         assertThat(session.getLastSyncStartedAt()).isNull();
         assertThat(session.isActive()).isTrue();
     }
 
     @Test
     void aCodeFortuneoNeverDeclaredIsRejectedBeforeItReachesTheCheckConstraint() {
-        SidecarSession session = newSession();
+        FortuneoSession session = newSession();
         session.markQueued();
         session.markRunning(STARTED_AT);
 
         assertThatThrownBy(() -> session.markFailed(SidecarErrorCode.CAPTCHA_BLOCKED, COMPLETED_AT))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("CAPTCHA_BLOCKED");
-        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.RUNNING);
+        assertThat(session.getSyncStatus()).isEqualTo(FortuneoSyncStatus.RUNNING);
         assertThat(session.getLastSyncError()).isNull();
     }
 
-    private SidecarSession newSession() {
-        return SidecarSession.create(SidecarBank.FORTUNEO, TestEntities.owner(), "encrypted", VALIDATED_AT);
+    private FortuneoSession newSession() {
+        return FortuneoSession.create(TestEntities.owner(), "encrypted", VALIDATED_AT);
     }
 }

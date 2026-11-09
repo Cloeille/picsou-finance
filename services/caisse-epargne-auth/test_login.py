@@ -17,10 +17,9 @@ from unittest.mock import patch
 
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
-from bpce import login
-from bpce import replay
-import main
-from bpce.testing import (
+import login
+import replay
+from fake_browser import (
     AUTHORIZE_URL,
     OVERSIZE_PNG,
     UNKNOWN_PNG,
@@ -82,7 +81,7 @@ class LoginTestBase(unittest.IsolatedAsyncioTestCase):
 
     # --- helpers ---
     async def initiate(self, customer_id=CUSTOMER_ID):
-        return await login.initiate(main.SITE, customer_id)
+        return await login.initiate(customer_id)
 
     async def keypad(self, process_id, positions=None):
         return await login.keypad(process_id, POSITIONS if positions is None else positions)
@@ -691,7 +690,7 @@ class CredentialShapeTest(LoginTestBase):
 
     async def test_initiate_takes_no_password(self):
         with self.assertRaises(TypeError):
-            await login.initiate(main.SITE, CUSTOMER_ID, "482017")  # type: ignore[call-arg]
+            await login.initiate(CUSTOMER_ID, "482017")  # type: ignore[call-arg]
 
 
 class LiveSelectorTest(unittest.TestCase):

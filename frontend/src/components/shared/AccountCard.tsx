@@ -5,7 +5,6 @@ import { TriangleAlert } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import type { Account, PropertyKind } from '@/types/api'
 import { Card, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { AccountTypeBadge } from '@/components/shared/AccountTypeBadge'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
@@ -21,12 +20,9 @@ import {
 import { SYNC_FRESHNESS_BOUNDS_MS, VALUATION_FRESHNESS_BOUNDS_MS } from '@/lib/constants'
 import { logoKeyUrl, providerLogoUrl } from '@/lib/provider-logos'
 import { PROPERTY_KIND_ICONS } from '@/lib/property-icons'
-import { useInstitutionLogoUrl } from '@/features/accounts/hooks'
 
 interface AccountCardProps {
   account: Account
-  /** A closed peer loan: still in the list under Receivables, but no longer active. */
-  closed?: boolean
   onClick?: () => void
 }
 
@@ -43,14 +39,12 @@ const WARNING_LEVELS: ReadonlySet<FreshnessLevel> = new Set<FreshnessLevel>(['st
  * asset bundled for that provider, else the account's color.
  */
 function AccountAvatar(
-  { logoKey, logoUrl, provider, institutionLogoSrc, color }:
-    { logoKey: string | null; logoUrl: string | null; provider: string | null; institutionLogoSrc: string | null; color: string },
+  { logoKey, logoUrl, provider, color }:
+    { logoKey: string | null; logoUrl: string | null; provider: string | null; color: string },
 ) {
   // The account's own key first: it is the only one a user picked by hand, so it outranks
   // both the connector's logo and the provider map.
-  // The aggregator's own logo (none is bundled for SimpleFIN) never beats a brand asset, so
-  // the bank behind the bridge is the last thing tried before the colour.
-  const src = logoKeyUrl(logoKey) ?? logoUrl ?? providerLogoUrl(provider) ?? institutionLogoSrc
+  const src = logoKeyUrl(logoKey) ?? logoUrl ?? providerLogoUrl(provider)
   return (
     <Avatar className="mt-1 size-10 shrink-0 bg-white">
       {src && <AvatarImage src={src} alt="" className="object-contain p-1" />}
@@ -83,10 +77,9 @@ function PropertyAvatar({ kind, color }: { kind: PropertyKind; color: string }) 
   )
 }
 
-export function AccountCard({ account, closed = false, onClick }: AccountCardProps) {
+export function AccountCard({ account, onClick }: AccountCardProps) {
   const { t } = useTranslation()
   const money = useMoney()
-  const institutionLogoUrl = useInstitutionLogoUrl()
   const isLoan = account.type === 'LOAN'
   const property = account.type === 'REAL_ESTATE' ? account.realEstate : undefined
   const propertyKind = property?.propertyKind ?? null
@@ -101,10 +94,7 @@ export function AccountCard({ account, closed = false, onClick }: AccountCardPro
     ? [propertyKind && t(`property.kind.${propertyKind}`), property.city]
         .filter(Boolean)
         .join(' · ')
-    : account.institution
-      // A bridge is not a bank: say which bank this is, and that the bridge delivered it.
-      ? `${account.institution.name} · ${t('accounts.viaProvider', { provider: account.provider })}`
-      : account.provider
+    : account.provider
 
   // Lazy initializer keeps the impure Date.now() out of render; the slow tick
   // lets a long-lived tab cross a threshold without a remount (the whole point
@@ -132,7 +122,7 @@ export function AccountCard({ account, closed = false, onClick }: AccountCardPro
 
   return (
     <Card
-      className={`cursor-pointer transition-colors hover:bg-muted/20 ${closed ? 'opacity-70' : ''}`}
+      className="cursor-pointer transition-colors hover:bg-muted/20"
       onClick={onClick}
     >
       <CardContent className="flex items-start gap-3 p-4">
@@ -143,7 +133,6 @@ export function AccountCard({ account, closed = false, onClick }: AccountCardPro
             logoKey={account.logoKey}
             logoUrl={account.logoUrl}
             provider={account.provider}
-            institutionLogoSrc={institutionLogoUrl(account)}
             color={account.color}
           />
         )}
@@ -151,7 +140,6 @@ export function AccountCard({ account, closed = false, onClick }: AccountCardPro
           <div className="flex items-center gap-2">
             <span className="truncate font-medium">{account.name}</span>
             <AccountTypeBadge type={account.type} />
-            {closed && <Badge variant="secondary">{t('peerLoan.summary.closed')}</Badge>}
             {/* Present only below 100%, so the balance above is knowingly a shared figure. */}
             {account.sharePercent != null && (
               <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">

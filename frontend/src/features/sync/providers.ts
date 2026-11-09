@@ -2,16 +2,13 @@ import type { QueryKey } from '@tanstack/react-query'
 import {
   amexApi,
   amundiApi,
-  banquePopulaireApi,
   boursoApi,
   bourseDirectApi,
   caisseEpargneApi,
   cicApi,
   cmesApi,
-  natixisApi,
   corumApi,
   fortuneoApi,
-  lbpApi,
   sofidyApi,
 } from './api'
 import type { SidecarApi } from './api'
@@ -59,9 +56,9 @@ export interface SidecarProviderEntry {
   /** Query keys invalidated, besides the status, once the session is cleared. Defaults to the account views. */
   refreshOnClear?: readonly QueryKey[]
   getStatus: () => Promise<SidecarSessionStatus>
-  /** Absent when the caller drives the login itself (Caisse d'Epargne, Banque Populaire). */
+  /** Absent when the caller drives the login itself (Caisse d'Epargne). */
   initiate?: (vars: never) => Promise<SidecarAuthInitResponse>
-  /** A status, except the BPCE banks' login result (`singleAttemptComplete`). */
+  /** A status, except Caisse d'Epargne's login result (`singleAttemptComplete`). */
   complete: (vars: never) => Promise<SidecarSessionStatus | CaisseEpargneAuthCompleteResponse>
   sync: () => Promise<SidecarSessionStatus>
   clear: () => Promise<unknown>
@@ -129,32 +126,6 @@ export const sidecarProviders = {
     singleAttemptComplete: true,
   },
 
-  /** Same BPCE login as Caisse d'Epargne, so the same deliberate absence of `initiate`. */
-  banquePopulaire: {
-    queryKey: syncKeys.banquePopulaire(),
-    refreshOnSuccess: ACCOUNT_VIEWS,
-    getStatus: () => banquePopulaireApi.getStatus(),
-    complete: ({ processId }: { processId: string }) => banquePopulaireApi.completeAuth(processId),
-    sync: () => banquePopulaireApi.sync(),
-    clear: () => banquePopulaireApi.clearSession(),
-    singleAttemptComplete: true,
-  },
-
-  /**
-   * Like Caisse d'Epargne, the keypad positions are the password in disguise:
-   * the panel calls `lbpApi.initiateAuth` / `sendKeypad` directly and holds the
-   * positions in component state only. The second factor is a mobile approval.
-   */
-  lbp: {
-    queryKey: syncKeys.lbp(),
-    refreshOnSuccess: ACCOUNT_VIEWS,
-    getStatus: () => lbpApi.getStatus(),
-    complete: ({ processId }: { processId: string }) => lbpApi.completeAuth(processId),
-    sync: () => lbpApi.sync(),
-    clear: () => lbpApi.clearSession(),
-    singleAttemptComplete: true,
-  },
-
   bourseDirect: {
     queryKey: syncKeys.bourseDirect(),
     refreshOnSuccess: PORTFOLIO_VIEWS,
@@ -171,12 +142,6 @@ export const sidecarProviders = {
     queryKey: syncKeys.cmes(),
     refreshOnSuccess: PORTFOLIO_VIEWS,
     ...loginFlow(cmesApi),
-  },
-
-  natixis: {
-    queryKey: syncKeys.natixis(),
-    refreshOnSuccess: PORTFOLIO_VIEWS,
-    ...loginFlow(natixisApi),
   },
 
   cic: {
@@ -260,10 +225,7 @@ type Providers = typeof sidecarProviders
 export type SidecarProviderId = keyof Providers
 
 /** Providers rendered by the shared `SidecarSessionPanel`. */
-export type PanelProviderId = Exclude<
-  SidecarProviderId,
-  'bourso' | 'caisseEpargne' | 'banquePopulaire' | 'fortuneo' | 'lbp'
->
+export type PanelProviderId = Exclude<SidecarProviderId, 'bourso' | 'caisseEpargne' | 'fortuneo'>
 
 /** What `SidecarSessionPanel` reads from an entry: a login answer, then session statuses. */
 interface PanelProviderEntry extends SidecarProviderEntry {

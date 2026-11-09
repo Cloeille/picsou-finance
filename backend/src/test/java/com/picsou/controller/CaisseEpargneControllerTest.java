@@ -2,9 +2,8 @@ package com.picsou.controller;
 
 import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
-import com.picsou.model.SidecarSyncStatus;
+import com.picsou.model.CaisseEpargneSyncStatus;
 import com.picsou.port.SidecarErrorCode;
-import com.picsou.service.BpceSyncEngine;
 import com.picsou.service.CaisseEpargneSyncService;
 import com.picsou.service.UserContext;
 import io.github.bucket4j.Bucket;
@@ -56,15 +55,15 @@ class CaisseEpargneControllerTest {
         lenient().when(userContext.currentMemberId()).thenReturn(MEMBER_ID);
     }
 
-    private static CaisseEpargneSyncService.SessionStatusResponse statusOf(SidecarSyncStatus syncStatus) {
+    private static CaisseEpargneSyncService.SessionStatusResponse statusOf(CaisseEpargneSyncStatus syncStatus) {
         return new CaisseEpargneSyncService.SessionStatusResponse(
             true, syncStatus, null, null, null,
-            List.of(new BpceSyncEngine.UnsupportedContract("9001", "7", "02")), false);
+            List.of(new CaisseEpargneSyncService.UnsupportedContract("9001", "7")));
     }
 
     @Test
     void syncQueuesTheSyncForTheCurrentMemberAndAnswers202() throws Exception {
-        when(service.queueSync(MEMBER_ID)).thenReturn(statusOf(SidecarSyncStatus.QUEUED));
+        when(service.queueSync(MEMBER_ID)).thenReturn(statusOf(CaisseEpargneSyncStatus.QUEUED));
 
         mockMvc.perform(post("/api/caisse-epargne/sync").with(request -> {
                 request.setRemoteAddr("127.0.0.1");
@@ -74,15 +73,14 @@ class CaisseEpargneControllerTest {
             .andExpect(jsonPath("$.syncStatus").value("QUEUED"))
             .andExpect(jsonPath("$.unsupportedCount").value(1))
             .andExpect(jsonPath("$.unsupported[0].externalId").value("9001"))
-            .andExpect(jsonPath("$.unsupported[0].familyCode").value("7"))
-            .andExpect(jsonPath("$.unsupported[0].subFamilyCode").value("02"));
+            .andExpect(jsonPath("$.unsupported[0].familyCode").value("7"));
 
         verify(service).queueSync(MEMBER_ID);
     }
 
     @Test
     void syncIsRateLimitedLikeTheOtherSyncEndpoints() throws Exception {
-        when(service.queueSync(MEMBER_ID)).thenReturn(statusOf(SidecarSyncStatus.QUEUED));
+        when(service.queueSync(MEMBER_ID)).thenReturn(statusOf(CaisseEpargneSyncStatus.QUEUED));
         var request = post("/api/caisse-epargne/sync").with(r -> {
             r.setRemoteAddr("127.0.0.1");
             return r;
@@ -100,7 +98,7 @@ class CaisseEpargneControllerTest {
 
     @Test
     void theRateLimitIsPerClientIp() throws Exception {
-        when(service.queueSync(anyLong())).thenReturn(statusOf(SidecarSyncStatus.QUEUED));
+        when(service.queueSync(anyLong())).thenReturn(statusOf(CaisseEpargneSyncStatus.QUEUED));
 
         for (int i = 0; i < 10; i++) {
             mockMvc.perform(post("/api/caisse-epargne/sync").with(r -> {
@@ -129,7 +127,7 @@ class CaisseEpargneControllerTest {
 
     @Test
     void statusReturnsTheStoredState() throws Exception {
-        when(service.getStatus(MEMBER_ID)).thenReturn(statusOf(SidecarSyncStatus.SUCCESS));
+        when(service.getStatus(MEMBER_ID)).thenReturn(statusOf(CaisseEpargneSyncStatus.SUCCESS));
 
         mockMvc.perform(get("/api/caisse-epargne/status"))
             .andExpect(status().isOk())

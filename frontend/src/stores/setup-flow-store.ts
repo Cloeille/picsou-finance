@@ -7,7 +7,6 @@ export type IntegrationKey =
   | 'boursedirect'
   | 'fortuneo'
   | 'traderepublic'
-  | 'lbp'
   | 'revolut'
   | 'finary'
   | 'crypto'

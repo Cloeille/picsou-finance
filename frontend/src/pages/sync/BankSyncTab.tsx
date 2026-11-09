@@ -15,7 +15,6 @@ import {
   CheckCircle,
   AlertTriangle,
   ExternalLink,
-  PiggyBank,
 } from 'lucide-react'
 import { extractErrorMessage, formatApiError } from '@/lib/errors'
 import {
@@ -25,7 +24,6 @@ import {
   useInitiateBankSync,
   useReconnectBankSync,
   useRetryBankSync,
-  useWiseStatus,
 } from '@/features/sync/hooks'
 
 type CallbackStatus = 'completing' | 'done' | 'error'
@@ -49,49 +47,13 @@ function statusClasses(status: string): string {
   }
 }
 
-const WISE_INSTITUTION = /\bwise\b/i
-
-/**
- * Open banking never returns Wise Jars, so a Wise connection says where they come from instead.
- * Only rendered under a Wise row, which keeps the status request off every other member's page.
- */
-function WiseJarsHint({ onOpenWiseJars }: { onOpenWiseJars?: () => void }) {
-  const { t } = useTranslation()
-  const { data: wiseStatus } = useWiseStatus()
-
-  if (wiseStatus?.connected && wiseStatus.status === 'CONNECTED') {
-    return (
-      <p className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
-        <PiggyBank className="size-4 shrink-0" />
-        {t('sync.banks.wiseJarsConnected')}
-      </p>
-    )
-  }
-  const failed = wiseStatus?.connected ?? false
-  return (
-    <div className="flex flex-wrap items-center gap-2 px-1 text-xs text-muted-foreground">
-      <PiggyBank className="size-4 shrink-0" />
-      <span>{t(failed ? 'sync.banks.wiseJarsFailed' : 'sync.banks.wiseJarsMissing')}</span>
-      {onOpenWiseJars && (
-        <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={onOpenWiseJars}>
-          {t(failed ? 'sync.banks.wiseJarsOpen' : 'sync.banks.wiseJarsConnect')}
-        </Button>
-      )}
-    </div>
-  )
-}
-
 function cleanBankCallbackUrl() {
   if (window.location.pathname.endsWith('/sync/callback')) {
     window.history.replaceState(window.history.state, '', '/sync?tab=banks')
   }
 }
 
-interface BankSyncTabProps {
-  onOpenWiseJars?: () => void
-}
-
-export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
+export function BankSyncTab() {
   const { t } = useTranslation()
   const [searchParams] = useSearchParams()
 
@@ -272,57 +234,54 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
               const isReconnecting =
                 reconnectMutation.isPending && reconnectMutation.variables === conn.id
 
-              return <div key={conn.id} className="space-y-2">
-                <Card size="sm">
-                  <CardContent className="flex items-center justify-between py-2">
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-medium">{conn.institutionName}</span>
-                      <Badge
-                        variant={statusVariant(conn.status)}
-                        className={statusClasses(conn.status)}
-                      >
-                        {t(`sync.connectionStatus.${conn.status}`, { defaultValue: conn.status })}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {conn.status === 'FAILED' && (
-                        <>
-                          <Button
-                            size="icon-sm"
-                            variant="ghost"
-                            title={t('sync.banks.retry')}
-                            onClick={() => void handleRetry(conn.id)}
-                            disabled={isRetrying || isReconnecting}
-                          >
-                            {isRetrying
-                              ? <Loader2 className="size-4 animate-spin" />
-                              : <RefreshCw className="size-4" />}
-                          </Button>
-                          <Button
-                            size="icon-sm"
-                            variant="ghost"
-                            title={t('sync.banks.reconnect')}
-                            onClick={() => handleReconnect(conn.id)}
-                            disabled={isRetrying || isReconnecting}
-                          >
-                            {isReconnecting
-                              ? <Loader2 className="size-4 animate-spin" />
-                              : <ExternalLink className="size-4" />}
-                          </Button>
-                        </>
-                      )}
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        onClick={() => setDeleteId(conn.id)}
-                      >
-                        <Trash2 className="size-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-                {WISE_INSTITUTION.test(conn.institutionName) && <WiseJarsHint onOpenWiseJars={onOpenWiseJars} />}
-              </div>
+              return <Card key={conn.id} size="sm">
+                <CardContent className="flex items-center justify-between py-2">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-medium">{conn.institutionName}</span>
+                    <Badge
+                      variant={statusVariant(conn.status)}
+                      className={statusClasses(conn.status)}
+                    >
+                      {t(`sync.connectionStatus.${conn.status}`, { defaultValue: conn.status })}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {conn.status === 'FAILED' && (
+                      <>
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          title={t('sync.banks.retry')}
+                          onClick={() => void handleRetry(conn.id)}
+                          disabled={isRetrying || isReconnecting}
+                        >
+                          {isRetrying
+                            ? <Loader2 className="size-4 animate-spin" />
+                            : <RefreshCw className="size-4" />}
+                        </Button>
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          title={t('sync.banks.reconnect')}
+                          onClick={() => handleReconnect(conn.id)}
+                          disabled={isRetrying || isReconnecting}
+                        >
+                          {isReconnecting
+                            ? <Loader2 className="size-4 animate-spin" />
+                            : <ExternalLink className="size-4" />}
+                        </Button>
+                      </>
+                    )}
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      onClick={() => setDeleteId(conn.id)}
+                    >
+                      <Trash2 className="size-4 text-destructive" />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
             })}
           </div>
         )}

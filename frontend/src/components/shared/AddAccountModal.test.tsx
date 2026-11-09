@@ -79,12 +79,6 @@ vi.mock('@/components/sync/CaisseEpargnePanel', () => ({
   ),
 }))
 
-vi.mock('@/components/sync/BanquePopulairePanel', () => ({
-  BanquePopulairePanel: ({ onConnected }: { onConnected?: () => void }) => (
-    <button onClick={onConnected}>banque-populaire-wizard</button>
-  ),
-}))
-
 vi.mock('@/components/sync/IbkrPanel', () => ({
   IbkrPanel: ({ onConnected }: { onConnected?: () => void }) => (
     <button onClick={onConnected}>ibkr-wizard</button>
@@ -94,12 +88,6 @@ vi.mock('@/components/sync/IbkrPanel', () => ({
 vi.mock('@/components/sync/SimplefinPanel', () => ({
   SimplefinPanel: ({ onConnected }: { onConnected?: () => void }) => (
     <button onClick={onConnected}>simplefin-wizard</button>
-  ),
-}))
-
-vi.mock('@/components/sync/WisePanel', () => ({
-  WisePanel: ({ onConnected }: { onConnected?: () => void }) => (
-    <button onClick={onConnected}>wise-wizard</button>
   ),
 }))
 
@@ -465,25 +453,6 @@ describe('AddAccountModal Caisse d\'Epargne wizard', () => {
   })
 })
 
-describe('AddAccountModal Banque Populaire wizard', () => {
-  it('lists the source with its own description', () => {
-    render(<AddAccountModal open onOpenChange={vi.fn()} />)
-
-    expect(screen.getByText('sync.banquePopulaire.title')).toBeInTheDocument()
-    expect(screen.getByText('addAccount.desc.banquePopulaire')).toBeInTheDocument()
-  })
-
-  it('opens the connector and closes after authentication', () => {
-    const onOpenChange = vi.fn()
-    render(<AddAccountModal open onOpenChange={onOpenChange} />)
-
-    fireEvent.click(screen.getByText('sync.banquePopulaire.title'))
-    fireEvent.click(screen.getByRole('button', { name: 'banque-populaire-wizard' }))
-
-    expect(onOpenChange).toHaveBeenCalledWith(false)
-  })
-})
-
 describe('AddAccountModal SimpleFIN wizard', () => {
   it('opens the connector and closes after authentication', () => {
     const onOpenChange = vi.fn()
@@ -496,7 +465,7 @@ describe('AddAccountModal SimpleFIN wizard', () => {
   })
 })
 
-describe.each(['wise', 'amex', 'corum', 'sofidy'])('AddAccountModal %s wizard', (key) => {
+describe.each(['amex', 'corum', 'sofidy'])('AddAccountModal %s wizard', (key) => {
   it('lists the source, opens the connector and closes after authentication', () => {
     const onOpenChange = vi.fn()
     render(<AddAccountModal open onOpenChange={onOpenChange} />)

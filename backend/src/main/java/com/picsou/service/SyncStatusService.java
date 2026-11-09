@@ -8,7 +8,6 @@ import com.picsou.model.Requisition;
 import com.picsou.model.RequisitionStatus;
 import com.picsou.model.SimplefinConnection;
 import com.picsou.model.WalletAddress;
-import com.picsou.model.WiseConnection;
 import com.picsou.repository.DegiroSessionRepository;
 import com.picsou.repository.FinarySessionRepository;
 import com.picsou.repository.IbkrConnectionRepository;
@@ -16,7 +15,6 @@ import com.picsou.repository.RequisitionRepository;
 import com.picsou.repository.SimplefinConnectionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import com.picsou.repository.WalletAddressRepository;
-import com.picsou.repository.WiseConnectionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,7 +32,7 @@ import java.util.function.Supplier;
 @Service
 public class SyncStatusService {
 
-    private static final Set<String> REAUTH_ON_INVALID_CREDENTIALS = Set.of("bourso", "cmes", "cic", "corum", "natixis", "lbp");
+    private static final Set<String> REAUTH_ON_INVALID_CREDENTIALS = Set.of("bourso", "cmes", "cic", "corum");
 
     private final RevolutSyncService revolutSyncService;
     private final RequisitionRepository requisitionRepository;
@@ -46,13 +44,10 @@ public class SyncStatusService {
     private final CmesSyncService cmesSyncService;
     private final CicSyncService cicSyncService;
     private final CorumSyncService corumSyncService;
-    private final NatixisSyncService natixisSyncService;
-    private final LbpSyncService lbpSyncService;
     private final FortuneoSyncService fortuneoSyncService;
     private final AmexSyncService amexSyncService;
     private final IbkrConnectionRepository ibkrConnectionRepository;
     private final SimplefinConnectionRepository simplefinConnectionRepository;
-    private final WiseConnectionRepository wiseConnectionRepository;
     private final CryptoExchangeSyncService cryptoExchangeSyncService;
     private final WalletAddressRepository walletAddressRepository;
     private final FinarySessionRepository finarySessionRepository;
@@ -68,13 +63,10 @@ public class SyncStatusService {
                              CmesSyncService cmesSyncService,
                              CicSyncService cicSyncService,
                              CorumSyncService corumSyncService,
-                             NatixisSyncService natixisSyncService,
-                             LbpSyncService lbpSyncService,
                              FortuneoSyncService fortuneoSyncService,
                              AmexSyncService amexSyncService,
                              IbkrConnectionRepository ibkrConnectionRepository,
                              SimplefinConnectionRepository simplefinConnectionRepository,
-                             WiseConnectionRepository wiseConnectionRepository,
                              CryptoExchangeSyncService cryptoExchangeSyncService,
                              WalletAddressRepository walletAddressRepository,
                              FinarySessionRepository finarySessionRepository,
@@ -89,13 +81,10 @@ public class SyncStatusService {
         this.cmesSyncService = cmesSyncService;
         this.cicSyncService = cicSyncService;
         this.corumSyncService = corumSyncService;
-        this.natixisSyncService = natixisSyncService;
-        this.lbpSyncService = lbpSyncService;
         this.fortuneoSyncService = fortuneoSyncService;
         this.amexSyncService = amexSyncService;
         this.ibkrConnectionRepository = ibkrConnectionRepository;
         this.simplefinConnectionRepository = simplefinConnectionRepository;
-        this.wiseConnectionRepository = wiseConnectionRepository;
         this.cryptoExchangeSyncService = cryptoExchangeSyncService;
         this.walletAddressRepository = walletAddressRepository;
         this.finarySessionRepository = finarySessionRepository;
@@ -132,14 +121,6 @@ public class SyncStatusService {
             CorumSyncService.SessionStatusResponse s = corumSyncService.getStatus(memberId);
             return List.of(broker("corum", s.isActive(), s.syncStatus().name(), s.lastSyncCompletedAt(), s.lastSyncError()));
         });
-        add(lines, "natixis", () -> {
-            NatixisSyncService.SessionStatusResponse s = natixisSyncService.getStatus(memberId);
-            return List.of(broker("natixis", s.isActive(), s.syncStatus().name(), s.lastSyncCompletedAt(), s.lastSyncError()));
-        });
-        add(lines, "lbp", () -> {
-            LbpSyncService.SessionStatusResponse s = lbpSyncService.getStatus(memberId);
-            return List.of(broker("lbp", s.isActive(), s.syncStatus().name(), s.lastSyncCompletedAt(), s.lastSyncError()));
-        });
         add(lines, "fortuneo", () -> {
             FortuneoSyncService.SessionStatusResponse s = fortuneoSyncService.getStatus(memberId);
             return List.of(broker("fortuneo", s.isActive(), s.syncStatus().name(), s.lastSyncCompletedAt(), s.lastSyncError()));
@@ -150,7 +131,6 @@ public class SyncStatusService {
         });
         add(lines, "ibkr", () -> ibkr(memberId));
         add(lines, SimplefinSyncService.SOURCE, () -> simplefin(memberId));
-        add(lines, WiseSyncService.SOURCE, () -> wise(memberId));
         add(lines, "crypto-exchanges", () -> exchanges(memberId));
         add(lines, "wallets", () -> wallets(memberId));
         add(lines, "finary", () -> finary(memberId));
@@ -234,20 +214,6 @@ public class SyncStatusService {
     private String simplefinLine(SimplefinConnection row) {
         String status = "ERROR".equals(row.getStatus()) ? "FAILED" : "CONNECTED";
         return line(SimplefinSyncService.SOURCE, status, row.getLastSyncedAt(), false, null);
-    }
-
-    private List<String> wise(Long memberId) {
-        return wiseConnectionRepository.findByMemberId(memberId)
-            .map(this::wiseLine)
-            .map(List::of)
-            .orElseGet(List::of);
-    }
-
-    private String wiseLine(WiseConnection row) {
-        boolean reauth = WiseSyncService.STATUS_REAUTH_REQUIRED.equals(row.getStatus());
-        String status = reauth ? "NEEDS_REAUTH"
-            : WiseSyncService.STATUS_ERROR.equals(row.getStatus()) ? "FAILED" : "CONNECTED";
-        return line(WiseSyncService.SOURCE, status, row.getLastSyncedAt(), reauth, null);
     }
 
     private List<String> exchanges(Long memberId) {

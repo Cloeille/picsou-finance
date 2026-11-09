@@ -1,21 +1,20 @@
 package com.picsou.service;
 
-import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.ScpiPosition;
-import com.picsou.model.SidecarSession;
-import com.picsou.model.SidecarSyncStatus;
+import com.picsou.model.SofidySession;
+import com.picsou.model.SofidySyncStatus;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.adapter.SofidyAdapter;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.ScpiPositionRepository;
 import com.picsou.repository.ScpiProviderFundRepository;
-import com.picsou.repository.SidecarSessionRepository;
+import com.picsou.repository.SofidySessionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -58,7 +57,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 class SofidySyncServiceTest {
 
     @Mock SofidyAdapter port;
-    @Mock SidecarSessionRepository sessionRepository;
+    @Mock SofidySessionRepository sessionRepository;
     @Mock ScpiPositionRepository positionRepository;
     @Mock ScpiPositionService positionService;
     @Mock FamilyMemberRepository memberRepository;
@@ -72,7 +71,7 @@ class SofidySyncServiceTest {
 
     @BeforeEach
     void setUp() {
-        lenient().when(memberRepository.findByIdForUpdate(7L))
+        lenient().when(sessionRepository.findMemberByIdForUpdate(7L))
             .thenReturn(Optional.of(FamilyMember.builder().id(7L).build()));
         lenient().doAnswer(invocation -> {
             TransactionCallback<Object> callback = invocation.getArgument(0);
@@ -110,7 +109,7 @@ class SofidySyncServiceTest {
 
         SofidySyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SofidySyncStatus.SUCCESS);
         verify(positionService).applySyncedPosition(
             linked,
             new BigDecimal("2.00000"),
@@ -133,7 +132,7 @@ class SofidySyncServiceTest {
 
         SofidySyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SofidySyncStatus.SUCCESS);
     }
 
     /**
@@ -194,7 +193,7 @@ class SofidySyncServiceTest {
 
         SofidySyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
+        assertThat(result.syncStatus()).isEqualTo(SofidySyncStatus.FAILED);
         assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(positionRepository, org.mockito.Mockito.never())
             .findByAccountMemberIdAndSofidyFundCodeIsNotNull(any());
@@ -216,7 +215,7 @@ class SofidySyncServiceTest {
 
         SofidySyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
+        assertThat(result.syncStatus()).isEqualTo(SofidySyncStatus.FAILED);
         assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(positionService, org.mockito.Mockito.never())
             .applySyncedPosition(any(), any(), any(), any(), any());
@@ -273,14 +272,14 @@ class SofidySyncServiceTest {
     @CsvSource({"false,false", "true,false", "false,true", "true,true"})
     void queueSync_discardsSnapshotAfterDisconnectOrReplacement(boolean replace, boolean remoteFailure) throws Exception {
         FamilyMember member = FamilyMember.builder().id(7L).build();
-        SidecarSession old = SidecarSession.builder().bank(SidecarBank.SOFIDY).id(3L).member(member)
+        SofidySession old = SofidySession.builder().id(3L).member(member)
             .sessionState("encrypted").build();
-        AtomicReference<SidecarSession> current = new AtomicReference<>(old);
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.SOFIDY, 7L))
+        AtomicReference<SofidySession> current = new AtomicReference<>(old);
+        when(sessionRepository.findByMemberIdForUpdate(7L))
             .thenAnswer(inv -> Optional.ofNullable(current.get()));
         when(sessionRepository.findByIdAndMemberIdForUpdate(3L, 7L))
             .thenAnswer(inv -> Optional.ofNullable(current.get()).filter(s -> s.getId().equals(3L)));
-        when(sessionRepository.findByBankAndMemberId(SidecarBank.SOFIDY, 7L))
+        when(sessionRepository.findByMemberId(7L))
             .thenAnswer(inv -> Optional.ofNullable(current.get()));
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
         org.mockito.Mockito.doAnswer(inv -> { current.set(null); return null; })
@@ -304,24 +303,24 @@ class SofidySyncServiceTest {
             assertThat(fetching.await(5, TimeUnit.SECONDS)).isTrue();
             service.clearSession(7L);
             if (replace) {
-                current.set(SidecarSession.builder().bank(SidecarBank.SOFIDY).id(4L).member(member)
+                current.set(SofidySession.builder().id(4L).member(member)
                     .sessionState("new-session").build());
             }
-            clearInvocations(sessionRepository, memberRepository);
+            clearInvocations(sessionRepository);
         } finally {
             release.countDown();
             worker.join(5000);
         }
         assertThat(worker.isAlive()).isFalse();
         assertThat(failure.get()).isNull();
-        var order = org.mockito.Mockito.inOrder(memberRepository, sessionRepository);
-        order.verify(memberRepository).findByIdForUpdate(7L);
+        var order = org.mockito.Mockito.inOrder(sessionRepository);
+        order.verify(sessionRepository).findMemberByIdForUpdate(7L);
         order.verify(sessionRepository).findByIdAndMemberIdForUpdate(3L, 7L);
         verifyNoInteractions(positionRepository, positionService);
         verify(sessionRepository, org.mockito.Mockito.never()).save(any());
-        assertThat(old.getSyncStatus()).isEqualTo(SidecarSyncStatus.RUNNING);
+        assertThat(old.getSyncStatus()).isEqualTo(SofidySyncStatus.RUNNING);
         if (replace) {
-            assertThat(current.get().getSyncStatus()).isEqualTo(SidecarSyncStatus.IDLE);
+            assertThat(current.get().getSyncStatus()).isEqualTo(SofidySyncStatus.IDLE);
         }
     }
 
@@ -335,7 +334,7 @@ class SofidySyncServiceTest {
 
         SofidySyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
+        assertThat(result.syncStatus()).isEqualTo(SofidySyncStatus.FAILED);
         assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verifyNoInteractions(positionService, positionRepository);
     }
@@ -346,7 +345,7 @@ class SofidySyncServiceTest {
         arrangeActiveSession();
         when(port.fetchSnapshot("plain-state")).thenReturn(new SofidyAdapter.Snapshot(
             "EUR", new BigDecimal(total), null, true, List.of(holding("DY", "2", "313.60"))));
-        assertThat(service.queueSync(7L).syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(service.queueSync(7L).syncStatus()).isEqualTo(SofidySyncStatus.SUCCESS);
     }
 
     @Test
@@ -369,25 +368,25 @@ class SofidySyncServiceTest {
 
         SofidySyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
+        assertThat(result.syncStatus()).isEqualTo(SofidySyncStatus.FAILED);
         assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verifyNoInteractions(positionService, positionRepository);
     }
 
     private void arrangeActiveSession() {
         FamilyMember member = FamilyMember.builder().id(7L).displayName("Owner").build();
-        SidecarSession session = SidecarSession.builder().bank(SidecarBank.SOFIDY)
+        SofidySession session = SofidySession.builder()
             .id(3L)
             .member(member)
             .sessionState("encrypted")
             .active(true)
-            .syncStatus(SidecarSyncStatus.IDLE)
+            .syncStatus(SofidySyncStatus.IDLE)
             .build();
-        lenient().when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.SOFIDY, 7L))
+        lenient().when(sessionRepository.findByMemberIdForUpdate(7L))
             .thenReturn(Optional.of(session));
         lenient().when(sessionRepository.findByIdAndMemberIdForUpdate(3L, 7L))
             .thenReturn(Optional.of(session));
-        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.SOFIDY, 7L)).thenReturn(Optional.of(session));
+        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
         lenient().when(encryption.decrypt(anyString())).thenReturn("plain-state");
     }
 

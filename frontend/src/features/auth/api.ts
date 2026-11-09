@@ -6,9 +6,7 @@ export const authApi = {
       ...r.data,
       role: r.data.role as 'ADMIN' | 'MEMBER'
     })),
-  // A 204 has an empty body; a 200 may carry the IdP end-session URL.
-  logout: () =>
-    api.post('/auth/logout').then(r => (r.data && typeof r.data === 'object' ? (r.data as { endSessionUrl?: string }) : {})),
+  logout: () => api.post('/auth/logout'),
   refresh: () =>
     api.post<{ username: string; role: string; memberId: number; displayName: string }>('/auth/refresh').then(r => ({
       ...r.data,

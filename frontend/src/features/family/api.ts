@@ -9,8 +9,6 @@ export interface FamilyMemberItem {
   activated: boolean
   loginName: string | null
   mfaEnabled: boolean
-  hasPassword: boolean
-  ssoLinked: boolean
 }
 
 export interface FamilyDashboard {

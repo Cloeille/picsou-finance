@@ -12,8 +12,6 @@ function member(over: Partial<FamilyMemberItem>): FamilyMemberItem {
     activated: false,
     loginName: null,
     mfaEnabled: false,
-    hasPassword: true,
-    ssoLinked: false,
     ...over,
   }
 }

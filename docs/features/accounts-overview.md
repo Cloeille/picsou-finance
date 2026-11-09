@@ -121,18 +121,6 @@ The column is deliberately general rather than `pea_opened_at`: a PER, a PEA-PME
 assurance-vie all have the same shape of rule at different thresholds. Extending the field to
 another type is one entry in `OPENING_DATE_TYPES`.
 
-### Receivables tab
-
-When the **RECEIVABLES** filter is active, the header also offers **"Create a loan"**: it
-opens the manual form with the peer-loan type preselected, then lands on the account detail
-where "Configure the loan" is waiting. The generic summary card is replaced by the
-peer-loans overview (`components/peer-loan/PeerLoansOverviewCard.tsx`): total outstanding,
-open loans and accrued interest, the 12-month outstanding curve, and one row per borrower.
-The **"Show closed loans"** header toggle reveals closed loans in the cards; the overview
-table always keeps them (muted, with a "Closed" badge) so their history and deletion stay
-readable. The overview is deliberately here rather than on the Dashboard or Analysis: it is
-an operational "who owes what" view, not a wealth-allocation one.
-
 ### Life-insurance contract figures
 
 A synced assurance-vie (CORUM Life) carries `AccountResponse.contract` — `paidInEur` (gross
@@ -215,7 +203,7 @@ Seven asset categories defined in `AccountsPage.tsx`:
 
 | Filter key | Account types | Chart color |
 |-----------|--------------|-------------|
-| STOCKS | PEA, COMPTE_TITRES, BROKERAGE, EMPLOYEE_SAVINGS, ASSURANCE_VIE, PER | `#6366f1` |
+| STOCKS | PEA, COMPTE_TITRES, EMPLOYEE_SAVINGS, ASSURANCE_VIE, PER | `#6366f1` |
 | METALS | PRECIOUS_METALS | `#eab308` |
 | SAVINGS | LEP, LIVRET_A, LDDS, LIVRET_JEUNE, PEL, CEL, SAVINGS | `#22c55e` |
 | CHECKING | CHECKING | `#0ea5e9` |

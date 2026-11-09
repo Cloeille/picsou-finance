@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.adapter.sidecar.SidecarClient;
-import com.picsou.adapter.sidecar.SidecarSessionState;
+import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.model.AccountType;
 import com.picsou.port.SidecarErrorCode;
@@ -94,10 +94,10 @@ public class AmexAdapter {
         Map<String, Object> body = new HashMap<>();
         body.put("processId", processId);
         body.put("otp", otp);
-        SidecarSessionState response = sidecar.post(
+        SidecarSession response = sidecar.post(
             "/complete",
             body,
-            SidecarSessionState.class,
+            SidecarSession.class,
             validationTimeout,
             "Could not complete Amex authentication",
             SidecarErrorCode.INVALID_OTP

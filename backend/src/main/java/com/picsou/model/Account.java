@@ -111,20 +111,6 @@ public class Account extends AuditableEntity {
     private String logoKey;
 
     /**
-     * The institution an aggregator account really belongs to ("Fidelity Investments"), when
-     * {@link #provider} names only the aggregator ("SimpleFIN"). Null for every other origin.
-     */
-    @Column(name = "institution_name", length = 100)
-    private String institutionName;
-
-    /**
-     * Website host of {@link #institutionName}, used only to fetch an opt-in logo through the
-     * backend proxy. Validated to a bare host before it is stored, since it comes from the bridge.
-     */
-    @Column(name = "institution_domain", length = 255)
-    private String institutionDomain;
-
-    /**
      * The Enable Banking connection this account came from, or null for every other origin
      * (manual, on-chain wallet, broker sidecar...) and for rows the V76 backfill could not
      * attribute with certainty. Mapped as a plain id rather than a {@code @ManyToOne}: nothing

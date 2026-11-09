@@ -2,18 +2,10 @@ import axios from 'axios'
 
 export type SetupState = 'PENDING_ADMIN' | 'IN_PROGRESS' | 'COMPLETE'
 
-export interface SetupSsoInfo {
-  enabled: boolean
-  providerName: string
-  adminBootstrap: boolean
-}
-
 export interface SetupStatus {
   state: SetupState
   needsSetup: boolean
   integrations: Record<string, boolean>
-  // Optional: the wizard's separate client has no demo adapter.
-  sso?: SetupSsoInfo
 }
 
 export interface SetupAdminRequest {
@@ -109,7 +101,7 @@ export const setupApi = {
     setupClient.post<CryptoKeyGenerateResponse>('/integrations/crypto/generate-key')
       .then(r => r.data),
 
-  acknowledgeIntegration: (key: 'traderepublic' | 'revolut' | 'finary' | 'boursedirect' | 'fortuneo' | 'lbp') =>
+  acknowledgeIntegration: (key: 'traderepublic' | 'revolut' | 'finary' | 'boursedirect' | 'fortuneo') =>
     setupClient.post<void>(`/integrations/${key}/acknowledge`).then(r => r.data),
 
   complete: () => setupClient.post<void>('/complete').then(r => r.data),

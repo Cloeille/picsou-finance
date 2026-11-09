@@ -31,7 +31,6 @@ const CATALOG: Array<{
   { key: 'boursedirect', icon: BriefcaseBusiness, route: '/setup/integrations/boursedirect' },
   { key: 'fortuneo', icon: Banknote, route: '/setup/integrations/fortuneo' },
   { key: 'traderepublic', icon: LineChart, route: '/setup/integrations/traderepublic' },
-  { key: 'lbp', icon: Landmark, route: '/setup/integrations/lbp' },
   { key: 'revolut', icon: CreditCard, route: '/setup/integrations/revolut' },
   { key: 'finary', icon: PiggyBank, route: '/setup/integrations/finary' },
   { key: 'crypto', icon: Bitcoin, route: '/setup/integrations/crypto' },

@@ -1,22 +1,19 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-11-06 (the app generates the JWT and encryption keys, never the database password; connectors opt-in through Compose profiles; one supported stack; sidecar URLs only in application.yml; shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility; La Banque Postale on the shared Chromium base)
+> Last updated: 2026-11-04 (the app generates the JWT and encryption keys, never the database password; connectors opt-in through Compose profiles; one supported stack; sidecar URLs only in application.yml; shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility)
 
 ## Context
 
-Picsou deploys as the app, PostgreSQL and up to fifteen opt-in authentication sidecars orchestrated by `docker/docker-compose.yml`, the only supported Compose stack. It retains shared sidecar bases and explicit proxy trust:
+Picsou deploys as the app, PostgreSQL and up to thirteen opt-in authentication sidecars orchestrated by `docker/docker-compose.yml`, the only supported Compose stack. It retains shared sidecar bases and explicit proxy trust:
 - **`picsou:latest`** — main app: frontend + backend in one Spring Boot process, no Python, no nginx. Published to GHCR as `ghcr.io/cloeille/picsou-finance`.
 - **`docker-tr-auth`** — Trade Republic auth sidecar: headless Chromium + Python/uvicorn. Published to GHCR as `ghcr.io/cloeille/picsou-finance/tr-auth`.
 - **`bourse-direct-auth`** — isolated Bourse Direct login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` and reachable only on the Compose network.
 - **`amundi-auth`** — Amundi login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/amundi-auth`.
 - **`bourso-auth`** — BoursoBank login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourso-auth`.
-- **`caisse-epargne-auth`** — Caisse d'Epargne browser-assisted login (keypad + Sécur'Pass) and session-replay read sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/caisse-epargne-auth`.
-- **`banque-populaire-auth`** — Banque Populaire sidecar on the same shared BPCE code (region + keypad + Sécur'Pass login, session-replay reads), published to GHCR as `ghcr.io/cloeille/picsou-finance/banque-populaire-auth`.
-- **`lbp-auth`** — La Banque Postale browser-login sidecar (current account and livrets, on demand), published to GHCR as `ghcr.io/cloeille/picsou-finance/lbp-auth`.
+- **`caisse-epargne-auth`** — browserless Caisse d'Epargne read sidecar (session replay, no in-app login yet), published to GHCR as `ghcr.io/cloeille/picsou-finance/caisse-epargne-auth`.
 - **`fortuneo-auth`** — Fortuneo login/2FA, positions and transaction-history sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/fortuneo-auth`.
 - **`revolut-auth`**, **`corum-auth`**, **`sofidy-auth`** — provider sidecars published under the same GHCR repository prefix.
 - **`cmes-auth`** — browserless Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cmes-auth`. The backend reaches it at `CMES_AUTH_URL` (`application.yml` defaults to `http://cmes-auth:8001`); see [`cmes-epargne-salariale.md`](cmes-epargne-salariale.md).
-- **`natixis-auth`** — browserless Natixis Interépargne login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/natixis-auth`. The backend reaches it at `NATIXIS_AUTH_URL` (`application.yml` defaults to `http://natixis-auth:8001`); see [`natixis-interepargne.md`](natixis-interepargne.md).
 - **`cic-auth`** — browserless CIC online-banking login/2FA and account sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cic-auth`. The backend reaches it at `CIC_AUTH_URL` (`application.yml` defaults to `http://cic-auth:8001`); see [`cic-banking.md`](cic-banking.md).
 - **`amex-auth`** — American Express login and account sidecar, built with Camoufox/Firefox, published as `ghcr.io/cloeille/picsou-finance/amex-auth`.
 - **`degiro-auth`** — browserless DEGIRO authentication and portfolio sidecar, published as `ghcr.io/cloeille/picsou-finance/degiro-auth`.
@@ -221,7 +218,7 @@ connector.
 
 ### Sidecar shared secret — `APP_SIDECAR_API_KEY`
 
-The backend and every `*-auth` sidecar (Trade Republic, Revolut, BoursoBank, Caisse d'Epargne, Banque Populaire,
+The backend and every `*-auth` sidecar (Trade Republic, Revolut, BoursoBank, Caisse d'Epargne,
 Bourse Direct, Amundi, Fortuneo, DEGIRO, AMEX, CORUM, Sofidy, Crédit Mutuel / CIC
 Épargne Salariale, CIC online banking) share one secret.
 Generate it with `openssl rand -base64 32`. `docker/docker-compose.yml` forwards it
@@ -487,12 +484,10 @@ docker compose -f docker/docker-compose.yml up        # COMPOSE_PROFILES selects
   → amundi-auth (uvicorn:8001, internal only)
   → bourso-auth (uvicorn:8001, internal only)
   → caisse-epargne-auth (uvicorn:8001, internal only)
-  → banque-populaire-auth (uvicorn:8001, internal only)
   → fortuneo-auth (uvicorn:8001, internal only)
   → corum-auth (uvicorn:8001, internal only)
   → sofidy-auth (uvicorn:8001, internal only)
   → cmes-auth (uvicorn:8001, internal only)
-  → natixis-auth (uvicorn:8001, internal only)
   → cic-auth (uvicorn:8001, internal only)
   → amex-auth (uvicorn:8001, internal only)
   → degiro-auth (uvicorn:8001, internal only)
@@ -559,13 +554,11 @@ docker save ghcr.io/cloeille/picsou-finance:latest \
   ghcr.io/cloeille/picsou-finance/amundi-auth:latest \
   ghcr.io/cloeille/picsou-finance/bourso-auth:latest \
   ghcr.io/cloeille/picsou-finance/caisse-epargne-auth:latest \
-  ghcr.io/cloeille/picsou-finance/banque-populaire-auth:latest \
   ghcr.io/cloeille/picsou-finance/fortuneo-auth:latest \
   ghcr.io/cloeille/picsou-finance/corum-auth:latest \
   ghcr.io/cloeille/picsou-finance/sofidy-auth:latest \
   ghcr.io/cloeille/picsou-finance/cmes-auth:latest \
   ghcr.io/cloeille/picsou-finance/cic-auth:latest \
-  ghcr.io/cloeille/picsou-finance/natixis-auth:latest \
   ghcr.io/cloeille/picsou-finance/amex-auth:latest \
   ghcr.io/cloeille/picsou-finance/degiro-auth:latest \
   | gzip > picsou-release.tar.gz
@@ -603,13 +596,11 @@ docker pull ghcr.io/cloeille/picsou-finance/bourse-direct-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/amundi-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/bourso-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/caisse-epargne-auth:1.1.0
-docker pull ghcr.io/cloeille/picsou-finance/banque-populaire-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/fortuneo-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/corum-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/sofidy-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/cmes-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/cic-auth:1.1.0
-docker pull ghcr.io/cloeille/picsou-finance/natixis-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/amex-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/degiro-auth:1.1.0
 ```
@@ -779,7 +770,6 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 - **Enabling the `tls` profile against a pre-built GHCR image does not get the HSTS fix.** An image built before the HSTS gate existed still sends HSTS unconditionally — which is precisely the lockout combination with an internal-CA certificate. Pull a current image, or rebuild with `--build`.
 - **Sidecar URLs live only in `application.yml`.** Compose sets no `*_AUTH_URL`; an operator `.env` value still overrides the default.
 - **Bourse Direct 2FA state is process-local.** Keep `bourse-direct-auth` at one replica unless request affinity or shared pending state is added.
-- **La Banque Postale state is process-local for the whole sync, not just the login.** Keep `app` at one replica (or route all `/api/lbp/*` requests for the same member to the same replica for the duration of an active sync): `/auth/keypad`, `/auth/complete`, the following reads, and a disconnect from another device must reach the backend that handled `/auth/initiate`, or the pending login is lost (`AUTH_ATTEMPT_EXPIRED`) and the generation guard misfires. Keep `lbp-auth` at one replica too: it holds the pending Chromium context, so `/keypad` and `/complete` must reach the same sidecar. A restart, rollout or redeploy of either service drops the pending state and fails the active sync; the user starts again.
 - **Secrets are never regenerated.** If `/data/.secrets/jwt_secret` exists, it is reused. Deleting it will log out all users and invalidate all encrypted secrets in the DB.
 - **Spring Boot env var naming:** Properties under `app.*` require the `APP_` prefix. `app.finary.email` → `APP_FINARY_EMAIL`. Variables like `JWT_SECRET` work because `application.yml` maps them explicitly.
 - **Stale env vars removed (2026-04-19):** `TR_PHONE_NUMBER`, `TR_PIN`, `FINARY_TOTP`, `POWENS_*`, `FINARY_EMAIL`, `FINARY_PASSWORD`. Do not re-add them.

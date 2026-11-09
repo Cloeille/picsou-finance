@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.adapter.sidecar.SidecarClient;
-import com.picsou.adapter.sidecar.SidecarSessionState;
+import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import com.picsou.model.AccountType;
@@ -120,7 +120,7 @@ public class CicAdapter {
         Map<String, Object> body = new HashMap<>();
         body.put("processId", processId);
         body.put("code", code);
-        SidecarSessionState response = sidecar.post("/complete", body, SidecarSessionState.class, validationTimeout,
+        SidecarSession response = sidecar.post("/complete", body, SidecarSession.class, validationTimeout,
             "Could not complete CIC authentication", SidecarErrorCode.APP_VALIDATION_TIMEOUT);
         return response.sessionState();
     }

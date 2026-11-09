@@ -7,7 +7,6 @@ import com.picsou.model.FinarySession;
 import com.picsou.model.IbkrConnection;
 import com.picsou.model.Requisition;
 import com.picsou.model.SimplefinConnection;
-import com.picsou.model.WiseConnection;
 import com.picsou.model.RequisitionStatus;
 import com.picsou.model.WalletAddress;
 import com.picsou.model.Chain;
@@ -17,11 +16,16 @@ import com.picsou.repository.FinarySessionRepository;
 import com.picsou.repository.IbkrConnectionRepository;
 import com.picsou.repository.RequisitionRepository;
 import com.picsou.repository.SimplefinConnectionRepository;
-import com.picsou.repository.WiseConnectionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import com.picsou.repository.WalletAddressRepository;
-import com.picsou.model.LbpSyncStatus;
-import com.picsou.model.SidecarSyncStatus;
+import com.picsou.model.BoursoSyncStatus;
+import com.picsou.model.AmundiSyncStatus;
+import com.picsou.model.CmesSyncStatus;
+import com.picsou.model.CicSyncStatus;
+import com.picsou.model.CorumSyncStatus;
+import com.picsou.model.BourseDirectSyncStatus;
+import com.picsou.model.FortuneoSyncStatus;
+import com.picsou.model.AmexSyncStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -53,15 +57,12 @@ class SyncStatusServiceTest {
     @Mock BourseDirectSyncService bourseDirectSyncService;
     @Mock AmundiSyncService amundiSyncService;
     @Mock CmesSyncService cmesSyncService;
-    @Mock NatixisSyncService natixisSyncService;
     @Mock CicSyncService cicSyncService;
     @Mock CorumSyncService corumSyncService;
-    @Mock LbpSyncService lbpSyncService;
     @Mock FortuneoSyncService fortuneoSyncService;
     @Mock AmexSyncService amexSyncService;
     @Mock IbkrConnectionRepository ibkrConnectionRepository;
     @Mock SimplefinConnectionRepository simplefinConnectionRepository;
-    @Mock WiseConnectionRepository wiseConnectionRepository;
     @Mock CryptoExchangeSyncService cryptoExchangeSyncService;
     @Mock WalletAddressRepository walletAddressRepository;
     @Mock FinarySessionRepository finarySessionRepository;
@@ -73,11 +74,9 @@ class SyncStatusServiceTest {
     void setUp() {
         service = new SyncStatusService(
             revolutSyncService, requisitionRepository, tradeRepublicSyncService, tradeRepublicSessionRepository,
-            boursoSyncService, bourseDirectSyncService, amundiSyncService, cmesSyncService, cicSyncService, corumSyncService, natixisSyncService,
-            lbpSyncService,
+            boursoSyncService, bourseDirectSyncService, amundiSyncService, cmesSyncService, cicSyncService, corumSyncService,
             fortuneoSyncService,
-            amexSyncService, ibkrConnectionRepository, simplefinConnectionRepository, wiseConnectionRepository,
-            cryptoExchangeSyncService,
+            amexSyncService, ibkrConnectionRepository, simplefinConnectionRepository, cryptoExchangeSyncService,
             walletAddressRepository,
             finarySessionRepository, degiroSessionRepository);
         when(revolutSyncService.getStatus(MID)).thenReturn(new RevolutSyncService.StatusResponse(false, false, null));
@@ -86,23 +85,20 @@ class SyncStatusServiceTest {
             .thenReturn(new TradeRepublicSyncService.SessionStatusResponse(false, null));
         when(tradeRepublicSessionRepository.findByMemberId(MID)).thenReturn(Optional.empty());
         when(boursoSyncService.getStatus(MID)).thenReturn(
-            new BoursoSyncService.SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null));
+            new BoursoSyncService.SessionStatusResponse(false, BoursoSyncStatus.IDLE, null, null, null));
         when(bourseDirectSyncService.getStatus(MID)).thenReturn(
-            new BourseDirectSyncService.SessionStatusResponse(false, null, SidecarSyncStatus.IDLE, null, null, null));
+            new BourseDirectSyncService.SessionStatusResponse(false, null, BourseDirectSyncStatus.IDLE, null, null, null));
         when(amundiSyncService.getStatus(MID)).thenReturn(
-            new AmundiSyncService.SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null));
+            new AmundiSyncService.SessionStatusResponse(false, AmundiSyncStatus.IDLE, null, null, null));
         when(cmesSyncService.getStatus(MID)).thenReturn(CmesSyncService.SessionStatusResponse.inactive());
         when(cicSyncService.getStatus(MID)).thenReturn(CicSyncService.SessionStatusResponse.inactive());
         when(corumSyncService.getStatus(MID)).thenReturn(CorumSyncService.SessionStatusResponse.inactive());
-        when(natixisSyncService.getStatus(MID)).thenReturn(NatixisSyncService.SessionStatusResponse.inactive());
-        when(lbpSyncService.getStatus(MID)).thenReturn(LbpSyncService.SessionStatusResponse.inactive());
         when(fortuneoSyncService.getStatus(MID)).thenReturn(
-            new FortuneoSyncService.SessionStatusResponse(false, null, SidecarSyncStatus.IDLE, null, null, null));
+            new FortuneoSyncService.SessionStatusResponse(false, null, FortuneoSyncStatus.IDLE, null, null, null));
         when(amexSyncService.getStatus(MID)).thenReturn(
-            new AmexSyncService.SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null));
+            new AmexSyncService.SessionStatusResponse(false, AmexSyncStatus.IDLE, null, null, null));
         when(ibkrConnectionRepository.findByMemberId(MID)).thenReturn(Optional.empty());
         when(simplefinConnectionRepository.findByMemberId(MID)).thenReturn(Optional.empty());
-        when(wiseConnectionRepository.findByMemberId(MID)).thenReturn(Optional.empty());
         when(cryptoExchangeSyncService.getStatus(MID)).thenReturn(List.of());
         when(walletAddressRepository.findAllByMemberId(MID)).thenReturn(List.of());
         when(finarySessionRepository.findByMemberId(MID)).thenReturn(Optional.empty());
@@ -127,12 +123,12 @@ class SyncStatusServiceTest {
     @Test
     void amexReportsQueuedCompletionAndReauthenticationTruthfully() {
         when(amexSyncService.getStatus(MID)).thenReturn(new AmexSyncService.SessionStatusResponse(
-            true, SidecarSyncStatus.QUEUED, null, SYNCED_AT, null));
+            true, AmexSyncStatus.QUEUED, null, SYNCED_AT, null));
         String queued = service.describe(MID);
         assertThat(queued).contains("amex: QUEUED lastSync=2026-10-04T06:00:00Z reauth=false");
 
         when(amexSyncService.getStatus(MID)).thenReturn(new AmexSyncService.SessionStatusResponse(
-            false, SidecarSyncStatus.FAILED, null, SYNCED_AT, SidecarErrorCode.SESSION_EXPIRED));
+            false, AmexSyncStatus.FAILED, null, SYNCED_AT, SidecarErrorCode.SESSION_EXPIRED));
         String expired = service.describe(MID);
         assertThat(expired).contains("amex: NEEDS_REAUTH lastSync=2026-10-04T06:00:00Z reauth=true — SESSION_EXPIRED");
     }
@@ -142,12 +138,12 @@ class SyncStatusServiceTest {
         assertThat(service.describe(MID)).contains("cmes: NOT_CONNECTED lastSync=none reauth=false");
 
         when(cmesSyncService.getStatus(MID)).thenReturn(new CmesSyncService.SessionStatusResponse(
-            true, SidecarSyncStatus.SUCCESS, null, SYNCED_AT, null));
+            true, CmesSyncStatus.SUCCESS, null, SYNCED_AT, null));
         assertThat(service.describe(MID)).contains("cmes: CONNECTED lastSync=2026-10-04T06:00:00Z reauth=false");
 
         // The rejected password was forgotten: only the saver can give it again.
         when(cmesSyncService.getStatus(MID)).thenReturn(new CmesSyncService.SessionStatusResponse(
-            false, SidecarSyncStatus.FAILED, null, SYNCED_AT, SidecarErrorCode.INVALID_CREDENTIALS));
+            false, CmesSyncStatus.FAILED, null, SYNCED_AT, SidecarErrorCode.INVALID_CREDENTIALS));
         assertThat(service.describe(MID))
             .contains("cmes: NEEDS_REAUTH lastSync=2026-10-04T06:00:00Z reauth=true — INVALID_CREDENTIALS");
     }
@@ -157,22 +153,22 @@ class SyncStatusServiceTest {
         assertThat(service.describe(MID)).contains("corum: NOT_CONNECTED lastSync=none reauth=false");
 
         when(corumSyncService.getStatus(MID)).thenReturn(new CorumSyncService.SessionStatusResponse(
-            true, SidecarSyncStatus.SUCCESS, null, SYNCED_AT, null, 0, true));
+            true, CorumSyncStatus.SUCCESS, null, SYNCED_AT, null, 0, true));
         assertThat(service.describe(MID)).contains("corum: CONNECTED lastSync=2026-10-04T06:00:00Z reauth=false");
 
         when(corumSyncService.getStatus(MID)).thenReturn(new CorumSyncService.SessionStatusResponse(
-            false, SidecarSyncStatus.FAILED, null, SYNCED_AT, SidecarErrorCode.INVALID_CREDENTIALS, 0, false));
+            false, CorumSyncStatus.FAILED, null, SYNCED_AT, SidecarErrorCode.INVALID_CREDENTIALS, 0, false));
         assertThat(service.describe(MID))
             .contains("corum: NEEDS_REAUTH lastSync=2026-10-04T06:00:00Z reauth=true — INVALID_CREDENTIALS");
     }
 
     @ParameterizedTest
-    @EnumSource(value = SidecarSyncStatus.class, names = {"QUEUED", "RUNNING", "SUCCESS"})
-    void cicReportsQueuedRunningAndCompletedSyncs(SidecarSyncStatus status) {
+    @EnumSource(value = CicSyncStatus.class, names = {"QUEUED", "RUNNING", "SUCCESS"})
+    void cicReportsQueuedRunningAndCompletedSyncs(CicSyncStatus status) {
         when(cicSyncService.getStatus(MID)).thenReturn(new CicSyncService.SessionStatusResponse(
             true, status, null, SYNCED_AT, null, true));
 
-        assertThat(service.describe(MID)).contains("cic: " + (status == SidecarSyncStatus.SUCCESS ? "CONNECTED" : status.name())
+        assertThat(service.describe(MID)).contains("cic: " + (status == CicSyncStatus.SUCCESS ? "CONNECTED" : status.name())
             + " lastSync=2026-10-04T06:00:00Z reauth=false");
     }
 
@@ -180,7 +176,7 @@ class SyncStatusServiceTest {
     @EnumSource(value = SidecarErrorCode.class, names = {"SESSION_EXPIRED", "INVALID_CREDENTIALS"})
     void cicAuthenticationErrorsRequireReconnection(SidecarErrorCode error) {
         when(cicSyncService.getStatus(MID)).thenReturn(new CicSyncService.SessionStatusResponse(
-            false, SidecarSyncStatus.FAILED, null, SYNCED_AT, error, false));
+            false, CicSyncStatus.FAILED, null, SYNCED_AT, error, false));
 
         assertThat(service.describe(MID)).contains(
             "cic: NEEDS_REAUTH lastSync=2026-10-04T06:00:00Z reauth=true — " + error.name());
@@ -189,39 +185,10 @@ class SyncStatusServiceTest {
     @Test
     void cicTransientFailuresAllowRetryWithoutReauthentication() {
         when(cicSyncService.getStatus(MID)).thenReturn(new CicSyncService.SessionStatusResponse(
-            true, SidecarSyncStatus.FAILED, null, SYNCED_AT, SidecarErrorCode.UPSTREAM_UNAVAILABLE, true));
+            true, CicSyncStatus.FAILED, null, SYNCED_AT, SidecarErrorCode.UPSTREAM_UNAVAILABLE, true));
 
         assertThat(service.describe(MID)).contains(
             "cic: FAILED lastSync=2026-10-04T06:00:00Z reauth=false — UPSTREAM_UNAVAILABLE");
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = LbpSyncStatus.class, names = {"QUEUED", "RUNNING", "SUCCESS"})
-    void lbpReportsQueuedRunningAndCompletedSyncs(LbpSyncStatus status) {
-        when(lbpSyncService.getStatus(MID)).thenReturn(new LbpSyncService.SessionStatusResponse(
-            true, status, null, SYNCED_AT, null, List.of(), null));
-
-        assertThat(service.describe(MID)).contains("lbp: " + (status == LbpSyncStatus.SUCCESS ? "CONNECTED" : status.name())
-            + " lastSync=2026-10-04T06:00:00Z reauth=false");
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = SidecarErrorCode.class, names = {"SESSION_EXPIRED", "INVALID_CREDENTIALS"})
-    void lbpAuthenticationErrorsRequireReconnection(SidecarErrorCode error) {
-        when(lbpSyncService.getStatus(MID)).thenReturn(new LbpSyncService.SessionStatusResponse(
-            false, LbpSyncStatus.FAILED, null, SYNCED_AT, error, List.of(), null));
-
-        assertThat(service.describe(MID)).contains(
-            "lbp: NEEDS_REAUTH lastSync=2026-10-04T06:00:00Z reauth=true — " + error.name());
-    }
-
-    @Test
-    void lbpTransientFailuresAllowRetryWithoutReauthentication() {
-        when(lbpSyncService.getStatus(MID)).thenReturn(new LbpSyncService.SessionStatusResponse(
-            true, LbpSyncStatus.FAILED, null, SYNCED_AT, SidecarErrorCode.UPSTREAM_UNAVAILABLE, List.of(), null));
-
-        assertThat(service.describe(MID)).contains(
-            "lbp: FAILED lastSync=2026-10-04T06:00:00Z reauth=false — UPSTREAM_UNAVAILABLE");
     }
 
     @Test
@@ -232,7 +199,6 @@ class SyncStatusServiceTest {
         assertThat(text).contains("enable-banking: NOT_CONNECTED lastSync=none reauth=false");
         assertThat(text).contains("amex: NOT_CONNECTED lastSync=none reauth=false");
         assertThat(text).contains("cic: NOT_CONNECTED lastSync=none reauth=false");
-        assertThat(text).contains("lbp: NOT_CONNECTED lastSync=none reauth=false");
         assertThat(text).contains("degiro: NOT_CONNECTED lastSync=none reauth=false");
         assertThat(text).doesNotContain("password");
         assertThat(text).doesNotContain("token");
@@ -247,7 +213,7 @@ class SyncStatusServiceTest {
                 .lastSyncedAt(SYNCED_AT)
                 .build()));
         when(boursoSyncService.getStatus(MID)).thenReturn(new BoursoSyncService.SessionStatusResponse(
-            true, SidecarSyncStatus.FAILED, null, SYNCED_AT, SidecarErrorCode.SESSION_EXPIRED));
+            true, BoursoSyncStatus.FAILED, null, SYNCED_AT, SidecarErrorCode.SESSION_EXPIRED));
         when(degiroSessionRepository.findByMemberId(MID)).thenReturn(Optional.of(
             DegiroSession.builder()
                 .status(DegiroSessionStatus.REAUTH_REQUIRED)
@@ -317,43 +283,11 @@ class SyncStatusServiceTest {
         assertThat(service.describe(MID)).contains("simplefin: NOT_CONNECTED lastSync=none reauth=false");
     }
 
-    @Test
-    void wise_connectedRow_isConnectedWithoutShowingTheToken() {
-        when(wiseConnectionRepository.findByMemberId(MID)).thenReturn(Optional.of(
-            WiseConnection.builder().apiToken("secret-ciphertext").status("CONNECTED").lastSyncedAt(SYNCED_AT).build()));
-
-        String text = service.describe(MID);
-
-        assertThat(text).contains("wise: CONNECTED lastSync=2026-10-04T06:00:00Z reauth=false");
-        assertThat(text).doesNotContain("secret-ciphertext");
-    }
-
-    @Test
-    void wise_errorRow_isFailed() {
-        when(wiseConnectionRepository.findByMemberId(MID)).thenReturn(Optional.of(
-            WiseConnection.builder().status("ERROR").lastSyncedAt(SYNCED_AT).build()));
-
-        assertThat(service.describe(MID)).contains("wise: FAILED lastSync=2026-10-04T06:00:00Z reauth=false");
-    }
-
-    @Test
-    void wise_refusedToken_needsReauth() {
-        when(wiseConnectionRepository.findByMemberId(MID)).thenReturn(Optional.of(
-            WiseConnection.builder().status("REAUTH_REQUIRED").lastSyncedAt(SYNCED_AT).build()));
-
-        assertThat(service.describe(MID)).contains("wise: NEEDS_REAUTH lastSync=2026-10-04T06:00:00Z reauth=true");
-    }
-
-    @Test
-    void wise_noRow_isNotConnected() {
-        assertThat(service.describe(MID)).contains("wise: NOT_CONNECTED lastSync=none reauth=false");
-    }
-
     @ParameterizedTest
     @MethodSource("amexCodes")
     void amexFailedStatusUsesOnlyTheExactSessionExpiryCodeForReauthentication(SidecarErrorCode error) {
         when(amexSyncService.getStatus(MID)).thenReturn(new AmexSyncService.SessionStatusResponse(
-            false, SidecarSyncStatus.FAILED, null, SYNCED_AT, error));
+            false, AmexSyncStatus.FAILED, null, SYNCED_AT, error));
         boolean reauth = error == SidecarErrorCode.SESSION_EXPIRED;
         String expectedStatus = reauth ? "NEEDS_REAUTH" : "FAILED";
 

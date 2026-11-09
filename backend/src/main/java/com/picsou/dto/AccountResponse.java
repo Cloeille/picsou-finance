@@ -55,24 +55,8 @@ public record AccountResponse(
     /** How a bank card is debited; non-null only for synced cards whose bank says so. */
     CardNature cardNature,
     /** Contract facts a provider reports (CORUM Life); null when it reports none. */
-    AccountContractResponse contract,
-    /** The bank behind an aggregator account (SimpleFIN); null when {@code provider} already is the bank. */
-    InstitutionResponse institution
+    AccountContractResponse contract
 ) {
-    /** Pre-institution shape, kept so existing callers need not name the new component. */
-    public AccountResponse(Long id, String name, AccountType type, String provider, String currency,
-        BigDecimal currentBalance, BigDecimal currentBalanceEur, BigDecimal cashBalance, Instant lastSyncedAt,
-        boolean isManual, String color, String ticker, String logoUrl, String logoKey, Instant createdAt,
-        LocalDate openedAt, RealEstateMetadataResponse realEstate, DebtResponse debt, SavingsConfigDto savingsConfig,
-        BigDecimal paymentDueAmount, LocalDate paymentDueDate, Long rewardPoints,
-        Long parentAccountId, boolean hidden, BigDecimal sharePercent, Boolean isOwner,
-        ScpiPositionResponse scpi, CardNature cardNature, AccountContractResponse contract) {
-        this(id, name, type, provider, currency, currentBalance, currentBalanceEur, cashBalance, lastSyncedAt,
-            isManual, color, ticker, logoUrl, logoKey, createdAt, openedAt, realEstate, debt, savingsConfig,
-            paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner, scpi,
-            cardNature, contract, null);
-    }
-
     /** Pre-contract shape, kept so existing callers need not name the new component. */
     public AccountResponse(Long id, String name, AccountType type, String provider, String currency,
         BigDecimal currentBalance, BigDecimal currentBalanceEur, BigDecimal cashBalance, Instant lastSyncedAt,
@@ -84,7 +68,7 @@ public record AccountResponse(
         this(id, name, type, provider, currency, currentBalance, currentBalanceEur, cashBalance, lastSyncedAt,
             isManual, color, ticker, logoUrl, logoKey, createdAt, openedAt, realEstate, debt, savingsConfig,
             paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner, scpi,
-            cardNature, null, null);
+            cardNature, null);
     }
 
     /** Pre-card-nature shape, kept so existing callers need not name the new component. */
@@ -142,57 +126,44 @@ public record AccountResponse(
             null,
             null,
             a.getCardNature(),
-            AccountContractResponse.from(a),
-            InstitutionResponse.from(a)
+            AccountContractResponse.from(a)
         );
     }
 
     public AccountResponse withRealEstate(RealEstateMetadataResponse realEstate) {
         return new AccountResponse(id, name, type, provider, currency, currentBalance,
             currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
-            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner, scpi, cardNature, contract, institution);
+            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner, scpi, cardNature, contract);
     }
 
     public AccountResponse withDebt(DebtResponse debt) {
         return new AccountResponse(id, name, type, provider, currency, currentBalance,
             currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
-            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner, scpi, cardNature, contract, institution);
+            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner, scpi, cardNature, contract);
     }
 
     /** Test and adapter seam; the mapping from the entity already carries it. */
     public AccountResponse withOpenedAt(LocalDate openedAt) {
         return new AccountResponse(id, name, type, provider, currency, currentBalance,
             currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
-            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner, scpi, cardNature, contract, institution);
+            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner, scpi, cardNature, contract);
     }
 
     public AccountResponse withSavingsConfig(SavingsConfigDto savingsConfig) {
         return new AccountResponse(id, name, type, provider, currency, currentBalance,
             currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
-            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner, scpi, cardNature, contract, institution);
+            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner, scpi, cardNature, contract);
     }
 
     public AccountResponse withViewer(BigDecimal sharePercent, Boolean isOwner) {
         return new AccountResponse(id, name, type, provider, currency, currentBalance,
             currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
-            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner, scpi, cardNature, contract, institution);
+            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner, scpi, cardNature, contract);
     }
 
     public AccountResponse withScpi(ScpiPositionResponse scpi) {
         return new AccountResponse(id, name, type, provider, currency, currentBalance,
             currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
-            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner, scpi, cardNature, contract, institution);
-    }
-
-    /**
-     * The logo endpoint serves only the owner's own accounts, so a co-owner is not promised one:
-     * the bank's name stays, the request for a logo that would 404 does not happen.
-     */
-    public AccountResponse withoutInstitutionLogo() {
-        if (institution == null || !institution.hasLogo()) return this;
-        return new AccountResponse(id, name, type, provider, currency, currentBalance,
-            currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
-            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner, scpi, cardNature, contract,
-            new InstitutionResponse(institution.name(), false));
+            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner, scpi, cardNature, contract);
     }
 }

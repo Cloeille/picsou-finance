@@ -1,9 +1,5 @@
 package com.picsou.service;
 
-import com.picsou.adapter.sidecar.SidecarBank;
-import com.picsou.model.SidecarSession;
-import com.picsou.repository.SidecarSessionRepository;
-import com.picsou.model.SidecarSyncStatus;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.model.*;
 import com.picsou.adapter.CorumAdapter;
@@ -52,8 +48,7 @@ import static org.mockito.Mockito.when;
 @Import({CorumSyncService.class, SofidySyncService.class, ScpiPositionService.class,
     ScpiFundReconciler.class, ScpiFundService.class, CorumLifeWriter.class,
     CorumLifeOperationWriter.class, com.picsou.service.budget.CategoryService.class,
-    AccountService.class, PeerLoanTransactionLinks.class,
-    ScpiSyncSessionPostgresTest.Transactions.class})
+    AccountService.class, ScpiSyncSessionPostgresTest.Transactions.class})
 class ScpiSyncSessionPostgresTest {
     @Container
     @ServiceConnection
@@ -76,7 +71,8 @@ class ScpiSyncSessionPostgresTest {
     @Autowired FamilyMemberRepository members;
     @Autowired AccountRepository accounts;
     @Autowired ScpiPositionRepository positions;
-    @Autowired SidecarSessionRepository sessions;
+    @Autowired CorumSessionRepository corumSessions;
+    @Autowired SofidySessionRepository sofidySessions;
     @Autowired ScpiProviderFundRepository funds;
     @Autowired ScpiFundService fundService;
     @MockitoBean CorumAdapter corumPort;
@@ -115,9 +111,9 @@ class ScpiSyncSessionPostgresTest {
         boolean isCorum = scenario.startsWith("CORUM");
         boolean replace = scenario.endsWith("REPLACE");
         if (isCorum) {
-            sessions.saveAndFlush(SidecarSession.create(SidecarBank.CORUM, member, "old-state", Instant.now()));
+            corumSessions.saveAndFlush(CorumSession.create(member, "old-state", Instant.now()));
         } else {
-            sessions.saveAndFlush(SidecarSession.create(SidecarBank.SOFIDY, member, "old-state", Instant.now()));
+            sofidySessions.saveAndFlush(SofidySession.create(member, "old-state", Instant.now()));
         }
         CountDownLatch fetching = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
@@ -149,12 +145,12 @@ class ScpiSyncSessionPostgresTest {
             if (isCorum) {
                 corum.clearSession(member.getId());
                 if (replace) {
-                    sessions.saveAndFlush(SidecarSession.create(SidecarBank.CORUM, member, "new-state", Instant.now()));
+                    corumSessions.saveAndFlush(CorumSession.create(member, "new-state", Instant.now()));
                 }
             } else {
                 sofidy.clearSession(member.getId());
                 if (replace) {
-                    sessions.saveAndFlush(SidecarSession.create(SidecarBank.SOFIDY, member, "new-state", Instant.now()));
+                    sofidySessions.saveAndFlush(SofidySession.create(member, "new-state", Instant.now()));
                 }
             }
         } finally {
@@ -168,12 +164,12 @@ class ScpiSyncSessionPostgresTest {
         assertThat(positions.findById(position.getId()).orElseThrow().getShareCount())
             .isEqualByComparingTo("3");
         if (isCorum) {
-            var current = sessions.findByBankAndMemberId(SidecarBank.CORUM, member.getId());
-            if (replace) { assertThat(current.orElseThrow().getSyncStatus()).isEqualTo(SidecarSyncStatus.IDLE); }
+            var current = corumSessions.findByMemberId(member.getId());
+            if (replace) { assertThat(current.orElseThrow().getSyncStatus()).isEqualTo(CorumSyncStatus.IDLE); }
             else { assertThat(current).isEmpty(); }
         } else {
-            var current = sessions.findByBankAndMemberId(SidecarBank.SOFIDY, member.getId());
-            if (replace) { assertThat(current.orElseThrow().getSyncStatus()).isEqualTo(SidecarSyncStatus.IDLE); }
+            var current = sofidySessions.findByMemberId(member.getId());
+            if (replace) { assertThat(current.orElseThrow().getSyncStatus()).isEqualTo(SofidySyncStatus.IDLE); }
             else { assertThat(current).isEmpty(); }
         }
     }
@@ -181,13 +177,13 @@ class ScpiSyncSessionPostgresTest {
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void sofidyRejectsMissingTotalOrQuantityWithoutChangingPersistedAccount(boolean missingQuantity) {
-        sessions.saveAndFlush(SidecarSession.create(SidecarBank.SOFIDY, member, "old-state", Instant.now()));
+        sofidySessions.saveAndFlush(SofidySession.create(member, "old-state", Instant.now()));
         when(sofidyPort.fetchSnapshot("old-state")).thenReturn(new SofidyAdapter.Snapshot("EUR",
             missingQuantity ? BigDecimal.ZERO : null, null, true,
             missingQuantity ? List.of(new SofidyAdapter.Holding("FUND", "Fund", null,
                 new BigDecimal("300"), null)) : List.of()));
 
-        assertThat(sofidy.queueSync(member.getId()).syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
+        assertThat(sofidy.queueSync(member.getId()).syncStatus()).isEqualTo(SofidySyncStatus.FAILED);
         assertThat(accounts.findById(account.getId()).orElseThrow().getCurrentBalance())
             .isEqualByComparingTo("900");
         assertThat(positions.findById(position.getId()).orElseThrow().getShareCount())
@@ -201,9 +197,9 @@ class ScpiSyncSessionPostgresTest {
         when(corumPort.fetchPortfolio("auto-state")).thenReturn(new CorumAdapter.Portfolio(
             corumUsa(), List.of()));
 
-        sessions.saveAndFlush(SidecarSession.create(SidecarBank.CORUM, fresh, "auto-state", Instant.now()));
-        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
-        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        corumSessions.saveAndFlush(CorumSession.create(fresh, "auto-state", Instant.now()));
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
 
         List<Account> created = accounts.findAllByMemberIdOrderByCreatedAtAsc(fresh.getId());
         assertThat(created).singleElement().satisfies(a -> {
@@ -223,7 +219,7 @@ class ScpiSyncSessionPostgresTest {
         positions.saveAndFlush(linked);
         doomed.setDeletedAt(Instant.now());
         accounts.saveAndFlush(doomed);
-        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
 
         assertThat(accounts.findAllByMemberIdOrderByCreatedAtAsc(fresh.getId())).isEmpty();
         assertThat(funds.findByMemberIdAndProviderAndFundCode(fresh.getId(), ScpiProvider.CORUM, "US"))
@@ -240,9 +236,9 @@ class ScpiSyncSessionPostgresTest {
         when(corumPort.fetchPortfolio("life-state")).thenReturn(new CorumAdapter.Portfolio(
             null, List.of(lifeContract("1001"))));
 
-        sessions.saveAndFlush(SidecarSession.create(SidecarBank.CORUM, fresh, "life-state", Instant.now()));
-        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
-        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        corumSessions.saveAndFlush(CorumSession.create(fresh, "life-state", Instant.now()));
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
 
         List<Account> created = accounts.findAllByMemberIdOrderByCreatedAtAsc(fresh.getId());
         assertThat(created).singleElement().satisfies(a -> {
@@ -274,7 +270,7 @@ class ScpiSyncSessionPostgresTest {
         Account doomed = created.get(0);
         doomed.setDeletedAt(Instant.now());
         accounts.saveAndFlush(doomed);
-        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
 
         assertThat(accounts.findAllByMemberIdOrderByCreatedAtAsc(fresh.getId())).isEmpty();
     }
@@ -287,8 +283,8 @@ class ScpiSyncSessionPostgresTest {
         when(corumPort.fetchPortfolio("rollback-state")).thenReturn(new CorumAdapter.Portfolio(
             corumUsa(), List.of(lifeContract("9".repeat(300)))));
 
-        sessions.saveAndFlush(SidecarSession.create(SidecarBank.CORUM, fresh, "rollback-state", Instant.now()));
-        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
+        corumSessions.saveAndFlush(CorumSession.create(fresh, "rollback-state", Instant.now()));
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.FAILED);
 
         assertThat(accounts.findAllByMemberIdOrderByCreatedAtAsc(fresh.getId())).isEmpty();
         assertThat(funds.findByMemberIdAndProviderAndFundCode(fresh.getId(), ScpiProvider.CORUM, "US")).isEmpty();
@@ -306,23 +302,23 @@ class ScpiSyncSessionPostgresTest {
         when(corumPort.fetchPortfolio("fresh-state")).thenReturn(new CorumAdapter.Portfolio(corumUsa(), List.of()));
 
         assertThat(corum.authenticate("client", "pw", true, fresh.getId()).credentialsRemembered()).isTrue();
-        SidecarSession stored = sessions.findByBankAndMemberId(SidecarBank.CORUM, fresh.getId()).orElseThrow();
+        CorumSession stored = corumSessions.findByMemberId(fresh.getId()).orElseThrow();
         assertThat(stored.getEncryptedCredentials()).contains("\"password\":\"pw\"");
 
         // The cookie died: the next sync logs in again and persists the new session.
         stored.updateSessionState("expired-state", Instant.now());
-        sessions.saveAndFlush(stored);
-        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
-        SidecarSession relogged = sessions.findByBankAndMemberId(SidecarBank.CORUM, fresh.getId()).orElseThrow();
+        corumSessions.saveAndFlush(stored);
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+        CorumSession relogged = corumSessions.findByMemberId(fresh.getId()).orElseThrow();
         assertThat(relogged.getSessionState()).isEqualTo("fresh-state");
         assertThat(relogged.isActive()).isTrue();
 
         when(corumPort.authenticate("client", "pw"))
             .thenThrow(new com.picsou.exception.SyncException("rejected", null, "INVALID_CREDENTIALS"));
         relogged.updateSessionState("expired-state", Instant.now());
-        sessions.saveAndFlush(relogged);
-        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
-        SidecarSession rejected = sessions.findByBankAndMemberId(SidecarBank.CORUM, fresh.getId()).orElseThrow();
+        corumSessions.saveAndFlush(relogged);
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        CorumSession rejected = corumSessions.findByMemberId(fresh.getId()).orElseThrow();
         assertThat(rejected.getEncryptedCredentials()).isNull();
         assertThat(rejected.isActive()).isFalse();
         assertThat(rejected.getLastSyncError()).isEqualTo(com.picsou.port.SidecarErrorCode.INVALID_CREDENTIALS);
@@ -330,9 +326,9 @@ class ScpiSyncSessionPostgresTest {
         // Logging in again without "remember" stores nothing; disconnecting removes the row.
         when(corumPort.authenticate("client", "pw2")).thenReturn("first-state");
         assertThat(corum.authenticate("client", "pw2", false, fresh.getId()).credentialsRemembered()).isFalse();
-        assertThat(sessions.findByBankAndMemberId(SidecarBank.CORUM, fresh.getId()).orElseThrow().getEncryptedCredentials()).isNull();
+        assertThat(corumSessions.findByMemberId(fresh.getId()).orElseThrow().getEncryptedCredentials()).isNull();
         corum.clearSession(fresh.getId());
-        assertThat(sessions.findByBankAndMemberId(SidecarBank.CORUM, fresh.getId())).isEmpty();
+        assertThat(corumSessions.findByMemberId(fresh.getId())).isEmpty();
     }
 
     /** A complete CORUM snapshot holding one fund (US, 10 units at 180 EUR). */
@@ -362,9 +358,9 @@ class ScpiSyncSessionPostgresTest {
                 base.valuationDate(), base.valuationLineCount(), base.netInvestedEur(), base.paidInEur(),
                 base.openedAt(), base.scheduledPayment(), true, base.holdings(), operations))));
 
-        sessions.saveAndFlush(SidecarSession.create(SidecarBank.CORUM, fresh, "ops-state", Instant.now()));
-        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
-        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        corumSessions.saveAndFlush(CorumSession.create(fresh, "ops-state", Instant.now()));
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
 
         Account contract = accounts.findAllByMemberIdOrderByCreatedAtAsc(fresh.getId()).getFirst();
         List<Transaction> rows = transactions.findByAccountIdOrderByDateDesc(contract.getId());

@@ -92,7 +92,7 @@ class CaisseEpargneAdapterTest {
              ],
              "snapshotComplete": true}
           ],
-          "unsupported": [{"externalId": "9001", "familyCode": "7", "subFamilyCode": "02"}]
+          "unsupported": [{"externalId": "9001", "familyCode": "7"}]
         }
         """;
 
@@ -151,7 +151,6 @@ class CaisseEpargneAdapterTest {
         assertThat(snapshot.unsupported()).singleElement().satisfies(u -> {
             assertThat(u.externalId()).isEqualTo("9001");
             assertThat(u.familyCode()).isEqualTo("7");
-            assertThat(u.subFamilyCode()).isEqualTo("02");
         });
     }
 

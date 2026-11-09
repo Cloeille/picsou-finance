@@ -18,7 +18,6 @@ import com.picsou.service.HistoryService;
 import com.picsou.service.ManualTransactionService;
 import com.picsou.service.MemberSyncService;
 import com.picsou.service.MfaService;
-import com.picsou.service.PeerLoanService;
 import com.picsou.service.PortfolioDiversificationService;
 import com.picsou.service.PriceService;
 import com.picsou.service.ProjectionService;
@@ -74,7 +73,6 @@ class McpToolCatalogTest {
         "list_accounts", "get_account", "get_account_holdings", "get_account_balance_history", "get_account_deletion_impact",
         "create_manual_account", "update_account", "delete_account", "add_balance_snapshot",
         "upsert_holding", "delete_holding", "set_scpi_position",
-        "get_peer_loan", "add_peer_loan_repayment", "get_peer_loans_overview", "close_peer_loan",
         // transactions:read / transactions:write
         "list_account_transactions", "add_transaction", "update_transaction", "delete_transaction",
         // goals:read / goals:write
@@ -120,8 +118,7 @@ class McpToolCatalogTest {
 
     private static final List<Class<?>> TOOL_CLASSES = List.of(
         AccountTools.class, TransactionTools.class, GoalTools.class, InsightTools.class, SyncTools.class,
-        OAuth2Tools.class, BudgetTools.class, AnalysisTools.class, AiCategorizationTools.class,
-        PeerLoanTools.class);
+        OAuth2Tools.class, BudgetTools.class, AnalysisTools.class, AiCategorizationTools.class);
 
     /** Build the provider exactly as production does, with mocked services (never invoked during catalog build). */
     private ToolCallbackProvider buildProvider() {
@@ -153,10 +150,8 @@ class McpToolCatalogTest {
             mock(CryptoExchangeSyncService.class), mock(UserContext.class));
         AiCategorizationTools aiCategorization = new AiCategorizationTools(
             mock(AiCategorizationJobService.class), mock(UserContext.class));
-        PeerLoanTools peerLoan = new PeerLoanTools(
-            mock(PeerLoanService.class), mock(UserContext.class), mock(Validator.class));
         return new McpToolConfig().picsouMcpTools(
-            account, tx, goal, insight, sync, oauth2, budget, analysis, aiCategorization, peerLoan);
+            account, tx, goal, insight, sync, oauth2, budget, analysis, aiCategorization);
     }
 
     private Set<String> registeredToolNames() {

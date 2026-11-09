@@ -1,20 +1,19 @@
 package com.picsou.service;
 
-import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
-import com.picsou.model.SidecarSession;
-import com.picsou.model.SidecarSyncStatus;
+import com.picsou.model.AmundiSession;
+import com.picsou.model.AmundiSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.adapter.AmundiAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.SidecarSessionRepository;
+import com.picsou.repository.AmundiSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -50,7 +49,7 @@ import static com.picsou.support.TestEntities.owner;
 @SuppressWarnings("unchecked")
 class AmundiSyncServiceTest {
     @Mock AmundiAdapter port;
-    @Mock SidecarSessionRepository sessionRepository;
+    @Mock AmundiSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock AccountHoldingRepository holdingRepository;
     @Mock FamilyMemberRepository memberRepository;
@@ -85,7 +84,7 @@ class AmundiSyncServiceTest {
 
         AmundiSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(AmundiSyncStatus.SUCCESS);
         verify(accountRepository).save(accountCaptor.capture());
         Account saved = accountCaptor.getValue();
         assertThat(saved.getExternalAccountId()).isEqualTo("amundi_PEG001");
@@ -164,7 +163,7 @@ class AmundiSyncServiceTest {
 
         AmundiSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(AmundiSyncStatus.SUCCESS);
         verify(holdingRepository).saveAll(holdingsCaptor.capture());
         assertThat(holdingsCaptor.getValue()).hasSize(2);
         assertThat(holdingsCaptor.getValue())
@@ -213,7 +212,7 @@ class AmundiSyncServiceTest {
 
         AmundiSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
+        assertThat(result.syncStatus()).isEqualTo(AmundiSyncStatus.FAILED);
         assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(holdingRepository, never()).deleteByAccountId(any());
         verify(accountRepository, never()).save(any(Account.class));
@@ -223,13 +222,13 @@ class AmundiSyncServiceTest {
     void roundingWithinToleranceStillReconciles() {
         arrangeCommittableSync(plan("1000.03", position("FR0010405035", "Fonds", "10", "100", "1000", "0")));
 
-        assertThat(service.queueSync(7L).syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(service.queueSync(7L).syncStatus()).isEqualTo(AmundiSyncStatus.SUCCESS);
     }
 
     @Test
     void clearSessionReportsTheSessionItDeleted() {
-        SidecarSession session = activeSession(owner());
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.AMUNDI, 7L)).thenReturn(Optional.of(session));
+        AmundiSession session = activeSession(owner());
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
 
         assertThat(service.clearSession(7L)).isTrue();
         verify(sessionRepository).delete(session);
@@ -237,7 +236,7 @@ class AmundiSyncServiceTest {
 
     @Test
     void clearSessionReportsNothingWhenNoSessionIsStored() {
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.AMUNDI, 7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
 
         assertThat(service.clearSession(7L)).isFalse();
         verify(sessionRepository, never()).delete(any());
@@ -367,13 +366,13 @@ class AmundiSyncServiceTest {
         when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId("amundi_PEG001", 7L))
             .thenReturn(true);
 
-        assertThat(service.queueSync(7L).syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(service.queueSync(7L).syncStatus()).isEqualTo(AmundiSyncStatus.SUCCESS);
         verify(accountRepository, never()).save(any(Account.class));
     }
 
     @Test
     void anExpiredUpstreamSessionDeactivatesTheStoredSession() {
-        SidecarSession session = activeSession(owner());
+        AmundiSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchPlans("plain-state")).thenThrow(
             new SyncException("expired", null, SidecarErrorCode.SESSION_EXPIRED.name())
@@ -387,7 +386,7 @@ class AmundiSyncServiceTest {
 
     @Test
     void syncingWithoutASessionAsksTheUserToReconnect() {
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.AMUNDI, 7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.queueSync(7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
@@ -395,6 +394,18 @@ class AmundiSyncServiceTest {
             );
     }
 
+    @Test
+    void aSecondSyncIsNotQueuedWhileOneIsAlreadyRunning() {
+        AmundiSession session = activeSession(owner());
+        session.markQueued();
+        session.markRunning(java.time.Instant.now());
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+
+        AmundiSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(AmundiSyncStatus.RUNNING);
+        verify(port, never()).fetchPlans(any());
+    }
 
     /**
      * The job carries the session id it was queued for; if the user disconnects
@@ -403,7 +414,7 @@ class AmundiSyncServiceTest {
      */
     @Test
     void aResultForAReplacedSessionIsDiscarded() {
-        SidecarSession session = activeSession(owner());
+        AmundiSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchPlans("plain-state")).thenReturn(List.of(completePlan()));
         when(sessionRepository.findByIdAndMemberIdForUpdate(3L, 7L))
@@ -437,10 +448,18 @@ class AmundiSyncServiceTest {
         verify(sessionRepository, never()).saveAndFlush(any());
     }
 
+    @Test
+    void aScheduledResyncIsSkippedWhenNoSessionIsActive() {
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+
+        service.resyncIfSessionActive(7L);
+
+        verify(port, never()).fetchPlans(any());
+    }
 
     @Test
     void aScheduledResyncSwallowsUpstreamFailuresSoOtherMembersStillSync() {
-        SidecarSession session = activeSession(owner());
+        AmundiSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchPlans("plain-state")).thenThrow(
             new SyncException("down", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
@@ -493,21 +512,21 @@ class AmundiSyncServiceTest {
         );
     }
 
-    private void arrangeQueuedSession(SidecarSession session) {
-        lenient().when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.AMUNDI, 7L)).thenReturn(Optional.of(session));
+    private void arrangeQueuedSession(AmundiSession session) {
+        lenient().when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
         lenient().when(sessionRepository.findByIdAndMemberIdForUpdate(session.getId(), 7L))
             .thenReturn(Optional.of(session));
-        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.AMUNDI, 7L)).thenReturn(Optional.of(session));
+        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
         lenient().when(encryption.decrypt("encrypted")).thenReturn("plain-state");
     }
 
-    private SidecarSession activeSession(FamilyMember member) {
-        return SidecarSession.builder().bank(SidecarBank.AMUNDI)
+    private AmundiSession activeSession(FamilyMember member) {
+        return AmundiSession.builder()
             .id(3L)
             .member(member)
             .sessionState("encrypted")
             .active(true)
-            .syncStatus(SidecarSyncStatus.IDLE)
+            .syncStatus(AmundiSyncStatus.IDLE)
             .build();
     }
 

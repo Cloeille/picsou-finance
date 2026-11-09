@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Users, Link as LinkIcon, KeyRound, Trash2, Copy, Check, ShieldOff, Unlink, UserPlus } from 'lucide-react'
+import { Users, Link as LinkIcon, KeyRound, Trash2, Copy, Check, ShieldOff, ShieldCheck, UserPlus } from 'lucide-react'
 import {
   Card,
   CardContent,
@@ -13,7 +13,6 @@ import { Input } from '@/components/ui/input'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { formatApiError } from '@/lib/errors'
 import { useAuthStore } from '@/stores/auth-store'
-import type { FamilyMemberItem } from '@/features/family/api'
 import {
   useFamilyMembers,
   useCreateUserWithLogin,
@@ -22,8 +21,6 @@ import {
   useResetMemberPassword,
 } from '@/features/family/hooks'
 import { useAdminForceDisableMfa } from '@/features/mfa/hooks'
-import { MemberSummary } from './MemberSummary'
-import { UnlinkSsoDialog } from './UnlinkSsoDialog'
 
 type GeneratedLink = { memberId: number; url: string } | null
 
@@ -42,7 +39,6 @@ export function MembersSection() {
   const [copied, setCopied] = useState(false)
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [resetMfaId, setResetMfaId] = useState<number | null>(null)
-  const [unlinkSsoMember, setUnlinkSsoMember] = useState<FamilyMemberItem | null>(null)
 
   function showLink(memberId: number, path: string) {
     setLink({ memberId, url: `${window.location.origin}${path}` })
@@ -121,18 +117,58 @@ export function MembersSection() {
         ) : !members || members.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t('admin.members.noMembers')}</p>
         ) : (
-          <ul className="@container divide-y rounded-lg border">
+          <ul className="divide-y rounded-lg border">
             {members.map((m) => {
               const isSelf = m.id === currentUser?.memberId
+              const isAdminMember = !m.managed
+              const status = isAdminMember
+                ? 'statusAdmin'
+                : m.activated
+                  ? 'statusActive'
+                  : m.hasLogin
+                    ? 'statusPending'
+                    : 'statusManaged'
 
               return (
                 <li
                   key={m.id}
-                  className="flex flex-col gap-3 p-3 @xl:flex-row @xl:items-center @xl:justify-between"
+                  className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between"
                 >
-                  <MemberSummary member={m} isSelf={isSelf} />
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className="size-9 shrink-0 rounded-full"
+                      style={{ backgroundColor: m.avatarColor }}
+                      aria-hidden
+                    />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium truncate">{m.displayName}</p>
+                        {isSelf && (
+                          <span className="text-sm text-muted-foreground">
+                            {t('admin.members.you')}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground truncate">
+                        <span className="font-mono">
+                          {m.loginName ?? t('admin.members.noLogin')}
+                        </span>
+                        <span className="mx-2">·</span>
+                        <span>{t(`admin.members.${status}`)}</span>
+                        {m.mfaEnabled && (
+                          <>
+                            <span className="mx-2">·</span>
+                            <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
+                              <ShieldCheck size={11} />
+                              {t('admin.members.mfaOn')}
+                            </span>
+                          </>
+                        )}
+                      </p>
+                    </div>
+                  </div>
 
-                  <div className="flex flex-wrap gap-2 @xl:justify-end">
+                  <div className="flex flex-wrap gap-2 sm:justify-end">
                     {/* Create login OR regenerate activation link (non-activated) */}
                     {m.managed && !m.activated && (
                       <Button
@@ -179,18 +215,6 @@ export function MembersSection() {
                       >
                         <ShieldOff className="size-3.5" />
                         {t('admin.members.resetMfa')}
-                      </Button>
-                    )}
-
-                    {m.ssoLinked && !isSelf && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => setUnlinkSsoMember(m)}
-                      >
-                        <Unlink className="size-3.5" />
-                        {t('admin.members.unlinkSso')}
                       </Button>
                     )}
 
@@ -255,8 +279,6 @@ export function MembersSection() {
         loading={forceDisableMfa.isPending}
         variant="destructive"
       />
-
-      <UnlinkSsoDialog member={unlinkSsoMember} onClose={() => setUnlinkSsoMember(null)} />
     </Card>
   )
 }

@@ -460,24 +460,6 @@ describe('usePortfolio', () => {
     expect(line?.priceUpdatedAt).not.toBe('2026-08-19T08:00:00Z')
   })
 
-  it("adds the euro fund of a Caisse d'Epargne assurance vie, not of a manual one", async () => {
-    list.mockResolvedValue([
-      { id: 11, name: 'AV synced', type: 'ASSURANCE_VIE', provider: "Caisse d'Epargne", isManual: false, color: '#000', currentBalanceEur: 500, cashBalance: 300 },
-      { id: 13, name: 'AV hand-made', type: 'ASSURANCE_VIE', provider: "Caisse d'Epargne", isManual: true, color: '#000', currentBalanceEur: 500, cashBalance: 300 },
-      { id: 12, name: 'AV manual', type: 'ASSURANCE_VIE', provider: null, color: '#000', currentBalanceEur: 500, cashBalance: 300 },
-    ])
-    holdings.mockResolvedValue([])
-    prices.mockResolvedValue({})
-
-    const { result } = renderHook(() => usePortfolio(), { wrapper: makeWrapper() })
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    const funds = (result.current.data ?? []).filter(line => line.id.startsWith('per-euro-fund-'))
-    expect(funds).toEqual([
-      expect.objectContaining({ accountId: 11, nameKey: 'accounts.lifeEuroFundBalance', valueEur: 300 }),
-    ])
-  })
-
   it('includes the PER euro fund alongside units without double-counting the account total', async () => {
     list.mockResolvedValue([
       {
@@ -596,7 +578,6 @@ describe('usePortfolio', () => {
       totalLiabilities: 0,
       netWorthHistory: [],
       distribution: [],
-      assets: [],
       liabilities: [],
       goalSummaries: [],
     } satisfies DashboardData))
