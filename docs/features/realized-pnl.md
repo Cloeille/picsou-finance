@@ -56,6 +56,12 @@ See ADR [2026-07-11-realized-pnl-average-cost-on-the-fly](../decisions/2026-07-1
 
 ## Gotchas / Pitfalls
 
+- **Synced sources feed it too.** Natixis Interépargne imports its operations as BUY/SELL rows
+  (each fund line of an investment or a release) on the plan accounts, using the holding's own
+  ticker. Within one sync, same-day new rows are inserted BUY before SELL, so the `(date, id)`
+  replay sells after it buys. That order only holds for rows inserted together: a same-day BUY
+  that first appears in a later sync, after its SELL was stored, gets a higher id and replays
+  after the SELL (an over-sell warning for that day). See [natixis-interepargne.md](./natixis-interepargne.md).
 - **`HoldingComputeService` deletes a holding when net qty ≤ 0.** Realized P&L reads the transaction
   stream, so it still computes for a position that no longer has a holding row — that is exactly the
   data this feature recovers.

@@ -1,4 +1,4 @@
-import { useState, type ComponentType } from 'react'
+import { useMemo, useState, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -16,14 +16,18 @@ import { AddPropertyModal } from '@/components/property/AddPropertyModal'
 import { BourseDirectPanel } from '@/components/sync/BourseDirectPanel'
 import { BoursoPanel } from '@/components/sync/BoursoPanel'
 import { CaisseEpargnePanel } from '@/components/sync/CaisseEpargnePanel'
+import { BanquePopulairePanel } from '@/components/sync/BanquePopulairePanel'
+import { LbpPanel } from '@/components/sync/LbpPanel'
 import { DegiroPanel } from '@/components/sync/DegiroPanel'
 import { AmundiPanel } from '@/components/sync/AmundiPanel'
+import { NatixisPanel } from '@/components/sync/NatixisPanel'
 import { FortuneoPanel } from '@/components/sync/FortuneoPanel'
 import { AmexPanel } from '@/components/sync/AmexPanel'
 import { CorumPanel } from '@/components/sync/CorumPanel'
 import { SofidyPanel } from '@/components/sync/SofidyPanel'
 import { IbkrPanel } from '@/components/sync/IbkrPanel'
 import { SimplefinPanel } from '@/components/sync/SimplefinPanel'
+import { WisePanel } from '@/components/sync/WisePanel'
 import { useCreateAccount, useUpdateDebtMetadata } from '@/features/accounts/hooks'
 import {
   Landmark,
@@ -40,7 +44,7 @@ import {
   TrendingUp,
   PiggyBank,
 } from 'lucide-react'
-import type { AccountRequest, AccountType } from '@/types/api'
+import type { Account, AccountRequest, AccountType } from '@/types/api'
 
 // ---------------------------------------------------------------------------
 // Props & types
@@ -49,11 +53,15 @@ import type { AccountRequest, AccountType } from '@/types/api'
 interface AddAccountModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Skip the source picker and open the manual form with this type preselected. */
+  defaultType?: AccountType
+  /** Called with the created account, so the caller can land on its detail page. */
+  onCreated?: (account: Account) => void
 }
 
 type WizardStep =
-  | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'revolut' | 'bourso' | 'caisseEpargne'
-  | 'bourseDirect' | 'degiro' | 'ibkr' | 'simplefin' | 'amundi' | 'fortuneo' | 'amex' | 'corum' | 'sofidy'
+  | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'revolut' | 'bourso' | 'caisseEpargne' | 'banquePopulaire'
+  | 'lbp' | 'bourseDirect' | 'degiro' | 'ibkr' | 'simplefin' | 'wise' | 'amundi' | 'natixis' | 'fortuneo' | 'amex' | 'corum' | 'sofidy'
   | 'finary' | 'property' | 'manual'
 
 // ---------------------------------------------------------------------------
@@ -68,11 +76,15 @@ const SOURCES: { key: WizardStep; icon: typeof Landmark; labelKey: string; descK
   { key: 'revolut', icon: CreditCard, labelKey: 'sync.revolut.title', descKey: 'addAccount.desc.revolut' },
   { key: 'bourso', icon: Landmark, labelKey: 'sync.bourso.title', descKey: 'addAccount.desc.bourso' },
   { key: 'caisseEpargne', icon: Landmark, labelKey: 'sync.caisseEpargne.title', descKey: 'addAccount.desc.caisseEpargne' },
+  { key: 'banquePopulaire', icon: Landmark, labelKey: 'sync.banquePopulaire.title', descKey: 'addAccount.desc.banquePopulaire' },
+  { key: 'lbp', icon: Landmark, labelKey: 'sync.lbp.title', descKey: 'addAccount.desc.lbp' },
   { key: 'bourseDirect', icon: BriefcaseBusiness, labelKey: 'sync.bourseDirect.title', descKey: 'addAccount.desc.bourseDirect' },
   { key: 'degiro', icon: TrendingUp, labelKey: 'sync.degiro.title', descKey: 'addAccount.desc.degiro' },
   { key: 'ibkr', icon: BriefcaseBusiness, labelKey: 'sync.ibkr.title', descKey: 'addAccount.desc.ibkr' },
   { key: 'simplefin', icon: Landmark, labelKey: 'sync.simplefin.title', descKey: 'addAccount.desc.simplefin' },
+  { key: 'wise', icon: PiggyBank, labelKey: 'sync.wise.title', descKey: 'addAccount.desc.wise' },
   { key: 'amundi', icon: PiggyBank, labelKey: 'sync.amundi.title', descKey: 'addAccount.desc.amundi' },
+  { key: 'natixis', icon: PiggyBank, labelKey: 'sync.natixis.title', descKey: 'addAccount.desc.natixis' },
   { key: 'fortuneo', icon: PiggyBank, labelKey: 'sync.fortuneo.title', descKey: 'addAccount.desc.fortuneo' },
   { key: 'amex', icon: CreditCard, labelKey: 'sync.amex.title', descKey: 'addAccount.desc.amex' },
   { key: 'corum', icon: Building2, labelKey: 'sync.corum.title', descKey: 'addAccount.desc.corum' },
@@ -86,11 +98,15 @@ const SOURCES: { key: WizardStep; icon: typeof Landmark; labelKey: string; descK
 const PANEL_STEPS: Partial<Record<WizardStep, ComponentType<{ onConnected?: () => void }>>> = {
   bourso: BoursoPanel,
   caisseEpargne: CaisseEpargnePanel,
+  banquePopulaire: BanquePopulairePanel,
+  lbp: LbpPanel,
   bourseDirect: BourseDirectPanel,
   degiro: DegiroPanel,
   ibkr: IbkrPanel,
   simplefin: SimplefinPanel,
+  wise: WisePanel,
   amundi: AmundiPanel,
+  natixis: NatixisPanel,
   fortuneo: FortuneoPanel,
   amex: AmexPanel,
   corum: CorumPanel,
@@ -101,14 +117,23 @@ const PANEL_STEPS: Partial<Record<WizardStep, ComponentType<{ onConnected?: () =
 // Main component
 // ---------------------------------------------------------------------------
 
-export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
+export function AddAccountModal({ open, onOpenChange, defaultType, onCreated }: AddAccountModalProps) {
   const { t } = useTranslation()
   const createAccount = useCreateAccount()
   const updateDebt = useUpdateDebtMetadata()
   const [step, setStep] = useState<WizardStep>('selector')
+  const manualDefaults = useMemo(
+    () => (defaultType ? { type: defaultType } : undefined),
+    [defaultType],
+  )
+
   const [showManualForm, setShowManualForm] = useState(false)
   const [showPropertyForm, setShowPropertyForm] = useState(false)
   const Panel = PANEL_STEPS[step]
+
+  // "Create a loan" from the Receivables tab skips the source picker: the manual form is
+  // the only route, and it is open as soon as the caller supplies the type.
+  const manualOpen = showManualForm || (open && Boolean(defaultType))
 
   function handleSourceClick(key: string) {
     if (key === 'manual') {
@@ -189,11 +214,13 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
     }
 
     setShowManualForm(false)
+    if (defaultType) onOpenChange(false)
+    onCreated?.(created)
   }
 
   return (
     <>
-      <Dialog open={open} onOpenChange={handleDialogChange}>
+      <Dialog open={open && !defaultType} onOpenChange={handleDialogChange}>
         {/* sm:max-w-xl, not just max-w-xl: DialogContent's own `sm:max-w-sm` is a different
             Tailwind variant, so tailwind-merge keeps it and an unprefixed max-w-xl silently has
             no effect above 640px — which is what squeezed this wizard into 24rem. */}
@@ -247,9 +274,13 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
       )}
 
       <AccountForm
-        open={showManualForm}
-        onOpenChange={setShowManualForm}
+        open={manualOpen}
+        onOpenChange={(next) => {
+          setShowManualForm(next)
+          if (!next && defaultType) onOpenChange(false)
+        }}
         onSubmit={handleManualSubmit}
+        defaultValues={manualDefaults}
         title={t('addAccount.manual')}
         loading={createAccount.isPending}
       />

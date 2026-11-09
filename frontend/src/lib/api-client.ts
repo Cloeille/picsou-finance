@@ -3,6 +3,8 @@ import { useAppStore } from '@/stores/app-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { useConnectivityStore } from '@/stores/connectivity-store'
 import { useProfileStore } from '@/stores/profile-store'
+import { getErrorCode } from '@/lib/errors'
+import { markSsoRevalidate } from '@/lib/sso-revalidate'
 
 declare module 'axios' {
   interface AxiosRequestConfig {
@@ -55,6 +57,18 @@ function subscribeToRefresh(cb: () => void) {
 function notifyRefreshSubscribers() {
   refreshSubscribers.forEach(cb => cb())
   refreshSubscribers = []
+}
+
+// A 401 from /auth/ is the server refusing credentials, a challenge or the refresh itself, so a
+// silent refresh would replay a wrong password or loop. The SSO sign-in-method endpoints and the
+// password re-authentication are plain authenticated calls whose 401 means an expired access token
+// (a refused re-authentication answers REAUTH_FAILED, which never refreshes), so they refresh like
+// any other.
+const REFRESHABLE_AUTH_PATH = /^\/auth\/(sign-in-methods|password|identities\/\d+|reauth)$/
+
+function refreshesOn401(url: string | undefined): boolean {
+  if (!url?.includes('/auth/')) return true
+  return REFRESHABLE_AUTH_PATH.test(url)
 }
 
 export function isSetupRequiredResponse(status: number | undefined, data: unknown): boolean {
@@ -123,11 +137,13 @@ api.interceptors.response.use(
       return Promise.reject(error)
     }
 
-    // 401: Unauthorized - token refresh
+    // 401: Unauthorized - token refresh. REAUTH_FAILED refuses the re-authentication of a signed-in
+    // user (an expired proof, a wrong password or code): a refresh cannot fix it.
     if (
       error.response?.status === 401 &&
       !originalRequest._retry &&
-      !originalRequest.url?.includes('/auth/')
+      getErrorCode(error) !== 'REAUTH_FAILED' &&
+      refreshesOn401(originalRequest.url)
     ) {
       if (isRefreshing) {
         return new Promise(resolve => {
@@ -142,11 +158,12 @@ api.interceptors.response.use(
         await api.post('/auth/refresh')
         notifyRefreshSubscribers()
         return api(originalRequest!)
-      } catch {
+      } catch (refreshError) {
         // Refresh failed: the session is dead. Clear the JS-side auth flag
         // (sessionStorage) before redirecting, otherwise PublicOnly on /login
         // sees `isAuthenticated=true` and bounces back to "/", which fires
         // /family/members → 401 → refresh → 401 → redirect → … infinite loop.
+        if (getErrorCode(refreshError) === 'SSO_REVALIDATE') markSsoRevalidate()
         useAuthStore.getState().logout()
         if (window.location.pathname !== '/login') {
           window.location.href =

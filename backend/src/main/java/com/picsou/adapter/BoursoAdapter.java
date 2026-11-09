@@ -3,7 +3,7 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.adapter.sidecar.SidecarClient;
-import com.picsou.adapter.sidecar.SidecarSession;
+import com.picsou.adapter.sidecar.SidecarSessionState;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.model.AccountType;
 import com.picsou.port.SidecarErrorCode;
@@ -104,10 +104,10 @@ public class BoursoAdapter {
         Map<String, Object> body = new HashMap<>();
         body.put("processId", processId);
         body.put("code", null);
-        SidecarSession response = sidecar.post(
+        SidecarSessionState response = sidecar.post(
             "/complete",
             body,
-            SidecarSession.class,
+            SidecarSessionState.class,
             validationTimeout,
             "Could not complete BoursoBank authentication",
             SidecarErrorCode.APP_VALIDATION_TIMEOUT

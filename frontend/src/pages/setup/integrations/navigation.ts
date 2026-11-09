@@ -14,6 +14,7 @@ export const INTEGRATION_SUBSTEP_ORDER: Array<{
   { key: 'boursedirect', route: '/setup/integrations/boursedirect' },
   { key: 'fortuneo', route: '/setup/integrations/fortuneo' },
   { key: 'traderepublic', route: '/setup/integrations/traderepublic' },
+  { key: 'lbp', route: '/setup/integrations/lbp' },
   { key: 'revolut', route: '/setup/integrations/revolut' },
   { key: 'finary', route: '/setup/integrations/finary' },
   { key: 'crypto', route: '/setup/integrations/crypto' },

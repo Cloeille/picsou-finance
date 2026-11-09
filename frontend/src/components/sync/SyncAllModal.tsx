@@ -60,6 +60,8 @@ import {
   useSyncIbkr,
   useSimplefinStatus,
   useSyncSimplefin,
+  useWiseStatus,
+  useSyncWise,
 } from '@/features/sync/hooks'
 import { useAccounts } from '@/features/accounts/hooks'
 import { formatTimeAgo } from '@/lib/utils'
@@ -71,13 +73,32 @@ import { TR_VERIFICATION_CODE_LENGTH } from '@/lib/constants'
 
 const REVOLUT_CONNECTION_ID = 'revolut'
 
+/**
+ * The provider labels the Banque Populaire sync stamps: the official name of the regional bank the
+ * session was opened at (`BanquePopulaireRegion.institutionName()` on the backend), one per region.
+ */
+const BANQUE_POPULAIRE_PROVIDERS: ReadonlySet<string> = new Set([
+  'Banque Populaire Alsace Lorraine Champagne',
+  'Banque Populaire Aquitaine Centre Atlantique',
+  'Banque Populaire Auvergne Rhône Alpes',
+  'Banque Populaire Bourgogne Franche-Comté',
+  'BRED Banque Populaire',
+  'Banque Populaire Grand Ouest',
+  'Banque Populaire Méditerranée',
+  'Banque Populaire du Nord',
+  'Banque Populaire Occitane',
+  'Banque Populaire Rives de Paris',
+  'Banque Populaire du Sud',
+  'Banque Populaire Val de France',
+])
+
 type SyncConnection = {
   /** The connector's server-side job is queued or running. */
   running?: boolean
   id: string
   providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso' | 'revolut'
-    | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin'
-    | 'amex' | 'corum' | 'sofidy' | 'caisse-epargne' | 'cmes' | 'cic'
+    | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin' | 'wise'
+    | 'amex' | 'corum' | 'sofidy' | 'caisse-epargne' | 'banque-populaire' | 'lbp' | 'cmes' | 'natixis' | 'cic'
   name: string
   status: string
   lastSyncedAt: string | null
@@ -103,11 +124,15 @@ const ProviderIcon: Record<SyncConnection['providerType'], React.ComponentType<{
   degiro: LineChart,
   ibkr: LineChart,
   simplefin: Landmark,
+  wise: PiggyBank,
   amex: CreditCard,
   corum: Building2,
   sofidy: Building2,
   'caisse-epargne': Landmark,
+  'banque-populaire': Landmark,
+  lbp: Landmark,
   cmes: PiggyBank,
+  natixis: PiggyBank,
   cic: PiggyBank,
 }
 
@@ -120,11 +145,15 @@ const REAUTH_TAB: Partial<Record<SyncConnection['providerType'], string>> = {
   degiro: 'degiro',
   ibkr: 'ibkr',
   simplefin: 'simplefin',
+  wise: 'wise',
   amex: 'amex',
   corum: 'corum',
   sofidy: 'sofidy',
   'caisse-epargne': 'caisse-epargne',
+  'banque-populaire': 'banque-populaire',
+  lbp: 'lbp',
   cmes: 'cmes',
+  natixis: 'natixis',
   cic: 'cic',
   finary: 'finary',
 }
@@ -193,6 +222,8 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: trStatus } = useTrSessionStatus()
   const { data: boursoStatus } = useProviderStatus("bourso")
   const { data: caisseEpargneStatus } = useProviderStatus("caisseEpargne")
+  const { data: banquePopulaireStatus } = useProviderStatus("banquePopulaire")
+  const { data: lbpStatus } = useProviderStatus("lbp")
   const { data: revolutStatus } = useRevolutStatus()
   const { data: finaryStatus } = useFinaryConnectionStatus()
   const { data: amundiStatus } = useProviderStatus("amundi")
@@ -201,10 +232,12 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: degiroStatus } = useDegiroSessionStatus()
   const { data: ibkrStatus } = useIbkrStatus()
   const { data: simplefinStatus } = useSimplefinStatus()
+  const { data: wiseStatus } = useWiseStatus()
   const { data: amexStatus } = useProviderStatus("amex")
   const { data: corumStatus } = useProviderStatus("corum")
   const { data: sofidyStatus } = useProviderStatus("sofidy")
   const { data: cmesStatus } = useProviderStatus("cmes")
+  const { data: natixisStatus } = useProviderStatus("natixis")
   const { data: cicStatus } = useProviderStatus("cic")
   const { data: accounts } = useAccounts()
 
@@ -228,6 +261,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
    * already followed. `provider` is the exact string the connector stamps on the accounts it
    * creates (see each service's PROVIDER constant). CORUM and Sofidy also match an account
    * through its SCPI fund code: a manual SCPI they adopted keeps the provider the user typed.
+   * Banque Populaire stamps its regional bank's name, so it matches any of those labels.
    */
   const sessionProviders = useMemo(() => [
     {
@@ -255,6 +289,25 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       running: isJobRunning(caisseEpargneStatus?.syncStatus),
     },
     {
+      // No exact `provider`: every Banque Populaire label goes through `ownsAccount`, so a
+      // manual account carrying one (picked from the bank catalog or typed) never shows a
+      // session row: this connector never synced it.
+      type: 'banque-populaire' as const, name: 'Banque Populaire', provider: undefined,
+      ownsAccount: (a: Account) =>
+        !a.isManual && a.provider != null && BANQUE_POPULAIRE_PROVIDERS.has(a.provider),
+      active: banquePopulaireStatus?.isActive ?? false, lastSyncedAt: banquePopulaireStatus?.lastSyncCompletedAt ?? null,
+      failed: banquePopulaireStatus?.syncStatus === 'FAILED',
+      running: isJobRunning(banquePopulaireStatus?.syncStatus),
+    },
+    {
+      type: 'lbp' as const, name: 'La Banque Postale', provider: 'La Banque Postale',
+      active: lbpStatus?.isActive ?? false, lastSyncedAt: lbpStatus?.lastSyncCompletedAt ?? null,
+      hasSession: lbpStatus != null
+        && (lbpStatus.isActive || lbpStatus.syncStatus !== 'IDLE' || lbpStatus.savedIdentifier != null),
+      failed: lbpStatus?.syncStatus === 'FAILED',
+      running: isJobRunning(lbpStatus?.syncStatus),
+    },
+    {
       type: 'bourse-direct' as const, name: 'Bourse Direct', provider: 'Bourse Direct',
       active: bourseDirectStatus?.isActive ?? false, lastSyncedAt: bourseDirectStatus?.lastSyncCompletedAt ?? null,
       failed: bourseDirectStatus?.syncStatus === 'FAILED',
@@ -278,6 +331,13 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       type: 'simplefin' as const, name: 'SimpleFIN', provider: 'SimpleFIN',
       active: simplefinStatus?.connected ?? false, lastSyncedAt: simplefinStatus?.lastSyncedAt ?? null,
       failed: simplefinStatus?.status === 'ERROR',
+    },
+    {
+      type: 'wise' as const, name: 'Wise Jars', provider: 'Wise Jars',
+      active: wiseStatus?.connected ?? false, lastSyncedAt: wiseStatus?.lastSyncedAt ?? null,
+      failed: wiseStatus?.status === 'ERROR' || wiseStatus?.status === 'REAUTH_REQUIRED',
+      // A refused token only clears with a new one, pasted on the Wise Jars tab.
+      reauth: wiseStatus?.status === 'REAUTH_REQUIRED',
     },
     {
       type: 'amex' as const, name: 'American Express', provider: 'American Express',
@@ -309,6 +369,13 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       running: isJobRunning(cmesStatus?.syncStatus),
     },
     {
+      type: 'natixis' as const, name: 'Natixis Interépargne', provider: 'Natixis Interépargne',
+      active: natixisStatus?.isActive ?? false, lastSyncedAt: natixisStatus?.lastSyncCompletedAt ?? null,
+      hasSession: natixisStatus != null && natixisStatus.syncStatus !== 'IDLE',
+      failed: natixisStatus?.syncStatus === 'FAILED',
+      running: isJobRunning(natixisStatus?.syncStatus),
+    },
+    {
       type: 'cic' as const, name: 'CIC (livrets)', provider: 'CIC',
       active: cicStatus?.isActive ?? false, lastSyncedAt: cicStatus?.lastSyncCompletedAt ?? null,
       hasSession: cicStatus != null && cicStatus.syncStatus !== 'IDLE',
@@ -316,7 +383,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       running: isJobRunning(cicStatus?.syncStatus),
       canReconnect: cicStatus?.canReconnect === true,
     },
-  ], [cicStatus, cmesStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
+  ], [cicStatus, cmesStatus, natixisStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, banquePopulaireStatus, lbpStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus, wiseStatus])
 
   const retryBankMutation     = useRetryBankSync()
   const reconnectBankMutation = useReconnectBankSync()
@@ -327,18 +394,22 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const completeTrMutation   = useCompleteTrAuth()
   const syncBoursoMutation   = useProviderSync("bourso")
   const syncCaisseEpargneMutation = useProviderSync("caisseEpargne")
+  const syncBanquePopulaireMutation = useProviderSync("banquePopulaire")
+  const syncLbpMutation = useProviderSync("lbp")
   const syncAmundiMutation       = useProviderSync("amundi")
   const syncFortuneoMutation     = useProviderSync("fortuneo")
   const syncBourseDirectMutation = useProviderSync("bourseDirect")
   const syncDegiroMutation       = useSyncDegiro()
   const syncIbkrMutation         = useSyncIbkr()
   const syncSimplefinMutation    = useSyncSimplefin()
+  const syncWiseMutation         = useSyncWise()
   const startRevolutMutation     = useStartRevolutSync()
   const confirmRevolutMutation   = useConfirmRevolutSync()
   const syncAmexMutation         = useProviderSync("amex")
   const syncCorumMutation        = useProviderSync("corum")
   const syncSofidyMutation       = useProviderSync("sofidy")
   const syncCmesMutation = useProviderSync("cmes")
+  const syncNatixisMutation = useProviderSync("natixis")
   const syncCicMutation = useProviderSync("cic")
 
   // Track syncing state per connection
@@ -520,6 +591,12 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       case 'caisse-epargne':
         syncCaisseEpargneMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
+      case 'banque-populaire':
+        syncBanquePopulaireMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
+      case 'lbp':
+        syncLbpMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
       case 'amundi':
         syncAmundiMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
@@ -538,6 +615,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       case 'simplefin':
         syncSimplefinMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
+      case 'wise':
+        syncWiseMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
       case 'amex':
         syncAmexMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
@@ -549,6 +629,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
         break
       case 'cmes':
         syncCmesMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
+      case 'natixis':
+        syncNatixisMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
       case 'cic':
         syncCicMutation.mutate(undefined, rowCallbacks(formatGeneric))
@@ -586,17 +669,21 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncTrMutation,
     syncBoursoMutation,
     syncCaisseEpargneMutation,
+    syncBanquePopulaireMutation,
+    syncLbpMutation,
     syncAmundiMutation,
     syncFortuneoMutation,
     syncBourseDirectMutation,
     syncDegiroMutation,
     syncIbkrMutation,
     syncSimplefinMutation,
+    syncWiseMutation,
     startRevolutMutation,
     syncAmexMutation,
     syncCorumMutation,
     syncSofidyMutation,
     syncCmesMutation,
+    syncNatixisMutation,
     syncCicMutation,
     queryClient,
     t,
@@ -678,7 +765,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     connections
       .filter(isBatchSyncable)
       .forEach(connection => {
-        if (!syncingIds.has(connection.id)) {
+        if (!syncingIds.has(connection.id) && !connection.running) {
           syncInPlace(connection)
         }
       })
@@ -688,9 +775,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   // do, and an enabled button that quietly does nothing reads as a broken one.
   const hasBatchSyncable = connections.some(isBatchSyncable)
 
-  const isSyncAll = syncingIds.size > 0 && connections
+  const isSyncAll = connections.some(c => syncingIds.has(c.id) || c.running === true) && connections
     .filter(isBatchSyncable)
-    .every(c => syncingIds.has(c.id))
+    .every(c => syncingIds.has(c.id) || c.running === true)
 
   // --- TR inline auth ---
   // Error-state semantics (see docs/features/trade-republic.md): an initiate
