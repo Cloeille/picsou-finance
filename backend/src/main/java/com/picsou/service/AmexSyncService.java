@@ -1,7 +1,11 @@
 package com.picsou.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
+import com.picsou.config.RateLimitConfig;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
@@ -18,10 +22,12 @@ import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.sync.SourceSyncResult;
+import io.github.bucket4j.Bucket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataAccessException;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -30,6 +36,7 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -46,9 +53,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+
+import static com.picsou.service.SyncValues.requireTransactionResult;
 
 /**
  * Imports the American Express credit card: balance, and (when the sidecar returns them)
@@ -80,6 +90,9 @@ public class AmexSyncService {
     /** How recent a row from the earlier id format must be to be treated as possibly pending. */
     private static final int LEGACY_PENDING_WINDOW_DAYS = 7;
     private static final Pattern CURRENT_TX_ID = Pattern.compile("^amex_txp?_[0-9a-f]{32}$");
+    private static final long PENDING_CREDENTIALS_SECONDS = 600;
+    private static final String DEFAULT_METHOD = "sms";
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final AmexAdapter port;
     private final SidecarSessionRepository sessionRepository;
@@ -89,7 +102,17 @@ public class AmexSyncService {
     private final AccountService accountService;
     private final FortuneoTransactionWriter transactionWriter;
     private final CryptoEncryption encryption;
+    private final TransactionTemplate txTemplate;
     private final SidecarSyncTemplate<List<PreparedAccount>> sync;
+    private final Clock clock;
+    /**
+     * Each member's unattended re-logins, throttled on the AMEX login budget
+     * ({@link RateLimitConfig#createAmexAuthBucket}) apart from the {@code /api/amex/sync}
+     * bucket: every re-login is a real credential check against AMEX.
+     */
+    private final Map<Long, Bucket> reloginBuckets;
+    /** Credentials of a login waiting for its code, by process id: stored on the session once it completes. */
+    private final Map<String, PendingCredentials> pendingCredentials = new ConcurrentHashMap<>();
 
     public AmexSyncService(
         AmexAdapter port,
@@ -101,7 +124,9 @@ public class AmexSyncService {
         FortuneoTransactionWriter transactionWriter,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
-        @Qualifier("amexSyncExecutor") Executor syncExecutor
+        @Qualifier("amexSyncExecutor") Executor syncExecutor,
+        @Qualifier("amexReloginBuckets") Map<Long, Bucket> reloginBuckets,
+        Clock clock
     ) {
         this.port = port;
         this.sessionRepository = sessionRepository;
@@ -111,6 +136,9 @@ public class AmexSyncService {
         this.accountService = accountService;
         this.transactionWriter = transactionWriter;
         this.encryption = encryption;
+        this.txTemplate = txTemplate;
+        this.reloginBuckets = reloginBuckets;
+        this.clock = clock;
         this.sync = new SidecarSyncTemplate<>(SidecarBank.AMEX, new Strategy(), sessionRepository,
             memberRepository, encryption, txTemplate, syncExecutor, false);
     }
@@ -118,10 +146,15 @@ public class AmexSyncService {
     private final class Strategy implements SidecarSyncStrategy<List<PreparedAccount>> {
         @Override
         public List<PreparedAccount> fetch(SidecarSyncJob job) {
-            // Preserve caller ownership: a history recovery is explicit and uses the saved session.
-            return prepareAccounts(job.history()
-                ? port.fetchTransactionHistory(job.plainState())
-                : port.fetchAccounts(job.plainState()));
+            List<AmexAdapter.AccountData> fetched;
+            try {
+                fetched = read(job, job.plainState());
+            } catch (SyncException ex) {
+                if (codeOf(ex) != SidecarErrorCode.SESSION_EXPIRED) throw ex;
+                // One re-login per run, never a loop: its own failure ends the run.
+                fetched = reauthenticateAndFetch(job);
+            }
+            return prepareAccounts(fetched);
         }
 
         @Override
@@ -137,25 +170,66 @@ public class AmexSyncService {
         public String describe(List<PreparedAccount> prepared) {
             return "accounts=" + prepared.size();
         }
+
+        /** A rejected password must not be replayed by every scheduled sync: the site may lock the access. */
+        @Override
+        public void onFailure(SidecarSession session, SidecarErrorCode code) {
+            if (code == SidecarErrorCode.INVALID_CREDENTIALS) {
+                session.setEncryptedCredentials(null);
+            }
+        }
     }
 
-    public AuthInitResponse initiateAuth(String login, String password, String method, Long memberId) {
-        SidecarInitiate result = port.initiateAuth(login, password, method);
+    /** Preserve caller ownership: a history recovery is explicit and uses the saved session. */
+    private List<AmexAdapter.AccountData> read(SidecarSyncJob job, String plainState) {
+        return job.history() ? port.fetchTransactionHistory(plainState) : port.fetchAccounts(plainState);
+    }
+
+    /**
+     * Logs in and, when no code is asked, queues the import. The member's previous session goes
+     * along so Amex can recognise the trusted device and skip the code. With {@code remember}
+     * the credentials are stored encrypted on the new session (once the code is entered, if one
+     * is asked) for the unattended re-login; without it none are, and any stored by an earlier
+     * login go with the session this one replaces.
+     */
+    public AuthInitResponse initiateAuth(String login, String password, String method, boolean remember, Long memberId) {
+        SidecarInitiate result = port.initiateAuth(login, password, method, previousPlainState(memberId));
         if (!result.mfaRequired()) {
             if (result.sessionState() == null || result.sessionState().isBlank()) {
                 throw error(SidecarErrorCode.INVALID_DATA, "American Express did not return a session", null);
             }
-            storeSessionAndQueue(result.sessionState(), memberId);
+            storeSessionAndQueue(result.sessionState(), memberId,
+                remember ? new Credentials(login, password, method) : null);
+        } else if (remember && result.processId() != null) {
+            evictExpiredPendingCredentials();
+            pendingCredentials.put(result.processId(), new PendingCredentials(
+                new Credentials(login, password, method),
+                clock.instant().plusSeconds(PENDING_CREDENTIALS_SECONDS), memberId));
         }
         return new AuthInitResponse(result.processId(), result.mfaRequired(), result.mfaType());
     }
 
+    @Scheduled(fixedDelay = 60_000, initialDelay = 60_000)
+    public void evictExpiredPendingCredentials() {
+        Instant now = clock.instant();
+        pendingCredentials.entrySet().removeIf(entry -> !entry.getValue().expiresAt().isAfter(now));
+    }
+
     public SessionStatusResponse completeAuth(String processId, String otp, Long memberId) {
+        // A wrong code throws before the pending credentials are dropped, so the member's next
+        // try on the same attempt still stores them.
         String plainState = port.completeAuth(processId, otp);
         if (plainState == null || plainState.isBlank()) {
             throw error(SidecarErrorCode.INVALID_DATA, "American Express did not return a session", null);
         }
-        return storeSessionAndQueue(plainState, memberId);
+        PendingCredentials pending = pendingCredentials.get(processId);
+        Credentials credentials = null;
+        if (pending != null && pending.memberId().equals(memberId)
+            && pendingCredentials.remove(processId, pending)
+            && pending.expiresAt().isAfter(clock.instant())) {
+            credentials = pending.credentials();
+        }
+        return storeSessionAndQueue(plainState, memberId, credentials);
     }
 
     public SessionStatusResponse queueSync(Long memberId) {
@@ -170,13 +244,148 @@ public class AmexSyncService {
         return toStatus(sync.queue(memberId, history));
     }
 
-    private SessionStatusResponse storeSessionAndQueue(String plainState, Long memberId) {
+    private SessionStatusResponse storeSessionAndQueue(String plainState, Long memberId, Credentials credentials) {
         // Initial connect imports the full provider history (same provider-max request the
         // explicit recovery action runs): the connect flow is already the heavy operation
         // (browser login + OTP), and every other sidecar imports deeply at connect. Routine
         // syncs (manual button, daily scheduler) keep the cheap 90-day window.
-        sync.replaceAndQueue(memberId, plainState, true, session -> {});
+        sync.replaceAndQueue(memberId, plainState, true, session -> {
+            if (credentials != null) {
+                session.setEncryptedCredentials(encryption.encrypt(serializeCredentials(credentials)));
+            }
+        });
         return getStatus(memberId);
+    }
+
+    /** The stored session, even an expired one: only its remembered-device cookie is reused. */
+    private String previousPlainState(Long memberId) {
+        try {
+            return sessionRepository.findByBankAndMemberId(SidecarBank.AMEX, memberId)
+                .map(session -> encryption.decrypt(session.getSessionState()))
+                .orElse(null);
+        } catch (RuntimeException ex) {
+            log.info("Could not reuse the previous American Express session (member={})", memberId);
+            return null;
+        }
+    }
+
+    /**
+     * The session died within hours of its login, so nearly every scheduled sync lands here. With
+     * stored credentials the sync logs in again through the sidecar, carrying the previous session
+     * for its trusted-device cookies, replaces the session and reads with the new one; a login that
+     * still asks for a code cannot be finished unattended and reads as an expired session. Without
+     * stored credentials the run ends as SESSION_EXPIRED and the member reconnects. A rejected
+     * password surfaces as INVALID_CREDENTIALS, which {@link Strategy#onFailure} turns into cleared
+     * credentials and an inactive session. Credentials that no longer decrypt or parse are cleared
+     * too, since no run could ever use them.
+     *
+     * <p>A member's re-logins draw on their own bucket; once it is spent the run ends as
+     * UPSTREAM_UNAVAILABLE without calling AMEX, which keeps the session active and the credentials
+     * stored for a later run.
+     */
+    private List<AmexAdapter.AccountData> reauthenticateAndFetch(SidecarSyncJob job) {
+        SidecarSession session = requireTransactionResult(txTemplate.execute(
+            status -> sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
+        )).orElse(null);
+        if (session == null || !session.isActive()
+            || session.getSyncStatus() != SidecarSyncStatus.RUNNING
+            || session.getEncryptedCredentials() == null) {
+            throw error(SidecarErrorCode.SESSION_EXPIRED, "American Express session expired", null);
+        }
+        Credentials credentials;
+        try {
+            credentials = parseCredentials(encryption.decrypt(session.getEncryptedCredentials()));
+        } catch (RuntimeException ex) {
+            // Only the type: neither the stored value nor what it decrypted to belongs in a log.
+            log.warn("American Express stored credentials are unreadable and were cleared (member={}; type={})",
+                job.memberId(), ex.getClass().getSimpleName());
+            clearStoredCredentials(job);
+            throw error(SidecarErrorCode.SESSION_EXPIRED, "American Express session expired", null);
+        }
+        if (!reloginBuckets.computeIfAbsent(job.memberId(), key -> RateLimitConfig.createAmexAuthBucket())
+                .tryConsume(1)) {
+            log.warn("American Express re-login throttled (member={})", job.memberId());
+            throw error(SidecarErrorCode.UPSTREAM_UNAVAILABLE,
+                "Too many American Express re-logins. Please try again later.", null);
+        }
+        SidecarInitiate result;
+        try {
+            result = port.reauthenticate(credentials.login(), credentials.password(), credentials.method(),
+                job.plainState());
+        } catch (SyncException ex) {
+            throw ex;
+        } catch (RuntimeException ex) {
+            // Not a translated sidecar error: its message or causes may quote the request,
+            // password included, so neither is kept nor logged.
+            log.error("American Express re-login failed unexpectedly (member={}; type={})",
+                job.memberId(), ex.getClass().getName());
+            throw error(SidecarErrorCode.INTERNAL_ERROR, "American Express re-login failed", null);
+        }
+        if (result.mfaRequired()) {
+            log.info("American Express asks for a code on re-login (member={}; type={})",
+                job.memberId(), result.mfaType());
+            throw error(SidecarErrorCode.SESSION_EXPIRED, "American Express requires a new code", null);
+        }
+        if (result.sessionState() == null || result.sessionState().isBlank()) {
+            throw error(SidecarErrorCode.INVALID_DATA, "American Express returned no session", null);
+        }
+        String newState = result.sessionState();
+        Boolean updated = txTemplate.execute(status -> sessionRepository
+            .findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
+            .filter(current -> current.isActive() && current.getSyncStatus() == SidecarSyncStatus.RUNNING)
+            .map(current -> {
+                current.updateSessionState(encryption.encrypt(newState), Instant.now());
+                sessionRepository.save(current);
+                return true;
+            })
+            .orElse(false));
+        if (!Boolean.TRUE.equals(updated)) {
+            throw error(SidecarErrorCode.SESSION_EXPIRED, "American Express session changed", null);
+        }
+        log.info("American Express re-logged in with stored credentials (member={})", job.memberId());
+        return read(job, newState);
+    }
+
+    /** Clears the job's stored credentials if the session is still in flight. */
+    private void clearStoredCredentials(SidecarSyncJob job) {
+        txTemplate.executeWithoutResult(status ->
+            sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
+                .filter(SidecarSession::isSyncInFlight)
+                .ifPresent(current -> {
+                    current.setEncryptedCredentials(null);
+                    sessionRepository.save(current);
+                }));
+    }
+
+    /** The credentials as the JSON that {@link #parseCredentials} reads back. Plaintext: encrypted before it is stored. */
+    private String serializeCredentials(Credentials credentials) {
+        try {
+            return JSON.writeValueAsString(Map.of(
+                "login", credentials.login(), "password", credentials.password(), "method", credentials.method()));
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Could not encode credentials");
+        }
+    }
+
+    /**
+     * Reads credentials back from {@link #serializeCredentials}. Malformed JSON, a blank login or
+     * password, or an unknown method is refused, so a damaged value is never replayed. A missing
+     * method reads as SMS.
+     */
+    private Credentials parseCredentials(String value) {
+        try {
+            JsonNode node = JSON.readTree(value);
+            String login = node.path("login").asText();
+            String password = node.path("password").asText();
+            String method = node.path("method").asText(DEFAULT_METHOD);
+            if (method.isBlank()) method = DEFAULT_METHOD;
+            if (login.isBlank() || password.isBlank() || !(method.equals("sms") || method.equals("email"))) {
+                throw new IllegalArgumentException("Invalid credentials");
+            }
+            return new Credentials(login, password, method);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalArgumentException("Invalid credentials", ex);
+        }
     }
 
     private List<PreparedAccount> prepareAccounts(List<AmexAdapter.AccountData> fetched) {
@@ -652,6 +861,7 @@ public class AmexSyncService {
     }
 
     public void clearSession(Long memberId) {
+        pendingCredentials.entrySet().removeIf(entry -> entry.getValue().memberId().equals(memberId));
         sync.clear(memberId);
     }
 
@@ -717,7 +927,8 @@ public class AmexSyncService {
             session.getSyncStatus(),
             session.getLastSyncStartedAt(),
             session.getLastSyncCompletedAt(),
-            session.getLastSyncError()
+            session.getLastSyncError(),
+            session.getEncryptedCredentials() != null
         );
     }
 
@@ -779,12 +990,23 @@ public class AmexSyncService {
         SidecarSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
-        SidecarErrorCode lastSyncError
+        SidecarErrorCode lastSyncError,
+        /** Whether credentials are stored for the unattended re-login. Never the credentials themselves. */
+        boolean credentialsRemembered
     ) implements SidecarSessionView {
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null);
+            return new SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null, false);
         }
     }
+
+    private record Credentials(String login, String password, String method) {
+        @Override
+        public String toString() {
+            return "Credentials[redacted]";
+        }
+    }
+
+    private record PendingCredentials(Credentials credentials, Instant expiresAt, Long memberId) {}
 
     private record PreparedAccount(
         String externalId,

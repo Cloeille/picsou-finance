@@ -2063,6 +2063,8 @@
       "syncing": "Synchronisation en cours…",
       "syncSuccess": "Carte American Express synchronisée.",
       "clearSession": "Déconnecter",
+      "remember": "Mémoriser mes identifiants (chiffrés)",
+      "credentialsRemembered": "Identifiants mémorisés (chiffrés) : Picsou se reconnecte seul quand la session expire, sans code tant qu'American Express reconnaît l'appareil. Déconnectez pour les oublier.",
       "noSession": "Aucune session active",
       "sessionActive": "Session active",
       "scope": "Synchronise votre carte American Express : solde et transactions récentes comptabilisées/en attente. La récupération demande davantage de transactions dans les limites de l’API AMEX.",

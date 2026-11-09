@@ -1582,7 +1582,7 @@ const demoIdleSidecar = {
   lastSyncError: null,
 }
 handlers.set(key('GET', '/bourse-direct/status'), () => ({ ...demoIdleSidecar, expiresAt: null }))
-handlers.set(key('GET', '/amex/status'), () => demoIdleSidecar)
+handlers.set(key('GET', '/amex/status'), () => ({ ...demoIdleSidecar, credentialsRemembered: false }))
 handlers.set(key('GET', '/corum/status'), () => demoIdleSidecar)
 handlers.set(key('GET', '/sofidy/status'), () => demoIdleSidecar)
 handlers.set(key('GET', '/degiro/status'), () => ({ isActive: false, status: null, lastSyncedAt: null }))

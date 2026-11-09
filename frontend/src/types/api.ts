@@ -1455,7 +1455,8 @@ export type AmundiAuthInitResponse = SidecarAuthInitResponse<'APP_PUSH' | 'SMS'>
 
 // --- American Express ---
 
-export type AmexSessionStatus = SidecarSessionStatusOf<AmexErrorCode>
+/** `credentialsRemembered`: the member ticked "remember" at login, so an expired session logs in again by itself. */
+export type AmexSessionStatus = SidecarSessionStatusOf<AmexErrorCode, { credentialsRemembered: boolean }>
 
 export type AmexErrorCode =
   | 'INVALID_CREDENTIALS'

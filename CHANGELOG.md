@@ -192,6 +192,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **American Express can log in again by itself.** The connection form has a "Remember my
+  credentials (encrypted)" box. Ticked, the daily sync signs in again on its own when the session
+  has expired, without a code as long as American Express recognises the device (Picsou now
+  ticks "trusted device" after your code). If American Express asks for a code anyway, no SMS
+  is sent and you reconnect as before. A refused password is forgotten. Disconnect forgets
+  everything (#537).
+
 - **Caisse d'Epargne remembers your identifier.** A reconnect after the bank session
   expired no longer asks for the identifier again: the one from the last successful login is
   stored encrypted, like BoursoBank's (migration `V145`). The password and the Sécur'Pass
