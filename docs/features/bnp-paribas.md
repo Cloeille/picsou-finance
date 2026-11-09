@@ -132,6 +132,13 @@ title as a length, form ids and field names and types, a few element ids. Names 
   4 -> compte-titres (PEA by label), 5 and 6 -> life insurance (PER by label), 8 and 9 -> loan. Anything
   else is `unsupported`.
 - Life insurance imports its balance only; positions are not read.
+- Operations come from `releveOp` (`listerOperations.compte.operationPassee`). `dateOperation` is written day
+  first with dashes (`31-01-2026`); the slash and ISO forms are still read. One operation that cannot be read
+  makes the whole history unusable and the account incomplete, so a wrong date format fails the sync instead
+  of importing wrong dates.
+- The IBAN is joined from `rib-wspl/rpc/comptes` on `ibanCrypte` = the account's `key` and kept only when it is
+  a well-formed IBAN. On the account seen live the `iban` field held 21 digits, not an IBAN, and only the
+  current account was listed: the IBAN stays empty there and the account id falls back to the masked number.
 - An account is matched by its external id, then by IBAN across the provider family (BNP Paribas and
   Hello bank! share one platform, and an existing Enable Banking link of the same bank is adopted), so it
   is not duplicated.

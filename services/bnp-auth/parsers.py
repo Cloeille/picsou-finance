@@ -170,7 +170,8 @@ def parse_accounts(data: Any, ibans: dict[str, str]) -> tuple[list[dict], list[d
 
 def french_date(value: Any) -> date | None:
     raw = str(value or "").strip()
-    for pattern in ("%d/%m/%Y", "%Y-%m-%d"):
+    # `releveOp` writes `dateOperation` day first with dashes (31-01-2026).
+    for pattern in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d"):
         try:
             return datetime.strptime(raw, pattern).date()
         except ValueError:
