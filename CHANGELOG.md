@@ -192,6 +192,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **American Express no longer says its site changed when the login page is just slow.** The
+  login form is drawn by a script American Express loads separately, which is sometimes slow or
+  fails. The connection now waits longer and reloads the page once; if the page still has no form,
+  you are asked to try again ("Impossible de joindre American Express") instead of being told the
+  site format changed. That message now only appears when the page loads twice without its fields (#482).
+
 - **Caisse d'Epargne remembers your identifier.** A reconnect after the bank session
   expired no longer asks for the identifier again: the one from the last successful login is
   stored encrypted, like BoursoBank's (migration `V145`). The password and the Sécur'Pass
