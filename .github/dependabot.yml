@@ -31,6 +31,12 @@ updates:
     directory: /frontend
     schedule:
       interval: weekly
+    # TypeScript 7 is the native port: typescript-eslint caps its peer range at
+    # typescript <6.1.0 and tsconfig `baseUrl` is removed, so a lone major bump
+    # does not lint or typecheck (#526). Minor and patch updates still come through.
+    ignore:
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
   # All sidecars inherit these pins; requirements-{chromium,camoufox}.txt keep
   # browser-specific dependencies separate. Browser bumps require review
   # of the Camoufox protocol compatibility and the image smoke tests.
