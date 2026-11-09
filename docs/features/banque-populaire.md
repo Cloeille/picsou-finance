@@ -56,9 +56,12 @@ Banque Populaire accounts look like the ones Enable Banking creates for the same
 | `3/02` | `SAVINGS` (Compte sur Livret, provisional), with transactions | yes ("Compte Sur Livret", with `contractPfmId`) |
 | `3/04` | `PEL` (provisional), with transactions | yes ("Plan Epargne Logement", with `contractPfmId`) |
 | `3/28` | `LDDS`, with transactions | yes ("Livret De Developpement Durable Et Solidaire") |
-| `6/12`, `6/13` loans, `4/05` PER, `4/09` term deposit, `4/10` cooperative shares, `2/11` revolving credit, anything else | listed in `unsupported`, never fetched, never fatal | revolving credit `2/11`, PER `4/05`, term deposit `4/09` and cooperative shares `4/10` seen (none with `contractPfmId`) |
+| `4/05` | `PER`, with euro pocket and UC positions from the Natixis insurer gateway (`PERIB`) | yes ("PER", routed to `clientToken/PERIB…`) |
+| `4/09` | `SAVINGS` (`TERM_DEPOSIT`, provisional), balance from the synthesis (no PFM transactions) | yes ("Tip Top'P 3 Ans", without `contractPfmId`) |
+| `4/10` | `SAVINGS` (`COOPERATIVE_SHARES`, provisional), balance from the synthesis (no PFM transactions) | yes ("Part Sociale BP", without `contractPfmId`) |
+| `6/12`, `6/13` loans, `2/11` revolving credit, anything else | listed in `unsupported`, never fetched, never fatal | revolving credit `2/11` seen (without `contractPfmId`) |
 
-Loans and the PER read their detail through separate OAuth clients on Caisse d'Epargne. Their Banque Populaire equivalents were never observed, so this version does not guess them.
+Personal and home loans read their detail through separate OAuth clients on Caisse d'Epargne. Their Banque Populaire equivalents were never observed, so this version does not guess them. The PER uses the Banque Populaire Natixis Assurance OAuth client (`dcd51401-debb-47e4-ad8d-12a72e529f08` on `www.espace-assurances-de-personnes.banquepopulaire.fr`) and the `PERIB` producer contract prefix.
 
 ### Wrong identifier or password
 
@@ -71,12 +74,13 @@ The bank answers a wrong identifier or password with a modal titled "Identifiant
 | Shared `bpce` package + `BpceSyncEngine` | Same platform, one place to fix | Duplicating the Caisse d'Epargne stack |
 | Region chosen by the user at each login, stored on the session | The bank's page requires it; the sync needs it to name the accounts and find the logo | Guessing it from the identifier; taking it from the `/complete` request |
 | Provider = the regional bank's official name, logo from the Enable Banking catalog | The accounts look exactly like those Enable Banking creates for that bank | A generic `Banque Populaire` label; a bundled logo per region |
-| Loans and PER unsupported | Their BP clients and hosts were not observed | Reusing the Caisse d'Epargne client ids |
+| `TERM_DEPOSIT` (`4/09`) and `COOPERATIVE_SHARES` (`4/10`) as synthesis-only provisional kinds mapped to `AccountType.SAVINGS` | They carry no `contractPfmId` and have no PFM transactions, unlike `3/02` (`SAVINGS`) | Mapping `4/09` and `4/10` to `"SAVINGS"` in Python, which would require an integer `contractPfmId` and call the PFM transactions endpoint |
+| Loans unsupported | Their BP clients and hosts were not observed | Reusing the Caisse d'Epargne client ids |
 
 ## Gotchas / Pitfalls
 
 - A BPCE `3/01` code covers both Livret A and Livret Jeune. The product label tells them apart (whole word `JEUNE`), for both banks. A LEP label (`LEP`, `EPARGNE POPULAIRE`) is imported as `LEP` (not observed live).
-- `3/02` (`SAVINGS`, Compte sur Livret) and `3/04` (`PEL`) are enabled on Banque Populaire through `Site.provisional_kinds=frozenset({"SAVINGS", "PEL"})` ([ADR](../decisions/2026-11-07-provisional-kinds-per-bank.md)): an unreadable entry is demoted to `unsupported` instead of failing the synthesis, and `3/02` stays in `unsupported_families` on Caisse d'Epargne until observed there.
+- `3/02` (`SAVINGS`, Compte sur Livret), `3/04` (`PEL`), `4/09` (`TERM_DEPOSIT`, term deposit) and `4/10` (`COOPERATIVE_SHARES`, cooperative shares) are enabled on Banque Populaire through `Site.provisional_kinds=frozenset({"SAVINGS", "PEL", "TERM_DEPOSIT", "COOPERATIVE_SHARES"})` ([ADR](../decisions/2026-11-07-provisional-kinds-per-bank.md)): an unreadable entry is demoted to `unsupported` instead of failing the synthesis, and `3/02`, `4/09` and `4/10` stay in `unsupported_families` on Caisse d'Epargne until observed there.
 - The host allow-list is strictly `*.banquepopulaire.fr`. A `caisse-epargne.fr` or `bpce.fr` URL is refused for this bank, and the other way round for Caisse d'Epargne.
 - During login, an earlier authorize request (client `adad0322-…`, `response_type=id_token token`) runs on the login host. Only the authorize sent from the client space is captured, as for Caisse d'Epargne.
 - The shared sidecar code logs under the `bpce` logger name for both banks.
@@ -93,6 +97,6 @@ The bank answers a wrong identifier or password with a modal titled "Identifiant
 
 Run live end to end on 2026-11-05 with a Rives de Paris account, through the dev stack (sidecar, backend, frontend): region picker, identifier with its letter, keypad, Sécur'Pass approval, session stored, first sync `SUCCESS`. It imported a current account, a Livret A and a Livret Jeune with their transactions (several hundred rows on the current account, paged within the 365-day window) all with the `bp_` prefix; the revolving credit was listed in `unsupported` (family `2`). That run also imported the Visa Premier as a `CREDIT` card (the bank reports `cardCreditIndicator=true`) with no operations; cards were taken out of the Banque Populaire scope afterwards and are no longer imported. A wrong identifier was also seen live: the bank still shows a keypad, then the refusal modal.
 
-Run live on 2026-11-08 with a Val de France account: imported a current account, a Livret A (`3/01`), a Livret Jeune (`3/01`), an LDDS (`3/28`), and revealed a Compte sur Livret (`3/02`) and a PEL (`3/04`), both carrying a `contractPfmId`, plus `4/05` (PER), `4/09` (term deposit) and `4/10` (cooperative shares) without a `contractPfmId`.
+Run live on 2026-11-08 with a Val de France account: imported a current account, a Livret A (`3/01`), a Livret Jeune (`3/01`), an LDDS (`3/28`), and revealed a Compte sur Livret (`3/02`) and a PEL (`3/04`), both carrying a `contractPfmId`, plus `4/05` (PER, routed to Natixis Assurance via `clientToken/PERIB…`), `4/09` (term deposit "Tip Top'P 3 Ans") and `4/10` (cooperative shares "Part Sociale BP") without a `contractPfmId`.
 
-Not observed: LEP (`3/27` or `3/01` labelled LEP), loan, PER and revolving-credit detail.
+Not observed: LEP (`3/27` or `3/01` labelled LEP), loan and revolving-credit detail.

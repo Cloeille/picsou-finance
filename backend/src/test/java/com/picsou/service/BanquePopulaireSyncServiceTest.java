@@ -124,18 +124,23 @@ class BanquePopulaireSyncServiceTest {
             account("1004", "LDDS", "LDDS", "3000.00"),
             account("1005", "SAVINGS", "COMPTE SUR LIVRET", "250.00"),
             account("1006", "PEL", "PLAN EPARGNE LOGEMENT", "15000.00"),
+            account("contract:TD1", "TERM_DEPOSIT", "TIP TOP'P 3 ANS", "7500.00"),
+            account("contract:CS1", "COOPERATIVE_SHARES", "PART SOCIALE BP", "500.00"),
+            account("contract:ASVPERIB062036", "PER", "PLAN EPARGNE RETRAITE", "15800.00"),
             card());
 
         BanquePopulaireSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(BanquePopulaireSyncStatus.SUCCESS);
-        verify(accountRepository, times(7)).save(accountCaptor.capture());
+        verify(accountRepository, times(10)).save(accountCaptor.capture());
         List<Account> saved = accountCaptor.getAllValues();
         assertThat(saved).extracting(Account::getType).containsExactly(
             AccountType.CHECKING, AccountType.LIVRET_A, AccountType.LIVRET_JEUNE, AccountType.LDDS,
-            AccountType.SAVINGS, AccountType.PEL, AccountType.CREDIT_CARD);
+            AccountType.SAVINGS, AccountType.PEL, AccountType.SAVINGS, AccountType.SAVINGS,
+            AccountType.PER, AccountType.CREDIT_CARD);
         assertThat(saved).extracting(Account::getExternalAccountId)
-            .containsExactly("bp_1001", "bp_1002", "bp_1003", "bp_1004", "bp_1005", "bp_1006", "bp_2001");
+            .containsExactly("bp_1001", "bp_1002", "bp_1003", "bp_1004", "bp_1005", "bp_1006",
+                "bp_contract:TD1", "bp_contract:CS1", "bp_contract:ASVPERIB062036", "bp_2001");
         assertThat(saved).allSatisfy(account -> {
             assertThat(account.getProvider()).isEqualTo(RIVES_DE_PARIS);
             assertThat(account.getCurrency()).isEqualTo("EUR");
@@ -191,6 +196,80 @@ class BanquePopulaireSyncServiceTest {
             assertThat(row.getExternalId()).isEqualTo("bp_p1");
             assertThat(row.getAmount()).isEqualByComparingTo("45.00");
         });
+    }
+
+    @Test
+    void importsTermDepositAsSavingsAccount() {
+        BanquePopulairePort.AccountData termDeposit = new BanquePopulairePort.AccountData(
+            "contract:TD1", "TERM_DEPOSIT", null, new BigDecimal("7500.00"), "EUR", null, false,
+            null, null, null, null, null, null, null, List.of(), true, null);
+        arrangeCommittableSync(termDeposit);
+
+        service.queueSync(7L);
+
+        verify(accountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getType()).isEqualTo(AccountType.SAVINGS);
+        assertThat(accountCaptor.getValue().getExternalAccountId()).isEqualTo("bp_contract:TD1");
+        assertThat(accountCaptor.getValue().getName()).isEqualTo("Compte à terme");
+        assertThat(accountCaptor.getValue().getCurrentBalance()).isEqualByComparingTo("7500.00");
+        assertThat(accountCaptor.getValue().getColor()).isEqualTo("#f59e0b");
+        verify(transactionRepository, never()).saveAllAndFlush(any());
+    }
+
+    @Test
+    void importsCooperativeSharesAsSavingsAccount() {
+        BanquePopulairePort.AccountData shares = new BanquePopulairePort.AccountData(
+            "contract:CS1", "COOPERATIVE_SHARES", " ", new BigDecimal("500.00"), "EUR", null, false,
+            null, null, null, null, null, null, null, List.of(), true, null);
+        arrangeCommittableSync(shares);
+
+        service.queueSync(7L);
+
+        verify(accountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getType()).isEqualTo(AccountType.SAVINGS);
+        assertThat(accountCaptor.getValue().getExternalAccountId()).isEqualTo("bp_contract:CS1");
+        assertThat(accountCaptor.getValue().getName()).isEqualTo("Parts sociales");
+        assertThat(accountCaptor.getValue().getCurrentBalance()).isEqualByComparingTo("500.00");
+        assertThat(accountCaptor.getValue().getColor()).isEqualTo("#f59e0b");
+        verify(transactionRepository, never()).saveAllAndFlush(any());
+    }
+
+    @Test
+    void importsPerWithHoldingsAndEuroFund() {
+        LocalDate valuationDate = TODAY.minusDays(2);
+        BanquePopulairePort.PerPosition position = new BanquePopulairePort.PerPosition(
+            "XX0000000001", "Synthetic fund", new BigDecimal("10"), new BigDecimal("70.00"),
+            new BigDecimal("700.00"), valuationDate, 1);
+        BanquePopulairePort.PerDetails detail = new BanquePopulairePort.PerDetails(
+            new BigDecimal("1700.00"), new BigDecimal("1000.00"), valuationDate, List.of(position));
+        BanquePopulairePort.AccountData per = new BanquePopulairePort.AccountData(
+            "contract:ASVPERIB062036", "PER", null, new BigDecimal("1700.00"), "EUR", null, false,
+            null, null, null, null, null, null, null, List.of(), true, null, detail);
+        CaisseEpargnePerService.Prepared prepared = new CaisseEpargnePerService.Prepared(
+            new BigDecimal("1700.00"), new BigDecimal("1000.00"), valuationDate,
+            List.of(new CaisseEpargnePerService.PreparedPosition(
+                "TEST.PA", "Synthetic fund", new BigDecimal("10"), new BigDecimal("70.00"),
+                new BigDecimal("700.00"), valuationDate, "XX0000000001")),
+            java.util.Map.of(), java.util.Set.of());
+        when(perService.prepare(detail, "EUR")).thenReturn(prepared);
+        arrangeCommittableSync(per);
+
+        service.queueSync(7L);
+
+        verify(accountRepository).save(accountCaptor.capture());
+        Account saved = accountCaptor.getValue();
+        assertThat(saved.getType()).isEqualTo(AccountType.PER);
+        assertThat(saved.getExternalAccountId()).isEqualTo("bp_contract:ASVPERIB062036");
+        assertThat(saved.getName()).isEqualTo("PER");
+        assertThat(saved.getCurrentBalance()).isEqualByComparingTo("1700.00");
+        assertThat(saved.getCashBalance()).isEqualByComparingTo("1000.00");
+        assertThat(saved.getColor()).isEqualTo("#8b5cf6");
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(perService, accountService);
+        order.verify(perService).prepare(detail, "EUR");
+        order.verify(perService).apply(eq(saved), eq(prepared), any());
+        order.verify(accountService).upsertSnapshot(
+            eq(saved), eq(new BigDecimal("1700.00")), eq(new BigDecimal("1700.00")), eq(valuationDate));
+        order.verify(perService).backfill(prepared);
     }
 
     @Test

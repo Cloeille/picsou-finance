@@ -144,6 +144,17 @@ class HappyPathTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(str(insurer.requests[1].url).endswith("/clientToken/PERIC0001"))
         self.assertTrue(str(insurer.requests[2].url).endswith("/load/PER/IC/0001"))
 
+    async def test_banque_populaire_perib_contract_ids_and_ib_producer_routing(self):
+        for contract_id in ("00000     PERIB12345678", "PERIB062036", "ASVPERIB062036"):
+            with self.subTest(contract_id=contract_id):
+                insurer = FakeInsurer(
+                    routing=lambda _r: httpx.Response(201, json=routing_body(producer="PERIB062036"))
+                )
+                result = await fetch(insurer, contract_id=contract_id)
+                self.assertEqual(result, RAW_DETAIL)
+                self.assertTrue(str(insurer.requests[1].url).endswith("/clientToken/PERIB062036"))
+                self.assertTrue(str(insurer.requests[2].url).endswith("/load/PER/IB/062036"))
+
     async def test_wrapped_routing_answers_are_accepted(self):
         for wrapper in ("characteristics", "prepareRouting"):
             with self.subTest(wrapper):

@@ -19,11 +19,12 @@ Facts deliberately NOT guessed (the fixtures and findings do not settle them):
 * the unit of `fillingRatio` (21.8 in the fixture): passed through untouched;
 * the meaning of contract `status` (`2 Actif`): contracts are not filtered on it;
 * which product families exist beyond those observed (`1`, `3/01` Livret A or
-  Livret Jeune, `3/02` Compte sur Livret, `3/28` LDDS, `3/04` PEL, `3/27` LEP, `4/05` PER, `6/12` personal loan,
+  Livret Jeune, `3/02` Compte sur Livret, `3/28` LDDS, `3/04` PEL, `3/27` LEP, `4/05` PER,
+  `4/09` term deposit, `4/10` cooperative shares, `6/12` personal loan,
   `6/13` home loan): they are skipped (with their cards)
   and reported in `build_import(...)["unsupported"]` by id, family and sub
   code and catalogue `productLabel` (never `contractLabel`, never a balance), never mapped to a guessed kind, so a PEA or an insurance contract
-  cannot block the sync of the supported accounts. PER, loan and insurance
+  cannot block the sync of the supported accounts. PER, term deposit, cooperative shares, loan and insurance
   contracts carry a null `contractPfmId`: they are keyed by
   `contract:<contractId.id>` instead, and the kind is decided before any id
   is read;
@@ -63,7 +64,9 @@ LIVRET_A_LABEL = "LIVRET A"
 
 # Observed live 2026-10-13: `productFamilyPFM.code` / `subProductFamilyPFM.code`.
 # PEL `3/04` and LEP `3/27` observed live 2026-11-06; Compte sur Livret `3/02` and
-# PEL `3/04` observed live on Banque Populaire 2026-11-08 (all with a `contractPfmId`).
+# PEL `3/04` observed live on Banque Populaire 2026-11-08 (all with a `contractPfmId`);
+# term deposit `4/09` and cooperative shares `4/10` observed live on Banque Populaire
+# 2026-11-08 (without a `contractPfmId`).
 # Any other pair (insurance `5`, other sub codes) is unsupported, never fatal.
 _KINDS_BY_FAMILY = {
     (FAMILY_SAVINGS_AVAILABLE, "02"): "SAVINGS",
@@ -71,6 +74,8 @@ _KINDS_BY_FAMILY = {
     (FAMILY_SAVINGS_AVAILABLE, "04"): "PEL",
     (FAMILY_SAVINGS_AVAILABLE, "27"): "LEP",
     ("4", "05"): "PER",
+    ("4", "09"): "TERM_DEPOSIT",
+    ("4", "10"): "COOPERATIVE_SHARES",
     ("6", "12"): "LOAN",
     ("6", "13"): "LOAN",
 }
@@ -81,17 +86,18 @@ LOAN_PRODUCTS = {("6", "12"): "PERSONAL", ("6", "13"): "HOME"}
 LIVRET_A_FAMILY = (FAMILY_SAVINGS_AVAILABLE, "01")
 _LEP_LABEL_RE = re.compile(r"\bLEP\b|\bEPARGNE POPULAIRE\b")
 _JEUNE_LABEL_RE = re.compile(r"\bJEUNES?\b")
-# Kinds with PFM transactions, keyed by `contractPfmId`. PER and loan contracts
-# carry a null `contractPfmId` and are keyed by `contract:<contractId.id>`.
+# Kinds with PFM transactions, keyed by `contractPfmId`. PER, term deposits,
+# cooperative shares and loan contracts carry a null `contractPfmId` and are
+# keyed by `contract:<contractId.id>`.
 PFM_KINDS = frozenset(
     {"CURRENT_ACCOUNT", "SAVINGS", "LIVRET_A", "LIVRET_JEUNE", "LDDS", "PEL", "LEP"}
 )
 # Kinds seen in few live runs (2026-11-06, 2026-11-08). A contract of these kinds that the
-# parser cannot read (no integer `contractPfmId`, no balance, a negative balance...)
+# parser cannot read (no integer `contractPfmId` when required, no balance, a negative balance...)
 # is listed as unsupported instead of failing the whole synthesis, as it was before
 # they were supported; the loud failure of the long-observed kinds is kept for those.
 # Their cards are not read: a savings book or plan has none.
-PROVISIONAL_KINDS = frozenset({"SAVINGS", "PEL", "LEP"})
+PROVISIONAL_KINDS = frozenset({"SAVINGS", "PEL", "LEP", "TERM_DEPOSIT", "COOPERATIVE_SHARES"})
 
 # A family or sub-family code the bank sends: short and plain. Anything else is
 # reported as "?" so an unexpected value never reaches a log or the backend.
@@ -282,12 +288,15 @@ def _code(value: Any) -> str:
 
 
 def _check_balance_sign(kind: str, balance: Optional[dict], where: str) -> None:
-    # A loan is outstanding capital, negative on the bank side; a PER, a PEL, a LEP and
-    # a Compte sur Livret are assets. The other sign means the field changed meaning.
+    # A loan is outstanding capital, negative on the bank side; a PER, a PEL, a LEP,
+    # a Compte sur Livret, a term deposit and cooperative shares are assets. The other
+    # sign means the field changed meaning.
     if balance is None:  # `_money(required=True)` has already refused it
         raise ParseError(INVALID_SYNTHESIS, f"{where}.balance: missing")
     value = balance["value"]
-    if (kind == "LOAN" and value > 0) or (kind in ("PER", "SAVINGS", "PEL", "LEP") and value < 0):
+    if (kind == "LOAN" and value > 0) or (
+        kind in ("PER", "SAVINGS", "PEL", "LEP", "TERM_DEPOSIT", "COOPERATIVE_SHARES") and value < 0
+    ):
         raise ParseError(INVALID_SYNTHESIS, f"{where}.balance.value: unexpected sign for this kind")
 
 

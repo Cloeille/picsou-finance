@@ -8,8 +8,8 @@ its `SITE` is the shared `bpce` package (services/base/bpce). Two differences:
   * the identifier page first asks for the establishment (a regional bank or the
     BRED): `POST /initiate` takes `{customerId, region}`, `region` one of
     `REGION_CODES`, and the login picks the option with that exact text;
-  * no personal-loan, home-loan or PER app was observed: those contracts (6/12, 6/13,
-    4/05) and the revolving credit (2/11) are listed in `unsupported`, never read.
+  * no personal-loan or home-loan app was observed: those contracts (6/12, 6/13)
+    and the revolving credit (2/11) are listed in `unsupported`, never read.
 
 Safety rules, same as every sidecar:
   * every request but /health needs the shared key (`APP_SIDECAR_API_KEY`);
@@ -37,8 +37,8 @@ import asyncio
 from typing import Literal
 
 import httpx
-from bpce import fetcher, login, replay
-from bpce.site import Site
+from bpce import fetcher, login, per_client, replay
+from bpce.site import ChainProfile, PerApp, Site
 from fastapi import HTTPException, Request
 from picsou_sidecar import configure_logging, create_app
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
@@ -68,8 +68,9 @@ REGION_CODES = tuple(code for code, _ in REGIONS)
 # Hosts observed on the real bank, 2026-11-05. `service=dei` (Caisse d'Epargne's
 # entry) lands on `/se-connecter/erreur` here: the web front enters with `cyber`.
 SITE = Site(
-    # Seen in one live run (2026-11-08): Compte sur Livret 3/02 and PEL 3/04.
-    provisional_kinds=frozenset({"SAVINGS", "PEL"}),
+    # Seen in one live run (2026-11-08): Compte sur Livret 3/02, PEL 3/04,
+    # term deposit 4/09 and cooperative shares 4/10.
+    provisional_kinds=frozenset({"SAVINGS", "PEL", "TERM_DEPOSIT", "COOPERATIVE_SHARES"}),
     domain="banquepopulaire.fr",
     login_url="https://www.icgauth.banquepopulaire.fr/se-connecter/sso?service=cyber",
     client_host="www.banquepopulaire.fr",
@@ -83,7 +84,26 @@ SITE = Site(
     alphanumeric_identifier=True,
     # Cards are not imported for Banque Populaire.
     cards=False,
+    # The PER insurer app (espace-assurances-de-personnes) mints its own token
+    # (observed live 2026-11-08): public client and redirect from its `conf/conf.json`,
+    # an empty `scope` (the bank grants `assuranceVieAuth_get_<id> readUser`), no
+    # `claims`. Every other authorize parameter is the one the main chain sends.
+    per=PerApp(
+        chain=ChainProfile(
+            name="per",
+            overrides=(
+                ("client_id", "dcd51401-debb-47e4-ad8d-12a72e529f08"),
+                ("scope", ""),
+                ("redirect_uri", "https://www.espace-assurances-de-personnes.banquepopulaire.fr/postMessage/index.html"),
+            ),
+            drop=("claims",),
+        ),
+        gateway_host="www.rs-ext-bad-ib.banquepopulaire.fr",
+        insurer_host="www.espace-assurances-de-personnes.banquepopulaire.fr",
+    ),
 )
+
+PER_CHAIN = SITE.per.chain
 
 # Test seam: tests inject an httpx.MockTransport here. None means real network.
 _TRANSPORT: httpx.AsyncBaseTransport | None = None
@@ -214,18 +234,44 @@ async def token_check(req: TokenCheckRequest) -> dict:
 
 async def _fetch_once(session_state: str) -> dict:
     token = await _token_cache.get(session_state, transport=_TRANSPORT)
-    # The main token only: the site has no loan or PER app, so those contracts are
-    # unsupported and no second chain is ever minted.
-    return await fetcher.fetch_import(SITE, token.access_token, transport=_TRANSPORT)
+
+    async def per_detail(contract_id: str, entity_code: str) -> dict:
+        # Second OAuth chain (insurer app), minted only when the synthesis holds a PER.
+        # The main token already proved the session alive, so a refusal here is
+        # PER-specific: one fresh PER token is tried, then only this PER is left out.
+        for attempt in (1, 2):
+            try:
+                per_token = await _token_cache.get(session_state, transport=_TRANSPORT, chain=PER_CHAIN)
+                return await per_client.fetch_per_detail(
+                    SITE,
+                    per_token.access_token,
+                    contract_id,
+                    entity_code=entity_code,
+                    routing_token=token.access_token,
+                    transport=_TRANSPORT,
+                )
+            except replay.SessionExpired:
+                _token_cache.evict(session_state, chain=PER_CHAIN)
+                if attempt == 2:
+                    raise replay.UpstreamError("PER token refused twice") from None
+        raise AssertionError("unreachable")
+
+    return await fetcher.fetch_import(
+        SITE,
+        token.access_token,
+        transport=_TRANSPORT,
+        per_detail=per_detail,
+    )
 
 
 async def _fetch_accounts(session_state: str) -> dict:
     try:
         return await _fetch_once(session_state)
     except replay.SessionExpired:
-        # A cached token can be revoked before its expiry: drop it and replay once more.
+        # A cached token can be revoked before its expiry: drop both and replay once more.
         # A second rejection (or a failed replay) means the session itself is dead.
         _token_cache.evict(session_state)
+        _token_cache.evict(session_state, chain=PER_CHAIN)
         return await _fetch_once(session_state)
 
 

@@ -40,7 +40,7 @@ class SiteAllowListTest(unittest.TestCase):
     def test_no_region_picker_and_every_detail_app(self):
         self.assertEqual(main.SITE.regions, ())
         self.assertIsNone(main.SITE.cookie_banner_button)
-        self.assertEqual(main.SITE.unsupported_families, frozenset({("3", "02")}))
+        self.assertEqual(main.SITE.unsupported_families, frozenset({("3", "02"), ("4", "09"), ("4", "10")}))
 
 
 if __name__ == "__main__":

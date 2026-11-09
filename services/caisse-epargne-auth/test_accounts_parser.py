@@ -413,6 +413,54 @@ class ProductFamiliesTest(unittest.TestCase):
                      "productLabel": "ASSURANCE", "hasPfmId": False},
                 ])
 
+    def test_term_deposit_and_cooperative_shares_are_keyed_by_contract_id_without_pfm_transactions(self):
+        # Observed live on Banque Populaire (2026-11-08): 4/09 Tip Top'P 3 Ans (7500 EUR)
+        # and 4/10 Part Sociale BP (500 EUR), both with `contractPfmId = None`.
+        for sub, kind, cid, amount in [
+            ("09", "TERM_DEPOSIT", "0000000018", Decimal("7500.0")),
+            ("10", "COOPERATIVE_SHARES", "0000000019", Decimal("500.0")),
+        ]:
+            with self.subTest(kind=kind):
+                s = products()
+                item = copy.deepcopy(family(s, "4", "05"))
+                item["identification"]["contractId"] = {"id": f"  {cid}  ", "entityCode": "00000"}
+                item["identification"]["contractPfmId"] = None
+                item["identity"]["subProductFamilyPFM"]["code"] = sub
+                item["identity"]["balance"] = {"value": float(amount), "currencyCode": "EUR"}
+                item["identity"].pop("augmentedCards", None)
+                s["items"].append(item)
+                ext = f"contract:{cid}"
+                accounts = by_id(parse_synthesis(s))
+                self.assertEqual(accounts[ext]["kind"], kind)
+                self.assertNotIn(kind, PFM_KINDS)
+                self.assertEqual(accounts[ext]["balance"], {"value": amount, "currency": "EUR"})
+                self.assertIsNone(accounts[ext]["iban"])
+                inputs = {k: [] for k in ("1001", "2001", "1002", "1003", PER_ID, LOAN_ID)}
+                result = build_import(s, inputs, today=TODAY)
+                self.assertEqual(result["transactions"][ext], [])
+
+    def test_malformed_term_deposit_or_cooperative_shares_is_unsupported_and_blocks_nothing(self):
+        for sub in ("09", "10"):
+            for name, mutate in [
+                ("negative balance", lambda i: i["identity"]["balance"].update(value=-1.0)),
+                ("missing balance", lambda i: i["identity"].update(balance=None)),
+                ("string pfm id", lambda i: i["identification"].update(contractPfmId="bad")),
+            ]:
+                with self.subTest(sub=sub, name=name):
+                    s = products()
+                    item = copy.deepcopy(family(s, "4", "05"))
+                    item["identification"]["contractId"] = {"id": "0000000018", "entityCode": "00000"}
+                    item["identification"]["contractPfmId"] = None
+                    item["identity"]["subProductFamilyPFM"]["code"] = sub
+                    mutate(item)
+                    s["items"].append(item)
+                    accounts, unsupported = _parse_synthesis(s)
+                    self.assertNotIn("contract:0000000018", {a["externalId"] for a in accounts})
+                    self.assertIn("1001", {a["externalId"] for a in accounts})
+                    entry = next(u for u in unsupported if u["externalId"] == "contract:0000000018")
+                    self.assertEqual((entry["familyCode"], entry["subFamilyCode"]), ("4", sub))
+                    self.assertIn("rejected", entry)
+
     def test_pel_or_lep_without_a_pfm_id_is_unsupported_and_blocks_nothing(self):
         # Only one live run showed them with a `contractPfmId`: another shape must not
         # fail the current account, the livrets, the cards or the loans.

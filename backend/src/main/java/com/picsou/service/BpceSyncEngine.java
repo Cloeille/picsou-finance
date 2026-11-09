@@ -579,7 +579,7 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
                 : prefixed(account.parentExternalId(), "an invalid card parent identifier");
             accounts.add(new PreparedAccount(
                 externalId,
-                limit(account.name(), 100, fallbackName(type)),
+                limit(account.name(), 100, fallbackName(account.kind(), type)),
                 type,
                 balance,
                 cardNature,
@@ -1169,7 +1169,7 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
         }
         return switch (kind) {
             case "CURRENT_ACCOUNT" -> AccountType.CHECKING;
-            case "SAVINGS" -> AccountType.SAVINGS;
+            case "SAVINGS", "TERM_DEPOSIT", "COOPERATIVE_SHARES" -> AccountType.SAVINGS;
             case "LIVRET_A" -> AccountType.LIVRET_A;
             case "LIVRET_JEUNE" -> AccountType.LIVRET_JEUNE;
             case "LEP" -> AccountType.LEP;
@@ -1183,7 +1183,13 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
         };
     }
 
-    private String fallbackName(AccountType type) {
+    private String fallbackName(String kind, AccountType type) {
+        if ("TERM_DEPOSIT".equals(kind)) {
+            return "Compte à terme";
+        }
+        if ("COOPERATIVE_SHARES".equals(kind)) {
+            return "Parts sociales";
+        }
         return switch (type) {
             case CREDIT_CARD -> bank.cardName();
             case SAVINGS -> "Compte sur livret";

@@ -25,8 +25,10 @@ Observed live on 2026-10-15 in the bank's own web front, for a Millevie PER:
      `donneesContrat` and `detailContratVie`.
 
 The gateway and insurer hosts are the site's (`Site.per`; observed on Caisse
-d'Epargne only: `www.rs-ext-bad-ce.caisse-epargne.fr` and
-`www.espace-assurances-de-personnes.caisse-epargne.fr`). No cookie is sent
+d'Epargne: `www.rs-ext-bad-ce.caisse-epargne.fr` and
+`www.espace-assurances-de-personnes.caisse-epargne.fr`, and on Banque
+Populaire: `www.rs-ext-bad-ib.banquepopulaire.fr` and
+`www.espace-assurances-de-personnes.banquepopulaire.fr`). No cookie is sent
 to either host, no redirect is followed, and nothing read from the insurer
 (tokens, JWT, amounts) is logged: failures log a stage name and an HTTP status.
 """
@@ -54,8 +56,8 @@ APP_CODE = "IW4"
 JWT_HEADER = "iw4-jwt-token"
 
 _ENTITY_CODE_RE = re.compile(r"[0-9]{5}\Z")
-_CONTRACT_ID_RE = re.compile(r"[0-9]{5} {1,16}PERIC(?P<number>[0-9]{1,64})\Z")
-_PRODUCER_ID_RE = re.compile(r"(?P<product>PER)(?P<company>IC)(?P<number>[0-9]{1,32})\Z")
+_CONTRACT_ID_RE = re.compile(r"(?:[0-9]{5} {1,16}(?:PERIC|PERIB)|(?:ASV)?PERIB)(?P<number>[0-9]{1,64})\Z")
+_PRODUCER_ID_RE = re.compile(r"(?P<product>PER)(?P<company>IC|IB)(?P<number>[0-9]{1,32})\Z")
 ROUTING_PATH = "/bapi/contract/v1/contracts"
 _ROUTING_BODY = {
     "characteristics": {

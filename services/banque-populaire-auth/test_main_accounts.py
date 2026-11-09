@@ -2,17 +2,19 @@
 
 The bank is an `httpx.MockTransport` playing the hosts observed live (2026-11-05,
 2026-11-08): the replay chain on `as-ext-bad-ib` and icgauth, the data API on
-`rs-ext-bad-ib`. Products are those seen on real accounts (current account with an
-immediate-debit card, which this site does not import, Livret A and Livret Jeune
-both `3/01`, LDDS `3/28`, Compte sur Livret `3/02` and PEL `3/04`, a revolving
-credit `2/11` with a null balance) plus the loan and PER families this site does
-not read. Every value is synthetic.
+`rs-ext-bad-ib`, and the PER insurer on `espace-assurances-de-personnes`. Products are
+those seen on real accounts (current account with an immediate-debit card, which this
+site does not import, Livret A and Livret Jeune both `3/01`, LDDS `3/28`, Compte sur
+Livret `3/02`, PEL `3/04`, term deposit `4/09`, cooperative shares `4/10`, PER `4/05`,
+and a revolving credit `2/11` with a null balance) plus the loan families this site
+does not read. Every value is synthetic.
 """
 
 import json
 import os
 import unittest
 import urllib.parse
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 import httpx
@@ -26,7 +28,11 @@ HEADERS = {"X-Picsou-Sidecar-Key": TEST_KEY}
 AS_HOST = "www.as-ext-bad-ib.banquepopulaire.fr"
 LOGIN_HOST = "www.icgauth.banquepopulaire.fr"
 DATA_HOST = "www.rs-ext-bad-ib.banquepopulaire.fr"
+INSURER_HOST = "www.espace-assurances-de-personnes.banquepopulaire.fr"
 ACCESS_TOKEN = "synthetic-access-token"
+PER_ACCESS_TOKEN = "synthetic-per-access-token"
+PER_CLIENT_ID = "dcd51401-debb-47e4-ad8d-12a72e529f08"
+PER_JWT = "eyJzeW50aGV0aWMi.eyJET05PVExFQUsi.c2lnbmF0dXJlLURPLU5PVC1MRUFL"
 CLIENT_ID = "00000000-0000-4000-8000-000000000001"
 SESSION_STATE = json.dumps({
     "cookies": [{"name": "SSO", "value": "BP-COOKIE-SECRET", "domain": ".banquepopulaire.fr", "path": "/"}],
@@ -77,20 +83,61 @@ SYNTHESIS = {"items": [
     contract(1005, "3", "02", "Compte Sur Livret", balance=250.0),
     contract(1006, "3", "04", "Plan Epargne Logement", balance=15000.0,
              authorizedCeilingAmount={"value": 61200.0, "currencyCode": "EUR"}),
+    contract(None, "4", "09", "Tip Top'P 3 Ans", balance=7500.0, contract_id="TD1"),
+    contract(None, "4", "10", "Part Sociale BP", balance=500.0, contract_id="CS1"),
     contract(None, "6", "12", "Pret Personnel", balance=-1000.0, contract_id="PRET1"),
     contract(None, "6", "13", "Credit Immobilier", balance=-90000.0, contract_id="IMMO1"),
-    contract(None, "4", "05", "PER", balance=2500.0, contract_id="PER1"),
+    contract(None, "4", "05", "PER", balance=1700.0, contract_id="ASVPERIB062036"),
     contract(None, "2", "11", "Credit Renouvelable Facelia", balance=None, contract_id="FACELIA1"),
 ]}
+PER_STAMP = int(datetime(2026, 10, 1, tzinfo=timezone.utc).timestamp() * 1000)
+PER_DETAIL = {
+    "detailContratVie": {
+        "valorisation": {
+            "montant": 1700,
+            "date": PER_STAMP,
+            "globalInvestCalcRest": {"globalAmountFondEuros": 1000, "globalAmountUnitesCompte": 700},
+            "supports": [
+                {
+                    "nom": "Synthetic fund",
+                    "codeIsin": "XX0000000001",
+                    "nombreUnitesCompte": 10,
+                    "valeurUniteCompte": 70,
+                    "montant": 700,
+                    "dateValeurUniteCompte": PER_STAMP,
+                    "idCompartment": 1,
+                    "familleFondsGeneraux": False,
+                }
+            ],
+        }
+    }
+}
+PER_ROUTING = {
+    "contractId": {"entityCode": "00000", "id": "PERIB062036"},
+    "routingMode": {"code": "1", "label": "synthetic"},
+    "routingUrl": {"href": f"https://{INSURER_HOST}/"},
+    "routingContext": {
+        "suppliedName": None,
+        "value": {
+            "queryParameters": {
+                "codeTransaction": "synthetic",
+                "cdEtab": "00000",
+                "producerContratId": "PERIB062036",
+                "urlRetour": "https://www.banquepopulaire.fr/synthetic",
+            }
+        },
+    },
+}
 
 
 class FakeBank:
-    """The four-step chain and the two data paths; records every request."""
+    """The four-step chain, the data paths and the PER insurer; records every request."""
 
     def __init__(self):
         self.requests: list[httpx.Request] = []
         self.authorize_action = f"https://{LOGIN_HOST}/dacsrest/api/v1u0/saml2/sso"
         self.authn_status = "AUTHENTICATION_SUCCESS"
+        self.per_client_token_statuses: list[int] = []
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -111,7 +158,27 @@ class FakeBank:
         if (host, path) == (AS_HOST, "/api/oauth/v2/consume"):
             return httpx.Response(200, json={"parameters": {"code": "synthetic-code"}})
         if (host, path) == (AS_HOST, "/api/oauth/v2/token"):
-            return httpx.Response(200, json={"access_token": ACCESS_TOKEN, "token_type": "Bearer", "expires_in": 267})
+            form = dict(urllib.parse.parse_qsl(request.content.decode()))
+            token = PER_ACCESS_TOKEN if form.get("client_id") == PER_CLIENT_ID else ACCESS_TOKEN
+            return httpx.Response(200, json={"access_token": token, "token_type": "Bearer", "expires_in": 267})
+        if (host, path) == (DATA_HOST, "/bapi/contract/v1/contracts/00000-ASVPERIB062036/prepareRouting"):
+            if request.headers.get("authorization") != f"Bearer {ACCESS_TOKEN}":
+                return httpx.Response(401)
+            return httpx.Response(201, json=PER_ROUTING)
+        if (host, path) == (DATA_HOST, "/natixis/assurance/assuranceVieAuth/v1/clientToken/PERIB062036"):
+            if request.headers.get("authorization") != f"Bearer {PER_ACCESS_TOKEN}":
+                return httpx.Response(401)
+            status = self.per_client_token_statuses.pop(0) if self.per_client_token_statuses else 200
+            if status != 200:
+                return httpx.Response(status)
+            return httpx.Response(200, headers={"iw4-jwt-token": PER_JWT}, json={})
+        if (host, path) == (INSURER_HOST, "/etna-web/rest/v2/contratVie/load/PER/IB/062036"):
+            if (
+                request.headers.get("authorization") != f"Bearer {PER_ACCESS_TOKEN}"
+                or request.headers.get("iw4-jwt-token") != PER_JWT
+            ):
+                return httpx.Response(401)
+            return httpx.Response(200, json=PER_DETAIL)
         if host == DATA_HOST and request.headers.get("authorization") != f"Bearer {ACCESS_TOKEN}":
             return httpx.Response(401)
         if (host, path) == (DATA_HOST, fetcher.SYNTHESIS_PATH):
@@ -164,9 +231,17 @@ class AccountsTest(unittest.TestCase):
         body = response.json()
         self.assertEqual(
             [(a["externalId"], a["kind"]) for a in body["accounts"]],
-            [("1001", "CURRENT_ACCOUNT"), ("1002", "LIVRET_A"),
-             ("1003", "LIVRET_JEUNE"), ("1004", "LDDS"),
-             ("1005", "SAVINGS"), ("1006", "PEL")],
+            [
+                ("1001", "CURRENT_ACCOUNT"),
+                ("1002", "LIVRET_A"),
+                ("1003", "LIVRET_JEUNE"),
+                ("1004", "LDDS"),
+                ("1005", "SAVINGS"),
+                ("1006", "PEL"),
+                ("contract:TD1", "TERM_DEPOSIT"),
+                ("contract:CS1", "COOPERATIVE_SHARES"),
+                ("contract:ASVPERIB062036", "PER"),
+            ],
         )
         jeune = body["accounts"][2]
         self.assertEqual(jeune["name"], "Livret Pour La Jeunesse")
@@ -174,8 +249,8 @@ class AccountsTest(unittest.TestCase):
         self.assertEqual(jeune["ceiling"], "1600.0")
         self.assertEqual(jeune["iban"], "FR76SYNTHETIC1003")
         self.assertEqual([t["externalId"] for t in jeune["transactions"]], ["tx-1003"])
-        # Provisional kinds (`SAVINGS`, `PEL`) never read their IBAN from transactions so
-        # they cannot join the loan debit-account match.
+        # Provisional kinds (`SAVINGS`, `PEL`, `TERM_DEPOSIT`, `COOPERATIVE_SHARES`) never
+        # read their IBAN from transactions so they cannot join the loan debit-account match.
         csl = body["accounts"][4]
         self.assertEqual(csl["name"], "SYNTHETIC Compte Sur Livret")
         self.assertEqual(csl["balance"], "250.0")
@@ -189,33 +264,77 @@ class AccountsTest(unittest.TestCase):
         self.assertIsNone(pel["iban"])
         self.assertFalse(pel["ibanAmbiguous"])
         self.assertEqual([t["externalId"] for t in pel["transactions"]], ["tx-1006"])
+        term_deposit = body["accounts"][6]
+        self.assertEqual(term_deposit["name"], "SYNTHETIC Tip Top'P 3 Ans")
+        self.assertEqual(term_deposit["balance"], "7500.0")
+        self.assertIsNone(term_deposit["iban"])
+        self.assertEqual(term_deposit["transactions"], [])
+        shares = body["accounts"][7]
+        self.assertEqual(shares["name"], "SYNTHETIC Part Sociale BP")
+        self.assertEqual(shares["balance"], "500.0")
+        self.assertIsNone(shares["iban"])
+        self.assertEqual(shares["transactions"], [])
+        per = body["accounts"][8]
+        self.assertEqual(per["name"], "SYNTHETIC PER")
+        self.assertEqual(per["balance"], "1700")
+        self.assertEqual(per["per"]["euroFundBalance"], "1000")
+        self.assertEqual(per["per"]["positions"][0]["isin"], "XX0000000001")
+        self.assertEqual(per["per"]["positions"][0]["quantity"], "10")
+        self.assertEqual(per["transactions"], [])
         # The current account's card is not imported for this bank, and not listed either:
         # it is not a contract.
         self.assertNotIn("CARD", {a["kind"] for a in body["accounts"]})
         self.assertEqual(body["unavailable"], [])
 
-    def test_loans_per_and_revolving_credit_are_unsupported_and_never_read(self):
+    def test_loans_and_revolving_credit_are_unsupported_and_never_read(self):
         body = self.post("/accounts").json()
 
         self.assertEqual(body["unsupported"], [
             {"externalId": "contract:PRET1", "familyCode": "6", "subFamilyCode": "12"},
             {"externalId": "contract:IMMO1", "familyCode": "6", "subFamilyCode": "13"},
-            {"externalId": "contract:PER1", "familyCode": "4", "subFamilyCode": "05"},
             {"externalId": "contract:FACELIA1", "familyCode": "2", "subFamilyCode": "11"},
         ])
         paths = [r.url.path for r in self.bank.requests if r.url.host == DATA_HOST]
         self.assertEqual(paths.count(fetcher.SYNTHESIS_PATH), 1)
         self.assertEqual(
             sorted(r.url.params["accountIds"] for r in self.bank.requests if r.url.path == fetcher.TRANSACTIONS_PATH),
-            ["1001", "1002", "1003", "1004", "1005", "1006"],  # never the card's operations
+            ["1001", "1002", "1003", "1004", "1005", "1006"],  # never term deposit, shares, PER or card
         )
-        # One token, the main one: no loan, home-loan or PER chain is ever minted.
-        self.assertEqual([f["client_id"] for f in self.bank.token_forms()], [CLIENT_ID])
+        # Main token + PER insurer token; no loan or home-loan chain is minted.
+        self.assertEqual([f["client_id"] for f in self.bank.token_forms()], [CLIENT_ID, PER_CLIENT_ID])
         self.assertTrue(all(r.url.host.endswith(".banquepopulaire.fr") for r in self.bank.requests))
+
+    def test_an_expired_per_token_is_evicted_and_retried_once_then_isolated(self):
+        self.bank.per_client_token_statuses = [401, 200]
+        response = self.post("/accounts")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertIn("contract:ASVPERIB062036", {a["externalId"] for a in body["accounts"]})
+        self.assertEqual(body["unavailable"], [])
+
+        # If refused twice, only the PER is listed in `unavailable`, other accounts still import.
+        self.bank = FakeBank()
+        self.bank.per_client_token_statuses = [401, 401]
+        response = self.post("/accounts")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertNotIn("contract:ASVPERIB062036", {a["externalId"] for a in body["accounts"]})
+        self.assertEqual(
+            body["unavailable"],
+            [{"externalId": "contract:ASVPERIB062036", "kind": "PER", "code": "UPSTREAM_ERROR"}],
+        )
+        self.assertIn("1001", {a["externalId"] for a in body["accounts"]})
 
     def test_nothing_secret_is_returned(self):
         text = self.post("/accounts").text
-        for secret in (ACCESS_TOKEN, "BP-COOKIE-SECRET", "SECRET-LOGIN-HINT", "synthetic-code"):
+        for secret in (
+            ACCESS_TOKEN,
+            PER_ACCESS_TOKEN,
+            PER_JWT,
+            "BP-COOKIE-SECRET",
+            "SECRET-LOGIN-HINT",
+            "synthetic-code",
+        ):
             self.assertNotIn(secret, text)
 
     def test_a_refused_session_is_session_expired(self):
@@ -246,15 +365,26 @@ class SiteTest(unittest.TestCase):
         self.assertEqual(site.token_url, f"https://{AS_HOST}/api/oauth/v2/token")
         self.assertEqual(site.data_base_url, f"https://{DATA_HOST}")
         self.assertEqual(site.cookie_banner_button, "#no_consent_btn")
-        for url in (site.login_url, site.authorize_url, site.token_url, site.data_base_url):
+        for url in (
+            site.login_url,
+            site.authorize_url,
+            site.token_url,
+            site.data_base_url,
+            f"https://{site.per.gateway_host}/",
+            f"https://{site.per.insurer_host}/",
+        ):
             self.assertTrue(replay.is_allowed_url(site, url), url)
 
-    def test_no_loan_or_per_app(self):
+    def test_per_app_and_provisional_kinds_with_no_loan_apps(self):
         self.assertIsNone(main.SITE.personal_loan)
         self.assertIsNone(main.SITE.home_loan)
-        self.assertIsNone(main.SITE.per)
-        self.assertEqual(main.SITE.unsupported_families, frozenset({("6", "12"), ("6", "13"), ("4", "05"), ("3", "27")}))
-        self.assertEqual(main.SITE.provisional_kinds, frozenset({"SAVINGS", "PEL"}))
+        self.assertIsNotNone(main.SITE.per)
+        self.assertEqual(dict(main.SITE.per.chain.overrides)["client_id"], PER_CLIENT_ID)
+        self.assertEqual(main.SITE.unsupported_families, frozenset({("6", "12"), ("6", "13"), ("3", "27")}))
+        self.assertEqual(
+            main.SITE.provisional_kinds,
+            frozenset({"SAVINGS", "PEL", "TERM_DEPOSIT", "COOPERATIVE_SHARES"}),
+        )
 
     def test_the_allow_list_is_banque_populaire_only(self):
         self.assertEqual(main.SITE.extra_hosts, frozenset())
