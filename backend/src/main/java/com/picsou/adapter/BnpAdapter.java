@@ -168,7 +168,11 @@ public class BnpAdapter {
                 if (status == 408) {
                     throw authSidecar.coded(timeoutCode, SidecarBank.BNP.message(timeoutCode), null);
                 }
-                if (status == 409) {
+                // The sidecar answers 409 for a changed page (KEYPAD_CHANGED) but also for a bank
+                // that wants an action on its site (ACTION_REQUIRED) or an unsupported second
+                // factor (MFA_TYPE_UNSUPPORTED): a declared detail wins, the status is the fallback.
+                // 408 and 429 only ever carry the one code this mapping already gives them.
+                if (status == 409 && authSidecar.responseCode(response) == null) {
                     throw authSidecar.coded(SidecarErrorCode.KEYPAD_CHANGED,
                         SidecarBank.BNP.message(SidecarErrorCode.KEYPAD_CHANGED), null);
                 }

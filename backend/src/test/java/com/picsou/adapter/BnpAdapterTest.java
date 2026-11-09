@@ -91,6 +91,19 @@ class BnpAdapterTest {
     }
 
     @Test
+    void aConflictCarriesItsDeclaredCodeAndOnlyFallsBackToKeypadChangedWithoutOne() {
+        // The sidecar answers 409 for three different reasons; the detail tells them apart.
+        assertCode(HttpStatus.CONFLICT, "{\"detail\":\"ACTION_REQUIRED\"}", SidecarErrorCode.ACTION_REQUIRED);
+        assertCode(HttpStatus.CONFLICT, "{\"detail\":\"MFA_TYPE_UNSUPPORTED\"}", SidecarErrorCode.MFA_TYPE_UNSUPPORTED);
+        assertCode(HttpStatus.CONFLICT, "{\"detail\":\"KEYPAD_CHANGED\"}", SidecarErrorCode.KEYPAD_CHANGED);
+        // No detail, a blank one, an undeclared one, or a body that is not JSON: the page changed.
+        assertCode(HttpStatus.CONFLICT, "{}", SidecarErrorCode.KEYPAD_CHANGED);
+        assertCode(HttpStatus.CONFLICT, "{\"detail\":\" \"}", SidecarErrorCode.KEYPAD_CHANGED);
+        assertCode(HttpStatus.CONFLICT, "{\"detail\":\"NOT_A_CODE\"}", SidecarErrorCode.KEYPAD_CHANGED);
+        assertCode(HttpStatus.CONFLICT, "not json", SidecarErrorCode.KEYPAD_CHANGED);
+    }
+
+    @Test
     void aWrongSmsCodeIsInvalidOtpWhileAnAppApprovalFailureIsNot() {
         assertThatThrownBy(() -> adapter(WebClientStubs.returning(HttpStatus.UNAUTHORIZED, "{\"detail\":\"INVALID_OTP\"}"))
             .completeAuth("p1", "000000"))

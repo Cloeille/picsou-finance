@@ -154,7 +154,13 @@ public final class SidecarClient {
         return new SyncException(message, cause, code.name());
     }
 
-    private SidecarErrorCode responseCode(WebClientResponseException response) {
+    /**
+     * The code this bank declared in the response's {@code detail}, or {@code null} when the body
+     * has none, is not JSON, or names a code the bank does not declare. Lets a caller that maps a
+     * bare status itself (a 409 that means "page changed" for one sidecar step) leave a response
+     * that carries its own code to {@link #mapError}.
+     */
+    public SidecarErrorCode responseCode(WebClientResponseException response) {
         try {
             JsonNode body = objectMapper.readTree(response.getResponseBodyAsString());
             JsonNode detailNode = body.path("detail");
