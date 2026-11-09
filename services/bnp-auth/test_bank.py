@@ -234,6 +234,36 @@ class VendorPolicyTest(unittest.TestCase):
         self.assertEqual(guard.unknown_hosts, [])
         self.assertEqual(guard.blocked, 4)
 
+    # Seen on the signed-in site: the bank's cookie-consent SDK calls these on every landing.
+    CONSENT = (
+        ("https://geolocation.onetrust.com/cookieconsentpub/v1/geo/location", "xhr", "GET"),
+        ("https://cookies-data.onetrust.io/cfw/cmp/v1/session", "fetch", "POST"),
+        ("https://bnp-privacy.my.onetrust.com/request/v1/consentreceipts", "xhr", "POST"),
+    )
+
+    def test_the_consent_vendor_of_the_signed_in_site_is_dropped_without_stopping_the_login(self):
+        guard = bank.Guard(BNP.hosts)
+        for url, kind, method in self.CONSENT:
+            with self.subTest(url=url[:40]):
+                request = req(url, kind, method=method, body="{}" if method == "POST" else None)
+                route = routed(request)
+                run(guard.route(route))
+                route.abort.assert_awaited_once()
+                route.continue_.assert_not_awaited()
+                guard.observe(request)
+        self.assertFalse(guard.tainted)
+        self.assertEqual(guard.unknown_hosts, [])
+
+    def test_a_consent_vendor_page_or_a_lookalike_host_still_stops_the_attempt(self):
+        guard, route = self.decide(req(self.CONSENT[1][0], "document", method="POST", body="x"))
+        route.abort.assert_awaited_once()
+        self.assertTrue(guard.tainted)
+        for url in ("https://evil-onetrust.io/cfw/cmp/v1/session", "https://onetrust.io.evil.example/x", "https://onetrust.io/x"):
+            with self.subTest(url=url):
+                guard, route = self.decide(req(url, "fetch", method="POST", body="{}"))
+                route.abort.assert_awaited_once()
+                self.assertTrue(guard.tainted)
+
     def test_a_third_party_request_that_could_carry_the_identifier_or_the_code_stops_the_attempt(self):
         cases = (
             req("https://stats.example.net/c", "xhr", method="POST", body='{"a":1}'),

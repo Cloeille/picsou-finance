@@ -90,6 +90,12 @@ class OperationsTest(unittest.TestCase):
         self.assertEqual((ops[0]["externalId"], ops[0]["date"], ops[0]["amount"], ops[0]["kind"]),
                          ("o1", "2026-01-05", "-12.30", "CB"))
 
+    def test_the_dash_date_of_the_live_site_is_read_day_first(self):
+        ops = parsers.parse_operations(self.payload(
+            self.op(date="05-01-2026", id="100000000000000001"), self.op(date="31-01-2026", id="100000000000000002")))
+        self.assertEqual([op["date"] for op in ops], ["2026-01-05", "2026-01-31"])
+        self.assertIsNone(parsers.parse_operations(self.payload(self.op(date="31-02-2026"))))
+
     def test_without_an_operation_id_two_identical_rows_still_get_distinct_stable_ids(self):
         first = parsers.parse_operations(self.payload(self.op(), self.op()))
         second = parsers.parse_operations(self.payload(self.op(), self.op()))
