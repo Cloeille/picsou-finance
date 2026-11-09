@@ -11,6 +11,7 @@ import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.repository.BanquePopulaireSessionRepository;
 import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.DegiroSessionRepository;
+import com.picsou.repository.LbpSessionRepository;
 import com.picsou.repository.RevolutSessionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import io.netty.channel.ChannelOption;
@@ -71,11 +72,12 @@ public class InstanceStatusService {
         BanquePopulaireSessionRepository banquePopulaireSessions,
         RevolutSessionRepository revolutSessions,
         DegiroSessionRepository degiroSessions,
+        LbpSessionRepository lbpSessions,
         @Value("${info.app.version:dev}") String currentVersion
     ) {
         this(releaseCheck, currentVersion, registry(
             setupService, sidecars,
-            trSessions, sidecarSessions, banquePopulaireSessions, revolutSessions, degiroSessions
+            trSessions, sidecarSessions, banquePopulaireSessions, revolutSessions, degiroSessions, lbpSessions
         ), defaultWebClient(PROBE_TIMEOUT), PROBE_TIMEOUT, OVERALL_DEADLINE);
     }
 
@@ -323,7 +325,8 @@ public class InstanceStatusService {
         SidecarSessionRepository sidecarSessions,
         BanquePopulaireSessionRepository banquePopulaireSessions,
         RevolutSessionRepository revolutSessions,
-        DegiroSessionRepository degiroSessions
+        DegiroSessionRepository degiroSessions,
+        LbpSessionRepository lbpSessions
     ) {
         return List.of(
             new SidecarTarget("bourso-auth", BASE_PYTHON,
@@ -350,6 +353,8 @@ public class InstanceStatusService {
                 () -> sidecarUrl(sidecars, "fortuneo-auth"), () -> sidecarSessions.countByBank(SidecarBank.FORTUNEO)),
             new SidecarTarget("corum-auth", BASE_CHROMIUM,
                 () -> sidecarUrl(sidecars, "corum-auth"), () -> sidecarSessions.countByBank(SidecarBank.CORUM)),
+            new SidecarTarget("lbp-auth", BASE_CHROMIUM,
+                () -> sidecarUrl(sidecars, "lbp-auth"), lbpSessions::count),
             new SidecarTarget("amex-auth", BASE_CAMOUFOX,
                 () -> sidecarUrl(sidecars, "amex-auth"), () -> sidecarSessions.countByBank(SidecarBank.AMEX)),
             new SidecarTarget("revolut-auth", BASE_CAMOUFOX,

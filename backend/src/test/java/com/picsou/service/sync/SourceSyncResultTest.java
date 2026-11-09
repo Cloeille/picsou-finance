@@ -15,6 +15,8 @@ class SourceSyncResultTest {
         assertStatus("revolut", new SyncException("friendly expired-session message", null, "SESSION_EXPIRED"), SourceSyncResult.Status.NEEDS_REAUTH);
         assertStatus("bourso", coded(SidecarErrorCode.SESSION_EXPIRED.name()), SourceSyncResult.Status.NEEDS_REAUTH);
         assertStatus("bourso", coded(SidecarErrorCode.INVALID_CREDENTIALS.name()), SourceSyncResult.Status.NEEDS_REAUTH);
+        assertStatus("lbp", coded(SidecarErrorCode.SESSION_EXPIRED.name()), SourceSyncResult.Status.NEEDS_REAUTH);
+        assertStatus("lbp", coded(SidecarErrorCode.INVALID_CREDENTIALS.name()), SourceSyncResult.Status.NEEDS_REAUTH);
         assertStatus("bourse-direct", coded(SidecarErrorCode.SESSION_EXPIRED.name()), SourceSyncResult.Status.NEEDS_REAUTH);
         assertStatus("amundi", coded(SidecarErrorCode.SESSION_EXPIRED.name()), SourceSyncResult.Status.NEEDS_REAUTH);
         assertStatus("fortuneo", coded(SidecarErrorCode.SESSION_EXPIRED.name()), SourceSyncResult.Status.NEEDS_REAUTH);
@@ -25,7 +27,7 @@ class SourceSyncResultTest {
 
     @Test
     void syncExceptionStatus_keepsTransientUnknownAndNonAuthErrorsFailed() {
-        for (String source : new String[] {"trade-republic", "ibkr", "revolut", "bourso", "bourse-direct", "amundi", "fortuneo", "amex"}) {
+        for (String source : new String[] {"trade-republic", "ibkr", "revolut", "bourso", "bourse-direct", "amundi", "fortuneo", "amex", "lbp"}) {
             assertStatus(source, new SyncException("temporary provider outage"), SourceSyncResult.Status.FAILED);
             assertStatus(source, new SyncException("INTERNAL_ERROR", null, "INTERNAL_ERROR"), SourceSyncResult.Status.FAILED);
             assertStatus(source, new SyncException("failure with no code", null, null), SourceSyncResult.Status.FAILED);
@@ -38,6 +40,7 @@ class SourceSyncResultTest {
         assertStatus("fortuneo", coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()), SourceSyncResult.Status.FAILED);
         assertStatus("amex", coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()), SourceSyncResult.Status.FAILED);
         assertStatus("amex", coded(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()), SourceSyncResult.Status.FAILED);
+        assertStatus("lbp", coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()), SourceSyncResult.Status.FAILED);
     }
 
     @Test

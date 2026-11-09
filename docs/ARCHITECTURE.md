@@ -323,6 +323,7 @@ and the [ADR](./decisions/2026-11-04-sso-login-alongside-passwords.md).
 | CORUM | SCPI shares and CORUM Life (assurance-vie) contracts via internal Python sidecar (`corum-auth`) | `CORUM_AUTH_URL` |
 | Caisse d'Epargne | Current account, Livret A, Livret Jeune, LDDS, card, loans and PER via internal Python sidecar; browser-assisted login (keypad + Sécur'Pass), on demand | `CAISSE_EPARGNE_AUTH_URL` |
 | Banque Populaire | Current account, Livret A, Livret Jeune and LDDS (no cards) via internal Python sidecar sharing the BPCE code with Caisse d'Epargne; region + keypad + Sécur'Pass login, on demand | `BANQUE_POPULAIRE_AUTH_URL` |
+| La Banque Postale | Current account and livrets (Livret A, LDDS, LEP) via internal Chromium login sidecar, on demand | `LBP_AUTH_URL` |
 | DEGIRO | Compte-titres sync via internal Python sidecar (`degiro-auth` in `docker/docker-compose.yml`) | `DEGIRO_AUTH_URL` |
 | Binance | Crypto exchange balances | Via CryptoExchangePort |
 | Meria | Crypto exchange balances (wallets + staking + lending) | Via CryptoExchangePort |

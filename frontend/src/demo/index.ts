@@ -1404,6 +1404,44 @@ handlers.set(key('DELETE', '/caisse-epargne/session'), () => ({
   removed: true, bankSessionRevoked: false, message: '',
 }))
 
+// La Banque Postale — the mobile approval is a human step, so the demo answers
+// the keypad then a completed session; the status stays consistent across reads.
+let demoLbpAuthenticated = false
+let demoLbpSynced = false
+const demoLbpStatus = () => ({
+  isActive: demoLbpAuthenticated,
+  syncStatus: demoLbpSynced ? 'SUCCESS' : 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: demoLbpSynced ? '2026-11-06T12:00:00Z' : null,
+  lastSyncError: null,
+  unsupported: [],
+  unsupportedCount: 0,
+  savedIdentifier: null,
+})
+handlers.set(key('GET', '/lbp/status'), () => demoLbpStatus())
+handlers.set(key('POST', '/lbp/auth/initiate'), () => ({
+  processId: 'demo',
+  keypad: { keys: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'], columns: 5 },
+  expiresInSeconds: 300,
+}))
+handlers.set(key('POST', '/lbp/auth/keypad'), () => ({
+  processId: 'demo', status: 'APPROVAL_PENDING',
+}))
+handlers.set(key('POST', '/lbp/auth/complete'), () => {
+  demoLbpAuthenticated = true
+  return demoLbpStatus()
+})
+handlers.set(key('POST', '/lbp/sync'), () => {
+  demoLbpAuthenticated = true
+  demoLbpSynced = true
+  return demoLbpStatus()
+})
+handlers.set(key('DELETE', '/lbp/session'), () => {
+  demoLbpAuthenticated = false
+  demoLbpSynced = false
+  return { removed: true, bankSessionRevoked: false, message: '' }
+})
+
 // Banque Populaire — the same BPCE login as Caisse d'Epargne, so the same shortcut:
 // any region and identifier get the demo pad, and Sécur'Pass answers connected at once.
 // Completing the sign-in makes the session live but not yet synced; only the sync answers
