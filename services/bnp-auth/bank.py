@@ -17,7 +17,7 @@ Verification status (docs/features/bnp-paribas.md, "Verification boundary"):
     redirect chain after the submit, the session probe, the account, RIB and operation endpoints,
     a read in a new browser from the restored cookies.
   * UNVERIFIED: the second factor (Cle Digitale approval vs SMS code) and the page and host it
-    happens on, the securities endpoints, Hello bank!, `codeRetour` -30, session lifetime.
+    happens on, the securities endpoints, Hello bank!, `codeRetour` -30.
 Whenever the page does not look as expected the sidecar stops and says so (KEYPAD_CHANGED,
 MFA_TYPE_UNSUPPORTED, UPSTREAM_FORMAT_CHANGED); it never guesses, and any request to a host outside
 the brand's allow-list stops the login and logs the host name (host only), except the other hosts of
@@ -711,16 +711,19 @@ async def fetch_json(page: Any, key: str, body: dict | None = None) -> Any:
 
 
 def session_alive(info: Any) -> bool:
-    """InfosClient answers `codeRetour "-10"` ("user not connected") when signed out, as a string."""
+    """Signed in: InfosClient answers `codeRetour` 0 AND a customer block in `data`.
+
+    The code alone is not enough. Signed out, the public site answers `"-10"` ("user not connected", a
+    string). The signed-in site whose session idled out still answers `"0"` and "OK", with `data: null`
+    (seen live), and its data endpoints then answer a generic error."""
     if not isinstance(info, dict):
         return False
     try:
         code = int(str(info.get("codeRetour")).strip())
     except ValueError:
-        code = None
-    if code in parsers.SESSION_EXPIRED_CODES:
         return False
-    return code == 0 or str(info.get("message")) == "OK"
+    data = info.get("data")
+    return code == 0 and isinstance(data, dict) and bool(data)
 
 
 async def probe_session(page: Any, brand: Brand) -> bool | None:

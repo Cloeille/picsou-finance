@@ -22,6 +22,8 @@ STEP2 = "https://connexion.mabanque.bnpparibas/as/abc/resume/as/authorization.pi
 SECURE = "https://mabanque.bnpparibas/fr/connexion/comptes"
 KEYS = ["3", "8", "1", "0", "5", "9", "2", "7", "4", "6"]
 JAR = [{"name": "S", "value": "v", "domain": "mabanque.bnpparibas"}]
+# InfosClient once signed in (shape seen live): the code, the status text and a customer block.
+SIGNED_IN = {"codeRetour": "0", "message": "OK", "data": {"client": {"ikpiPersonne": "synthetic"}}}
 
 
 def run(coro):
@@ -407,8 +409,10 @@ class LoginOutcomeTest(unittest.TestCase):
         self.assertFalse(bank.session_alive({"codeRetour": "-30"}))
         self.assertFalse(bank.session_alive("nope"))
         self.assertFalse(bank.session_alive({"codeRetour": "7"}))
-        self.assertTrue(bank.session_alive({"codeRetour": 0}))
-        self.assertTrue(bank.session_alive({"message": "OK"}))
+        self.assertFalse(bank.session_alive({"codeRetour": 0}))
+        self.assertFalse(bank.session_alive({"message": "OK", "data": {"client": {}}}))
+        self.assertTrue(bank.session_alive(SIGNED_IN))
+        self.assertTrue(bank.session_alive({**SIGNED_IN, "codeRetour": 0}))
 
     def test_second_factor_classification_never_guesses(self):
         self.assertEqual(bank.classify_second_factor(1, "Saisissez le code reçu par SMS"), "sms")
@@ -878,7 +882,7 @@ class FlowTest(unittest.TestCase):
     def test_a_landing_on_another_bnpparibas_host_with_a_session_is_a_login(self):
         page = FakePage()
         landing = "https://mabanqueprivee.bnpparibas/fr/secure/comptes-et-contrats"
-        fetch = AsyncMock(return_value={"codeRetour": 0, "message": "OK"})
+        fetch = AsyncMock(return_value=SIGNED_IN)
         status = self.chain(page, [(0, STEP2), (0.05, self.CALLBACK), (0.1, landing)], fetch=fetch)
         self.assertEqual(status, "APPROVAL_PENDING")
         self.assertEqual(self.client.pending._states["p1"]["kind"], "none")
@@ -1057,7 +1061,7 @@ class FlowTest(unittest.TestCase):
 
     def test_accounts_returns_the_snapshot_and_the_rotated_jar(self):
         answers = {
-            bank.INFOS_CLIENT: {"codeRetour": 0, "message": "OK"},
+            bank.INFOS_CLIENT: SIGNED_IN,
             "ibans": {"codeRetour": 0, "data": {"listeRib": []}},
             "accounts": {"codeRetour": 0, "data": {"infoUdc": {"familleCompte": [
                 {"idFamilleCompte": "8", "compte": [{"key": "k", "value": "1234", "libelleProduit": "Credit immobilier", "soldeDispo": -10}]}]}}},
@@ -1075,7 +1079,7 @@ class FlowTest(unittest.TestCase):
     def test_a_dead_session_during_the_snapshot_is_not_an_incomplete_account(self):
         async def fetch(_page, key, body=None):
             if key == bank.INFOS_CLIENT:
-                return {"codeRetour": 0, "message": "OK"}
+                return SIGNED_IN
             raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
 
         with self.assertRaises(HTTPException) as caught:
@@ -1086,7 +1090,7 @@ class FlowTest(unittest.TestCase):
     # -- the first snapshot and the session stages ---------------------------------
 
     ANSWERS = {
-        bank.INFOS_CLIENT: {"codeRetour": 0, "message": "OK"},
+        bank.INFOS_CLIENT: SIGNED_IN,
         "ibans": {"codeRetour": 0, "data": {"listeRib": []}},
         "accounts": {"codeRetour": 0, "data": {"infoUdc": {"familleCompte": [
             {"idFamilleCompte": "8", "compte": [{"key": "k", "value": "1234", "libelleProduit": "Credit immobilier", "soldeDispo": -10}]}]}}},

@@ -46,7 +46,9 @@ management: if the bank answers 403 to the sidecar's network, the sync fails wit
 
 `/complete` reads the first snapshot in the browser that logged in and keeps it for the next `/accounts` call
 (in memory, 120 s). Otherwise `/accounts` opens a new browser and restores the cookies on the host the login ended
-on (`landing` in the session state). A dead session logs one stage (`snapshot_off_site`, `snapshot_info_dead`,
+on (`landing` in the session state). Signed in means `InfosClient` answers `codeRetour` 0 with a customer
+block: an idled-out session still answers 0, with `data: null`. Seen live, a session lasts between 12 and 24
+idle minutes and only a new login renews it. A dead session logs one stage (`snapshot_off_site`, `snapshot_info_dead`,
 `snapshot_http_401`) with the page host/path and the cookie names and domains, never a value.
 
 ## Files

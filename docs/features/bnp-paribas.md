@@ -105,9 +105,21 @@ A dead session has three distinct stages, each with ONE structure-only line
 `BNP session check stopped (stage=... phase=same_browser|fresh_browser) landing=<host> host=... path=<first two segments> query=[keys]
 kind=... cookies=N sent_to_landing=N jar=[NAME@domain[flags],...]` (`*` before the domain for a domain cookie,
 flags `S` secure, `H` httpOnly, `T` session cookie; names and domains only, never a value or an expiry):
-`snapshot_off_site` (the page is not on the bank's site), `snapshot_info_dead` (`InfosClient` or a data answer says
-`codeRetour` -10 / -30), `snapshot_http_401` (the bank refused a request with 401 / 403). If the first snapshot
+`snapshot_off_site` (the page is not on the bank's site), `snapshot_info_dead` (`InfosClient` answers `codeRetour`
+-10 / -30 or answers 0 without a customer block, or a data answer says -10 / -30), `snapshot_http_401` (the bank
+refused a request with 401 / 403). If the first snapshot
 fails or takes more than 45 s the login still completes and the stage is logged.
+
+Signed in means `codeRetour` 0 **and** a customer block in `data`. The code alone is not enough: once the
+session has idled out, the signed-in site still answers `InfosClient` with `codeRetour: "0"` and `message: "OK"`,
+with `data: null`, and its data endpoints answer `codeRetour: 99`. Reading the code alone turned an expired
+session into `UPSTREAM_UNAVAILABLE` (stage `snapshot_parse`), which tells the member the bank is down instead of
+asking for a new login.
+
+Lifetime seen live (one account, 2026-11-09): the session still answered after 12 idle minutes and was over
+after 24. Opening `/auth/login` with the stored cookies then showed the login form, so the PingFederate session
+was over too: only a new login renews a dead session. A sync that runs more than a quarter of an hour after the
+last one therefore needs the member again.
 
 ### After the login submit
 
@@ -183,7 +195,9 @@ One owner-assisted run on 2026-11-09 exercised the connector against a real BNP 
 - Families 1 (current account) and 2 (savings, two passbook kinds told apart by label), balances, and the
   operations of every account, once the dash date format was read.
 - `/accounts` in a new browser with the restored cookies, on the landing host, three times within four
-  minutes of the login.
+  minutes of the login, then after 6 and 12 idle minutes.
+- The end of the session: over after 24 idle minutes, reported as `SESSION_EXPIRED` (stage `snapshot_info_dead`),
+  and not renewed by the stored cookies (see "Session checks").
 - The OneTrust calls of rule 4 (also seen on the public page of the private-banking site).
 - Camoufox reached the login and the signed-in site from that network.
 
@@ -211,8 +225,9 @@ One owner-assisted run on 2026-11-09 exercised the connector against a real BNP 
 - **Hello bank!** and a retail customer who stays on `mabanque.bnpparibas`: no such account was used.
 - Securities accounts and their positions (`pe-war` endpoints), life insurance, PER, loans, the other
   account families and product labels (`parsers.py`), a real IBAN in `rib-wspl`.
-- The session lifetime, `codeRetour` `-30` as a second "session expired" value, the lock-out counter and the
-  behaviour of `ClientNotFoundException201` / `TechnicalException917`.
+- The exact idle limit (between 12 and 24 minutes) and whether a session has an absolute limit, `codeRetour`
+  `-30` as a second "session expired" value, the lock-out counter and the behaviour of
+  `ClientNotFoundException201` / `TechnicalException917`.
 - The sidecar's Docker image (Linux Camoufox under Xvfb) against the bank, and whether Camoufox gets past
   Akamai from a datacenter network. From the build VPS the BNP and Hello bank! hosts answered 403 to headless
   Chromium; nothing was done to evade that.
