@@ -19,12 +19,12 @@ Facts deliberately NOT guessed (the fixtures and findings do not settle them):
 * the unit of `fillingRatio` (21.8 in the fixture): passed through untouched;
 * the meaning of contract `status` (`2 Actif`): contracts are not filtered on it;
 * which product families exist beyond those observed (`1`, `3/01` Livret A or
-  Livret Jeune, `3/02` Compte sur Livret, `3/28` LDDS, `3/04` PEL, `3/27` LEP, `4/05` PER or assurance vie, `6/12` personal loan,
-  `6/13` home loan): they are skipped (with their cards)
+  Livret Jeune, `3/02` Compte sur Livret, `3/28` LDDS, `3/04` PEL, `3/27` LEP, `4/05` PER or assurance vie, `4/09` term deposit,
+  `4/10` cooperative shares, `6/12` personal loan, `6/13` home loan): they are skipped (with their cards)
   and reported in `build_import(...)["unsupported"]` by id, family and sub
   code and catalogue `productLabel` (never `contractLabel`, never a balance), never mapped to a guessed kind, so a PEA or an insurance contract
-  cannot block the sync of the supported accounts. PER, loan and insurance
-  contracts carry a null `contractPfmId`: they are keyed by
+  cannot block the sync of the supported accounts. PER, loan, insurance, term deposit and
+  cooperative shares contracts carry a null `contractPfmId`: they are keyed by
   `contract:<contractId.id>` instead, and the kind is decided before any id
   is read;
 * what a `3/01` contract is beyond its `productLabel`: Banque Populaire files
