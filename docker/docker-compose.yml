@@ -216,6 +216,7 @@ services:
       additional_contexts:
         sidecar-camoufox: service:sidecar-camoufox
     restart: unless-stopped
+    init: true
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
 
