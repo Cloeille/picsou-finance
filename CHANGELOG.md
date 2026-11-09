@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `totalMonthlyPayment`) was the full loan's instalment while the balance was weighed by the
   member's share, so on a 50/50 loan each co-owner saw half the remaining capital but the full
   monthly payment. The instalment is now weighed by the same share as the balance, on the
-  dashboard and on the property financing card; `percentPaid` stays the loan's own progress.
+  dashboard and in the real-estate summary; `percentPaid` stays the loan's own progress.
 
 ### Changed
 
