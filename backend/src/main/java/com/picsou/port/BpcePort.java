@@ -61,7 +61,7 @@ public interface BpcePort {
 
     /**
      * Money is carried as {@link BigDecimal} parsed from the sidecar's decimal strings; a
-     * float never appears. {@code kind} is {@code CURRENT_ACCOUNT}, {@code LIVRET_A},
+     * float never appears. {@code kind} is {@code CURRENT_ACCOUNT}, {@code SAVINGS}, {@code LIVRET_A},
      * {@code LIVRET_JEUNE}, {@code LEP}, {@code LDDS}, {@code PEL}, {@code PER}, {@code ASSURANCE_VIE},
      * {@code LOAN} or {@code CARD}; an unknown kind is rejected by
      * the sync service, not guessed here. A card's {@code balance} is its outstanding (sum of

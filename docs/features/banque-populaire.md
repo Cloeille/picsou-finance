@@ -1,7 +1,7 @@
 # Feature: Banque Populaire sync
 
-> Last updated: 2026-11-06
-> Status: sidecar, backend and frontend are in the codebase. Docker Compose (profile `banque-populaire`) and the Helm chart run the `banque-populaire-auth` sidecar. The user connects from the Sync page (Banque Populaire tab) or the add-account modal: they pick their regional bank, type their identifier, click their own digits on the bank's keypad, then approve in Sécur'Pass. Sync is on demand only. A full login and sync through Picsou ran against a real Rives de Paris account on 2026-11-05 (see "Verification boundaries").
+> Last updated: 2026-11-08
+> Status: sidecar, backend and frontend are in the codebase. Docker Compose (profile `banque-populaire`) and the Helm chart run the `banque-populaire-auth` sidecar. The user connects from the Sync page (Banque Populaire tab) or the add-account modal: they pick their regional bank, type their identifier, click their own digits on the bank's keypad, then approve in Sécur'Pass. Sync is on demand only. Full logins and syncs through Picsou ran against real Rives de Paris (2026-11-05) and Val de France (2026-11-08) accounts (see "Verification boundaries").
 
 ## Context
 
@@ -48,13 +48,15 @@ Banque Populaire accounts look like the ones Enable Banking creates for the same
 
 | BPCE family / sub | Picsou type | Observed live |
 |---|---|---|
-| `1` current account | `CHECKING`, with transactions | yes ("Compte De Cheques") |
+| `1` current account | `CHECKING`, with transactions | yes ("Compte De Cheques", "Compte Individuel") |
 | card in `augmentedCards` | not imported (`Site.cards=False`): never an account, its operations never read, not listed in `unsupported` (a card is not a contract) | yes (Visa Premier, reported with `cardCreditIndicator=true`) |
-| `3/01` labelled Livret A | `LIVRET_A`, with transactions | yes ("Livret A-Particuliers") |
+| `3/01` labelled Livret A | `LIVRET_A`, with transactions | yes ("Livret A-Particuliers", "Livret A") |
 | `3/01` labelled Livret Jeune | `LIVRET_JEUNE`, with transactions | yes ("Livret Jeune") |
 | `3/01` labelled LEP | `LEP`, with transactions | no |
-| `3/28` | `LDDS`, with transactions | no (same code as Caisse d'Epargne) |
-| `6/12`, `6/13` loans, `4/05` PER, `2/11` revolving credit, anything else | listed in `unsupported`, never fetched, never fatal | revolving credit seen ("Credit Renouvelable Facelia", no balance) |
+| `3/02` | `SAVINGS` (Compte sur Livret, provisional), with transactions | yes ("Compte Sur Livret", with `contractPfmId`) |
+| `3/04` | `PEL` (provisional), with transactions | yes ("Plan Epargne Logement", with `contractPfmId`) |
+| `3/28` | `LDDS`, with transactions | yes ("Livret De Developpement Durable Et Solidaire") |
+| `6/12`, `6/13` loans, `4/05` PER, `4/09` term deposit, `4/10` cooperative shares, `2/11` revolving credit, anything else | listed in `unsupported`, never fetched, never fatal | revolving credit `2/11`, PER `4/05`, term deposit `4/09` and cooperative shares `4/10` seen (none with `contractPfmId`) |
 
 Loans and the PER read their detail through separate OAuth clients on Caisse d'Epargne. Their Banque Populaire equivalents were never observed, so this version does not guess them.
 
@@ -74,6 +76,7 @@ The bank answers a wrong identifier or password with a modal titled "Identifiant
 ## Gotchas / Pitfalls
 
 - A BPCE `3/01` code covers both Livret A and Livret Jeune. The product label tells them apart (whole word `JEUNE`), for both banks. A LEP label (`LEP`, `EPARGNE POPULAIRE`) is imported as `LEP` (not observed live).
+- `3/02` (`SAVINGS`, Compte sur Livret) and `3/04` (`PEL`) are enabled on Banque Populaire through `Site.provisional_kinds=frozenset({"SAVINGS", "PEL"})` ([ADR](../decisions/2026-11-07-provisional-kinds-per-bank.md)): an unreadable entry is demoted to `unsupported` instead of failing the synthesis, and `3/02` stays in `unsupported_families` on Caisse d'Epargne until observed there.
 - The host allow-list is strictly `*.banquepopulaire.fr`. A `caisse-epargne.fr` or `bpce.fr` URL is refused for this bank, and the other way round for Caisse d'Epargne.
 - During login, an earlier authorize request (client `adad0322-…`, `response_type=id_token token`) runs on the login host. Only the authorize sent from the client space is captured, as for Caisse d'Epargne.
 - The shared sidecar code logs under the `bpce` logger name for both banks.
@@ -90,4 +93,6 @@ The bank answers a wrong identifier or password with a modal titled "Identifiant
 
 Run live end to end on 2026-11-05 with a Rives de Paris account, through the dev stack (sidecar, backend, frontend): region picker, identifier with its letter, keypad, Sécur'Pass approval, session stored, first sync `SUCCESS`. It imported a current account, a Livret A and a Livret Jeune with their transactions (several hundred rows on the current account, paged within the 365-day window) all with the `bp_` prefix; the revolving credit was listed in `unsupported` (family `2`). That run also imported the Visa Premier as a `CREDIT` card (the bank reports `cardCreditIndicator=true`) with no operations; cards were taken out of the Banque Populaire scope afterwards and are no longer imported. A wrong identifier was also seen live: the bank still shows a keypad, then the refusal modal.
 
-Not observed: LDDS, LEP, loan, PER and revolving-credit detail.
+Run live on 2026-11-08 with a Val de France account: imported a current account, a Livret A (`3/01`), a Livret Jeune (`3/01`), an LDDS (`3/28`), and revealed a Compte sur Livret (`3/02`) and a PEL (`3/04`), both carrying a `contractPfmId`, plus `4/05` (PER), `4/09` (term deposit) and `4/10` (cooperative shares) without a `contractPfmId`.
+
+Not observed: LEP (`3/27` or `3/01` labelled LEP), loan, PER and revolving-credit detail.

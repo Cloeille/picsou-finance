@@ -19,7 +19,7 @@ Facts deliberately NOT guessed (the fixtures and findings do not settle them):
 * the unit of `fillingRatio` (21.8 in the fixture): passed through untouched;
 * the meaning of contract `status` (`2 Actif`): contracts are not filtered on it;
 * which product families exist beyond those observed (`1`, `3/01` Livret A or
-  Livret Jeune, `3/28` LDDS, `3/04` PEL, `3/27` LEP, `4/05` PER or assurance vie, `6/12` personal loan,
+  Livret Jeune, `3/02` Compte sur Livret, `3/28` LDDS, `3/04` PEL, `3/27` LEP, `4/05` PER or assurance vie, `6/12` personal loan,
   `6/13` home loan): they are skipped (with their cards)
   and reported in `build_import(...)["unsupported"]` by id, family and sub
   code and catalogue `productLabel` (never `contractLabel`, never a balance), never mapped to a guessed kind, so a PEA or an insurance contract
@@ -62,10 +62,11 @@ FAMILY_SAVINGS_AVAILABLE = "3"
 LIVRET_A_LABEL = "LIVRET A"
 
 # Observed live 2026-10-13: `productFamilyPFM.code` / `subProductFamilyPFM.code`.
-# PEL `3/04` and LEP `3/27` observed live 2026-11-06 (catalogue labels `PEL ...`
-# and `LEP`, both with a `contractPfmId`).
+# PEL `3/04` and LEP `3/27` observed live 2026-11-06; Compte sur Livret `3/02` and
+# PEL `3/04` observed live on Banque Populaire 2026-11-08 (all with a `contractPfmId`).
 # Any other pair (insurance `5`, other sub codes) is unsupported, never fatal.
 _KINDS_BY_FAMILY = {
+    (FAMILY_SAVINGS_AVAILABLE, "02"): "SAVINGS",
     (FAMILY_SAVINGS_AVAILABLE, "28"): "LDDS",
     (FAMILY_SAVINGS_AVAILABLE, "04"): "PEL",
     (FAMILY_SAVINGS_AVAILABLE, "27"): "LEP",
@@ -83,7 +84,7 @@ _JEUNE_LABEL_RE = re.compile(r"\bJEUNES?\b")
 # Kinds with PFM transactions, keyed by `contractPfmId`. PER and loan contracts
 # carry a null `contractPfmId` and are keyed by `contract:<contractId.id>`.
 PFM_KINDS = frozenset(
-    {"CURRENT_ACCOUNT", "LIVRET_A", "LIVRET_JEUNE", "LDDS", "PEL", "LEP"}
+    {"CURRENT_ACCOUNT", "SAVINGS", "LIVRET_A", "LIVRET_JEUNE", "LDDS", "PEL", "LEP"}
 )
 # Contracts read from the insurer's app rather than the bank's PFM feed: a PER and an
 # assurance vie (observed live 2026-11-06, Millevie Essentielle). Both are family `4`,
@@ -94,12 +95,12 @@ INSURER_KINDS = frozenset({"PER", "ASSURANCE_VIE"})
 INSURER_PRODUCT_KINDS = {"PERIC": "PER", "ESSEN": "ASSURANCE_VIE"}
 _INSURER_ID_RE = re.compile(r"[0-9]{5} {1,16}(?P<product>[A-Z]{5})[0-9]{1,64}\Z")
 
-# Kinds seen in one live run only (2026-11-06). A contract of these kinds that the
+# Kinds seen in few live runs (2026-11-06, 2026-11-08). A contract of these kinds that the
 # parser cannot read (no integer `contractPfmId`, no balance, a negative balance...)
 # is listed as unsupported instead of failing the whole synthesis, as it was before
 # they were supported; the loud failure of the long-observed kinds is kept for those.
-# Their cards are not read: none of them has one.
-PROVISIONAL_KINDS = frozenset({"PEL", "LEP", "ASSURANCE_VIE"})
+# Their cards are not read: a savings book, a plan or an assurance vie has none.
+PROVISIONAL_KINDS = frozenset({"SAVINGS", "PEL", "LEP", "ASSURANCE_VIE"})
 
 # A family or sub-family code the bank sends: short and plain. Anything else is
 # reported as "?" so an unexpected value never reaches a log or the backend.
@@ -298,12 +299,12 @@ def _code(value: Any) -> str:
 
 
 def _check_balance_sign(kind: str, balance: Optional[dict], where: str) -> None:
-    # A loan is outstanding capital, negative on the bank side; a PER, an assurance
-    # vie, a PEL and a LEP are assets. The other sign means the field changed meaning.
+    # A loan is outstanding capital, negative on the bank side; a PER, an assurance vie, a PEL,
+    # a LEP and a Compte sur Livret are assets. The other sign means the field changed meaning.
     if balance is None:  # `_money(required=True)` has already refused it
         raise ParseError(INVALID_SYNTHESIS, f"{where}.balance: missing")
     value = balance["value"]
-    if (kind == "LOAN" and value > 0) or (kind in INSURER_KINDS | {"PEL", "LEP"} and value < 0):
+    if (kind == "LOAN" and value > 0) or (kind in INSURER_KINDS | {"SAVINGS", "PEL", "LEP"} and value < 0):
         raise ParseError(INVALID_SYNTHESIS, f"{where}.balance.value: unexpected sign for this kind")
 
 
@@ -354,8 +355,8 @@ def _contract_account(
     entry = {
         "externalId": external_id,
         # For the diagnostic log only (the fetcher does not return it): whether the bank
-        # sent a `contractPfmId`, which the key alone cannot tell once a PEL or LEP that
-        # has one is rejected for another reason.
+        # sent a `contractPfmId`, which the key alone cannot tell once a provisional
+        # contract that has one is rejected for another reason.
         "hasPfmId": identification.get("contractPfmId") is not None,
         "familyCode": _code(identity["productFamilyPFM"]["code"]),
         "subFamilyCode": _code(sub["code"]) if sub is not None else None,
@@ -487,8 +488,8 @@ def _parse_synthesis(
             unsupported.append(skipped)
             continue  # its cards are skipped with it
         add(contract, where)
-        if contract["kind"] in provisional_kinds:
-            continue  # no card is read from a PEL or a LEP
+        if contract["kind"] in provisional_kinds or contract["kind"] == "LEP":
+            continue  # no card is read from a provisional savings book or plan
 
         if "augmentedCards" not in item["identity"]:
             raise ParseError(INVALID_SYNTHESIS, f"{where}.augmentedCards: missing")
@@ -870,8 +871,8 @@ def build_account(
         account["nextDueDate"] = next_due_date(pages, today=today)
         account["balance"] = {"value": outstanding, "currency": account["currency"]}
     elif kind in provisional_kinds:
-        # Never read: it would only join the loan debit-account match, and a PEL or LEP
-        # does not debit a loan.
+        # Never read: it would only join the loan debit-account match, and a provisional
+        # savings book or plan does not debit a loan.
         account["iban"], account["ibanAmbiguous"] = None, False
     else:
         account["iban"], account["ibanAmbiguous"] = extract_iban(pages)

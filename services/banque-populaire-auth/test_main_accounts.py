@@ -1,11 +1,12 @@
 """POST /token-check and POST /accounts for Banque Populaire, against a synthetic bank.
 
-The bank is an `httpx.MockTransport` playing the hosts observed live (2026-11-05):
-the replay chain on `as-ext-bad-ib` and icgauth, the data API on `rs-ext-bad-ib`.
-Products are those seen on a real account (current account with an immediate-debit
-card, which this site does not import, Livret A and Livret Jeune both `3/01`, a revolving credit `2/11` with a null
-balance) plus the loan and PER families this site does not read. Every value is
-synthetic.
+The bank is an `httpx.MockTransport` playing the hosts observed live (2026-11-05,
+2026-11-08): the replay chain on `as-ext-bad-ib` and icgauth, the data API on
+`rs-ext-bad-ib`. Products are those seen on real accounts (current account with an
+immediate-debit card, which this site does not import, Livret A and Livret Jeune
+both `3/01`, LDDS `3/28`, Compte sur Livret `3/02` and PEL `3/04`, a revolving
+credit `2/11` with a null balance) plus the loan and PER families this site does
+not read. Every value is synthetic.
 """
 
 import json
@@ -73,6 +74,9 @@ SYNTHESIS = {"items": [
     contract(1003, "3", "01", "Livret Jeune", balance=800.0, contractLabel="Livret Pour La Jeunesse",
              authorizedCeilingAmount={"value": 1600.0, "currencyCode": "EUR"}),
     contract(1004, "3", "28", "LDDS", balance=300.0),
+    contract(1005, "3", "02", "Compte Sur Livret", balance=250.0),
+    contract(1006, "3", "04", "Plan Epargne Logement", balance=15000.0,
+             authorizedCeilingAmount={"value": 61200.0, "currencyCode": "EUR"}),
     contract(None, "6", "12", "Pret Personnel", balance=-1000.0, contract_id="PRET1"),
     contract(None, "6", "13", "Credit Immobilier", balance=-90000.0, contract_id="IMMO1"),
     contract(None, "4", "05", "PER", balance=2500.0, contract_id="PER1"),
@@ -161,7 +165,8 @@ class AccountsTest(unittest.TestCase):
         self.assertEqual(
             [(a["externalId"], a["kind"]) for a in body["accounts"]],
             [("1001", "CURRENT_ACCOUNT"), ("1002", "LIVRET_A"),
-             ("1003", "LIVRET_JEUNE"), ("1004", "LDDS")],
+             ("1003", "LIVRET_JEUNE"), ("1004", "LDDS"),
+             ("1005", "SAVINGS"), ("1006", "PEL")],
         )
         jeune = body["accounts"][2]
         self.assertEqual(jeune["name"], "Livret Pour La Jeunesse")
@@ -169,6 +174,21 @@ class AccountsTest(unittest.TestCase):
         self.assertEqual(jeune["ceiling"], "1600.0")
         self.assertEqual(jeune["iban"], "FR76SYNTHETIC1003")
         self.assertEqual([t["externalId"] for t in jeune["transactions"]], ["tx-1003"])
+        # Provisional kinds (`SAVINGS`, `PEL`) never read their IBAN from transactions so
+        # they cannot join the loan debit-account match.
+        csl = body["accounts"][4]
+        self.assertEqual(csl["name"], "SYNTHETIC Compte Sur Livret")
+        self.assertEqual(csl["balance"], "250.0")
+        self.assertIsNone(csl["iban"])
+        self.assertFalse(csl["ibanAmbiguous"])
+        self.assertEqual([t["externalId"] for t in csl["transactions"]], ["tx-1005"])
+        pel = body["accounts"][5]
+        self.assertEqual(pel["name"], "SYNTHETIC Plan Epargne Logement")
+        self.assertEqual(pel["balance"], "15000.0")
+        self.assertEqual(pel["ceiling"], "61200.0")
+        self.assertIsNone(pel["iban"])
+        self.assertFalse(pel["ibanAmbiguous"])
+        self.assertEqual([t["externalId"] for t in pel["transactions"]], ["tx-1006"])
         # The current account's card is not imported for this bank, and not listed either:
         # it is not a contract.
         self.assertNotIn("CARD", {a["kind"] for a in body["accounts"]})
@@ -187,7 +207,7 @@ class AccountsTest(unittest.TestCase):
         self.assertEqual(paths.count(fetcher.SYNTHESIS_PATH), 1)
         self.assertEqual(
             sorted(r.url.params["accountIds"] for r in self.bank.requests if r.url.path == fetcher.TRANSACTIONS_PATH),
-            ["1001", "1002", "1003", "1004"],  # never the card's operations
+            ["1001", "1002", "1003", "1004", "1005", "1006"],  # never the card's operations
         )
         # One token, the main one: no loan, home-loan or PER chain is ever minted.
         self.assertEqual([f["client_id"] for f in self.bank.token_forms()], [CLIENT_ID])
@@ -233,8 +253,8 @@ class SiteTest(unittest.TestCase):
         self.assertIsNone(main.SITE.personal_loan)
         self.assertIsNone(main.SITE.home_loan)
         self.assertIsNone(main.SITE.per)
-        self.assertEqual(main.SITE.unsupported_families, frozenset({("6", "12"), ("6", "13"), ("4", "05"), ("3", "04"), ("3", "27")}))
-        self.assertEqual(main.SITE.provisional_kinds, frozenset())
+        self.assertEqual(main.SITE.unsupported_families, frozenset({("6", "12"), ("6", "13"), ("4", "05"), ("3", "27")}))
+        self.assertEqual(main.SITE.provisional_kinds, frozenset({"SAVINGS", "PEL"}))
 
     def test_the_allow_list_is_banque_populaire_only(self):
         self.assertEqual(main.SITE.extra_hosts, frozenset())
