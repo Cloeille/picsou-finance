@@ -27,5 +27,10 @@ public final class RegulatedRates {
     // LEP: 3.50 %, effective 2025-02-01 (reduced from 4.00 % set 2024-02-01)
     public static final BigDecimal LEP = new BigDecimal("3.50");
 
+    // Legal deposit ceilings, informational only. Source: service-public.fr, 2026.
+    public static final BigDecimal LIVRET_A_CEILING = new BigDecimal("22950.00");
+    public static final BigDecimal LDDS_CEILING = new BigDecimal("12000.00");
+    public static final BigDecimal LEP_CEILING = new BigDecimal("10000.00");
+
     // COMMERCIAL has no regulated rate — the user must supply their own.
 }

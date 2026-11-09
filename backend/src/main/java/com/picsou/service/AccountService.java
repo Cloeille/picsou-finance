@@ -96,6 +96,7 @@ public class AccountService {
     private final ScpiFundService scpiFundService;
     private final PeerLoanTermsRepository peerLoanTermsRepository;
     private final PeerLoanRepaymentRepository peerLoanRepaymentRepository;
+    private final PeerLoanTransactionLinks peerLoanTransactionLinks;
 
     public AccountService(
         AccountRepository accountRepository,
@@ -115,7 +116,8 @@ public class AccountService {
         ScpiPositionRepository scpiPositionRepository,
         ScpiFundService scpiFundService,
         PeerLoanTermsRepository peerLoanTermsRepository,
-        PeerLoanRepaymentRepository peerLoanRepaymentRepository
+        PeerLoanRepaymentRepository peerLoanRepaymentRepository,
+        PeerLoanTransactionLinks peerLoanTransactionLinks
     ) {
         this.accountRepository = accountRepository;
         this.snapshotRepository = snapshotRepository;
@@ -135,6 +137,7 @@ public class AccountService {
         this.scpiFundService = scpiFundService;
         this.peerLoanTermsRepository = peerLoanTermsRepository;
         this.peerLoanRepaymentRepository = peerLoanRepaymentRepository;
+        this.peerLoanTransactionLinks = peerLoanTransactionLinks;
     }
 
     /**
@@ -396,9 +399,8 @@ public class AccountService {
 
     public List<TransactionResponse> getTransactions(Long accountId, Long memberId) {
         getOrThrow(accountId, memberId); // validate account exists
-        return transactionRepository.findByAccountIdOrderByDateDesc(accountId).stream()
-            .map(TransactionResponse::from)
-            .toList();
+        return peerLoanTransactionLinks.annotate(
+            transactionRepository.findByAccountIdOrderByDateDesc(accountId));
     }
 
     @Transactional

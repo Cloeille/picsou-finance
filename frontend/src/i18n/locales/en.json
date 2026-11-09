@@ -562,7 +562,8 @@
       "onTrack": "On schedule",
       "disclaimer": "Indicative forecast, never contractual.",
       "simulationResult": "{{months}} months · {{monthlyPayment}}/month · {{interest}} of interest",
-      "accruedHint": "Interest accrued so far:"
+      "accruedHint": "Interest accrued so far:",
+      "remainingHint": "Remaining due (most one repayment can take):"
     },
     "overview": {
       "title": "Peer loans",
@@ -607,6 +608,7 @@
       "confirm": "Assign",
       "created": "Repayment recorded."
     },
+    "linkedTransaction": "Linked to {{name}}'s loan",
     "actions": {
       "close": "Close the loan",
       "simulate": "Calculate"
@@ -615,6 +617,13 @@
       "title": "Close the loan",
       "description": "The remaining balance ({{amount}}) will be written off and removed from net worth today.",
       "confirm": "Close"
+    },
+    "deleteRepayment": {
+      "title": "Delete the repayment",
+      "description": "The repayment of {{amount}} will be deleted together with its cash movement. The loan balance will be recomputed.",
+      "descriptionLinked": "The repayment of {{amount}} will be unlinked from the loan. The linked transaction stays in its account. The loan balance will be recomputed.",
+      "descriptionNoCashLeg": "The repayment of {{amount}} will be deleted. The loan balance will be recomputed.",
+      "confirm": "Delete"
     },
     "validation": {
       "principal": "The amount lent must be greater than zero.",
@@ -1196,7 +1205,8 @@
       "property": "House, apartment, land…",
       "fortuneo": "Sync your Fortuneo accounts",
       "caisseEpargne": "Current account, Livret A, LDDS, PEL, LEP, PER, life insurance, loans and cards at Caisse d'Epargne",
-      "banquePopulaire": "Current account, Livret A, Livret Jeune and LDDS at Banque Populaire"
+      "banquePopulaire": "Current account, Livret A, Livret Jeune and LDDS at Banque Populaire",
+      "lbp": "Current account, Livret A and LEP at La Banque Postale"
     }
   },
   "sync": {
@@ -1610,6 +1620,9 @@
     "caisseEpargne": {
       "title": "Caisse d'Epargne",
       "customerId": "Identifier",
+      "rememberedIdentifier": "Identifier remembered",
+      "useAnotherIdentifier": "Use another identifier",
+      "backToRememberedIdentifier": "Use the remembered identifier",
       "connect": "Connect",
       "connecting": "Connecting…",
       "sync": "Sync",
@@ -1621,7 +1634,7 @@
       "disconnectConfirmAction": "Delete the stored session",
       "noSession": "No active session",
       "sessionActive": "Session active",
-      "scope": "Syncs your Caisse d'Epargne current accounts, Livret A, LDDS, PEL, LEP, PER (with its funds when the insurer details are available), life insurance, personal loans and cards on demand. Only the session is kept, encrypted. Contracts Picsou cannot import are listed but never created.",
+      "scope": "Syncs your Caisse d'Epargne current accounts, Livret A, LDDS, PEL, LEP, PER (with its funds when the insurer details are available), life insurance, personal loans and cards on demand. Only the session and your identifier are kept, encrypted; never your password. Contracts Picsou cannot import are listed but never created.",
       "notice": {
         "neverStored": "Picsou never sees or stores your password. You click it on the bank's keypad yourself; only the positions of the keys are sent, once.",
         "noRetry": "Picsou never retries a sign-in. If it fails, nothing is sent again until you submit the form yourself.",
@@ -1707,6 +1720,60 @@
         "cancel": "Cancel",
         "validate": "Validate",
         "sending": "Sending…",
+        "countdownLabel": "Time left:"
+      }
+    },
+    "lbp": {
+      "title": "La Banque Postale",
+      "customerId": "Identifier",
+      "rememberIdentifier": "Remember the identifier",
+      "rememberIdentifierHint": "The identifier is stored encrypted on your server. The password is never saved.",
+      "connect": "Connect",
+      "connecting": "Connecting…",
+      "sync": "Sync",
+      "queued": "Sync queued…",
+      "syncing": "Syncing…",
+      "syncSuccess": "La Banque Postale accounts synced.",
+      "clearSession": "Disconnect",
+      "disconnectConfirm": "This deletes the stored session and the remembered identifier in Picsou. The La Banque Postale session itself is not ended and may stay active until it expires.",
+      "disconnectConfirmAction": "Delete the stored session",
+      "noSession": "No active session",
+      "sessionActive": "Session active",
+      "scope": "Syncs your La Banque Postale current account and savings books (Livret A, LDDS, LEP, Compte sur livret) on demand. Only the session is kept, encrypted.",
+      "notice": {
+        "neverStored": "Picsou never sees or stores your password. You click your six digits yourself on the bank's shuffled keypad; only the key positions are sent, once.",
+        "noRetry": "Picsou never retries a sign-in. If it fails, nothing is sent again until you submit the form yourself.",
+        "lockRisk": "Wrong attempts count against your bank access and can lock your La Banque Postale account. Check your identifier and the six digits you click before validating."
+      },
+      "securPassPrompt": "Approve the sign-in in the La Banque Postale app.",
+      "securPassHint": "Picsou does not touch your phone. This page continues on its own once you approve.",
+      "countdownLabel": "Time left to approve:",
+      "unsupportedTitle": "Products not imported",
+      "unsupportedHint": "Picsou does not support these products yet (family code shown).",
+      "errors": {
+        "rateLimited": "Too many sign-in attempts. Please wait before trying again.",
+        "rateLimitedRetryAfter": "Too many sign-in attempts. Try again in {{minutes}} min.",
+        "invalidCredentials": "The bank refused the identifier or password. Check them before trying again: repeated failures can lock your account.",
+        "tooManySyncs": "Too many syncs. Please wait before syncing again.",
+        "tooManySyncsRetryAfter": "Too many syncs. Try again in {{minutes}} min.",
+        "invalidIdentifier": "The identifier must contain 6 to 12 digits.",
+        "keypadChanged": "The keypad changed, please start again. Nothing was sent.",
+        "appValidationTimeout": "The sign-in was not approved in the mobile app in time. Start over if you want to try again.",
+        "authAttemptExpired": "The sign-in attempt expired. Start over if you want to try again.",
+        "sessionExpired": "The La Banque Postale session expired. Please reconnect.",
+        "formatChanged": "The La Banque Postale website format changed. Your existing data was kept.",
+        "invalidSessionState": "The stored session could not be read. Please reconnect.",
+        "serverError": "Could not reach La Banque Postale. Please try again later.",
+        "keypadExpired": "The keypad expired before you validated. Start over if you want to try again.",
+        "invalidPositions": "The keypad entry was not accepted. Start over and enter six keys."
+      },
+      "keypad": {
+        "title": "Click your password",
+        "description": "Click the six digits of your password in order. The digits are shown on the keys themselves.",
+        "entered": "{{count}} keys entered",
+        "clear": "Clear",
+        "cancel": "Cancel",
+        "validate": "Validate",
         "countdownLabel": "Time left:"
       }
     },
@@ -2440,6 +2507,7 @@
       "corum": "CORUM SCPI and life-insurance holdings",
       "sofidy": "Sofidy SCPI holdings",
       "traderepublic": "Trade Republic",
+      "lbp": "La Banque Postale",
       "finary": "Finary",
       "crypto": "Crypto"
     },
@@ -2662,6 +2730,10 @@
           "title": "Fortuneo",
           "description": "Sync your PEA, securities account, and current accounts with two-factor authentication."
         },
+        "lbp": {
+          "title": "La Banque Postale",
+          "description": "Sync your current account and savings books (Livret A, LEP) with the keypad and mobile approval."
+        },
         "finary": {
           "title": "Finary",
           "description": "Import holdings and auto-sync with your Finary account. TOTP is handled at add-time."
@@ -2834,6 +2906,13 @@
       "tip": "Picsou only stores an encrypted session. Your password and 2FA code are never stored. Imported accounts remain attached to their PEA, securities, or current account.",
       "cta": "Enable Fortuneo",
       "skip": "Don't enable Fortuneo"
+    },
+    "lbp": {
+      "title": "La Banque Postale is ready.",
+      "body": "Connect your account after setup from Accounts → Add an account. You will enter your identifier, then your six digits on the bank's keypad.",
+      "tip": "Picsou only stores an encrypted session and, if you ask, your identifier. The password and keypad positions are never stored.",
+      "cta": "Enable La Banque Postale",
+      "skip": "Don't enable La Banque Postale"
     }
   },
   "pockets": {

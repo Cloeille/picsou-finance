@@ -3,7 +3,7 @@ package com.picsou.controller;
 import com.picsou.config.RateLimitConfig;
 import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
-import com.picsou.model.CaisseEpargneSyncStatus;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.picsou.service.BpceSyncEngine;
@@ -110,15 +110,25 @@ class CaisseEpargneControllerAuthTest {
     @Test
     void initiateRefusesAnInvalidBodyBeforeAnyBankCallAndWithoutConsumingAnAttempt() throws Exception {
         for (String body : List.of(
-            "{\"customerId\":\"\"}",
             "{}",
+            "{\"customerId\":null}",
+            "{\"customerId\":12345678}",
             "{\"customerId\":\"abc\"}",
             "{\"customerId\":\"123456789012345678901\"}")) {
             initiate(body, "127.0.0.1").andExpect(status().is4xxClientError());
         }
 
-        verify(service, never()).initiateAuth(anyString(), anyLong());
+        verify(service, never()).initiateAuth(any(), anyLong());
         assertThat(authBuckets).isEmpty();
+    }
+
+    @Test
+    void initiateWithAnEmptyIdentifierAsksTheServiceForTheRememberedOne() throws Exception {
+        when(service.initiateAuth(null, MEMBER_ID)).thenReturn(challenge("proc-1"));
+
+        initiate("{\"customerId\":\"\"}", "127.0.0.1").andExpect(status().isOk());
+
+        verify(service).initiateAuth(null, MEMBER_ID);
     }
 
     @Test
@@ -300,7 +310,7 @@ class CaisseEpargneControllerAuthTest {
     void completeStoresTheSessionForTheCurrentMemberAndAnswersConnected() throws Exception {
         when(service.completeAuth("proc-1", MEMBER_ID)).thenReturn(
             new CaisseEpargneSyncService.SessionStatusResponse(
-                true, CaisseEpargneSyncStatus.IDLE, null, null, null, List.of()));
+                true, SidecarSyncStatus.IDLE, null, null, null, List.of(), false));
 
         mockMvc.perform(post("/api/caisse-epargne/auth/complete")
                 .contentType(MediaType.APPLICATION_JSON).content("{\"processId\":\"proc-1\"}").with(from("127.0.0.1")))
@@ -340,7 +350,7 @@ class CaisseEpargneControllerAuthTest {
     void completeDoesNotSpendAnInitiateAttempt() throws Exception {
         when(service.completeAuth(anyString(), anyLong())).thenReturn(
             new CaisseEpargneSyncService.SessionStatusResponse(
-                true, CaisseEpargneSyncStatus.IDLE, null, null, null, List.of()));
+                true, SidecarSyncStatus.IDLE, null, null, null, List.of(), false));
 
         for (int i = 0; i < 5; i++) {
             mockMvc.perform(post("/api/caisse-epargne/auth/complete")

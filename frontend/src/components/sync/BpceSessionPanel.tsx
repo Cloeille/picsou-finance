@@ -183,6 +183,10 @@ export function BpceSessionPanel({
   const key = useCallback((suffix: string) => `${translationPrefix}.${suffix}`, [translationPrefix])
   const [authState, setAuthState] = useState<AuthState>("IDLE")
   const [customerId, setCustomerId] = useState("")
+  // Caisse d'Epargne only: the backend remembers the identifier of the last successful login
+  // (encrypted, never sent back) and an empty one reuses it. This flag shows the field to type
+  // another one.
+  const [typingIdentifier, setTypingIdentifier] = useState(false)
   const [region, setRegion] = useState("")
   const [pad, setPad] = useState<KeypadPad | null>(null)
   // Key positions only (indexes in the pad's DOM order), never digits. Component
@@ -261,6 +265,7 @@ export function BpceSessionPanel({
     setLostCompletionAt(null)
     setAuthState("IDLE")
     setCustomerId("")
+    setTypingIdentifier(false)
     void refetchStatus()
     // A fresh session holds no accounts yet. Both completion paths queue one
     // first sync, and the caller is told only once its accounts exist.
@@ -308,6 +313,7 @@ export function BpceSessionPanel({
   }, [api, key, lostCompletionAt, startFirstSync, t])
 
   const connected = status.data?.isActive === true
+  const useRememberedIdentifier = status.data?.remembered === true && !typingIdentifier
   const syncStatus = status.data?.syncStatus ?? "IDLE"
   const isSyncing = syncStatus === "QUEUED" || syncStatus === "RUNNING"
   const requestingSync = sync.isPending || isSyncing
@@ -392,7 +398,7 @@ export function BpceSessionPanel({
     setError(null)
     setAuthState("SUBMITTING")
     try {
-      const result = await api.initiateAuth(customerId, region)
+      const result = await api.initiateAuth(useRememberedIdentifier ? "" : customerId, region)
       const images = result.keypad?.images
       if (!result.processId || !Array.isArray(images) || images.length !== 10) {
         setError(t(key("errors.formatChanged")))
@@ -411,6 +417,9 @@ export function BpceSessionPanel({
     } catch (value) {
       setError(formatError(value))
       setAuthState("ERROR")
+      // A rejected remembered identifier is forgotten server side: re-read the
+      // status so the field comes back.
+      if (useRememberedIdentifier) void refetchStatus()
     } finally {
       submitting.current = false
     }
@@ -626,6 +635,24 @@ export function BpceSessionPanel({
                 </div>
               )}
               <div className="space-y-2">
+                {useRememberedIdentifier ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="flex items-center text-sm">
+                      <Landmark className="mr-1 inline-block size-4" />
+                      {t(key("rememberedIdentifier"))}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0"
+                      onClick={() => setTypingIdentifier(true)}
+                    >
+                      {t(key("useAnotherIdentifier"))}
+                    </Button>
+                  </div>
+                ) : (
+                  <>
                 <Label htmlFor={`${fieldIdPrefix}-customer-id`}>
                   <Landmark className="mr-1 inline-block size-4" />
                   {t(key("customerId"))}
@@ -644,6 +671,19 @@ export function BpceSessionPanel({
                   }
                   required
                 />
+                {status.data?.remembered === true && (
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="sm"
+                    className="h-auto p-0"
+                    onClick={() => setTypingIdentifier(false)}
+                  >
+                    {t(key("backToRememberedIdentifier"))}
+                  </Button>
+                )}
+                  </>
+                )}
               </div>
               <Button type="submit" disabled={pending || incomplete}>
                 {pending && <RefreshCw className="animate-spin" />}

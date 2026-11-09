@@ -35,6 +35,7 @@ import com.picsou.repository.RealEstateMetadataRepository;
 import com.picsou.repository.SavingsInterestConfigRepository;
 import com.picsou.repository.ScpiPositionRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.PeerLoanTransactionLinks;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -1451,7 +1452,8 @@ class AccountServiceTest {
             transactionRepository, realEstateMetadataRepository, propertyValuationRepository, debtRepository,
             savingsInterestConfigRepository, realPrices, loanAmortizationService, accessResolver,
             bankLogoResolver, cryptoLogoService, instrumentLogoService, scpiPositionRepository, scpiFundService,
-            mock(PeerLoanTermsRepository.class), mock(PeerLoanRepaymentRepository.class));
+            mock(PeerLoanTermsRepository.class), mock(PeerLoanRepaymentRepository.class),
+            mock(PeerLoanTransactionLinks.class));
         // What a verified-EUR Finary crypto snapshot stores: 10 REG that Finary values at 10 EUR.
         Account account = Account.builder().id(9L).name("Finary wallet").type(AccountType.CRYPTO)
             .currency("EUR").currentBalance(BigDecimal.TEN).build();

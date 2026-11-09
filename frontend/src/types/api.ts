@@ -576,6 +576,11 @@ export interface PeerLoanRepayment {
   capitalPart?: number | null
   /** True when this row has a cash movement in a linked account. */
   hasCashLeg?: boolean
+  /**
+   * True when Picsou wrote that movement and deletes it with the row; false when the row only
+   * links a transaction that stays in its account.
+   */
+  cashLegOwned?: boolean
 }
 
 export type PeerLoanRatePeriod = 'ANNUAL' | 'MONTHLY'
@@ -1188,6 +1193,8 @@ export interface CaisseEpargneSessionStatus {
   lastSyncError: CaisseEpargneErrorCode | null
   unsupported: CaisseEpargneUnsupportedContract[]
   unsupportedCount: number
+  /** An identifier is stored (encrypted): an empty one at initiate reuses it. Never the value. */
+  remembered?: boolean
 }
 
 /**
@@ -1249,6 +1256,71 @@ export type BanquePopulaireAuthInitResponse = CaisseEpargneAuthInitResponse
 export type BanquePopulaireAuthKeypadResponse = CaisseEpargneAuthKeypadResponse
 export type BanquePopulaireAuthCompleteResponse = CaisseEpargneAuthCompleteResponse
 export type BanquePopulaireDeleteResponse = CaisseEpargneDeleteResponse
+
+// --- La Banque Postale ---
+
+export type LbpErrorCode =
+  | 'INVALID_CREDENTIALS'
+  | 'KEYPAD_CHANGED'
+  | 'KEYPAD_EXPIRED'
+  | 'INVALID_POSITIONS'
+  | 'APP_VALIDATION_TIMEOUT'
+  | 'AUTH_ATTEMPT_EXPIRED'
+  | 'SESSION_EXPIRED'
+  | 'UPSTREAM_UNAVAILABLE'
+  | 'UPSTREAM_FORMAT_CHANGED'
+  | 'INVALID_SESSION_STATE'
+  | 'INTERNAL_ERROR'
+
+/** A product the sidecar saw but does not import: family code only, never the account id. */
+export interface LbpUnsupportedProduct {
+  externalId: string
+  familyCode: string
+}
+
+/** Mirrors `LbpSyncService.SessionStatusResponse`. */
+export interface LbpSessionStatus {
+  isActive: boolean
+  syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'FAILED'
+  lastSyncStartedAt: string | null
+  lastSyncCompletedAt: string | null
+  lastSyncError: LbpErrorCode | null
+  unsupported: LbpUnsupportedProduct[]
+  unsupportedCount: number
+  /** The identifier the user asked to remember, decrypted for the form. Never a password. */
+  savedIdentifier: string | null
+}
+
+/**
+ * The bank's shuffled keypad: ten digit labels in DOM order. The user clicks his
+ * own digits and only the clicked positions go back, never the digits.
+ */
+export interface LbpKeypad {
+  keys: string[]
+  columns: number
+}
+
+export interface LbpAuthInitResponse {
+  processId: string
+  keypad: LbpKeypad
+  /** Lifetime of the keypad step, not of the mobile-approval wait. */
+  expiresInSeconds: number
+}
+
+/** The second factor is a notification in the bank's mobile app: a human approves it. */
+export interface LbpAuthKeypadResponse {
+  processId: string
+  status: 'APPROVAL_PENDING'
+}
+
+export type LbpAuthCompleteResponse = LbpSessionStatus
+
+/** `bankSessionRevoked` is always false: only Picsou's stored copy is deleted. */
+export interface LbpDeleteResponse {
+  removed: boolean
+  bankSessionRevoked: boolean
+  message: string
+}
 
 export type DegiroSessionStatusValue = 'ACTIVE' | 'REAUTH_REQUIRED' | 'FAILED'
 
@@ -1511,6 +1583,12 @@ export interface FinaryAutoSyncResponse {
   newAccountCount: number
 }
 
+export interface PeerLoanLink {
+  kind: 'LENDING' | 'REPAYMENT'
+  accountId: number
+  accountName: string
+}
+
 export interface Transaction {
   id: number
   date: string
@@ -1538,6 +1616,8 @@ export interface Transaction {
   fees: number | null
   /** True for CORUM Life contract operations: shown on the account, excluded from the budget. */
   budgetNeutral: boolean
+  /** The peer loan this row belongs to, if any: hides the link actions, links to the loan. */
+  peerLoanLink?: PeerLoanLink | null
 }
 
 export interface TransactionRequest {

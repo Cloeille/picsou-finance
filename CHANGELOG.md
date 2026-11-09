@@ -19,6 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Peer loans: the transaction sheet points at the loan.** A transaction that is a
+  lending outflow or a linked repayment now carries its loan, and its detail sheet hides
+  the "Create a loan" / "Assign to a repayment" actions (they could only fail as
+  "already linked") in favour of a link to the loan. The repayment dialog shows the
+  remaining due next to the accrued interest, and deleting a repayment asks for
+  confirmation first, saying what happens to its cash movement: it is deleted with the
+  row when Picsou wrote it, it stays in its account when the repayment only links an
+  existing transaction, and it is not mentioned when the row has none. See
+  [Peer loans](docs/features/peer-loans.md).
+
 - **The app image is one non-root Java process.** nginx, supervisord and the shell entrypoint are
   gone. The container runs as uid 1000 on port 8080; Compose and Helm hand `/data` to that user
   (`data-permissions` service, `fsGroup`). Tomcat trusts forwarded headers only from
@@ -40,6 +50,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   slow requests any more, and a stopped backend is a refused connection instead of an nginx 502.
 
 ### Added
+
+- **La Banque Postale replacement connector.** A dedicated sidecar reads the current
+  account and the savings products Enable Banking cannot reach (Livret A, LDDS, LEP,
+  Compte sur Livret, Livret Jeune), then replaces the Enable Banking connection for
+  this bank. The login runs in headless Chromium (shuffled keypad clicked by the user,
+  mobile approval), the identifier can be remembered encrypted, and the regulated
+  livrets get their default savings configuration on import. The connector is wired
+  into the Sync tab, Add-account and the dashboard Sync all modal. Migrations V129-V130.
+  Validated live on an isolated stack by the author (current account, Livret A and
+  LEP, 27 transactions); the maintainer live run is still pending. See
+  [La Banque Postale](docs/features/la-banque-postale.md).
 
 - **Banque Populaire sync.** A new Sync tab connects a Banque Populaire account: pick your
   regional bank, type your identifier, click your digits on the bank's keypad and approve in
@@ -149,9 +170,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Unused-file check for the frontend.** `frontend/knip.jsonc` lets
   `bunx knip --production` report unused files under `src/`. German and Spanish strings still
   in English are listed for translators in `docs/features/i18n-untranslated.md`.
+- **One session table for ten bank connectors.** Amex, Amundi, Bourse Direct, BoursoBank,
+  Caisse d'Epargne, CIC, CMES, CORUM, Fortuneo and Sofidy now share one `sidecar_session`
+  table and one sync cycle. Migration V142 copies every stored session, so nobody has to
+  reconnect; a CORUM or Sofidy row with an inconsistent failure state is repaired on the way.
+  It drops the old tables and cannot be undone, so plan an offline upgrade: stop the app (an
+  old app writing a session after the copy loses it), then use the
+  [safe release deployment](docs/features/release-deployment.md), which takes a backup first.
+  (#337)
 
 ### Fixed
 
+- **Caisse d'Epargne remembers your identifier.** A reconnect after the bank session
+  expired no longer asks for the identifier again: the one from the last successful login is
+  stored encrypted, like BoursoBank's (migration `V145`). The password and the Sécur'Pass
+  approval are still never stored, and "Disconnect" forgets everything. See
+  [Caisse d'Epargne](docs/features/caisse-epargne.md#remembered-identifier).
+- **Peer loans: invalid repayments are refused instead of silently absorbed.** A manual
+  repayment cannot exceed the accrued interest plus the remaining capital (the excess
+  used to be written to the cash account while the ledger dropped it, inflating net
+  worth); a linked pre-existing transaction still links and the ledger clamps it, since
+  no money is created. Standalone write-offs and interest repayments with no accrued
+  interest are refused — a write-off is recorded by closing the loan. Backdated closes
+  ignore later repayments, transaction dates follow the same bounds as lending dates,
+  and history is repaired from the oldest affected date. See
+  [Peer loans](docs/features/peer-loans.md).
 - **Caisse d'Epargne PER: a buy-in you entered by hand survives the next sync.** The sync used to
   delete and recreate the PER's lines, so a cost entered on a line was lost each time. Lines are now
   updated in place; only a fund the insurer stops reporting is removed.

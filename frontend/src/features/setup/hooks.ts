@@ -87,7 +87,7 @@ export function useGenerateCryptoKey() {
 
 export function useAcknowledgeIntegration() {
   return useInvalidatingMutation({
-    mutationFn: (key: 'traderepublic' | 'revolut' | 'finary' | 'boursedirect' | 'fortuneo') => setupApi.acknowledgeIntegration(key),
+    mutationFn: (key: 'traderepublic' | 'revolut' | 'finary' | 'boursedirect' | 'fortuneo' | 'lbp') => setupApi.acknowledgeIntegration(key),
     invalidates: [SETUP_STATUS_KEY],
     awaitRefresh: true,
   })

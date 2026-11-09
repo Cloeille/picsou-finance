@@ -126,6 +126,41 @@ class PeerLoanControllerTest {
     }
 
     @Test
+    void getMapsServiceIllegalArgumentTo400() throws Exception {
+        when(userContext.currentMemberId()).thenReturn(7L);
+        when(peerLoanService.get(16L, 7L)).thenThrow(new IllegalArgumentException("boom"));
+
+        mvc.perform(get("/api/accounts/16/peer-loan"))
+            .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void addRepaymentMapsServiceIllegalArgumentTo400() throws Exception {
+        when(userContext.currentMemberId()).thenReturn(7L);
+        when(peerLoanService.addRepayment(org.mockito.ArgumentMatchers.eq(16L),
+            org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.any()))
+            .thenThrow(new IllegalArgumentException("boom"));
+
+        mvc.perform(post("/api/accounts/16/peer-loan/repayments")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"paidOn\":\"2026-01-15\",\"amount\":100}"))
+            .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void addRepaymentMapsAnotherMembersAccountTo404() throws Exception {
+        when(userContext.currentMemberId()).thenReturn(7L);
+        when(peerLoanService.addRepayment(org.mockito.ArgumentMatchers.eq(16L),
+            org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.any()))
+            .thenThrow(new ResourceNotFoundException("Account not found"));
+
+        mvc.perform(post("/api/accounts/16/peer-loan/repayments")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"paidOn\":\"2026-01-15\",\"amount\":100}"))
+            .andExpect(status().isNotFound());
+    }
+
+    @Test
     void simulateRejectsATinyExponentRateFast() throws Exception {
         // A tiny exponent would pin a thread in setScale if it reached the calculator:
         // validation must reject it before the service is ever called.
