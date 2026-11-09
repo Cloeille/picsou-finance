@@ -98,7 +98,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refuses it and asks to reconnect. Each plan (PEE, PER) becomes an account holding its fund
   lines at the units and unit values Natixis reports, so the balance matches the saver space.
   The operations history comes in as BUY and SELL transactions on the plan, kept off the
-  budget, cash flow and categorization. The provider gets its logo. Migration V145 (a `NATIXIS` row in `sidecar_session`). See
+  budget, cash flow and categorization. The provider gets its logo. Migration V146 (a `NATIXIS` row in `sidecar_session`). See
   [Natixis Interépargne](docs/features/natixis-interepargne.md).
 
 - **Sign in with your identity provider (SSO).** Set `SSO_ISSUER_URI` and `SSO_CLIENT_ID` to add
@@ -184,6 +184,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Caisse d'Epargne remembers your identifier.** A reconnect after the bank session
+  expired no longer asks for the identifier again: the one from the last successful login is
+  stored encrypted, like BoursoBank's (migration `V145`). The password and the Sécur'Pass
+  approval are still never stored, and "Disconnect" forgets everything. See
+  [Caisse d'Epargne](docs/features/caisse-epargne.md#remembered-identifier).
 - **Peer loans: invalid repayments are refused instead of silently absorbed.** A manual
   repayment cannot exceed the accrued interest plus the remaining capital (the excess
   used to be written to the cash account while the ledger dropped it, inflating net

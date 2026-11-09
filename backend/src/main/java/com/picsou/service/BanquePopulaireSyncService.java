@@ -136,7 +136,7 @@ public class BanquePopulaireSyncService {
     }
 
     private static BpceSyncEngine.SessionFactory<BanquePopulaireSession> sessionAt(BanquePopulaireRegion region) {
-        return (member, encryptedState, validatedAt) ->
+        return (member, encryptedState, validatedAt, previous) ->
             BanquePopulaireSession.create(member, encryptedState, validatedAt, region);
     }
 

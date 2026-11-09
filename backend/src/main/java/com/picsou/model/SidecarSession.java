@@ -11,7 +11,7 @@ import java.util.Objects;
 
 /**
  * One sidecar bank session per member and bank. Holds the encrypted session state, the
- * optional encrypted stored login (BoursoBank, CIC, CMES, CORUM) and the state of the last sync.
+ * optional encrypted stored login (BoursoBank, CIC, CMES, CORUM; Caisse d'Epargne: the identifier only) and the state of the last sync.
  */
 @Entity
 @Table(name = "sidecar_session")

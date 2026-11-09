@@ -71,7 +71,8 @@ V{n}__description.sql
 | `V121__cic_session.sql` | CIC session, encrypted credentials, and persisted sync status |
 | `V122__crypto_asset.sql` | `crypto_asset` registry: curated CoinGecko tickers, plus coins learned at runtime |
 | `V142__sidecar_session.sql` | One `sidecar_session` table replaces the ten sidecar session tables (after V124–V127 of CORUM Life and V128 of SSO); rows copied as stored, CORUM stored login and Life ambiguous count included (inconsistent CORUM/Sofidy failure states repaired), per-bank error-code CHECK generated from `SidecarBank` |
-| `V145__natixis_sidecar_session.sql` | Natixis Interépargne joins `sidecar_session`: its bank and its error-code branch are added to the CHECKs; no table of its own, so no copy |
+| `V145__caisse_epargne_stored_identifier.sql` | `sidecar_session.encrypted_credentials` is also allowed for `CAISSE_EPARGNE`: the encrypted Caisse d'Epargne identifier (never the password) |
+| `V146__natixis_sidecar_session.sql` | Natixis Interépargne joins `sidecar_session`: its bank and its error-code branch are added to the CHECKs; no table of its own, so no copy |
 
 Note: V8 is absent by design (skipped — never rolled into another migration). Numbering after V32 is not contiguous (V33–V36 unused).
 

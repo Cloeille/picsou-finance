@@ -119,7 +119,7 @@ flow needs a browser, the cheaper and faster httpx path wins.
 - On the backend: `SidecarBank.NATIXIS`, `NatixisAdapter`, `NatixisSyncService`,
   `/api/natixis`, a `NATIXIS` row in the shared `sidecar_session` table
   (ADR 2026-11-02, one sidecar session table) and the migration
-  `V145__natixis_sidecar_session.sql`, which adds the bank and its error codes.
+  `V146__natixis_sidecar_session.sql`, which adds the bank and its error codes.
   The table has no credentials column for it.
 - There is a "Natixis Interépargne" entry in the add-account modal and on the sync
   page.
