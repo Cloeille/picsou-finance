@@ -105,6 +105,11 @@ public class SyncExecutorConfig {
         return singleWorker("sofidy-sync-");
     }
 
+    @Bean(name = "tradeRepublicSyncExecutor")
+    public Executor tradeRepublicSyncExecutor() {
+        return singleWorker("tr-sync-");
+    }
+
     private static Executor singleWorker(String threadNamePrefix) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(1);

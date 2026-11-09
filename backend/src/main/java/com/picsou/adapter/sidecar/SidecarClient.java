@@ -31,10 +31,9 @@ import java.util.concurrent.TimeoutException;
  * then the status decides. Each session table's CHECK constraint lists only its own bank's codes,
  * so an undeclared code must never be turned into a {@link SyncException} code.
  *
- * <p>Trade Republic, DEGIRO and Revolut deliberately stay out: their sidecars do not use the
- * {@code detail}-code contract (DEGIRO relays a bare 401 for an expired session, Trade Republic
- * relays the broker's own status), so they take the shared {@link SidecarWebClientFactory} client
- * and keep their own mapping.
+ * <p>DEGIRO and Revolut deliberately stay out: their sidecars do not use the {@code detail}-code
+ * contract (DEGIRO relays a bare 401 for an expired session), so they take the shared
+ * {@link SidecarWebClientFactory} client and keep their own mapping.
  */
 public final class SidecarClient {
 

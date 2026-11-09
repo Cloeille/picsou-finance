@@ -1042,9 +1042,35 @@ export interface WalletStatus {
   lastSyncedAt: string | null
 }
 
-export interface TrSessionStatus {
-  isActive: boolean
-  expiresAt: string | null
+/** Codes a Trade Republic auth or sync call can fail with (`SidecarBank.TRADE_REPUBLIC`). */
+export type TrErrorCode =
+  | 'INVALID_CREDENTIALS'
+  | 'INVALID_OTP'
+  | 'APP_VALIDATION_TIMEOUT'
+  | 'APP_VALIDATION_CANCELLED'
+  | 'AUTH_ATTEMPT_EXPIRED'
+  | 'SESSION_EXPIRED'
+  | 'INVALID_SESSION_STATE'
+  | 'RATE_LIMITED'
+  | 'UPSTREAM_FORMAT_CHANGED'
+  | 'INVALID_DATA'
+  | 'UPSTREAM_UNAVAILABLE'
+  | 'INTERNAL_ERROR'
+
+/** Same shape as every sidecar-backed session: a deactivated session reports `SESSION_EXPIRED`. */
+export type TrSessionStatus = SidecarSessionStatusOf<TrErrorCode>
+
+/**
+ * `confirmInApp`: the member confirms the login in the Trade Republic app and `auth/complete`
+ * stays open until they do. `otp`: Trade Republic texted a 4-digit code the member types.
+ */
+export type TrAuthFlow = 'confirmInApp' | 'otp'
+
+export interface TrAuthInitResponse {
+  processId: string
+  flow: TrAuthFlow
+  /** How long the member has to confirm in the app. */
+  countdownInSeconds: number
 }
 
 /**

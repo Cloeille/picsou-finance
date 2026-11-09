@@ -2,6 +2,7 @@ package com.picsou.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.port.BanquePopulaireRegion;
 import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.*;
 import lombok.*;
@@ -11,7 +12,8 @@ import java.util.Objects;
 
 /**
  * One sidecar bank session per member and bank. Holds the encrypted session state, the
- * optional encrypted stored login (BoursoBank, CIC, CMES, CORUM; Caisse d'Epargne: the identifier only) and the state of the last sync.
+ * optional encrypted stored login (BoursoBank, CIC, CMES, CORUM; Caisse d'Epargne: the identifier only), the
+ * Banque Populaire regional bank and the state of the last sync. It is the {@link BpceSession} of both BPCE banks.
  */
 @Entity
 @Table(name = "sidecar_session")
@@ -45,9 +47,17 @@ public class SidecarSession extends AuditableEntity implements BpceSession {
     @Column(name = "encrypted_credentials", columnDefinition = "TEXT")
     private String encryptedCredentials;
 
-    /** Caisse d'Epargne only: JSON array of {externalId, familyCode, subFamilyCode} seen but not imported. */
+    /** BPCE banks only: JSON array of {externalId, familyCode, subFamilyCode} seen but not imported. */
     @Column(name = "unsupported_contracts", columnDefinition = "TEXT")
     private String unsupportedContracts;
+
+    /**
+     * Banque Populaire only, and always set there: the regional bank chosen at the login that opened
+     * this session. Not a secret: the sync stamps its name on the accounts and looks the logo up under it.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "region", length = 32, updatable = false)
+    private BanquePopulaireRegion region;
 
     @Column(name = "last_validated_at")
     private Instant lastValidatedAt;
@@ -83,13 +93,35 @@ public class SidecarSession extends AuditableEntity implements BpceSession {
         Instant validatedAt
     ) {
         Objects.requireNonNull(bank, "bank");
-        if (!bank.storedInSidecarSession()) {
-            throw new IllegalArgumentException(bank + " sessions are not stored in sidecar_session");
+        if (bank == SidecarBank.BANQUE_POPULAIRE) {
+            throw new IllegalArgumentException(bank + " sessions need a region: use createBanquePopulaire");
         }
+        return newSession(bank, member, encryptedSessionState, validatedAt, null);
+    }
+
+    /** A Banque Populaire session, opened at {@code region}. */
+    public static SidecarSession createBanquePopulaire(
+        FamilyMember member,
+        String encryptedSessionState,
+        Instant validatedAt,
+        BanquePopulaireRegion region
+    ) {
+        return newSession(SidecarBank.BANQUE_POPULAIRE, member, encryptedSessionState, validatedAt,
+            Objects.requireNonNull(region, "region"));
+    }
+
+    private static SidecarSession newSession(
+        SidecarBank bank,
+        FamilyMember member,
+        String encryptedSessionState,
+        Instant validatedAt,
+        BanquePopulaireRegion region
+    ) {
         return SidecarSession.builder()
             .bank(bank)
             .member(Objects.requireNonNull(member, "member"))
             .sessionState(Objects.requireNonNull(encryptedSessionState, "encryptedSessionState"))
+            .region(region)
             .lastValidatedAt(Objects.requireNonNull(validatedAt, "validatedAt"))
             .active(true)
             .syncStatus(SidecarSyncStatus.IDLE)
@@ -206,13 +238,16 @@ public class SidecarSession extends AuditableEntity implements BpceSession {
         return switch (bank) {
             // No password is kept: unreadable cookies cannot be renewed either.
             // Banque Populaire and La Banque Postale: create() refuses them here; same rule as
-            // banque_populaire_session and lbp_session.
+            // lbp_session.
             case CAISSE_EPARGNE, BANQUE_POPULAIRE, LBP -> error == SidecarErrorCode.SESSION_EXPIRED
                 || error == SidecarErrorCode.INVALID_SESSION_STATE;
             // The stored password was rejected: replaying it would lock the access.
             // Natixis keeps no password either: a refused refresh token needs a new login with a new code.
             case NATIXIS, CIC, CMES, CORUM -> error == SidecarErrorCode.SESSION_EXPIRED
                 || error == SidecarErrorCode.INVALID_CREDENTIALS;
+            // The stored refresh cookie is the whole session: unreadable or rejected, only a new login helps.
+            case TRADE_REPUBLIC -> error == SidecarErrorCode.SESSION_EXPIRED
+                || error == SidecarErrorCode.INVALID_SESSION_STATE;
             case AMEX, AMUNDI, BOURSE_DIRECT, BOURSO, FORTUNEO, SOFIDY ->
                 error == SidecarErrorCode.SESSION_EXPIRED;
         };

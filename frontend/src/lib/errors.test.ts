@@ -172,11 +172,6 @@ describe('formatTrAuthError — TR error codes', () => {
     expect(formatTrAuthError(trErr(422, detail), t)).toBe('sync.tr.errors.serviceUnavailable')
   })
 
-  it('maps the AWS WAF block on a 422 to a retry message, not a credential error', () => {
-    const detail = 'Trade Republic blocked the request. Please retry in a minute.'
-    expect(formatTrAuthError(trErr(422, detail), t)).toBe('sync.tr.errors.temporarilyBlocked')
-  })
-
   it('maps a Trade Republic timeout on a 422 to the server-error message, not a credential error', () => {
     const detail = 'Trade Republic did not respond. Please try again in a moment.'
     expect(formatTrAuthError(trErr(422, detail), t)).toBe('sync.tr.errors.serverError')

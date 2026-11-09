@@ -2,7 +2,7 @@ package com.picsou.controller;
 
 import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
-import com.picsou.model.BanquePopulaireSyncStatus;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.service.BpceSyncEngine;
 import com.picsou.service.BanquePopulaireSyncService;
@@ -56,15 +56,16 @@ class BanquePopulaireControllerTest {
         lenient().when(userContext.currentMemberId()).thenReturn(MEMBER_ID);
     }
 
-    private static BanquePopulaireSyncService.SessionStatusResponse statusOf(BanquePopulaireSyncStatus syncStatus) {
+    private static BanquePopulaireSyncService.SessionStatusResponse statusOf(SidecarSyncStatus syncStatus) {
         return new BanquePopulaireSyncService.SessionStatusResponse(
             true, syncStatus, null, null, null,
-            List.of(new BpceSyncEngine.UnsupportedContract("9001", "7", "02")));
+            List.of(new BpceSyncEngine.UnsupportedContract("9001", "7", "02")),
+            false);
     }
 
     @Test
     void syncQueuesTheSyncForTheCurrentMemberAndAnswers202() throws Exception {
-        when(service.queueSync(MEMBER_ID)).thenReturn(statusOf(BanquePopulaireSyncStatus.QUEUED));
+        when(service.queueSync(MEMBER_ID)).thenReturn(statusOf(SidecarSyncStatus.QUEUED));
 
         mockMvc.perform(post("/api/banque-populaire/sync").with(request -> {
                 request.setRemoteAddr("127.0.0.1");
@@ -81,7 +82,7 @@ class BanquePopulaireControllerTest {
 
     @Test
     void syncIsRateLimitedLikeTheOtherSyncEndpoints() throws Exception {
-        when(service.queueSync(MEMBER_ID)).thenReturn(statusOf(BanquePopulaireSyncStatus.QUEUED));
+        when(service.queueSync(MEMBER_ID)).thenReturn(statusOf(SidecarSyncStatus.QUEUED));
         var request = post("/api/banque-populaire/sync").with(r -> {
             r.setRemoteAddr("127.0.0.1");
             return r;
@@ -99,7 +100,7 @@ class BanquePopulaireControllerTest {
 
     @Test
     void theRateLimitIsPerClientIp() throws Exception {
-        when(service.queueSync(anyLong())).thenReturn(statusOf(BanquePopulaireSyncStatus.QUEUED));
+        when(service.queueSync(anyLong())).thenReturn(statusOf(SidecarSyncStatus.QUEUED));
 
         for (int i = 0; i < 10; i++) {
             mockMvc.perform(post("/api/banque-populaire/sync").with(r -> {
@@ -128,7 +129,7 @@ class BanquePopulaireControllerTest {
 
     @Test
     void statusReturnsTheStoredState() throws Exception {
-        when(service.getStatus(MEMBER_ID)).thenReturn(statusOf(BanquePopulaireSyncStatus.SUCCESS));
+        when(service.getStatus(MEMBER_ID)).thenReturn(statusOf(SidecarSyncStatus.SUCCESS));
 
         mockMvc.perform(get("/api/banque-populaire/status"))
             .andExpect(status().isOk())

@@ -7,7 +7,6 @@ import com.picsou.repository.AppSettingRepository;
 import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.FinarySessionRepository;
 import com.picsou.repository.LbpSessionRepository;
-import com.picsou.repository.TradeRepublicSessionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -33,7 +32,6 @@ public class IntegrationsService {
 
     private final AppSettingRepository settingRepository;
     private final EnableBankingConfigProvider enableBankingConfig;
-    private final TradeRepublicSessionRepository tradeRepublicSessions;
     private final FinarySessionRepository finarySessions;
     private final SidecarSessionRepository sidecarSessions;
     private final LbpSessionRepository lbpSessions;
@@ -41,14 +39,12 @@ public class IntegrationsService {
 
     public IntegrationsService(AppSettingRepository settingRepository,
                                EnableBankingConfigProvider enableBankingConfig,
-                               TradeRepublicSessionRepository tradeRepublicSessions,
                                FinarySessionRepository finarySessions,
                                SidecarSessionRepository sidecarSessions,
                                LbpSessionRepository lbpSessions,
                                UserContext userContext) {
         this.settingRepository = settingRepository;
         this.enableBankingConfig = enableBankingConfig;
-        this.tradeRepublicSessions = tradeRepublicSessions;
         this.finarySessions = finarySessions;
         this.sidecarSessions = sidecarSessions;
         this.lbpSessions = lbpSessions;
@@ -114,7 +110,7 @@ public class IntegrationsService {
     private boolean isDetectedConfigured(String key) {
         return switch (key) {
             case "enablebanking" -> enableBankingConfig.isConfiguredLenient();
-            case "traderepublic" -> tradeRepublicSessions.count() > 0;
+            case "traderepublic" -> sidecarSessions.countByBank(SidecarBank.TRADE_REPUBLIC) > 0;
             case "finary" -> finarySessions.count() > 0;
             case "boursedirect" -> sidecarSessions.existsByBankAndActiveTrue(SidecarBank.BOURSE_DIRECT);
             case "boursobank" -> sidecarSessions.existsByBankAndActiveTrue(SidecarBank.BOURSO);

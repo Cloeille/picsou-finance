@@ -3,7 +3,7 @@ package com.picsou.controller;
 import com.picsou.config.RateLimitConfig;
 import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
-import com.picsou.model.BanquePopulaireSyncStatus;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.BanquePopulairePort;
 import com.picsou.port.BanquePopulaireRegion;
@@ -122,19 +122,34 @@ class BanquePopulaireControllerAuthTest {
     @Test
     void initiateRefusesAnInvalidBodyBeforeAnyBankCallAndWithoutConsumingAnAttempt() throws Exception {
         for (String body : List.of(
-            "{\"customerId\":\"\",\"region\":\"BRED\"}",
             "{}",
             "{\"customerId\":\"12345678\"}",
             "{\"region\":\"BRED\"}",
+            "{\"customerId\":null,\"region\":\"BRED\"}",
+            "{\"customerId\":12345678,\"region\":\"BRED\"}",
             "{\"customerId\":\"A123-4567\",\"region\":\"BRED\"}",
             "{\"customerId\":\"A123 4567\",\"region\":\"BRED\"}",
             "{\"customerId\":\"\u00c91234567\",\"region\":\"BRED\"}",
-            "{\"customerId\":\"123456789012345678901\",\"region\":\"BRED\"}")) {
+            "{\"customerId\":\"123456789012345678901\",\"region\":\"BRED\"}",
+            "{\"customerId\":\"\"}",
+            "{\"customerId\":\"\",\"region\":7}")) {
             initiate(body, "127.0.0.1").andExpect(status().is4xxClientError());
         }
 
-        verify(service, never()).initiateAuth(anyString(), any(), anyLong());
+        verify(service, never()).initiateAuth(any(), any(), anyLong());
         assertThat(authBuckets).isEmpty();
+    }
+
+    @Test
+    void initiateWithAnEmptyIdentifierAsksTheServiceForTheRememberedOne() throws Exception {
+        when(service.initiateAuth(null, null, MEMBER_ID)).thenReturn(challenge("proc-1"));
+
+        initiate("{\"customerId\":\"\",\"region\":\"\"}", "127.0.0.1").andExpect(status().isOk());
+        // A region sent along is ignored: the remembered identifier only goes back to its own bank.
+        initiate("{\"customerId\":\"\",\"region\":\"BRED\"}", "127.0.0.1").andExpect(status().isOk());
+        initiate("{\"customerId\":\"\",\"region\":\"NOT_A_REGION\"}", "127.0.0.1").andExpect(status().isOk());
+
+        verify(service, times(3)).initiateAuth(null, null, MEMBER_ID);
     }
 
     @Test
@@ -344,7 +359,7 @@ class BanquePopulaireControllerAuthTest {
     void completeStoresTheSessionForTheCurrentMemberAndAnswersConnected() throws Exception {
         when(service.completeAuth("proc-1", MEMBER_ID)).thenReturn(
             new BanquePopulaireSyncService.SessionStatusResponse(
-                true, BanquePopulaireSyncStatus.IDLE, null, null, null, List.of()));
+                true, SidecarSyncStatus.IDLE, null, null, null, List.of(), false));
 
         mockMvc.perform(post("/api/banque-populaire/auth/complete")
                 .contentType(MediaType.APPLICATION_JSON).content("{\"processId\":\"proc-1\"}").with(from("127.0.0.1")))
@@ -384,7 +399,7 @@ class BanquePopulaireControllerAuthTest {
     void completeDoesNotSpendAnInitiateAttempt() throws Exception {
         when(service.completeAuth(anyString(), anyLong())).thenReturn(
             new BanquePopulaireSyncService.SessionStatusResponse(
-                true, BanquePopulaireSyncStatus.IDLE, null, null, null, List.of()));
+                true, SidecarSyncStatus.IDLE, null, null, null, List.of(), false));
 
         for (int i = 0; i < 5; i++) {
             mockMvc.perform(post("/api/banque-populaire/auth/complete")

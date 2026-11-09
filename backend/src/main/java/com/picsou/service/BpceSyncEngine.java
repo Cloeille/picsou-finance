@@ -56,8 +56,9 @@ import java.util.function.Supplier;
  * <p>Shaped like {@link BoursoSyncService}: upstream I/O happens outside any transaction and one
  * short transaction writes the whole snapshot, so a failure part-way rolls every account back.
  * Differences, all deliberate: the sync is <b>on demand only</b> (no scheduler, no auto-resync
- * hook), no credentials are ever stored (decision D5, cookies only) so an expired session can
- * only be renewed by the user, and unsupported contracts are counted but never created.
+ * hook), the password is never stored (decision D5; the banks' services may keep the identifier,
+ * encrypted, on their session row) so an expired session can only be renewed by the user, and
+ * unsupported contracts are counted but never created.
  *
  * <p>Not a Spring bean: each bank's service builds its own engine, so the bank's transaction
  * boundaries ({@code @Transactional}) stay on that service.
@@ -125,8 +126,9 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
     private final Clock clock;
     /**
      * Logins waiting for the human to approve on the phone. Holds the process id, the member, a
-     * deadline and how to build the session row once approved: never the identifier, the password
-     * nor the session. Process-local on purpose, a restart drops the attempt and the user starts again.
+     * deadline and how to build the session row once approved: never the password nor the session.
+     * That builder may capture the identifier, which the bank's service then stores encrypted.
+     * Process-local on purpose, a restart drops the attempt and the user starts again.
      */
     private final Map<String, PendingLogin<S>> pendingLogins = new ConcurrentHashMap<>();
     /**

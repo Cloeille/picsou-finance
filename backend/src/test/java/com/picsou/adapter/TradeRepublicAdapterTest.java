@@ -6,12 +6,11 @@ import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import org.springframework.web.reactive.function.client.WebClient;
 import com.picsou.adapter.TradeRepublicAdapter.TrAccountData;
-import com.picsou.adapter.TradeRepublicAdapter.TrTokens;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -26,6 +25,7 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -52,180 +52,168 @@ class TradeRepublicAdapterTest {
         }
     }
 
-    @ParameterizedTest
-    @ValueSource(ints = {401, 403})
-    void refreshSession_rejectedStatusMapsToSessionExpired(int status) {
-        TradeRepublicAdapter adapter = adapterReturning(status, "{\"detail\":\"rejected\"}");
+    // ─── auth: the sidecar's {"detail": CODE} contract ────────────────────────────────────
 
-        Throwable thrown = catchThrowable(() -> adapter.refreshSession("refresh-token"));
+    @Test
+    void initiateAuth_returnsTheFlowAndTheCountdown() {
+        TradeRepublicAdapter adapter = adapterReturning(200,
+            "{\"processId\":\"p1\",\"flow\":\"confirmInApp\",\"countdownInSeconds\":120}");
 
-        assertThat(thrown)
-            .isInstanceOf(SyncException.class)
-            .hasMessage("SESSION_EXPIRED");
-    }
+        TradeRepublicAdapter.TrInitiate result = adapter.initiateAuth("+336****0000", "1234");
 
-    @ParameterizedTest
-    @ValueSource(ints = {429, 500, 503})
-    void refreshSession_transientStatusMapsToUnavailable(int status) {
-        TradeRepublicAdapter adapter = adapterReturning(status, "{\"detail\":\"temporary\"}");
-
-        Throwable thrown = catchThrowable(() -> adapter.refreshSession("refresh-token"));
-
-        assertThat(thrown)
-            .isInstanceOf(SyncException.class)
-            .hasMessageContaining("unavailable");
-        assertThat(thrown.getMessage()).isNotEqualTo("SESSION_EXPIRED");
+        assertThat(result).isEqualTo(new TradeRepublicAdapter.TrInitiate("p1", "confirmInApp", 120));
     }
 
     @Test
-    void refreshSession_timeoutMapsToUnavailable() {
-        server = HttpServer.create()
-            .host("127.0.0.1")
-            .port(0)
-            .handle((request, response) -> Mono.never())
+    void initiateAuth_aBlankProcessIdIsAFormatChange() {
+        TradeRepublicAdapter adapter = adapterReturning(200, "{\"processId\":\" \",\"flow\":\"otp\"}");
+
+        assertThat(codeOf(catchThrowable(() -> adapter.initiateAuth("+336****0000", "1234"))))
+            .isEqualTo("UPSTREAM_FORMAT_CHANGED");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "401, INVALID_CREDENTIALS, INVALID_CREDENTIALS",
+        "429, RATE_LIMITED, RATE_LIMITED",
+        "503, UPSTREAM_UNAVAILABLE, UPSTREAM_UNAVAILABLE",
+        "500, INTERNAL_ERROR, INTERNAL_ERROR"
+    })
+    void initiateAuth_keepsTheCodeTheSidecarDeclares(int status, String detail, String expected) {
+        TradeRepublicAdapter adapter = adapterReturning(status, "{\"detail\":\"" + detail + "\"}");
+
+        assertThat(codeOf(catchThrowable(() -> adapter.initiateAuth("+336****0000", "1234")))).isEqualTo(expected);
+    }
+
+    @Test
+    void initiateAuth_aBareUnauthorizedMeansTheCredentialsWereRejected() {
+        TradeRepublicAdapter adapter = adapterReturning(401, "{}");
+
+        assertThat(codeOf(catchThrowable(() -> adapter.initiateAuth("+336****0000", "1234"))))
+            .isEqualTo("INVALID_CREDENTIALS");
+    }
+
+    @Test
+    void initiateAuth_aCodeTheBankNeverDeclaredIsUnavailable() {
+        // CAPTCHA_BLOCKED exists, but Trade Republic's CHECK branch does not list it.
+        TradeRepublicAdapter adapter = adapterReturning(502, "{\"detail\":\"CAPTCHA_BLOCKED\"}");
+
+        assertThat(codeOf(catchThrowable(() -> adapter.initiateAuth("+336****0000", "1234"))))
+            .isEqualTo("UPSTREAM_UNAVAILABLE");
+    }
+
+    @Test
+    void completeAuth_returnsTheSessionStateAndSendsAnExplicitNullTan() {
+        AtomicReference<String> body = new AtomicReference<>();
+        server = HttpServer.create().host("127.0.0.1").port(0)
+            .handle((request, response) -> request.receive().aggregate().asString().doOnNext(body::set)
+                .then(response.header("Content-Type", "application/json")
+                    .sendString(Mono.just("{\"sessionState\":\"{\\\"refresh\\\":\\\"r\\\"}\"}")).then()))
             .bindNow();
+        TradeRepublicAdapter adapter = adapterFor(server, RESPONSE_TIMEOUT);
+
+        String state = adapter.completeAuth("p1", null);
+
+        assertThat(state).isEqualTo("{\"refresh\":\"r\"}");
+        assertThat(body.get()).contains("\"processId\":\"p1\"").contains("\"tan\":null");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "408, APP_VALIDATION_TIMEOUT, APP_VALIDATION_TIMEOUT",
+        "401, APP_VALIDATION_CANCELLED, APP_VALIDATION_CANCELLED",
+        "401, INVALID_OTP, INVALID_OTP",
+        "410, AUTH_ATTEMPT_EXPIRED, AUTH_ATTEMPT_EXPIRED",
+        "502, UPSTREAM_FORMAT_CHANGED, UPSTREAM_FORMAT_CHANGED"
+    })
+    void completeAuth_keepsTheCodeTheSidecarDeclares(int status, String detail, String expected) {
+        TradeRepublicAdapter adapter = adapterReturning(status, "{\"detail\":\"" + detail + "\"}");
+
+        assertThat(codeOf(catchThrowable(() -> adapter.completeAuth("p1", "1234")))).isEqualTo(expected);
+    }
+
+    @Test
+    void completeAuth_aBareGoneMeansTheAttemptExpired() {
+        TradeRepublicAdapter adapter = adapterReturning(410, "{}");
+
+        assertThat(codeOf(catchThrowable(() -> adapter.completeAuth("p1", null)))).isEqualTo("AUTH_ATTEMPT_EXPIRED");
+    }
+
+    @Test
+    void completeAuth_aBlankStateIsAFormatChange() {
+        TradeRepublicAdapter adapter = adapterReturning(200, "{\"sessionState\":\"\"}");
+
+        assertThat(codeOf(catchThrowable(() -> adapter.completeAuth("p1", null)))).isEqualTo("UPSTREAM_FORMAT_CHANGED");
+    }
+
+    @Test
+    void completeAuth_waitsLongerThanTheAuthTimeout() {
+        server = HttpServer.create().host("127.0.0.1").port(0)
+            .handle((request, response) -> Mono.delay(Duration.ofMillis(300))
+                .then(response.header("Content-Type", "application/json")
+                    .sendString(Mono.just("{\"sessionState\":\"state\"}")).then()))
+            .bindNow();
+        String baseUrl = "http://127.0.0.1:" + server.port();
+        TradeRepublicAdapter adapter = new TradeRepublicAdapter(new ObjectMapper(),
+            WebClient.builder().baseUrl(baseUrl).build(),
+            Duration.ofMillis(50), Duration.ofSeconds(2), Duration.ofMillis(50), URI.create("ws://127.0.0.1:1/"));
+
+        assertThat(adapter.completeAuth("p1", null)).isEqualTo("state");
+        assertThat(codeOf(catchThrowable(() -> adapter.initiateAuth("+336****0000", "1234"))))
+            .isEqualTo("UPSTREAM_UNAVAILABLE");
+    }
+
+    // ─── openSession ──────────────────────────────────────────────────────────────────────
+
+    @Test
+    void openSession_returnsTheCookieValueAndTheClaims() {
+        TradeRepublicAdapter adapter = adapterReturning(200,
+            "{\"sessionToken\":\"cookie-value\",\"claims\":{\"act\":{\"acc\":{}}}}");
+
+        TradeRepublicAdapter.TrSession session = adapter.openSession("{\"refresh\":\"r\"}");
+
+        assertThat(session.sessionToken()).isEqualTo("cookie-value");
+        assertThat(session.claims().path("act").isObject()).isTrue();
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "401, SESSION_EXPIRED, SESSION_EXPIRED",
+        "422, INVALID_SESSION_STATE, INVALID_SESSION_STATE",
+        "429, RATE_LIMITED, RATE_LIMITED",
+        "502, UPSTREAM_UNAVAILABLE, UPSTREAM_UNAVAILABLE"
+    })
+    void openSession_keepsTheCodeTheSidecarDeclares(int status, String detail, String expected) {
+        TradeRepublicAdapter adapter = adapterReturning(status, "{\"detail\":\"" + detail + "\"}");
+
+        assertThat(codeOf(catchThrowable(() -> adapter.openSession("state")))).isEqualTo(expected);
+    }
+
+    @Test
+    void openSession_aBareUnauthorizedMeansTheStoredSessionDied() {
+        TradeRepublicAdapter adapter = adapterReturning(401, "{}");
+
+        assertThat(codeOf(catchThrowable(() -> adapter.openSession("state")))).isEqualTo("SESSION_EXPIRED");
+    }
+
+    @Test
+    void openSession_aMissingTokenIsAFormatChange_notAnExpiredSession() {
+        TradeRepublicAdapter adapter = adapterReturning(200, "{\"claims\":{}}");
+
+        assertThat(codeOf(catchThrowable(() -> adapter.openSession("state")))).isEqualTo("UPSTREAM_FORMAT_CHANGED");
+    }
+
+    @Test
+    void openSession_aTimeoutIsUnavailable_notAnExpiredSession() {
+        server = HttpServer.create().host("127.0.0.1").port(0).handle((request, response) -> Mono.never()).bindNow();
         TradeRepublicAdapter adapter = adapterFor(server, Duration.ofMillis(25));
 
-        Throwable thrown = catchThrowable(() -> adapter.refreshSession("refresh-token"));
-
-        assertThat(thrown)
-            .isInstanceOf(SyncException.class)
-            .hasMessageContaining("unavailable");
-        assertThat(thrown.getMessage()).isNotEqualTo("SESSION_EXPIRED");
+        assertThat(codeOf(catchThrowable(() -> adapter.openSession("state")))).isEqualTo("UPSTREAM_UNAVAILABLE");
     }
 
-    @Test
-    void refreshSession_emptySuccessBodyIsNotSessionExpired() {
-        TradeRepublicAdapter adapter = adapterReturning(200, "");
-
-        Throwable thrown = catchThrowable(() -> adapter.refreshSession("refresh-token"));
-
-        assertThat(thrown)
-            .isInstanceOf(SyncException.class)
-            .hasMessageContaining("empty response");
-        assertThat(thrown.getMessage()).isNotEqualTo("SESSION_EXPIRED");
-    }
-
-    @Test
-    void refreshSession_missingSessionTokenIsNotSessionExpired() {
-        TradeRepublicAdapter adapter = adapterReturning(200, "{\"refreshToken\":\"rotated\"}");
-
-        Throwable thrown = catchThrowable(() -> adapter.refreshSession("refresh-token"));
-
-        assertThat(thrown)
-            .isInstanceOf(SyncException.class)
-            .hasMessageContaining("empty response");
-        assertThat(thrown.getMessage()).isNotEqualTo("SESSION_EXPIRED");
-    }
-
-    @Test
-    void refreshSession_validResponseKeepsPreviousRefreshTokenWhenNotRotated() {
-        TradeRepublicAdapter adapter = adapterReturning(200, "{\"sessionToken\":\"new-session\"}");
-
-        TrTokens tokens = adapter.refreshSession("refresh-token");
-
-        assertThat(tokens.sessionToken()).isEqualTo("new-session");
-        assertThat(tokens.refreshToken()).isEqualTo("refresh-token");
-    }
-
-    @Test
-    void refreshSession_validResponseUsesRotatedRefreshToken() {
-        TradeRepublicAdapter adapter = adapterReturning(
-            200,
-            "{\"sessionToken\":\"new-session\",\"refreshToken\":\"rotated\"}"
-        );
-
-        TrTokens tokens = adapter.refreshSession("refresh-token");
-
-        assertThat(tokens.sessionToken()).isEqualTo("new-session");
-        assertThat(tokens.refreshToken()).isEqualTo("rotated");
-    }
-
-    @Test
-    void initiateAuth_wafBlockIsReportedAsTemporaryNotAsWrongCredentials() {
-        TradeRepublicAdapter adapter = adapterReturning(503, "{\"detail\":\"TR_WAF_BLOCKED\"}");
-
-        Throwable thrown = catchThrowable(() -> adapter.initiateAuth("+33600000000", "1234"));
-
-        assertThat(thrown)
-            .isInstanceOf(SyncException.class)
-            .hasMessageContaining("Trade Republic blocked the request")
-            .hasMessageNotContaining("credentials");
-    }
-
-    @Test
-    void completeAuth_wafBlockIsReportedAsTemporaryNotAsAnInvalidCode() {
-        TradeRepublicAdapter adapter = adapterReturning(503, "{\"detail\":\"TR_WAF_BLOCKED\"}");
-
-        Throwable thrown = catchThrowable(() -> adapter.completeAuth("process-id", "1234"));
-
-        assertThat(thrown)
-            .isInstanceOf(SyncException.class)
-            .hasMessageContaining("Trade Republic blocked the request")
-            .hasMessageNotContaining("verification code");
-    }
-
-    @Test
-    void completeAuth_validationErrorEchoingTheWafCodeIsNotAWafBlock() {
-        // A FastAPI 422 echoes the rejected input: it must not pass for the sidecar's own detail.
-        TradeRepublicAdapter adapter = adapterReturning(422, """
-            {"detail":[{"type":"string_pattern_mismatch","loc":["body","processId"],\
-            "msg":"String should match pattern","input":"TR_WAF_BLOCKED"}]}""");
-
-        Throwable thrown = catchThrowable(() -> adapter.completeAuth("TR_WAF_BLOCKED", "1234"));
-
-        assertThat(thrown)
-            .isInstanceOf(SyncException.class)
-            .hasMessageContaining("verification code")
-            .hasMessageNotContaining("blocked the request");
-    }
-
-    @Test
-    void initiateAuth_trTimeoutIsReportedAsNoResponseNotAsWrongCredentials() {
-        TradeRepublicAdapter adapter = adapterReturning(504, "{\"detail\":\"TR_UNREACHABLE\"}");
-
-        Throwable thrown = catchThrowable(() -> adapter.initiateAuth("+33600000000", "1234"));
-
-        assertThat(thrown)
-            .isInstanceOf(SyncException.class)
-            .hasMessageContaining("did not respond")
-            .hasMessageNotContaining("credentials");
-    }
-
-    @Test
-    void initiateAuth_browserFailureIsReportedAsServiceUnavailableNotAsWrongCredentials() {
-        TradeRepublicAdapter adapter = adapterReturning(503, "{\"detail\":\"TR_BROWSER_FAILED\"}");
-
-        Throwable thrown = catchThrowable(() -> adapter.initiateAuth("+33600000000", "1234"));
-
-        assertThat(thrown)
-            .isInstanceOf(SyncException.class)
-            .hasMessageContaining("unavailable")
-            .hasMessageNotContaining("credentials");
-    }
-
-    @Test
-    void completeAuth_unhandledSidecarErrorIsReportedAsServiceUnavailableNotAsAnInvalidCode() {
-        TradeRepublicAdapter adapter = adapterReturning(500, "Internal Server Error");
-
-        Throwable thrown = catchThrowable(() -> adapter.completeAuth("process-id", "1234"));
-
-        assertThat(thrown)
-            .isInstanceOf(SyncException.class)
-            .hasMessageContaining("unavailable")
-            .hasMessageNotContaining("verification code");
-    }
-
-    @Test
-    void initiateAuth_trPinRejectionStillReportsTheCredentialError() {
-        TradeRepublicAdapter adapter = adapterReturning(
-            400, "{\"detail\":\"TR rejected request: {\\\"errors\\\":[{\\\"errorCode\\\":\\\"PIN_INVALID\\\"}]}\"}");
-
-        Throwable thrown = catchThrowable(() -> adapter.initiateAuth("+33600000000", "1234"));
-
-        assertThat(thrown)
-            .isInstanceOf(SyncException.class)
-            .hasMessage("PIN_INVALID");
+    private static String codeOf(Throwable thrown) {
+        assertThat(thrown).isInstanceOf(SyncException.class);
+        return ((SyncException) thrown).getCode();
     }
 
     private TradeRepublicAdapter adapterReturning(int status, String body) {
@@ -312,9 +300,54 @@ class TradeRepublicAdapterTest {
             + "\",\"netSize\":\"0.5\",\"averageBuyIn\":\"30000\"}]}]}", instrumentAnswer, pricedTickers);
     }
 
+    @Test
+    void fetchAccounts_authenticatesTheHandshakeWithTheSessionCookie() {
+        AtomicReference<String> cookie = new AtomicReference<>();
+        TradeRepublicAdapter adapter = adapterAgainstPortfolio(
+            "{\"categories\":[]}", "{}", Map.of(), cookie);
+
+        adapter.fetchAccounts("cookie-value", claimsWithOneSecuritiesAccount());
+
+        assertThat(cookie.get()).isEqualTo("tr_session=cookie-value");
+    }
+
+    @Test
+    void fetchAccounts_readsTheSecuritiesAccountsFromTheClaims_notFromAnOpaqueToken() {
+        TradeRepublicAdapter adapter = adapterAgainstTr(BTC, "{\"exchangeIds\":[\"BHS\"]}", Map.of(BTC + ".BHS", "60000"));
+
+        List<TrAccountData> accounts = adapter.fetchAccounts("opaque-cookie-value", claimsWithOneSecuritiesAccount());
+
+        assertThat(securities(accounts).positions()).singleElement()
+            .satisfies(position -> assertThat(position.currentPrice()).isEqualByComparingTo("60000"));
+    }
+
+    @Test
+    void fetchAccounts_fallsBackToTheTokenPayloadWhenTheClaimsCarryNoAccounts() {
+        TradeRepublicAdapter adapter = adapterAgainstTr(BTC, "{\"exchangeIds\":[\"BHS\"]}", Map.of(BTC + ".BHS", "60000"));
+
+        List<TrAccountData> accounts = adapter.fetchAccounts(sessionToken(), new ObjectMapper().createObjectNode());
+
+        assertThat(securities(accounts).positions()).hasSize(1);
+    }
+
+    private static JsonNode claimsWithOneSecuritiesAccount() {
+        try {
+            return new ObjectMapper().readTree(
+                "{\"act\":{\"acc\":{\"owner\":{\"default\":{\"sec\":[\"SEC1\"],\"cash\":[\"CASH1\"]}}}}}");
+        } catch (IOException ex) {
+            throw new IllegalStateException(ex);
+        }
+    }
+
     /** Same server, with the {@code compactPortfolioByType} answer given as-is. */
     private TradeRepublicAdapter adapterAgainstPortfolio(
             String portfolioAnswer, String instrumentAnswer, Map<String, String> pricedTickers) {
+        return adapterAgainstPortfolio(portfolioAnswer, instrumentAnswer, pricedTickers, new AtomicReference<>());
+    }
+
+    private TradeRepublicAdapter adapterAgainstPortfolio(
+            String portfolioAnswer, String instrumentAnswer, Map<String, String> pricedTickers,
+            AtomicReference<String> handshakeCookie) {
         ObjectMapper mapper = new ObjectMapper();
         Function<String, String> answer = message -> {
             if (message.startsWith("connect ")) return "connected";
@@ -342,8 +375,10 @@ class TradeRepublicAdapterTest {
         server = HttpServer.create()
             .host("127.0.0.1")
             .port(0)
-            .route(routes -> routes.ws("/", (in, out) ->
-                out.sendString(in.receive().asString().mapNotNull(answer))))
+            .route(routes -> routes.ws("/", (in, out) -> {
+                handshakeCookie.set(in.headers().get("Cookie"));
+                return out.sendString(in.receive().asString().mapNotNull(answer));
+            }))
             .bindNow();
         return adapterFor(server, RESPONSE_TIMEOUT);
     }

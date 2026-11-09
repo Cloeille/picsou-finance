@@ -58,7 +58,7 @@ function mockStatusEndpoints() {
       case '/crypto/wallet':
         return Promise.resolve({ data: [] })
       case '/tr/status':
-        return Promise.resolve({ data: { isActive: false, expiresAt: null } })
+        return Promise.resolve({ data: { isActive: false, syncStatus: 'IDLE', lastSyncError: null, lastSyncStartedAt: '2026-07-07T08:00:00Z', lastSyncCompletedAt: null } })
       case '/bourso/status':
         return Promise.resolve({ data: { isActive: false, syncStatus: 'IDLE', lastSyncError: null, lastSyncStartedAt: null, lastSyncCompletedAt: null } })
       case '/finary/status':
@@ -306,7 +306,7 @@ describe('SyncAllModal Trade Republic inline auth', () => {
   it('shows the mapped error, keeps the TAN step and clears the code when completion fails', async () => {
     apiPost.mockImplementation((url: string) => {
       if (url === '/tr/auth/initiate') {
-        return Promise.resolve({ data: { processId: 'process-123' } })
+        return Promise.resolve({ data: { processId: 'process-123', flow: 'otp', countdownInSeconds: 120 } })
       }
       if (url === '/tr/auth/complete') {
         return Promise.reject({
@@ -329,14 +329,35 @@ describe('SyncAllModal Trade Republic inline auth', () => {
     const tanInput = screen.getByLabelText('sync.tr.tan')
     expect(tanInput).toBeInTheDocument()
     await waitFor(() => expect(tanInput).toHaveValue(''))
-    expect(apiPost).toHaveBeenCalledWith('/tr/auth/complete', {
-      processId: 'process-123',
-      tan: '9876',
+    expect(apiPost).toHaveBeenCalledWith(
+      '/tr/auth/complete',
+      { processId: 'process-123', tan: '9876' },
+      expect.any(Object),
+    )
+  })
+
+  it('shows the app prompt and completes without a code when the login is confirmed in the app', async () => {
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/tr/auth/initiate') {
+        return Promise.resolve({ data: { processId: 'process-123', flow: 'confirmInApp', countdownInSeconds: 120 } })
+      }
+      if (url === '/tr/auth/complete') return new Promise(() => {})
+      return Promise.reject(new Error(`Unexpected POST ${url}`))
     })
+
+    renderModal()
+    await openTrFormAndFillCredentials()
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))
+
+    expect(await screen.findByText('sync.tr.appConfirmPrompt')).toBeInTheDocument()
+    expect(screen.queryByLabelText('sync.tr.tan')).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith('/tr/auth/complete', { processId: 'process-123' }, expect.any(Object)),
+    )
   })
 
   it('moves to the TAN step without an error message when initiation succeeds', async () => {
-    apiPost.mockResolvedValue({ data: { processId: 'process-123' } })
+    apiPost.mockResolvedValue({ data: { processId: 'process-123', flow: 'otp', countdownInSeconds: 120 } })
 
     renderModal()
     await openTrFormAndFillCredentials()

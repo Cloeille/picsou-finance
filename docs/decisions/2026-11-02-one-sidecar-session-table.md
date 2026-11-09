@@ -37,8 +37,17 @@ existed for some banks and not others (issue #337, part of #326).
 - **One contract suite, `SidecarSyncContractTest`.** It runs the shared
   scenarios against every bank's real service.
 
-Degiro, Revolut and Trade Republic keep their own tables. Their schemas differ,
-and they are left to a follow-up.
+Degiro and Revolut keep their own tables. Their schemas differ, and they are
+left to a follow-up. Trade Republic joined `sidecar_session` later, in V149.
+
+**Banque Populaire joined in V147 (#478).** Its table (V134) is created after
+V142 on a fresh database, so V142 could not take it. V147 adds the bank to the
+bank and error-code CHECKs, adds a `region` column (set, and one of
+`BanquePopulaireRegion`, for `BANQUE_POPULAIRE` rows; null for every other
+bank, `ck_sidecar_session_region`), allows `unsupported_contracts` for it as for
+Caisse d'Epargne, copies every `banque_populaire_session` row as stored and
+drops that table. Both BPCE banks keep the `BpceSyncEngine` cycle rather than
+`SidecarSyncTemplate`; `SidecarSession` is now the only `BpceSession`.
 
 ## Alternatives considered
 
@@ -52,9 +61,9 @@ and they are left to a follow-up.
 ### A generic table with a JSON column for bank-specific data
 
 - **Pros**: no column is null for most banks.
-- **Cons**: only two columns are bank-specific (`encrypted_credentials` and
-  `unsupported_contracts`), and JSON would move their constraints out of the
-  database.
+- **Cons**: only a few columns are bank-specific (`encrypted_credentials`,
+  `unsupported_contracts`, then `last_sync_life_ambiguous` and `region`), and
+  JSON would move their constraints out of the database.
 
 ## Reasoning
 
@@ -81,6 +90,8 @@ PostgreSQL.
   It is a destructive change, so it needs the planned offline upgrade of the
   [safe release deployment](../features/release-deployment.md): stop the old app
   first, or a session it writes after the copy is dropped with its table.
+  V147 drops `banque_populaire_session` the same way: no rollback past it
+  without a restore, and the same offline upgrade.
 - The CORUM and Sofidy tables never enforced "FAILED requires an error code".
   V142 repairs a row that breaks it before the copy (stale error cleared,
   missing one set to `INTERNAL_ERROR`) instead of failing the boot.

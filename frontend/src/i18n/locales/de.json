@@ -984,7 +984,6 @@
       "clearSession": "Trennen",
       "noSession": "Keine aktive Sitzung",
       "sessionActive": "Aktive Sitzung",
-      "expiresAt": "Läuft ab am",
       "errors": {
         "tooManyAttempts": "Zu viele Versuche. Bitte warte ein paar Minuten.",
         "invalidPhoneNumber": "Ungültige Telefonnummer.",
@@ -992,13 +991,24 @@
         "invalidTan": "Der Bestätigungscode ist falsch oder abgelaufen. Verwende den zuletzt erhaltenen Code oder starte den Schritt neu, um einen neuen zu erhalten.",
         "authenticationFailed": "Trade-Republic-Authentifizierung fehlgeschlagen.",
         "serviceUnavailable": "Der lokale Trade-Republic-Dienst ist nicht verfügbar. Starte die Server neu und versuche es erneut.",
-        "temporarilyBlocked": "Trade Republic hat die Anfrage blockiert. Versuche es in einer Minute erneut.",
         "serverError": "Trade-Republic-Serverfehler. Bitte versuche es erneut.",
         "phoneNumberRequired": "Telefonnummer ist erforderlich.",
         "pinRequired": "PIN ist erforderlich.",
         "validationFailed": "Ungültige Daten.",
-        "unknownError": "Ein unerwarteter Fehler ist aufgetreten."
-      }
+        "unknownError": "Ein unerwarteter Fehler ist aufgetreten.",
+        "invalidCredentials": "Falsche Trade-Republic-Telefonnummer oder PIN.",
+        "appValidationTimeout": "Die Anmeldung wurde nicht rechtzeitig in der App bestätigt. Bitte erneut beginnen.",
+        "appValidationCancelled": "Die Anmeldung wurde in der Trade-Republic-App abgelehnt. Bitte erneut beginnen.",
+        "authAttemptExpired": "Der Anmeldeversuch ist abgelaufen. Bitte erneut beginnen.",
+        "sessionExpired": "Die Trade-Republic-Sitzung ist abgelaufen. Bitte erneut verbinden."
+      },
+      "appConfirmPrompt": "Bestätige die Anmeldung in deiner Trade-Republic-App.",
+      "appConfirmHint": "Diese Seite aktualisiert sich, sobald du bestätigt hast.",
+      "countdownLabel": "Verbleibende Zeit:",
+      "queued": "Synchronisierung eingeplant…",
+      "syncing": "Synchronisierung läuft…",
+      "syncSuccess": "Letzte Synchronisierung erfolgreich.",
+      "staleAccounts": "Deine Trade-Republic-Konten werden nicht mehr aktualisiert: Ihre Sitzung ist beendet. Melde dich unten erneut an, um die tägliche Synchronisierung fortzusetzen."
     },
     "ibkr": {
       "title": "Interactive Brokers",
@@ -1366,6 +1376,9 @@
     "banquePopulaire": {
       "title": "Banque Populaire",
       "customerId": "Kennung",
+      "rememberedIdentifier": "Kennung gespeichert",
+      "useAnotherIdentifier": "Andere Kennung verwenden",
+      "backToRememberedIdentifier": "Gespeicherte Kennung verwenden",
       "region": "Ihre Banque Populaire",
       "regionPlaceholder": "Wählen Sie Ihre Bank",
       "connect": "Verbinden",
@@ -1379,7 +1392,7 @@
       "disconnectConfirmAction": "Gespeicherte Sitzung löschen",
       "noSession": "Keine aktive Sitzung",
       "sessionActive": "Sitzung aktiv",
-      "scope": "Synchronisiert Ihre Girokonten, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, Festgelder und Genossenschaftsanteile bei der Banque Populaire auf Abruf. Nur die Sitzung wird verschlüsselt gespeichert. Verträge, die Picsou nicht importieren kann, werden aufgelistet, aber nie angelegt.",
+      "scope": "Synchronisiert Ihre Girokonten, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, Festgelder und Genossenschaftsanteile bei der Banque Populaire auf Abruf. Nur die Sitzung und Ihre Kennung werden verschlüsselt gespeichert, nie Ihr Passwort. Verträge, die Picsou nicht importieren kann, werden aufgelistet, aber nie angelegt.",
       "notice": {
         "neverStored": "Picsou sieht und speichert Ihr Passwort nie. Sie klicken es selbst auf der Tastatur der Bank; nur die Tastenpositionen werden einmalig gesendet.",
         "noRetry": "Picsou wiederholt eine Anmeldung nie. Schlägt sie fehl, wird nichts erneut gesendet, bis Sie das Formular selbst absenden.",

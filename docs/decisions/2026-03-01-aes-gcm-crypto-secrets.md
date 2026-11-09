@@ -56,6 +56,6 @@ AES-256-GCM provides authenticated encryption (confidentiality + integrity) with
 
 - `CryptoEncryption` is a `@Component` injected into `CryptoExchangeSyncService` and `TradeRepublicSyncService`
 - `CryptoExchangeSession.apiKey` and `apiSecret` both store encrypted values
-- `TradeRepublicSession.sessionToken` and `refreshToken` store encrypted values
+- `TradeRepublicSession.sessionToken` and `refreshToken` store encrypted values (since V149, the Trade Republic state lives encrypted in `SidecarSession.sessionState`, see the [one sidecar session table ADR](./2026-11-02-one-sidecar-session-table.md))
 - `CRYPTO_ENCRYPTION_KEY` is mandatory -- the app refuses to start without it
 - See [encryption-at-rest.md](../features/encryption-at-rest.md) for the full inventory of encrypted fields

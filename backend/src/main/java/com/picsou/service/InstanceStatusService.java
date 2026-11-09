@@ -8,12 +8,10 @@ import com.picsou.dto.ReleaseUpdate;
 import com.picsou.dto.SidecarIssue;
 import com.picsou.dto.SidecarIssueCode;
 import com.picsou.adapter.sidecar.SidecarBank;
-import com.picsou.repository.BanquePopulaireSessionRepository;
 import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.DegiroSessionRepository;
 import com.picsou.repository.LbpSessionRepository;
 import com.picsou.repository.RevolutSessionRepository;
-import com.picsou.repository.TradeRepublicSessionRepository;
 import io.netty.channel.ChannelOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,9 +65,7 @@ public class InstanceStatusService {
         ReleaseCheckService releaseCheck,
         SetupService setupService,
         SidecarProperties sidecars,
-        TradeRepublicSessionRepository trSessions,
         SidecarSessionRepository sidecarSessions,
-        BanquePopulaireSessionRepository banquePopulaireSessions,
         RevolutSessionRepository revolutSessions,
         DegiroSessionRepository degiroSessions,
         LbpSessionRepository lbpSessions,
@@ -77,7 +73,7 @@ public class InstanceStatusService {
     ) {
         this(releaseCheck, currentVersion, registry(
             setupService, sidecars,
-            trSessions, sidecarSessions, banquePopulaireSessions, revolutSessions, degiroSessions, lbpSessions
+            sidecarSessions, revolutSessions, degiroSessions, lbpSessions
         ), defaultWebClient(PROBE_TIMEOUT), PROBE_TIMEOUT, OVERALL_DEADLINE);
     }
 
@@ -321,9 +317,7 @@ public class InstanceStatusService {
     private static List<SidecarTarget> registry(
         SetupService setupService,
         SidecarProperties sidecars,
-        TradeRepublicSessionRepository trSessions,
         SidecarSessionRepository sidecarSessions,
-        BanquePopulaireSessionRepository banquePopulaireSessions,
         RevolutSessionRepository revolutSessions,
         DegiroSessionRepository degiroSessions,
         LbpSessionRepository lbpSessions
@@ -342,11 +336,11 @@ public class InstanceStatusService {
             new SidecarTarget("degiro-auth", BASE_PYTHON,
                 () -> sidecarUrl(sidecars, "degiro-auth"), degiroSessions::count),
             new SidecarTarget("tr-auth", BASE_CHROMIUM,
-                () -> sidecarUrl(sidecars, "tr-auth"), trSessions::count),
+                () -> sidecarUrl(sidecars, "tr-auth"), () -> sidecarSessions.countByBank(SidecarBank.TRADE_REPUBLIC)),
             new SidecarTarget("caisse-epargne-auth", BASE_CHROMIUM,
                 () -> sidecarUrl(sidecars, "caisse-epargne-auth"), () -> sidecarSessions.countByBank(SidecarBank.CAISSE_EPARGNE)),
             new SidecarTarget("banque-populaire-auth", BASE_CHROMIUM,
-                () -> sidecarUrl(sidecars, "banque-populaire-auth"), banquePopulaireSessions::count),
+                () -> sidecarUrl(sidecars, "banque-populaire-auth"), () -> sidecarSessions.countByBank(SidecarBank.BANQUE_POPULAIRE)),
             new SidecarTarget("bourse-direct-auth", BASE_CHROMIUM,
                 () -> sidecarUrl(sidecars, "bourse-direct-auth"), () -> sidecarSessions.countByBank(SidecarBank.BOURSE_DIRECT)),
             new SidecarTarget("amundi-auth", BASE_CHROMIUM,
