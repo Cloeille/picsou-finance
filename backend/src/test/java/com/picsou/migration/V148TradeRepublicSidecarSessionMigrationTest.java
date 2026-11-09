@@ -26,16 +26,20 @@ class V148TradeRepublicSidecarSessionMigrationTest {
     static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     static long alice;
+    static long bob;
 
     @BeforeAll
-    static void seedV146AndMigrate() throws SQLException {
-        PostgresContainers.migrateToOutOfOrder(POSTGRES, "146");
+    static void seedV147AndMigrate() throws SQLException {
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "147");
         try (Connection c = PostgresContainers.connection(POSTGRES)) {
             alice = newMember(c, "alice");
             execute(c, "INSERT INTO trade_republic_session (member_id, session_token, refresh_token) "
                 + "VALUES (" + alice + ", 'old-token', 'old-refresh')");
             execute(c, "INSERT INTO sidecar_session (bank, member_id, session_state, sync_status, last_sync_error) "
                 + "VALUES ('BOURSO', " + alice + ", 'bourso-state', 'FAILED', 'SESSION_EXPIRED')");
+            bob = newMember(c, "bob");
+            execute(c, "INSERT INTO sidecar_session (bank, member_id, session_state, region, sync_status, last_sync_error) "
+                + "VALUES ('BANQUE_POPULAIRE', " + bob + ", 'bp-state', 'NORD', 'FAILED', 'KEYPAD_CHANGED')");
         }
         PostgresContainers.migrateToOutOfOrder(POSTGRES, "148");
     }
@@ -52,6 +56,21 @@ class V148TradeRepublicSidecarSessionMigrationTest {
     void otherBanksKeepTheirRows() throws SQLException {
         assertThat(count("SELECT count(*) FROM sidecar_session WHERE bank = 'BOURSO' AND member_id = " + alice
             + " AND session_state = 'bourso-state' AND last_sync_error = 'SESSION_EXPIRED'")).isEqualTo(1L);
+    }
+
+    @Test
+    void banquePopulaireKeepsItsRowAndItsRules() throws SQLException {
+        // V147 added the bank, its region column and its error codes; V148 rewrites the same CHECKs.
+        assertThat(count("SELECT count(*) FROM sidecar_session WHERE bank = 'BANQUE_POPULAIRE' AND member_id = " + bob
+            + " AND session_state = 'bp-state' AND region = 'NORD' AND last_sync_error = 'KEYPAD_CHANGED'")).isEqualTo(1L);
+        try (Connection c = PostgresContainers.connection(POSTGRES)) {
+            long member = newMember(c, "bp-new");
+            execute(c, "INSERT INTO sidecar_session (bank, member_id, session_state, region, sync_status, last_sync_error) "
+                + "VALUES ('BANQUE_POPULAIRE', " + member + ", 's', 'BRED', 'FAILED', 'INVALID_POSITIONS')");
+            assertThatThrownBy(() -> execute(c, "INSERT INTO sidecar_session (bank, member_id, session_state, sync_status, "
+                + "last_sync_error) VALUES ('BANQUE_POPULAIRE', " + newMember(c, "bp-no-region") + ", 's', 'FAILED', "
+                + "'SESSION_EXPIRED')")).hasMessageContaining("ck_sidecar_session_region");
+        }
     }
 
     @Test

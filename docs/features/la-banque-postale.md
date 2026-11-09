@@ -174,8 +174,8 @@ the box clears the remembered identifier on the next successful login.
 
 ### Storage
 
-Table `lbp_session`, its own table like `banque_populaire_session` (the ten banks of
-#423 share `sidecar_session`; moving La Banque Postale there is a follow-up): one row per member,
+Table `lbp_session`, its own table (the sidecar banks of #423 and Banque Populaire
+since #478 share `sidecar_session`; moving La Banque Postale there is a follow-up): one row per member,
 `session_state` encrypted with `CryptoEncryption`, `encrypted_identifier` (the
 optional remembered 10-digit identifier, also encrypted), `last_validated_at`,
 `is_active`, `sync_status`, `last_sync_started_at`, `last_sync_completed_at`,

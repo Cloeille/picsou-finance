@@ -273,12 +273,11 @@ public enum SidecarBank {
     }
 
     /**
-     * Whether this bank's sessions live in {@code sidecar_session}. Banque Populaire keeps its own
-     * {@code banque_populaire_session} table (V134) and La Banque Postale its own
-     * {@code lbp_session} table until they move over in a follow-up.
+     * Whether this bank's sessions live in {@code sidecar_session}. La Banque Postale keeps its own
+     * {@code lbp_session} table until it moves over in a follow-up.
      */
     public boolean storedInSidecarSession() {
-        return this != BANQUE_POPULAIRE && this != LBP;
+        return this != LBP;
     }
 
     /** The codes this bank's sidecar declares, i.e. the values its session table accepts. */

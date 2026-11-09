@@ -1,11 +1,12 @@
--- Trade Republic joins the shared sidecar_session table (#337 follow-up).
+-- Trade Republic joins the shared sidecar_session table (#337 follow-up). The bank and error-code
+-- CHECKs are rewritten on top of V147, so Banque Populaire stays in both.
 -- Existing trade_republic_session rows are not copied: their refresh token only worked with the
 -- v1 refresh route, which Trade Republic now answers with 401, so every member reconnects once.
 
 ALTER TABLE sidecar_session DROP CONSTRAINT ck_sidecar_session_bank;
 ALTER TABLE sidecar_session ADD CONSTRAINT ck_sidecar_session_bank
-    CHECK (bank IN ('AMEX', 'AMUNDI', 'BOURSE_DIRECT', 'BOURSO', 'CAISSE_EPARGNE', 'CIC', 'CMES', 'CORUM',
-                    'FORTUNEO', 'NATIXIS', 'SOFIDY', 'TRADE_REPUBLIC'));
+    CHECK (bank IN ('AMEX', 'AMUNDI', 'BANQUE_POPULAIRE', 'BOURSE_DIRECT', 'BOURSO', 'CAISSE_EPARGNE',
+                    'CIC', 'CMES', 'CORUM', 'FORTUNEO', 'NATIXIS', 'SOFIDY', 'TRADE_REPUBLIC'));
 
 -- The codes each bank may store, generated from SidecarBank; SidecarBankCodesTest keeps them equal.
 ALTER TABLE sidecar_session DROP CONSTRAINT ck_sidecar_session_last_sync_error;
@@ -20,6 +21,11 @@ ALTER TABLE sidecar_session ADD CONSTRAINT ck_sidecar_session_last_sync_error
             'INVALID_CREDENTIALS', 'CAPTCHA_BLOCKED', 'INVALID_OTP',
             'APP_VALIDATION_TIMEOUT', 'AUTH_ATTEMPT_EXPIRED', 'SESSION_EXPIRED',
             'PORTFOLIO_INCOMPLETE', 'UPSTREAM_FORMAT_CHANGED', 'INVALID_DATA',
+            'UPSTREAM_UNAVAILABLE', 'INTERNAL_ERROR'))
+        OR (bank = 'BANQUE_POPULAIRE' AND last_sync_error IN (
+            'SESSION_EXPIRED', 'INVALID_SESSION_STATE', 'INVALID_CREDENTIALS',
+            'KEYPAD_EXPIRED', 'INVALID_POSITIONS', 'KEYPAD_CHANGED',
+            'APP_VALIDATION_TIMEOUT', 'AUTH_ATTEMPT_EXPIRED', 'UPSTREAM_FORMAT_CHANGED',
             'UPSTREAM_UNAVAILABLE', 'INTERNAL_ERROR'))
         OR (bank = 'BOURSE_DIRECT' AND last_sync_error IN (
             'INVALID_CREDENTIALS', 'INVALID_OTP', 'AUTH_ATTEMPT_EXPIRED',

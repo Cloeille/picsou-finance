@@ -5,6 +5,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.picsou.service.AmexSyncService;
 import com.picsou.service.AmundiSyncService;
+import com.picsou.service.BanquePopulaireSyncService;
 import com.picsou.service.BourseDirectSyncService;
 import com.picsou.service.BoursoSyncService;
 import com.picsou.service.CaisseEpargneSyncService;
@@ -33,6 +34,7 @@ class SidecarSyncRecoveryTest {
 
     @Mock AmexSyncService amex;
     @Mock AmundiSyncService amundi;
+    @Mock BanquePopulaireSyncService banquePopulaire;
     @Mock BourseDirectSyncService bourseDirect;
     @Mock BoursoSyncService bourso;
     @Mock CaisseEpargneSyncService caisseEpargne;
@@ -42,7 +44,8 @@ class SidecarSyncRecoveryTest {
     @Mock TradeRepublicSyncService tradeRepublic;
 
     private SidecarSyncRecovery recovery() {
-        return new SidecarSyncRecovery(amex, amundi, bourseDirect, bourso, caisseEpargne, cic, cmes, fortuneo, tradeRepublic);
+        return new SidecarSyncRecovery(amex, amundi, banquePopulaire, bourseDirect, bourso, caisseEpargne, cic, cmes, fortuneo,
+            tradeRepublic);
     }
 
     @Test
@@ -51,6 +54,7 @@ class SidecarSyncRecoveryTest {
 
         verify(amex).recoverInterruptedSyncs();
         verify(amundi).recoverInterruptedSyncs();
+        verify(banquePopulaire).recoverInterruptedSyncs();
         verify(bourseDirect).recoverInterruptedSyncs();
         verify(bourso).recoverInterruptedSyncs();
         verify(caisseEpargne).recoverInterruptedSyncs();
@@ -93,6 +97,18 @@ class SidecarSyncRecoveryTest {
         assertThat(pool.getCorePoolSize()).isEqualTo(1);
         assertThat(pool.getMaxPoolSize()).isEqualTo(1);
         assertThat(pool.getThreadNamePrefix()).isEqualTo("caisse-epargne-sync-");
+        pool.shutdown();
+    }
+
+    @Test
+    void theBanquePopulaireSyncExecutorIsASingleWorkerSoSyncsNeverOverlap() {
+        Executor executor = new SyncExecutorConfig().banquePopulaireSyncExecutor();
+
+        assertThat(executor).isInstanceOf(ThreadPoolTaskExecutor.class);
+        ThreadPoolTaskExecutor pool = (ThreadPoolTaskExecutor) executor;
+        assertThat(pool.getCorePoolSize()).isEqualTo(1);
+        assertThat(pool.getMaxPoolSize()).isEqualTo(1);
+        assertThat(pool.getThreadNamePrefix()).isEqualTo("banque-populaire-sync-");
         pool.shutdown();
     }
 }

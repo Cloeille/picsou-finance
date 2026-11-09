@@ -35,7 +35,7 @@ failures:
 
 ### Session persistence
 
-Sessions live in the shared `sidecar_session` table (bank `TRADE_REPUBLIC`), like the other sidecar banks; see the [ADR](../decisions/2026-11-02-one-sidecar-session-table.md). `V130__trade_republic_sidecar_session.sql` widens the table's two CHECK constraints with the Trade Republic branch and drops `trade_republic_session`.
+Sessions live in the shared `sidecar_session` table (bank `TRADE_REPUBLIC`), like the other sidecar banks; see the [ADR](../decisions/2026-11-02-one-sidecar-session-table.md). `V148__trade_republic_sidecar_session.sql` widens the table's two CHECK constraints with the Trade Republic branch and drops `trade_republic_session`.
 
 **Members reconnect Trade Republic once after this upgrade.** The old rows are not copied: their refresh token only worked with the v1 refresh route, which Trade Republic now answers with 401. With no row left, the daily sync reports Trade Republic as `SKIPPED_NOT_CONNECTED`, not `NEEDS_REAUTH`, and logs nothing. The Trade Republic accounts keep their last balances and holdings, frozen, until the member signs in again. The Trade Republic tab says so: with no session and at least one Trade Republic account a past session imported (not a `tr_csv_*` CSV import), it shows "no longer updated" above the login form.
 
@@ -140,7 +140,7 @@ The two legs are strict mirrors: the investment leg always carries the **opposit
 - `backend/src/main/java/com/picsou/service/TradeRepublicSyncService.java` -- Auth flow, `SidecarSyncStrategy`, CSV import, session management
 - `backend/src/main/java/com/picsou/controller/TradeRepublicController.java` -- REST endpoints under `/api/tr/`
 - `backend/src/main/java/com/picsou/model/SidecarSession.java` -- the shared session entity (bank `TRADE_REPUBLIC`)
-- `backend/src/main/resources/db/migration/V130__trade_republic_sidecar_session.sql` -- CHECK constraints + drop of the old table
+- `backend/src/main/resources/db/migration/V148__trade_republic_sidecar_session.sql` -- CHECK constraints + drop of the old table
 
 ### Flow
 
