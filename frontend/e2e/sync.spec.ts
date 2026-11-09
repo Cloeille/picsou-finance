@@ -20,6 +20,7 @@ test.describe('Sync page tabs', () => {
       'BoursoBank',
       "Caisse d'Epargne",
       'La Banque Postale',
+      'BNP Paribas / Hello bank!',
       'Banque Populaire',
       'Bourse Direct',
       'DEGIRO',

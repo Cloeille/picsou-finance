@@ -9,7 +9,7 @@ RUN groupadd -r bnp && useradd -r -g bnp -m -d /home/bnp bnp \
     && chown -R bnp:bnp /app
 USER bnp
 
-COPY --chown=bnp:bnp main.py bank.py keypad.py parsers.py ./
+COPY --chown=bnp:bnp main.py bank.py parsers.py ./
 
 ENV SIDECAR_PORT=8001 \
     XVFB_DISPLAY=:98 \
