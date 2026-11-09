@@ -34,6 +34,15 @@ reads as an outage (503) rather than a format change; the warning line, with
 `module_loaded=False module_failed=False`, is the tell. The backend waits up to
 90 s for `/initiate` to cover two form waits and the login outcome.
 
+**Previous session and unattended login (#537, sidecar side).** `/initiate` accepts an optional
+`sessionState` (a session this sidecar produced): its cookies are added to the new browser
+context before the login page opens, so AMEX can recognise a trusted device; unreadable or
+refused cookies are logged by error type and ignored. With `unattended: true`, a login that
+reaches the verify page stops before choosing a channel (no SMS is sent) and answers 401
+`SESSION_EXPIRED`. A login that needs no code captures the account token and loyalty
+enrichment like `/complete`. `/complete` ticks `[data-testid=trust-device]` before
+**Continuer**. The backend does not send these fields yet.
+
 The user selects SMS (default) or e-mail for AMEX's one-time code. On AMEX's verify page the channels are radio inputs labelled with the masked phone number and masked e-mail address; the sidecar picks the e-mail channel when the label contains `@`, otherwise the phone (SMS) channel, then clicks **Continuer**. The older option-button markup is still handled. Logs never include labels, ids, phone numbers or e-mail addresses. The browser completes login and OTP, then captures value-free JSON response diagnostics from American Express domains while the dashboard loads. Account discovery falls back to the servicing balances API; missing enrichments remain null and never fail a sync.
 
 The current card balance is inferred from the servicing balances. When `remaining_statement_balance_amount` is present: balance = remaining + total debits - unapplied credits, where unapplied credits = `max(0, total_payments_credits_amount - (statement_balance_amount - remaining))`. Credits already absorbed into `remaining` are not subtracted twice (e.g. a direct debit not counted in `total_payments_credits_amount`). If the statement balance is absent, no credit is treated as absorbed. When `remaining_statement_balance_amount` is absent, the legacy fallback applies: statement balance + total debits - payments/credits. Known limits: a refund posted after the statement date while `remaining` is already 0 is treated as absorbed by the statement; and when `remaining` exceeds the statement balance (fees/interest added), the formula equals the legacy one. Posted and pending transaction lists are merged, with posted transactions taking precedence when an identifier overlaps.
