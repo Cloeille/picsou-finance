@@ -92,14 +92,40 @@ class PerIbChainTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_a_prefixed_perib_contract_id_is_also_accepted(self):
         insurer = FakeInsurer()
-
         result = await fetch(insurer, contract_id="00000     PERIB12345678")
-
         self.assertEqual(result, RAW_DETAIL)
         self.assertEqual(
             str(insurer.requests[0].url),
             f"https://{GATEWAY_HOST}/bapi/contract/v1/contracts/12345-00000%20%20%20%20%20PERIB12345678/prepareRouting",
         )
+
+    async def test_an_asv_prefixed_perib_contract_id_is_also_accepted(self):
+        insurer = FakeInsurer()
+        result = await fetch(insurer, contract_id="ASVPERIB123456")
+        self.assertEqual(result, RAW_DETAIL)
+        self.assertEqual(
+            str(insurer.requests[0].url),
+            f"https://{GATEWAY_HOST}/bapi/contract/v1/contracts/12345-ASVPERIB123456/prepareRouting",
+        )
+
+    async def test_bp_routing_body_with_producer_contract_id_and_asv_echo(self):
+        insurer = FakeInsurer(routing=lambda _r: httpx.Response(201, json={
+            "characteristics": {
+                "contractId": {"entityCode": ENTITY, "id": f"ASV{PRODUCER_ID}"},
+                "routingMode": {"code": "1", "label": "URL"},
+                "routingUrl": {"href": f"https://{INSURER_HOST}/"},
+                "routingContext": {"value": {"queryParameters": {
+                    "cdetab": ENTITY, "urlRetour": "https://www.banquepopulaire.fr/espace-client/compte",
+                    "codeTransaction": "MONCT", "producerContractId": PRODUCER_ID,
+                }}},
+            }
+        }))
+        result = await fetch(insurer, contract_id=f"ASV{PRODUCER_ID}")
+        self.assertEqual(result, RAW_DETAIL)
+        self.assertEqual(str(insurer.requests[1].url),
+                         f"https://{GATEWAY_HOST}/natixis/assurance/assuranceVieAuth/v1/clientToken/{PRODUCER_ID}")
+        self.assertEqual(str(insurer.requests[2].url),
+                         f"https://{INSURER_HOST}/etna-web/rest/v2/contratVie/load/PER/IB/876543")
 
     async def test_the_insurer_number_keeps_its_leading_zeros(self):
         insurer = FakeInsurer(routing=lambda _r: httpx.Response(201, json=routing_body(producer="PERIB0001")))
@@ -143,7 +169,6 @@ class PerIbChainTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_bank_contract_ids_not_observed_are_refused_without_a_request(self):
         for name, contract_id in {
-            "asv prefix": "ASVPERIB12345678",
             "entity prefix and asv prefix": "00000     ASVPERIB12345678",
             "other company letter": "00000     PERIA12345678",
             "compact other company letter": "PERIA12345678",
@@ -174,19 +199,15 @@ class RefusedShapeLogTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_the_shape_shows_no_digit_and_by_default_no_letter(self):
         text = await self.refused_log("PERIB87AB43XYZ")
-
         self.assertEqual(text.split("shape=")[1].split()[0], "9" * 14)
 
     async def test_with_the_details_switch_only_the_capitals_show(self):
         text = await self.refused_log("PERIB87ab43XYZ", details=True)
-
         self.assertEqual(text.split("shape=")[1].split()[0], "PERIB999999XYZ")
 
     async def test_the_shape_is_cut_and_never_carries_a_secret(self):
         text = await self.refused_log("PERIX" + "7" * 60 + TOKEN)
-
-        shape = text.split("shape=")[1].split()[0]
-        self.assertEqual(shape, "9" * 32)
+        self.assertEqual(text.split("shape=")[1].split()[0], "9" * 32)
         self.assertNotIn(TOKEN, text)
         self.assertNotIn(MAIN_TOKEN, text)
 

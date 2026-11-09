@@ -64,7 +64,7 @@ _ENTITY_CODE_RE = re.compile(r"[0-9]{5}\Z")
 # and starts with the same five letters. The `IB` code is Banque Populaire's (issue #524);
 # its number part is kept digits-only like `IC`'s because no live shape says otherwise yet,
 # and an id that differs is refused with a masked log (`reason=producer-id-format`).
-_CONTRACT_ID_RE = re.compile(r"(?:[0-9]{5} {1,16}|(?=PERIB))(?P<product>PERIC|PERIB|ESSEN)(?P<number>[0-9]{1,64})\Z")
+_CONTRACT_ID_RE = re.compile(r"(?:[0-9]{5} {1,16}|ASV|(?=PERIB))(?P<product>PERIC|PERIB|ESSEN)(?P<number>[0-9]{1,64})\Z")
 _PRODUCER_ID_RE = re.compile(r"(?P<product>PER|ESS)(?P<company>IC|IB|EN)(?P<number>[0-9]{1,32})\Z")
 _PRODUCER_PAIRS = frozenset({("PER", "IC"), ("PER", "IB"), ("ESS", "EN")})
 ROUTING_PATH = "/bapi/contract/v1/contracts"
@@ -222,7 +222,14 @@ def _check_status(status: int, *, stage: str) -> None:
     raise replay.UpstreamError("Insurer request failed")
 
 
-def _producer_id(body: bytes, *, entity_code: str, insurer_host: str, product: str | None = None) -> str:
+def _producer_id(
+    body: bytes,
+    *,
+    entity_code: str,
+    insurer_host: str,
+    product: str | None = None,
+    contract_id: str | None = None,
+) -> str:
     """The insurer contract id from a prepareRouting answer, bound to this contract.
 
     `product` is the five-letter product code of the bank contract id asked for; the
@@ -248,7 +255,7 @@ def _producer_id(body: bytes, *, entity_code: str, insurer_host: str, product: s
     if (urllib.parse.urlsplit(href).hostname or "").lower() != insurer_host:
         log.warning("insurer detail refused: stage=routing reason=other-host")
         raise replay.HostNotAllowed("Refused a PER URL outside the exact HTTPS host")
-    producer_id = query.get("producerContratId")
+    producer_id = query.get("producerContractId") or query.get("producerContratId")
     if (
         not isinstance(producer_id, str)
         or (match := _PRODUCER_ID_RE.fullmatch(producer_id)) is None
@@ -264,17 +271,18 @@ def _producer_id(body: bytes, *, entity_code: str, insurer_host: str, product: s
     if product is not None and not producer_id.startswith(product):
         log.warning("insurer detail refused: stage=routing reason=other-product")
         raise replay.UpstreamError("insurer routing answered for another product")
-    if query.get("cdEtab") != entity_code:
+    query_entity = query.get("cdEtab") or query.get("cdetab")
+    if query_entity != entity_code:
         log.warning("insurer detail refused: stage=routing reason=other-establishment")
         raise replay.UpstreamError("insurer routing answered for another establishment")
-    # Consistency of the answer. Observed live: `contractId` echoes the INSURER id
-    # (`PERIC` + 6 digits, 11 chars), not the bank id asked for (23 chars), with the
-    # requested entity code. The bank id is bound by the request URL; the answer must
-    # agree with itself on the insurer id and with us on the establishment.
+    # Consistency of the answer. Caisse d'Epargne echoes the insurer id (`PERIC` + digits).
+    # Banque Populaire echoes the bank contract id (`ASV` + insurer id). Both agree
+    # with us on the establishment and identify this contract.
     echoed = characteristics.get("contractId")
+    echoed_id = echoed.get("id") if isinstance(echoed, dict) else None
     if (
         not isinstance(echoed, dict)
-        or echoed.get("id") != producer_id
+        or echoed_id not in (producer_id, f"ASV{producer_id}")
         or echoed.get("entityCode") != entity_code
     ):
         log.warning("insurer detail refused: stage=routing reason=other-contract")
@@ -337,7 +345,8 @@ async def fetch_per_detail(
             log.warning("insurer detail refused: stage=routing status=%d", status)
             raise replay.UpstreamError("insurer routing request failed")
         producer_id = _producer_id(
-            body, entity_code=entity_code, insurer_host=insurer_host, product=product
+            body, entity_code=entity_code, insurer_host=insurer_host, product=product,
+            contract_id=contract_id,
         )
         match = _PRODUCER_ID_RE.fullmatch(producer_id)
         token_url = _guard_url(site, f"https://{gateway_host}{CLIENT_TOKEN_PATH}/{producer_id}", gateway_host)

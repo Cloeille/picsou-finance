@@ -309,6 +309,7 @@ class PerContractIdParsingTest(unittest.TestCase):
     def test_parse_contract_id_supports_compact_bp_and_standard_ce_shapes(self):
         cases = [
             ("PERIB123456789", "PERIB", "123456789"),
+            ("ASVPERIB123456", "PERIB", "123456"),
             ("00000     PERIC12345678", "PERIC", "12345678"),
             ("00000     ESSEN12345678", "ESSEN", "12345678"),
             ("00000     PERIB12345678", "PERIB", "12345678"),
@@ -322,7 +323,7 @@ class PerContractIdParsingTest(unittest.TestCase):
     def test_parse_contract_id_refuses_invalid_shapes(self):
         for raw in (
             "PERIC12345678", "ESSEN12345678", "PERIB", "PERIB12AB", "00000 PERIC123/../x", 123,
-            "PERIA12345678", "ASVPERIB12345678", "", "00000     PERIB",
+            "PERIA12345678", "", "00000     PERIB",
         ):
             with self.subTest(contract_id=raw):
                 with self.assertRaises(per_client.UnknownPerContract):
@@ -331,6 +332,7 @@ class PerContractIdParsingTest(unittest.TestCase):
     def test_insurer_kind_supports_compact_and_standard_shapes(self):
         cases = [
             ("PERIB123456789", "PER"),
+            ("ASVPERIB123456", "PER"),
             ("00000     PERIC12345678", "PER"),
             ("00000     ESSEN12345678", "ASSURANCE_VIE"),
             ("00000     PERIB12345678", "PER"),
