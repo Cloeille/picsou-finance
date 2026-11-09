@@ -56,7 +56,7 @@ V{n}__description.sql
 | `V20__create_family_system.sql` | `family_member`, `sharing_settings`, `shared_resource` |
 | `V21__migrate_existing_data.sql` | Backfill `member_id` on all existing financial rows |
 | `V22__make_member_id_not_null.sql` | Enforce `member_id NOT NULL` after backfill |
-| `V23__bourso_session.sql` | `bourso_session` table (BoursoBank sidecar) |
+| `V23__bourso_session.sql` | `bourso_session` table (BoursoBank sidecar), folded into `sidecar_session` by V142 |
 | `V24__manual_transactions.sql` | Manual transaction support |
 | `V25__setup_state.sql` | First-launch Setup Wizard state |
 | `V26__setup_audit.sql` | Setup audit log |
@@ -70,7 +70,8 @@ V{n}__description.sql
 | `V119__widen_holding_ticker.sql` | `account_holding.ticker` 30→100, `name` 100→255 (Finary RealT codes) |
 | `V121__cic_session.sql` | CIC session, encrypted credentials, and persisted sync status |
 | `V122__crypto_asset.sql` | `crypto_asset` registry: curated CoinGecko tickers, plus coins learned at runtime |
-| `V142__caisse_epargne_stored_identifier.sql` | `caisse_epargne_session.encrypted_credentials`: the encrypted Caisse d'Epargne identifier (never the password) |
+| `V142__sidecar_session.sql` | One `sidecar_session` table replaces the ten sidecar session tables (after V124–V127 of CORUM Life and V128 of SSO); rows copied as stored, CORUM stored login and Life ambiguous count included (inconsistent CORUM/Sofidy failure states repaired), per-bank error-code CHECK generated from `SidecarBank` |
+| `V143__caisse_epargne_stored_identifier.sql` | `sidecar_session.encrypted_credentials` is also allowed for `CAISSE_EPARGNE`: the encrypted Caisse d'Epargne identifier (never the password) |
 
 Note: V8 is absent by design (skipped — never rolled into another migration). Numbering after V32 is not contiguous (V33–V36 unused).
 

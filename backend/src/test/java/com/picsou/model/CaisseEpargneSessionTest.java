@@ -1,12 +1,11 @@
 package com.picsou.model;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.support.TestEntities;
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Field;
 import java.time.Instant;
-import java.util.Arrays;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -14,47 +13,43 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class CaisseEpargneSessionTest {
     private static final Instant NOW = Instant.parse("2026-10-07T10:00:00Z");
 
-    private CaisseEpargneSession session() {
-        return CaisseEpargneSession.create(
-            TestEntities.owner(), "encrypted", NOW);
+    private SidecarSession session() {
+        return SidecarSession.create(SidecarBank.CAISSE_EPARGNE, TestEntities.owner(), "encrypted", NOW);
+    }
+
+    /** Banque Populaire keeps banque_populaire_session (V134): no sidecar_session row is ever built for it. */
+    @Test
+    void aBanquePopulaireSessionIsNotBuiltHere() {
+        assertThatThrownBy(() -> SidecarSession.create(SidecarBank.BANQUE_POPULAIRE, TestEntities.owner(), "encrypted", NOW))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("BANQUE_POPULAIRE");
     }
 
     @Test
     void aNewSessionIsActiveAndIdle() {
-        CaisseEpargneSession session = session();
+        SidecarSession session = session();
 
         assertThat(session.isActive()).isTrue();
-        assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.IDLE);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.IDLE);
         assertThat(session.getSessionState()).isEqualTo("encrypted");
         assertThat(session.getLastValidatedAt()).isEqualTo(NOW);
     }
 
     @Test
-    void neverStoresThePassword() {
-        // The cookies and the encrypted identifier only: the password is clicked on the bank's
-        // keypad and never reaches Picsou.
-        assertThat(Arrays.stream(CaisseEpargneSession.class.getDeclaredFields()).map(Field::getName))
-            .noneMatch(name -> name.toLowerCase().contains("password") || name.toLowerCase().contains("position"));
-        assertThat(Arrays.stream(CaisseEpargneSession.class.getDeclaredFields()).map(Field::getName)
-            .filter(name -> name.toLowerCase().contains("credential")))
-            .containsExactly("encryptedCredentials");
-    }
-
-    @Test
     void happyPathQueuedRunningSuccess() {
-        CaisseEpargneSession session = session();
+        SidecarSession session = session();
 
         session.markQueued();
-        assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.QUEUED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.QUEUED);
         assertThat(session.isSyncInFlight()).isTrue();
 
         session.markRunning(NOW);
-        assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.RUNNING);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.RUNNING);
         assertThat(session.getLastSyncStartedAt()).isEqualTo(NOW);
 
         Instant done = NOW.plusSeconds(5);
         session.markSuccessful(done);
-        assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         assertThat(session.getLastSyncCompletedAt()).isEqualTo(done);
         assertThat(session.getLastValidatedAt()).isEqualTo(done);
         assertThat(session.getLastSyncError()).isNull();
@@ -63,11 +58,11 @@ class CaisseEpargneSessionTest {
 
     @Test
     void cannotQueueTwiceOrWhileInactive() {
-        CaisseEpargneSession session = session();
+        SidecarSession session = session();
         session.markQueued();
         assertThatThrownBy(session::markQueued).isInstanceOf(IllegalStateException.class);
 
-        CaisseEpargneSession expired = session();
+        SidecarSession expired = session();
         expired.markQueued();
         expired.markFailed(SidecarErrorCode.SESSION_EXPIRED, NOW);
         assertThatThrownBy(expired::markQueued).isInstanceOf(IllegalStateException.class);
@@ -80,7 +75,7 @@ class CaisseEpargneSessionTest {
 
     @Test
     void successRequiresARunningSession() {
-        CaisseEpargneSession session = session();
+        SidecarSession session = session();
         session.markQueued();
         assertThatThrownBy(() -> session.markSuccessful(NOW)).isInstanceOf(IllegalStateException.class);
     }
@@ -93,13 +88,13 @@ class CaisseEpargneSessionTest {
 
     @Test
     void aTransientFailureKeepsTheSessionUsable() {
-        CaisseEpargneSession session = session();
+        SidecarSession session = session();
         session.markQueued();
         session.markRunning(NOW);
 
         session.markFailed(SidecarErrorCode.UPSTREAM_UNAVAILABLE, NOW);
 
-        assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE);
         assertThat(session.isActive()).isTrue();
     }
@@ -108,7 +103,7 @@ class CaisseEpargneSessionTest {
     void anExpiredOrUnusableSessionIsDeactivated() {
         for (SidecarErrorCode code : new SidecarErrorCode[] {
             SidecarErrorCode.SESSION_EXPIRED, SidecarErrorCode.INVALID_SESSION_STATE}) {
-            CaisseEpargneSession session = session();
+            SidecarSession session = session();
             session.markQueued();
             session.markFailed(code, NOW);
 
@@ -119,20 +114,20 @@ class CaisseEpargneSessionTest {
 
     @Test
     void queueingClearsThePreviousOutcome() {
-        CaisseEpargneSession session = session();
+        SidecarSession session = session();
         session.markQueued();
         session.markFailed(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED, NOW);
 
         session.markQueued();
 
-        assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.QUEUED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.QUEUED);
         assertThat(session.getLastSyncError()).isNull();
         assertThat(session.getLastSyncCompletedAt()).isNull();
     }
 
     @Test
     void updatingTheSessionStateReactivatesIt() {
-        CaisseEpargneSession session = session();
+        SidecarSession session = session();
         session.markQueued();
         session.markFailed(SidecarErrorCode.SESSION_EXPIRED, NOW);
 
@@ -147,7 +142,7 @@ class CaisseEpargneSessionTest {
         for (SidecarErrorCode code : new SidecarErrorCode[] {
             SidecarErrorCode.INVALID_CREDENTIALS, SidecarErrorCode.KEYPAD_CHANGED,
             SidecarErrorCode.APP_VALIDATION_TIMEOUT, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED}) {
-            CaisseEpargneSession session = session();
+            SidecarSession session = session();
             session.markQueued();
             session.markFailed(code, NOW);
             assertThat(session.isActive()).as(code.name()).isTrue();

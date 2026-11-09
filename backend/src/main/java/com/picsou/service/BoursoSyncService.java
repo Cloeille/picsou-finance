@@ -8,8 +8,8 @@ import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
-import com.picsou.model.BoursoSession;
-import com.picsou.model.BoursoSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.adapter.BoursoAdapter;
@@ -17,14 +17,13 @@ import com.picsou.port.SidecarInitiate;
 import com.picsou.port.SidecarTransaction;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.BoursoSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -82,7 +81,7 @@ public class BoursoSyncService {
     );
 
     private final BoursoAdapter port;
-    private final BoursoSessionRepository sessionRepository;
+    private final SidecarSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final AccountHoldingRepository holdingRepository;
     private final FamilyMemberRepository memberRepository;
@@ -93,13 +92,13 @@ public class BoursoSyncService {
     private final SecurityIdentityService identityService;
     private final CryptoEncryption encryption;
     private final TransactionTemplate txTemplate;
-    private final Executor syncExecutor;
+    private final SidecarSyncTemplate<List<PreparedAccount>> sync;
     private final ReceivedDividendClassifier dividendClassifier;
     private final Map<String, PendingCredentials> pendingCredentials = new java.util.concurrent.ConcurrentHashMap<>();
 
     public BoursoSyncService(
         BoursoAdapter port,
-        BoursoSessionRepository sessionRepository,
+        SidecarSessionRepository sessionRepository,
         AccountRepository accountRepository,
         AccountHoldingRepository holdingRepository,
         FamilyMemberRepository memberRepository,
@@ -125,8 +124,51 @@ public class BoursoSyncService {
         this.identityService = identityService;
         this.encryption = encryption;
         this.txTemplate = txTemplate;
-        this.syncExecutor = syncExecutor;
+        this.sync = new SidecarSyncTemplate<>(SidecarBank.BOURSO, new Strategy(), sessionRepository,
+            memberRepository, encryption, txTemplate, syncExecutor, false);
         this.dividendClassifier = dividendClassifier;
+    }
+
+    private final class Strategy implements SidecarSyncStrategy<List<PreparedAccount>> {
+        @Override
+        public List<PreparedAccount> fetch(SidecarSyncJob job) {
+            List<BoursoAdapter.AccountData> fetched;
+            try {
+                fetched = port.fetchAccounts(job.plainState());
+            } catch (SyncException ex) {
+                if (codeOf(ex) != SidecarErrorCode.SESSION_EXPIRED) throw ex;
+                fetched = reauthenticateAndFetch(job);
+            }
+            return prepareAccounts(fetched);
+        }
+
+        @Override
+        public void commit(SidecarSyncJob job, List<PreparedAccount> prepared, Instant syncedAt) {
+            FamilyMember member = memberRepository.findById(job.memberId())
+                .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
+            CategorizationService.CategorizationContext categorizationContext =
+                categorizationService.loadContext(job.memberId());
+            for (PreparedAccount data : prepared) {
+                upsertAccount(data, member, job.memberId(), syncedAt, categorizationContext);
+            }
+        }
+
+        @Override
+        public void afterCommit(SidecarSyncJob job, List<PreparedAccount> prepared) {
+            dividendClassifier.afterImport(job.memberId());
+        }
+
+        @Override
+        public String describe(List<PreparedAccount> prepared) {
+            return "accounts=" + prepared.size();
+        }
+
+        @Override
+        public void onFailure(SidecarSession session, SidecarErrorCode code) {
+            if (code == SidecarErrorCode.INVALID_CREDENTIALS) {
+                session.setEncryptedCredentials(null);
+            }
+        }
     }
 
     public AuthInitResponse initiateAuth(String customerId, String password, Long memberId) {
@@ -159,114 +201,26 @@ public class BoursoSyncService {
     }
 
     public SessionStatusResponse queueSync(Long memberId) {
-        QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
-            BoursoSession session = sessionRepository.findByMemberIdForUpdate(memberId)
-                .orElseThrow(() -> error(
-                    SidecarErrorCode.SESSION_EXPIRED,
-                    "No active BoursoBank session. Please reconnect.",
-                    null
-                ));
-            if (!session.isActive()) {
-                throw error(
-                    SidecarErrorCode.SESSION_EXPIRED,
-                    "The BoursoBank session expired. Please reconnect.",
-                    null
-                );
-            }
-            if (session.getSyncStatus() == BoursoSyncStatus.QUEUED
-                || session.getSyncStatus() == BoursoSyncStatus.RUNNING) {
-                return new QueueDecision(null, toStatus(session));
-            }
-
-            String plainState = encryption.decrypt(session.getSessionState());
-            session.markQueued();
-            sessionRepository.save(session);
-            return new QueueDecision(
-                new SyncJob(session.getId(), memberId, plainState),
-                toStatus(session)
-            );
-        }));
-
-        if (decision.job() != null) {
-            submit(decision.job());
-            return getStatus(memberId);
-        }
-        return decision.status();
+        return toStatus(sync.queue(memberId, false));
     }
 
     private SessionStatusResponse storeSessionAndQueue(String plainState, Long memberId, String customerId, String password) {
-        SyncJob job = requireTransactionResult(txTemplate.execute(status -> {
-            FamilyMember member = memberRepository.findById(memberId)
-                .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
-            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
-            sessionRepository.flush();
-
-            BoursoSession newSession = BoursoSession.create(
-                member,
-                encryption.encrypt(plainState),
-                Instant.now()
-            );
+        sync.replaceAndQueue(memberId, plainState, false, session -> {
             if (customerId != null && password != null) {
-                newSession.setEncryptedCredentials(encryption.encrypt(serializeCredentials(customerId, password)));
+                session.setEncryptedCredentials(encryption.encrypt(serializeCredentials(customerId, password)));
             }
-            newSession.markQueued();
-            BoursoSession stored = sessionRepository.saveAndFlush(newSession);
-            return new SyncJob(stored.getId(), memberId, plainState);
-        }));
-
-        submit(job);
+        });
         return getStatus(memberId);
     }
 
-    private void submit(SyncJob job) {
-        try {
-            syncExecutor.execute(() -> executeJob(job));
-        } catch (RuntimeException ex) {
-            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
-            throw error(
-                SidecarErrorCode.INTERNAL_ERROR,
-                "Could not schedule the BoursoBank synchronization",
-                ex
-            );
-        }
-    }
-
-    private void executeJob(SyncJob job) {
-        if (!markRunning(job)) {
-            return;
-        }
-        try {
-            List<BoursoAdapter.AccountData> fetched;
-            try { fetched = port.fetchAccounts(job.plainState()); }
-            catch (SyncException ex) {
-                if (codeOf(ex) != SidecarErrorCode.SESSION_EXPIRED) throw ex;
-                fetched = reauthenticateAndFetch(job);
-            }
-            List<PreparedAccount> prepared = prepareAccounts(fetched);
-            if (commitAccounts(job, prepared)) {
-                log.info("BoursoBank sync completed (member={}; accounts={})", job.memberId(), prepared.size());
-                dividendClassifier.afterImport(job.memberId());
-            } else {
-                log.info("Discarded stale BoursoBank sync result (member={})", job.memberId());
-            }
-        } catch (SyncException ex) {
-            SidecarErrorCode code = codeOf(ex);
-            markFailed(job, code);
-            log.warn("BoursoBank sync failed (member={}; code={})", job.memberId(), code);
-        } catch (Exception ex) {
-            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
-            log.error("BoursoBank sync failed unexpectedly (member={})", job.memberId(), ex);
-        }
-    }
-
-    private List<BoursoAdapter.AccountData> reauthenticateAndFetch(SyncJob job) {
-        Optional<BoursoSession> found = requireTransactionResult(txTemplate.execute(
+    private List<BoursoAdapter.AccountData> reauthenticateAndFetch(SidecarSyncJob job) {
+        Optional<SidecarSession> found = requireTransactionResult(txTemplate.execute(
             status -> sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
         ));
-        Optional<BoursoSession> sessionResult = found;
-        BoursoSession session = sessionResult.orElse(null);
+        Optional<SidecarSession> sessionResult = found;
+        SidecarSession session = sessionResult.orElse(null);
         if (session == null || !session.isActive()
-            || session.getSyncStatus() != BoursoSyncStatus.RUNNING
+            || session.getSyncStatus() != SidecarSyncStatus.RUNNING
             || session.getEncryptedCredentials() == null) {
             throw error(SidecarErrorCode.SESSION_EXPIRED, "BoursoBank session expired", null);
         }
@@ -292,7 +246,7 @@ public class BoursoSyncService {
         String newState = result.sessionState();
         Boolean updated = txTemplate.execute(status -> sessionRepository
             .findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
-            .filter(current -> current.isActive() && current.getSyncStatus() == BoursoSyncStatus.RUNNING)
+            .filter(current -> current.isActive() && current.getSyncStatus() == SidecarSyncStatus.RUNNING)
             .map(current -> {
                 current.updateSessionState(encryption.encrypt(newState), Instant.now());
                 sessionRepository.save(current);
@@ -303,7 +257,7 @@ public class BoursoSyncService {
         return port.fetchAccounts(newState);
     }
 
-    private void clearStoredCredentials(SyncJob job) {
+    private void clearStoredCredentials(SidecarSyncJob job) {
         txTemplate.executeWithoutResult(status -> sessionRepository
             .findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
             .ifPresent(current -> {
@@ -329,32 +283,6 @@ public class BoursoSyncService {
             if (customerId.isBlank() || password.isBlank()) throw new IllegalArgumentException("Invalid credentials");
             return new Credentials(customerId, password);
         } catch (com.fasterxml.jackson.core.JsonProcessingException ex) { throw new IllegalArgumentException("Invalid credentials", ex); }
-    }
-
-    private boolean markRunning(SyncJob job) {
-        return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<BoursoSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
-                job.sessionId(),
-                job.memberId()
-            );
-            if (current.isEmpty()) {
-                log.info("BoursoBank sync session disappeared before execution (member={})", job.memberId());
-                return false;
-            }
-            BoursoSession session = current.get();
-            if (!session.isActive() || session.getSyncStatus() != BoursoSyncStatus.QUEUED) {
-                log.warn(
-                    "BoursoBank sync cannot start from state {} (member={}; active={})",
-                    session.getSyncStatus(),
-                    job.memberId(),
-                    session.isActive()
-                );
-                return false;
-            }
-            session.markRunning(Instant.now());
-            sessionRepository.save(session);
-            return true;
-        }));
     }
 
     /**
@@ -602,45 +530,6 @@ public class BoursoSyncService {
         return invested;
     }
 
-    private boolean commitAccounts(SyncJob job, List<PreparedAccount> prepared) {
-        return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<BoursoSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
-                job.sessionId(),
-                job.memberId()
-            );
-            if (current.isEmpty()) {
-                log.info("BoursoBank sync session disappeared before commit (member={})", job.memberId());
-                return false;
-            }
-            BoursoSession session = current.get();
-            if (!session.isActive()) {
-                log.warn("BoursoBank sync session became inactive before commit (member={})", job.memberId());
-                return false;
-            }
-            if (session.getSyncStatus() != BoursoSyncStatus.RUNNING) {
-                log.warn(
-                    "BoursoBank sync cannot commit from state {} (member={})",
-                    session.getSyncStatus(),
-                    job.memberId()
-                );
-                return false;
-            }
-
-            FamilyMember member = memberRepository.findById(job.memberId())
-                .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
-            CategorizationService.CategorizationContext categorizationContext =
-                categorizationService.loadContext(job.memberId());
-            Instant syncedAt = Instant.now();
-            for (PreparedAccount data : prepared) {
-                upsertAccount(data, member, job.memberId(), syncedAt, categorizationContext);
-            }
-
-            session.markSuccessful(syncedAt);
-            sessionRepository.save(session);
-            return true;
-        }));
-    }
-
     private static boolean isVerifiedIban(String iban) {
         if (iban == null) return false;
         String normalized = iban.replaceAll("\\s", "").toUpperCase(Locale.ROOT);
@@ -741,41 +630,6 @@ public class BoursoSyncService {
         };
     }
 
-    private void markFailed(SyncJob job, SidecarErrorCode code) {
-        try {
-            txTemplate.executeWithoutResult(status -> {
-                Optional<BoursoSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
-                    job.sessionId(),
-                    job.memberId()
-                );
-                if (current.isEmpty()) {
-                    log.info("BoursoBank sync session disappeared before failure was recorded (member={})", job.memberId());
-                    return;
-                }
-                BoursoSession session = current.get();
-                if (!session.isSyncInFlight()) {
-                    log.warn(
-                        "BoursoBank sync failure ignored from state {} (member={}; code={})",
-                        session.getSyncStatus(),
-                        job.memberId(),
-                        code
-                    );
-                    return;
-                }
-                if (code == SidecarErrorCode.INVALID_CREDENTIALS) session.setEncryptedCredentials(null);
-                session.markFailed(code, Instant.now());
-                sessionRepository.save(session);
-            });
-        } catch (RuntimeException ex) {
-            log.error(
-                "Could not persist BoursoBank sync failure (member={}; code={})",
-                job.memberId(),
-                code,
-                ex
-            );
-        }
-    }
-
     /**
      * Queued jobs live in a process-local executor and cannot survive a backend
      * restart. Turn persisted in-flight states into a retryable failure instead
@@ -783,22 +637,12 @@ public class BoursoSyncService {
      */
     @Transactional
     public void recoverInterruptedSyncs() {
-        int recovered = sessionRepository.markInterruptedSyncsFailed(
-            List.of(BoursoSyncStatus.QUEUED, BoursoSyncStatus.RUNNING),
-            BoursoSyncStatus.FAILED,
-            Instant.now(),
-            SidecarErrorCode.INTERNAL_ERROR
-        );
-        if (recovered > 0) {
-            log.warn("Recovered {} interrupted BoursoBank sync job(s)", recovered);
-        }
+        sync.recoverInterrupted();
     }
 
     @Transactional(readOnly = true)
     public SessionStatusResponse getStatus(Long memberId) {
-        return sessionRepository.findByMemberId(memberId)
-            .map(this::toStatus)
-            .orElseGet(SessionStatusResponse::inactive);
+        return sync.find(memberId).map(this::toStatus).orElseGet(SessionStatusResponse::inactive);
     }
 
     /**
@@ -806,53 +650,20 @@ public class BoursoSyncService {
      * does not count: it never became a connection.
      */
     public boolean clearSession(Long memberId) {
-        boolean removed = Boolean.TRUE.equals(txTemplate.execute(status -> {
-            var session = sessionRepository.findByMemberIdForUpdate(memberId);
-            session.ifPresent(sessionRepository::delete);
-            return session.isPresent();
-        }));
+        boolean removed = sync.clear(memberId);
         pendingCredentials.entrySet().removeIf(entry -> entry.getValue().memberId().equals(memberId));
         return removed;
     }
 
     public SourceSyncResult resyncReporting(Long memberId) {
-        try {
-            SessionStatusResponse status = getStatus(memberId);
-            if (!status.isActive()) {
-                if (status.lastSyncError() == SidecarErrorCode.SESSION_EXPIRED
-                    || status.lastSyncError() == SidecarErrorCode.INVALID_CREDENTIALS) {
-                    return new SourceSyncResult("bourso", SourceSyncResult.Status.NEEDS_REAUTH,
-                        status.lastSyncError().name());
-                }
-                if (status.lastSyncError() != null) {
-                    return new SourceSyncResult("bourso", SourceSyncResult.Status.FAILED,
-                        status.lastSyncError().name());
-                }
-                return new SourceSyncResult("bourso", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session");
-            }
-            queueSync(memberId);
-            return new SourceSyncResult("bourso", SourceSyncResult.Status.QUEUED, "");
-        } catch (ResourceNotFoundException ex) {
-            return new SourceSyncResult("bourso", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "Member not found");
-        } catch (DataAccessException ex) {
-            log.error("Database error during scheduled BoursoBank sync (member={})", memberId, ex);
-            return new SourceSyncResult("bourso", SourceSyncResult.Status.FAILED, "Database error");
-        } catch (SyncException ex) {
-            log.warn("Could not queue scheduled BoursoBank sync (member={}; code={})", memberId, ex.getCode(), ex);
-            SourceSyncResult classified = SourceSyncResult.fromSyncException("bourso", ex);
-            return new SourceSyncResult("bourso", classified.status(),
-                classified.status() == SourceSyncResult.Status.NEEDS_REAUTH ? ex.getCode() : "Sync failed");
-        } catch (Exception ex) {
-            log.error("BoursoBank scheduled sync failed unexpectedly for member {}", memberId, ex);
-            return new SourceSyncResult("bourso", SourceSyncResult.Status.FAILED, "Unexpected sync error");
-        }
+        return sync.resyncReporting(memberId, "bourso", log, this::getStatus, this::queueSync);
     }
 
     public void resyncIfSessionActive(Long memberId) {
         resyncReporting(memberId); // ignore return
     }
 
-    private SessionStatusResponse toStatus(BoursoSession session) {
+    private SessionStatusResponse toStatus(SidecarSession session) {
         return new SessionStatusResponse(
             session.isActive(),
             session.getSyncStatus(),
@@ -863,7 +674,7 @@ public class BoursoSyncService {
     }
 
     private SidecarErrorCode codeOf(SyncException exception) {
-        return SyncValues.errorCode(exception, SidecarBank.BOURSO, SidecarErrorCode.UPSTREAM_UNAVAILABLE);
+        return sync.codeOf(exception);
     }
 
     private SyncException error(SidecarErrorCode code, String message, Throwable cause) {
@@ -938,20 +749,18 @@ public class BoursoSyncService {
 
     public record SessionStatusResponse(
         boolean isActive,
-        BoursoSyncStatus syncStatus,
+        SidecarSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError
-    ) {
+    ) implements SidecarSessionView {
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, BoursoSyncStatus.IDLE, null, null, null);
+            return new SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null);
         }
     }
 
     private record Credentials(String customerId, String password) {}
     private record PendingCredentials(String customerId, String password, Instant expiresAt, Long memberId) {}
-    private record QueueDecision(SyncJob job, SessionStatusResponse status) {}
-    private record SyncJob(Long sessionId, Long memberId, String plainState) {}
     private record PreparedAccount(
         String externalId,
         String name,

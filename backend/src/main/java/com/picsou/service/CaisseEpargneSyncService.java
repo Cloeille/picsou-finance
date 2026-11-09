@@ -5,13 +5,14 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.SyncException;
-import com.picsou.model.CaisseEpargneSession;
-import com.picsou.model.CaisseEpargneSyncStatus;
+import com.picsou.model.FamilyMember;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.CaisseEpargneSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TransactionRepository;
@@ -47,15 +48,15 @@ public class CaisseEpargneSyncService {
     static final BpceBank BANK = BpceBank.named(PROVIDER, "ce_");
 
     private final CaisseEpargnePort port;
-    private final CaisseEpargneSessionRepository sessionRepository;
+    private final SidecarSessionRepository sessionRepository;
     private final CryptoEncryption encryption;
     private final TransactionTemplate txTemplate;
-    private final BpceSyncEngine<CaisseEpargneSession, SessionStatusResponse> engine;
+    private final BpceSyncEngine<SidecarSession, SessionStatusResponse> engine;
 
     @org.springframework.beans.factory.annotation.Autowired
     public CaisseEpargneSyncService(
         CaisseEpargnePort port,
-        CaisseEpargneSessionRepository sessionRepository,
+        SidecarSessionRepository sessionRepository,
         AccountRepository accountRepository,
         TransactionRepository transactionRepository,
         FamilyMemberRepository memberRepository,
@@ -75,7 +76,7 @@ public class CaisseEpargneSyncService {
 
     CaisseEpargneSyncService(
         CaisseEpargnePort port,
-        CaisseEpargneSessionRepository sessionRepository,
+        SidecarSessionRepository sessionRepository,
         AccountRepository accountRepository,
         TransactionRepository transactionRepository,
         FamilyMemberRepository memberRepository,
@@ -129,9 +130,9 @@ public class CaisseEpargneSyncService {
     }
 
     /** A session row that also stores the identifier that logged in, encrypted. */
-    private BpceSyncEngine.SessionFactory<CaisseEpargneSession> sessionRemembering(String customerId) {
+    private BpceSyncEngine.SessionFactory<SidecarSession> sessionRemembering(String customerId) {
         return (member, encryptedState, validatedAt, previous) -> {
-            CaisseEpargneSession session = CaisseEpargneSession.create(member, encryptedState, validatedAt);
+            SidecarSession session = SidecarSession.create(SidecarBank.CAISSE_EPARGNE, member, encryptedState, validatedAt);
             session.setEncryptedCredentials(encryptCustomerId(customerId));
             return session;
         };
@@ -139,8 +140,8 @@ public class CaisseEpargneSyncService {
 
     /** The remembered identifier, or a refusal when there is none (or it cannot be read). */
     private StoredIdentifier storedCustomerId(Long memberId) {
-        String encrypted = sessionRepository.findByMemberId(memberId)
-            .map(CaisseEpargneSession::getEncryptedCredentials)
+        String encrypted = sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, memberId)
+            .map(SidecarSession::getEncryptedCredentials)
             .orElse(null);
         if (encrypted != null) {
             Optional<String> customerId = readCustomerId(encrypted);
@@ -172,7 +173,7 @@ public class CaisseEpargneSyncService {
      */
     private void forgetStoredCustomerId(Long memberId, String readCiphertext) {
         txTemplate.execute(status -> {
-            sessionRepository.findByMemberIdForUpdate(memberId)
+            sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, memberId)
                 .filter(session -> readCiphertext.equals(session.getEncryptedCredentials()))
                 .ifPresent(session -> {
                     session.setEncryptedCredentials(null);
@@ -214,7 +215,7 @@ public class CaisseEpargneSyncService {
      */
     public SessionStatusResponse storeSession(String plainState, Long memberId) {
         return engine.storeSession(plainState, memberId, (member, encryptedState, validatedAt, previous) -> {
-            CaisseEpargneSession session = CaisseEpargneSession.create(member, encryptedState, validatedAt);
+            SidecarSession session = SidecarSession.create(SidecarBank.CAISSE_EPARGNE, member, encryptedState, validatedAt);
             session.setEncryptedCredentials(previous == null ? null : previous.getEncryptedCredentials());
             return session;
         });
@@ -231,8 +232,9 @@ public class CaisseEpargneSyncService {
     @Transactional
     public void recoverInterruptedSyncs() {
         int recovered = sessionRepository.markInterruptedSyncsFailed(
-            List.of(CaisseEpargneSyncStatus.QUEUED, CaisseEpargneSyncStatus.RUNNING),
-            CaisseEpargneSyncStatus.FAILED,
+            SidecarBank.CAISSE_EPARGNE,
+            List.of(SidecarSyncStatus.QUEUED, SidecarSyncStatus.RUNNING),
+            SidecarSyncStatus.FAILED,
             Instant.now(),
             SidecarErrorCode.INTERNAL_ERROR
         );
@@ -256,7 +258,7 @@ public class CaisseEpargneSyncService {
 
     /** Whether the stored identifier is readable is part of the answer, so it is decrypted here; nothing is written. */
     private SessionStatusResponse toStatus(
-        CaisseEpargneSession session, List<BpceSyncEngine.UnsupportedContract> unsupported
+        SidecarSession session, List<BpceSyncEngine.UnsupportedContract> unsupported
     ) {
         String encryptedCredentials = session.getEncryptedCredentials();
         return new SessionStatusResponse(
@@ -270,37 +272,37 @@ public class CaisseEpargneSyncService {
         );
     }
 
-    /** The Caisse d'Epargne session table, as the engine uses it. */
-    private record Sessions(CaisseEpargneSessionRepository repository)
-        implements BpceSyncEngine.SessionStore<CaisseEpargneSession> {
+    /** The Caisse d'Epargne rows of the shared sidecar session table, as the engine uses them. */
+    private record Sessions(SidecarSessionRepository repository)
+        implements BpceSyncEngine.SessionStore<SidecarSession> {
 
         @Override
-        public Optional<CaisseEpargneSession> findByMemberId(Long memberId) {
-            return repository.findByMemberId(memberId);
+        public Optional<SidecarSession> findByMemberId(Long memberId) {
+            return repository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, memberId);
         }
 
         @Override
-        public Optional<CaisseEpargneSession> findByMemberIdForUpdate(Long memberId) {
-            return repository.findByMemberIdForUpdate(memberId);
+        public Optional<SidecarSession> findByMemberIdForUpdate(Long memberId) {
+            return repository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, memberId);
         }
 
         @Override
-        public Optional<CaisseEpargneSession> findByIdAndMemberIdForUpdate(Long id, Long memberId) {
+        public Optional<SidecarSession> findByIdAndMemberIdForUpdate(Long id, Long memberId) {
             return repository.findByIdAndMemberIdForUpdate(id, memberId);
         }
 
         @Override
-        public void save(CaisseEpargneSession session) {
+        public void save(SidecarSession session) {
             repository.save(session);
         }
 
         @Override
-        public void saveAndFlush(CaisseEpargneSession session) {
+        public void saveAndFlush(SidecarSession session) {
             repository.saveAndFlush(session);
         }
 
         @Override
-        public void delete(CaisseEpargneSession session) {
+        public void delete(SidecarSession session) {
             repository.delete(session);
         }
 
@@ -312,20 +314,20 @@ public class CaisseEpargneSyncService {
 
     public record SessionStatusResponse(
         boolean isActive,
-        CaisseEpargneSyncStatus syncStatus,
+        SidecarSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError,
         List<BpceSyncEngine.UnsupportedContract> unsupported,
         /** An identifier is remembered: a reconnect can send a blank one. Never the value itself. */
         boolean remembered
-    ) {
+    ) implements SidecarSessionView {
         public SessionStatusResponse {
             unsupported = unsupported == null ? List.of() : List.copyOf(unsupported);
         }
 
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, CaisseEpargneSyncStatus.IDLE, null, null, null, List.of(), false);
+            return new SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null, List.of(), false);
         }
 
         @JsonProperty("unsupportedCount")

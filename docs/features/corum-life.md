@@ -49,7 +49,7 @@ validates both parts, then writes both in one transaction.
 - `backend/.../service/AccountService.java` — `isProviderValued` / `isSyncedCorumLife`: non-manual
   accounts whose `externalAccountId` starts with `Account.CORUM_LIFE_EXTERNAL_ID_PREFIX`
 - `backend/src/main/resources/db/migration/V124__corum_session_life_ambiguous.sql` —
-  `corum_session.last_sync_life_ambiguous`, exposed as `lifeAmbiguousCount` in the CORUM status
+  `corum_session.last_sync_life_ambiguous` (copied into `sidecar_session` by V142), exposed as `lifeAmbiguousCount` in the CORUM status
 - `backend/src/main/resources/db/migration/V125__corum_life_contract_facts.sql` — the contract
   facts on `account` and `account_holding.provider_wealth_tier`
 - `backend/.../service/AccountService.java` — `valuation`: the contract's value and net invested

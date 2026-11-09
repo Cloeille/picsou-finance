@@ -3,7 +3,7 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.adapter.sidecar.SidecarClient;
-import com.picsou.adapter.sidecar.SidecarSession;
+import com.picsou.adapter.sidecar.SidecarSessionState;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.model.AccountType;
 import com.picsou.port.SidecarErrorCode;
@@ -61,8 +61,8 @@ public class BourseDirectAdapter {
     }
 
     public String completeAuth(String processId, String code) {
-        SidecarSession response = sidecar.post("/complete", Map.of("processId", processId, "code", code),
-            SidecarSession.class, authTimeout, "Could not complete Bourse Direct authentication",
+        SidecarSessionState response = sidecar.post("/complete", Map.of("processId", processId, "code", code),
+            SidecarSessionState.class, authTimeout, "Could not complete Bourse Direct authentication",
             SidecarErrorCode.INVALID_OTP);
         return response.sessionState();
     }
