@@ -35,7 +35,8 @@ Exact hosts, https only, checked on every request and every redirect hop:
 
 Every host under the `.bnpparibas` TLD is also a brand host for both brands: it is a dotBrand gTLD only BNP
 Paribas can register under (the post-login chain goes through `mabanqueprivee.bnpparibas`). ThreatMetrix
-sub-resources (`*.online-metrix.net`) load; other passive third-party sub-resources (`assets.adobedtm.com`) are
+sub-resources (`*.online-metrix.net`) load; the calls of the cookie-consent vendor (`*.onetrust.com`,
+`*.onetrust.io`, POSTs included) and other passive third-party sub-resources (`assets.adobedtm.com`) are
 refused and ignored. Any other host aborts the request and stops the login (`UPSTREAM_FORMAT_CHANGED`); only its
 name is logged. A stop after the login submit also logs one structure-only line (see the feature doc). Nothing here tries to defeat bot
 management: if the bank answers 403 to the sidecar's network, the sync fails with `UPSTREAM_UNAVAILABLE`.

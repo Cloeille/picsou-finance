@@ -21,8 +21,9 @@ MFA_TYPE_UNSUPPORTED, UPSTREAM_FORMAT_CHANGED); it never guesses, and any reques
 the brand's allow-list stops the login and logs the host name (host only), except the other hosts of
 BNP Paribas' own dotBrand TLD (`*.bnpparibas`, see `is_brand_tld_host`), which load, the sub-resources
 the bank's own page loads from its known fraud vendor (ThreatMetrix, `*.online-metrix.net`), which load,
-and passive third-party sub-resources (analytics), which are dropped silently (see `verdict`). Every
-stop logs a fixed stage name (`stage=...`), never page content.
+the calls of its cookie-consent vendor (OneTrust), which are dropped silently, and passive third-party
+sub-resources (analytics), which are dropped silently too (see `VENDORS` and `verdict`). Every stop logs
+a fixed stage name (`stage=...`), never page content.
 """
 
 import asyncio
@@ -75,14 +76,24 @@ BRANDS = {
 # credentials: the brand's own three hosts. They are the only destination of a main-frame navigation
 # (the login form post included) and of any request that carries a body, unless the request is a
 # sub-resource of a known vendor below. Known vendors are matched by a dot-bounded suffix and only
-# for the sub-resources the bank's own page loads from them. Every other third-party sub-resource
+# for the sub-resources the bank's own page requests from them. Every other third-party sub-resource
 # without a body is aborted silently; anything else off-list stops the attempt.
 ALL_HOSTS = frozenset().union(*(brand.hosts for brand in BRANDS.values()))
-VENDOR_DOMAINS = ("online-metrix.net",)  # ThreatMetrix (LexisNexis): `<n>.online-metrix.net`, `<id>.e.aa.online-metrix.net`
+ALLOW, IGNORE, STOP = "allow", "ignore", "stop"
+# Known third parties of the bank's own pages and what their sub-resources get. A vendor never
+# receives the main-frame navigation, whatever its entry says.
+VENDORS = {
+    # ThreatMetrix (LexisNexis), `<n>.online-metrix.net` and `<id>.e.aa.online-metrix.net`: the login
+    # page fills `pf.idTMX` from it, so it loads.
+    "online-metrix.net": ALLOW,
+    # OneTrust cookie consent, on every landing of the signed-in site (geolocation, a session POST,
+    # consent receipts). The login does not need it: dropped, with or without a body, never a stop.
+    "onetrust.com": IGNORE,
+    "onetrust.io": IGNORE,
+}
 BRAND_TLD = "bnpparibas"  # a dotBrand gTLD: only BNP Paribas can register a name under it (IANA root zone db)
 _LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
-ALLOW, IGNORE, STOP = "allow", "ignore", "stop"
 MAX_LOGGED_HOSTS = 10
 
 PENDING_TTL_SECONDS = 300
@@ -241,7 +252,7 @@ def vendor_of(url: Any) -> str | None:
         host = parts.hostname or ""
     except ValueError:
         return None
-    return next((domain for domain in VENDOR_DOMAINS if host.endswith("." + domain)), None)
+    return next((domain for domain in VENDORS if host.endswith("." + domain)), None)
 
 
 def is_vendor_url(url: Any) -> bool:
@@ -278,9 +289,10 @@ def verdict(request: Any, hosts: frozenset[str]) -> str:
     # The login form post and every redirect of a page load are main-frame navigations: exact hosts only.
     if _is_main_frame_navigation(request):
         return STOP
-    # What the bank's own page loads from its known fraud vendor (scripts, pixels, beacons, its iframe).
-    if is_vendor_url(url):
-        return ALLOW
+    # What the bank's own page requests from a known vendor (scripts, pixels, beacons, an iframe).
+    vendor = vendor_of(url)
+    if vendor is not None:
+        return VENDORS[vendor]
     # A foreign frame or anything that sends a body or a write verb could carry the identifier or the code.
     if _is_navigation(request) or _carries_data(request):
         return STOP
@@ -319,7 +331,7 @@ class Guard:
                 self.brand_hosts_seen.append(host)
                 log.info("BNP page uses another host of the bank's own domain: %s", host[:100])
             return
-        if vendor is not None:
+        if VENDORS.get(vendor) == ALLOW:
             if vendor not in self.vendors_seen and len(self.vendors_seen) < MAX_LOGGED_HOSTS:
                 self.vendors_seen.append(vendor)
                 log.info("BNP page loads sub-resources from the vendor %s", vendor)

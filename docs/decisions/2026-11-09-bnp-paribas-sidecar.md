@@ -37,6 +37,11 @@ session-death signal (`codeRetour: "-10"`, a string).
    root zone database lists BNP Paribas as the sole manager of the TLD
    (https://www.iana.org/domains/root/db/bnpparibas.html, read 2026-11-09), so no third party can register a name
    under it. `hellobank.fr` is an ordinary domain and stays on its three exact hosts.
+   The third refinement: the calls of the bank's cookie-consent vendor (OneTrust, `*.onetrust.com` and
+   `*.onetrust.io`) are aborted without stopping the login, body or not. Two of them are POSTs sent on every
+   landing with a new profile, so "a third-party request with a body stops the attempt" stopped every login
+   once the password was accepted (owner-assisted run, 2026-11-09). Known vendors are one table,
+   domain -> allow or ignore; any other third party keeps the fail-closed rule.
 6. **Fail closed**: unknown product kinds are listed, incomplete snapshots never replace data, unexpected
    pages stop the attempt.
 

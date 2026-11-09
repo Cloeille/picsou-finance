@@ -66,10 +66,19 @@ off-list host is a site change" rule would stop every login on these tags). The 
    dot boundary, https, port 443, no credentials; `evil-online-metrix.net`, `online-metrix.net.evil.example`
    and the bare apex do not match): allowed, for sub-resources and sub-frames of the bank's page only. A
    vendor host can never receive the main-frame navigation, so it never sees the form post.
-4. **Any other sub-frame or any request with a body or a write verb** to a third-party host (it could
+4. **Cookie-consent vendor** (OneTrust: any strict sub-domain of `onetrust.com` or `onetrust.io`, same
+   matching as rule 3): aborted silently, with or without a body; the login goes on. With a new browser
+   profile the bank's pages call `geolocation.onetrust.com` (GET), `cookies-data.onetrust.io` (POST) and
+   `bnp-privacy.my.onetrust.com` (POST) on every landing, the signed-in one included. Without this rule
+   the two POSTs fell under rule 5 and stopped every login right after the password was accepted. A
+   main-frame navigation to these hosts still stops the attempt (rule 2).
+5. **Any other sub-frame or any request with a body or a write verb** to a third-party host (it could
    carry the customer number or the code): aborted and stops the attempt.
-5. **Any other third-party sub-resource without a body** (for example the `assets.adobedtm.com` analytics
+6. **Any other third-party sub-resource without a body** (for example the `assets.adobedtm.com` analytics
    script, pixels, fonts): aborted silently; the login goes on. Its host name is logged once at INFO.
+
+Rules 3 and 4 read one table, `VENDORS` in `services/bnp-auth/bank.py`: vendor domain -> what its
+sub-resources get (`allow` or `ignore`). A new vendor is one line there.
 
 The WebRTC beacon of ThreatMetrix stays off (`block_webrtc`), because it would go around this policy.
 Whether the bank accepts a login without it is unverified.
