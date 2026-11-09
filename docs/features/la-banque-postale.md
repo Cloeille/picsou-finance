@@ -174,7 +174,8 @@ the box clears the remembered identifier on the next successful login.
 
 ### Storage
 
-Table `lbp_session`, modelled on `caisse_epargne_session`: one row per member,
+Table `lbp_session`, its own table like `banque_populaire_session` (the ten banks of
+#423 share `sidecar_session`; moving La Banque Postale there is a follow-up): one row per member,
 `session_state` encrypted with `CryptoEncryption`, `encrypted_identifier` (the
 optional remembered 10-digit identifier, also encrypted), `last_validated_at`,
 `is_active`, `sync_status`, `last_sync_started_at`, `last_sync_completed_at`,
@@ -278,7 +279,7 @@ layer is `httpx` cookie replay.
 - `model/LbpSession.java`, `model/LbpSyncStatus.java`,
   `repository/LbpSessionRepository.java`, `config/LbpSyncRecovery.java`,
   `config/SyncExecutorConfig.java` (`lbpSyncExecutor`), migrations
-  `V129__lbp_session.sql` and `V130__lbp_saved_identifier.sql`.
+  `V143__lbp_session.sql` and `V144__lbp_saved_identifier.sql`.
 - `service/LbpSyncService.java` — validates the whole snapshot, then writes every
   account and its transactions in one transaction; maps `kind` to
   `AccountType` directly, stores the optional encrypted identifier and asks
@@ -301,8 +302,8 @@ layer is `httpx` cookie replay.
   `SavingsAutoConfigServiceTest`, `AccountConnectionServiceTest`,
   `SyncStatusServiceTest`, `MemberSyncServiceTest`, `SourceSyncResultTest`,
   `SyncToolsTest` and `InstanceStatusServiceTest` cover the wiring above, plus
-  the shared `SidecarContractTest` rig, `SidecarBankCodesTest`, and the `V129` /
-  `V130` migration tests.
+  the shared `SidecarContractTest` rig, `SidecarBankCodesTest`, and the `V143` /
+  `V144` migration tests.
 
 **Sidecar**
 
@@ -342,7 +343,7 @@ layer is `httpx` cookie replay.
 
 **Verification** — the LBP backend tests pass, plus the shared
 `SidecarContractTest` (235 cases across every bank), `SidecarBankCodesTest`
-(25 cases, including the `lbp_session` CHECK) and the `V129` / `V130` migration
+(25 cases, including the `lbp_session` CHECK) and the `V143` / `V144` migration
 tests on real PostgreSQL. The 75 sidecar tests pass in the published image;
 the browser login is live-only. The frontend typechecks, lints and builds, and
 the 16 `LbpTab` tests pass.

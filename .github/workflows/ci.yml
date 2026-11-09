@@ -131,22 +131,26 @@ jobs:
         # data-mutating migrations and the build would stay green.
         env: {PICSOU_REQUIRE_DOCKER_TESTS: 'true'}
         run: make test-backend SOFIDY_PYTHON=python3
-      # A skipped PostgreSQL test class reports green: require each one ran in full.
+      # A skipped PostgreSQL test class reports green: require each one ran, with nothing skipped.
+      # No per-class count: Skipped: 0 already catches a skip, and a count breaks on every new test or bank.
       - name: Require the PostgreSQL tests
         working-directory: backend/target/surefire-reports
         run: |
-          while read -r count class; do
-            grep -q "Tests run: $count, Failures: 0, Errors: 0, Skipped: 0" "com.picsou.$class.txt"
+          while read -r class; do
+            grep -qE "Tests run: [1-9][0-9]*, Failures: 0, Errors: 0, Skipped: 0," "com.picsou.$class.txt" \
+              || { echo "::error::$class did not run in full"; cat "com.picsou.$class.txt"; exit 1; }
           done <<'EOF'
-          11 service.ScpiSyncSessionPostgresTest
-          2 service.HomeBankImportPersistenceTest
-          1 service.HomeBankQifPersistenceTest
-          15 migration.LegacyMigrationRenumberingTest
-          6 service.SidecarBudgetPostgresTest
-          1 service.SetupAuditServicePostgresTest
-          20 config.SsoLoginIntegrationTest
-          2 config.SsoHandshakeSessionRaceIntegrationTest
-          25 adapter.sidecar.SidecarBankCodesTest
+          service.ScpiSyncSessionPostgresTest
+          service.HomeBankImportPersistenceTest
+          service.HomeBankQifPersistenceTest
+          migration.LegacyMigrationRenumberingTest
+          service.SidecarBudgetPostgresTest
+          service.SetupAuditServicePostgresTest
+          config.SsoLoginIntegrationTest
+          config.SsoHandshakeSessionRaceIntegrationTest
+          adapter.sidecar.SidecarBankCodesTest
+          service.PeerLoanTransactionLinksPostgresTest
+          migration.V142SidecarSessionMigrationTest
           EOF
 
   frontend:

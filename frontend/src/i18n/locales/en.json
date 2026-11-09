@@ -561,7 +561,8 @@
       "onTrack": "On schedule",
       "disclaimer": "Indicative forecast, never contractual.",
       "simulationResult": "{{months}} months · {{monthlyPayment}}/month · {{interest}} of interest",
-      "accruedHint": "Interest accrued so far:"
+      "accruedHint": "Interest accrued so far:",
+      "remainingHint": "Remaining due (most one repayment can take):"
     },
     "overview": {
       "title": "Peer loans",
@@ -606,6 +607,7 @@
       "confirm": "Assign",
       "created": "Repayment recorded."
     },
+    "linkedTransaction": "Linked to {{name}}'s loan",
     "actions": {
       "close": "Close the loan",
       "simulate": "Calculate"
@@ -614,6 +616,13 @@
       "title": "Close the loan",
       "description": "The remaining balance ({{amount}}) will be written off and removed from net worth today.",
       "confirm": "Close"
+    },
+    "deleteRepayment": {
+      "title": "Delete the repayment",
+      "description": "The repayment of {{amount}} will be deleted together with its cash movement. The loan balance will be recomputed.",
+      "descriptionLinked": "The repayment of {{amount}} will be unlinked from the loan. The linked transaction stays in its account. The loan balance will be recomputed.",
+      "descriptionNoCashLeg": "The repayment of {{amount}} will be deleted. The loan balance will be recomputed.",
+      "confirm": "Delete"
     },
     "validation": {
       "principal": "The amount lent must be greater than zero.",

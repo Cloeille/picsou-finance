@@ -2,7 +2,7 @@ package com.picsou.controller;
 
 import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
-import com.picsou.model.AmundiSyncStatus;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.service.AmundiSyncService;
 import com.picsou.service.UserContext;
@@ -90,7 +90,7 @@ class AmundiControllerTest {
     @Test
     void completeAuthEndpointScopesOtpToTheCurrentMember() throws Exception {
         when(service.completeAuth("process-123", "123456", MEMBER_ID))
-            .thenReturn(sessionStatus(AmundiSyncStatus.QUEUED));
+            .thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
 
         mockMvc.perform(post("/api/amundi/auth/complete")
                 .with(request -> {
@@ -109,7 +109,7 @@ class AmundiControllerTest {
     @Test
     void completeAuthEndpointAcceptsAnAppPushWithoutACode() throws Exception {
         when(service.completeAuth("process-123", null, MEMBER_ID))
-            .thenReturn(sessionStatus(AmundiSyncStatus.QUEUED));
+            .thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
 
         mockMvc.perform(post("/api/amundi/auth/complete")
                 .with(request -> {
@@ -203,7 +203,7 @@ class AmundiControllerTest {
     @Test
     void syncReturnsAcceptedAndTheObservableQueueStatus() {
         when(request.getRemoteAddr()).thenReturn("127.0.0.1");
-        var queued = sessionStatus(AmundiSyncStatus.QUEUED);
+        var queued = sessionStatus(SidecarSyncStatus.QUEUED);
         when(service.queueSync(MEMBER_ID)).thenReturn(queued);
 
         var response = controller.sync(request);
@@ -220,7 +220,7 @@ class AmundiControllerTest {
     @Test
     void eleventhSyncFromTheSameIpIsRateLimited() {
         when(request.getRemoteAddr()).thenReturn("127.0.0.1");
-        when(service.queueSync(MEMBER_ID)).thenReturn(sessionStatus(AmundiSyncStatus.QUEUED));
+        when(service.queueSync(MEMBER_ID)).thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
 
         for (int attempt = 0; attempt < 10; attempt++) {
             assertThat(controller.sync(request).getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
@@ -233,7 +233,7 @@ class AmundiControllerTest {
     @Test
     void syncAndAuthenticationDrawOnSeparateBudgets() {
         when(request.getRemoteAddr()).thenReturn("127.0.0.1");
-        when(service.queueSync(MEMBER_ID)).thenReturn(sessionStatus(AmundiSyncStatus.QUEUED));
+        when(service.queueSync(MEMBER_ID)).thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
         when(service.initiateAuth("login", "password", MEMBER_ID))
             .thenReturn(new AmundiSyncService.AuthInitResponse("process", true, "SMS"));
 
@@ -246,7 +246,7 @@ class AmundiControllerTest {
 
     @Test
     void statusAndClearUseOnlyTheCurrentMember() {
-        var success = sessionStatus(AmundiSyncStatus.SUCCESS);
+        var success = sessionStatus(SidecarSyncStatus.SUCCESS);
         when(service.getStatus(MEMBER_ID)).thenReturn(success);
 
         assertThat(controller.status()).isSameAs(success);
@@ -255,7 +255,7 @@ class AmundiControllerTest {
         verify(service).clearSession(MEMBER_ID);
     }
 
-    private AmundiSyncService.SessionStatusResponse sessionStatus(AmundiSyncStatus syncStatus) {
+    private AmundiSyncService.SessionStatusResponse sessionStatus(SidecarSyncStatus syncStatus) {
         return new AmundiSyncService.SessionStatusResponse(true, syncStatus, null, null, null);
     }
 }

@@ -234,6 +234,15 @@ public enum SidecarBank {
         return serviceName;
     }
 
+    /**
+     * Whether this bank's sessions live in {@code sidecar_session}. Banque Populaire keeps its own
+     * {@code banque_populaire_session} table (V134) and La Banque Postale its own
+     * {@code lbp_session} table until they move over in a follow-up.
+     */
+    public boolean storedInSidecarSession() {
+        return this != BANQUE_POPULAIRE && this != LBP;
+    }
+
     /** The codes this bank's sidecar declares, i.e. the values its session table accepts. */
     public Set<SidecarErrorCode> codes() {
         return codes;

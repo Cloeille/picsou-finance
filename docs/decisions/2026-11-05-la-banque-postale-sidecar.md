@@ -161,7 +161,7 @@ user; they are not a live feed.
   concrete client with nested records, not a port), the `LBP` entry in
   `SidecarBank`, `LbpSyncService`, `LbpController`, `LbpSession`,
   `LbpSyncStatus`, `LbpSessionRepository`, the `lbpSyncExecutor` bean in
-  `SyncExecutorConfig`, and migrations `V129` (session table) and `V130`
+  `SyncExecutorConfig`, and migrations `V143` (session table) and `V144`
   (optional encrypted remembered identifier).
 - `SavingsAutoConfigService` fills the regulated-livret configuration on import
   (`LIVRET_A`, `LDDS`, `LEP`), so the accounts no longer arrive "to configure".

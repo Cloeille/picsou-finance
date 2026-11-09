@@ -561,7 +561,8 @@
       "onTrack": "Dans les temps",
       "disclaimer": "Prévision indicative, jamais contractuelle.",
       "simulationResult": "{{months}} mois · {{monthlyPayment}}/mois · {{interest}} d'intérêts",
-      "accruedHint": "Intérêts courus à ce jour :"
+      "accruedHint": "Intérêts courus à ce jour :",
+      "remainingHint": "Reste dû (maximum par remboursement) :"
     },
     "overview": {
       "title": "Prêts entre particuliers",
@@ -606,6 +607,7 @@
       "confirm": "Assigner",
       "created": "Remboursement enregistré."
     },
+    "linkedTransaction": "Lié au prêt de {{name}}",
     "actions": {
       "close": "Clôturer le prêt",
       "simulate": "Calculer"
@@ -614,6 +616,13 @@
       "title": "Clôturer le prêt",
       "description": "Le solde restant ({{amount}}) sera abandonné et retiré du patrimoine aujourd'hui.",
       "confirm": "Clôturer"
+    },
+    "deleteRepayment": {
+      "title": "Supprimer le remboursement",
+      "description": "Le remboursement de {{amount}} sera supprimé avec son écriture de trésorerie. Le solde du prêt sera recalculé.",
+      "descriptionLinked": "Le remboursement de {{amount}} sera dissocié du prêt. La transaction liée reste dans son compte. Le solde du prêt sera recalculé.",
+      "descriptionNoCashLeg": "Le remboursement de {{amount}} sera supprimé. Le solde du prêt sera recalculé.",
+      "confirm": "Supprimer"
     },
     "validation": {
       "principal": "Le montant prêté doit être supérieur à zéro.",

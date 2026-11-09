@@ -146,11 +146,11 @@ class ReleaseMigrationCliTest {
     void namesTheFailingScriptWhenMigrateFails() throws Exception {
         String url = createDatabase("failing_script");
         assertThat(run("migrate", url)).isZero();
-        // V101's table stays behind while its history row disappears: migrate re-runs V101 and fails.
-        execute(url, "DELETE FROM flyway_schema_history WHERE version = '101'");
+        // V142's table stays behind while its history row disappears: migrate re-runs V142 and fails.
+        execute(url, "DELETE FROM flyway_schema_history WHERE version = '142'");
 
         String diagnosis = diagnosis("migrate", url);
-        assertThat(diagnosis).contains("Failing migration: V101 (V101__amex_session.sql)");
+        assertThat(diagnosis).contains("Failing migration: V142 (V142__sidecar_session.sql)");
         assertThat(diagnosis).doesNotContain("CREATE TABLE");
     }
 

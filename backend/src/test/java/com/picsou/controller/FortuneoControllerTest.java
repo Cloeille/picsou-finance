@@ -1,7 +1,7 @@
 package com.picsou.controller;
 
 import com.picsou.exception.SyncException;
-import com.picsou.model.FortuneoSyncStatus;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.service.FortuneoSyncService;
 import com.picsou.service.UserContext;
@@ -78,7 +78,7 @@ class FortuneoControllerTest {
     @Test
     void completeAuthScopesOtpToTheCurrentMember() {
         when(request.getRemoteAddr()).thenReturn("127.0.0.1");
-        var queued = sessionStatus(FortuneoSyncStatus.QUEUED);
+        var queued = sessionStatus(SidecarSyncStatus.QUEUED);
         when(service.completeAuth("process-123", "123456", MEMBER_ID)).thenReturn(queued);
 
         var response = controller.complete(
@@ -156,7 +156,7 @@ class FortuneoControllerTest {
 
     @Test
     void syncReturnsAcceptedAndTheObservableQueueStatus() {
-        var queued = sessionStatus(FortuneoSyncStatus.QUEUED);
+        var queued = sessionStatus(SidecarSyncStatus.QUEUED);
         when(service.queueSync(MEMBER_ID)).thenReturn(queued);
 
         var response = controller.sync();
@@ -168,7 +168,7 @@ class FortuneoControllerTest {
 
     @Test
     void statusAndClearUseOnlyTheCurrentMember() {
-        var success = sessionStatus(FortuneoSyncStatus.SUCCESS);
+        var success = sessionStatus(SidecarSyncStatus.SUCCESS);
         when(service.getStatus(MEMBER_ID)).thenReturn(success);
 
         assertThat(controller.status()).isSameAs(success);
@@ -177,7 +177,7 @@ class FortuneoControllerTest {
         verify(service).clearSession(MEMBER_ID);
     }
 
-    private FortuneoSyncService.SessionStatusResponse sessionStatus(FortuneoSyncStatus syncStatus) {
+    private FortuneoSyncService.SessionStatusResponse sessionStatus(SidecarSyncStatus syncStatus) {
         return new FortuneoSyncService.SessionStatusResponse(
             true, null, syncStatus, null, null, null
         );

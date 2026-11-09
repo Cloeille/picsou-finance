@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Transaction } from '@/types/api'
 
@@ -13,6 +13,9 @@ vi.mock('react-i18next', () => ({
 }))
 
 vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => false }))
+vi.mock('react-router', () => ({ useNavigate: () => navigate }))
+
+const navigate = vi.fn()
 
 const { TransactionDetailSheet } = await import('./TransactionDetailSheet')
 
@@ -94,5 +97,55 @@ describe('TransactionDetailSheet date', () => {
     const expected = new Intl.DateTimeFormat('fr-FR', dateOptions)
       .format(new Date(`${date}T00:00:00`))
     expect(screen.getByText(expected)).toBeInTheDocument()
+  })
+})
+
+describe('TransactionDetailSheet peer-loan link', () => {
+  function linkedTransaction(): Transaction {
+    return {
+      ...transaction('2026-02-01'),
+      amount: 100,
+      peerLoanLink: { kind: 'REPAYMENT', accountId: 16, accountName: 'Jean' },
+    }
+  }
+
+  it('hides the link actions and points at the loan when the row is linked', () => {
+    const onClose = vi.fn()
+    render(
+      <TransactionDetailSheet
+        transaction={linkedTransaction()}
+        open
+        onClose={onClose}
+        onCreatePeerLoan={vi.fn()}
+        onAssignRepayment={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByText('peerLoan.fromTransaction.action')).not.toBeInTheDocument()
+    expect(screen.queryByText('peerLoan.fromTransaction.assignAction')).not.toBeInTheDocument()
+    const link = screen.getByText('peerLoan.linkedTransaction')
+    expect(link).toBeInTheDocument()
+
+    fireEvent.click(link)
+    expect(onClose).toHaveBeenCalled()
+    expect(navigate).toHaveBeenCalledWith('/accounts/16')
+  })
+
+  it('keeps the link actions for an unlinked transaction', () => {
+    render(
+      <TransactionDetailSheet
+        transaction={{ ...transaction('2026-02-01'), peerLoanLink: null }}
+        open
+        onClose={vi.fn()}
+        onCreatePeerLoan={vi.fn()}
+        canCreatePeerLoan={() => true}
+        onAssignRepayment={vi.fn()}
+        canAssignRepayment={() => true}
+      />,
+    )
+
+    expect(screen.getByText('peerLoan.fromTransaction.action')).toBeInTheDocument()
+    expect(screen.getByText('peerLoan.fromTransaction.assignAction')).toBeInTheDocument()
+    expect(screen.queryByText('peerLoan.linkedTransaction')).not.toBeInTheDocument()
   })
 })
