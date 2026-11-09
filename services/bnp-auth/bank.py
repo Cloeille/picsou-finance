@@ -27,6 +27,7 @@ stop logs a fixed stage name (`stage=...`), never page content.
 
 import asyncio
 import base64
+import hashlib
 import json
 import logging
 import re
@@ -96,6 +97,10 @@ APP_APPROVAL_SECONDS = 180
 SMS_SETTLE_SECONDS = 45
 MAX_REDIRECTS = 20
 MAX_SESSION_STATE = 150_000
+MAX_COOKIES = 200
+SNAPSHOT_CACHE_SECONDS = 120
+FIRST_SNAPSHOT_SECONDS = 45  # keeps /complete well inside the backend's timeout
+MAX_LOGGED_COOKIES = 30
 MIN_LOGIN_GAP = 2.0
 POLL_SECONDS = 1.5
 MAX_UNKNOWN_HOSTS = 5
@@ -431,6 +436,26 @@ def on_login(url: str, brand: Brand) -> bool:
     return (parts.hostname or "") == brand.login and parts.path == AUTHORIZE_PATH
 
 
+def landing_host(url: Any, brand: Brand) -> str | None:
+    """The host of the bank's site the signed-in browser is on (host only: never a path or a query), None
+    when the page is not on the site. The private banking space is on another `.bnpparibas` host than
+    `brand.site`, and host-only cookies only travel to the host that set them."""
+    if not is_allowed_url(url, brand.hosts):
+        return None
+    try:
+        host = (urlsplit(url).hostname or "").lower()
+        return host if on_site(url, brand) and valid_landing(host, brand) else None
+    except ValueError:
+        return None
+
+
+def valid_landing(host: Any, brand: Brand) -> bool:
+    if not isinstance(host, str) or not host or host != host.lower():
+        return False
+    url = f"https://{host}/"
+    return host_of(url) == host and is_allowed_url(url, brand.hosts) and on_site(url, brand)
+
+
 # Verified live: the login page reads `error_code` from its own URL and shows the catalogue message
 # `app.identification.erreur.<id>`. Meanings below come from the ids' public catalogue titles; the
 # counter behaviour of a lock is UNVERIFIED.
@@ -587,13 +612,75 @@ async def log_page_structure(page: Any, brand: Brand, stage: str) -> None:
                 await asyncio.sleep(STRUCTURE_RETRY_SECONDS)  # often a navigation still going on
     try:
         url = page.url
-        where = f"{describe_url(url)} kind={classify_url(url, brand)}"
+        where = f"{shallow_url(url)} kind={classify_url(url, brand)}"
     except Exception:
         where = "host=<none> path=<none> query=[]"
     if raw is None:
         log.warning("BNP page structure unavailable (stage=%s) %s", stage, where)
     else:
         log.warning("BNP page structure (stage=%s) %s %s", stage, where, describe_structure(raw))
+
+
+def shallow_url(url: Any) -> str:
+    """`describe_url` with a path cut to its first two segments (`/a/b/...`): a deeper segment can hold a
+    member's name or an id, and the host plus the first two segments tell the page apart."""
+    described = describe_url(url)
+    head, sep, rest = described.partition(" path=")
+    path, sep2, query = rest.partition(" query=")
+    parts = path.split("/")
+    if len(parts) > 3:
+        path = "/".join(parts[:3]) + "/..."
+    return f"{head} path={path} query={query}" if sep and sep2 else described
+
+
+def cookie_sent_to(cookie: dict, host: str) -> bool:
+    """RFC 6265 domain match: a host-only cookie travels to its own host, a `.domain` cookie to its
+    sub-domains as well. Path, scheme and expiry are not looked at."""
+    raw = str(cookie.get("domain") or "").lower()
+    domain = raw.lstrip(".")
+    return bool(domain) and (host == domain or (raw.startswith(".") and host.endswith("." + domain)))
+
+
+def describe_cookies(cookies: Any, landing: str | None) -> str:
+    """Structure of a cookie jar: how many, how many travel to the landing host, and for each the
+    NAME, the DOMAIN (marked `*` for a domain cookie, bare for a host-only one) and the flags. Never a
+    value, never an expiry. Names that look like data are masked."""
+    if not isinstance(cookies, list):
+        return "cookies=unreadable"
+    jar = [c for c in cookies if isinstance(c, dict)]
+    sent = sum(cookie_sent_to(c, landing) for c in jar) if landing else 0
+    shown = []
+    for cookie in jar[:MAX_LOGGED_COOKIES]:
+        raw = str(cookie.get("domain") or "")
+        domain = _mask_digits(raw.lstrip(".").lower())[:60] or "-"
+        flags = (
+            ("S" if cookie.get("secure") else "")
+            + ("H" if cookie.get("httpOnly") else "")
+            + ("T" if cookie.get("expires") in (None, -1) else "")  # a session cookie: no expiry
+        )
+        shown.append(f"{_name(cookie.get('name'))}@{'*' if raw.startswith('.') else ''}{domain}[{flags}]")
+    more = f"+{len(jar) - MAX_LOGGED_COOKIES}" if len(jar) > MAX_LOGGED_COOKIES else ""
+    return f"cookies={len(jar)} sent_to_landing={sent} jar=[{','.join(shown)}{more}]"
+
+
+async def log_session_stop(state: dict[str, Any], stage: str, phase: str, landing: str | None) -> None:
+    """ONE structure-only line for a session check that stopped: where the page ended up (host, path
+    shape, query keys), which host the check meant to use, and the shape of the cookie jar."""
+    brand: Brand = state["brand"]
+    page = state.get("page")
+    try:
+        url = page.url
+        where = f"{shallow_url(url)} kind={classify_url(url, brand)}"
+    except Exception:
+        where = "host=<none> path=<none> query=[]"
+    try:
+        jar = describe_cookies(await asyncio.wait_for(state["context"].cookies(), timeout=STRUCTURE_TIMEOUT_SECONDS), landing)
+    except Exception:
+        jar = "cookies=unreadable"
+    log.warning(
+        "BNP session check stopped (stage=%s phase=%s) landing=%s %s %s",
+        stage, phase, _mask_digits(landing)[:100] if landing else "none", where, jar,
+    )
 
 
 async def fetch_json(page: Any, key: str, body: dict | None = None) -> Any:
@@ -651,6 +738,7 @@ class BrowserBankClient:
     def __init__(self) -> None:
         self.pending = PendingStore(dispose=_close, log=log, ttl_seconds=PENDING_TTL_SECONDS, max_size=MAX_PENDING)
         self._last_login = 0.0
+        self._first: dict[str, tuple[float, tuple[list[dict], list[dict]]]] = {}
 
     # -- login ---------------------------------------------------------------
 
@@ -883,7 +971,14 @@ class BrowserBankClient:
                 if not await self._wait_logged_in(page, brand, state, wait):
                     raise fail(408, "APP_VALIDATION_TIMEOUT") if kind == "app" else fail(502, "UPSTREAM_FORMAT_CHANGED", stage="approval_wait")
             require_clean(state, "session_cookies")
-            return encode_session(brand, await state["context"].cookies())
+            # The browser that logged in is the one the session is known to work in: read the first
+            # snapshot here, before it closes, and keep it for the /accounts call that follows.
+            landing = landing_host(page.url, brand)
+            snapshot = await self._first_snapshot(state, brand, landing)
+            session = encode_session(brand, await state["context"].cookies(), landing)
+            if snapshot is not None and not state["guard"].tainted:
+                self._remember(session, snapshot)
+            return session
         except HTTPException as exc:
             await self._diagnose(page, brand, exc)
             raise
@@ -894,35 +989,94 @@ class BrowserBankClient:
     # -- snapshot --------------------------------------------------------------
 
     async def accounts(self, session_state: str) -> dict[str, Any]:
-        brand, cookies = decode_session(session_state)
+        brand, cookies, landing = decode_session_state(session_state)
+        cached = self._take(session_state)
+        if cached is not None:
+            # Read in the browser that logged in, a moment ago: the session is the same one.
+            return {"brand": brand.name, "accounts": cached[0], "unsupported": cached[1], "sessionState": session_state}
         state = await launch(brand)
         try:
             page = state["page"]
             await state["context"].add_cookies(cookies)
+            # Where the signed-in browser was (the private banking space is not `brand.site`), else the site's home:
+            # any page of the host gives the API its origin and cookies.
+            home = f"https://{landing}/" if landing else brand.base + "/"
             try:
-                # The site's home: any page of the site host gives the API its origin and cookies.
-                await page.goto(brand.base + "/", wait_until="domcontentloaded", timeout=45_000)
+                await page.goto(home, wait_until="domcontentloaded", timeout=45_000)
             except Exception:
                 require_clean(state, "snapshot_load")
                 raise fail(502, "UPSTREAM_UNAVAILABLE", stage="snapshot_load") from None
             require_clean(state, "snapshot_load")
-            try:
-                if not on_site(page.url, brand) or not session_alive(await fetch_json(page, INFOS_CLIENT)):
-                    raise fail(401, "SESSION_EXPIRED")
-                snapshot = await self._snapshot(page)
-            except parsers.SessionExpired:
-                raise fail(401, "SESSION_EXPIRED") from None
-            except parsers.ParseError as exc:
-                raise fail(502, exc.code, stage="snapshot_parse") from None
+            snapshot = await self._read_snapshot(state, brand, "fresh_browser", landing)
             require_clean(state, "snapshot")
             return {
                 "brand": brand.name,
                 "accounts": snapshot[0],
                 "unsupported": snapshot[1],
-                "sessionState": encode_session(brand, await state["context"].cookies()),
+                "sessionState": encode_session(brand, await state["context"].cookies(), landing_host(page.url, brand) or landing),
             }
         finally:
             await _close(state)
+
+    async def _read_snapshot(self, state: dict[str, Any], brand: Brand, phase: str, landing: str | None) -> tuple[list[dict], list[dict]]:
+        """Check the session, then read the accounts, on the page the state holds. Every way the session
+        can be found dead has its own stage, and leaves one structure-only line (`log_session_stop`):
+          snapshot_off_site    the page is not on the bank's site (bounced to a login page or off it);
+          snapshot_info_dead   the bank says nobody is signed in (InfosClient or a data answer, `codeRetour` -10 / -30);
+          snapshot_http_401    the bank refused a request with 401 / 403.
+        `phase` says which browser asked: `same_browser` (the one that logged in) or `fresh_browser`."""
+        page = state["page"]
+
+        async def stop(stage: str) -> HTTPException:
+            exc = fail(401, "SESSION_EXPIRED", stage=stage)
+            await log_session_stop(state, stage, phase, landing)
+            return exc
+
+        if not on_site(page.url, brand):
+            raise await stop("snapshot_off_site")
+        try:
+            if not session_alive(await fetch_json(page, INFOS_CLIENT)):
+                raise await stop("snapshot_info_dead")
+            return await self._snapshot(page)
+        except parsers.SessionExpired:
+            raise await stop("snapshot_info_dead") from None
+        except parsers.ParseError as exc:
+            raise fail(502, exc.code, stage="snapshot_parse") from None
+        except HTTPException as exc:
+            if exc.detail == "SESSION_EXPIRED" and getattr(exc, "stage", None) is None:
+                raise await stop("snapshot_http_401") from None
+            raise
+
+    async def _first_snapshot(self, state: dict[str, Any], brand: Brand, landing: str | None) -> tuple[list[dict], list[dict]] | None:
+        """The first snapshot, in the browser that just logged in. Never fails the login: when it cannot
+        be read the stage is logged and `/accounts` reads it again the usual way."""
+        try:
+            return await asyncio.wait_for(self._read_snapshot(state, brand, "same_browser", landing), FIRST_SNAPSHOT_SECONDS)
+        except HTTPException:
+            return None  # staged and logged where it stopped
+        except TimeoutError:
+            log.warning("BNP first snapshot took too long (stage=snapshot_same_browser_timeout)")
+            return None
+        except Exception:
+            log.warning("BNP first snapshot failed unexpectedly (stage=snapshot_same_browser)")
+            return None
+
+    # The first snapshot waits (briefly, in memory only) for the `/accounts` call of the same session.
+
+    @staticmethod
+    def _digest(session_state: str) -> str:
+        return hashlib.sha256(session_state.encode()).hexdigest()
+
+    def _remember(self, session_state: str, snapshot: tuple[list[dict], list[dict]]) -> None:
+        now = time.monotonic()
+        self._first = {key: item for key, item in self._first.items() if item[0] > now}
+        while len(self._first) >= MAX_PENDING:
+            self._first.pop(next(iter(self._first)))
+        self._first[self._digest(session_state)] = (now + SNAPSHOT_CACHE_SECONDS, snapshot)
+
+    def _take(self, session_state: str) -> tuple[list[dict], list[dict]] | None:
+        item = self._first.pop(self._digest(session_state), None)
+        return item[1] if item is not None and item[0] > time.monotonic() else None
 
     async def _snapshot(self, page: Any) -> tuple[list[dict], list[dict]]:
         ibans = parsers.parse_ibans(parsers.envelope(await fetch_json(page, "ibans")))
@@ -969,25 +1123,37 @@ COOKIE_KEYS = ("name", "value", "domain", "path", "expires", "httpOnly", "secure
 
 
 def cookie_in_scope(cookie: dict, brand: Brand) -> bool:
+    """Every cookie of the bank's domains: the brand's hosts and their sub-domains, and every host of the
+    `.bnpparibas` dotBrand TLD (never the bare TLD)."""
     domain = str(cookie.get("domain") or "").lstrip(".").lower()
-    return domain in brand.cookie_domains or is_brand_tld_host(domain)
+    return (
+        any(domain == known or domain.endswith("." + known) for known in brand.cookie_domains)
+        or is_brand_tld_host(domain)
+    )
 
 
-def encode_session(brand: Brand, cookies: list[dict]) -> str:
-    """Only the cookies of the brand's own domains, with the few fields needed to restore them."""
+def encode_session(brand: Brand, cookies: list[dict], landing: str | None = None) -> str:
+    """Only the cookies of the brand's own domains, with the few fields needed to restore them, and the
+    host of the site the browser was on (`landing`, a host name only)."""
     kept = [{key: c[key] for key in COOKIE_KEYS if key in c} for c in cookies if cookie_in_scope(c, brand)]
-    text = json.dumps({"v": 2, "brand": brand.name, "cookies": kept}, separators=(",", ":"))
-    if not kept or len(text) > MAX_SESSION_STATE:
+    data: dict[str, Any] = {"v": 2, "brand": brand.name, "cookies": kept}
+    if landing is not None and valid_landing(landing, brand):
+        data["landing"] = landing
+    text = json.dumps(data, separators=(",", ":"))
+    if not kept or len(kept) > MAX_COOKIES or len(text) > MAX_SESSION_STATE:
         raise fail(502, "UPSTREAM_FORMAT_CHANGED", stage="session_cookies")
     return base64.b64encode(text.encode()).decode("ascii")
 
 
-def decode_session(session_state: str) -> tuple[Brand, list[dict]]:
+def decode_session_state(session_state: str) -> tuple[Brand, list[dict], str | None]:
     try:
         data = json.loads(base64.b64decode(session_state, validate=True))
         brand = BRANDS[data["brand"]]
         cookies = data["cookies"]
-        if data["v"] != 2 or not isinstance(cookies, list) or not 0 < len(cookies) <= 100:
+        if data["v"] != 2 or not isinstance(cookies, list) or not 0 < len(cookies) <= MAX_COOKIES:
+            raise ValueError
+        landing = data.get("landing")  # absent in a state saved before it was recorded
+        if landing is not None and not valid_landing(landing, brand):
             raise ValueError
         out = []
         for cookie in cookies:
@@ -996,6 +1162,11 @@ def decode_session(session_state: str) -> tuple[Brand, list[dict]]:
             if not cookie_in_scope(cookie, brand):
                 raise ValueError
             out.append({key: cookie[key] for key in COOKIE_KEYS if key in cookie})
-        return brand, out
+        return brand, out, landing
     except (ValueError, KeyError, TypeError, AttributeError):
         raise fail(400, "INVALID_SESSION_STATE") from None
+
+
+def decode_session(session_state: str) -> tuple[Brand, list[dict]]:
+    brand, cookies, _ = decode_session_state(session_state)
+    return brand, cookies

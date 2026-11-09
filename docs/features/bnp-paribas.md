@@ -79,7 +79,25 @@ Every stop logs a fixed stage name next to the stable code, for example
 `login_form`, `customer_number`, `keypad_read`, `keypad_press`, `submit`, `after_submit`,
 `after_submit_redirect`, `after_submit_timeout`, `login_error`, `second_factor`, `second_factor_wait`,
 `password_expired`, `sms_code`, `approval_wait`, `session_cookies`, `snapshot_load`, `snapshot_fetch`, `snapshot_parse`,
-`snapshot`. A stage is a constant of the code, never page content, so it is safe to share.
+`snapshot`, and for a session found dead `snapshot_off_site`, `snapshot_info_dead`, `snapshot_http_401`. A stage is a constant of the code, never page content, so it is safe to share.
+
+### Session checks (`SESSION_EXPIRED`)
+
+The first snapshot is read **in the browser that logged in**, at the end of `/complete`, and kept in memory
+(keyed by a hash of the session state, 120 s, one `/accounts` call) for the `/accounts` call that follows.
+A later `/accounts` opens a new browser, restores the cookies and goes to the host the login ended on (recorded
+in the session state as `landing`, one of the bank's own hosts; `brand.base` only for a state saved without it),
+because the private banking space is on another `.bnpparibas` host and host-only cookies do not travel across
+hosts. The session state keeps every cookie of the bank's domains (brand hosts, their sub-domains, the
+`.bnpparibas` hosts; never the bare TLD).
+
+A dead session has three distinct stages, each with ONE structure-only line
+`BNP session check stopped (stage=... phase=same_browser|fresh_browser) landing=<host> host=... path=<first two segments> query=[keys]
+kind=... cookies=N sent_to_landing=N jar=[NAME@domain[flags],...]` (`*` before the domain for a domain cookie,
+flags `S` secure, `H` httpOnly, `T` session cookie; names and domains only, never a value or an expiry):
+`snapshot_off_site` (the page is not on the bank's site), `snapshot_info_dead` (`InfosClient` or a data answer says
+`codeRetour` -10 / -30), `snapshot_http_401` (the bank refused a request with 401 / 403). If the first snapshot
+fails or takes more than 45 s the login still completes and the stage is logged.
 
 ### After the login submit
 

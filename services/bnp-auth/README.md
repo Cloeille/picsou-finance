@@ -40,6 +40,13 @@ refused and ignored. Any other host aborts the request and stops the login (`UPS
 name is logged. A stop after the login submit also logs one structure-only line (see the feature doc). Nothing here tries to defeat bot
 management: if the bank answers 403 to the sidecar's network, the sync fails with `UPSTREAM_UNAVAILABLE`.
 
+## Session
+
+`/complete` reads the first snapshot in the browser that logged in and keeps it for the next `/accounts` call
+(in memory, 120 s). Otherwise `/accounts` opens a new browser and restores the cookies on the host the login ended
+on (`landing` in the session state). A dead session logs one stage (`snapshot_off_site`, `snapshot_info_dead`,
+`snapshot_http_401`) with the page host/path and the cookie names and domains, never a value.
+
 ## Files
 
 `main.py` (FastAPI), `bank.py` (browser flow, allow-list, session jar), `parsers.py` (pure JSON parsers,

@@ -427,6 +427,49 @@ class StructureLogTest(unittest.TestCase):
                 self.assertIsInstance(bank.describe_structure(raw), str)
 
 
+class SessionDiagnosticTest(unittest.TestCase):
+    def test_the_cookie_line_has_names_domains_and_flags_and_never_a_value_or_an_expiry(self):
+        jar = [
+            {"name": "SESSIONID", "value": "tok-SECRET-123", "domain": "mabanqueprivee.bnpparibas", "secure": True, "httpOnly": True, "expires": -1},
+            {"name": "pref", "value": "SECRET-456", "domain": ".mabanque.bnpparibas", "secure": False, "httpOnly": False, "expires": 1893456000},
+            {"name": "9f8e7d6c5b4a39281706f5e4d3c2b1a0", "value": "SECRET-789", "domain": "x.online-metrix.net"},
+        ]
+        line = bank.describe_cookies(jar, "mabanqueprivee.bnpparibas")
+        self.assertIn("cookies=3 sent_to_landing=1", line)
+        self.assertIn("<X>@x.online-metrix.net", line)
+        self.assertIn("pref@*mabanque.bnpparibas[]", line)
+        self.assertEqual(line.count("SESSIONID@mabanqueprivee.bnpparibas[SHT]"), 1)
+        for secret in ("SECRET", "1893456000", "tok-"):
+            self.assertNotIn(secret, line)
+
+    def test_the_page_path_in_a_session_stop_line_is_cut_before_a_deep_segment(self):
+        self.assertEqual(
+            bank.shallow_url("https://mabanqueprivee.bnpparibas/fr/clients/carlos/comptes?code=SECRET&a=1"),
+            "host=mabanqueprivee.bnpparibas path=/fr/clients/... query=[code,a]",
+        )
+        self.assertEqual(bank.shallow_url("https://mabanque.bnpparibas/fr/x?y=1"), "host=mabanque.bnpparibas path=/fr/x query=[y]")
+        self.assertEqual(bank.shallow_url("https://mabanque.bnpparibas/"), "host=mabanque.bnpparibas path=/ query=[]")
+        self.assertEqual(bank.shallow_url(None), "host=<none> path=<none> query=[]")
+
+    def test_a_domain_cookie_travels_to_subdomains_and_a_host_only_one_to_its_own_host_only(self):
+        host_only = {"domain": "mabanque.bnpparibas"}
+        domain = {"domain": ".mabanque.bnpparibas"}
+        self.assertTrue(bank.cookie_sent_to(host_only, "mabanque.bnpparibas"))
+        self.assertFalse(bank.cookie_sent_to(host_only, "api.mabanque.bnpparibas"))
+        self.assertTrue(bank.cookie_sent_to(domain, "api.mabanque.bnpparibas"))
+        self.assertTrue(bank.cookie_sent_to(domain, "mabanque.bnpparibas"))
+        self.assertFalse(bank.cookie_sent_to(domain, "mabanqueprivee.bnpparibas"))
+        self.assertFalse(bank.cookie_sent_to({}, "mabanque.bnpparibas"))
+
+    def test_a_big_or_malformed_jar_is_capped_and_never_raises(self):
+        big = [{"name": f"c{i}", "domain": "mabanque.bnpparibas"} for i in range(bank.MAX_LOGGED_COOKIES + 5)]
+        line = bank.describe_cookies(big, None)
+        self.assertIn(f"cookies={len(big)} sent_to_landing=0", line)
+        self.assertIn("+5]", line)
+        for raw in (None, "x", [None, 5, {}]):
+            self.assertIsInstance(bank.describe_cookies(raw, "mabanque.bnpparibas"), str)
+
+
 class SessionStateTest(unittest.TestCase):
     def test_only_the_brands_cookies_survive_a_round_trip(self):
         jar = bank.encode_session(BNP, [
@@ -449,6 +492,54 @@ class SessionStateTest(unittest.TestCase):
         ])
         _, cookies = bank.decode_session(jar)
         self.assertEqual([c["name"] for c in cookies], ["P", "Q"])
+
+    def test_every_cookie_of_the_banks_domains_is_kept_with_its_subdomains(self):
+        for brand, kept, dropped in (
+            (BNP, ["mabanque.bnpparibas", ".mabanque.bnpparibas", "api.mabanque.bnpparibas", "mabanqueprivee.bnpparibas",
+                   "connexion.mabanque.bnpparibas", "content.connexion.mabanque.bnpparibas"],
+             [".bnpparibas", "mabanque.bnpparibas.evil.example", "evilmabanque.bnpparibas.example", "x.online-metrix.net"]),
+            (HELLO, ["www.hellobank.fr", ".hellobank.fr", "espace.hellobank.fr", "connexion.hellobank.fr", "mabanqueprivee.bnpparibas"],
+             ["evilhellobank.fr", "hellobank.fr.evil.example", "mabanque.fr"]),
+        ):
+            with self.subTest(brand=brand.name):
+                jar = bank.encode_session(brand, [{"name": f"K{i}", "value": "v", "domain": d} for i, d in enumerate(kept + dropped)])
+                _, cookies = bank.decode_session(jar)
+                self.assertEqual([c["domain"] for c in cookies], kept)
+
+    def test_the_cookie_limit_is_the_same_when_saving_and_restoring(self):
+        many = [{"name": f"K{i}", "value": "v", "domain": "mabanque.bnpparibas"} for i in range(bank.MAX_COOKIES)]
+        self.assertEqual(len(bank.decode_session(bank.encode_session(BNP, many))[1]), bank.MAX_COOKIES)
+        with self.assertRaises(HTTPException) as caught:
+            bank.encode_session(BNP, many + [{"name": "Z", "value": "v", "domain": "mabanque.bnpparibas"}])
+        self.assertEqual(caught.exception.detail, "UPSTREAM_FORMAT_CHANGED")
+
+    def test_the_landing_host_round_trips_and_an_old_state_without_it_still_restores(self):
+        jar = bank.encode_session(BNP, JAR, "mabanqueprivee.bnpparibas")
+        self.assertEqual(bank.decode_session_state(jar)[2], "mabanqueprivee.bnpparibas")
+        self.assertIsNone(bank.decode_session_state(bank.encode_session(BNP, JAR))[2])
+        self.assertIsNone(bank.decode_session_state(bank.encode_session(BNP, JAR, None))[2])
+
+    def test_a_landing_that_is_not_a_site_host_is_dropped_when_saving_and_refused_when_restoring(self):
+        for landing in ("evil.example", "connexion.mabanque.bnpparibas", "content.connexion.mabanque.bnpparibas",
+                        "mabanque.bnpparibas/x", "MABANQUE.bnpparibas", "", "bnpparibas", "mabanque.bnpparibas:444", "user@mabanque.bnpparibas"):
+            with self.subTest(landing=landing):
+                self.assertIsNone(bank.decode_session_state(bank.encode_session(BNP, JAR, landing))[2])
+
+                def enc(data):
+                    return base64.b64encode(json.dumps(data).encode()).decode()
+
+                with self.assertRaises(HTTPException) as caught:
+                    bank.decode_session_state(enc({"v": 2, "brand": "bnp", "cookies": JAR, "landing": landing}))
+                self.assertEqual(caught.exception.detail, "INVALID_SESSION_STATE")
+        with self.assertRaises(HTTPException):
+            bank.decode_session_state(base64.b64encode(json.dumps({"v": 2, "brand": "bnp", "cookies": JAR, "landing": 5}).encode()).decode())
+
+    def test_the_landing_host_is_read_from_the_page_and_never_a_login_or_foreign_host(self):
+        self.assertEqual(bank.landing_host("https://mabanqueprivee.bnpparibas/fr/x?code=secret", BNP), "mabanqueprivee.bnpparibas")
+        self.assertEqual(bank.landing_host(SECURE, BNP), "mabanque.bnpparibas")
+        for url in (LOGIN, STEP2, "https://evil.example/", "http://mabanque.bnpparibas/", None, "https://mabanque.bnpparibas/auth/login"):
+            with self.subTest(url=url):
+                self.assertIsNone(bank.landing_host(url, BNP))
 
     def test_nothing_to_keep_is_a_failure_not_an_empty_session(self):
         with self.assertRaises(HTTPException) as caught:
@@ -954,6 +1045,241 @@ class FlowTest(unittest.TestCase):
         with self.assertRaises(HTTPException) as caught:
             self.accounts(FakePage(SECURE), fetch)
         self.assertEqual(caught.exception.detail, "SESSION_EXPIRED")
+
+
+    # -- the first snapshot and the session stages ---------------------------------
+
+    ANSWERS = {
+        bank.INFOS_CLIENT: {"codeRetour": 0, "message": "OK"},
+        "ibans": {"codeRetour": 0, "data": {"listeRib": []}},
+        "accounts": {"codeRetour": 0, "data": {"infoUdc": {"familleCompte": [
+            {"idFamilleCompte": "8", "compte": [{"key": "k", "value": "1234", "libelleProduit": "Credit immobilier", "soldeDispo": -10}]}]}}},
+    }
+    SESSION_JAR = [
+        {"name": "SESSIONID", "value": "tok-SECRET-123", "domain": "mabanqueprivee.bnpparibas", "path": "/", "secure": True, "httpOnly": True, "expires": -1},
+        {"name": "PREF", "value": "SECRET-456", "domain": ".mabanque.bnpparibas", "path": "/", "secure": True, "expires": 1893456000},
+    ]
+
+    def logged_in_page(self, url="https://mabanqueprivee.bnpparibas/fr/comptes?code=SECRET-QUERY"):
+        page = FakePage(url)
+        page.goto = AsyncMock()
+        return page
+
+    def complete_none(self, page, fetch, *, jar=None):
+        """/complete of a login without second factor: the page is already signed in."""
+        st = state_for(page, stage="mfa", kind="none")
+        st["context"].cookies = AsyncMock(return_value=list(jar if jar is not None else self.SESSION_JAR))
+        run(self.client.pending.put("p1", st))
+        with patch.object(bank, "fetch_json", fetch), patch.object(bank, "probe_session", AsyncMock(return_value=True)):
+            return run(self.client.complete("p1", None)), st
+
+    def answering(self, calls=None):
+        async def fetch(_page, key, body=None):
+            if calls is not None:
+                calls.append(key)
+            return self.ANSWERS[key]
+
+        return fetch
+
+    def test_complete_reads_the_first_snapshot_in_the_browser_that_logged_in_and_accounts_returns_it(self):
+        calls = []
+        page = self.logged_in_page()
+        session, st = self.complete_none(page, self.answering(calls))
+        self.assertIn(bank.INFOS_CLIENT, calls)
+        self.assertIn("accounts", calls)
+        # The first snapshot was read before the browser closed: the browser closed only after it.
+        self.assertEqual(bank.decode_session_state(session)[2], "mabanqueprivee.bnpparibas")
+        calls.clear()
+        launch = AsyncMock(side_effect=AssertionError("no second browser for the first snapshot"))
+        with patch.object(bank, "launch", launch), patch.object(bank, "fetch_json", self.answering(calls)):
+            result = run(self.client.accounts(session))
+        self.assertEqual(calls, [])
+        self.assertEqual([(a["kind"], a["balance"]) for a in result["accounts"]], [("LOAN", "-10.00")])
+        self.assertEqual(result["sessionState"], session)
+        self.assertEqual(result["brand"], "bnp")
+
+    def test_the_first_snapshot_serves_one_accounts_call_only_then_a_fresh_browser_is_used(self):
+        session, _ = self.complete_none(self.logged_in_page(), self.answering())
+        with patch.object(bank, "launch", AsyncMock(side_effect=AssertionError)):
+            run(self.client.accounts(session))
+        page = self.logged_in_page()
+        st = state_for(page)
+        with patch.object(bank, "launch", AsyncMock(return_value=st)) as launch, patch.object(bank, "fetch_json", self.answering()):
+            run(self.client.accounts(session))
+        launch.assert_awaited_once()
+
+    def test_an_old_first_snapshot_or_another_session_is_not_served(self):
+        session, _ = self.complete_none(self.logged_in_page(), self.answering())
+        page = self.logged_in_page()
+        with patch.object(bank, "SNAPSHOT_CACHE_SECONDS", -1):
+            self.assertEqual(len(self.client._first), 1)
+            self.client._first = {k: (0.0, v[1]) for k, v in self.client._first.items()}
+        st = state_for(page)
+        with patch.object(bank, "launch", AsyncMock(return_value=st)) as launch, patch.object(bank, "fetch_json", self.answering()):
+            run(self.client.accounts(session))
+        launch.assert_awaited_once()
+        other = bank.encode_session(BNP, JAR)
+        self.assertIsNone(self.client._take(other))
+
+    def test_the_cache_is_bounded(self):
+        for index in range(bank.MAX_PENDING + 3):
+            self.client._remember(f"s{index}", ([], []))
+        self.assertEqual(len(self.client._first), bank.MAX_PENDING)
+        self.assertIsNone(self.client._take("s0"))
+        self.assertEqual(self.client._take(f"s{bank.MAX_PENDING + 2}"), ([], []))
+
+    def test_a_first_snapshot_that_cannot_be_read_never_fails_the_login(self):
+        for failing in (
+            "unavailable",
+            RuntimeError("boom with SECRET-VALUE"),
+        ):
+            with self.subTest(failing=type(failing).__name__):
+                async def fetch(*_a, **_k):
+                    raise bank.fail(502, "UPSTREAM_UNAVAILABLE", stage="snapshot_fetch") if failing == "unavailable" else failing
+
+                with self.assertLogs("bnp-auth", level="WARNING") as logs:
+                    session, _ = self.complete_none(self.logged_in_page(), fetch)
+                self.assertEqual(bank.decode_session_state(session)[2], "mabanqueprivee.bnpparibas")
+                self.assertEqual(len(self.client._first), 0)
+                self.assertNotIn("SECRET", "\n".join(logs.output))
+
+    def test_a_first_snapshot_that_hangs_is_cut_off_and_the_login_still_completes(self):
+        async def hang(*_a, **_k):
+            await asyncio.sleep(10)
+
+        with patch.object(bank, "FIRST_SNAPSHOT_SECONDS", 0.05), self.assertLogs("bnp-auth", level="WARNING") as logs:
+            session, _ = self.complete_none(self.logged_in_page(), hang)
+        self.assertTrue(session)
+        self.assertEqual(len(self.client._first), 0)
+        self.assertIn("stage=snapshot_same_browser_timeout", "\n".join(logs.output))
+
+    def test_a_tainted_browser_drops_the_first_snapshot(self):
+        page = self.logged_in_page()
+        st = state_for(page, stage="mfa", kind="none")
+        run(self.client.pending.put("p1", st))
+
+        async def fetch(_page, key, body=None):
+            st["guard"].tainted = True
+            return self.ANSWERS[key]
+
+        with patch.object(bank, "fetch_json", fetch), patch.object(bank, "probe_session", AsyncMock(return_value=True)):
+            session = run(self.client.complete("p1", None))
+        self.assertTrue(session)
+        self.assertEqual(len(self.client._first), 0)
+
+    def test_accounts_opens_the_landing_host_the_login_ended_on_and_the_site_home_for_an_old_state(self):
+        for landing, home in (("mabanqueprivee.bnpparibas", "https://mabanqueprivee.bnpparibas/"), (None, "https://mabanque.bnpparibas/")):
+            with self.subTest(landing=landing):
+                page = FakePage("https://mabanqueprivee.bnpparibas/fr/x")
+                page.goto = AsyncMock()
+                st = state_for(page)
+                session = bank.encode_session(BNP, self.SESSION_JAR, landing)
+                with patch.object(bank, "launch", AsyncMock(return_value=st)), patch.object(bank, "fetch_json", self.answering()):
+                    result = run(self.client.accounts(session))
+                self.assertEqual(page.goto.await_args.args[0], home)
+                # What the page ended on is remembered for the next call.
+                self.assertEqual(bank.decode_session_state(result["sessionState"])[2], "mabanqueprivee.bnpparibas")
+
+    def stopped(self, page, fetch, *, jar=None, landing="mabanqueprivee.bnpparibas"):
+        st = state_for(page)
+        st["context"].cookies = AsyncMock(return_value=list(jar if jar is not None else self.SESSION_JAR))
+        session = bank.encode_session(BNP, self.SESSION_JAR, landing)
+        with patch.object(bank, "launch", AsyncMock(return_value=st)), patch.object(bank, "fetch_json", fetch), \
+                self.assertLogs("bnp-auth", level="WARNING") as logs, self.assertRaises(HTTPException) as caught:
+            run(self.client.accounts(session))
+        return caught.exception, "\n".join(logs.output)
+
+    def assert_structure_only(self, text):
+        for secret in ("SECRET", "1893456000", "tok-", "1234"):
+            self.assertNotIn(secret, text)
+
+    def test_stage_off_site_names_where_the_page_landed_and_the_cookie_jar_without_values(self):
+        async def fetch(*_a, **_k):
+            raise AssertionError("never asked off the site")
+
+        exc, text = self.stopped(FakePage("https://connexion.mabanque.bnpparibas/as/authorization.oauth2?client_id=SECRET-1&state=SECRET-2"), fetch)
+        self.assertEqual((exc.status_code, exc.detail, exc.stage), (401, "SESSION_EXPIRED", "snapshot_off_site"))
+        self.assertIn("stage=snapshot_off_site phase=fresh_browser", text)
+        self.assertIn("landing=mabanqueprivee.bnpparibas", text)
+        self.assertIn("host=connexion.mabanque.bnpparibas path=/as/authorization.oauth<N> query=[client_id,state] kind=login", text)
+        self.assertIn("cookies=2 sent_to_landing=1", text)
+        self.assertIn("SESSIONID@mabanqueprivee.bnpparibas[SHT]", text)
+        self.assert_structure_only(text)
+
+    def test_stage_info_dead_when_the_bank_says_nobody_is_signed_in(self):
+        for code in ("-10", "-30", -10):
+            with self.subTest(code=code):
+                async def fetch(_page, key, body=None):
+                    return {"codeRetour": code, "message": "user not connected"}
+
+                exc, text = self.stopped(self.logged_in_page(), fetch)
+                self.assertEqual((exc.status_code, exc.detail, exc.stage), (401, "SESSION_EXPIRED", "snapshot_info_dead"))
+                self.assertIn("stage=snapshot_info_dead phase=fresh_browser", text)
+                self.assertIn("host=mabanqueprivee.bnpparibas path=/fr/comptes query=[code] kind=site", text)
+                self.assert_structure_only(text)
+
+    def test_stage_info_dead_when_a_data_answer_says_the_session_is_over(self):
+        async def fetch(_page, key, body=None):
+            if key == bank.INFOS_CLIENT:
+                return self.ANSWERS[key]
+            return {"codeRetour": "-10", "message": "user not connected"}
+
+        exc, text = self.stopped(self.logged_in_page(), fetch)
+        self.assertEqual((exc.detail, exc.stage), ("SESSION_EXPIRED", "snapshot_info_dead"))
+
+    def test_stage_http_401_when_the_bank_refuses_a_request(self):
+        for status in (401, 403):
+            with self.subTest(status=status):
+                page = self.logged_in_page()
+
+                async def refused(_page, key, body=None):
+                    raise bank.fail(401, "SESSION_EXPIRED")  # what fetch_json raises for a 401 / 403
+
+                exc, text = self.stopped(page, refused)
+                self.assertEqual((exc.status_code, exc.detail, exc.stage), (401, "SESSION_EXPIRED", "snapshot_http_401"))
+                self.assertIn("stage=snapshot_http_401 phase=fresh_browser", text)
+                self.assert_structure_only(text)
+
+    def test_stage_http_401_when_a_data_request_is_refused_after_the_info_call_answered(self):
+        async def fetch(_page, key, body=None):
+            if key == bank.INFOS_CLIENT:
+                return self.ANSWERS[key]
+            raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
+
+        exc, _ = self.stopped(self.logged_in_page(), fetch)
+        self.assertEqual((exc.detail, exc.stage), ("SESSION_EXPIRED", "snapshot_http_401"))
+
+    def test_fetch_json_maps_a_401_to_the_session_code_through_the_real_function(self):
+        for status in (401, 403):
+            page = self.logged_in_page()
+            page.results = [{"status": status, "text": ""}]
+            st = state_for(page)
+            session = bank.encode_session(BNP, self.SESSION_JAR, "mabanqueprivee.bnpparibas")
+            with patch.object(bank, "launch", AsyncMock(return_value=st)), self.assertLogs("bnp-auth", level="WARNING") as logs, \
+                    self.assertRaises(HTTPException) as caught:
+                run(self.client.accounts(session))
+            self.assertEqual(caught.exception.stage, "snapshot_http_401")
+            self.assertTrue(any("stage=snapshot_http_401" in line for line in logs.output))
+
+    def test_the_stages_of_the_first_snapshot_say_it_was_the_same_browser(self):
+        async def fetch(_page, key, body=None):
+            return {"codeRetour": "-10"}
+
+        with self.assertLogs("bnp-auth", level="WARNING") as logs:
+            session, _ = self.complete_none(self.logged_in_page(), fetch)
+        self.assertTrue(session)
+        text = "\n".join(logs.output)
+        self.assertIn("stage=snapshot_info_dead phase=same_browser", text)
+        self.assert_structure_only(text)
+
+    def test_other_session_failures_keep_their_codes(self):
+        async def broken(_page, key, body=None):
+            raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+
+        with patch.object(bank, "launch", AsyncMock(return_value=state_for(self.logged_in_page()))), \
+                patch.object(bank, "fetch_json", broken), self.assertRaises(HTTPException) as caught:
+            run(self.client.accounts(bank.encode_session(BNP, self.SESSION_JAR, None)))
+        self.assertEqual(caught.exception.detail, "UPSTREAM_UNAVAILABLE")
 
 
 class FetchTest(unittest.TestCase):
