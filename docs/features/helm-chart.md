@@ -138,7 +138,7 @@ helm upgrade
 | Bundled `postgres:16-alpine` StatefulSet | Same image as Compose, no dependency on a third-party chart | Bitnami PostgreSQL subchart |
 | Startup and liveness on `/actuator/health/liveness`, readiness on `/actuator/health` | Health includes the database; once the app has started, a database outage must not restart it in a loop. The liveness group ignores the database, and `SecurityConfig`/`SetupFilter` permit it. The JVM is the only process, so a hung one is now detected (the old TCP check on nginx answered while Java was dead). Startup allows five minutes before liveness starts | Liveness on `/actuator/health`; TCP liveness; no startup probe |
 | Startup probe on the bundled PostgreSQL | Crash recovery after an unclean stop can outlast the liveness window; liveness starts once it succeeds | Longer `initialDelaySeconds` on liveness, which would also delay detecting a hung database |
-| `shareProcessNamespace` for `amex-auth` | Equivalent of Compose `init: true`: the pause container reaps orphaned browser processes | Patching the image with an init |
+| `shareProcessNamespace` for `amex-auth` and `bnp-auth` | Equivalent of Compose `init: true`: the pause container reaps orphaned browser processes | Patching the image with an init |
 
 ## Gotchas / Pitfalls
 

@@ -37,6 +37,7 @@ Picsou stores sensitive credentials in PostgreSQL: crypto exchange API keys/secr
 | Caisse d'Epargne and Banque Populaire session cookies (no password is stored for either) | `SidecarSession` | `sidecar_session.session_state` (`bank IN ('CAISSE_EPARGNE', 'BANQUE_POPULAIRE')`) | V109 / V134, moved by V142 / V147 |
 | Wise personal API token | `WiseConnection` | `api_token` | V131 (2026-11-03) |
 | Natixis Interépargne session state (refresh token, device and employee ids; no password is stored) | `SidecarSession` | `sidecar_session.session_state` (`bank = 'NATIXIS'`) | V146 (2026-11-06) |
+| BNP Paribas / Hello bank! session cookie jar (no customer number, keypad click, password or code is stored) | `SidecarSession` | `sidecar_session.session_state` (`bank = 'BNP'`) | V150 (2026-11-09) |
 
 ### What is NOT encrypted (and why)
 
