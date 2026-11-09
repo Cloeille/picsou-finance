@@ -69,12 +69,22 @@ ACCOUNT_TOKEN_CAPTURE_TIMEOUT_SECONDS = 10.0
 USERID_FIELD_SELECTOR = "#eliloUserID"
 PASSWORD_FIELD_SELECTOR = "#eliloPassword"
 SUBMIT_BUTTON_SELECTOR = "#loginSubmit"
-LOGIN_FORM_TIMEOUT_MS = 15_000
+# The login form is not in the server HTML: a client-side module from
+# aexp-static.com renders it, measured at 1.6 s to 16 s, and that module load
+# sometimes fails outright (#482). One reload recovers a failed load.
+LOGIN_FORM_TIMEOUT_MS = 20_000
+LOGIN_FORM_ATTEMPTS = 2
+LOGIN_FORM_POLL_SECONDS = 0.5
+# The module's two files (script and locale JSON) are both named one-identity-login.*;
+# other assets under that path do not gate the form.
+LOGIN_MODULE_URL_MARKER = "/one-identity-login/"
+LOGIN_MODULE_FILE_PREFIX = "one-identity-login."
+COOKIE_BANNER_DECLINE_SELECTOR = "#user-consent-management-granular-banner-decline-all-button"
 LOGIN_RESULT_TIMEOUT_SECONDS = 30
 
 # Verify page (two-step-verification/verify): pick the SMS/e-mail option,
 # click through any intermediate confirm step, then find the OTP input.
-# Each wait stays well under the Java adapter's 45s /initiate budget.
+# Each wait stays well under the Java adapter's 90s /initiate budget.
 VERIFY_OPTION_TIMEOUT_MS = 15_000
 VERIFY_CONTINUE_TIMEOUT_MS = 5_000
 VERIFY_OTP_INPUT_TIMEOUT_MS = 15_000
@@ -592,6 +602,102 @@ def _capture_account_token_header(page: Page) -> tuple[asyncio.Future, Any]:
     return future, _on_request
 
 
+class _LoginModuleWatch:
+    """Tracks the request for the client-side module that renders the login form."""
+
+    def __init__(self) -> None:
+        self.loaded = False
+        self.failed = False
+
+    @staticmethod
+    def is_module(url: str) -> bool:
+        path = url.split("?", 1)[0]
+        return LOGIN_MODULE_URL_MARKER in path and path.rsplit("/", 1)[-1].startswith(LOGIN_MODULE_FILE_PREFIX)
+
+    def on_response(self, response: Any) -> None:
+        if self.is_module(response.url):
+            # Not response.ok: a reload revalidating the cached module answers 304,
+            # which is a loaded module, not a failed one.
+            if response.status < 400:
+                self.loaded = True
+            else:
+                self.failed = True
+
+    def on_request_failed(self, request: Any) -> None:
+        # A reload aborts the previous document's pending requests: that is not
+        # a failed load of the new page.
+        if self.is_module(request.url) and "abort" not in str(request.failure or "").lower():
+            self.failed = True
+
+
+async def _login_form_visible(page: Page) -> bool:
+    try:
+        return (
+            await page.locator(USERID_FIELD_SELECTOR).first.is_visible()
+            and await page.locator(PASSWORD_FIELD_SELECTOR).first.is_visible()
+            and await page.locator(SUBMIT_BUTTON_SELECTOR).first.is_visible()
+        )
+    except PlaywrightError:
+        return False
+
+
+async def _decline_cookie_banner(page: Page) -> None:
+    try:
+        banner = page.locator(COOKIE_BANNER_DECLINE_SELECTOR).first
+        if await banner.is_visible():
+            await banner.click(timeout=2_000)
+    except PlaywrightError:
+        pass  # banner not shown (already consented or A/B) -- continue
+
+
+async def _open_login_form(page: Page) -> None:
+    """Opens the login page and waits for its client-rendered form (#482).
+
+    The form appears once a module from aexp-static.com has loaded. When that
+    request fails, the page is reloaded (LOGIN_FORM_ATTEMPTS in all). A form
+    still missing at the end is UPSTREAM_UNAVAILABLE (503, retryable) when the
+    module never loaded, and UPSTREAM_FORMAT_CHANGED (502) only when it loaded
+    and the expected fields are still absent.
+
+    An attempt ends early when the module request fails, otherwise after
+    LOGIN_FORM_TIMEOUT_MS. A loaded module whose form has not rendered in time
+    is reloaded too: live, the module sometimes loads and the form still takes
+    longer than the wait. Only a second miss reports a format change.
+    """
+    watch = _LoginModuleWatch()
+    page.on("response", watch.on_response)
+    page.on("requestfailed", watch.on_request_failed)
+    await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
+    attempt = 1
+    deadline = time.monotonic() + LOGIN_FORM_TIMEOUT_MS / 1000
+    while True:
+        await _decline_cookie_banner(page)
+        if await _login_form_visible(page):
+            if attempt > 1:
+                log.info("AMEX login form shown after reload attempt=%d", attempt)
+            return
+        attempt_over = watch.failed or time.monotonic() >= deadline
+        if not attempt_over:
+            await asyncio.sleep(LOGIN_FORM_POLL_SECONDS)
+            continue
+        if attempt >= LOGIN_FORM_ATTEMPTS:
+            break
+        attempt += 1
+        log.info("AMEX login form missing, reloading attempt=%d module_failed=%s", attempt, watch.failed)
+        # Reset before the reload so the new document's events count; the old
+        # document's requests the reload aborts are ignored by the watch.
+        watch.loaded = watch.failed = False
+        await page.reload(wait_until="domcontentloaded", timeout=30_000)
+        deadline = time.monotonic() + LOGIN_FORM_TIMEOUT_MS / 1000
+    log.warning(
+        "AMEX login form missing attempts=%d module_loaded=%s module_failed=%s",
+        attempt, watch.loaded, watch.failed,
+    )
+    if watch.loaded and not watch.failed:
+        raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+    raise HTTPException(status_code=503, detail="UPSTREAM_UNAVAILABLE")
+
+
 @app.post("/initiate", response_model=InitiateResponse)
 async def initiate(req: InitiateRequest) -> dict:
     await _pending.expire()
@@ -632,23 +738,10 @@ async def initiate(req: InitiateRequest) -> dict:
 
         page.on("response", lambda response: asyncio.create_task(_record_login_response(response)))
 
-        await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
-
-        try:
-            await page.locator(
-                "#user-consent-management-granular-banner-decline-all-button"
-            ).click(timeout=5_000)
-        except PlaywrightError:
-            pass  # banner not shown (already consented or A/B) -- continue
+        await _open_login_form(page)
 
         user_field = page.locator(USERID_FIELD_SELECTOR).first
         password_field = page.locator(PASSWORD_FIELD_SELECTOR).first
-        try:
-            await user_field.wait_for(state="visible", timeout=LOGIN_FORM_TIMEOUT_MS)
-            await password_field.wait_for(state="visible", timeout=LOGIN_FORM_TIMEOUT_MS)
-        except PlaywrightError as exc:
-            raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED") from exc
-
         await user_field.press_sequentially(req.userId, delay=40)
         await password_field.press_sequentially(req.password, delay=40)
 
@@ -668,12 +761,8 @@ async def initiate(req: InitiateRequest) -> dict:
             " pwd_refilled=True" if not pwd_ok else "",
         )
 
-        submit = page.locator(SUBMIT_BUTTON_SELECTOR).first
-        try:
-            await submit.wait_for(state="visible", timeout=LOGIN_FORM_TIMEOUT_MS)
-        except PlaywrightError as exc:
-            raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED") from exc
-        await submit.click()
+        # _open_login_form already required the submit button to be visible.
+        await page.locator(SUBMIT_BUTTON_SELECTOR).first.click()
 
         outcome = await _wait_for_login_outcome(page, LOGIN_RESULT_TIMEOUT_SECONDS)
 

@@ -118,6 +118,7 @@ class PendingAuthenticationLifecycleTest(unittest.IsolatedAsyncioTestCase):
         self.page.locator.return_value.click = AsyncMock()
         with (
             patch.object(main, "AsyncCamoufox", return_value=self.camoufox),
+            patch.object(main, "_open_login_form", AsyncMock()),
             patch.object(main, "_wait_for_login_outcome", AsyncMock(return_value="verify")),
             patch.object(main, "_select_otp_method", AsyncMock()),
             patch.object(main, "_find_otp_input", AsyncMock()),

@@ -27,7 +27,12 @@ import java.util.Map;
  */
 @Component
 public class AmexAdapter {
-    private static final Duration DEFAULT_AUTH_TIMEOUT = Duration.ofSeconds(45);
+    /**
+     * Browser start, up to two 20 s waits for the client-rendered login form
+     * (one reload, #482), typing, then up to 30 s for the login outcome and the
+     * one-time-code channel step: past 70 s in the worst case, hence 90 s.
+     */
+    private static final Duration DEFAULT_AUTH_TIMEOUT = Duration.ofSeconds(90);
     /** A single OTP submission round-trip, not a human approving a push. */
     private static final Duration DEFAULT_VALIDATION_TIMEOUT = Duration.ofSeconds(40);
     private static final Duration DEFAULT_ACCOUNTS_TIMEOUT = Duration.ofSeconds(90);
