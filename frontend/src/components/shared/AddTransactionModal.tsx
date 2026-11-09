@@ -20,7 +20,7 @@ import { usePreciousMetals } from '@/features/accounts/hooks'
 const SELECT_CLS =
   'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus:border-ring'
 
-const INVESTMENT_TYPES: AccountType[] = ['PEA', 'COMPTE_TITRES', 'CRYPTO', 'PRECIOUS_METALS']
+const INVESTMENT_TYPES: AccountType[] = ['PEA', 'COMPTE_TITRES', 'CRYPTO', 'PRECIOUS_METALS', 'BROKERAGE']
 
 type InitialValues = TransactionRequest & { id?: number }
 

@@ -135,6 +135,9 @@ RFC 4180: UTF-8 (no BOM), comma-separated, CRLF line endings, fields containing 
 | `goal_manual_contributions.csv`| `GoalManualContribution`               | id, **goalId**, date, amount                           |
 | `goal_month_overrides.csv`     | `GoalMonthOverride`                    | id, **goalId**, month, amount                          |
 | `debts.csv`                    | `Debt`                                 | id, lender, principal, interestRate, ...               |
+| `peer_counterparties.csv`      | `PeerCounterparty`                     | id, memberId, name, note                               |
+| `peer_loan_terms.csv`          | `PeerLoanTerms`                        | id, **accountId**, **counterpartyId**, principal, rate, plan |
+| `peer_loan_repayments.csv`     | `PeerLoanRepayment`                    | id, **accountId**, paidOn, amount, kind, cashLegOwned  |
 | `wallet_addresses.csv`         | `WalletAddress`                        | id, chain, address, label                              |
 | `linked_identities.csv`        | `UserIdentity` (own SSO identities)    | id, issuer, subject, email, display_name, created_at, last_login_at |
 | `shared_resources.csv`         | `SharedResource`                       | id, resourceType, resourceId, sharedWithMemberId       |
@@ -152,7 +155,7 @@ Never serialized in any form:
 - `AppUser.passwordHash`
 - `UserMfa.*` — TOTP secrets, recovery code hashes
 - `UserMfaRecoveryCode.*`
-- `BoursoSession.*` / `TradeRepublicSession.*` / `FinarySession.*` / `CryptoExchangeSession.*` — all encrypted credentials
+- `SidecarSession.*` / `TradeRepublicSession.*` / `FinarySession.*` / `CryptoExchangeSession.*` — all encrypted credentials
 - `Requisition.accessToken` / `refreshToken` / any encrypted Enable Banking blobs
 - `PersistentSession.tokenHash`
 - `SetupAudit`, `AppSetting` — instance-wide, not user-specific
@@ -171,7 +174,7 @@ Backend:
 - `backend/src/main/java/com/picsou/export/DataExportService.java` — orchestrator: opens ZIP, drives all exporters
 - `backend/src/main/java/com/picsou/service/ReAuthService.java` — accepts a valid `reauth_proof` cookie (same user id and token version), else verifies password OR TOTP based on `user.mfaEnabled`; also backs `POST /api/auth/reauth` and the SSO sign-in-method changes
 - `backend/src/main/java/com/picsou/export/EntityExporter.java` — interface: `void writeJson(JsonGenerator g)` + `void writeCsv(Writer w)` + `String csvFileName()` + `String jsonKey()`
-- `backend/src/main/java/com/picsou/export/{Profile,Accounts,Holdings,Transactions,Goals,Debts,WalletAddresses,SharedResources,BankConnections,BalanceSnapshots}Exporter.java` — one per entity root (family members are folded into `ProfileExporter`)
+- `backend/src/main/java/com/picsou/export/{Profile,Accounts,Holdings,Transactions,Goals,Debts,WalletAddresses,SharedResources,BankConnections,BalanceSnapshots,PeerCounterparties,PeerLoanTerms,PeerLoanRepayments}Exporter.java` — one per entity root (family members are folded into `ProfileExporter`)
 - `backend/src/main/java/com/picsou/dto/ExportRequest.java` — record `(ReAuthDto reAuth, boolean includeBalanceSnapshots)`
 - `backend/src/main/java/com/picsou/dto/ReAuthDto.java` — record `(String password, String totpCode)` (XOR depending on user)
 - `backend/src/main/java/com/picsou/config/RateLimitConfig.java` — extend with the export bucket (5/h per userId)
@@ -219,10 +222,10 @@ Backend:
 - `MeExportControllerTest#export_withAValidProofAndNoInlinePayload_isAccepted` / `#export_withoutProofOrInlinePayload_isRefused` — the `reauth_proof` cookie replaces the inline payload.
 - `ReAuthServiceTest` — proof accepted only for the same user id and token version; `SsoLoginIntegrationTest` (scenario 10) — an SSO re-authentication's proof authorizes the export.
 - `LinkedIdentitiesExporterTest` — the `linked_identities` table (issuer, subject, email, display name, dates).
-- `DataExportIntegrationTest` (`@SpringBootTest` + H2) — seed an `AppUser` with **all** entity types populated **and** every secret-bearing entity (MFA secret, recovery codes, BoursoSession ciphertext, requisition tokens, persistent session). Hit the endpoint, parse the ZIP in memory, assert:
+- `DataExportIntegrationTest` (`@SpringBootTest` + H2) — seed an `AppUser` with **all** entity types populated **and** every secret-bearing entity (MFA secret, recovery codes, SidecarSession ciphertext, requisition tokens, persistent session). Hit the endpoint, parse the ZIP in memory, assert:
   - all expected files present
   - row counts match seeded entity counts
-  - **raw byte grep**: no occurrence of the seeded `passwordHash`, MFA secret bytes, requisition token bytes, BoursoSession ciphertext bytes, persistent-session token hash bytes
+  - **raw byte grep**: no occurrence of the seeded `passwordHash`, MFA secret bytes, requisition token bytes, SidecarSession ciphertext bytes, persistent-session token hash bytes
   - This is the principal GDPR safety net.
 
 Frontend:

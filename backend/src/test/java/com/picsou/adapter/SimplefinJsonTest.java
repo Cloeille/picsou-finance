@@ -16,6 +16,8 @@ import java.time.LocalDate;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -363,5 +365,168 @@ class SimplefinJsonTest {
     @Test
     void posted_missing_dropsTheTransaction() {
         assertThat(transactions(tx("").replace("\"posted\":1767225600,", ""))).isEmpty();
+    }
+
+    // ---- institution identity ----------------------------------------------------------
+
+    private static SimplefinAccount withConnection(String connectionJson) {
+        return SimplefinJson.parse("{\"connections\":[" + connectionJson + "],\"accounts\":[{"
+            + ACCOUNT + ",\"conn_id\":\"C1\"}]}").accounts().get(0);
+    }
+
+    @Test
+    void connection_orgNameAndUrl_becomeTheInstitution() {
+        SimplefinAccount account = withConnection(
+            "{\"conn_id\":\"C1\",\"org_name\":\"Fidelity Investments\",\"org_url\":\"https://www.fidelity.com\"}");
+
+        assertThat(account.connectionName()).isEqualTo("Fidelity Investments");
+        assertThat(account.institutionDomain()).isEqualTo("fidelity.com");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "https://user:pw@fidelity.com", "https://localhost",
+        "https://127.0.0.1", "https://192.168.0.1", "https://10.0.0.1:8080", "ftp://fidelity.com", "https://exa mple.com", "javascript:alert(1)", "https://a..com",
+        "https://-bad.com"})
+    void connection_unsafeUrl_givesNoDomain(String url) {
+        SimplefinAccount account = withConnection(
+            "{\"conn_id\":\"C1\",\"org_name\":\"X\",\"org_url\":\"" + url + "\"}");
+
+        assertThat(account.institutionDomain()).isNull();
+        assertThat(account.connectionName()).isEqualTo("X");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "http://fidelity.com,fidelity.com",
+        "https://fidelity.com:8443/login,fidelity.com",
+        "fidelity.com/login,fidelity.com",
+        "fidelity.com?x=1,fidelity.com",
+        "https://www.chase.com./,chase.com",
+        "https://bank.xn--e1afmkfd.xn--p1ai,bank.xn--e1afmkfd.xn--p1ai"})
+    void hostOf_keepsOnlyTheHost_whateverTheSchemePortOrPath(String raw, String host) {
+        assertThat(SimplefinJson.hostOf(raw)).isEqualTo(host);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"1.2.3.44", "https://1.2.3.44", "fidelity", "-x.com", ".com", "a b.com"})
+    void hostOf_refusesAnAddressOrAHostWithoutAPublicName(String raw) {
+        assertThat(SimplefinJson.hostOf(raw)).isNull();
+    }
+
+    @Test
+    void hostOf_acceptsABareHostAndStripsWww() {
+        assertThat(SimplefinJson.hostOf("WWW.Chase.com")).isEqualTo("chase.com");
+        assertThat(SimplefinJson.hostOf("https://www.chase.com/path?q=1")).isEqualTo("chase.com");
+    }
+
+    // ---- holdings -----------------------------------------------------------------------
+
+    @Test
+    void holdings_stringFigures_areParsed() {
+        SimplefinAccount account = only("{" + ACCOUNT + ",\"holdings\":[{\"id\":\"h1\",\"symbol\":\"FXAIX\","
+            + "\"description\":\"Fidelity 500 Index Fund\",\"currency\":\"USD\",\"shares\":\"10.500\","
+            + "\"market_value\":\"2100.00\",\"cost_basis\":\"0.00\",\"purchase_price\":\"180.40\"}]}");
+
+        assertThat(account.holdings()).singleElement().satisfies(h -> {
+            assertThat(h.symbol()).isEqualTo("FXAIX");
+            assertThat(h.shares()).isEqualByComparingTo("10.500");
+            assertThat(h.marketValue()).isEqualByComparingTo("2100.00");
+            assertThat(h.costBasis()).isEqualByComparingTo("0");
+            assertThat(h.purchasePrice()).isEqualByComparingTo("180.40");
+        });
+    }
+
+    @Test
+    void holdings_numericFigures_areParsedToo() {
+        SimplefinAccount account = only("{" + ACCOUNT
+            + ",\"holdings\":[{\"symbol\":\"A\",\"shares\":2.5,\"market_value\":10}]}");
+
+        assertThat(account.holdings()).singleElement()
+            .satisfies(h -> assertThat(h.shares()).isEqualByComparingTo("2.5"));
+    }
+
+    @Test
+    void holdings_absentOrEmpty_isAnEmptyList() {
+        assertThat(only("{" + ACCOUNT + "}").holdings()).isEmpty();
+        assertThat(only("{" + ACCOUNT + ",\"holdings\":[]}").holdings()).isEmpty();
+    }
+
+    @Test
+    void holdings_rowsThatCannotBeValued_areDroppedAndMarkTheListIncomplete() {
+        SimplefinAccount account = only("{" + ACCOUNT + ",\"holdings\":["
+            + "{\"symbol\":\"NOSHARES\"},"
+            + "{\"symbol\":\"BAD\",\"shares\":\"abc\"},"
+            + "{\"shares\":\"1\"},"
+            + "{\"symbol\":\"OK\",\"shares\":\"1\"}]}");
+
+        assertThat(account.holdings()).extracting(h -> h.symbol()).containsExactly("OK");
+        assertThat(account.holdingsComplete()).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"1E-999999999", "1E+999999999", "0E-999999999"})
+    void holdings_shareCountWithAnAbsurdExponent_isDroppedNotLeftToThrowLater(String shares) {
+        SimplefinAccount account = only("{" + ACCOUNT + ",\"holdings\":[{\"symbol\":\"A\",\"shares\":\""
+            + shares + "\",\"market_value\":\"10\"},{\"symbol\":\"OK\",\"shares\":\"1\"}]}");
+
+        assertThat(account.holdings()).extracting(h -> h.symbol()).containsExactly("OK");
+        assertThat(account.holdingsComplete()).isFalse();
+    }
+
+    @Test
+    void holdings_everyRowReadable_isComplete() {
+        SimplefinAccount account = only("{" + ACCOUNT + ",\"holdings\":["
+            + "{\"symbol\":\"A\",\"shares\":\"1\"},{\"description\":\"No ticker\",\"shares\":\"2\"}]}");
+
+        assertThat(account.holdings()).hasSize(2);
+        assertThat(account.holdingsComplete()).isTrue();
+        assertThat(only("{" + ACCOUNT + "}").holdingsComplete()).isTrue();
+    }
+
+    @Test
+    void holdings_pastTheRowCap_keepTheFirstRowsButAreIncomplete() {
+        String rows = IntStream.rangeClosed(1, 501)
+            .mapToObj(i -> "{\"symbol\":\"S" + i + "\",\"shares\":\"1\"}")
+            .collect(Collectors.joining(","));
+
+        SimplefinAccount account = only("{" + ACCOUNT + ",\"holdings\":[" + rows + "]}");
+
+        assertThat(account.holdings()).hasSize(500);
+        assertThat(account.holdingsComplete()).isFalse();
+    }
+
+    @Test
+    void holdings_exactlyTheRowCap_isStillComplete() {
+        String rows = IntStream.rangeClosed(1, 500)
+            .mapToObj(i -> "{\"symbol\":\"S" + i + "\",\"shares\":\"1\"}")
+            .collect(Collectors.joining(","));
+
+        SimplefinAccount account = only("{" + ACCOUNT + ",\"holdings\":[" + rows + "]}");
+
+        assertThat(account.holdings()).hasSize(500);
+        assertThat(account.holdingsComplete()).isTrue();
+    }
+
+    @Test
+    void holdings_symbolWithAnEmojiStraddlingTheLimit_isCutBeforeTheEmoji() {
+        String symbol = "A".repeat(99) + EMOJI;
+
+        SimplefinAccount account = only("{" + ACCOUNT + ",\"holdings\":[{\"symbol\":\"" + symbol
+            + "\",\"shares\":\"1\"}]}");
+
+        assertThat(account.holdings()).singleElement()
+            .satisfies(h -> assertThat(h.symbol()).isEqualTo("A".repeat(99)));
+    }
+
+    @Test
+    void holdings_descriptionWithAnEmojiEndingOnTheLimit_isKept() {
+        String description = "D".repeat(253) + EMOJI;
+
+        SimplefinAccount account = only("{" + ACCOUNT + ",\"holdings\":[{\"symbol\":\"A\",\"description\":\""
+            + description + "\",\"shares\":\"1\"}]}");
+
+        assertThat(account.holdings()).singleElement()
+            .satisfies(h -> assertThat(h.description()).isEqualTo(description));
     }
 }

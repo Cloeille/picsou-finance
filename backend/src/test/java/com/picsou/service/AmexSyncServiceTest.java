@@ -1,15 +1,16 @@
 package com.picsou.service;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.model.Account;
-import com.picsou.model.AmexSession;
-import com.picsou.model.AmexSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.Category;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Transaction;
 import com.picsou.adapter.AmexAdapter;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.AmexSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,7 +49,7 @@ import static com.picsou.support.TestEntities.owner;
 @SuppressWarnings("unchecked")
 class AmexSyncServiceTest {
     @Mock AmexAdapter port;
-    @Mock AmexSessionRepository sessionRepository;
+    @Mock SidecarSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock FamilyMemberRepository memberRepository;
     @Mock com.picsou.repository.TransactionRepository transactionRepository;
@@ -70,7 +71,7 @@ class AmexSyncServiceTest {
     @Test
     void syncPersistsConventionalAmericanExpressProviderName() {
         FamilyMember member = owner();
-        AmexSession session = activeSession(member);
+        SidecarSession session = activeSession(member);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(accountData("amex_1")));
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
@@ -85,7 +86,7 @@ class AmexSyncServiceTest {
     @Test
     void reportingWrapperReportsSyncedWhenTheJobFinishesBeforeQueueReturns() {
         FamilyMember member = owner();
-        AmexSession session = activeSession(member);
+        SidecarSession session = activeSession(member);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(accountData("amex_1")));
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
@@ -99,9 +100,9 @@ class AmexSyncServiceTest {
     @Test
     void reportingWrapperDistinguishesQueuedFromDisconnected() {
         FamilyMember member = owner();
-        AmexSession session = activeSession(member);
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        SidecarSession session = activeSession(member);
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.AMEX, 7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.AMEX, 7L)).thenReturn(Optional.of(session));
         service = serviceWith(job -> { });
 
         var queued = service.resyncReporting(7L);
@@ -109,15 +110,15 @@ class AmexSyncServiceTest {
         assertThat(queued.source()).isEqualTo("amex");
         assertThat(queued.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.QUEUED);
 
-        when(sessionRepository.findByMemberId(8L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.AMEX, 8L)).thenReturn(Optional.empty());
         var disconnected = service.resyncReporting(8L);
         assertThat(disconnected.status())
             .isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.SKIPPED_NOT_CONNECTED);
 
-        AmexSession expired = AmexSession.builder()
-            .id(4L).member(member).sessionState("encrypted").active(false).syncStatus(AmexSyncStatus.FAILED).build();
-        when(sessionRepository.findByMemberId(9L)).thenReturn(Optional.of(session));
-        when(sessionRepository.findByMemberIdForUpdate(9L)).thenReturn(Optional.of(expired));
+        SidecarSession expired = SidecarSession.builder().bank(SidecarBank.AMEX)
+            .id(4L).member(member).sessionState("encrypted").active(false).syncStatus(SidecarSyncStatus.FAILED).build();
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.AMEX, 9L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.AMEX, 9L)).thenReturn(Optional.of(expired));
         var reauth = service.resyncReporting(9L);
         assertThat(reauth.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.NEEDS_REAUTH);
         assertThat(reauth.message()).isEqualTo("Reauthentication required");
@@ -459,7 +460,7 @@ class AmexSyncServiceTest {
 
         AmexSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(AmexSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verifyNoInteractions(transactionWriter, transactionRepository);
     }
 
@@ -468,7 +469,7 @@ class AmexSyncServiceTest {
     @ValueSource(strings = {"04/03/26", "2026-13-01"})
     void unparseableDueDate_isDroppedWithoutFailingTheSync(String dueDate) {
         FamilyMember member = owner();
-        AmexSession session = activeSession(member);
+        SidecarSession session = activeSession(member);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(accountData("amex_1", dueDate)));
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
@@ -476,7 +477,7 @@ class AmexSyncServiceTest {
 
         AmexSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(AmexSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(accountRepository).save(org.mockito.ArgumentMatchers.argThat(account ->
             account.getPaymentDueDate() == null && account.getPaymentDueAmount() != null));
     }
@@ -489,15 +490,15 @@ class AmexSyncServiceTest {
         FamilyMember member = owner();
         when(port.completeAuth("process-123", "123456")).thenReturn("plain-state");
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
-        AmexSession stored = AmexSession.builder()
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.AMEX, 7L)).thenReturn(Optional.empty());
+        SidecarSession stored = SidecarSession.builder().bank(SidecarBank.AMEX)
             .id(3L).member(member).sessionState("encrypted")
-            .active(true).syncStatus(AmexSyncStatus.QUEUED)
+            .active(true).syncStatus(SidecarSyncStatus.QUEUED)
             .lastValidatedAt(java.time.Instant.now())
             .build();
-        when(sessionRepository.saveAndFlush(any(AmexSession.class))).thenReturn(stored);
+        when(sessionRepository.saveAndFlush(any(SidecarSession.class))).thenReturn(stored);
         when(sessionRepository.findByIdAndMemberIdForUpdate(3L, 7L)).thenReturn(Optional.of(stored));
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(stored));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.AMEX, 7L)).thenReturn(Optional.of(stored));
         lenient().when(encryption.encrypt("plain-state")).thenReturn("encrypted");
 
         AmexAdapter.Transaction oldCharge = new AmexAdapter.Transaction(null, "2020-01-02", "Old store", new BigDecimal("-7.00"), "posted");
@@ -520,7 +521,7 @@ class AmexSyncServiceTest {
     @Test
     void historyRecoveryMergesWithoutDeletingExistingTransactions() {
         FamilyMember member = owner();
-        AmexSession session = activeSession(member);
+        SidecarSession session = activeSession(member);
         arrangeQueuedSession(session);
         AmexAdapter.Transaction oldCharge = new AmexAdapter.Transaction(null, "2020-01-02", "Old store", new BigDecimal("-7.00"), "posted");
         when(port.fetchTransactionHistory("plain-state")).thenReturn(List.of(accountData("amex_1", oldCharge)));
@@ -530,7 +531,7 @@ class AmexSyncServiceTest {
 
         var result = service.queueHistoryRecovery(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(AmexSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(transactionRepository).saveAllAndFlush(transactionsCaptor.capture());
         assertThat(transactionsCaptor.getValue()).singleElement().satisfies(tx -> {
             assertThat(tx.getDate()).isEqualTo(LocalDate.of(2020, 1, 2));
@@ -854,20 +855,20 @@ class AmexSyncServiceTest {
         );
     }
 
-    private void arrangeQueuedSession(AmexSession session) {
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+    private void arrangeQueuedSession(SidecarSession session) {
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.AMEX, 7L)).thenReturn(Optional.of(session));
         when(sessionRepository.findByIdAndMemberIdForUpdate(session.getId(), 7L)).thenReturn(Optional.of(session));
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.AMEX, 7L)).thenReturn(Optional.of(session));
         lenient().when(encryption.decrypt("encrypted")).thenReturn("plain-state");
     }
 
-    private AmexSession activeSession(FamilyMember member) {
-        return AmexSession.builder()
+    private SidecarSession activeSession(FamilyMember member) {
+        return SidecarSession.builder().bank(SidecarBank.AMEX)
             .id(3L)
             .member(member)
             .sessionState("encrypted")
             .active(true)
-            .syncStatus(AmexSyncStatus.IDLE)
+            .syncStatus(SidecarSyncStatus.IDLE)
             .build();
     }
 

@@ -5,7 +5,7 @@ import com.picsou.model.Account;
 import com.picsou.model.AccountType;
 import com.picsou.model.AppUser;
 import com.picsou.model.FamilyMember;
-import com.picsou.model.SofidySyncStatus;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.UserRole;
 import com.picsou.repository.AccountOwnershipRepository;
 import com.picsou.repository.AppUserRepository;
@@ -127,7 +127,7 @@ class ImpersonationControllerTest {
             .thenReturn(Optional.of(TestEntities.user(3L, UserRole.MEMBER, false)));
         when(sofidyService.completeAuth("proc-a", "123456", 3L))
             .thenReturn(new SofidySyncService.SessionStatusResponse(
-                false, SofidySyncStatus.IDLE, null, null, null));
+                false, SidecarSyncStatus.IDLE, null, null, null));
 
         sofidy.perform(post("/api/sofidy/auth/complete")
                 .param("memberId", "3")
@@ -143,7 +143,7 @@ class ImpersonationControllerTest {
         authenticate(TestEntities.user(5L, UserRole.MEMBER, true));
         when(sofidyService.completeAuth("proc-a", "123456", 5L))
             .thenReturn(new SofidySyncService.SessionStatusResponse(
-                false, SofidySyncStatus.IDLE, null, null, null));
+                false, SidecarSyncStatus.IDLE, null, null, null));
 
         sofidy.perform(post("/api/sofidy/auth/complete")
                 .param("memberId", "3")

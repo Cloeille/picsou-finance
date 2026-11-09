@@ -311,11 +311,12 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         for service in services:
             with self.subTest(service=service):
                 commands = _sidecar_steps(service)
-                for helper in ("picsou_sidecar/contract.py", "euro_information/testing.py"):
+                for helper in ("picsou_sidecar/contract.py", "euro_information/testing.py", "bpce/testing.py"):
                     self.assertIn(f"services/base/{helper}:/opt/sidecar-base/lib/{helper}:ro", commands)
         ignored = (ROOT / "services/base/.dockerignore").read_text(encoding="utf-8").split()
         self.assertIn("picsou_sidecar/contract.py", ignored)
         self.assertIn("euro_information/testing.py", ignored)
+        self.assertIn("bpce/testing.py", ignored)
 
     def test_publish_workflow_keeps_both_platforms_and_branch_tagging(self):
         job_text = DOCKER_WORKFLOW.read_text(encoding="utf-8")
@@ -781,7 +782,8 @@ class SharedSidecarBaseTest(unittest.TestCase):
             service
             for service in _shared_base_services()
             if any(
-                re.search(r"(?m)^\s*(from|import) playwright", path.read_text(encoding="utf-8"))
+                # The shared bpce package drives the BPCE login in Chromium.
+                re.search(r"(?m)^\s*(from|import) (playwright|bpce)\b", path.read_text(encoding="utf-8"))
                 for path in (ROOT / "services" / service).glob("*.py")
                 if not path.name.startswith("test_")
             )

@@ -114,6 +114,11 @@ describe('providerLogoUrl', () => {
     expect(providerLogoUrl('Trade Republic')).toBe('/providers/trade-republic.svg')
   })
 
+  // NatixisSyncService.PROVIDER, accent included: the upper-casing must keep the É.
+  it('resolves the provider the Natixis connector writes', () => {
+    expect(providerLogoUrl('Natixis Interépargne')).toBe('/providers/natixis-interepargne.svg')
+  })
+
   // Copied verbatim from ScpiProvider.CORUM.displayName(), which both the CORUM SCPI and the
   // CORUM Life connectors write as the account's provider.
   it('resolves the provider string the CORUM connectors write', () => {

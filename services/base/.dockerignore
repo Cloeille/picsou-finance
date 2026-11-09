@@ -3,3 +3,4 @@
 **/test_*.py
 picsou_sidecar/contract.py
 euro_information/testing.py
+bpce/testing.py

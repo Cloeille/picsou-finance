@@ -20,6 +20,16 @@ import type {
   CaisseEpargneAuthKeypadResponse,
   CaisseEpargneAuthCompleteResponse,
   CaisseEpargneDeleteResponse,
+  BanquePopulaireSessionStatus,
+  BanquePopulaireAuthInitResponse,
+  BanquePopulaireAuthKeypadResponse,
+  BanquePopulaireAuthCompleteResponse,
+  BanquePopulaireDeleteResponse,
+  LbpSessionStatus,
+  LbpAuthInitResponse,
+  LbpAuthKeypadResponse,
+  LbpAuthCompleteResponse,
+  LbpDeleteResponse,
   RevolutSessionStatus,
   SyncProgress,
   BourseDirectSessionStatus,
@@ -30,6 +40,8 @@ import type {
   AmundiAuthInitResponse,
   CmesSessionStatus,
   CmesAuthInitResponse,
+  NatixisSessionStatus,
+  NatixisAuthInitResponse,
   CicSessionStatus,
   CicAuthInitResponse,
   AmexSessionStatus,
@@ -42,6 +54,7 @@ import type {
   SofidyAuthInitResponse,
   IbkrConnectionStatus,
   SimplefinConnectionStatus,
+  WiseConnectionStatus,
 } from '@/types/api'
 
 // --- Bank Sync (Enable Banking) ---
@@ -228,6 +241,87 @@ export const caisseEpargneApi = {
     api.delete<CaisseEpargneDeleteResponse>('/caisse-epargne/session').then(r => r.data),
 }
 
+// --- Banque Populaire ---
+
+// Same BPCE platform and the same rules as Caisse d'Epargne above: one attempt only,
+// key positions never digits, a long Sécur'Pass completion. The login adds the regional
+// bank (`BanquePopulaireRegion`) the bank's page asks for before the identifier.
+export const banquePopulaireApi = {
+  initiateAuth: (customerId: string, region: string) =>
+    api
+      .post<BanquePopulaireAuthInitResponse>('/banque-populaire/auth/initiate', { customerId, region })
+      .then(r => r.data),
+
+  sendKeypad: (processId: string, positions: number[]) =>
+    api
+      .post<BanquePopulaireAuthKeypadResponse>('/banque-populaire/auth/keypad', { processId, positions })
+      .then(r => r.data),
+
+  completeAuth: (processId: string) =>
+    api
+      .post<BanquePopulaireAuthCompleteResponse>('/banque-populaire/auth/complete', { processId }, { timeout: 180_000 })
+      .then(r => r.data),
+
+  sync: () =>
+    api.post<BanquePopulaireSessionStatus>('/banque-populaire/sync').then(r => r.data),
+
+  getStatus: () =>
+    api
+      .get<BanquePopulaireSessionStatus>('/banque-populaire/status', { skipGlobalErrorRedirect: true })
+      .then(r => r.data),
+
+  /** One status read that gives up after `timeoutMs`, outside the query cache. */
+  getStatusWithin: (timeoutMs: number) =>
+    api
+      .get<BanquePopulaireSessionStatus>('/banque-populaire/status', {
+        skipGlobalErrorRedirect: true,
+        timeout: timeoutMs,
+      })
+      .then(r => r.data),
+
+  clearSession: () =>
+    api.delete<BanquePopulaireDeleteResponse>('/banque-populaire/session').then(r => r.data),
+}
+
+// --- La Banque Postale ---
+
+export const lbpApi = {
+  // One attempt only: a wrong password spends a bank attempt. The identifier
+  // alone goes out; the password is clicked on the bank's shuffled keypad.
+  // `rememberIdentifier` asks the backend to keep it encrypted, never the password.
+  initiateAuth: (customerId: string, rememberIdentifier = false) =>
+    api.post<LbpAuthInitResponse>('/lbp/auth/initiate', { customerId, rememberIdentifier }).then(r => r.data),
+
+  // Key positions (0..9 in the keypad's DOM order), never digits. Single use.
+  sendKeypad: (processId: string, positions: number[]) =>
+    api.post<LbpAuthKeypadResponse>('/lbp/auth/keypad', { processId, positions }).then(r => r.data),
+
+  // A notification is sent to the bank's mobile app; the request stays open
+  // until the human approves it (the backend waits up to 170 s).
+  completeAuth: (processId: string) =>
+    api
+      .post<LbpAuthCompleteResponse>('/lbp/auth/complete', { processId }, { timeout: 180_000 })
+      .then(r => r.data),
+
+  sync: () => api.post<LbpSessionStatus>('/lbp/sync').then(r => r.data),
+
+  getStatus: () =>
+    api
+      .get<LbpSessionStatus>('/lbp/status', { skipGlobalErrorRedirect: true })
+      .then(r => r.data),
+
+  /** One status read that gives up after `timeoutMs`, outside the query cache. */
+  getStatusWithin: (timeoutMs: number) =>
+    api
+      .get<LbpSessionStatus>('/lbp/status', {
+        skipGlobalErrorRedirect: true,
+        timeout: timeoutMs,
+      })
+      .then(r => r.data),
+
+  clearSession: () => api.delete<LbpDeleteResponse>('/lbp/session').then(r => r.data),
+}
+
 // --- Revolut ---
 
 export const revolutApi = {
@@ -273,7 +367,7 @@ export const degiroApi = {
 // --- Browser-sidecar providers sharing one HTTP contract ---
 
 /**
- * Bourse Direct, Amundi, CMES and CIC expose the same five endpoints under their
+ * Bourse Direct, Amundi, CMES, Natixis and CIC expose the same five endpoints under their
  * own prefix; a provider that deviates (BoursoBank, Amex, Sofidy...) keeps its
  * own object below. `code` is the SMS code, omitted for a mobile confirmation.
  */
@@ -308,6 +402,14 @@ export const amundiApi = sidecarApi<AmundiSessionStatus, AmundiAuthInitResponse>
 // --- Crédit Mutuel Épargne Salariale (CIC savers too) ---
 
 export const cmesApi = sidecarApi<CmesSessionStatus, CmesAuthInitResponse>('/cmes')
+
+// --- Natixis Interépargne (the login is an e-mail, sent as `email`; the code arrives by SMS, e-mail or voice call) ---
+
+export const natixisApi = {
+  ...sidecarApi<NatixisSessionStatus, NatixisAuthInitResponse>('/natixis'),
+  initiateAuth: (email: string, password: string) =>
+    api.post<NatixisAuthInitResponse>('/natixis/auth/initiate', { email, password }).then(r => r.data),
+}
 
 // --- CIC online banking (livrets the PSD2 connection does not expose) ---
 
@@ -512,6 +614,16 @@ export const simplefinApi = {
   sync: () => api.post<Account[]>('/simplefin/sync').then(r => r.data),
 
   disconnect: () => api.delete('/simplefin/connection').then(r => r.data),
+}
+
+export const wiseApi = {
+  getStatus: () => api.get<WiseConnectionStatus>('/wise/status').then(r => r.data),
+
+  connect: (token: string) => api.post<Account[]>('/wise/connect', { token }).then(r => r.data),
+
+  sync: () => api.post<Account[]>('/wise/sync').then(r => r.data),
+
+  disconnect: () => api.delete('/wise/connection').then(r => r.data),
 }
 
 // --- Finary ---
