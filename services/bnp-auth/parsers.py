@@ -3,7 +3,8 @@
 No I/O and no browser here: `main.py` fetches, these functions turn a response into the
 snapshot the backend expects. Anything that does not look as expected raises `ParseError`, or
 marks one account `snapshotComplete: false`, so an incomplete answer never replaces data.
-Every product kind and key below is UNVERIFIED against a live account (docs/features/bnp-paribas.md).
+Seen on a live account: the envelope, families 1 and 2, two savings labels, the RIB list
+and the operations. Every other product kind and key is UNVERIFIED (docs/features/bnp-paribas.md).
 """
 
 import hashlib

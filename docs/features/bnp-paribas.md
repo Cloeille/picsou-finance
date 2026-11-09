@@ -1,6 +1,6 @@
 # BNP Paribas / Hello bank! (sidecar)
 
-> Status: **implemented, not verified against a real account** (see [Verification boundary](#verification-boundary)).
+> Status: **implemented, partly verified against one real account** (see [Verification boundary](#verification-boundary)).
 > Issue #306. Design record: [ADR](../decisions/2026-11-09-bnp-paribas-sidecar.md). Sidecar: `services/bnp-auth`.
 
 ## What it does
@@ -17,7 +17,8 @@ never guessed.
 1. The member picks the brand and types the customer number (7 to 10 digits).
 2. Picsou shows the bank's shuffled keypad (ten keys, the digit written on each) and the member clicks the
    six digits of the password. Only the **positions** (0..9) go back to Picsou, never the digits.
-3. Second factor, whichever the bank asks for (both unverified, see below):
+3. Second factor, when the bank asks for one (both paths unverified, see below; the live run needed none and
+   went straight to the session):
    - **Cle Digitale approval** in the bank's mobile app: Picsou waits (`/complete` without a code, up to
      three minutes) and imports as soon as the member approves;
    - **SMS code**: the member types it in Picsou, it is sent once to the bank and dropped.
@@ -119,6 +120,14 @@ from its URL alone: `error` (`error_code` or `errorCode` query key), `second_fac
 factor), `site`, `other`. A page without a session that stays put is read by its shape (a code field = SMS, the
 Cle Digitale wording and no code field = app approval); anything else stops with `MFA_TYPE_UNSUPPORTED`.
 
+Seen live (owner-assisted run, 2026-11-09, an account served by `mabanqueprivee.bnpparibas`): the post to
+`/as/<id>/resume/as/authorization.ping` answers 302 to `mabanque.bnpparibas/auth/on-login-ciam` (`code`, `state`),
+which sends the customer to `mabanqueprivee.bnpparibas/auth/login`. That host runs its own authorization round
+trip on `connexion.mabanque.bnpparibas` without showing a page, goes through `/aiguillage-wspl/redirect/login`
+and lands on `/fr/secure/comptes-et-contrats`, about two seconds after the submit. No second factor was asked.
+A browser that still holds the PingFederate session goes through the same chain from `/auth/login` without
+showing the form.
+
 Every stop with a stage after the submit also logs ONE structure-only line,
 `BNP page structure (stage=...) host=... path=... query=[keys] kind=... title_len=N ready=... frames=N
 forms=[id(field:type,...)] inputs=[type=count] landmarks=[tag#id,...]`: the host and the path with every digit
@@ -160,8 +169,23 @@ Compose: profile `bnp` (or `all-connectors`), service `bnp-auth` on the `sidecar
 
 ## Verification boundary
 
-No real BNP Paribas or Hello bank! account was used to build or test this connector. Everything below is
-either checked on the **public** pages with a real browser (nothing typed), or **unverified**.
+One owner-assisted run on 2026-11-09 exercised the connector against a real BNP Paribas account (served by
+`mabanqueprivee.bnpparibas`, with a current account and savings accounts). The sidecar ran outside Docker
+(macOS, the pinned Camoufox release, not a datacenter network). Everything else is either checked on the
+**public** pages with a real browser (nothing typed), or **unverified**.
+
+**Verified in the owner-assisted run:**
+
+- The whole login as the sidecar drives it: customer number, the ten key labels, six clicks by position,
+  one form post, the redirect chain described in "After the login submit", the session.
+- `InfosClient` answers `codeRetour: "0"` (a string) once signed in; `getlstcpt`, `rib-wspl/rpc/comptes` and
+  `rop2-wspl/rest/releveOp` answer on the landing host with the page's own cookies and no extra header.
+- Families 1 (current account) and 2 (savings, two passbook kinds told apart by label), balances, and the
+  operations of every account, once the dash date format was read.
+- `/accounts` in a new browser with the restored cookies, on the landing host, three times within four
+  minutes of the login.
+- The OneTrust calls of rule 4 (also seen on the public page of the private-banking site).
+- Camoufox reached the login and the signed-in site from that network.
 
 **Verified on the public login pages** (live recon, 2026-11-09, `recon-live` notes in the PR):
 
@@ -169,7 +193,7 @@ either checked on the **public** pages with a real browser (nothing typed), or *
   `connexion.hellobank.fr` (Hello bank!), path `/as/authorization.oauth2`. The site hosts are
   `mabanque.bnpparibas` and `www.hellobank.fr`; ThreatMetrix first-party hosts are
   `content.connexion.<domain>`. These six hosts are the exact allow-list; the `.bnpparibas` dotBrand TLD and the
-  ThreatMetrix vendor domain are the two suffix rules (see "Host policy").
+  vendor table are the suffix rules (see "Host policy").
 - The form is `form#identForm` with `pf.username`, `pf.pass.positions` and `pf.idTMX`. The keypad is ten
   HTML `<button>` elements in a 5x2 grid, shuffled per page load; the value submitted for a key is its
   0-based DOM position. The login is one POST; a refusal comes back as a redirect carrying `error_code`.
@@ -177,22 +201,23 @@ either checked on the **public** pages with a real browser (nothing typed), or *
   the real page and clicks the keys; it never builds or posts the login request itself.
 - `InfosClient` answers `codeRetour: "-10"` (a string) when no session is signed in.
 
-**Unverified (needs a signed-in session)** - shipped on the open-source woob `bnp` module and on the
-public recon only, to be confirmed by the first real login:
+**Unverified** - shipped on the open-source woob `bnp` module and on the public recon only:
 
-- **The second factor.** Both a Cle Digitale approval (app push, `APPROVAL_PENDING`) and an SMS code
-  (`CODE_REQUIRED`) are implemented, because it is not known which one a given customer gets. Which page
-  and which host the second factor lives on is unknown: a navigation to a host outside the allow-list stops the login
-  (`UPSTREAM_FORMAT_CHANGED`, the host name and the stage are logged, never the URL) rather than being followed. A second
-  factor the sidecar cannot classify stops with `MFA_TYPE_UNSUPPORTED`.
-- Every post-login JSON endpoint, verb, field name and the account-family / product-label mapping
-  (`parsers.py`), the session cookies and lifetime, `codeRetour` `-30` as a second "session expired" value,
-  the lock-out counter and the behaviour of `ClientNotFoundException201` / `TechnicalException917`.
-- Whether Camoufox gets past Akamai from a given network. From the build VPS the BNP and Hello bank! hosts
-  answered 403 to headless Chromium; nothing was done to evade that.
-- Real transaction, position and IBAN payloads: the tests use synthetic fixtures only.
+- **The second factor.** The run above was not asked for one. Both a Cle Digitale approval (app push,
+  `APPROVAL_PENDING`) and an SMS code (`CODE_REQUIRED`) are implemented, because it is not known which one a
+  given customer gets, nor which page and host it lives on: a navigation to a host outside the allow-list
+  stops the login (`UPSTREAM_FORMAT_CHANGED`, the host name and the stage are logged, never the URL) rather
+  than being followed. A second factor the sidecar cannot classify stops with `MFA_TYPE_UNSUPPORTED`.
+- **Hello bank!** and a retail customer who stays on `mabanque.bnpparibas`: no such account was used.
+- Securities accounts and their positions (`pe-war` endpoints), life insurance, PER, loans, the other
+  account families and product labels (`parsers.py`), a real IBAN in `rib-wspl`.
+- The session lifetime, `codeRetour` `-30` as a second "session expired" value, the lock-out counter and the
+  behaviour of `ClientNotFoundException201` / `TechnicalException917`.
+- The sidecar's Docker image (Linux Camoufox under Xvfb) against the bank, and whether Camoufox gets past
+  Akamai from a datacenter network. From the build VPS the BNP and Hello bank! hosts answered 403 to headless
+  Chromium; nothing was done to evade that.
 
 Fail-closed rules cover the gap: an unknown account family or kind is listed as unsupported and never
 guessed; an incomplete account is marked `snapshotComplete: false` and never replaces what was imported;
-an unexpected page stops the attempt with a stable code. Do not describe this connector as tested against
-a real account until an owner-assisted live run has confirmed the points above.
+an unexpected page stops the attempt with a stable code. Do not describe this connector as fully tested
+until the points above have been confirmed.

@@ -1,9 +1,9 @@
 """BNP Paribas / Hello bank! sidecar: browser login, then a normalized read-only snapshot.
 
 Status: the login page (hosts, form, keypad, error redirect) was checked on the public pages with a
-real browser, nothing typed; everything after the login (second factor, session, every JSON endpoint)
-is **UNVERIFIED** and never ran against a real account (docs/features/bnp-paribas.md, "Verification
-boundary"). The sidecar drives the real page and clicks the keypad buttons; it never builds the login POST.
+real browser, nothing typed; one owner-assisted run covered the login without a second factor, the
+session and the current and savings accounts. The second factor, Hello bank! and the securities endpoints
+are **UNVERIFIED** (docs/features/bnp-paribas.md, "Verification boundary"). The sidecar drives the real page and clicks the keypad buttons; it never builds the login POST.
 
   POST /initiate  {customerId, brand}      -> {processId, keypad: {keys[10], columns}, expiresInSeconds}
   POST /keypad    {processId, positions}   -> {processId, status: APPROVAL_PENDING | CODE_REQUIRED}

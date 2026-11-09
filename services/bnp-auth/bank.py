@@ -13,9 +13,11 @@ Verification status (docs/features/bnp-paribas.md, "Verification boundary"):
     (PingFederate on `connexion.<brand domain>`), `form#identForm`, `pf.username`,
     `pf.pass.positions`, the 5x2 keypad of 10 text buttons, the one-POST submit, the
     `error_code` query parameter, the `"-10"` string answer of InfosClient when not signed in.
-  * UNVERIFIED (only visible after a login): the second factor (Cle Digitale approval vs SMS
-    code), the page and host it happens on, the session cookies after login, every JSON
-    endpoint, path, verb and schema below, `codeRetour` -30, session lifetime.
+  * VERIFIED in one owner-assisted run (served by mabanqueprivee.bnpparibas, no second factor asked): the
+    redirect chain after the submit, the session probe, the account, RIB and operation endpoints,
+    a read in a new browser from the restored cookies.
+  * UNVERIFIED: the second factor (Cle Digitale approval vs SMS code) and the page and host it
+    happens on, the securities endpoints, Hello bank!, `codeRetour` -30, session lifetime.
 Whenever the page does not look as expected the sidecar stops and says so (KEYPAD_CHANGED,
 MFA_TYPE_UNSUPPORTED, UPSTREAM_FORMAT_CHANGED); it never guesses, and any request to a host outside
 the brand's allow-list stops the login and logs the host name (host only), except the other hosts of
@@ -119,7 +121,7 @@ MAX_UNKNOWN_HOSTS = 5
 LOGIN_PATH = "/auth/login"
 AUTHORIZE_PATH = "/as/authorization.oauth2"
 INFOS_CLIENT = "/serviceinfosclient-wspl/rpc/InfosClient?modeAppel=0"
-# UNVERIFIED post-login endpoints (woob modules/bnp); see the module docstring.
+# From woob modules/bnp. Seen live: accounts, ibans, history. UNVERIFIED: synthesis, portfolio.
 ENDPOINTS = {
     "accounts": ("GET", "/udc-wspl/rest/getlstcpt"),
     "ibans": ("GET", "/rib-wspl/rpc/comptes"),

@@ -1,7 +1,8 @@
 # bnp-auth - BNP Paribas / Hello bank! sidecar
 
-> Status: **not verified against a real account.** The login page was checked on the public pages only;
-> the second factor and every post-login endpoint are unverified. See
+> Status: **partly verified against one real account** (owner-assisted run, 2026-11-09: keypad login with
+> no second factor asked, session, current and savings accounts, operations). The second factor, Hello bank!,
+> securities, life insurance and loans are unverified. See
 > [Verification boundary](../../docs/features/bnp-paribas.md#verification-boundary) and the
 > [ADR](../../docs/decisions/2026-11-09-bnp-paribas-sidecar.md).
 

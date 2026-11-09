@@ -1,7 +1,7 @@
 # ADR: BNP Paribas and Hello bank! through a dedicated Camoufox sidecar
 
 > Date: 2026-11-09
-> Status: 🟡 Proposed - implemented, not verified against a real account (issue #306)
+> Status: 🟡 Proposed - implemented, partly verified against one real account (issue #306)
 
 ## Context
 
@@ -47,8 +47,9 @@ session-death signal (`codeRetour: "-10"`, a string).
 
 ## Consequences
 
-- The post-login endpoints and second-factor page are unverified; the first owner-assisted live run may
-  require changes to `bank.py` and `parsers.py` only (not to the backend contract).
+- The first owner-assisted live run (2026-11-09) needed changes to `bank.py` and `parsers.py` only, not to
+  the backend contract: the consent-vendor rule above and the dash date format of the operations. The
+  second-factor page, Hello bank! and the securities, life-insurance and loan endpoints are still unverified.
 - Akamai may refuse the sidecar's network (403 was seen from a datacenter IP). That is reported as
   `UPSTREAM_UNAVAILABLE`; no evasion is attempted.
 - A Camoufox sidecar is heavier than an httpx one; it shares the base image with Amex and Revolut.
