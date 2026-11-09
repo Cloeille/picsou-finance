@@ -1,6 +1,6 @@
 # Feature: American Express France sidecar
 
-> Last updated: 2026-11-01
+> Last updated: 2026-11-09
 
 ## Context
 
@@ -16,6 +16,23 @@ manager. A wrong OTP returns HTTP 401 `INVALID_OTP` and keeps the attempt for
 retry when capacity allows; if other logins have filled the pool during
 completion, re-parking returns HTTP 503 `UPSTREAM_UNAVAILABLE`, releases those
 same resources, and removes the attempt.
+
+The login form is not in the server HTML: a module from `aexp-static.com`
+(`one-identity-login`) renders it on the client, measured at 1.6 s to 16 s, and
+that request sometimes fails (#482). `/initiate` waits up to 20 s for the user,
+password and submit fields. If the module request fails, or the wait runs out,
+it reloads the page once, also when the module loaded but the form was not
+drawn in time (seen live). A form still missing after that returns HTTP 503
+`UPSTREAM_UNAVAILABLE` (retryable, "Impossible de joindre American Express")
+when the module did not load, and HTTP 502 `UPSTREAM_FORMAT_CHANGED` only when
+the module loaded both times and the fields are still absent. The
+warning `AMEX login form missing attempts=… module_loaded=… module_failed=…`
+says which. Only the module's own files (`one-identity-login.*` under that
+path) count, and a request aborted by the reload itself is ignored. Trade-off:
+if AMEX renames or moves the module, `module_loaded` stays false and the error
+reads as an outage (503) rather than a format change; the warning line, with
+`module_loaded=False module_failed=False`, is the tell. The backend waits up to
+90 s for `/initiate` to cover two form waits and the login outcome.
 
 The user selects SMS (default) or e-mail for AMEX's one-time code. On AMEX's verify page the channels are radio inputs labelled with the masked phone number and masked e-mail address; the sidecar picks the e-mail channel when the label contains `@`, otherwise the phone (SMS) channel, then clicks **Continuer**. The older option-button markup is still handled. Logs never include labels, ids, phone numbers or e-mail addresses. The browser completes login and OTP, then captures value-free JSON response diagnostics from American Express domains while the dashboard loads. Account discovery falls back to the servicing balances API; missing enrichments remain null and never fail a sync.
 
@@ -102,7 +119,7 @@ Demo mode ships a fictional AMEX card (account 12, with history and transactions
 - `AmexSyncServiceTest`, `AmexAdapterTest`, `AmexControllerTest`
 - `RecurringSeriesServiceTest`, `HistoryServiceTest`, `AccountServiceTest` (card sign)
 - `TransactionsList.test.tsx` (header actions), `AccountForm.test.tsx` and `MonthEndBalanceModal.test.tsx` (card amount owed), `features/accounts/hooks.test.tsx` (debts out of the cash line), `money-axis.test.tsx` (chart axis masking)
-- `test_parsers.py` and `test_sidecar_auth.py` inside the built container
+- `test_parsers.py`, `test_sidecar_auth.py` and `test_login_form.py` (reload and 502/503 classification of a missing login form) inside the built container
 
 ## Links
 
