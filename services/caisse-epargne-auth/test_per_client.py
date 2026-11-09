@@ -166,8 +166,12 @@ class HappyPathTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(str(insurer.requests[2].url).endswith("/load/PER/IB/876543"))
 
     async def test_a_routing_answer_for_another_product_is_refused(self):
-        for bank_id, producer in (("00000     ESSEN12345678", "PERIC876543"), ("00000     PERIC12345678", "ESSEN876543")):
-            with self.subTest(bank_id):
+        for bank_id, producer in (
+            ("00000     ESSEN12345678", "PERIC876543"),
+            ("00000     PERIC12345678", "ESSEN876543"),
+            ("PERIB123456789", "PERIC876543"),
+        ):
+            with self.subTest(bank_id=bank_id, producer=producer):
                 insurer = FakeInsurer(routing=lambda _r, p=producer: httpx.Response(201, json=routing_body(producer=p)))
                 with self.assertRaises(replay.UpstreamError):
                     await fetch(insurer, contract_id=bank_id)
