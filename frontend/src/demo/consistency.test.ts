@@ -68,7 +68,7 @@ describe('demo dashboard figures follow the selected accounts', () => {
 
   it('computes the dashboard P&L over the investment accounts the dashboard asks for', async () => {
     const dashboard = await get<DashboardData>('/dashboard')
-    const accountIds = dashboard.distribution.filter(d => d.hasHoldings).map(d => d.accountId).join(',')
+    const accountIds = dashboard.assets.filter(d => d.hasHoldings).map(d => d.accountId).join(',')
     const [pnl, history] = await Promise.all([
       get<PnlData>('/history/pnl', { accountIds, from: '2026-10-01' }),
       get<{ total: number; invested: number }[]>('/history', { accountIds, months: 1 }),
@@ -79,9 +79,9 @@ describe('demo dashboard figures follow the selected accounts', () => {
 
   it('ends the 24H gross-wealth chart on the gross wealth the header shows', async () => {
     const dashboard = await get<DashboardData>('/dashboard')
-    // DashboardPage's gross mode: every distribution row, no liabilities.
-    const grossIds = dashboard.distribution.map(d => d.accountId)
-    const grossWealth = sum(dashboard.distribution.map(d => d.balanceEur))
+    // DashboardPage's gross mode: every asset row (receivables included), no liabilities.
+    const grossIds = dashboard.assets.map(d => d.accountId)
+    const grossWealth = sum(dashboard.assets.map(d => d.balanceEur))
     const intraday = await get<IntradayPoint[]>('/history/net-worth/intraday', { accountIds: grossIds.join(',') })
     expect(intraday[intraday.length - 1].total).toBeCloseTo(grossWealth, 2)
   })

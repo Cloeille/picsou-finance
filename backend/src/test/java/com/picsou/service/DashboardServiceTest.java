@@ -16,6 +16,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -280,6 +281,55 @@ class DashboardServiceTest {
         verify(historyService).buildHistory(List.of(1L), 3, 42L);
     }
 
+    @Test
+    void getDashboard_keepsPeerLoansOutOfTheDistribution() {
+        Account open = peerLoanAccount(20L, "Marie", "1000");
+        Account closed = peerLoanAccount(21L, "Jean", "0");
+        Account unconfigured = peerLoanAccount(22L, "Sans conditions", "0");
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L))
+            .thenReturn(List.of(open, closed, unconfigured));
+        when(holdingRepository.findByAccount_Id(20L)).thenReturn(List.of());
+        when(holdingRepository.findByAccount_Id(21L)).thenReturn(List.of());
+        when(holdingRepository.findByAccount_Id(22L)).thenReturn(List.of());
+        when(priceService.toEur(any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        when(historyService.buildHistory(List.of(20L, 21L, 22L), 12, 42L)).thenReturn(List.of());
+        when(goalRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of());
+
+        DashboardResponse response = dashboardService.getDashboard(42L, "1Y");
+
+        // A receivable is not an allocation asset, so no peer loan claims a slice of the
+        // donut -- not even an open one with a balance. Net worth still counts it.
+        assertThat(response.distribution()).isEmpty();
+        // The wealth modes and history still see them, so net worth and the curve agree.
+        assertThat(response.assets()).extracting(DashboardResponse.DistributionItem::name)
+            .containsExactly("Marie", "Jean", "Sans conditions");
+        assertThat(response.totalNetWorth()).isEqualByComparingTo("1000");
+    }
+
+    @Test
+    void getDashboard_distributionDividesByTheIncludedAssetsOnly() {
+        Account cash = cashAccount();
+        Account loan = peerLoanAccount(20L, "Marie", "1000");
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L))
+            .thenReturn(List.of(cash, loan));
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
+        when(holdingRepository.findByAccount_Id(20L)).thenReturn(List.of());
+        when(priceService.toEur(any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        when(historyService.buildHistory(List.of(1L, 20L), 12, 42L)).thenReturn(List.of());
+        when(goalRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of());
+
+        DashboardResponse response = dashboardService.getDashboard(42L, "1Y");
+
+        // The donut has one slice and it fills it: the receivable is not a divisor it never
+        // appears in. Both are assets, so the separate list still totals 3 000.
+        assertThat(response.distribution()).hasSize(1);
+        assertThat(response.distribution().getFirst().name()).isEqualTo("Checking");
+        assertThat(response.distribution().getFirst().percentage()).isEqualTo(100.0);
+        assertThat(response.assets()).extracting(DashboardResponse.DistributionItem::name)
+            .containsExactly("Checking", "Marie");
+        assertThat(response.totalNetWorth()).isEqualByComparingTo("3000");
+    }
+
     /** LOAN 10000 EUR (id 10) + CHECKING 2000 EUR (id 1), no holdings, toEur pass-through. */
     private void stubLoanAndCashFixture() {
         Account loanAcc = loanAccount();
@@ -325,6 +375,17 @@ class DashboardServiceTest {
             .currency("EUR")
             .currentBalance(new BigDecimal("5000"))
             .color("#6366f1")
+            .build();
+    }
+
+    private Account peerLoanAccount(Long id, String name, String balance) {
+        return Account.builder()
+            .id(id)
+            .name(name)
+            .type(AccountType.PEER_LOAN)
+            .currency("EUR")
+            .currentBalance(new BigDecimal(balance))
+            .color("#0d9488")
             .build();
     }
 }

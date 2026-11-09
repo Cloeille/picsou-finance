@@ -8,14 +8,19 @@ import com.picsou.dto.MemberProfileResponse;
 import com.picsou.model.AccountType;
 import com.picsou.model.Debt;
 import com.picsou.model.GoalType;
+import com.picsou.model.PeerLoanRepayment;
+import com.picsou.model.PeerLoanTerms;
 import com.picsou.model.PropertyValuation;
 import com.picsou.repository.DebtRepository;
+import com.picsou.repository.PeerLoanRepaymentRepository;
+import com.picsou.repository.PeerLoanTermsRepository;
 import com.picsou.repository.PropertyValuationRepository;
 import com.picsou.service.AccountService;
 import com.picsou.service.GoalService;
 import com.picsou.service.LoanAmortizationService;
 import com.picsou.service.LoanAmortizationService.LoanSummary;
 import com.picsou.service.MemberProfileService;
+import com.picsou.service.PeerLoanCalculator;
 import com.picsou.service.SavingsRateCalculator;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.util.WorkbookUtil;
@@ -69,6 +74,8 @@ public class AccountsWorkbookService {
     private final MemberProfileService memberProfileService;
     private final GoalService goalService;
     private final SavingsRateCalculator savingsRateCalculator;
+    private final PeerLoanTermsRepository peerLoanTermsRepository;
+    private final PeerLoanRepaymentRepository peerLoanRepaymentRepository;
 
     public AccountsWorkbookService(AccountService accountService,
                                    PropertyValuationRepository valuationRepository,
@@ -76,7 +83,9 @@ public class AccountsWorkbookService {
                                    LoanAmortizationService loanAmortizationService,
                                    MemberProfileService memberProfileService,
                                    GoalService goalService,
-                                   SavingsRateCalculator savingsRateCalculator) {
+                                   SavingsRateCalculator savingsRateCalculator,
+                                   PeerLoanTermsRepository peerLoanTermsRepository,
+                                   PeerLoanRepaymentRepository peerLoanRepaymentRepository) {
         this.accountService = accountService;
         this.valuationRepository = valuationRepository;
         this.debtRepository = debtRepository;
@@ -84,6 +93,8 @@ public class AccountsWorkbookService {
         this.memberProfileService = memberProfileService;
         this.goalService = goalService;
         this.savingsRateCalculator = savingsRateCalculator;
+        this.peerLoanTermsRepository = peerLoanTermsRepository;
+        this.peerLoanRepaymentRepository = peerLoanRepaymentRepository;
     }
 
     /**
@@ -153,8 +164,44 @@ public class AccountsWorkbookService {
             }
         }
 
-        return new AccountExportData(account, holdings, valuations, schedule,
-            debtRepository.findByLinkedAccountId(accountId).stream().map(this::gatherDebt).toList());
+        PeerLoanExportData peerLoan = account.type() == AccountType.PEER_LOAN
+            ? gatherPeerLoan(accountId)
+            : null;
+
+        List<DebtExportData> financing =
+            debtRepository.findByLinkedAccountId(accountId).stream().map(this::gatherDebt).toList();
+
+        return new AccountExportData(account, holdings, valuations, schedule, financing, peerLoan);
+    }
+
+    /**
+     * The terms and the dated ledger of one peer loan. Figures come from the calculator, the
+     * same one the detail page uses, so the sheet cannot disagree with the screen.
+     * An unconfigured PEER_LOAN account has no terms and therefore no block.
+     */
+    private PeerLoanExportData gatherPeerLoan(Long accountId) {
+        PeerLoanTerms terms = peerLoanTermsRepository.findByAccountId(accountId).orElse(null);
+        if (terms == null) {
+            return null;
+        }
+        List<PeerLoanRepayment> repayments =
+            peerLoanRepaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(accountId);
+        LocalDate today = LocalDate.now();
+        PeerLoanCalculator.Computed computed = PeerLoanCalculator.compute(terms, repayments, today);
+        PeerLoanCalculator.Plan plan = PeerLoanCalculator.plan(terms, computed.principalRemaining(), today);
+
+        List<PeerLoanExportData.RepaymentRow> rows = new ArrayList<>();
+        for (int i = 0; i < repayments.size(); i++) {
+            PeerLoanRepayment r = repayments.get(i);
+            PeerLoanCalculator.PaymentSplit split =
+                i < computed.splits().size() ? computed.splits().get(i) : null;
+            rows.add(new PeerLoanExportData.RepaymentRow(
+                r.getPaidOn(), r.getAmount(), r.getKind(), r.getNote(),
+                split == null ? null : split.interest(),
+                split == null ? null : split.capital()));
+        }
+        return new PeerLoanExportData(terms, computed,
+            plan == null ? null : plan.plannedInterest(), rows);
     }
 
     private List<DebtExportData> gatherDebts(Long memberId) {

@@ -1,19 +1,20 @@
 package com.picsou.service;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
-import com.picsou.model.CmesSession;
-import com.picsou.model.CmesSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.adapter.CmesAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.CmesSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.service.sync.SourceSyncResult;
 import org.junit.jupiter.api.BeforeEach;
@@ -63,7 +64,7 @@ class CmesSyncServiceTest {
     private static final String CREDENTIALS_JSON = "{\"login\":\"12345678\",\"password\":\"secret\"}";
 
     @Mock CmesAdapter port;
-    @Mock CmesSessionRepository sessionRepository;
+    @Mock SidecarSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock AccountHoldingRepository holdingRepository;
     @Mock FamilyMemberRepository memberRepository;
@@ -91,7 +92,7 @@ class CmesSyncServiceTest {
 
         CmesSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(CmesSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(accountRepository).save(accountCaptor.capture());
         Account saved = accountCaptor.getValue();
         assertThat(saved.getType()).isEqualTo(AccountType.EMPLOYEE_SAVINGS);
@@ -131,7 +132,7 @@ class CmesSyncServiceTest {
 
     @Test
     void expiredSessionLogsInAgainWithTheStoredCredentialsAndThePreviousSession() {
-        CmesSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         session.setEncryptedCredentials("credentials-encrypted");
         arrangeCommittableSession(session);
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
@@ -146,13 +147,13 @@ class CmesSyncServiceTest {
         // The previous session is what carries the remembered-device cookie.
         verify(port).reauthenticate("12345678", "secret", "plain-state");
         assertThat(session.getSessionState()).isEqualTo("fresh-encrypted");
-        assertThat(session.getSyncStatus()).isEqualTo(CmesSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(port, times(2)).fetchPlans(anyString());
     }
 
     @Test
     void aReLoginThatAsksForANewConfirmationStopsAndAsksTheSaverToReconnect() {
-        CmesSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         session.setEncryptedCredentials("credentials-encrypted");
         arrangeQueuedSession(session);
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
@@ -162,7 +163,7 @@ class CmesSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(CmesSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         assertThat(session.isActive()).isFalse();
         // Credentials stay: the next reconnection can still re-log unattended.
@@ -171,7 +172,7 @@ class CmesSyncServiceTest {
 
     @Test
     void aRejectedStoredPasswordIsForgottenSoItIsNotReplayedDaily() {
-        CmesSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         session.setEncryptedCredentials("credentials-encrypted");
         arrangeQueuedSession(session);
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
@@ -189,7 +190,7 @@ class CmesSyncServiceTest {
 
     @Test
     void expiredSessionWithoutStoredCredentialsDoesNotTryToLogIn() {
-        CmesSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchPlans("plain-state")).thenThrow(expired());
 
@@ -201,7 +202,7 @@ class CmesSyncServiceTest {
 
     @Test
     void aFirstLoginSendsNoPreviousSession() {
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CMES, 7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
             .thenReturn(new SidecarInitiate("p1", true, "APP_PUSH", null));
 
@@ -214,8 +215,8 @@ class CmesSyncServiceTest {
 
     @Test
     void aReconnectionReplaysThePreviousSessionToSkipTheConfirmation() {
-        CmesSession expiredSession = activeSession(owner());
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(expiredSession));
+        SidecarSession expiredSession = activeSession(owner());
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CMES, 7L)).thenReturn(Optional.of(expiredSession));
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
         when(port.initiateAuth("12345678", "secret", "plain-state"))
             .thenReturn(new SidecarInitiate("p1", true, "APP_PUSH", null));
@@ -227,15 +228,15 @@ class CmesSyncServiceTest {
 
     @Test
     void theCredentialsAreStoredOnlyOnceTheConfirmationSucceeded() {
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.CMES, 7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
             .thenReturn(new SidecarInitiate("p2", true, "APP_PUSH", null));
         when(port.completeAuth("p2", null)).thenReturn("cookies");
         when(memberRepository.findById(7L)).thenReturn(Optional.of(owner()));
         when(encryption.encrypt(anyString())).thenAnswer(invocation ->
             "cookies".equals(invocation.getArgument(0)) ? "encrypted-state" : "encrypted-credentials");
-        when(sessionRepository.saveAndFlush(any(CmesSession.class))).thenAnswer(invocation -> {
-            CmesSession stored = invocation.getArgument(0);
+        when(sessionRepository.saveAndFlush(any(SidecarSession.class))).thenAnswer(invocation -> {
+            SidecarSession stored = invocation.getArgument(0);
             assertThat(stored.getEncryptedCredentials()).isEqualTo("encrypted-credentials");
             return stored;
         });
@@ -246,12 +247,12 @@ class CmesSyncServiceTest {
         service.completeAuth("p2", null, 7L);
 
         verify(port).completeAuth("p2", null);
-        verify(sessionRepository).saveAndFlush(any(CmesSession.class));
+        verify(sessionRepository).saveAndFlush(any(SidecarSession.class));
     }
 
     @Test
     void aMistypedSmsCodeKeepsTheCredentialsForTheNextTry() {
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.CMES, 7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
             .thenReturn(new SidecarInitiate("p4", true, "SMS", null));
         when(port.completeAuth("p4", "000000"))
@@ -260,8 +261,8 @@ class CmesSyncServiceTest {
         when(memberRepository.findById(7L)).thenReturn(Optional.of(owner()));
         when(encryption.encrypt(anyString())).thenAnswer(invocation ->
             "cookies".equals(invocation.getArgument(0)) ? "encrypted-state" : "encrypted-credentials");
-        when(sessionRepository.saveAndFlush(any(CmesSession.class))).thenAnswer(invocation -> {
-            CmesSession stored = invocation.getArgument(0);
+        when(sessionRepository.saveAndFlush(any(SidecarSession.class))).thenAnswer(invocation -> {
+            SidecarSession stored = invocation.getArgument(0);
             assertThat(stored.getEncryptedCredentials()).isEqualTo("encrypted-credentials");
             return stored;
         });
@@ -272,12 +273,12 @@ class CmesSyncServiceTest {
         assertThatThrownBy(() -> service.completeAuth("p4", "000000", 7L)).isInstanceOf(SyncException.class);
         service.completeAuth("p4", "123456", 7L);
 
-        verify(sessionRepository).saveAndFlush(any(CmesSession.class));
+        verify(sessionRepository).saveAndFlush(any(SidecarSession.class));
     }
 
     @Test
     void anotherMemberCannotCompleteSomeoneElsesLogin() {
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.CMES, 7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
             .thenReturn(new SidecarInitiate("p3", true, "APP_PUSH", null));
         service.initiateAuth("12345678", "secret", 7L);
@@ -301,7 +302,7 @@ class CmesSyncServiceTest {
 
     @Test
     void aConfirmationThatLandsAfterTheConnectionWasRemovedStoresNothing() {
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.CMES, 7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
             .thenReturn(new SidecarInitiate("p7", true, "APP_PUSH", null));
         service.initiateAuth("12345678", "secret", 7L);
@@ -321,7 +322,7 @@ class CmesSyncServiceTest {
 
     @Test
     void aRememberedDeviceLoginThatLandsAfterTheConnectionWasRemovedStoresNothing() {
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.CMES, 7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null)).thenAnswer(invocation -> {
             service.clearSession(7L);
             return new SidecarInitiate(null, false, null, "cookies");
@@ -337,7 +338,7 @@ class CmesSyncServiceTest {
 
     @Test
     void aSecondFactorLoginThatLandsAfterTheConnectionWasRemovedKeepsNoCredentials() {
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.CMES, 7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null)).thenAnswer(invocation -> {
             service.clearSession(7L);
             return new SidecarInitiate("p7", true, "APP_PUSH", null);
@@ -356,19 +357,19 @@ class CmesSyncServiceTest {
     @Test
     void aLoginStartedAfterTheConnectionWasRemovedIsStored() {
         service.clearSession(7L);
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.CMES, 7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
             .thenReturn(new SidecarInitiate(null, false, null, "cookies"));
         arrangeStorableSession();
 
         service.initiateAuth("12345678", "secret", 7L);
 
-        verify(sessionRepository).saveAndFlush(any(CmesSession.class));
+        verify(sessionRepository).saveAndFlush(any(SidecarSession.class));
     }
 
     @Test
     void expiredPendingCredentialsAreEvictedWithoutWaitingForANewLogin() {
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.CMES, 7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
             .thenReturn(new SidecarInitiate("p6", true, "SMS", null));
         when(port.completeAuth("p6", "000000"))
@@ -479,7 +480,7 @@ class CmesSyncServiceTest {
 
         CmesSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(CmesSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         assertThat(pee.getExternalAccountId()).isEqualTo(PEE_NEW_ID);
         assertThat(pee.getCurrentBalance()).isEqualByComparingTo("1500.50");
         // Moved, so not closed: no zero snapshot splits its history.
@@ -519,7 +520,7 @@ class CmesSyncServiceTest {
 
         CmesSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(CmesSyncStatus.FAILED);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         assertThat(imported.getExternalAccountId()).isEqualTo(PEG_ID);
         assertThat(imported.getCurrentBalance()).isEqualByComparingTo("1400.00");
@@ -538,7 +539,7 @@ class CmesSyncServiceTest {
 
         CmesSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(CmesSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(accountRepository, never()).save(any());
     }
 
@@ -557,7 +558,7 @@ class CmesSyncServiceTest {
 
         CmesSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(CmesSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         assertThat(older.getExternalAccountId()).isEqualTo(PEG_ID);
         assertThat(older.getCurrentBalance()).isEqualByComparingTo("0");
         verify(accountRepository, never()).save(any());
@@ -565,10 +566,10 @@ class CmesSyncServiceTest {
 
     @Test
     void aScheduledResyncAsksForReauthenticationOnceTheSessionIsGone() {
-        CmesSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         session.markQueued();
         session.markFailed(SidecarErrorCode.SESSION_EXPIRED, java.time.Instant.now());
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CMES, 7L)).thenReturn(Optional.of(session));
 
         SourceSyncResult result = service.resyncReporting(7L);
 
@@ -585,7 +586,7 @@ class CmesSyncServiceTest {
         when(port.fetchPlans("plain-state")).thenReturn(List.of(plans));
     }
 
-    private void arrangeCommittableSession(CmesSession session) {
+    private void arrangeCommittableSession(SidecarSession session) {
         arrangeQueuedSession(session);
         when(memberRepository.findById(7L)).thenReturn(Optional.of(owner()));
         when(accountRepository.findByExternalAccountIdAndMemberId(any(), eq(7L))).thenReturn(Optional.empty());
@@ -600,7 +601,7 @@ class CmesSyncServiceTest {
     private void arrangeStorableSession() {
         lenient().when(memberRepository.findById(7L)).thenReturn(Optional.of(owner()));
         lenient().when(encryption.encrypt(anyString())).thenReturn("encrypted");
-        lenient().when(sessionRepository.saveAndFlush(any(CmesSession.class)))
+        lenient().when(sessionRepository.saveAndFlush(any(SidecarSession.class)))
             .thenAnswer(invocation -> invocation.getArgument(0));
         lenient().when(port.fetchPlans("cookies"))
             .thenThrow(new SyncException("transient", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
@@ -618,21 +619,21 @@ class CmesSyncServiceTest {
         }).when(txTemplate).executeWithoutResult(any());
     }
 
-    private void arrangeQueuedSession(CmesSession session) {
-        lenient().when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+    private void arrangeQueuedSession(SidecarSession session) {
+        lenient().when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CMES, 7L)).thenReturn(Optional.of(session));
         lenient().when(sessionRepository.findByIdAndMemberIdForUpdate(session.getId(), 7L))
             .thenReturn(Optional.of(session));
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.CMES, 7L)).thenReturn(Optional.of(session));
         lenient().when(encryption.decrypt("encrypted")).thenReturn("plain-state");
     }
 
-    private CmesSession activeSession(FamilyMember member) {
-        return CmesSession.builder()
+    private SidecarSession activeSession(FamilyMember member) {
+        return SidecarSession.builder().bank(SidecarBank.CMES)
             .id(3L)
             .member(member)
             .sessionState("encrypted")
             .active(true)
-            .syncStatus(CmesSyncStatus.IDLE)
+            .syncStatus(SidecarSyncStatus.IDLE)
             .build();
     }
 

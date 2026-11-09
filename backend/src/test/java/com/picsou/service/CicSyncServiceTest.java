@@ -1,17 +1,18 @@
 package com.picsou.service;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
-import com.picsou.model.CicSession;
-import com.picsou.model.CicSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.adapter.CicAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.CicSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.service.sync.SourceSyncResult;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,7 +60,7 @@ class CicSyncServiceTest {
     private static final String CREDENTIALS_JSON = "{\"login\":\"12345678\",\"password\":\"secret\"}";
 
     @Mock CicAdapter port;
-    @Mock CicSessionRepository sessionRepository;
+    @Mock SidecarSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock FamilyMemberRepository memberRepository;
     @Mock AccountService accountService;
@@ -87,7 +88,7 @@ class CicSyncServiceTest {
 
         CicSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(CicSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(accountRepository, times(2)).save(accountCaptor.capture());
         assertThat(accountCaptor.getAllValues())
             .extracting(Account::getType)
@@ -113,7 +114,7 @@ class CicSyncServiceTest {
 
     @Test
     void expiredSessionLogsInAgainWithTheStoredCredentialsAndThePreviousSession() {
-        CicSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         session.setEncryptedCredentials("credentials-encrypted");
         arrangeCommittableSession(session);
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
@@ -128,13 +129,13 @@ class CicSyncServiceTest {
         // The previous session is what carries the remembered-device cookie.
         verify(port).reauthenticate("12345678", "secret", "plain-state");
         assertThat(session.getSessionState()).isEqualTo("fresh-encrypted");
-        assertThat(session.getSyncStatus()).isEqualTo(CicSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(port, times(2)).fetchAccounts(anyString());
     }
 
     @Test
     void aReLoginThatAsksForANewConfirmationStopsAndAsksTheSaverToReconnect() {
-        CicSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         session.setEncryptedCredentials("credentials-encrypted");
         arrangeQueuedSession(session);
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
@@ -144,7 +145,7 @@ class CicSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(CicSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         assertThat(session.isActive()).isFalse();
         // Credentials stay: the next reconnection can still re-log unattended.
@@ -153,7 +154,7 @@ class CicSyncServiceTest {
 
     @Test
     void aRejectedStoredPasswordIsForgottenSoItIsNotReplayedDaily() {
-        CicSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         session.setEncryptedCredentials("credentials-encrypted");
         arrangeQueuedSession(session);
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
@@ -168,14 +169,14 @@ class CicSyncServiceTest {
         CicSyncService.SessionStatusResponse status = service.getStatus(7L);
         assertThat(status.isActive()).isFalse();
         assertThat(status.canReconnect()).isFalse();
-        assertThat(status.syncStatus()).isEqualTo(CicSyncStatus.FAILED);
+        assertThat(status.syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(status.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_CREDENTIALS);
         assertThat(service.resyncReporting(7L).status()).isEqualTo(SourceSyncResult.Status.NEEDS_REAUTH);
     }
 
     @Test
     void expiredSessionWithoutStoredCredentialsDoesNotTryToLogIn() {
-        CicSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(expired());
 
@@ -187,7 +188,7 @@ class CicSyncServiceTest {
 
     @Test
     void aFirstLoginSendsNoPreviousSession() {
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CIC, 7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
             .thenReturn(new SidecarInitiate("p1", true, "APP_PUSH", null));
 
@@ -200,8 +201,8 @@ class CicSyncServiceTest {
 
     @Test
     void aReconnectionReplaysThePreviousSessionToSkipTheConfirmation() {
-        CicSession expiredSession = activeSession(owner());
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(expiredSession));
+        SidecarSession expiredSession = activeSession(owner());
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CIC, 7L)).thenReturn(Optional.of(expiredSession));
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
         when(port.initiateAuth("12345678", "secret", "plain-state"))
             .thenReturn(new SidecarInitiate("p1", true, "APP_PUSH", null));
@@ -218,9 +219,9 @@ class CicSyncServiceTest {
      */
     @Test
     void aReconnectionStartedByTheSaverUsesTheStoredCredentialsAndWaitsForTheApp() {
-        CicSession expiredSession = activeSession(owner());
+        SidecarSession expiredSession = activeSession(owner());
         expiredSession.setEncryptedCredentials("credentials-encrypted");
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(expiredSession));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CIC, 7L)).thenReturn(Optional.of(expiredSession));
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
         when(port.initiateAuth("12345678", "secret", "plain-state"))
@@ -235,7 +236,7 @@ class CicSyncServiceTest {
 
     @Test
     void aReconnectionWithoutStoredCredentialsAsksTheSaverToTypeThem() {
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(activeSession(owner())));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CIC, 7L)).thenReturn(Optional.of(activeSession(owner())));
 
         assertThatThrownBy(() -> service.reconnect(7L))
             .isInstanceOf(SyncException.class)
@@ -245,10 +246,10 @@ class CicSyncServiceTest {
 
     @Test
     void disconnectAfterReadingStoredCredentialsRevokesTheReconnect() {
-        CicSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         session.setEncryptedCredentials("credentials-encrypted");
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session), Optional.empty());
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CIC, 7L)).thenReturn(Optional.of(session), Optional.empty());
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CIC, 7L)).thenReturn(Optional.of(session));
         when(encryption.decrypt("credentials-encrypted")).thenAnswer(invocation -> {
             service.clearSession(7L);
             return CREDENTIALS_JSON;
@@ -267,14 +268,14 @@ class CicSyncServiceTest {
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void aRejectedPasswordDuringExplicitReconnectRequiresNewCredentials(boolean active) {
-        CicSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         if (!active) {
             session.markQueued();
             session.markFailed(SidecarErrorCode.SESSION_EXPIRED, clock.instant());
         }
         session.setEncryptedCredentials("credentials-encrypted");
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
-        lenient().when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CIC, 7L)).thenReturn(Optional.of(session));
+        lenient().when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CIC, 7L)).thenReturn(Optional.of(session));
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
         when(port.initiateAuth("12345678", "secret", "plain-state"))
@@ -297,10 +298,10 @@ class CicSyncServiceTest {
 
     @Test
     void anOldReconnectRejectionDoesNotEraseNewerCredentials() {
-        CicSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         session.setEncryptedCredentials("credentials-encrypted");
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
-        lenient().when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CIC, 7L)).thenReturn(Optional.of(session));
+        lenient().when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CIC, 7L)).thenReturn(Optional.of(session));
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
         when(port.initiateAuth("12345678", "secret", "plain-state")).thenAnswer(invocation -> {
@@ -318,9 +319,9 @@ class CicSyncServiceTest {
 
     @Test
     void aTransientReconnectFailureKeepsTheStoredCredentials() {
-        CicSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         session.setEncryptedCredentials("credentials-encrypted");
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CIC, 7L)).thenReturn(Optional.of(session));
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
         when(port.initiateAuth("12345678", "secret", "plain-state"))
@@ -337,8 +338,8 @@ class CicSyncServiceTest {
 
     @Test
     void theStatusTellsWhetherStoredCredentialsCanReconnect() {
-        CicSession session = activeSession(owner());
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        SidecarSession session = activeSession(owner());
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CIC, 7L)).thenReturn(Optional.of(session));
         assertThat(service.getStatus(7L).canReconnect()).isFalse();
 
         session.setEncryptedCredentials("credentials-encrypted");
@@ -347,15 +348,15 @@ class CicSyncServiceTest {
 
     @Test
     void theCredentialsAreStoredOnlyOnceTheConfirmationSucceeded() {
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.CIC, 7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
             .thenReturn(new SidecarInitiate("p2", true, "APP_PUSH", null));
         when(port.completeAuth("p2", null)).thenReturn("cookies");
         when(memberRepository.findById(7L)).thenReturn(Optional.of(owner()));
         when(encryption.encrypt(anyString())).thenAnswer(invocation ->
             "cookies".equals(invocation.getArgument(0)) ? "encrypted-state" : "encrypted-credentials");
-        when(sessionRepository.saveAndFlush(any(CicSession.class))).thenAnswer(invocation -> {
-            CicSession stored = invocation.getArgument(0);
+        when(sessionRepository.saveAndFlush(any(SidecarSession.class))).thenAnswer(invocation -> {
+            SidecarSession stored = invocation.getArgument(0);
             assertThat(stored.getEncryptedCredentials()).isEqualTo("encrypted-credentials");
             return stored;
         });
@@ -366,12 +367,12 @@ class CicSyncServiceTest {
         service.completeAuth("p2", null, 7L);
 
         verify(port).completeAuth("p2", null);
-        verify(sessionRepository).saveAndFlush(any(CicSession.class));
+        verify(sessionRepository).saveAndFlush(any(SidecarSession.class));
     }
 
     @Test
     void aMistypedSmsCodeKeepsTheCredentialsForTheNextTry() {
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.CIC, 7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
             .thenReturn(new SidecarInitiate("p4", true, "SMS", null));
         when(port.completeAuth("p4", "000000"))
@@ -380,8 +381,8 @@ class CicSyncServiceTest {
         when(memberRepository.findById(7L)).thenReturn(Optional.of(owner()));
         when(encryption.encrypt(anyString())).thenAnswer(invocation ->
             "cookies".equals(invocation.getArgument(0)) ? "encrypted-state" : "encrypted-credentials");
-        when(sessionRepository.saveAndFlush(any(CicSession.class))).thenAnswer(invocation -> {
-            CicSession stored = invocation.getArgument(0);
+        when(sessionRepository.saveAndFlush(any(SidecarSession.class))).thenAnswer(invocation -> {
+            SidecarSession stored = invocation.getArgument(0);
             assertThat(stored.getEncryptedCredentials()).isEqualTo("encrypted-credentials");
             return stored;
         });
@@ -392,12 +393,12 @@ class CicSyncServiceTest {
         assertThatThrownBy(() -> service.completeAuth("p4", "000000", 7L)).isInstanceOf(SyncException.class);
         service.completeAuth("p4", "123456", 7L);
 
-        verify(sessionRepository).saveAndFlush(any(CicSession.class));
+        verify(sessionRepository).saveAndFlush(any(SidecarSession.class));
     }
 
     @Test
     void anotherMemberCannotCompleteSomeoneElsesLogin() {
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.CIC, 7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
             .thenReturn(new SidecarInitiate("p3", true, "APP_PUSH", null));
         service.initiateAuth("12345678", "secret", 7L);
@@ -557,14 +558,14 @@ class CicSyncServiceTest {
         when(port.completeAuth("pending", null)).thenReturn("cookies");
         when(memberRepository.findById(7L)).thenReturn(Optional.of(owner()));
         when(encryption.encrypt(anyString())).thenReturn("encrypted");
-        when(sessionRepository.saveAndFlush(any(CicSession.class)))
+        when(sessionRepository.saveAndFlush(any(SidecarSession.class)))
             .thenAnswer(invocation -> invocation.getArgument(0));
 
         service.completeAuth("pending", null, 7L);
         assertAttemptExpired(() -> service.completeAuth("pending", null, 7L));
 
         verify(port).completeAuth("pending", null);
-        verify(sessionRepository).saveAndFlush(any(CicSession.class));
+        verify(sessionRepository).saveAndFlush(any(SidecarSession.class));
     }
 
     private void initiatePendingAttempt() {
@@ -580,10 +581,10 @@ class CicSyncServiceTest {
 
     @Test
     void aScheduledResyncAsksForReauthenticationOnceTheSessionIsGone() {
-        CicSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         session.markQueued();
         session.markFailed(SidecarErrorCode.SESSION_EXPIRED, java.time.Instant.now());
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CIC, 7L)).thenReturn(Optional.of(session));
 
         SourceSyncResult result = service.resyncReporting(7L);
 
@@ -708,7 +709,7 @@ class CicSyncServiceTest {
     @ParameterizedTest
     @EnumSource(value = SidecarErrorCode.class, names = {"PORTFOLIO_INCOMPLETE", "UPSTREAM_FORMAT_CHANGED"})
     void aFailedFetchPreservesExistingBalancesAndSnapshots(SidecarErrorCode code) {
-        CicSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         Account checking = Account.builder()
             .id(12L).externalAccountId("cic_1000000012345601")
@@ -725,7 +726,7 @@ class CicSyncServiceTest {
 
         assertThat(checking.getCurrentBalance()).isEqualByComparingTo("1234.56");
         assertThat(livret.getCurrentBalance()).isEqualByComparingTo("5000.00");
-        assertThat(session.getSyncStatus()).isEqualTo(CicSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         verify(accountRepository, never()).findAllByMemberIdAndProvider(any(), any());
         verify(accountRepository, never()).save(any());
         verify(accountService, never()).upsertSnapshot(any(Account.class), any(BigDecimal.class), any(LocalDate.class));
@@ -740,7 +741,7 @@ class CicSyncServiceTest {
         when(port.fetchAccounts("plain-state")).thenReturn(CicAdapter.AccountListing.withoutCategories(accounts));
     }
 
-    private void arrangeCommittableSession(CicSession session) {
+    private void arrangeCommittableSession(SidecarSession session) {
         arrangeQueuedSession(session);
         when(memberRepository.findById(7L)).thenReturn(Optional.of(owner()));
         when(accountRepository.findByExternalAccountIdAndMemberId(any(), eq(7L))).thenReturn(Optional.empty());
@@ -763,21 +764,21 @@ class CicSyncServiceTest {
         }).when(txTemplate).executeWithoutResult(any());
     }
 
-    private void arrangeQueuedSession(CicSession session) {
-        lenient().when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+    private void arrangeQueuedSession(SidecarSession session) {
+        lenient().when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CIC, 7L)).thenReturn(Optional.of(session));
         lenient().when(sessionRepository.findByIdAndMemberIdForUpdate(session.getId(), 7L))
             .thenReturn(Optional.of(session));
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.CIC, 7L)).thenReturn(Optional.of(session));
         lenient().when(encryption.decrypt("encrypted")).thenReturn("plain-state");
     }
 
-    private CicSession activeSession(FamilyMember member) {
-        return CicSession.builder()
+    private SidecarSession activeSession(FamilyMember member) {
+        return SidecarSession.builder().bank(SidecarBank.CIC)
             .id(3L)
             .member(member)
             .sessionState("encrypted")
             .active(true)
-            .syncStatus(CicSyncStatus.IDLE)
+            .syncStatus(SidecarSyncStatus.IDLE)
             .build();
     }
 
