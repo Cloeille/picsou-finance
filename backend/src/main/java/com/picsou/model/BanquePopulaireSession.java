@@ -11,8 +11,9 @@ import java.time.Instant;
 import java.util.Objects;
 
 /**
- * One Banque Populaire session per member. Holds the encrypted session state and the regional
- * bank it was opened at: there is deliberately no credentials field (decision D5, cookies only).
+ * One Banque Populaire session per member. Holds the encrypted session state, the optional
+ * encrypted stored login (the identifier only, encrypted via CryptoEncryption) and the regional
+ * bank it was opened at. The password is never stored (decision D5, cookies only).
  */
 @Entity
 @Table(name = "banque_populaire_session")
@@ -35,6 +36,11 @@ public class BanquePopulaireSession extends AuditableEntity implements BpceSessi
     @ToString.Exclude
     @Column(name = "session_state", nullable = false, columnDefinition = "TEXT")
     private String sessionState;
+
+    @JsonIgnore
+    @ToString.Exclude
+    @Column(name = "encrypted_credentials", columnDefinition = "TEXT")
+    private String encryptedCredentials;
 
     /**
      * The regional bank chosen at the login that opened this session. Not a secret: it names the
@@ -94,6 +100,10 @@ public class BanquePopulaireSession extends AuditableEntity implements BpceSessi
 
     public void recordUnsupportedContracts(String json) {
         this.unsupportedContracts = json;
+    }
+
+    public void setEncryptedCredentials(String encryptedCredentials) {
+        this.encryptedCredentials = encryptedCredentials;
     }
 
     public void markQueued() {

@@ -575,7 +575,10 @@ class BanquePopulaireSyncServiceTest {
                     ? new java.lang.reflect.RecordComponent[0] : type.getRecordComponents()) {
                     assertThat(component.getName().toLowerCase()).as(type.getSimpleName() + "." + component.getName())
                         .doesNotContain("password")
-                        .doesNotContain("customer").doesNotContain("positions");
+                        .doesNotContain("positions");
+                    if (component.getName().toLowerCase().contains("customer")) {
+                        assertThat(type.getSimpleName()).isEqualTo("StoredLogin");
+                    }
                 }
             }
         }

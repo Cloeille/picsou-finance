@@ -77,17 +77,29 @@ public class BanquePopulaireController {
      * user to click. Throttled at 3 per 15 minutes per IP: a wrong pad costs a bank attempt. The
      * body is validated first, so a malformed request spends neither an attempt nor a browser
      * slot. Never retried here. The region is passed to the sidecar and kept with the pending
-     * login; {@code /auth/complete} stores it on the session row.
+     * login; {@code /auth/complete} stores it on the session row. An empty {@code customerId} reuses
+     * the identifier and region remembered from the last successful login.
      */
     @PostMapping("/auth/initiate")
     public ResponseEntity<?> initiate(@RequestBody JsonNode body, HttpServletRequest request) {
         // Read strictly: an unexpected field (a password, typically) is refused, never ignored.
-        requireOnlyFields(body, "customerId", "region");
+        requireAllowedFields(body, Set.of("customerId", "region"), Set.of("customerId"));
         String customerId = text(body, "customerId");
-        if (!CUSTOMER_ID.matcher(customerId).matches()) {
-            throw invalidBody();
+        BanquePopulaireRegion region;
+        if (customerId.isEmpty()) {
+            customerId = null;
+            if (body.has("region")) {
+                String rawRegion = text(body, "region");
+                region = rawRegion.isEmpty() ? null : region(rawRegion);
+            } else {
+                region = null;
+            }
+        } else {
+            if (!CUSTOMER_ID.matcher(customerId).matches() || !body.has("region")) {
+                throw invalidBody();
+            }
+            region = region(text(body, "region"));
         }
-        BanquePopulaireRegion region = region(text(body, "region"));
         ConsumptionProbe probe = consumeToken(authBuckets, RateLimitConfig::createBanquePopulaireAuthBucket, request);
         if (!probe.isConsumed()) {
             return authRateLimited(probe);
@@ -173,6 +185,17 @@ public class BanquePopulaireController {
         Set<String> names = new HashSet<>();
         body.fieldNames().forEachRemaining(names::add);
         if (!names.equals(Set.of(allowed))) {
+            throw invalidBody();
+        }
+    }
+
+    static void requireAllowedFields(JsonNode body, Set<String> allowed, Set<String> required) {
+        if (body == null || !body.isObject()) {
+            throw invalidBody();
+        }
+        Set<String> names = new HashSet<>();
+        body.fieldNames().forEachRemaining(names::add);
+        if (!allowed.containsAll(names) || !names.containsAll(required)) {
             throw invalidBody();
         }
     }
