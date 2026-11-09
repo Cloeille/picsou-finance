@@ -84,7 +84,7 @@ LOGIN_RESULT_TIMEOUT_SECONDS = 30
 
 # Verify page (two-step-verification/verify): pick the SMS/e-mail option,
 # click through any intermediate confirm step, then find the OTP input.
-# Each wait stays well under the Java adapter's 45s /initiate budget.
+# Each wait stays well under the Java adapter's 90s /initiate budget.
 VERIFY_OPTION_TIMEOUT_MS = 15_000
 VERIFY_CONTINUE_TIMEOUT_MS = 5_000
 VERIFY_OTP_INPUT_TIMEOUT_MS = 15_000
@@ -616,7 +616,9 @@ class _LoginModuleWatch:
 
     def on_response(self, response: Any) -> None:
         if self.is_module(response.url):
-            if response.ok:
+            # Not response.ok: a reload revalidating the cached module answers 304,
+            # which is a loaded module, not a failed one.
+            if response.status < 400:
                 self.loaded = True
             else:
                 self.failed = True
