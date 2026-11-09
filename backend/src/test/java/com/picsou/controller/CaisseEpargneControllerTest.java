@@ -59,7 +59,7 @@ class CaisseEpargneControllerTest {
     private static CaisseEpargneSyncService.SessionStatusResponse statusOf(SidecarSyncStatus syncStatus) {
         return new CaisseEpargneSyncService.SessionStatusResponse(
             true, syncStatus, null, null, null,
-            List.of(new BpceSyncEngine.UnsupportedContract("9001", "7", "02")));
+            List.of(new BpceSyncEngine.UnsupportedContract("9001", "7", "02")), false);
     }
 
     @Test

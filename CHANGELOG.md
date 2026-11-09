@@ -174,6 +174,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Caisse d'Epargne remembers your identifier.** A reconnect after the bank session
+  expired no longer asks for the identifier again: the one from the last successful login is
+  stored encrypted, like BoursoBank's (migration `V145`). The password and the Sécur'Pass
+  approval are still never stored, and "Disconnect" forgets everything. See
+  [Caisse d'Epargne](docs/features/caisse-epargne.md#remembered-identifier).
 - **Peer loans: invalid repayments are refused instead of silently absorbed.** A manual
   repayment cannot exceed the accrued interest plus the remaining capital (the excess
   used to be written to the cash account while the ledger dropped it, inflating net
