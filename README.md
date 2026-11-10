@@ -119,7 +119,7 @@ docker compose -f docker/docker-compose.yml pull    # fetch the published images
 docker compose -f docker/docker-compose.yml up -d
 ```
 
-> The compose file pins `:latest`, the highest release tag. To follow the bleeding edge instead, override with `:nightly` (built on every `main` push, schema included), or pin a release such as `:1.0.0`.
+> The compose file pins `:latest`, the highest release tag. To follow the bleeding edge instead, override with `:nightly`, which follows `main` and may carry migrations not yet released, or pin a release such as `:1.0.0`.
 >
 > Building from source instead of pulling? Run `docker compose -f docker/docker-compose.yml up --build` — the `build:` sections are kept for contributors.
 

@@ -397,6 +397,11 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
             with self.subTest(ref=ref):
                 values = self.run_publish_versions(*ref, "0123456789abcdef", tags)
                 self.assertEqual((values["latest"], values["latest-major"]), expected)
+        # Numeric order, not lexical: 1.0.10 is above 1.0.9.
+        for version, expected in (("1.0.10", ("true", "true")), ("1.0.9", ("false", "false"))):
+            with self.subTest(version=version):
+                values = self.run_publish_versions("tag", version, "0123456789abcdef", ("1.0.9", "1.0.10"))
+                self.assertEqual((values["latest"], values["latest-major"]), expected)
         # An older major's patch still moves its own major tag, not latest.
         values = self.run_publish_versions("tag", "0.9.4", "0123456789abcdef", ("0.9.3", "0.9.4", "1.1.1"))
         self.assertEqual((values["latest"], values["latest-major"]), ("false", "true"))
