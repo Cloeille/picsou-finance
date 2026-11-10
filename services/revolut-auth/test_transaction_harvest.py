@@ -185,6 +185,31 @@ class TransactionHarvestTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.status_code, 502)
         self.assertEqual(raised.exception.detail, "PORTFOLIO_INCOMPLETE")
 
+    async def test_pages_follow_the_creation_date_the_endpoint_pages_on(self):
+        """Seen live: `to` is an exclusive bound on `createdDate`, newest created first, three rows a
+        page. A payment that settles days after it was created must not repeat or stall the read."""
+        now_ms = int(time.time() * 1000)
+        day_ms = 24 * 3600 * 1000
+        # (id, created days ago, completed days ago), newest created first.
+        ledger = [("t1", 6.0, 5.8), ("t2", 7.5, 7.1), ("t3", 8.8, 7.2), ("t4", 8.9, 7.1),
+                  ("t5", 9.7, 8.1), ("t6", 11.5, 11.4), ("t7", 12.0, 9.0)]
+        rows = [{
+            "id": tx_id, "createdDate": now_ms - int(created * day_ms), "startedDate": now_ms - int(created * day_ms),
+            "completedDate": now_ms - int(completed * day_ms), "description": tx_id, "amount": -100,
+            "type": "CARD_PAYMENT",
+        } for tx_id, created, completed in ledger]
+        cursors = []
+
+        async def api_call(_page, _path, _device_id, params=None):
+            cursors.append(params["to"])
+            return {"status": 200, "data": [row for row in rows if row["createdDate"] < params["to"]][:3]}
+
+        with patch.object(main, "api_call", api_call):
+            transactions = await main._fetch_transactions(object(), "device", "pocket")
+
+        self.assertEqual([tx["externalId"] for tx in transactions], [f"t{n}" for n in range(1, 8)])
+        self.assertEqual(cursors[1:], [rows[2]["createdDate"], rows[5]["createdDate"], rows[6]["createdDate"]])
+
     async def test_page_two_http_error_fails_closed(self):
         now_ms = int(time.time() * 1000)
         calls = 0
