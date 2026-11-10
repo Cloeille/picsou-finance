@@ -258,13 +258,17 @@ public class RealEstateSummaryService {
                 : (loanAccount.getCurrentBalance() != null ? loanAccount.getCurrentBalance() : BigDecimal.ZERO);
             BigDecimal outstanding = AccountAccessResolver.weigh(remaining, loanShare);
             total = total.add(outstanding);
+            // Same share as the outstanding balance: a co-owner sees their part of the
+            // instalment, not the whole loan's (issue #459). Null stays null.
+            BigDecimal monthlyPayment = debt.getMonthlyPayment() == null ? null
+                : scale(AccountAccessResolver.weigh(debt.getMonthlyPayment(), loanShare));
             lines.add(new LinkedLoan(
                 loanAccount.getId(),
                 loanAccount.getName(),
                 debt.getLenderName(),
                 scale(outstanding),
                 loanShare,
-                debt.getMonthlyPayment(),
+                monthlyPayment,
                 debt.getEndDate()
             ));
         }
