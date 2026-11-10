@@ -90,14 +90,24 @@ fiat pocket, including money-boxes/vaults. A vault keeps its persisted money-box
 `internalPocketId`. Synthetic wallet parents are never queried. A real pocket
 whose ID equals its wallet ID is still queried.
 
-The cursor follows `createdDate`, the field `transactions/last` pages on: `to` is an
-exclusive bound on it and the newest created row comes first. A row's booking date
-still comes from `completedDate`, else `startedDate`. The two differ whenever a card
-payment settles after it was made. Moving the cursor with the booking date made the
-next page overlap the previous one, the cursor stopped, and the sync ended in
-`PORTFOLIO_INCOMPLETE`. A row without a usable `createdDate` pages on its booking
-timestamp. The page size is Revolut's choice and no code relies on it: 3 rows a page
-were seen in one session and 120 in another, and `count` or `limit` did not change it.
+The cursor and the 90-day window follow `createdDate`, the field `transactions/last`
+pages on: `to` is an exclusive bound on it and the newest created row comes first. A
+row's booking date still comes from `completedDate`, else `startedDate`. The two differ
+whenever a card payment settles after it was made. Moving the cursor with the booking
+date made the next page overlap the previous one, the cursor stopped, and the sync
+ended in `PORTFOLIO_INCOMPLETE`.
+
+Each next page asks again for the instant the last one ended on (`to` = oldest
+`createdDate` + 1), so two rows created in the same millisecond, such as the legs of an
+exchange, are not lost when a page cuts between them. `seen` drops the rows read twice.
+When one instant may hold more rows than a page and older rows exist, the read fails
+closed. With one-row pages the bound stays exclusive. A row without `createdDate` pages
+on its booking timestamp and the sidecar logs it. A `createdDate` that is not a positive
+number fails closed.
+
+The page size is Revolut's choice: 3 rows a page in one live session, 120 in another,
+and `count` or `limit` changed nothing. The page cap is therefore 500. At three rows a
+page, one of them read again, that is about 1,000 rows for one pocket.
 
 Transaction collection fails closed with HTTP 502 if an upstream request fails,
 the response is malformed, the cursor stops advancing before the 90-day cutoff,
