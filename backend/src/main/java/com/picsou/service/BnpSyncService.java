@@ -586,9 +586,9 @@ public class BnpSyncService {
             .toList());
         holdingRepository.flush();
         if (data.investedAmountEur() != null) {
-            accountService.upsertSnapshot(saved, data.balanceEur(), data.investedAmountEur(), LocalDate.now());
+            accountService.upsertSnapshot(saved, data.balanceEur(), data.investedAmountEur(), LocalDate.now(clock));
         } else {
-            accountService.upsertSnapshot(saved, data.balanceEur(), LocalDate.now());
+            accountService.upsertSnapshot(saved, data.balanceEur(), LocalDate.now(clock));
         }
     }
 

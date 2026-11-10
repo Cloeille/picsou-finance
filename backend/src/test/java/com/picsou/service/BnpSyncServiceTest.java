@@ -63,6 +63,7 @@ class BnpSyncServiceTest {
     private static final String IBAN = "FR7630006000011234567890189";
     private static final List<String> FAMILY = List.of("BNP Paribas", "Hello bank!", "Hello bank", "Hello Bank");
     private static final Instant NOW = Instant.parse("2026-01-10T10:00:00Z");
+    private static final LocalDate TODAY = LocalDate.of(2026, 1, 10);
 
     @Mock BnpAdapter port;
     @Mock SidecarSessionRepository sessionRepository;
@@ -316,6 +317,7 @@ class BnpSyncServiceTest {
             assertThat(account.isManual()).isFalse();
         });
         assertThat(saved.get(2).getCurrentBalance()).isEqualByComparingTo("10000.00");
+        verify(accountService, times(4)).upsertSnapshot(any(Account.class), any(BigDecimal.class), eq(TODAY));
     }
 
     @Test
@@ -336,7 +338,7 @@ class BnpSyncServiceTest {
             .containsExactly("FR0000000001", "FR0000000002");
         assertThat(holdingsCaptor.getValue().getFirst().getProviderValueEur()).isEqualByComparingTo("800.00");
         verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("1500.00")),
-            any(BigDecimal.class), any(LocalDate.class));
+            any(BigDecimal.class), eq(TODAY));
     }
 
     @Test
@@ -522,7 +524,7 @@ class BnpSyncServiceTest {
         assertThat(closed.getLastSyncedAt()).isNotNull();
         verify(accountRepository).save(closed);
         verify(holdingRepository).deleteByAccountId(21L);
-        verify(accountService).upsertSnapshot(eq(closed), eq(BigDecimal.ZERO), eq(BigDecimal.ZERO), eq(LocalDate.of(2026, 1, 10)));
+        verify(accountService).upsertSnapshot(eq(closed), eq(BigDecimal.ZERO), eq(BigDecimal.ZERO), eq(TODAY));
         // The account that is still listed is upserted, not closed.
         assertThat(kept.getCurrentBalance()).isEqualByComparingTo("10.00");
     }
