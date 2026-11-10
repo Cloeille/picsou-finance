@@ -36,8 +36,8 @@ Exact hosts, https only, checked on every request and every redirect hop:
 
 Every host under the `.bnpparibas` TLD is also a brand host for both brands: it is a dotBrand gTLD only BNP
 Paribas can register under (the post-login chain goes through `mabanqueprivee.bnpparibas`). ThreatMetrix
-sub-resources (`*.online-metrix.net`) load; the calls of the cookie-consent vendor (`*.onetrust.com`,
-`*.onetrust.io`, POSTs included) and other passive third-party sub-resources (`assets.adobedtm.com`) are
+sub-resources (`*.online-metrix.net`) load; the calls of the bank's cookie-consent vendor (three exact
+OneTrust hosts, POSTs included) and other passive third-party sub-resources (`assets.adobedtm.com`) are
 refused and ignored. Any other host aborts the request and stops the login (`UPSTREAM_FORMAT_CHANGED`); only its
 name is logged. A stop after the login submit also logs one structure-only line (see the feature doc). Nothing here tries to defeat bot
 management: if the bank answers 403 to the sidecar's network, the sync fails with `UPSTREAM_UNAVAILABLE`.
@@ -46,7 +46,7 @@ management: if the bank answers 403 to the sidecar's network, the sync fails wit
 
 `/complete` reads the first snapshot in the browser that logged in and keeps it for the next `/accounts` call
 (in memory, 120 s). Otherwise `/accounts` opens a new browser and restores the cookies on the host the login ended
-on (`landing` in the session state). Signed in means `InfosClient` answers `codeRetour` 0 with a customer
+on (`landing` in the session state). Signed in means `InfosClient` answers `codeRetour` 0 with a `data`
 block: an idled-out session still answers 0, with `data: null`. Seen live, a session lasts between 12 and 24
 idle minutes and only a new login renews it. A dead session logs one stage (`snapshot_off_site`, `snapshot_info_dead`,
 `snapshot_http_401`) with the page host/path and the cookie names and domains, never a value.

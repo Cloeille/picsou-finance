@@ -67,19 +67,21 @@ off-list host is a site change" rule would stop every login on these tags). The 
    dot boundary, https, port 443, no credentials; `evil-online-metrix.net`, `online-metrix.net.evil.example`
    and the bare apex do not match): allowed, for sub-resources and sub-frames of the bank's page only. A
    vendor host can never receive the main-frame navigation, so it never sees the form post.
-4. **Cookie-consent vendor** (OneTrust: any strict sub-domain of `onetrust.com` or `onetrust.io`, same
-   matching as rule 3): aborted silently, with or without a body; the login goes on. With a new browser
-   profile the bank's pages call `geolocation.onetrust.com` (GET), `cookies-data.onetrust.io` (POST) and
-   `bnp-privacy.my.onetrust.com` (POST) on every landing, the signed-in one included. Without this rule
-   the two POSTs fell under rule 5 and stopped every login right after the password was accepted. A
-   main-frame navigation to these hosts still stops the attempt (rule 2).
+4. **Cookie-consent vendor** (OneTrust, three exact hosts): aborted silently, with or without a body; the
+   login goes on. With a new browser profile the bank's pages call `geolocation.onetrust.com` (GET),
+   `cookies-data.onetrust.io` (POST) and `bnp-privacy.my.onetrust.com` (POST) on every landing, the
+   signed-in one included. Without this rule the two POSTs fell under rule 5 and stopped every login
+   right after the password was accepted. The hosts are exact because `my.onetrust.com` hosts every
+   OneTrust customer: another tenant, any other OneTrust host and a main-frame navigation to one of the
+   three still stop the attempt. The Hello bank! tenant is not known, so its consent calls still stop
+   that brand's login until it is seen.
 5. **Any other sub-frame or any request with a body or a write verb** to a third-party host (it could
    carry the customer number or the code): aborted and stops the attempt.
 6. **Any other third-party sub-resource without a body** (for example the `assets.adobedtm.com` analytics
    script, pixels, fonts): aborted silently; the login goes on. Its host name is logged once at INFO.
 
-Rules 3 and 4 read one table, `VENDORS` in `services/bnp-auth/bank.py`: vendor domain -> what its
-sub-resources get (`allow` or `ignore`). A new vendor is one line there.
+Rules 3 and 4 read one table, `VENDORS` in `services/bnp-auth/bank.py`: a host, or a suffix when the key
+starts with a dot, -> what its sub-resources get (`allow` or `ignore`). A new vendor is one line there.
 
 The WebRTC beacon of ThreatMetrix stays off (`block_webrtc`), because it would go around this policy.
 Whether the bank accepts a login without it is unverified.
@@ -110,7 +112,7 @@ flags `S` secure, `H` httpOnly, `T` session cookie; names and domains only, neve
 refused a request with 401 / 403). If the first snapshot
 fails or takes more than 45 s the login still completes and the stage is logged.
 
-Signed in means `codeRetour` 0 **and** a customer block in `data`. The code alone is not enough: once the
+Signed in means `codeRetour` 0 **and** a `data` block. The code alone is not enough: once the
 session has idled out, the signed-in site still answers `InfosClient` with `codeRetour: "0"` and `message: "OK"`,
 with `data: null`, and its data endpoints answer `codeRetour: 99`. Reading the code alone turned an expired
 session into `UPSTREAM_UNAVAILABLE` (stage `snapshot_parse`), which tells the member the bank is down instead of
@@ -132,7 +134,7 @@ from its URL alone: `error` (`error_code` or `errorCode` query key), `second_fac
 factor), `site`, `other`. A page without a session that stays put is read by its shape (a code field = SMS, the
 Cle Digitale wording and no code field = app approval); anything else stops with `MFA_TYPE_UNSUPPORTED`.
 
-Seen live (owner-assisted run, 2026-11-09, an account served by `mabanqueprivee.bnpparibas`): the post to
+Seen live (owner-assisted run, 2026-11-09, on `mabanqueprivee.bnpparibas`): the post to
 `/as/<id>/resume/as/authorization.ping` answers 302 to `mabanque.bnpparibas/auth/on-login-ciam` (`code`, `state`),
 which sends the customer to `mabanqueprivee.bnpparibas/auth/login`. That host runs its own authorization round
 trip on `connexion.mabanque.bnpparibas` without showing a page, goes through `/aiguillage-wspl/redirect/login`
@@ -158,8 +160,8 @@ title as a length, form ids and field names and types, a few element ids. Names 
   makes the whole history unusable and the account incomplete, so a wrong date format fails the sync instead
   of importing wrong dates.
 - The IBAN is joined from `rib-wspl/rpc/comptes` on `ibanCrypte` = the account's `key` and kept only when it is
-  a well-formed IBAN. On the account seen live the `iban` field held 21 digits, not an IBAN, and only the
-  current account was listed: the IBAN stays empty there and the account id falls back to the masked number.
+  a well-formed IBAN. In the live run the `iban` field held 21 digits, not an IBAN, and the list did not
+  cover every account: the IBAN then stays empty and the account id falls back to the masked number.
 - An account is matched by its external id, then by IBAN across the provider family (BNP Paribas and
   Hello bank! share one platform, and an existing Enable Banking link of the same bank is adopted), so it
   is not duplicated.
@@ -181,10 +183,10 @@ Compose: profile `bnp` (or `all-connectors`), service `bnp-auth` on the `sidecar
 
 ## Verification boundary
 
-One owner-assisted run on 2026-11-09 exercised the connector against a real BNP Paribas account (served by
-`mabanqueprivee.bnpparibas`, with a current account and savings accounts). The sidecar ran outside Docker
-(macOS, the pinned Camoufox release, not a datacenter network). Everything else is either checked on the
-**public** pages with a real browser (nothing typed), or **unverified**.
+One owner-assisted run on 2026-11-09 exercised the connector against a real BNP Paribas account, on
+`mabanqueprivee.bnpparibas`, for product families 1 and 2. The sidecar ran outside Docker (macOS, the
+pinned Camoufox release, not a datacenter network). Everything else is either checked on the **public**
+pages with a real browser (nothing typed), or **unverified**.
 
 **Verified in the owner-assisted run:**
 
@@ -192,8 +194,8 @@ One owner-assisted run on 2026-11-09 exercised the connector against a real BNP 
   one form post, the redirect chain described in "After the login submit", the session.
 - `InfosClient` answers `codeRetour: "0"` (a string) once signed in; `getlstcpt`, `rib-wspl/rpc/comptes` and
   `rop2-wspl/rest/releveOp` answer on the landing host with the page's own cookies and no extra header.
-- Families 1 (current account) and 2 (savings, two passbook kinds told apart by label), balances, and the
-  operations of every account, once the dash date format was read.
+- Families 1 (current account) and 2 (savings, kinds told apart by label), balances and operations, once
+  the dash date format was read.
 - `/accounts` in a new browser with the restored cookies, on the landing host, three times within four
   minutes of the login, then after 6 and 12 idle minutes.
 - The end of the session: over after 24 idle minutes, reported as `SESSION_EXPIRED` (stage `snapshot_info_dead`),

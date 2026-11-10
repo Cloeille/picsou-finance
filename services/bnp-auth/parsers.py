@@ -16,6 +16,7 @@ from typing import Any
 
 CENT = Decimal("0.01")
 # -10 ("user not connected", seen live as the STRING "-10" on the public InfosClient) and -30 (woob, unverified).
+# An idled-out session on the signed-in site answers neither: InfosClient says 0 without data (`bank.session_alive`).
 SESSION_EXPIRED_CODES = {-10, -30}
 DEFERRED_SUMMARY = "FACTURE CARTE SELON RELEVE DU"
 # idFamilleCompte -> kind (woob pages.py:342-351). Family 3 (term deposits) and unknown ones are unsupported.

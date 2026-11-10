@@ -214,11 +214,11 @@ class VendorPolicyTest(unittest.TestCase):
             "https://h64.online-metrix.net:8443/fp.js",
         ):
             with self.subTest(url=url):
-                self.assertFalse(bank.is_vendor_url(url))
+                self.assertIsNone(bank.vendor_of(url))
                 guard, route = self.decide(req(url, "script"))
                 route.continue_.assert_not_awaited()
                 route.abort.assert_awaited_once()
-        self.assertTrue(bank.is_vendor_url(self.TMX[1]))
+        self.assertEqual(bank.vendor_of(self.TMX[1]), ".online-metrix.net")
 
     def test_other_third_party_scripts_and_images_are_aborted_silently(self):
         guard = bank.Guard(BNP.hosts)
@@ -253,14 +253,21 @@ class VendorPolicyTest(unittest.TestCase):
                 route.abort.assert_awaited_once()
                 route.continue_.assert_not_awaited()
                 guard.observe(request)
+        # A finished request whose redirect chain went through a consent host is no stop either.
+        guard.observe(req("https://mabanqueprivee.bnpparibas/x.js", "script", redirected_from=req(self.CONSENT[0][0], "xhr")))
         self.assertFalse(guard.tainted)
         self.assertEqual(guard.unknown_hosts, [])
+        self.assertEqual(guard.ignored_hosts, [bank.host_of(url) for url, _, _ in self.CONSENT])
+        self.assertEqual(guard.vendors_seen, [])
 
     def test_a_consent_vendor_page_or_a_lookalike_host_still_stops_the_attempt(self):
         guard, route = self.decide(req(self.CONSENT[1][0], "document", method="POST", body="x"))
         route.abort.assert_awaited_once()
         self.assertTrue(guard.tainted)
-        for url in ("https://evil-onetrust.io/cfw/cmp/v1/session", "https://onetrust.io.evil.example/x", "https://onetrust.io/x"):
+        # `my.onetrust.com` hosts every OneTrust customer: another tenant is not the bank's.
+        for url in ("https://evil-onetrust.io/cfw/cmp/v1/session", "https://onetrust.io.evil.example/x", "https://onetrust.io/x",
+                    "https://other-tenant.my.onetrust.com/request/v1/consentreceipts", "https://cdn.onetrust.com/x",
+                    "https://x.cookies-data.onetrust.io/cfw/cmp/v1/session"):
             with self.subTest(url=url):
                 guard, route = self.decide(req(url, "fetch", method="POST", body="{}"))
                 route.abort.assert_awaited_once()
@@ -401,7 +408,9 @@ class LoginOutcomeTest(unittest.TestCase):
         # Seen live: once the session has idled out, the signed-in site still answers "0" / "OK", with no data.
         self.assertFalse(bank.session_alive({"codeRetour": "0", "message": "OK", "data": None}))
         self.assertFalse(bank.session_alive({"codeRetour": "0", "message": "OK", "data": {}}))
+        self.assertFalse(bank.session_alive({"codeRetour": "0", "message": "OK"}))
         self.assertTrue(bank.session_alive({"codeRetour": "0", "message": "OK", "data": {"client": {"ikpiPersonne": "x"}}}))
+        self.assertTrue(bank.session_alive({"codeRetour": "0", "message": "OK", "data": [{"client": "x"}]}))
 
     def test_session_death_is_the_string_minus_ten(self):
         self.assertFalse(bank.session_alive({"codeRetour": "-10", "message": "user not connected"}))

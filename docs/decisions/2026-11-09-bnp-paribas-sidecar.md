@@ -37,19 +37,26 @@ session-death signal (`codeRetour: "-10"`, a string).
    root zone database lists BNP Paribas as the sole manager of the TLD
    (https://www.iana.org/domains/root/db/bnpparibas.html, read 2026-11-09), so no third party can register a name
    under it. `hellobank.fr` is an ordinary domain and stays on its three exact hosts.
-   The third refinement: the calls of the bank's cookie-consent vendor (OneTrust, `*.onetrust.com` and
-   `*.onetrust.io`) are aborted without stopping the login, body or not. Two of them are POSTs sent on every
-   landing with a new profile, so "a third-party request with a body stops the attempt" stopped every login
-   once the password was accepted (owner-assisted run, 2026-11-09). Known vendors are one table,
-   domain -> allow or ignore; any other third party keeps the fail-closed rule.
+   The third refinement: the calls of the bank's cookie-consent vendor (OneTrust, three exact hosts:
+   `geolocation.onetrust.com`, `cookies-data.onetrust.io`, `bnp-privacy.my.onetrust.com`) are aborted without
+   stopping the login, body or not. Two of them are POSTs sent on every landing with a new profile, so "a
+   third-party request with a body stops the attempt" stopped every login once the password was accepted
+   (owner-assisted run, 2026-11-09). The hosts are exact because `my.onetrust.com` is shared by every
+   OneTrust customer. Known vendors are one table, host or suffix -> allow or ignore; any other third party
+   keeps the fail-closed rule.
 6. **Fail closed**: unknown product kinds are listed, incomplete snapshots never replace data, unexpected
    pages stop the attempt.
 
 ## Consequences
 
 - The first owner-assisted live run (2026-11-09) needed changes to `bank.py` and `parsers.py` only, not to
-  the backend contract: the consent-vendor rule above and the dash date format of the operations. The
-  second-factor page, Hello bank! and the securities, life-insurance and loan endpoints are still unverified.
+  the backend contract: the consent-vendor rule above, the dash date format of the operations, and what
+  "signed in" means (`InfosClient` answers `codeRetour` 0 **with** data; an idled-out session answers 0
+  without). The second-factor page, Hello bank! and the securities, life-insurance and loan endpoints are
+  still unverified.
+- A web session lasts between 12 and 24 idle minutes (same run) and nothing but a new login renews it, so a
+  sync that runs later than that needs the member again. Unattended daily sync is not possible with this
+  connector as designed.
 - Akamai may refuse the sidecar's network (403 was seen from a datacenter IP). That is reported as
   `UPSTREAM_UNAVAILABLE`; no evasion is attempted.
 - A Camoufox sidecar is heavier than an httpx one; it shares the base image with Amex and Revolut.

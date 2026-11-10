@@ -83,15 +83,19 @@ BRANDS = {
 ALL_HOSTS = frozenset().union(*(brand.hosts for brand in BRANDS.values()))
 ALLOW, IGNORE, STOP = "allow", "ignore", "stop"
 # Known third parties of the bank's own pages and what their sub-resources get. A vendor never
-# receives the main-frame navigation, whatever its entry says.
+# receives the main-frame navigation, whatever its entry says. A key that starts with a dot is a
+# dot-bounded suffix; any other key is one exact host.
 VENDORS = {
-    # ThreatMetrix (LexisNexis), `<n>.online-metrix.net` and `<id>.e.aa.online-metrix.net`: the login
-    # page fills `pf.idTMX` from it, so it loads.
-    "online-metrix.net": ALLOW,
-    # OneTrust cookie consent, on every landing of the signed-in site (geolocation, a session POST,
-    # consent receipts). The login does not need it: dropped, with or without a body, never a stop.
-    "onetrust.com": IGNORE,
-    "onetrust.io": IGNORE,
+    # ThreatMetrix (LexisNexis), `<n>.online-metrix.net` and `<id>.e.aa.online-metrix.net` (random
+    # labels, hence a suffix): the login page fills `pf.idTMX` from it, so it loads.
+    ".online-metrix.net": ALLOW,
+    # OneTrust cookie consent, on every landing with a new profile: geolocation, a session POST,
+    # consent receipts. The login does not need it: dropped, with or without a body, never a stop.
+    # Exact hosts only: `my.onetrust.com` hosts every OneTrust customer, so the bank's own tenant
+    # is named and any other one keeps the fail-closed rule.
+    "geolocation.onetrust.com": IGNORE,
+    "cookies-data.onetrust.io": IGNORE,
+    "bnp-privacy.my.onetrust.com": IGNORE,
 }
 BRAND_TLD = "bnpparibas"  # a dotBrand gTLD: only BNP Paribas can register a name under it (IANA root zone db)
 _LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
@@ -243,8 +247,8 @@ def is_allowed_url(url: Any, hosts: frozenset[str] = ALL_HOSTS) -> bool:
 
 
 def vendor_of(url: Any) -> str | None:
-    """The known vendor domain a URL belongs to (https, default port, no credentials, a strict
-    sub-domain of it with a dot boundary: `evil-online-metrix.net` and the bare apex do not match)."""
+    """The `VENDORS` key a URL falls under (https, default port, no credentials): one exact host, or a
+    strict sub-domain of a suffix key (`evil-online-metrix.net` and the bare apex do not match)."""
     if not isinstance(url, str):
         return None
     try:
@@ -254,11 +258,7 @@ def vendor_of(url: Any) -> str | None:
         host = parts.hostname or ""
     except ValueError:
         return None
-    return next((domain for domain in VENDORS if host.endswith("." + domain)), None)
-
-
-def is_vendor_url(url: Any) -> bool:
-    return vendor_of(url) is not None
+    return next((key for key in VENDORS if (host.endswith(key) if key.startswith(".") else host == key)), None)
 
 
 def _is_main_frame_navigation(request: Any) -> bool:
@@ -336,7 +336,7 @@ class Guard:
         if VENDORS.get(vendor) == ALLOW:
             if vendor not in self.vendors_seen and len(self.vendors_seen) < MAX_LOGGED_HOSTS:
                 self.vendors_seen.append(vendor)
-                log.info("BNP page loads sub-resources from the vendor %s", vendor)
+                log.info("BNP page loads sub-resources from the vendor %s", vendor.lstrip("."))
             return
         host = (host_of(request.url) or "unparsable")[:100]
         if host not in self.ignored_hosts and len(self.ignored_hosts) < MAX_LOGGED_HOSTS:
@@ -711,19 +711,18 @@ async def fetch_json(page: Any, key: str, body: dict | None = None) -> Any:
 
 
 def session_alive(info: Any) -> bool:
-    """Signed in: InfosClient answers `codeRetour` 0 AND a customer block in `data`.
+    """Signed in: InfosClient answers `codeRetour` 0 AND carries `data`.
 
     The code alone is not enough. Signed out, the public site answers `"-10"` ("user not connected", a
     string). The signed-in site whose session idled out still answers `"0"` and "OK", with `data: null`
-    (seen live), and its data endpoints then answer a generic error."""
+    (seen live), and its data endpoints then answer a generic error (`codeRetour` 99)."""
     if not isinstance(info, dict):
         return False
     try:
         code = int(str(info.get("codeRetour")).strip())
     except ValueError:
         return False
-    data = info.get("data")
-    return code == 0 and isinstance(data, dict) and bool(data)
+    return code == 0 and bool(info.get("data"))
 
 
 async def probe_session(page: Any, brand: Brand) -> bool | None:
@@ -1039,7 +1038,8 @@ class BrowserBankClient:
         """Check the session, then read the accounts, on the page the state holds. Every way the session
         can be found dead has its own stage, and leaves one structure-only line (`log_session_stop`):
           snapshot_off_site    the page is not on the bank's site (bounced to a login page or off it);
-          snapshot_info_dead   the bank says nobody is signed in (InfosClient or a data answer, `codeRetour` -10 / -30);
+          snapshot_info_dead   the bank says nobody is signed in (InfosClient answers `codeRetour` -10 / -30, or 0
+                               without data; or a data answer says -10 / -30);
           snapshot_http_401    the bank refused a request with 401 / 403.
         `phase` says which browser asked: `same_browser` (the one that logged in) or `fresh_browser`."""
         page = state["page"]
