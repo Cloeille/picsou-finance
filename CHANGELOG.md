@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Trade Republic sync wrote account data to the backend log.** Each sync logged the raw answers of
+  Trade Republic at INFO: the cash account number, the balance, every position's quantity and buy-in
+  price, and the account value. The log now keeps the id, type and size of each answer and the number
+  of positions. Raw answers are logged only when you set
+  `logging.level.com.picsou.adapter.TradeRepublicAdapter=TRACE`.
 - **Family dashboard and MCP history counted Revolut pockets twice.** A Revolut wallet's balance
   is the sum of its pockets, which is why the dashboard leaves pockets out of net worth. The
   family dashboard's shared net worth added each pocket on top of its wallet, and the MCP

@@ -1,5 +1,6 @@
 package com.picsou.adapter;
 
+import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -324,8 +325,13 @@ class TradeRepublicAdapterTest {
             logger.detachAppender(logs);
         }
 
-        List<String> lines = logs.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
+        // TRACE is the opt-in level for raw frames; everything an instance logs by default is checked.
+        List<String> lines = logs.list.stream()
+            .filter(event -> event.getLevel().isGreaterOrEqual(Level.DEBUG))
+            .map(ILoggingEvent::getFormattedMessage)
+            .toList();
         assertThat(lines).anyMatch(line -> line.contains("1 positions"));
+        assertThat(lines).anyMatch(line -> line.matches("TR WS <-- \\d+ A \\(\\d+ chars\\)"));
         assertThat(lines).noneMatch(line -> line.contains("CASH1"));
         assertThat(lines).noneMatch(line -> line.contains("\"amount\""));
         assertThat(lines).noneMatch(line -> line.contains("netSize") || line.contains("averageBuyIn"));
