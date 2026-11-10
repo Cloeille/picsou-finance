@@ -34,12 +34,12 @@ No logic change in `DashboardPage.tsx`.
 
 **New fields on the root DTO:**
 ```java
-BigDecimal totalMonthlyPayment  // null if no loan has a Debt row
+BigDecimal totalMonthlyPayment  // null if no loan has a Debt row — sums the share-weighed monthlyPayment values
 ```
 
 **New fields on each `LiabilityEntryDto`** (extends existing liability list entry):
 ```java
-BigDecimal monthlyPayment  // null if no Debt row
+BigDecimal monthlyPayment  // null if no Debt row — weighed by the member's share, like balanceEur (issue #459)
 Double percentPaid         // null if no Debt row or borrowedAmount <= 0 — (borrowedAmount - remaining capital) / borrowedAmount * 100,
                            // both unweighted: the loan's own progress, whatever the member's share (even 0)
 BigDecimal paymentDueAmountEur  // CREDIT_CARD only: account.paymentDueAmount in EUR, weighted by the member's share
@@ -52,7 +52,7 @@ LocalDate paymentDueDate        // CREDIT_CARD only: account.paymentDueDate
 3. For each liability entry, look up the Debt:
    - If present: compute `monthlyPayment` (stored or formula `M = P·r / (1−(1+r)^-n)`), compute `percentPaid`.
    - If absent: both fields stay null.
-4. Sum configured `monthlyPayment` values into `totalMonthlyPayment`.
+4. Sum the share-weighed `monthlyPayment` values into `totalMonthlyPayment`.
 
 No `LoanAmortizationService.compute()` call — full schedule computation is too expensive for a dashboard load.
 

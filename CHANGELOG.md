@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A mortgage split could only be edited through the API.** The ownership editor lived on the
+  property sheet alone, so a loan kept whatever split it already had — no rows by default, the
+  administrative owner holding 100% — while the property showed its own split. The loan account
+  sheet now carries the same editor, so each mortgage gets the split the backend already accepted.
 - **Family dashboard and MCP history counted Revolut pockets twice.** A Revolut wallet's balance
   is the sum of its pockets, which is why the dashboard leaves pockets out of net worth. The
   family dashboard's shared net worth added each pocket on top of its wallet, and the MCP
@@ -25,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   capital and were added again quinzaine by quinzaine. The opening capital is now the snapshot
   minus the movements booked up to its date.
 - **HTTPS access by LAN IP.** The bundled Caddy proxy now uses `PICSOU_DOMAIN` as its default TLS SNI when a client omits SNI, allowing it to select the certificate for the configured site address.
+- **The dashboard showed the whole loan instalment to every co-owner.** `monthlyPayment` (and so
+  `totalMonthlyPayment`) was the full loan's instalment while the balance was weighed by the
+  member's share, so on a 50/50 loan each co-owner saw half the remaining capital but the full
+  monthly payment. The instalment is now weighed by the same share as the balance, on the
+  dashboard and in the real-estate summary; `percentPaid` stays the loan's own progress.
 - **Fortuneo sync failed on accounts with a long history.** The sidecar answered `/accounts` fine, but the backend rejected any payload over Spring's 256 KB default buffer (`DataBufferLimitException`, surfaced as `UPSTREAM_UNAVAILABLE`). The Fortuneo adapter now allows 16 MB like the Caisse d'Épargne one.
 
 ### Changed
