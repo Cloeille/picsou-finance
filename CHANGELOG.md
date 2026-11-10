@@ -35,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   monthly payment. The instalment is now weighed by the same share as the balance, on the
   dashboard and in the real-estate summary; `percentPaid` stays the loan's own progress.
 - **Fortuneo sync failed on accounts with a long history.** The sidecar answered `/accounts` fine, but the backend rejected any payload over Spring's 256 KB default buffer (`DataBufferLimitException`, surfaced as `UPSTREAM_UNAVAILABLE`). The Fortuneo adapter now allows 16 MB like the Caisse d'Épargne one.
+- **Other bank sidecars could fail the same way on a long history.** Amex, Amundi, Bourse Direct,
+  BoursoBank, CIC, Crédit Mutuel Épargne Salariale, CORUM, DEGIRO, Revolut, Sofidy and Trade
+  Republic still decoded their sidecar's answer with Spring's 256 KB default. The 16 MB limit now
+  lives in `SidecarWebClientFactory`, so every sidecar adapter gets it.
 
 ### Changed
 
