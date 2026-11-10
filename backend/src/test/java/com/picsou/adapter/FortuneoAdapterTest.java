@@ -125,10 +125,6 @@ class FortuneoAdapterTest {
         });
     }
 
-    private FortuneoAdapter adapterReturning(HttpStatus status, String body) {
-        return new FortuneoAdapter(WebClientStubs.returning(status, body), new ObjectMapper());
-    }
-
     @Test
     void fetchAccounts_decodesAPayloadLargerThanTheDefault256KbCodecLimit() throws Exception {
         // A real checking account with a long history (1196 transactions in #460)
@@ -165,5 +161,9 @@ class FortuneoAdapterTest {
         } finally {
             server.stop(0);
         }
+    }
+
+    private FortuneoAdapter adapterReturning(HttpStatus status, String body) {
+        return new FortuneoAdapter(WebClientStubs.returning(status, body), new ObjectMapper());
     }
 }
