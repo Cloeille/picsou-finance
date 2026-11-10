@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An older image on a newer database died in Hibernate instead of at Flyway.** Spring Boot
+  defaults Flyway to ignore applied versions the image does not ship, so after V131–V146 had been
+  applied, an image that only ships up to V128 logged `Schema is up to date` and then failed with
+  `Schema-validation: missing table [amex_session]`
+  ([#553](https://github.com/Cloeille/picsou-finance/issues/553)). The app now refuses to start
+  with Flyway's `Detected applied migration not resolved locally` error naming the missing version,
+  as the release migration CLI already did.
 - **A mortgage split could only be edited through the API.** The ownership editor lived on the
   property sheet alone, so a loan kept whatever split it already had — no rows by default, the
   administrative owner holding 100% — while the property showed its own split. The loan account
