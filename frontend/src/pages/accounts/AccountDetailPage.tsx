@@ -340,7 +340,7 @@ export function AccountDetailPage() {
       ) : null}
 
       {/* Loan detail */}
-      {isLoan && account && <LoanDetailSection accountId={account.id} />}
+      {isLoan && account && <LoanDetailSection accountId={account.id} canEdit={account.isOwner !== false} />}
 
       {/* Property detail: description, valuation, financing and ownership split */}
       {isRealEstate && account && <PropertyDetailSection account={account} />}
