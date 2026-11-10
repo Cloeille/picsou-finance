@@ -26,8 +26,8 @@ from the upstream release's direct `GeoLite2-City.mmdb` asset URL,
 without querying the unauthenticated GitHub releases API, whose per-IP quota
 shared CI runners exhaust. Download failures still fail the build; no token is
 baked into the image and GeoIP support is retained.
-A push to `1.1.0` publishes `:1.1.0`; `:latest` follows main
-or version-tag pushes, not release-branch pushes. The deployment Compose file
+A version tag `1.1.0` publishes `:1.1.0`; `:latest` moves only to the highest
+stable version tag, never on a branch push. The deployment Compose file
 offers both `image:` and `build:` for AMEX and DEGIRO, like the other sidecars.
 For a pinned release deployment, override their image values with
 `ghcr.io/cloeille/picsou-finance/amex-auth:1.1.0` and
@@ -613,8 +613,12 @@ docker pull ghcr.io/cloeille/picsou-finance/degiro-auth:1.1.0
 ```
 
 Tag scheme:
-- `main` push (CI green) → `nightly` + `latest`
-- version tag (`1.0.0` or `v1.0.0`, CI green) → `latest` + semver (`1.0.0`, `1.0`, `1`)
+- `main` push (CI green) → `nightly` + `sha-<short>`
+- version tag (`1.0.0` or `v1.0.0`, CI green) → semver (`1.0.0`, `1.0`), plus `1` when it is
+  the highest release of its major and `latest` when it is the highest stable tag. A patch of an
+  older line (`1.0.19` after `1.1.0`) or a prerelease (`1.2.0-rc.1`) leaves both where they are.
+- `latest` never follows `main`: a revert on `main` would hand installs that auto-update
+  `:latest` an image with fewer migrations than their database already ran (#553).
 - feature-branch pushes no longer publish an image (open a PR to run CI; build
   locally if you need a one-off image)
 

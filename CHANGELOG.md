@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`:latest` could go back to an older schema.** Every push to `main` also tagged `:latest`, so
+  when a merge was reverted on `main`, installs that auto-update `:latest` were handed an image
+  with fewer migrations than their database had already run, and the app crash-looped (#553).
+  `:latest` now moves only to the highest stable version tag. `main` keeps `:nightly` and
+  `:sha-<short>`.
 - **A mortgage split could only be edited through the API.** The ownership editor lived on the
   property sheet alone, so a loan kept whatever split it already had — no rows by default, the
   administrative owner holding 100% — while the property showed its own split. The loan account
