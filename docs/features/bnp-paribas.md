@@ -110,7 +110,12 @@ flags `S` secure, `H` httpOnly, `T` session cookie; names and domains only, neve
 `snapshot_off_site` (the page is not on the bank's site), `snapshot_info_dead` (`InfosClient` answers `codeRetour`
 -10 / -30 or answers 0 without a customer block, or a data answer says -10 / -30), `snapshot_http_401` (the bank
 refused a request with 401 / 403). If the first snapshot
-fails or takes more than 45 s the login still completes and the stage is logged.
+fails or runs out of time the login still completes and the stage is logged.
+
+`/complete` has one time budget of 190 s for the second-factor wait and the first snapshot together, because
+the backend stops waiting at 200 s (`BnpAdapter.COMPLETE_TIMEOUT`) and the web app at 210 s. The snapshot gets
+45 s, or what is left of the 190 s when that is less: after an app approval that came late it is cut short or
+skipped, and the `/accounts` call that follows reads it in a new browser.
 
 Signed in means `codeRetour` 0 **and** a `data` block. The code alone is not enough: once the
 session has idled out, the signed-in site still answers `InfosClient` with `codeRetour: "0"` and `message: "OK"`,

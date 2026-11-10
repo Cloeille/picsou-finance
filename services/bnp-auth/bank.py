@@ -116,7 +116,10 @@ MAX_REDIRECTS = 20
 MAX_SESSION_STATE = 150_000
 MAX_COOKIES = 200
 SNAPSHOT_CACHE_SECONDS = 120
-FIRST_SNAPSHOT_SECONDS = 45  # keeps /complete well inside the backend's timeout
+FIRST_SNAPSHOT_SECONDS = 45
+# All of /complete: the second-factor wait, then the first snapshot. The backend stops waiting at 200 s
+# (BnpAdapter.COMPLETE_TIMEOUT); the 10 s between the two are for reading the cookies and closing the browser.
+COMPLETE_SECONDS = 190
 MAX_LOGGED_COOKIES = 30
 MIN_LOGIN_GAP = 2.0
 POLL_SECONDS = 1.5
@@ -954,6 +957,7 @@ class BrowserBankClient:
             await asyncio.sleep(POLL_SECONDS)
 
     async def complete(self, process_id: str, code: str | None) -> str:
+        deadline = time.monotonic() + COMPLETE_SECONDS
         state = await self.pending.take(process_id)
         if state is None or state.get("stage") != "mfa":
             if state is not None:
@@ -990,7 +994,7 @@ class BrowserBankClient:
             # The browser that logged in is the one the session is known to work in: read the first
             # snapshot here, before it closes, and keep it for the /accounts call that follows.
             landing = landing_host(page.url, brand)
-            snapshot = await self._first_snapshot(state, brand, landing)
+            snapshot = await self._first_snapshot(state, brand, landing, deadline - time.monotonic())
             session = encode_session(brand, await state["context"].cookies(), landing)
             if snapshot is not None and not state["guard"].tainted:
                 self._remember(session, snapshot)
@@ -1064,15 +1068,16 @@ class BrowserBankClient:
                 raise await stop("snapshot_http_401") from None
             raise
 
-    async def _first_snapshot(self, state: dict[str, Any], brand: Brand, landing: str | None) -> tuple[list[dict], list[dict]] | None:
+    async def _first_snapshot(self, state: dict[str, Any], brand: Brand, landing: str | None, seconds: float) -> tuple[list[dict], list[dict]] | None:
         """The first snapshot, in the browser that just logged in. Never fails the login: when it cannot
-        be read the stage is logged and `/accounts` reads it again the usual way."""
+        be read the stage is logged and `/accounts` reads it again the usual way. `seconds` is what `/complete`
+        has left: after a late approval the snapshot gets less than FIRST_SNAPSHOT_SECONDS, or no time at all."""
         try:
-            return await asyncio.wait_for(self._read_snapshot(state, brand, "same_browser", landing), FIRST_SNAPSHOT_SECONDS)
+            return await asyncio.wait_for(self._read_snapshot(state, brand, "same_browser", landing), min(FIRST_SNAPSHOT_SECONDS, seconds))
         except HTTPException:
             return None  # staged and logged where it stopped
         except TimeoutError:
-            log.warning("BNP first snapshot took too long (stage=snapshot_same_browser_timeout)")
+            log.warning("BNP first snapshot ran out of time (stage=snapshot_same_browser_timeout)")
             return None
         except Exception:
             log.warning("BNP first snapshot failed unexpectedly (stage=snapshot_same_browser)")

@@ -1215,13 +1215,35 @@ class FlowTest(unittest.TestCase):
             await asyncio.sleep(10)
 
         started = time.monotonic()
-        with patch.object(bank, "COMPLETE_SECONDS", 0.3, create=True), patch.object(bank, "FIRST_SNAPSHOT_SECONDS", 5), \
+        with patch.object(bank, "COMPLETE_SECONDS", 0.3), patch.object(bank, "FIRST_SNAPSHOT_SECONDS", 5), \
                 patch.object(bank, "probe_session", approved_late), patch.object(bank, "fetch_json", hang), \
                 self.assertLogs("bnp-auth", level="WARNING") as logs:
             session = run(self.client.complete("p1", None))
         # The backend stops waiting for /complete after a fixed time: the snapshot never runs past it.
         self.assertLess(time.monotonic() - started, 2.5)
         self.assertTrue(session)
+        self.assertIn("stage=snapshot_same_browser_timeout", "\n".join(logs.output))
+
+    def test_an_approval_that_uses_all_the_time_skips_the_first_snapshot_and_the_login_completes(self):
+        st = state_for(self.logged_in_page(), stage="mfa", kind="app")
+        st["context"].cookies = AsyncMock(return_value=list(self.SESSION_JAR))
+        run(self.client.pending.put("p1", st))
+        asked = []
+
+        async def approved_late(*_a):
+            await asyncio.sleep(0.1)
+            return True
+
+        async def fetch(_page, key, body=None):
+            asked.append(key)
+            return self.ANSWERS[key]
+
+        with patch.object(bank, "COMPLETE_SECONDS", 0.05), patch.object(bank, "probe_session", approved_late), \
+                patch.object(bank, "fetch_json", fetch), self.assertLogs("bnp-auth", level="WARNING") as logs:
+            session = run(self.client.complete("p1", None))
+        self.assertEqual(bank.decode_session_state(session)[2], "mabanqueprivee.bnpparibas")
+        self.assertEqual(asked, [])
+        self.assertEqual(len(self.client._first), 0)
         self.assertIn("stage=snapshot_same_browser_timeout", "\n".join(logs.output))
 
     def test_a_tainted_browser_drops_the_first_snapshot(self):
