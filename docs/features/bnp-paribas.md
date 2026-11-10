@@ -180,6 +180,13 @@ title as a length, form ids and field names and types, a few element ids. Names 
   are left as they were; so is everything when the unsupported list hit its 100-entry cap, as it may then
   hide a product. A closed loan is dropped by the sidecar (the bank sends only nulls), so it is closed at
   zero too.
+- Two known limits of these rules:
+  - The account id comes from the IBAN when the RIB list gives one, and from the masked number otherwise.
+    An account whose IBAN appears or disappears between two syncs therefore gets a new id: it is imported
+    as a new account and the old one is closed at zero. Net worth stays right, the history is split. A
+    field that stays the same across sessions has not been verified yet.
+  - Closing is per provider, so reconnecting under the other brand leaves the first brand's accounts at
+    their last balance. Delete them by hand.
 
 ## Operating it
 
