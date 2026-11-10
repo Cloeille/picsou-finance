@@ -11,6 +11,7 @@ import com.picsou.dto.HoldingResponse;
 import com.picsou.dto.RealEstateMetadataResponse;
 import com.picsou.dto.SnapshotRequest;
 import com.picsou.exception.ResourceNotFoundException;
+import com.picsou.finary.FinaryPersistenceHelper;
 import com.picsou.model.ScpiProvider;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
@@ -22,6 +23,8 @@ import com.picsou.model.PropertyKind;
 import com.picsou.model.PropertyValuation;
 import com.picsou.model.RealEstateMetadata;
 import com.picsou.model.RecurringCadence;
+import com.picsou.model.SnapshotSource;
+import com.picsou.model.Transaction;
 import com.picsou.model.WealthTier;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
@@ -44,11 +47,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -58,6 +63,8 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -81,6 +88,7 @@ class AccountServiceTest {
     @Mock InstrumentLogoService instrumentLogoService;
     @Mock ScpiPositionRepository scpiPositionRepository;
     @Mock ScpiFundService scpiFundService;
+    @Mock FinaryPersistenceHelper finaryPersistenceHelper;
     @InjectMocks AccountService accountService;
 
     private Account ownedAccount() {
@@ -223,11 +231,11 @@ class AccountServiceTest {
         Account card = Account.builder().id(1L).name("Card").type(AccountType.CREDIT_CARD)
             .currency("EUR").isManual(true).currentBalance(new BigDecimal("-500")).build();
         when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(card));
-        when(snapshotRepository.findLatestByAccountId(1L)).thenReturn(Optional.empty());
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(snapshotRepository.findByAccountIdAndDate(eq(1L), any())).thenReturn(Optional.empty());
         when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(priceService.toEur(new BigDecimal("-800"), "EUR", null)).thenReturn(new BigDecimal("-800"));
+        when(finaryPersistenceHelper.computeManualLedgerBalance(card)).thenReturn(new BigDecimal("-800"));
 
         BalanceSnapshot saved = accountService.addManualSnapshot(
             1L, 7L, new SnapshotRequest(new BigDecimal("800"), LocalDate.now()));
@@ -257,12 +265,20 @@ class AccountServiceTest {
             .currency("EUR").isManual(true).currentBalance(new BigDecimal("-800")).build();
         when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(card));
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(snapshotRepository.findByAccountIdAndDate(eq(1L), any())).thenReturn(Optional.empty());
+        when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(priceService.toEur(new BigDecimal("-800"), "EUR", null)).thenReturn(new BigDecimal("-800"));
 
         accountService.update(1L, cardRequest("800"), 7L);
 
         assertThat(card.getCurrentBalance()).isEqualByComparingTo("-800");
-        // Same debt as before: no new snapshot, which a sign flip to +800 would have written.
-        verifyNoInteractions(snapshotRepository);
+        // Same debt as before: no sign flip to +800. The save still refreshes today's row,
+        // which gains MANUAL protection — that is the point of re-entering the figure.
+        ArgumentCaptor<BalanceSnapshot> saved = ArgumentCaptor.forClass(BalanceSnapshot.class);
+        verify(snapshotRepository, times(2)).save(saved.capture());
+        BalanceSnapshot last = saved.getAllValues().get(saved.getAllValues().size() - 1);
+        assertThat(last.getBalance()).isEqualByComparingTo("-800");
+        assertThat(last.getSource()).isEqualTo(SnapshotSource.MANUAL);
     }
 
     @Test
@@ -466,6 +482,11 @@ class AccountServiceTest {
             new BigDecimal(balance), true, "#6366f1", null, null, null, null);
     }
 
+    private static AccountRequest eurBalanceRequest(String balance) {
+        return new AccountRequest("Livret", AccountType.LIVRET_A, null, "EUR",
+            new BigDecimal(balance), true, "#6366f1", null, null, null, null);
+    }
+
     private static Account usdManualAccount(String balance) {
         return Account.builder().id(1L).name("US checking").type(AccountType.CHECKING)
             .currency("USD").currentBalance(new BigDecimal(balance)).isManual(true).build();
@@ -485,27 +506,172 @@ class AccountServiceTest {
         accountService.update(1L, usdBalanceRequest("150"), 7L);
 
         ArgumentCaptor<BalanceSnapshot> snapshot = ArgumentCaptor.forClass(BalanceSnapshot.class);
-        verify(snapshotRepository).save(snapshot.capture());
+        verify(snapshotRepository, times(2)).save(snapshot.capture());
         // The history reads balance_snapshot.balance as EUR: 150 USD must land as 135, not 150.
         assertThat(snapshot.getValue().getBalance()).isEqualByComparingTo("135");
         assertThat(account.getCurrentBalance()).isEqualByComparingTo("150");
+        // A typed balance on a manual ledger is a statement about today: marked MANUAL so
+        // the next transaction anchors on it instead of dropping the edited figure.
+        assertThat(snapshot.getValue().getSource()).isEqualTo(SnapshotSource.MANUAL);
+        assertThat(snapshot.getValue().getNativeBalance()).isEqualByComparingTo("150");
     }
 
     @Test
     void addManualSnapshot_storesTheBalanceInEur_andKeepsTheNativeFigureOnTheAccount() {
         Account account = usdManualAccount("100");
         when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(account));
-        when(snapshotRepository.findLatestByAccountId(1L)).thenReturn(Optional.empty());
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(snapshotRepository.findByAccountIdAndDate(eq(1L), any())).thenReturn(Optional.empty());
         when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(priceService.toEur(new BigDecimal("200"), "USD", null)).thenReturn(new BigDecimal("180"));
+        when(finaryPersistenceHelper.computeManualLedgerBalance(account)).thenReturn(new BigDecimal("200"));
 
         BalanceSnapshot saved = accountService.addManualSnapshot(
             1L, 7L, new SnapshotRequest(new BigDecimal("200"), LocalDate.now()));
 
         assertThat(saved.getBalance()).isEqualByComparingTo("180");
         assertThat(account.getCurrentBalance()).isEqualByComparingTo("200");
+        // Hand-entered: later rebuilds preserve the row and anchor the balance on its
+        // native figure, never on a later FX rate.
+        assertThat(saved.getSource()).isEqualTo(SnapshotSource.MANUAL);
+        assertThat(saved.getNativeBalance()).isEqualByComparingTo("200");
+        verify(finaryPersistenceHelper).reconstructSnapshotsFromDb(account);
+    }
+
+    @Test
+    void addManualSnapshot_backDatedStatementAfterATransaction_recomputesTheAnchoredBalance() {
+        // Reverse order of the usual flow (issue #543): a -50 transaction is already in,
+        // then the October statement of 500 arrives — the balance must become 450, not -50.
+        LocalDate today = LocalDate.now();
+        LocalDate october = today.minusDays(10);
+        Account account = Account.builder().id(1L).name("Livret").type(AccountType.LIVRET_A)
+            .currency("EUR").isManual(true).currentBalance(new BigDecimal("-50")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(account));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(snapshotRepository.findByAccountIdAndDate(eq(1L), any())).thenReturn(Optional.empty());
+        when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(priceService.toEur(new BigDecimal("500"), "EUR", null)).thenReturn(new BigDecimal("500"));
+        when(finaryPersistenceHelper.computeManualLedgerBalance(account))
+            .thenReturn(new BigDecimal("450"));
+
+        BalanceSnapshot saved = accountService.addManualSnapshot(
+            1L, 7L, new SnapshotRequest(new BigDecimal("500"), october));
+
+        assertThat(saved.getSource()).isEqualTo(SnapshotSource.MANUAL);
+        assertThat(saved.getNativeBalance()).isEqualByComparingTo("500");
+        assertThat(saved.getStatementEnteredAt()).isNotNull();
+        assertThat(account.getCurrentBalance()).isEqualByComparingTo("450");
+        verify(finaryPersistenceHelper).reconstructSnapshotsFromDb(account);
+    }
+
+    @Test
+    void addManualSnapshot_transactionThenBackDatedStatement_convergesToTheAnchoredBalance() {
+        // The exact issue #543 report, with a REAL persistence helper: a -50 transaction is
+        // already in when the October statement of 500 arrives — balance 450, statement kept.
+        LocalDate today = LocalDate.now();
+        LocalDate october = today.minusDays(10);
+        LocalDate november = today.minusDays(3);
+        Account account = Account.builder().id(1L).name("Livret").type(AccountType.LIVRET_A)
+            .currency("EUR").isManual(true).currentBalance(new BigDecimal("-50")).build();
+        Transaction posted = Transaction.builder().account(account).date(november)
+            .amount(new BigDecimal("-50")).nativeCurrency("EUR").build();
+        FinaryPersistenceHelper realPersistence = new FinaryPersistenceHelper(
+            snapshotRepository, transactionRepository, priceService);
+        AccountService service = new AccountService(accountRepository, snapshotRepository,
+            holdingRepository, transactionRepository, realEstateMetadataRepository,
+            propertyValuationRepository, debtRepository, savingsInterestConfigRepository, priceService,
+            loanAmortizationService, accessResolver, bankLogoResolver, cryptoLogoService,
+            instrumentLogoService, scpiPositionRepository, scpiFundService, realPersistence);
+
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(account));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
+        when(priceService.toEur(new BigDecimal("500"), "EUR", null)).thenReturn(new BigDecimal("500"));
+        when(priceService.toEur(new BigDecimal("-50"), "EUR", null)).thenReturn(new BigDecimal("-50"));
+        when(snapshotRepository.findByAccountIdAndDate(eq(1L), any())).thenReturn(Optional.empty());
+        when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        BalanceSnapshot statement = BalanceSnapshot.builder()
+            .account(account).date(october).balance(new BigDecimal("500"))
+            .investedAmount(new BigDecimal("500")).source(SnapshotSource.MANUAL)
+            .nativeBalance(new BigDecimal("500")).build();
+        when(snapshotRepository.findFirstByAccountIdAndSourceAndDateLessThanEqualOrderByDateDesc(
+            1L, SnapshotSource.MANUAL, today)).thenReturn(Optional.of(statement));
+        when(transactionRepository.sumAmountByAccountIdAfterStatement(eq(1L), eq(october), any(Instant.class)))
+            .thenReturn(new BigDecimal("-50"));
+        when(transactionRepository.findByAccountIdOrderByDateDesc(1L)).thenReturn(List.of(posted));
+        when(snapshotRepository.findRecentByAccountId(1L, LocalDate.of(2000, 1, 1)))
+            .thenReturn(List.of(statement));
+
+        BalanceSnapshot saved = service.addManualSnapshot(
+            1L, 7L, new SnapshotRequest(new BigDecimal("500"), october));
+
+        assertThat(saved.getSource()).isEqualTo(SnapshotSource.MANUAL);
+        assertThat(account.getCurrentBalance()).isEqualByComparingTo("450");
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<java.util.List<BalanceSnapshot>> deleted =
+            ArgumentCaptor.forClass(java.util.List.class);
+        verify(snapshotRepository).deleteAllInBatch(deleted.capture());
+        assertThat(deleted.getValue()).doesNotContain(statement);
+        ArgumentCaptor<BalanceSnapshot> snapshots = ArgumentCaptor.forClass(BalanceSnapshot.class);
+        verify(snapshotRepository, atLeastOnce()).save(snapshots.capture());
+        Map<LocalDate, java.util.List<BigDecimal>> byDate = snapshots.getAllValues().stream()
+            .collect(Collectors.groupingBy(BalanceSnapshot::getDate,
+                Collectors.mapping(BalanceSnapshot::getBalance, Collectors.toList())));
+        // Today anchored at 450, the November transaction date rebuilt at 450 (not the stale
+        // -50); October only carries the upserted statement itself, never a rebuild.
+        assertThat(byDate.get(today)).containsExactly(new BigDecimal("450"));
+        assertThat(byDate.get(november)).containsExactly(new BigDecimal("450"));
+        assertThat(byDate.get(october)).allSatisfy(balance ->
+            assertThat(balance).isEqualByComparingTo("500"));
+    }
+
+    @Test
+    void update_sameBalanceOnManualLedger_flipsTodayRowToManual() {
+        // Recovery path for pre-V150 statements: re-typing the same figure still heals the
+        // row, since protection comes from the MANUAL flip, not from the value changing.
+        LocalDate today = LocalDate.now();
+        Account account = Account.builder().id(1L).name("Livret").type(AccountType.LIVRET_A)
+            .currency("EUR").isManual(true).currentBalance(new BigDecimal("500")).build();
+        BalanceSnapshot legacy = BalanceSnapshot.builder()
+            .account(account).date(today).balance(new BigDecimal("500"))
+            .investedAmount(new BigDecimal("500")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(account));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
+        when(priceService.toEur(new BigDecimal("500"), "EUR", null)).thenReturn(new BigDecimal("500"));
+        when(snapshotRepository.findByAccountIdAndDate(1L, today)).thenReturn(Optional.of(legacy));
+        when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        accountService.update(1L, eurBalanceRequest("500"), 7L);
+
+        assertThat(legacy.getSource()).isEqualTo(SnapshotSource.MANUAL);
+        assertThat(legacy.getNativeBalance()).isEqualByComparingTo("500");
+        assertThat(legacy.getStatementEnteredAt()).isNotNull();
+    }
+
+    @Test
+    void upsertSnapshotFromNative_refreshesNativeOnAManualRow() {
+        LocalDate today = LocalDate.now();
+        Account account = usdManualAccount("1200");
+        BalanceSnapshot statement = BalanceSnapshot.builder()
+            .account(account).date(today).balance(new BigDecimal("1080"))
+            .investedAmount(new BigDecimal("1080")).source(SnapshotSource.MANUAL)
+            .nativeBalance(new BigDecimal("1200")).build();
+        when(snapshotRepository.findByAccountIdAndDate(1L, today)).thenReturn(Optional.of(statement));
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
+        when(priceService.toEur(new BigDecimal("1200"), "USD", null)).thenReturn(new BigDecimal("1080"));
+        when(priceService.toEur(new BigDecimal("1300"), "USD", null)).thenReturn(new BigDecimal("1170"));
+        when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        // updateAccount rewrites today's row through here: without the native refresh the
+        // next rebuild would anchor on the old 1200 statement (issue #543).
+        BalanceSnapshot result = accountService.upsertSnapshotFromNative(
+            account, new BigDecimal("1300"), today);
+
+        assertThat(result.getBalance()).isEqualByComparingTo("1170");
+        assertThat(result.getSource()).isEqualTo(SnapshotSource.MANUAL);
+        assertThat(result.getNativeBalance()).isEqualByComparingTo("1300");
+        verify(snapshotRepository, times(2)).save(any(BalanceSnapshot.class));
     }
 
     @Test
@@ -1507,7 +1673,7 @@ class AccountServiceTest {
             savingsInterestConfigRepository, realPrices, loanAmortizationService, accessResolver,
             bankLogoResolver, cryptoLogoService, instrumentLogoService, scpiPositionRepository, scpiFundService,
             mock(PeerLoanTermsRepository.class), mock(PeerLoanRepaymentRepository.class),
-            mock(PeerLoanTransactionLinks.class));
+            mock(PeerLoanTransactionLinks.class), mock(FinaryPersistenceHelper.class));
         // What a verified-EUR Finary crypto snapshot stores: 10 REG that Finary values at 10 EUR.
         Account account = Account.builder().id(9L).name("Finary wallet").type(AccountType.CRYPTO)
             .currency("EUR").currentBalance(BigDecimal.TEN).build();

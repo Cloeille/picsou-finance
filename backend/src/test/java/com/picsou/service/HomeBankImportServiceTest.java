@@ -131,7 +131,7 @@ class HomeBankImportServiceTest {
         List<Transaction> savedTransactions = new ArrayList<>();
         when(transactionRepository.existsByAccountIdAndExternalId(anyLong(), anyString())).thenReturn(false);
         when(transactionRepository.findByAccountMemberIdAndExternalIdIn(eq(7L), anyCollection())).thenReturn(List.of());
-        when(transactionRepository.sumAmountByAccountId(10L)).thenReturn(BigDecimal.ZERO);
+        lenient().when(persistenceHelper.computeManualLedgerBalance(any())).thenReturn(BigDecimal.ZERO);
         when(transactionRepository.save(any())).thenAnswer(invocation -> {
             Transaction saved = invocation.getArgument(0);
             savedTransactions.add(saved);
@@ -292,9 +292,12 @@ class HomeBankImportServiceTest {
         when(transactionRepository.existsByAccountIdAndExternalId(anyLong(), anyString())).thenAnswer(invocation ->
                 storedTransactions.stream().anyMatch(saved -> saved.getAccount().getId().equals(invocation.getArgument(0))
                         && saved.getExternalId().equals(invocation.getArgument(1))));
-        when(transactionRepository.sumAmountByAccountId(10L)).thenAnswer(invocation -> storedTransactions.stream()
-                .filter(saved -> saved.getAccount().getId().equals(10L)).map(Transaction::getAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add));
+        lenient().when(persistenceHelper.computeManualLedgerBalance(any())).thenAnswer(invocation -> {
+            Account account = invocation.getArgument(0);
+            return storedTransactions.stream()
+                .filter(saved -> saved.getAccount().getId().equals(account.getId())).map(Transaction::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        });
         when(transactionRepository.save(any())).thenAnswer(invocation -> {
             Transaction saved = invocation.getArgument(0);
             storedTransactions.add(saved);
@@ -394,14 +397,14 @@ class HomeBankImportServiceTest {
         assertThat(harness.savedTransaction("homebank_opening_a").getAmount()).isEqualByComparingTo("250");
         assertThat(target.getCurrentBalance()).isEqualByComparingTo("1250");
         verify(persistenceHelper).reconstructSnapshotsFromDb(target);
-        verify(transactionRepository).sumAmountByAccountId(20L);
+        verify(persistenceHelper).computeManualLedgerBalance(target);
 
         harness.run(mapping, List.of());
 
         assertThat(harness.storedTransactions).filteredOn(t -> "homebank_opening_a".equals(t.getExternalId())).hasSize(1);
         assertThat(target.getCurrentBalance()).isEqualByComparingTo("1250");
         verify(persistenceHelper, times(1)).reconstructSnapshotsFromDb(target);
-        verify(transactionRepository, times(1)).sumAmountByAccountId(20L);
+        verify(persistenceHelper, times(1)).computeManualLedgerBalance(target);
     }
 
     @Test
@@ -675,6 +678,13 @@ class HomeBankImportServiceTest {
             lenient().when(transactionRepository.sumAmountByAccountId(anyLong())).thenAnswer(i ->
                     storedTransactions.stream().filter(t -> t.getAccount().getId().equals(i.getArgument(0)))
                             .map(Transaction::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add));
+            // Balance anchoring is delegated to the helper: mirror the statement-free
+            // behaviour (sum of the ledger) over the same in-memory rows.
+            lenient().when(persistenceHelper.computeManualLedgerBalance(any())).thenAnswer(i -> {
+                Account account = i.getArgument(0);
+                return storedTransactions.stream().filter(t -> t.getAccount().getId().equals(account.getId()))
+                        .map(Transaction::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+            });
             lenient().when(transactionRepository.save(any())).thenAnswer(i -> {
                 Transaction saved = i.getArgument(0);
                 storedTransactions.add(saved);

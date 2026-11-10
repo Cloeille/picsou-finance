@@ -128,7 +128,10 @@ public class ManualTransactionService {
         if (account.getType().isInvestment()) {
             holdingComputeService.recomputeHoldings(account);
         } else if (account.getType().isLedger()) {
-            recomputeCashBalance(account);
+            // Anchored on the latest hand-entered statement when there is one, so adding a
+            // transaction no longer discards the statements (issue #543).
+            account.setCurrentBalance(finaryPersistenceHelper.computeManualLedgerBalance(account));
+            accountRepository.save(account);
             finaryPersistenceHelper.reconstructSnapshotsFromDb(account);
         }
         // A valued account (SCPI, property, employee savings) keeps its valuation: a transaction
@@ -162,11 +165,5 @@ public class ManualTransactionService {
         if (fees != null && fees.signum() < 0) {
             throw new IllegalArgumentException("Fees cannot be negative");
         }
-    }
-
-    private void recomputeCashBalance(Account account) {
-        BigDecimal sum = transactionRepository.sumAmountByAccountId(account.getId());
-        account.setCurrentBalance(sum);
-        accountRepository.save(account);
     }
 }
