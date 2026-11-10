@@ -90,6 +90,15 @@ fiat pocket, including money-boxes/vaults. A vault keeps its persisted money-box
 `internalPocketId`. Synthetic wallet parents are never queried. A real pocket
 whose ID equals its wallet ID is still queried.
 
+The cursor follows `createdDate`, the field `transactions/last` pages on: `to` is an
+exclusive bound on it and the newest created row comes first. A row's booking date
+still comes from `completedDate`, else `startedDate`. The two differ whenever a card
+payment settles after it was made. Moving the cursor with the booking date made the
+next page overlap the previous one, the cursor stopped, and the sync ended in
+`PORTFOLIO_INCOMPLETE`. A row without a usable `createdDate` pages on its booking
+timestamp. The page size is Revolut's choice and no code relies on it: 3 rows a page
+were seen in one session and 120 in another, and `count` or `limit` did not change it.
+
 Transaction collection fails closed with HTTP 502 if an upstream request fails,
 the response is malformed, the cursor stops advancing before the 90-day cutoff,
 or the page cap is reached. A valid empty transaction list remains a successful

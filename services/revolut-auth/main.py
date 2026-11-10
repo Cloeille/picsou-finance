@@ -397,6 +397,18 @@ async def _fetch_iban(page, device_id, wallet_id, currency) -> Optional[str]:
     return None
 
 
+def _paging_timestamp(transaction: Dict[str, Any], booking_ts: float) -> float:
+    """The timestamp `transactions/last` pages on: `createdDate`. `to` is an exclusive bound on it and
+    the newest created row comes first (seen live). A payment settles after it was created, sometimes
+    days after, so the booking timestamp cannot move the cursor: the next page would overlap the last.
+    A row without a usable `createdDate` pages on its booking timestamp."""
+    created = transaction.get("createdDate")
+    if isinstance(created, bool) or not isinstance(created, (int, float)):
+        return booking_ts
+    created = float(created)
+    return created if math.isfinite(created) and created > 0 else booking_ts
+
+
 async def _fetch_transactions(page, device_id, pocket_id,
                               fiat: Optional[set] = None) -> List[Dict[str, Any]]:
     fiat = fiat or FIAT_FALLBACK
@@ -434,8 +446,7 @@ async def _fetch_transactions(page, device_id, pocket_id,
                 date = datetime.fromtimestamp(ts / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
             except (OverflowError, OSError, ValueError, TypeError):
                 raise HTTPException(status_code=502, detail="INVALID_DATA") from None
-            if ts < oldest:
-                oldest = ts
+            oldest = min(oldest, _paging_timestamp(t, ts))
             merchant = t.get("merchant")
             if merchant is None:
                 merchant = {}
