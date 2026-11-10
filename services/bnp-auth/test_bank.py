@@ -1202,6 +1202,28 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(len(self.client._first), 0)
         self.assertIn("stage=snapshot_same_browser_timeout", "\n".join(logs.output))
 
+    def test_a_late_app_approval_leaves_the_first_snapshot_only_the_time_that_is_left(self):
+        st = state_for(self.logged_in_page(), stage="mfa", kind="app")
+        st["context"].cookies = AsyncMock(return_value=list(self.SESSION_JAR))
+        run(self.client.pending.put("p1", st))
+
+        async def approved_late(*_a):
+            await asyncio.sleep(0.2)
+            return True
+
+        async def hang(*_a, **_k):
+            await asyncio.sleep(10)
+
+        started = time.monotonic()
+        with patch.object(bank, "COMPLETE_SECONDS", 0.3, create=True), patch.object(bank, "FIRST_SNAPSHOT_SECONDS", 5), \
+                patch.object(bank, "probe_session", approved_late), patch.object(bank, "fetch_json", hang), \
+                self.assertLogs("bnp-auth", level="WARNING") as logs:
+            session = run(self.client.complete("p1", None))
+        # The backend stops waiting for /complete after a fixed time: the snapshot never runs past it.
+        self.assertLess(time.monotonic() - started, 2.5)
+        self.assertTrue(session)
+        self.assertIn("stage=snapshot_same_browser_timeout", "\n".join(logs.output))
+
     def test_a_tainted_browser_drops_the_first_snapshot(self):
         page = self.logged_in_page()
         st = state_for(page, stage="mfa", kind="none")
