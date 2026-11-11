@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   member's share, so on a 50/50 loan each co-owner saw half the remaining capital but the full
   monthly payment. The instalment is now weighed by the same share as the balance, on the
   dashboard and in the real-estate summary; `percentPaid` stays the loan's own progress.
+- **Fortuneo sync failed on accounts with a long history.** The sidecar answered `/accounts` fine, but the backend rejected any payload over Spring's 256 KB default buffer (`DataBufferLimitException`, surfaced as `UPSTREAM_UNAVAILABLE`). The Fortuneo adapter now allows 16 MB like the Caisse d'Épargne one.
 
 ### Changed
 
