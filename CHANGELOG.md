@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#553](https://github.com/Cloeille/picsou-finance/issues/553)). The app now refuses to start
   with Flyway's `Detected applied migration not resolved locally` error naming the missing version,
   as the release migration CLI already did.
+- **Trade Republic sync wrote account data to the backend log.** Each sync logged the raw answers of
+  Trade Republic at INFO: the cash account number, the balance, every position's quantity and buy-in
+  price, and the account value. The log now keeps the id, type and size of each answer and the number
+  of positions. Raw answers are logged only when you set
+  `logging.level.com.picsou.adapter.TradeRepublicAdapter=TRACE`.
 - **A mortgage split could only be edited through the API.** The ownership editor lived on the
   property sheet alone, so a loan kept whatever split it already had — no rows by default, the
   administrative owner holding 100% — while the property showed its own split. The loan account

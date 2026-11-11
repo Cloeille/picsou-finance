@@ -1,5 +1,8 @@
 package com.picsou.adapter;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
@@ -12,6 +15,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -298,6 +302,40 @@ class TradeRepublicAdapterTest {
 
         assertThat(securities(accounts).positions()).singleElement()
             .satisfies(position -> assertThat(position.currentPrice()).isEqualByComparingTo("200"));
+    }
+
+    // ─── fetchAccounts: what reaches the log ───────────────────────────────────────────────
+
+    /**
+     * Whoever operates the instance reads the log. It must not carry what the bank's frames
+     * carry: the cash account number, a balance, a quantity, a buy-in price, an account value.
+     */
+    @Test
+    void fetchAccounts_logsNoAccountNumberBalanceOrPosition() {
+        TradeRepublicAdapter adapter = adapterAgainstTr(
+            BTC, "{\"exchangeIds\":[\"BHS\"]}", Map.of(BTC + ".BHS", "60000"));
+        var logger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(TradeRepublicAdapter.class);
+        var logs = new ListAppender<ILoggingEvent>();
+        logs.start();
+        logger.addAppender(logs);
+
+        try {
+            adapter.fetchAccounts(sessionToken());
+        } finally {
+            logger.detachAppender(logs);
+        }
+
+        // TRACE is the opt-in level for raw frames; everything an instance logs by default is checked.
+        List<String> lines = logs.list.stream()
+            .filter(event -> event.getLevel().isGreaterOrEqual(Level.DEBUG))
+            .map(ILoggingEvent::getFormattedMessage)
+            .toList();
+        assertThat(lines).anyMatch(line -> line.contains("1 positions"));
+        assertThat(lines).anyMatch(line -> line.matches("TR WS <-- \\d+ A \\(\\d+ chars\\)"));
+        assertThat(lines).noneMatch(line -> line.contains("CASH1"));
+        assertThat(lines).noneMatch(line -> line.contains("\"amount\""));
+        assertThat(lines).noneMatch(line -> line.contains("netSize") || line.contains("averageBuyIn"));
+        assertThat(lines).noneMatch(line -> line.contains("30000"));
     }
 
     /**
