@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`:latest` could go back to an older schema.** Every push to `main` also tagged `:latest`, so
+  when a merge was reverted on `main`, installs that auto-update `:latest` were handed an image
+  with fewer migrations than their database had already run, and the app crash-looped (#553).
+  `:latest` now moves only to the highest stable version tag. `main` keeps `:nightly` and
+  `:sha-<short>`.
 - **An older image on a newer database died in Hibernate instead of at Flyway.** Spring Boot
   defaults Flyway to ignore applied versions the image does not ship, so after V131–V146 had been
   applied, an image that only ships up to V128 logged `Schema is up to date` and then failed with
