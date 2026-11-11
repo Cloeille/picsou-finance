@@ -64,7 +64,9 @@ ENROLMENT_APPROVE_WAIT_S = 300
 POLL_MS = 3000
 LOGIN_SCREEN_WAIT_S = 30
 LOGIN_SCREEN_POLL_MS = 300
-MAX_TRANSACTION_PAGES = 20
+# Sized for the smallest page seen live (three rows, one of them read again): about 1,000 rows for
+# one pocket in the window.
+MAX_TRANSACTION_PAGES = 500
 TRANSACTION_WINDOW_DAYS = 90
 CAMOUFOX_LAUNCH_TIMEOUT_S = float(os.environ.get("CAMOUFOX_LAUNCH_TIMEOUT_S", "60"))
 
@@ -397,45 +399,75 @@ async def _fetch_iban(page, device_id, wallet_id, currency) -> Optional[str]:
     return None
 
 
+def _timestamp_ms(value: Any) -> Optional[float]:
+    """A millisecond timestamp, or None when the value is not a positive finite number."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        number = float(value)
+    except (OverflowError, ValueError):
+        return None
+    return number if math.isfinite(number) and number > 0 else None
+
+
+async def _transactions_page(page, device_id, pocket_id, to: int) -> List[Any]:
+    """One page of `transactions/last`: the rows created strictly before `to`, newest created first."""
+    resp = await api_call(page, "/api/retail/user/current/transactions/last", device_id,
+                          params={"internalPocketId": pocket_id, "to": to})
+    if not isinstance(resp, dict) or resp.get("status") != 200:
+        raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+    data = resp.get("data")
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict) and isinstance(data.get("transactions"), list):
+        return data["transactions"]
+    raise HTTPException(status_code=502, detail="INVALID_DATA")
+
+
 async def _fetch_transactions(page, device_id, pocket_id,
                               fiat: Optional[set] = None) -> List[Dict[str, Any]]:
+    """The pocket's transactions created in the last TRANSACTION_WINDOW_DAYS days.
+
+    `transactions/last` pages on `createdDate`: `to` is an exclusive bound on it and the newest created
+    row comes first (seen live). So the cursor and the window both follow `createdDate`. A payment
+    settles after it was created, sometimes days after: moving the cursor with the booking date made the
+    next page overlap the last one and stalled the read. The booking date of a row is still its
+    `completedDate`, else `startedDate`. A row without `createdDate` pages on its booking timestamp.
+
+    Each next page asks again for the instant the last one ended on (`to` = oldest + 1): rows created in
+    the same millisecond, such as the two legs of an exchange, are not lost when a page cuts between
+    them. Rows read twice are dropped by `seen`. A one-row page cannot hold two rows of one instant,
+    so there the bound stays exclusive."""
     fiat = fiat or FIAT_FALLBACK
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     cutoff = now_ms - TRANSACTION_WINDOW_DAYS * 24 * 3600 * 1000
-    out, seen, cursor = [], set(), now_ms
+    out, seen, to, largest_page, paged_on_booking_date = [], set(), now_ms, 0, False
     for page_number in range(MAX_TRANSACTION_PAGES):
-        resp = await api_call(page, "/api/retail/user/current/transactions/last", device_id,
-                              params={"internalPocketId": pocket_id, "to": cursor})
-        if not isinstance(resp, dict) or resp.get("status") != 200:
-            raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
-        data = resp.get("data")
-        if isinstance(data, list):
-            batch = data
-        elif isinstance(data, dict) and isinstance(data.get("transactions"), list):
-            batch = data["transactions"]
-        else:
-            raise HTTPException(status_code=502, detail="INVALID_DATA")
+        batch = await _transactions_page(page, device_id, pocket_id, to)
         if not batch:
             break
-        new_count, oldest = 0, cursor
+        largest_page = max(largest_page, len(batch))
+        new_count, oldest = 0, math.inf
         for t in batch:
             if not isinstance(t, dict):
                 raise HTTPException(status_code=502, detail="INVALID_DATA")
             tid = _pick(t, "id")
             if not isinstance(tid, str) or not tid.strip():
                 raise HTTPException(status_code=502, detail="INVALID_DATA")
-            ts = _pick(t, "completedDate", "startedDate")
-            if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+            ts = _timestamp_ms(_pick(t, "completedDate", "startedDate"))
+            if ts is None:
                 raise HTTPException(status_code=502, detail="INVALID_DATA")
             try:
-                ts = float(ts)
-                if not math.isfinite(ts) or ts <= 0:
-                    raise ValueError("invalid timestamp")
                 date = datetime.fromtimestamp(ts / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
-            except (OverflowError, OSError, ValueError, TypeError):
+            except (OverflowError, OSError, ValueError):
                 raise HTTPException(status_code=502, detail="INVALID_DATA") from None
-            if ts < oldest:
-                oldest = ts
+            if t.get("createdDate") is None:
+                created, paged_on_booking_date = ts, True
+            else:
+                created = _timestamp_ms(t["createdDate"])
+                if created is None:
+                    raise HTTPException(status_code=502, detail="INVALID_DATA")
+            oldest = min(oldest, created)
             merchant = t.get("merchant")
             if merchant is None:
                 merchant = {}
@@ -457,7 +489,7 @@ async def _fetch_transactions(page, device_id, pocket_id,
                 continue
             seen.add((tid, currency))
             new_count += 1
-            if ts < cutoff:
+            if created < cutoff:
                 continue
             out.append({
                 "externalId": tid,
@@ -471,12 +503,19 @@ async def _fetch_transactions(page, device_id, pocket_id,
         if oldest <= cutoff:
             break
         if new_count == 0:
+            # Only rows read before: the page held nothing but the instant asked for again. Nothing
+            # strictly older means the history is over. Otherwise that instant may hold more rows than
+            # a page, or the cursor is stuck: what is missing cannot be told, so fail closed.
+            if not await _transactions_page(page, device_id, pocket_id, int(oldest)):
+                break
             raise HTTPException(status_code=502, detail="PORTFOLIO_INCOMPLETE")
-        if oldest >= cursor:
+        if oldest >= to:
             raise HTTPException(status_code=502, detail="PORTFOLIO_INCOMPLETE")
         if page_number == MAX_TRANSACTION_PAGES - 1:
             raise HTTPException(status_code=502, detail="PORTFOLIO_INCOMPLETE")
-        cursor = oldest
+        to = int(oldest) + (1 if largest_page > 1 else 0)
+    if paged_on_booking_date:
+        log.warning("Revolut transactions without createdDate: paged on the booking date")
     return out
 
 

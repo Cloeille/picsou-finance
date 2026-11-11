@@ -29,6 +29,48 @@ async def _empty_fiat(_page, _device_id):
     return {"EUR"}
 
 
+FIXED_NOW = datetime(2026, 6, 15, 12, 0, tzinfo=timezone.utc)
+NOW_MS = int(FIXED_NOW.timestamp() * 1000)
+DAY_MS = 24 * 3600 * 1000
+
+
+class _FixedDateTime(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return FIXED_NOW if tz else FIXED_NOW.replace(tzinfo=None)
+
+
+def _day(days_ago):
+    return datetime.fromtimestamp((NOW_MS - int(days_ago * DAY_MS)) / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+
+
+def _row(tx_id, created, started=None, completed=None, currency="EUR"):
+    """A synthetic row in the live shape. Ages are days before FIXED_NOW; it settles when created unless told."""
+    started = created if started is None else started
+    completed = started if completed is None else completed
+    return {
+        "id": tx_id, "createdDate": NOW_MS - int(created * DAY_MS), "startedDate": NOW_MS - int(started * DAY_MS),
+        "completedDate": NOW_MS - int(completed * DAY_MS), "description": tx_id, "amount": -100,
+        "currency": currency, "type": "CARD_PAYMENT",
+    }
+
+
+class _Feed:
+    """`transactions/last` as seen live: the rows created strictly before `to`, newest created first, a fixed page."""
+
+    def __init__(self, rows, page_size=3):
+        self.rows, self.page_size, self.bounds = rows, page_size, []
+
+    async def __call__(self, _page, _path, _device_id, params=None):
+        self.bounds.append(params["to"])
+        return {"status": 200, "data": [row for row in self.rows if row["createdDate"] < params["to"]][:self.page_size]}
+
+
+async def _read(feed):
+    with patch.object(main, "datetime", _FixedDateTime), patch.object(main, "api_call", feed):
+        return await main._fetch_transactions(object(), "device", "pocket")
+
+
 class TransactionHarvestTest(unittest.IsolatedAsyncioTestCase):
     async def test_harvest_fetches_real_pocket_and_vault_ids_without_exposing_mapping(self):
         now_ms = int(time.time() * 1000) - 1000
@@ -184,6 +226,77 @@ class TransactionHarvestTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(calls), main.MAX_TRANSACTION_PAGES)
         self.assertEqual(raised.exception.status_code, 502)
         self.assertEqual(raised.exception.detail, "PORTFOLIO_INCOMPLETE")
+
+    async def test_pages_follow_the_creation_date_the_endpoint_pages_on(self):
+        """A payment that settles days after it was created must not repeat or stall the read."""
+        # (id, created days ago, started days ago, completed days ago), newest created first.
+        rows = [_row(*spec) for spec in (
+            ("t1", 6.0, 5.9, 5.8), ("t2", 7.5, 7.3, 7.1), ("t3", 8.8, 7.6, 7.2), ("t4", 8.9, 8.9, 7.1),
+            ("t5", 9.7, 9.7, 8.1), ("t6", 11.5, 11.5, 11.4), ("t7", 12.0, 9.5, 9.0))]
+        feed = _Feed(rows)
+
+        transactions = await _read(feed)
+
+        self.assertEqual([tx["externalId"] for tx in transactions], [f"t{n}" for n in range(1, 8)])
+        self.assertEqual(transactions[2]["date"], _day(7.2))  # the booking date stays the completion date
+        self.assertEqual(feed.bounds[0], NOW_MS)
+        # Every later page asks again for the instant the last one ended on; the last call asks strictly before it.
+        self.assertEqual(feed.bounds[1:-1], [rows[i]["createdDate"] + 1 for i in (2, 4, 6)])
+        self.assertEqual(feed.bounds[-1], rows[6]["createdDate"])
+
+    async def test_rows_created_in_the_same_millisecond_survive_a_page_cut(self):
+        """Both legs of an exchange share an id and a creation instant; a three-row page cuts between them."""
+        rows = [_row("t1", 2.0), _row("t2", 3.0), _row("exchange", 4.0, currency="EUR"),
+                _row("exchange", 4.0, currency="USD"), _row("t5", 5.0)]
+
+        transactions = await _read(_Feed(rows))
+
+        self.assertEqual([(tx["externalId"], tx["currency"]) for tx in transactions],
+                         [("t1", "EUR"), ("t2", "EUR"), ("exchange", "EUR"), ("exchange", "USD"), ("t5", "EUR")])
+
+    async def test_more_rows_in_one_millisecond_than_a_page_holds_fails_closed(self):
+        rows = [_row("t1", 2.0), _row("t2", 3.0)] + [_row(f"burst-{n}", 4.0) for n in range(5)] + [_row("old", 6.0)]
+
+        with self.assertRaises(HTTPException) as raised:
+            await _read(_Feed(rows))
+
+        self.assertEqual((raised.exception.status_code, raised.exception.detail), (502, "PORTFOLIO_INCOMPLETE"))
+
+    async def test_the_window_follows_the_creation_date(self):
+        window = main.TRANSACTION_WINDOW_DAYS
+        rows = [_row("inside", window - 1, completed=window - 10), _row("created-before", window + 1, completed=window - 2),
+                _row("far", window + 30)]
+        feed = _Feed(rows, page_size=1)
+
+        transactions = await _read(feed)
+
+        self.assertEqual([tx["externalId"] for tx in transactions], ["inside"])
+        self.assertEqual(len(feed.bounds), 2)  # the read stops at the first row created before the window
+
+    async def test_a_malformed_creation_date_fails_closed(self):
+        for bad in ("1790000000000", True, 0, -5, float("nan"), float("inf")):
+            with self.subTest(created=bad):
+                row = _row("t1", 2.0)
+                row["createdDate"] = bad
+
+                async def api_call(_page, _path, _device_id, params=None, row=row):
+                    return {"status": 200, "data": [row]}
+
+                with self.assertRaises(HTTPException) as raised:
+                    await _read(api_call)
+                self.assertEqual((raised.exception.status_code, raised.exception.detail), (502, "INVALID_DATA"))
+
+    async def test_rows_without_a_creation_date_page_on_the_booking_date_and_say_so(self):
+        async def api_call(_page, _path, _device_id, params=None):
+            rows = [_tx("old-shape-1", NOW_MS - 1000, -100), _tx("old-shape-2", NOW_MS - 2000, -100)]
+            return {"status": 200, "data": [row for row in rows if row["completedDate"] < params["to"]][:1]}
+
+        with patch.object(main, "datetime", _FixedDateTime), patch.object(main, "api_call", api_call):
+            with self.assertLogs("revolut-auth", level="WARNING") as logs:
+                transactions = await main._fetch_transactions(object(), "device", "pocket")
+
+        self.assertEqual([tx["externalId"] for tx in transactions], ["old-shape-1", "old-shape-2"])
+        self.assertIn("without createdDate", "\n".join(logs.output))
 
     async def test_page_two_http_error_fails_closed(self):
         now_ms = int(time.time() * 1000)

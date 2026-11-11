@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sheet now carries the same editor, so each mortgage gets the split the backend already accepted.
   The editor sits next to the loan section rather than inside it, so the split stays editable
   even when the loan has no debt details or the viewer is a co-owner (issue #550).
+- **Revolut sync failed with "Failed to sync Revolut accounts" when a card payment settled days
+  after it was made.** Revolut lists transactions by creation date, and the connector moved through
+  the pages by settlement date. With a late settlement the pages overlapped, the read stopped, and
+  the whole sync was refused, balances included. The connector now follows the creation date.
 - **Family dashboard and MCP history counted Revolut pockets twice.** A Revolut wallet's balance
   is the sum of its pockets, which is why the dashboard leaves pockets out of net worth. The
   family dashboard's shared net worth added each pocket on top of its wallet, and the MCP
