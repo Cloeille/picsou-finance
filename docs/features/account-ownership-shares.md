@@ -53,6 +53,7 @@ PUT /accounts/{id}/ownership
 - Weighted consumers: `service/DashboardService.java`, `service/HistoryService.java`,
   `service/FamilyViewService.java`, `service/GoalService.java`
 - `components/property/OwnershipEditor.tsx`
+- `pages/accounts/AccountDetailPage.tsx` — the loan account sheet carries the same editor next to the loan section (not inside it), so a mortgage split stays editable without debt details, for owners and co-owners (issues #354, #550)
 
 ## Technical choices
 

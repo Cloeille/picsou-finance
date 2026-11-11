@@ -9,12 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Long descriptions overflowed the rows of the "Add account" source list.** A description longer than the dialog (Caisse d'Epargne, German or Spanish copy, any row on a phone) kept its one-line width, ran past the card's right edge and pushed that row's arrow out of line with the others. A description now wraps inside its row, clamped to two lines with the full text as a tooltip, and every arrow keeps its size and position.
+- **An older image on a newer database died in Hibernate instead of at Flyway.** Spring Boot
+  defaults Flyway to ignore applied versions the image does not ship, so after V131–V146 had been
+  applied, an image that only ships up to V128 logged `Schema is up to date` and then failed with
+  `Schema-validation: missing table [amex_session]`
+  ([#553](https://github.com/Cloeille/picsou-finance/issues/553)). The app now refuses to start
+  with Flyway's `Detected applied migration not resolved locally` error naming the missing version,
+  as the release migration CLI already did.
+- **A mortgage split could only be edited through the API.** The ownership editor lived on the
+  property sheet alone, so a loan kept whatever split it already had — no rows by default, the
+  administrative owner holding 100% — while the property showed its own split. The loan account
+  sheet now carries the same editor, so each mortgage gets the split the backend already accepted.
+  The editor sits next to the loan section rather than inside it, so the split stays editable
+  even when the loan has no debt details or the viewer is a co-owner (issue #550).
 - **Family dashboard and MCP history counted Revolut pockets twice.** A Revolut wallet's balance
   is the sum of its pockets, which is why the dashboard leaves pockets out of net worth. The
   family dashboard's shared net worth added each pocket on top of its wallet, and the MCP
   `get_net_worth_history` and `get_profit_and_loss` tools did the same when called without
   account ids. A pocket now counts only when its wallet is not in the same list.
+- **Long descriptions overflowed the rows of the "Add account" source list.** A description longer than the dialog (Caisse d'Epargne, German or Spanish copy, any row on a phone) kept its one-line width, ran past the card's right edge and pushed that row's arrow out of line with the others. A description now wraps inside its row, clamped to two lines with the full text as a tooltip, and every arrow keeps its size and position.
 - **The dashboard holdings card counted property, SCPI and Revolut pockets as cash.** Its
   "Euros" line added up every account that is neither a holdings account nor a debt, so a flat
   or an SCPI was shown as euros, and a Revolut wallet's money was counted again through each of
@@ -26,6 +39,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   capital and were added again quinzaine by quinzaine. The opening capital is now the snapshot
   minus the movements booked up to its date.
 - **HTTPS access by LAN IP.** The bundled Caddy proxy now uses `PICSOU_DOMAIN` as its default TLS SNI when a client omits SNI, allowing it to select the certificate for the configured site address.
+- **The dashboard showed the whole loan instalment to every co-owner.** `monthlyPayment` (and so
+  `totalMonthlyPayment`) was the full loan's instalment while the balance was weighed by the
+  member's share, so on a 50/50 loan each co-owner saw half the remaining capital but the full
+  monthly payment. The instalment is now weighed by the same share as the balance, on the
+  dashboard and in the real-estate summary; `percentPaid` stays the loan's own progress.
+- **Fortuneo sync failed on accounts with a long history.** The sidecar answered `/accounts` fine, but the backend rejected any payload over Spring's 256 KB default buffer (`DataBufferLimitException`, surfaced as `UPSTREAM_UNAVAILABLE`). The Fortuneo adapter now allows 16 MB like the Caisse d'Épargne one.
+- **Other bank sidecars could fail the same way on a long history.** Amex, Amundi, Bourse Direct,
+  BoursoBank, CIC, Crédit Mutuel Épargne Salariale, CORUM, DEGIRO, Revolut, Sofidy and Trade
+  Republic still decoded their sidecar's answer with Spring's 256 KB default. The 16 MB limit now
+  lives in `SidecarWebClientFactory`, so every sidecar adapter gets it.
 
 ### Changed
 

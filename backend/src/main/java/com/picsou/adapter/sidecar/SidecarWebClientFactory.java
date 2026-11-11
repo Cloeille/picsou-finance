@@ -30,7 +30,9 @@ import java.util.function.Consumer;
  *       ever sent;</li>
  *   <li>the sidecar's own rejection of that secret is turned into a
  *       {@link SidecarAuthenticationException} before any adapter sees it, so a
- *       key mismatch can never be mistaken for the bank rejecting a password.</li>
+ *       key mismatch can never be mistaken for the bank rejecting a password;</li>
+ *   <li>a response may buffer up to {@link #MAX_RESPONSE_BYTES}, because an account
+ *       with a long history is well past Spring's 256 KB default (issue #460).</li>
  * </ul>
  *
  * <p>The secret authenticates the caller; it does not encrypt the hop. See the
@@ -51,6 +53,9 @@ public class SidecarWebClientFactory {
      */
     public static final String AUTH_CHALLENGE = "Picsou-Sidecar-Key";
 
+    /** Largest sidecar body decoded in memory. A sidecar is ours, so this bounds a bug, not an attacker. */
+    public static final int MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+
     private final SidecarProperties sidecars;
     private final String apiKey;
 
@@ -70,13 +75,15 @@ public class SidecarWebClientFactory {
     }
 
     /**
-     * @param customizer applied last, for the one adapter that needs its own codecs
-     *                   (DEGIRO decodes money straight to {@code BigDecimal})
+     * @param customizer applied last, for an adapter that needs its own codecs
+     *                   (DEGIRO decodes money straight to {@code BigDecimal}) or connector
+     *                   (Caisse d'Epargne turns off reactor-netty's silent replay)
      */
     public WebClient create(String sidecarName, String serviceName, Consumer<WebClient.Builder> customizer) {
         WebClient.Builder builder = WebClient.builder()
             .baseUrl(SidecarBaseUrl.validate(sidecarName, sidecars.url(serviceName)))
-            .filter(rejectOnBadKey(sidecarName));
+            .filter(rejectOnBadKey(sidecarName))
+            .codecs(c -> c.defaultCodecs().maxInMemorySize(MAX_RESPONSE_BYTES));
         if (apiKey != null) {
             builder.defaultHeader(API_KEY_HEADER, apiKey);
         }
