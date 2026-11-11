@@ -1340,6 +1340,33 @@ class AccountServiceTest {
     }
 
     @Test
+    void banquePopulairePer_usesLiveQuotesAndKeepsUnresolvedBankValuationsStale() {
+        Account account = Account.builder().id(7L).name("Synthetic BP pension")
+            .type(AccountType.PER).provider("Banque Populaire Rives de Paris").externalAccountId("bp_contract:BP1").isManual(false).currency("EUR")
+            .currentBalance(new BigDecimal("1700")).cashBalance(new BigDecimal("1000")).build();
+        LocalDate navDate = LocalDate.of(2026, 10, 6);
+        AccountHolding ucA = AccountHolding.builder()
+            .ticker("UC_A").quantity(new BigDecimal("10"))
+            .currentPrice(new BigDecimal("50")).quoteCurrency("USD")
+            .providerValueEur(new BigDecimal("500")).build();
+        AccountHolding ucB = AccountHolding.builder()
+            .ticker("UC_B").quantity(new BigDecimal("2"))
+            .currentPrice(new BigDecimal("999")).quoteCurrency("USD")
+            .providerValueEur(new BigDecimal("200")).providerPriceDate(navDate).build();
+        List<AccountHolding> holdings = List.of(ucA, ucB);
+        when(holdingRepository.findByAccount_Id(7L)).thenReturn(holdings);
+        when(priceService.getQuotes(any())).thenReturn(
+            Map.of("UC_A", new PriceService.Quote(new BigDecimal("55"), LocalDate.now(), true)));
+
+        AccountService.Valuation atNewPrice = accountService.valuation(account);
+
+        assertThat(atNewPrice.liveEur()).isEqualByComparingTo("1750");
+        assertThat(atNewPrice.investedEur()).isEqualByComparingTo("1750");
+        assertThat(atNewPrice.anyPriced()).isTrue();
+        assertThat(atNewPrice.anyStale()).isTrue();
+    }
+
+    @Test
     void caisseEpargnePer_ignoresNonpositiveQuotesAndBankValues() {
         Account account = Account.builder().id(7L).name("Synthetic pension")
             .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).isManual(false).currency("EUR")

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Banque Populaire: import Plan Épargne Retraite (PER).** A PER (family 4, sub 05)
+  is synced via the Natixis Assurances portal with its funds and euro fund, matching
+  Caisse d'Epargne support. (#524)
+
 - **Banque Populaire: remember identifier across reconnections.** The customer
   identifier from the last successful login is stored encrypted at rest on its `sidecar_session` row (`V148`),
   and reconnecting offers to reuse it along with its associated regional bank,
@@ -73,7 +77,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Sécur'Pass. Imports the current account, Livret A, Livret Jeune, LDDS, Compte sur Livret and PEL
   with their transactions, and term deposits and cooperative shares with their synthesis
   balance, on demand. It shares the Caisse d'Epargne code through the BPCE platform; cards,
-  loans, PER and revolving credit are not imported. The accounts carry your regional bank's name
+  loans and revolving credit are not imported. The PER is read from the Natixis Assurances portal.
+  The accounts carry your regional bank's name
   (for example "Banque Populaire Rives de Paris") and, when Enable Banking is configured, its logo.
   Enable the `banque-populaire` Compose profile. The shared code also fixes Caisse d'Epargne: a
   Livret Jeune (same BPCE product code as the Livret A) is now imported as a Livret Jeune, and a

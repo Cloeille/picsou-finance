@@ -726,7 +726,10 @@ class ProductFamiliesTest(unittest.TestCase):
         self.assertIsNone(account["iban"])
 
     def test_a_4_05_contract_with_the_peric_code_or_any_other_stays_a_per(self):
-        for contract_id in ("00000     PERIC12345678", "00000     OTHER12345678", "12345678", "00000 essen123"):
+        for contract_id in (
+            "00000     PERIC12345678", "PERIB123456789", "00000     PERIB12345678",
+            "00000     OTHER12345678", "12345678", "00000 essen123",
+        ):
             with self.subTest(contract_id):
                 kinds = {a["kind"] for a in self._with_insurer_id(contract_id).values()}
                 self.assertIn("PER", kinds)

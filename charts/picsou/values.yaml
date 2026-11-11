@@ -319,6 +319,8 @@ sidecars:
     enabled: true
     urlEnv: BANQUE_POPULAIRE_AUTH_URL
     port: 8001
+    env:
+      CE_LOG_PRODUCT_DETAILS: ""
   caisse-epargne-auth:
     enabled: true
     urlEnv: CAISSE_EPARGNE_AUTH_URL

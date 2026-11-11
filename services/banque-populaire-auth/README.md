@@ -48,7 +48,8 @@ unchanged. The container listens on port 8001.
 | data | `https://www.rs-ext-bad-ib.banquepopulaire.fr` (synthesis and PFM transactions, same paths and queries as Caisse d'Epargne) |
 | allow-list | https `*.banquepopulaire.fr` only: no `bpce.fr`, no `caisse-epargne.fr` host |
 | session cookies | the `banquepopulaire.fr` domain family only |
-| loan, home-loan, PER apps | none |
+| loan, home-loan apps | none (unsupported) |
+| PER app | `espace-assurances-de-personnes.banquepopulaire.fr` (gateway `www.rs-ext-bad-ib.banquepopulaire.fr`) |
 
 ## Login
 
@@ -87,9 +88,10 @@ there is accepted. No card account, no card operation read, nothing listed in
 `unsupported` (a card is not a contract).
 
 Listed in `unsupported` (id, family and sub-family code only), never read, never fatal:
-personal loans `6/12`, home loans `6/13`, PER `4/05`, the revolving credit `2/11`
+personal loans `6/12`, home loans `6/13`, the revolving credit `2/11`
 ("Credit Renouvelable Facelia", null balance), and any family not listed above.
-Only the main token is ever minted.
+The PER `4/05` is read from the insurer app (minting a second OAuth token on demand,
+like Caisse d'Epargne; pinned to `PERIB`).
 
 ## Observed live (2026-11-05, 2026-11-08) and not
 
@@ -113,7 +115,7 @@ region, identifier, keypad, Sécur'Pass, session replay and `/accounts`. A wrong
 identifier or password was seen too: the bank shows a keypad for any identifier,
 then a modal "Identifiant ou mot de passe erroné", read as `INVALID_CREDENTIALS`.
 
-Not observed: the revolving-credit detail, personal or home loans, PER detail, LEP.
+Not observed: the revolving-credit detail, personal or home loans, LEP.
 
 ## Tests
 

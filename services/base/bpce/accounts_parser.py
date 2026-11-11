@@ -96,8 +96,8 @@ PFM_KINDS = frozenset(
 # (`<entity> <PRODUCT><number>`) tells them apart. A `4/05` contract with any other
 # product code stays a PER, as before: the insurer reader then refuses it, visibly.
 INSURER_KINDS = frozenset({"PER", "ASSURANCE_VIE"})
-INSURER_PRODUCT_KINDS = {"PERIC": "PER", "ESSEN": "ASSURANCE_VIE"}
-_INSURER_ID_RE = re.compile(r"[0-9]{5} {1,16}(?P<product>[A-Z]{5})[0-9]{1,64}\Z")
+INSURER_PRODUCT_KINDS = {"PERIC": "PER", "PERIB": "PER", "ESSEN": "ASSURANCE_VIE"}
+_INSURER_ID_RE = re.compile(r"(?:[0-9]{5} {1,16}|(?:ASV)?(?=PERIB))(?P<product>[A-Z]{5})[0-9]{1,64}\Z")
 
 # Kinds seen in few live runs (2026-11-06, 2026-11-08). A contract of these kinds that the
 # parser cannot read (no integer `contractPfmId`, no balance, a negative balance...)

@@ -12,7 +12,7 @@ from datetime import date
 
 import httpx
 
-from bpce import accounts_parser, fetcher, replay
+from bpce import accounts_parser, fetcher, per_client, replay
 from bpce.site import ChainProfile, HomeLoanApp, PerApp, Site
 
 SITE = Site(
@@ -304,6 +304,44 @@ class CardSwitchTest(unittest.TestCase):
         item["identity"]["augmentedCards"] = "not a list"
         with self.assertRaises(accounts_parser.ParseError):
             kinds([item], import_cards=False)
+
+class PerContractIdParsingTest(unittest.TestCase):
+    def test_parse_contract_id_supports_compact_bp_and_standard_ce_shapes(self):
+        cases = [
+            ("PERIB123456789", "PERIB", "123456789"),
+            ("ASVPERIB123456", "PERIB", "123456"),
+            ("00000     PERIC12345678", "PERIC", "12345678"),
+            ("00000     ESSEN12345678", "ESSEN", "12345678"),
+            ("00000     PERIB12345678", "PERIB", "12345678"),
+        ]
+        for raw, expected_product, expected_number in cases:
+            with self.subTest(contract_id=raw):
+                match = per_client._parse_contract_id(raw)
+                self.assertEqual(match.group("product"), expected_product)
+                self.assertEqual(match.group("number"), expected_number)
+
+    def test_parse_contract_id_refuses_invalid_shapes(self):
+        for raw in (
+            "PERIC12345678", "ESSEN12345678", "PERIB", "PERIB12AB", "00000 PERIC123/../x", 123,
+            "PERIA12345678", "ASVPERIC12345678", "ASVESSEN12345678", "", "00000     PERIB",
+        ):
+            with self.subTest(contract_id=raw):
+                with self.assertRaises(per_client.UnknownPerContract):
+                    per_client._parse_contract_id(raw)
+
+    def test_insurer_kind_supports_compact_and_standard_shapes(self):
+        cases = [
+            ("PERIB123456789", "PER"),
+            ("ASVPERIB123456", "PER"),
+            ("00000     PERIC12345678", "PER"),
+            ("00000     ESSEN12345678", "ASSURANCE_VIE"),
+            ("00000     PERIB12345678", "PER"),
+            ("00000     OTHER12345678", "PER"),
+        ]
+        for raw, expected_kind in cases:
+            with self.subTest(contract_id=raw):
+                self.assertEqual(accounts_parser._insurer_kind({"contractId": {"id": raw}}), expected_kind)
+
 
 if __name__ == "__main__":
     unittest.main()
