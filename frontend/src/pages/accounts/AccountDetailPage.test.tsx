@@ -21,6 +21,9 @@ const hooks = vi.hoisted(() => ({
   useSavingsSuggestions: vi.fn(),
   useCategories: vi.fn(),
   useCategorize: vi.fn(),
+  useLoanSummary: vi.fn(),
+  useOwnership: vi.fn(),
+  useUpdateOwnership: vi.fn(),
 }))
 
 vi.mock('@/features/accounts/hooks', () => ({
@@ -35,9 +38,15 @@ vi.mock('@/features/accounts/hooks', () => ({
   useUpdateHolding: hooks.useUpdateHolding,
   useDeleteHolding: hooks.useDeleteHolding,
   useImportTRTransactions: hooks.useImportTRTransactions,
+  useLoanSummary: hooks.useLoanSummary,
+  useOwnership: hooks.useOwnership,
+  useUpdateOwnership: hooks.useUpdateOwnership,
 }))
 
 vi.mock('@/features/history/hooks', () => ({ useHistory: hooks.useHistory }))
+vi.mock('@/features/family/hooks', () => ({
+  useFamilyMembers: () => ({ data: [] }),
+}))
 vi.mock('@/features/savings/hooks', () => ({ useSavingsSuggestions: hooks.useSavingsSuggestions }))
 vi.mock('@/features/budget/hooks', () => ({
   useCategories: hooks.useCategories,
@@ -187,5 +196,75 @@ describe('AccountDetailPage PER balance', () => {
     )
 
     expect(screen.queryByText('accounts.lifeContract.title')).not.toBeInTheDocument()
+  })
+})
+
+const LOAN_ACCOUNT: Account = {
+  ...PER_ACCOUNT,
+  id: 7,
+  name: 'Mortgage',
+  type: 'LOAN',
+  isOwner: true,
+}
+
+const LOAN_OWNERSHIP = {
+  shares: [
+    { memberId: 1, displayName: 'Alice', avatarColor: '#6366f1', sharePercent: 50, isOwner: true },
+  ],
+  totalAssigned: 50,
+  unassigned: 50,
+}
+
+function renderLoanPage() {
+  const client = new QueryClient()
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={['/accounts/7']}>
+        <Routes>
+          <Route path="/accounts/:id" element={<AccountDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
+
+describe('AccountDetailPage loan ownership editor', () => {
+  beforeEach(() => {
+    hooks.useAccount.mockReturnValue({ data: LOAN_ACCOUNT, isLoading: false })
+    hooks.useAccountHistory.mockReturnValue({ data: [] })
+    hooks.useHoldingsWithLivePrices.mockReturnValue({ data: [] })
+    hooks.useAccountPositions.mockReturnValue({ data: [] })
+    hooks.useAccountTransactions.mockReturnValue({ data: [] })
+    hooks.useAddTransaction.mockReturnValue(mutation())
+    hooks.useDeleteTransaction.mockReturnValue(mutation())
+    hooks.useUpdateTransaction.mockReturnValue(mutation())
+    hooks.useUpdateHolding.mockReturnValue(mutation())
+    hooks.useDeleteHolding.mockReturnValue(mutation())
+    hooks.useImportTRTransactions.mockReturnValue(mutation())
+    hooks.useHistory.mockReturnValue({ data: [] })
+    hooks.useSavingsSuggestions.mockReturnValue({ data: [] })
+    hooks.useCategories.mockReturnValue({ data: [] })
+    hooks.useCategorize.mockReturnValue(mutation())
+    // No debt details: the summary call answers 404 (issue #550).
+    hooks.useLoanSummary.mockReturnValue({ data: undefined, isLoading: false, isError: true })
+    hooks.useOwnership.mockReturnValue({ data: LOAN_OWNERSHIP, isLoading: false })
+    hooks.useUpdateOwnership.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: false })
+  })
+
+  it('still renders the editor for an owner when the debt details fail', () => {
+    renderLoanPage()
+
+    expect(hooks.useOwnership).toHaveBeenCalledWith(7)
+    expect(screen.getByText('property.ownership.title')).toBeInTheDocument()
+    expect(screen.getByText('Alice')).toBeInTheDocument()
+    expect(screen.getByText('common.save')).toBeInTheDocument()
+  })
+
+  it('renders the editor read-only for a co-owner when the debt details fail', () => {
+    hooks.useAccount.mockReturnValue({ data: { ...LOAN_ACCOUNT, isOwner: false }, isLoading: false })
+    renderLoanPage()
+
+    expect(screen.getByText('property.ownership.title')).toBeInTheDocument()
+    expect(screen.queryByText('common.save')).not.toBeInTheDocument()
   })
 })

@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   property sheet alone, so a loan kept whatever split it already had — no rows by default, the
   administrative owner holding 100% — while the property showed its own split. The loan account
   sheet now carries the same editor, so each mortgage gets the split the backend already accepted.
+  The editor sits next to the loan section rather than inside it, so the split stays editable
+  even when the loan has no debt details or the viewer is a co-owner (issue #550).
 - **Family dashboard and MCP history counted Revolut pockets twice.** A Revolut wallet's balance
   is the sum of its pockets, which is why the dashboard leaves pockets out of net worth. The
   family dashboard's shared net worth added each pocket on top of its wallet, and the MCP
