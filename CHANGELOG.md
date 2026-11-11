@@ -223,6 +223,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **American Express: a login blocked by the site's anti-bot fails at once and says so in the log.**
+  When Akamai refuses AMEX's login request (HTTP 403, retried silently by the page), the sidecar
+  used to wait its full 30 s and log a bare `outcome=timeout`. It now stops after two 403s in a
+  row, answers the same retryable `UPSTREAM_UNAVAILABLE`, and logs
+  `AMEX login blocked by anti-bot login_post_403=<n> akamai_edge=<bool>`. The timeout warning
+  also counts the login responses, so "never answered" and "refused" no longer look alike.
 - **Adding a manual transaction wiped hand-entered month-end snapshots.** On a manual ledger account the balance became the sum of the transactions and every snapshot was deleted and rebuilt from the ledger alone, whichever order statements and transactions were entered in. Snapshots now carry their origin and native figure (`balance_snapshot.source`, `native_balance`, migration V150), and statements entered through the month-end modal are ground truth: rebuilds only recompute derived rows, and the balance is anchored on the latest statement plus later transactions. HomeBank, Actual Budget and Finary file imports preserve statements the same way; the first two also anchor the balance on them. Older statements regain protection once re-entered (re-typing the same figure is enough).
 - **American Express no longer says its site changed when the login page is just slow.** The
   login form is drawn by a script American Express loads separately, which is sometimes slow or
