@@ -1,8 +1,8 @@
 import '@testing-library/jest-dom'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { LoanDetailSection } from './LoanDetailSection'
-import { useOwnership } from '@/features/accounts/hooks'
+import { useLoanSummary } from '@/features/accounts/hooks'
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -37,39 +37,30 @@ const summary = {
   capitalRepaidPct: 8,
 }
 
-const ownership = {
-  shares: [
-    { memberId: 1, displayName: 'Alice', avatarColor: '#6366f1', sharePercent: 50, isOwner: true },
-  ],
-  totalAssigned: 50,
-  unassigned: 50,
-}
-
 vi.mock('@/features/accounts/hooks', () => ({
-  useLoanSummary: () => ({ data: { summary, schedule: [] }, isLoading: false, isError: false }),
-  useOwnership: vi.fn(() => ({ data: ownership, isLoading: false })),
-  useUpdateOwnership: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
-}))
-
-vi.mock('@/features/family/hooks', () => ({
-  useFamilyMembers: () => ({ data: [] }),
+  useLoanSummary: vi.fn(() => ({ data: { summary, schedule: [] }, isLoading: false, isError: false })),
 }))
 
 describe('LoanDetailSection', () => {
-  it('renders the ownership editor for the loan account', () => {
-    render(<LoanDetailSection accountId={7} canEdit />)
-
-    // The editor reaches the loan's own split, not the property's (issue #354).
-    expect(useOwnership).toHaveBeenCalledWith(7)
-    expect(screen.getByText('property.ownership.title')).toBeInTheDocument()
-    expect(screen.getByText('Alice')).toBeInTheDocument()
-    expect(screen.getByText('common.save')).toBeInTheDocument()
+  beforeEach(() => {
+    vi.mocked(useLoanSummary).mockReturnValue({
+      data: { summary, schedule: [] },
+      isLoading: false,
+      isError: false,
+    } as never)
   })
 
-  it('hides the save button when the viewer does not own the loan', () => {
-    render(<LoanDetailSection accountId={7} canEdit={false} />)
+  it('renders the summary cards when the debt details load', () => {
+    const { container } = render(<LoanDetailSection accountId={7} />)
 
-    expect(screen.getByText('property.ownership.title')).toBeInTheDocument()
-    expect(screen.queryByText('common.save')).not.toBeInTheDocument()
+    expect(screen.getByText('debt.monthlyBreakdown')).toBeInTheDocument()
+    expect(container).not.toBeEmptyDOMElement()
+  })
+
+  it('renders nothing when the debt details fail — the editor lives on the page (issue #550)', () => {
+    vi.mocked(useLoanSummary).mockReturnValue({ data: undefined, isLoading: false, isError: true } as never)
+    const { container } = render(<LoanDetailSection accountId={7} />)
+
+    expect(container).toBeEmptyDOMElement()
   })
 })
