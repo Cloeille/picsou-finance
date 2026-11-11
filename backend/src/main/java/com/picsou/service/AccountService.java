@@ -285,9 +285,10 @@ public class AccountService {
             BigDecimal oldBalance = account.getCurrentBalance();
             BigDecimal newBalance = signedBalance(account.getType(), req.currentBalance());
             account.setCurrentBalance(newBalance);
-            // Re-entering the same figure still heals the row: pre-V150 statements only gain
-            // protection once flipped to MANUAL, and the flip happens here.
-            if (newBalance.compareTo(oldBalance) != 0 || account.getType().isLedger()) {
+            // Only a figure that changed is a statement. The form sends the balance it was
+            // opened with, so a rename would otherwise pin today's balance, and a transaction
+            // dated before today, added, edited or deleted later, would stop moving it.
+            if (newBalance.compareTo(oldBalance) != 0) {
                 BalanceSnapshot snap = upsertSnapshotFromNative(account, newBalance, LocalDate.now());
                 if (account.getType().isLedger()) {
                     // A typed balance on a manual ledger is a statement about today: without

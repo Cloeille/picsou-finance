@@ -22,4 +22,4 @@ ALTER TABLE balance_snapshot ADD COLUMN native_balance DECIMAL(20, 8);
 -- When a hand-entered figure was typed, distinct from the row creation time: a DERIVED
 -- today row recycled into a statement keeps its old created_at, which would misorder
 -- same-day movements. NULL for every DERIVED row.
-ALTER TABLE balance_snapshot ADD COLUMN statement_entered_at TIMESTAMP;
+ALTER TABLE balance_snapshot ADD COLUMN statement_entered_at TIMESTAMPTZ;

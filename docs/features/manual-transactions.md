@@ -81,6 +81,8 @@ When a manual transaction is added, edited, or deleted on a **manual** cash acco
 
 Entering a statement also recomputes: `addManualSnapshot` anchors the balance and rebuilds the derived history on manual ledger accounts, so the transaction-then-statement order converges to the same state as statement-then-transaction (issue #543).
 
+A balance typed in the account form is a statement dated today only when it differs from the current balance. The form sends the balance it was opened with, so saving a rename adds no statement and the ledger keeps following its transactions. Statements entered before the `source` column existed (`V151`) are `DERIVED` and are protected once entered again in the monthly history.
+
 ### Synced accounts
 
 Manual transactions on a **synced** account (`account.isManual = false`) are recorded as

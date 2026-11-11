@@ -265,20 +265,12 @@ class AccountServiceTest {
             .currency("EUR").isManual(true).currentBalance(new BigDecimal("-800")).build();
         when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(card));
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(snapshotRepository.findByAccountIdAndDate(eq(1L), any())).thenReturn(Optional.empty());
-        when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(priceService.toEur(new BigDecimal("-800"), "EUR", null)).thenReturn(new BigDecimal("-800"));
 
         accountService.update(1L, cardRequest("800"), 7L);
 
         assertThat(card.getCurrentBalance()).isEqualByComparingTo("-800");
-        // Same debt as before: no sign flip to +800. The save still refreshes today's row,
-        // which gains MANUAL protection — that is the point of re-entering the figure.
-        ArgumentCaptor<BalanceSnapshot> saved = ArgumentCaptor.forClass(BalanceSnapshot.class);
-        verify(snapshotRepository, times(2)).save(saved.capture());
-        BalanceSnapshot last = saved.getAllValues().get(saved.getAllValues().size() - 1);
-        assertThat(last.getBalance()).isEqualByComparingTo("-800");
-        assertThat(last.getSource()).isEqualTo(SnapshotSource.MANUAL);
+        // Same debt as before: no new snapshot, which a sign flip to +800 would have written.
+        verifyNoInteractions(snapshotRepository);
     }
 
     @Test
@@ -581,7 +573,9 @@ class AccountServiceTest {
             holdingRepository, transactionRepository, realEstateMetadataRepository,
             propertyValuationRepository, debtRepository, savingsInterestConfigRepository, priceService,
             loanAmortizationService, accessResolver, bankLogoResolver, cryptoLogoService,
-            instrumentLogoService, scpiPositionRepository, scpiFundService, realPersistence);
+            instrumentLogoService, scpiPositionRepository, scpiFundService,
+            mock(PeerLoanTermsRepository.class), mock(PeerLoanRepaymentRepository.class),
+            mock(PeerLoanTransactionLinks.class), realPersistence);
 
         when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(account));
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -626,27 +620,19 @@ class AccountServiceTest {
     }
 
     @Test
-    void update_sameBalanceOnManualLedger_flipsTodayRowToManual() {
-        // Recovery path for pre-V150 statements: re-typing the same figure still heals the
-        // row, since protection comes from the MANUAL flip, not from the value changing.
-        LocalDate today = LocalDate.now();
+    void update_sameBalanceOnManualLedger_addsNoStatement() {
+        // The form sends the balance it was opened with: a rename must not turn it into a
+        // statement, or a transaction dated before today would stop moving the balance.
         Account account = Account.builder().id(1L).name("Livret").type(AccountType.LIVRET_A)
             .currency("EUR").isManual(true).currentBalance(new BigDecimal("500")).build();
-        BalanceSnapshot legacy = BalanceSnapshot.builder()
-            .account(account).date(today).balance(new BigDecimal("500"))
-            .investedAmount(new BigDecimal("500")).build();
         when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(account));
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
-        when(priceService.toEur(new BigDecimal("500"), "EUR", null)).thenReturn(new BigDecimal("500"));
-        when(snapshotRepository.findByAccountIdAndDate(1L, today)).thenReturn(Optional.of(legacy));
-        when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         accountService.update(1L, eurBalanceRequest("500"), 7L);
 
-        assertThat(legacy.getSource()).isEqualTo(SnapshotSource.MANUAL);
-        assertThat(legacy.getNativeBalance()).isEqualByComparingTo("500");
-        assertThat(legacy.getStatementEnteredAt()).isNotNull();
+        assertThat(account.getCurrentBalance()).isEqualByComparingTo("500");
+        verify(snapshotRepository, never()).save(any());
     }
 
     @Test
