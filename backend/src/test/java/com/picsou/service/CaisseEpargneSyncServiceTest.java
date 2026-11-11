@@ -383,6 +383,9 @@ class CaisseEpargneSyncServiceTest {
             assertThat(CaisseEpargneSyncService.isInsurerContract(
                 Account.builder().type(type).provider(CaisseEpargneSyncService.PROVIDER).isManual(false).build()))
                 .as(type.name()).isEqualTo(expected);
+            assertThat(CaisseEpargneSyncService.isInsurerContract(
+                Account.builder().type(type).provider("Banque Populaire Rives de Paris").externalAccountId("bp_contract:1").isManual(false).build()))
+                .as("bp " + type.name()).isEqualTo(expected);
             // A hand-made account never qualifies, even if the member typed this provider.
             assertThat(CaisseEpargneSyncService.isInsurerContract(
                 Account.builder().type(type).provider(CaisseEpargneSyncService.PROVIDER).isManual(true).build()))

@@ -1206,7 +1206,7 @@
       "property": "House, apartment, land…",
       "fortuneo": "Sync your Fortuneo accounts",
       "caisseEpargne": "Current account, Livret A, LDDS, PEL, LEP, PER, life insurance, loans and cards at Caisse d'Epargne",
-      "banquePopulaire": "Current account, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, term deposit and cooperative shares at Banque Populaire",
+      "banquePopulaire": "Current account, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, term deposit, cooperative shares and PER at Banque Populaire",
       "lbp": "Current account, Livret A and LEP at La Banque Postale",
       "bnp": "Current accounts, savings, securities and life insurance at BNP Paribas or Hello bank!"
     }
@@ -1701,7 +1701,7 @@
       "disconnectConfirmAction": "Delete the stored session",
       "noSession": "No active session",
       "sessionActive": "Session active",
-      "scope": "Syncs your Banque Populaire current accounts, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, term deposits and cooperative shares on demand. Only the session and your identifier are kept, encrypted; never your password. Contracts Picsou cannot import are listed but never created.",
+      "scope": "Syncs your Banque Populaire current accounts, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, term deposits, cooperative shares and PER on demand. Only the session and your identifier are kept, encrypted; never your password. Contracts Picsou cannot import are listed but never created.",
       "notice": {
         "neverStored": "Picsou never sees or stores your password. You click it on the bank's keypad yourself; only the positions of the keys are sent, once.",
         "noRetry": "Picsou never retries a sign-in. If it fails, nothing is sent again until you submit the form yourself.",

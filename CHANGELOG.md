@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   owner-assisted run covered the login, current and savings accounts and their operations on BNP Paribas;
   the second factor, Hello bank!, securities, life insurance and loans are unverified, see
   `docs/features/bnp-paribas.md`. Closes the connector part of #306.
+- **Banque Populaire: import Plan Épargne Retraite (PER).** A PER (family 4, sub 05)
+  is synced via the Natixis Assurances portal with its funds and euro fund, matching
+  Caisse d'Epargne support. (#524)
 
 - **Banque Populaire: remember identifier across reconnections.** The customer
   identifier from the last successful login is stored encrypted at rest on its `sidecar_session` row (`V148`),
@@ -83,7 +86,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Sécur'Pass. Imports the current account, Livret A, Livret Jeune, LDDS, Compte sur Livret and PEL
   with their transactions, and term deposits and cooperative shares with their synthesis
   balance, on demand. It shares the Caisse d'Epargne code through the BPCE platform; cards,
-  loans, PER and revolving credit are not imported. The accounts carry your regional bank's name
+  loans and revolving credit are not imported. The PER is read from the Natixis Assurances portal.
+  The accounts carry your regional bank's name
   (for example "Banque Populaire Rives de Paris") and, when Enable Banking is configured, its logo.
   Enable the `banque-populaire` Compose profile. The shared code also fixes Caisse d'Epargne: a
   Livret Jeune (same BPCE product code as the Livret A) is now imported as a Livret Jeune, and a
@@ -171,6 +175,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   It counts in net worth and in the *Alternative* tier. The accounts page's *Métaux* filter now
   lists these accounts only; `OTHER` accounts get their own filter. See
   [Precious metals](docs/features/precious-metals.md). (#448)
+
+- **Trade Republic transactions import automatically during the sync.** The sync now also
+  fetches Trade Republic's own CSV export through the `tr-auth` sidecar and feeds it to the
+  existing CSV importer, so card payments, interest and trades land in TR Cash and the PEA/CTO
+  without a manual upload. Rows already imported by hand are skipped. An unavailable export never
+  fails the sync. Rows the export states in a currency other than EUR are left out and counted,
+  on the manual upload too, instead of being stored as euros. See
+  [Trade Republic](docs/features/trade-republic.md).
 
 - **AI categorization over MCP.** `start_ai_categorization` starts the inbox's AI job and
   `get_ai_categorization_status` reports its progress as counters only, under a new

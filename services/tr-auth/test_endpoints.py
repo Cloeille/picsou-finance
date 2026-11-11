@@ -11,8 +11,9 @@ from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 
 import main
-from tr_fakes import (CLAIMS, DEVICE, PIN, PROCESS_ID, REFRESH, SESSION, SESSION_ROUTE, SUB, V1_CODE, V1_LOGIN,
-                      V2_LOGIN, V2_POLL, FakeTR, confirmed, encode_claims, pending, reply)
+from tr_fakes import (CLAIMS, DEVICE, EXPORT_DOWNLOAD, EXPORT_REQUEST, EXPORT_STATUS, JOB_ID, PIN, PROCESS_ID, REFRESH,
+                      SESSION, SESSION_ROUTE, SUB, V1_CODE, V1_LOGIN, V2_LOGIN, V2_POLL, FakeTR, confirmed,
+                      csv_reply, encode_claims, export_job, pending, reply)
 
 TEST_KEY = "tr-sidecar-test-key"
 AUTH = {"X-Picsou-Sidecar-Key": TEST_KEY}
@@ -411,18 +412,159 @@ class SessionTest(EndpointCase):
             self.assertNotIn(secret, text)
 
 
+class TransactionsTest(EndpointCase):
+    CSV = "datetime;type;amount\r\n2026-01-02T10:00:00Z;BUY;-12,50\r\ncafé;é;ü\r\n".encode()
+    BODY = {"sessionState": STATE, "from": "2026-01-01", "to": "2026-11-04"}
+
+    def setUp(self):
+        super().setUp()
+        sleep = AsyncMock()
+        patcher = patch.object(main, "pause", sleep)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.sleep = sleep
+
+    def refreshed(self):
+        return reply(200, {}, cookies={"tr_session": SESSION, "tr_claims": encode_claims(CLAIMS),
+                                       "JSESSIONID": "jsid", "tr_external_id": "ext"})
+
+    def routes(self, overrides=None):
+        return {SESSION_ROUTE: self.refreshed(), EXPORT_REQUEST: export_job("PENDING", 202),
+                EXPORT_STATUS: export_job("COMPLETED"), EXPORT_DOWNLOAD: csv_reply(self.CSV), **(overrides or {})}
+
+    def post(self, **body):
+        return self.client.post("/transactions", json={**self.BODY, **body})
+
+    def test_ok_returns_the_csv_verbatim(self):
+        tr = self.run_tr(self.routes())
+
+        response = self.post()
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.content, self.CSV)
+        self.assertEqual(response.headers["content-type"], "text/csv; charset=utf-8")
+        request = tr.calls(*EXPORT_REQUEST)[0]
+        self.assertEqual(json.loads(request.content), {"from": "2026-01-01", "to": "2026-11-04"})
+        for call in (request, tr.calls(*EXPORT_STATUS)[0], tr.calls(*EXPORT_DOWNLOAD)[0]):
+            cookie = call.headers["cookie"]
+            for expected in (f"tr_session={SESSION}", "JSESSIONID=jsid", "tr_external_id=ext", "tr_claims="):
+                self.assertIn(expected, cookie)
+            self.assertNotIn("tr_refresh", cookie)
+            self.assertEqual(call.headers["origin"], main.TR_APP)
+            self.assertEqual(call.headers["user-agent"], main.USER_AGENT)
+        self.assertEqual(tr.calls(*EXPORT_DOWNLOAD)[0].headers["accept"], "*/*")
+        self.assertEqual(tr.calls(*EXPORT_STATUS)[0].url.params["jobId"], JOB_ID)
+        self.assertEqual(tr.calls(*EXPORT_DOWNLOAD)[0].url.params["jobId"], JOB_ID)
+
+    def test_pending_is_polled_until_completed(self):
+        tr = self.run_tr(self.routes({EXPORT_STATUS: [export_job("PENDING", seconds=1),
+                                                          export_job("PENDING", seconds=7),
+                                                          export_job("COMPLETED")]}))
+
+        response = self.post()
+
+        self.assertEqual(response.content, self.CSV)
+        self.assertEqual(len(tr.calls(*EXPORT_STATUS)), 3)
+        self.assertEqual([c.args[0] for c in self.sleep.await_args_list], [2, 2, 7])
+
+    def test_a_job_that_does_not_complete_is_upstream_unavailable(self):
+        tr = self.run_tr(self.routes({EXPORT_STATUS: export_job("FAILED")}))
+
+        self.assertDetail(self.post(), 502, "UPSTREAM_UNAVAILABLE")
+        self.assertEqual(tr.calls(*EXPORT_DOWNLOAD), [])
+
+    def test_a_job_pending_past_the_budget_is_upstream_unavailable(self):
+        self.run_tr(self.routes({EXPORT_STATUS: export_job("PENDING")}))
+        with patch.object(main, "EXPORT_BUDGET_S", 0.2), \
+                patch.object(main, "pause", lambda seconds: asyncio.sleep(0.05)):
+            self.assertDetail(self.post(), 502, "UPSTREAM_UNAVAILABLE")
+
+    def test_refresh_rejection_is_session_expired(self):
+        for status in (401, 403):
+            with self.subTest(status=status):
+                tr = self.run_tr(self.routes({SESSION_ROUTE: reply(status, {"errors": [{"errorCode": "UNAUTHORIZED"}]})}))
+                self.assertDetail(self.post(), 401, "SESSION_EXPIRED")
+                self.assertEqual(tr.calls(*EXPORT_REQUEST), [])
+
+    def test_bad_state_is_422_and_never_reaches_tr(self):
+        tr = self.run_tr(self.routes())
+
+        self.assertDetail(self.post(sessionState="not json"), 422, "INVALID_SESSION_STATE")
+        self.assertDetail(self.client.post("/transactions", json={"from": "2026-01-01", "to": "2026-01-02"}),
+                          422, "INVALID_SESSION_STATE")
+        self.assertEqual(tr.requests, [])
+
+    def test_bad_dates_are_422_and_never_reach_tr(self):
+        tr = self.run_tr(self.routes())
+        bad = [{"from": "01/01/2026"}, {"from": "2026-13-01"}, {"to": "2026-02-30"}, {"to": "soon"}, {"from": ""},
+               {"from": "2026-12-01"}, {"from": "2020-01-01", "to": "2026-11-04"}, {"from": "2026-1-1"}]
+
+        for override in bad:
+            with self.subTest(override=override):
+                self.assertDetail(self.post(**override), 422, "INVALID_DATA")
+        self.assertDetail(self.client.post("/transactions", json={"sessionState": STATE, "to": "2026-01-02"}),
+                          422, "INVALID_DATA")
+        self.assertEqual(tr.requests, [])
+
+    def test_the_longest_range_is_accepted(self):
+        self.run_tr(self.routes())
+
+        # 1830 days, main.EXPORT_MAX_DAYS: the backend clamps its window to exactly this.
+        self.assertEqual(self.post(**{"from": "2021-10-31", "to": "2026-11-04"}).status_code, 200)
+        self.assertEqual(self.post(**{"from": "2026-11-04", "to": "2026-11-04"}).status_code, 200)
+        self.assertDetail(self.post(**{"from": "2021-10-30", "to": "2026-11-04"}), 422, "INVALID_DATA")
+
+    def test_429_anywhere_is_rate_limited(self):
+        for step in (SESSION_ROUTE, EXPORT_REQUEST, EXPORT_STATUS, EXPORT_DOWNLOAD):
+            with self.subTest(step=step):
+                self.run_tr(self.routes({step: reply(429, {"errors": []})}))
+                self.assertDetail(self.post(), 429, "RATE_LIMITED")
+
+    def test_unexpected_upstream_answers_are_upstream_unavailable(self):
+        def unreachable(request):
+            raise main.httpx.ConnectError("refused", request=request)
+
+        cases = {"refresh 5xx": {SESSION_ROUTE: reply(500, {"errors": []})},
+                 "request 200": {EXPORT_REQUEST: export_job("PENDING", 200)},
+                 "request 5xx": {EXPORT_REQUEST: reply(503, {})},
+                 "status 5xx": {EXPORT_STATUS: reply(500, {})},
+                 "download 404": {EXPORT_DOWNLOAD: reply(404, {})},
+                 "download 406": {EXPORT_DOWNLOAD: reply(406, {})},
+                 "network": {EXPORT_REQUEST: unreachable}}
+        for name, override in cases.items():
+            with self.subTest(name):
+                self.run_tr(self.routes(override))
+                self.assertDetail(self.post(), 502, "UPSTREAM_UNAVAILABLE")
+
+    def test_a_refresh_without_a_session_cookie_is_a_format_change(self):
+        self.run_tr(self.routes({SESSION_ROUTE: reply(200, {}, cookies={"tr_claims": encode_claims(CLAIMS)})}))
+
+        self.assertDetail(self.post(), 502, "UPSTREAM_FORMAT_CHANGED")
+
+    def test_neither_secrets_nor_the_csv_are_logged(self):
+        self.run_tr(self.routes())
+        with self.assertLogs(level="DEBUG") as logs:
+            self.post()
+
+        text = "\n".join(logs.output)
+        for secret in (REFRESH, DEVICE, SESSION, SUB, JOB_ID, "jsid", "BUY", "café", encode_claims(CLAIMS)):
+            self.assertNotIn(secret, text)
+        self.assertIn(f"{len(self.CSV)} bytes, 3 lines", text)
+
+
 class SurfaceTest(EndpointCase):
     def test_refresh_is_gone(self):
         self.assertEqual(self.client.post("/refresh", json={"refreshToken": "x"}).status_code, 404)
 
     def test_the_routes_are_exactly_the_contract(self):
         paths = {route.path for route in main.app.routes if getattr(route, "methods", None)}
-        self.assertTrue({"/initiate", "/complete", "/session", "/health"} <= paths)
+        self.assertTrue({"/initiate", "/complete", "/session", "/transactions", "/health"} <= paths)
         self.assertNotIn("/refresh", paths)
 
     def test_every_endpoint_requires_the_sidecar_key(self):
         bodies = {"/initiate": CREDENTIALS, "/complete": {"processId": PROCESS_ID},
-                  "/session": {"sessionState": STATE}}
+                  "/session": {"sessionState": STATE},
+                  "/transactions": {"sessionState": STATE, "from": "2026-01-01", "to": "2026-01-02"}}
         tr = self.run_tr({})
         anonymous = TestClient(main.app)
         for path, body in bodies.items():

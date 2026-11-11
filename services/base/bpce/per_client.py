@@ -24,9 +24,10 @@ Observed live on 2026-10-15 in the bank's own web front, for a Millevie PER:
      same headers plus `iw4-jwt-token: <JWT>` -> 200 JSON with
      `donneesContrat` and `detailContratVie`.
 
-The gateway and insurer hosts are the site's (`Site.per`; observed on Caisse
-d'Epargne only: `www.rs-ext-bad-ce.caisse-epargne.fr` and
-`www.espace-assurances-de-personnes.caisse-epargne.fr`). No cookie is sent
+The gateway and insurer hosts are the site's (`Site.per`): Caisse d'Epargne
+`www.rs-ext-bad-ce.caisse-epargne.fr` and `www.espace-assurances-de-personnes.caisse-epargne.fr`
+(observed live), Banque Populaire `www.rs-ext-bad-ib.banquepopulaire.fr` and
+`www.espace-assurances-de-personnes.banquepopulaire.fr` (observed live, issue #524). No cookie is sent
 to either host, no redirect is followed, and nothing read from the insurer
 (tokens, JWT, amounts) is logged: failures log a stage name and an HTTP status.
 """
@@ -41,7 +42,7 @@ from typing import Any
 
 import httpx
 
-from . import replay
+from . import replay, shape
 from .site import Site
 
 
@@ -55,12 +56,16 @@ JWT_HEADER = "iw4-jwt-token"
 
 _ENTITY_CODE_RE = re.compile(r"[0-9]{5}\Z")
 # The insurer products this reader knows, each pinned to its exact codes (never a
-# `[A-Z]{3}` wildcard): a PER (`PERIC`) and an assurance vie (`ESSEN`, Millevie Essentielle).
-# The bank contract id is `<entity> <PRODUCT><number>`; the insurer's own id is
-# `<product 3><company 2><number>` and starts with the same five letters.
-_CONTRACT_ID_RE = re.compile(r"[0-9]{5} {1,16}(?P<product>PERIC|ESSEN)(?P<number>[0-9]{1,64})\Z")
-_PRODUCER_ID_RE = re.compile(r"(?P<product>PER|ESS)(?P<company>IC|EN)(?P<number>[0-9]{1,32})\Z")
-_PRODUCER_PAIRS = frozenset({("PER", "IC"), ("ESS", "EN")})
+# `[A-Z]{3}` wildcard): a PER (`PERIC` at Caisse d'Epargne, `PERIB` at Banque Populaire)
+# and an assurance vie (`ESSEN`, Millevie Essentielle). The bank contract id is
+# `<entity> <PRODUCT><number>` (or compact `<PRODUCT><number>` for PERIB, observed live
+# on Banque Populaire); the insurer's own id is `<product 3><company 2><number>`
+# and starts with the same five letters. The `IB` code is Banque Populaire's (issue #524);
+# its number part is kept digits-only like `IC`'s because no live shape says otherwise yet,
+# and an id that differs is refused with a masked log (`reason=producer-id-format`).
+_CONTRACT_ID_RE = re.compile(r"(?:[0-9]{5} {1,16}|(?:ASV)?(?=PERIB))(?P<product>PERIC|PERIB|ESSEN)(?P<number>[0-9]{1,64})\Z")
+_PRODUCER_ID_RE = re.compile(r"(?P<product>PER|ESS)(?P<company>IC|IB|EN)(?P<number>[0-9]{1,32})\Z")
+_PRODUCER_PAIRS = frozenset({("PER", "IC"), ("PER", "IB"), ("ESS", "EN")})
 ROUTING_PATH = "/bapi/contract/v1/contracts"
 _ROUTING_BODY = {
     "characteristics": {
@@ -242,28 +247,35 @@ def _producer_id(body: bytes, *, entity_code: str, insurer_host: str, product: s
     if (urllib.parse.urlsplit(href).hostname or "").lower() != insurer_host:
         log.warning("insurer detail refused: stage=routing reason=other-host")
         raise replay.HostNotAllowed("Refused a PER URL outside the exact HTTPS host")
-    producer_id = query.get("producerContratId")
+    producer_id = query.get("producerContractId") or query.get("producerContratId")
     if (
         not isinstance(producer_id, str)
         or (match := _PRODUCER_ID_RE.fullmatch(producer_id)) is None
         or (match.group("product"), match.group("company")) not in _PRODUCER_PAIRS
     ):
-        log.warning("insurer detail refused: stage=routing reason=producer-id-format")
+        # Masked shape only (capped, digits never, letters only with
+        # `CE_LOG_PRODUCT_DETAILS=1`): what a live run needs to pin a new insurer's id format.
+        log.warning(
+            "insurer detail refused: stage=routing reason=producer-id-format shape=%s",
+            shape.mask(producer_id, cap=32, letters=shape.log_details()),
+        )
         raise replay.UpstreamError("insurer routing returned an unusable contract id")
     if product is not None and not producer_id.startswith(product):
         log.warning("insurer detail refused: stage=routing reason=other-product")
         raise replay.UpstreamError("insurer routing answered for another product")
-    if query.get("cdEtab") != entity_code:
+    query_entity = query.get("cdEtab") or query.get("cdetab")
+    if query_entity != entity_code:
         log.warning("insurer detail refused: stage=routing reason=other-establishment")
         raise replay.UpstreamError("insurer routing answered for another establishment")
-    # Consistency of the answer. Observed live: `contractId` echoes the INSURER id
-    # (`PERIC` + 6 digits, 11 chars), not the bank id asked for (23 chars), with the
-    # requested entity code. The bank id is bound by the request URL; the answer must
-    # agree with itself on the insurer id and with us on the establishment.
+    # Consistency of the answer. Caisse d'Epargne echoes the insurer id (`PERIC` + digits).
+    # Banque Populaire echoes the bank contract id (`ASV` + insurer id). Both agree
+    # with us on the establishment and identify this contract.
     echoed = characteristics.get("contractId")
+    echoed_id = echoed.get("id") if isinstance(echoed, dict) else None
+    valid_echoed_ids = {producer_id, f"ASV{producer_id}"} if product == "PERIB" else {producer_id}
     if (
         not isinstance(echoed, dict)
-        or echoed.get("id") != producer_id
+        or echoed_id not in valid_echoed_ids
         or echoed.get("entityCode") != entity_code
     ):
         log.warning("insurer detail refused: stage=routing reason=other-contract")
