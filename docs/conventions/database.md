@@ -76,6 +76,7 @@ V{n}__description.sql
 | `V147__banque_populaire_sidecar_session.sql` | Banque Populaire joins `sidecar_session`: `region` column with `ck_sidecar_session_region` (set for `BANQUE_POPULAIRE`, null otherwise), bank added to the bank, unsupported-contracts and error-code CHECKs; `banque_populaire_session` (V134) rows copied as stored, then dropped |
 | `V148__banque_populaire_stored_identifier.sql` | `sidecar_session.encrypted_credentials` is also allowed for `BANQUE_POPULAIRE`: the encrypted Banque Populaire identifier of the last successful login (never the password) |
 | `V149__trade_republic_sidecar_session.sql` | Trade Republic joins `sidecar_session` (bank and error-code CHECKs widened, Banque Populaire kept); `trade_republic_session` dropped, members reconnect once |
+| `V150__bnp_sidecar_session.sql` | BNP Paribas / Hello bank! joins `sidecar_session` (bank and error-code CHECKs rebuilt from V149 with `BNP` added); no table of its own, so nothing to copy |
 
 Note: V8 is absent by design (skipped — never rolled into another migration). Numbering after V32 is not contiguous (V33–V36 unused).
 

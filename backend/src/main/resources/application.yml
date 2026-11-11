@@ -240,6 +240,8 @@ app:
       url: ${CIC_AUTH_URL:http://cic-auth:8001}
     natixis-auth:
       url: ${NATIXIS_AUTH_URL:http://natixis-auth:8001}
+    bnp-auth:
+      url: ${BNP_AUTH_URL:http://bnp-auth:8001}
     amex-auth:
       url: ${AMEX_AUTH_URL:http://amex-auth:8001}
     fortuneo-auth:

@@ -39,6 +39,7 @@ class MemberSyncServiceTest {
     @Mock private CorumSyncService corumSyncService;
     @Mock private NatixisSyncService natixisSyncService;
     @Mock private LbpSyncService lbpSyncService;
+    @Mock private BnpSyncService bnpSyncService;
     @Mock private FortuneoSyncService fortuneoSyncService;
     @Mock private AmexSyncService amexSyncService;
     @Mock private IbkrSyncService ibkrSyncService;
@@ -61,7 +62,8 @@ class MemberSyncServiceTest {
             finaryApiSyncService, degiroSyncService, new ReceivedDividendClassifier(dividendReceiptService), cmesSyncService, cicSyncService,
             corumSyncService,
             natixisSyncService,
-            lbpSyncService
+            lbpSyncService,
+            bnpSyncService
         );
         lenient().when(cmesSyncService.resyncReporting(anyLong())).thenReturn(
             new SourceSyncResult("cmes", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
@@ -73,6 +75,8 @@ class MemberSyncServiceTest {
             new SourceSyncResult("corum", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
         lenient().when(natixisSyncService.resyncReporting(anyLong())).thenReturn(
             new SourceSyncResult("natixis", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
+        lenient().when(bnpSyncService.resyncReporting(anyLong())).thenReturn(
+            new SourceSyncResult("bnp", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
         lenient().when(lbpSyncService.getStatus(anyLong())).thenReturn(
             new LbpSyncService.SessionStatusResponse(false, LbpSyncStatus.IDLE, null, null, null, List.of(), null));
     }
@@ -97,7 +101,7 @@ class MemberSyncServiceTest {
 
         List<SourceSyncResult> results = memberSyncService.resyncScheduled(memberId);
 
-        assertEquals(21, results.size());
+        assertEquals(22, results.size());
         assertEquals("cmes", results.get(16).source());
         verify(cmesSyncService).resyncReporting(memberId);
         assertEquals("cic", results.get(17).source());
@@ -111,6 +115,9 @@ class MemberSyncServiceTest {
         assertEquals(SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, results.get(20).status());
         verify(lbpSyncService).getStatus(memberId);
         verify(lbpSyncService, never()).queueSync(memberId);
+        // BNP Paribas is last and delegates to its own resyncReporting.
+        assertEquals("bnp", results.get(21).source());
+        verify(bnpSyncService).resyncReporting(memberId);
         assertEquals("revolut", results.get(0).source());
         assertEquals("enable-banking", results.get(1).source());
         assertEquals("enable-banking-retry", results.get(2).source());

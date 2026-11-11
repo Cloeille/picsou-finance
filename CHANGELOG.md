@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **BNP Paribas and Hello bank! sync (partly verified against one real account).** A new `bnp-auth` sidecar
+  (Camoufox) signs in on the bank's own page: you type the customer number, click the six digits of your
+  password on the bank's shuffled keypad in Picsou (only positions are sent, the password is never stored),
+  then confirm with the Cle Digitale app or an SMS code when the bank asks for one. Picsou imports current accounts, savings,
+  securities accounts with positions, life insurance (balance only), PER and loans, and lists products it
+  does not recognise without guessing. Only the encrypted session cookies are kept (`V150`). One
+  owner-assisted run covered the login, current and savings accounts and their operations on BNP Paribas;
+  the second factor, Hello bank!, securities, life insurance and loans are unverified, see
+  `docs/features/bnp-paribas.md`. Closes the connector part of #306.
 - **Banque Populaire: import Plan Épargne Retraite (PER).** A PER (family 4, sub 05)
   is synced via the Natixis Assurances portal with its funds and euro fund, matching
   Caisse d'Epargne support. (#524)

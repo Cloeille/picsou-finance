@@ -39,7 +39,7 @@ public class SyncTools {
     static final Set<String> BANK_SOURCES = Set.of("enable-banking", "enable-banking-retry", SimplefinSyncService.SOURCE,
         WiseSyncService.SOURCE);
     static final Set<String> BROKER_SOURCES = Set.of(
-        "trade-republic", "bourso", "bourse-direct", "amundi", "cmes", "corum", "natixis", "lbp", "fortuneo", "amex", "ibkr", "degiro");
+        "trade-republic", "bourso", "bourse-direct", "amundi", "cmes", "corum", "natixis", "lbp", "bnp", "fortuneo", "amex", "ibkr", "degiro");
     static final Set<String> EXCHANGE_SOURCES = Set.of("crypto-exchanges");
     static final Set<String> WALLET_SOURCES = Set.of("wallets");
 
@@ -84,7 +84,7 @@ public class SyncTools {
 
     @Tool(name = "trigger_broker_sync",
         description = "Refresh the authenticated member's existing broker connections: Trade Republic, "
-            + "BoursoBank, Bourse Direct, Amundi, Crédit Mutuel / CIC Épargne Salariale, CORUM, Natixis Interépargne, La Banque Postale, Fortuneo, American Express, IBKR, and DEGIRO when the session is "
+            + "BoursoBank, Bourse Direct, Amundi, Crédit Mutuel / CIC Épargne Salariale, CORUM, Natixis Interépargne, La Banque Postale, BNP Paribas / Hello bank!, Fortuneo, American Express, IBKR, and DEGIRO when the session is "
             + "still active. Does not connect a new source. BoursoBank, Crédit Mutuel / CIC Épargne Salariale and CORUM "
             + "(when its credentials are remembered) log in again with their stored credentials when the session has expired; no source completes a "
             + "new second factor. Returns one status line per source." + SHARED_COOLDOWN_DESCRIPTION)

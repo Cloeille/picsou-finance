@@ -99,7 +99,7 @@ type SyncConnection = {
   id: string
   providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso' | 'revolut'
     | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin' | 'wise'
-    | 'amex' | 'corum' | 'sofidy' | 'caisse-epargne' | 'banque-populaire' | 'lbp' | 'cmes' | 'natixis' | 'cic'
+    | 'amex' | 'corum' | 'sofidy' | 'caisse-epargne' | 'banque-populaire' | 'lbp' | 'bnp' | 'cmes' | 'natixis' | 'cic'
   name: string
   status: string
   lastSyncedAt: string | null
@@ -132,6 +132,7 @@ const ProviderIcon: Record<SyncConnection['providerType'], React.ComponentType<{
   'caisse-epargne': Landmark,
   'banque-populaire': Landmark,
   lbp: Landmark,
+  bnp: Landmark,
   cmes: PiggyBank,
   natixis: PiggyBank,
   cic: PiggyBank,
@@ -153,6 +154,7 @@ const REAUTH_TAB: Partial<Record<SyncConnection['providerType'], string>> = {
   'caisse-epargne': 'caisse-epargne',
   'banque-populaire': 'banque-populaire',
   lbp: 'lbp',
+  bnp: 'bnp',
   cmes: 'cmes',
   natixis: 'natixis',
   cic: 'cic',
@@ -225,6 +227,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: caisseEpargneStatus } = useProviderStatus("caisseEpargne")
   const { data: banquePopulaireStatus } = useProviderStatus("banquePopulaire")
   const { data: lbpStatus } = useProviderStatus("lbp")
+  const { data: bnpStatus } = useProviderStatus("bnp")
   const { data: revolutStatus } = useRevolutStatus()
   const { data: finaryStatus } = useFinaryConnectionStatus()
   const { data: amundiStatus } = useProviderStatus("amundi")
@@ -311,6 +314,13 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       running: isJobRunning(lbpStatus?.syncStatus),
     },
     {
+      type: 'bnp' as const, name: 'BNP Paribas / Hello bank!', provider: 'BNP Paribas',
+      active: bnpStatus?.isActive ?? false, lastSyncedAt: bnpStatus?.lastSyncCompletedAt ?? null,
+      hasSession: bnpStatus != null && (bnpStatus.isActive || bnpStatus.syncStatus !== 'IDLE'),
+      failed: bnpStatus?.syncStatus === 'FAILED',
+      running: isJobRunning(bnpStatus?.syncStatus),
+    },
+    {
       type: 'bourse-direct' as const, name: 'Bourse Direct', provider: 'Bourse Direct',
       active: bourseDirectStatus?.isActive ?? false, lastSyncedAt: bourseDirectStatus?.lastSyncCompletedAt ?? null,
       failed: bourseDirectStatus?.syncStatus === 'FAILED',
@@ -386,7 +396,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       running: isJobRunning(cicStatus?.syncStatus),
       canReconnect: cicStatus?.canReconnect === true,
     },
-  ], [cicStatus, cmesStatus, natixisStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, banquePopulaireStatus, lbpStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus, wiseStatus])
+  ], [cicStatus, cmesStatus, natixisStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, banquePopulaireStatus, lbpStatus, bnpStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus, wiseStatus])
 
   const retryBankMutation     = useRetryBankSync()
   const reconnectBankMutation = useReconnectBankSync()
@@ -399,6 +409,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const syncCaisseEpargneMutation = useProviderSync("caisseEpargne")
   const syncBanquePopulaireMutation = useProviderSync("banquePopulaire")
   const syncLbpMutation = useProviderSync("lbp")
+  const syncBnpMutation = useProviderSync("bnp")
   const syncAmundiMutation       = useProviderSync("amundi")
   const syncFortuneoMutation     = useProviderSync("fortuneo")
   const syncBourseDirectMutation = useProviderSync("bourseDirect")
@@ -601,6 +612,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       case 'lbp':
         syncLbpMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
+      case 'bnp':
+        syncBnpMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
       case 'amundi':
         syncAmundiMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
@@ -675,6 +689,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncCaisseEpargneMutation,
     syncBanquePopulaireMutation,
     syncLbpMutation,
+    syncBnpMutation,
     syncAmundiMutation,
     syncFortuneoMutation,
     syncBourseDirectMutation,

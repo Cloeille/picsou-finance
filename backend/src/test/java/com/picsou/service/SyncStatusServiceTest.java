@@ -55,6 +55,7 @@ class SyncStatusServiceTest {
     @Mock CicSyncService cicSyncService;
     @Mock CorumSyncService corumSyncService;
     @Mock LbpSyncService lbpSyncService;
+    @Mock BnpSyncService bnpSyncService;
     @Mock FortuneoSyncService fortuneoSyncService;
     @Mock AmexSyncService amexSyncService;
     @Mock IbkrConnectionRepository ibkrConnectionRepository;
@@ -73,6 +74,7 @@ class SyncStatusServiceTest {
             revolutSyncService, requisitionRepository, tradeRepublicSyncService,
             boursoSyncService, bourseDirectSyncService, amundiSyncService, cmesSyncService, cicSyncService, corumSyncService, natixisSyncService,
             lbpSyncService,
+            bnpSyncService,
             fortuneoSyncService,
             amexSyncService, ibkrConnectionRepository, simplefinConnectionRepository, wiseConnectionRepository,
             cryptoExchangeSyncService,
@@ -93,6 +95,7 @@ class SyncStatusServiceTest {
         when(corumSyncService.getStatus(MID)).thenReturn(CorumSyncService.SessionStatusResponse.inactive());
         when(natixisSyncService.getStatus(MID)).thenReturn(NatixisSyncService.SessionStatusResponse.inactive());
         when(lbpSyncService.getStatus(MID)).thenReturn(LbpSyncService.SessionStatusResponse.inactive());
+        when(bnpSyncService.getStatus(MID)).thenReturn(BnpSyncService.SessionStatusResponse.inactive());
         when(fortuneoSyncService.getStatus(MID)).thenReturn(
             new FortuneoSyncService.SessionStatusResponse(false, null, SidecarSyncStatus.IDLE, null, null, null));
         when(amexSyncService.getStatus(MID)).thenReturn(

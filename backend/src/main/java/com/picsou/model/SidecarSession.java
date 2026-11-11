@@ -237,9 +237,9 @@ public class SidecarSession extends AuditableEntity implements BpceSession {
     private boolean endsSession(SidecarErrorCode error) {
         return switch (bank) {
             // No password is kept: unreadable cookies cannot be renewed either.
-            // Banque Populaire and La Banque Postale: create() refuses them here; same rule as
-            // lbp_session.
-            case CAISSE_EPARGNE, BANQUE_POPULAIRE, LBP -> error == SidecarErrorCode.SESSION_EXPIRED
+            // Banque Populaire, BNP Paribas and La Banque Postale: create() refuses them here; same
+            // rule as lbp_session.
+            case CAISSE_EPARGNE, BANQUE_POPULAIRE, BNP, LBP -> error == SidecarErrorCode.SESSION_EXPIRED
                 || error == SidecarErrorCode.INVALID_SESSION_STATE;
             // The stored password was rejected: replaying it would lock the access.
             // Natixis keeps no password either: a refused refresh token needs a new login with a new code.

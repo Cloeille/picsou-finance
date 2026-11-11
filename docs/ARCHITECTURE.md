@@ -324,6 +324,7 @@ and the [ADR](./decisions/2026-11-04-sso-login-alongside-passwords.md).
 | Caisse d'Epargne | Current account, Livret A, Livret Jeune, LDDS, card, loans and PER via internal Python sidecar; browser-assisted login (keypad + Sécur'Pass), on demand | `CAISSE_EPARGNE_AUTH_URL` |
 | Banque Populaire | Current account, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, term deposits, cooperative shares (no cards) and PER via internal Python sidecar sharing the BPCE code with Caisse d'Epargne; region + keypad + Sécur'Pass login, on demand | `BANQUE_POPULAIRE_AUTH_URL` |
 | La Banque Postale | Current account and livrets (Livret A, LDDS, LEP) via internal Chromium login sidecar, on demand | `LBP_AUTH_URL` |
+| BNP Paribas / Hello bank! | Current accounts, savings, PEA/CTO, life insurance, PER and loans, and transaction history via internal Camoufox sidecar (`bnp-auth`); customer number, keypad clicked in the member's browser, then app approval or SMS code, on demand | `BNP_AUTH_URL` |
 | Natixis Interépargne | PEE and PER employee-savings plans and their operations history via internal Python sidecar (`natixis-auth`); SMS, voice or e-mail code once, then the refresh token | `NATIXIS_AUTH_URL` |
 | DEGIRO | Compte-titres sync via internal Python sidecar (`degiro-auth` in `docker/docker-compose.yml`) | `DEGIRO_AUTH_URL` |
 | Binance | Crypto exchange balances | Via CryptoExchangePort |

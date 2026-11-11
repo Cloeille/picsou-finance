@@ -10,6 +10,7 @@ export const syncKeys = {
   caisseEpargne: () => [...syncKeys.all, 'caisse-epargne'] as const,
   banquePopulaire: () => [...syncKeys.all, 'banque-populaire'] as const,
   lbp: () => [...syncKeys.all, 'lbp'] as const,
+  bnp: () => [...syncKeys.all, 'bnp'] as const,
   revolut: () => [...syncKeys.all, 'revolut'] as const,
   bourseDirect: () => [...syncKeys.all, 'bourse-direct'] as const,
   degiro: () => [...syncKeys.all, 'degiro'] as const,

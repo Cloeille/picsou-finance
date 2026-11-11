@@ -76,7 +76,9 @@ public class AccountService {
         CmesSyncService.PROVIDER,
         NatixisSyncService.PROVIDER,
         BoursoSyncService.PROVIDER,
-        FortuneoSyncService.PROVIDER
+        FortuneoSyncService.PROVIDER,
+        BnpSyncService.PROVIDER,
+        BnpSyncService.HELLO_BANK_PROVIDER
     );
 
     /**

@@ -4,6 +4,7 @@ import com.picsou.service.AmexSyncService;
 import com.picsou.service.AmundiSyncService;
 import com.picsou.service.BanquePopulaireSyncService;
 import com.picsou.service.BourseDirectSyncService;
+import com.picsou.service.BnpSyncService;
 import com.picsou.service.BoursoSyncService;
 import com.picsou.service.CaisseEpargneSyncService;
 import com.picsou.service.CicSyncService;
@@ -37,6 +38,7 @@ public class SidecarSyncRecovery implements ApplicationRunner {
         AmexSyncService amex,
         AmundiSyncService amundi,
         BanquePopulaireSyncService banquePopulaire,
+        BnpSyncService bnp,
         BourseDirectSyncService bourseDirect,
         BoursoSyncService bourso,
         CaisseEpargneSyncService caisseEpargne,
@@ -48,6 +50,7 @@ public class SidecarSyncRecovery implements ApplicationRunner {
         recoveries.put("Amex", amex::recoverInterruptedSyncs);
         recoveries.put("Amundi", amundi::recoverInterruptedSyncs);
         recoveries.put("Banque Populaire", banquePopulaire::recoverInterruptedSyncs);
+        recoveries.put("BNP Paribas", bnp::recoverInterruptedSyncs);
         recoveries.put("Bourse Direct", bourseDirect::recoverInterruptedSyncs);
         recoveries.put("BoursoBank", bourso::recoverInterruptedSyncs);
         recoveries.put("Caisse d'Epargne", caisseEpargne::recoverInterruptedSyncs);

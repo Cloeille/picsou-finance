@@ -1348,6 +1348,76 @@ export interface LbpDeleteResponse {
   message: string
 }
 
+// --- BNP Paribas / Hello bank! ---
+
+export type BnpBrand = 'bnp' | 'hellobank'
+
+export type BnpErrorCode =
+  | 'INVALID_CREDENTIALS'
+  | 'INVALID_OTP'
+  | 'KEYPAD_CHANGED'
+  | 'KEYPAD_EXPIRED'
+  | 'INVALID_POSITIONS'
+  | 'MFA_TYPE_UNSUPPORTED'
+  | 'ACTION_REQUIRED'
+  | 'RATE_LIMITED'
+  | 'APP_VALIDATION_TIMEOUT'
+  | 'AUTH_ATTEMPT_EXPIRED'
+  | 'SESSION_EXPIRED'
+  | 'UPSTREAM_UNAVAILABLE'
+  | 'UPSTREAM_FORMAT_CHANGED'
+  | 'INVALID_SESSION_STATE'
+  | 'INTERNAL_ERROR'
+
+/** A product the sidecar saw but does not import: family code only, never the account id. */
+export interface BnpUnsupportedProduct {
+  externalId: string
+  familyCode: string
+}
+
+/** Mirrors `BnpSyncService.SessionStatusResponse`. */
+export interface BnpSessionStatus {
+  isActive: boolean
+  syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'FAILED'
+  lastSyncStartedAt: string | null
+  lastSyncCompletedAt: string | null
+  lastSyncError: BnpErrorCode | null
+  unsupported: BnpUnsupportedProduct[]
+  unsupportedCount: number
+}
+
+/**
+ * The bank's shuffled keypad: the digit written on each of the ten keys, in the order the bank
+ * shows them (row by row). The member clicks his own digits; only the clicked positions (0..9)
+ * go back, never the digits.
+ */
+export interface BnpKeypad {
+  keys: string[]
+  columns: number
+}
+
+export interface BnpAuthInitResponse {
+  processId: string
+  keypad: BnpKeypad
+  /** Lifetime of the keypad step, not of the second-factor wait. */
+  expiresInSeconds: number
+}
+
+/** `CODE_REQUIRED`: an SMS code is typed in Picsou. `APPROVAL_PENDING`: approve in the bank's app. */
+export interface BnpAuthKeypadResponse {
+  processId: string
+  status: 'APPROVAL_PENDING' | 'CODE_REQUIRED'
+}
+
+export type BnpAuthCompleteResponse = BnpSessionStatus
+
+/** `bankSessionRevoked` is always false: only Picsou's stored copy is deleted. */
+export interface BnpDeleteResponse {
+  removed: boolean
+  bankSessionRevoked: boolean
+  message: string
+}
+
 export type DegiroSessionStatusValue = 'ACTIVE' | 'REAUTH_REQUIRED' | 'FAILED'
 
 export interface DegiroSessionStatus {

@@ -931,7 +931,8 @@
       "fortuneo": "Sincronizar tus cuentas Fortuneo",
       "caisseEpargne": "Cuenta corriente, Livret A, LDDS, PEL, LEP, PER, seguro de vida, préstamos y tarjetas en Caisse d'Epargne",
       "banquePopulaire": "Cuenta corriente, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, depósito a plazo, participaciones sociales y PER en Banque Populaire",
-      "lbp": "Cuenta corriente, Livret A y LEP en La Banque Postale"
+      "lbp": "Cuenta corriente, Livret A y LEP en La Banque Postale",
+      "bnp": "Cuentas corrientes, ahorro, valores y seguro de vida en BNP Paribas o Hello bank!"
     }
   },
   "sync": {
@@ -1846,6 +1847,73 @@
         "formatChanged": "Fortuneo cambió el formato de la cartera. Tus datos existentes no se modificaron.",
         "invalidData": "Fortuneo devolvió datos de cartera incoherentes. Tus datos existentes no se modificaron.",
         "serverError": "No se pudo contactar con Fortuneo. Inténtalo de nuevo."
+      }
+    },
+    "bnp": {
+      "title": "BNP Paribas / Hello bank!",
+      "customerId": "Número de cliente",
+      "brand": "Banco",
+      "brands": {
+        "bnp": "BNP Paribas",
+        "hellobank": "Hello bank!"
+      },
+      "connect": "Conectar",
+      "connecting": "Conectando…",
+      "sync": "Sincronizar",
+      "queued": "Sincronización en cola…",
+      "syncing": "Sincronizando…",
+      "syncSuccess": "La última sincronización se completó.",
+      "clearSession": "Desconectar",
+      "disconnectConfirm": "¿Eliminar de Picsou la sesión guardada de BNP Paribas / Hello bank!? La sesión del banco no se revoca.",
+      "disconnectConfirmAction": "Eliminar la sesión",
+      "noSession": "Sin sesión",
+      "sessionActive": "Sesión activa",
+      "scope": "Importa cuentas corrientes, ahorro, cuentas de valores (PEA, cuenta de valores) con sus posiciones, seguro de vida (solo saldo) y préstamos, en la medida en que el sitio del banco los muestre. Los productos que Picsou no reconoce se listan, nunca se adivinan.",
+      "notice": {
+        "neverStored": "Tu contraseña nunca se guarda: la pulsas en el teclado del propio banco, mostrado abajo.",
+        "noRetry": "Solo se hace un intento. Una contraseña errónea cuenta para el límite del banco y no se reintenta nada automáticamente.",
+        "lockRisk": "Demasiados intentos fallidos pueden bloquear tu acceso en el banco.",
+        "unverified": "Aún no verificado con una cuenta real: se revisó la página de inicio de sesión, pero el segundo factor y la importación siguen el módulo de código abierto woob."
+      },
+      "approvalPrompt": "Aprueba el inicio de sesión en la aplicación móvil de tu banco.",
+      "approvalHint": "Esta página espera tu aprobación y luego importa tus cuentas.",
+      "countdownLabel": "Tiempo restante:",
+      "codePrompt": "Introduce el código que el banco te envió por SMS.",
+      "codeHint": "El código se envía una sola vez al banco y nunca se guarda.",
+      "code": "Código SMS",
+      "sendCode": "Enviar el código",
+      "sendingCode": "Enviando…",
+      "unsupportedTitle": "Productos no importados",
+      "unsupportedHint": "Picsou aún no importa estos productos. Solo se muestra el código de familia del producto.",
+      "errors": {
+        "invalidIdentifier": "El número de cliente debe tener de 7 a 10 dígitos.",
+        "invalidCredentials": "El banco rechazó estas credenciales. Espera antes de volver a intentarlo.",
+        "invalidCode": "El código es incorrecto. Revisa el SMS e inténtalo de nuevo.",
+        "keypadChanged": "La página de inicio de sesión del banco cambió. No se envió nada.",
+        "keypadExpired": "El teclado caducó. Empieza de nuevo.",
+        "invalidPositions": "Se rechazó la respuesta del teclado. Empieza de nuevo.",
+        "mfaUnsupported": "Picsou no admite este segundo factor.",
+        "actionRequired": "El banco exige una acción en su propio sitio (cambio de contraseña o reactivación).",
+        "rateLimited": "Demasiados intentos. Espera antes de volver a intentarlo.",
+        "rateLimitedRetryAfter": "Demasiados intentos. Inténtalo de nuevo en unos {{minutes}} min.",
+        "tooManySyncs": "Demasiadas sincronizaciones. Espera antes de volver a intentarlo.",
+        "tooManySyncsRetryAfter": "Demasiadas sincronizaciones. Inténtalo de nuevo en unos {{minutes}} min.",
+        "appValidationTimeout": "La aprobación no llegó a tiempo. Empieza de nuevo.",
+        "authAttemptExpired": "Este intento de inicio de sesión caducó. Empieza de nuevo.",
+        "sessionExpired": "La sesión caducó. Inicia sesión de nuevo.",
+        "formatChanged": "El sitio del banco ya no tiene el aspecto esperado. No se importó nada.",
+        "invalidSessionState": "La sesión guardada no se puede usar. Inicia sesión de nuevo.",
+        "serverError": "Algo salió mal. Inténtalo más tarde."
+      },
+      "keypad": {
+        "title": "Pulsa tu contraseña",
+        "description": "Pulsa las teclas que muestran los seis dígitos de tu contraseña, en orden. El banco mezcla las teclas. Picsou no ve tus dígitos.",
+        "key": "Tecla {{position}}",
+        "entered": "{{count}} de 6 dígitos introducidos",
+        "countdownLabel": "Tiempo restante:",
+        "cancel": "Cancelar",
+        "clear": "Borrar",
+        "validate": "Validar"
       }
     }
   },

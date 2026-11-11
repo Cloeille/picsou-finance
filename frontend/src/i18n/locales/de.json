@@ -931,7 +931,8 @@
       "fortuneo": "Fortuneo-Konten synchronisieren",
       "caisseEpargne": "Girokonto, Livret A, LDDS, PEL, LEP, PER, Lebensversicherung, Kredite und Karten bei der Caisse d'Epargne",
       "banquePopulaire": "Girokonto, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, Festgeld, Genossenschaftsanteile und PER bei der Banque Populaire",
-      "lbp": "Girokonto, Livret A und LEP bei La Banque Postale"
+      "lbp": "Girokonto, Livret A und LEP bei La Banque Postale",
+      "bnp": "Girokonten, Sparprodukte, Wertpapiere und Lebensversicherung bei BNP Paribas oder Hello bank!"
     }
   },
   "sync": {
@@ -1846,6 +1847,73 @@
         "formatChanged": "Fortuneo hat sein Portfolioformat geändert. Deine vorhandenen Daten wurden nicht verändert.",
         "invalidData": "Fortuneo hat widersprüchliche Portfoliodaten geliefert. Deine vorhandenen Daten wurden nicht verändert.",
         "serverError": "Fortuneo konnte nicht erreicht werden. Bitte erneut versuchen."
+      }
+    },
+    "bnp": {
+      "title": "BNP Paribas / Hello bank!",
+      "customerId": "Kundennummer",
+      "brand": "Bank",
+      "brands": {
+        "bnp": "BNP Paribas",
+        "hellobank": "Hello bank!"
+      },
+      "connect": "Verbinden",
+      "connecting": "Verbinde…",
+      "sync": "Synchronisieren",
+      "queued": "Synchronisierung eingereiht…",
+      "syncing": "Synchronisiere…",
+      "syncSuccess": "Letzte Synchronisierung erfolgreich.",
+      "clearSession": "Trennen",
+      "disconnectConfirm": "Die gespeicherte BNP-Paribas-/Hello-bank!-Sitzung aus Picsou löschen? Die Sitzung bei der Bank wird nicht beendet.",
+      "disconnectConfirmAction": "Sitzung löschen",
+      "noSession": "Keine Sitzung",
+      "sessionActive": "Sitzung aktiv",
+      "scope": "Importiert Girokonten, Sparprodukte, Depots (PEA, Wertpapierdepot) mit ihren Positionen, Lebensversicherung (nur Saldo) und Kredite, soweit die Website der Bank sie anzeigt. Produkte, die Picsou nicht kennt, werden aufgelistet, nie geraten.",
+      "notice": {
+        "neverStored": "Dein Passwort wird nie gespeichert: Du klickst es auf der Tastatur der Bank, die unten angezeigt wird.",
+        "noRetry": "Es gibt nur einen Versuch. Ein falsches Passwort zählt für das Limit der Bank und nichts wird automatisch wiederholt.",
+        "lockRisk": "Zu viele falsche Versuche können Deinen Zugang bei der Bank sperren.",
+        "unverified": "Noch nicht an einem echten Konto geprüft: Die Anmeldeseite wurde geprüft, die Zwei-Faktor-Anmeldung und der Import folgen dem Open-Source-Modul woob."
+      },
+      "approvalPrompt": "Bestätige die Anmeldung in der mobilen App Deiner Bank.",
+      "approvalHint": "Diese Seite wartet auf Deine Bestätigung und importiert dann Deine Konten.",
+      "countdownLabel": "Verbleibende Zeit:",
+      "codePrompt": "Gib den Code ein, den die Bank Dir per SMS geschickt hat.",
+      "codeHint": "Der Code wird einmal an die Bank gesendet und nie gespeichert.",
+      "code": "SMS-Code",
+      "sendCode": "Code senden",
+      "sendingCode": "Sende…",
+      "unsupportedTitle": "Nicht importierte Produkte",
+      "unsupportedHint": "Picsou importiert diese Produkte noch nicht. Angezeigt wird nur der Produktfamilien-Code.",
+      "errors": {
+        "invalidIdentifier": "Die Kundennummer muss 7 bis 10 Ziffern haben.",
+        "invalidCredentials": "Die Bank hat diese Zugangsdaten abgelehnt. Warte, bevor Du es erneut versuchst.",
+        "invalidCode": "Der Code ist falsch. Prüfe die SMS und versuche es erneut.",
+        "keypadChanged": "Die Anmeldeseite der Bank hat sich geändert. Es wurde nichts gesendet.",
+        "keypadExpired": "Die Tastatur ist abgelaufen. Beginne neu.",
+        "invalidPositions": "Die Tastatur-Antwort wurde abgelehnt. Beginne neu.",
+        "mfaUnsupported": "Dieser zweite Faktor wird von Picsou nicht unterstützt.",
+        "actionRequired": "Die Bank verlangt eine Aktion auf ihrer eigenen Website (Passwortwechsel oder Reaktivierung).",
+        "rateLimited": "Zu viele Versuche. Warte, bevor Du es erneut versuchst.",
+        "rateLimitedRetryAfter": "Zu viele Versuche. Versuche es in etwa {{minutes}} Min. erneut.",
+        "tooManySyncs": "Zu viele Synchronisierungen. Warte, bevor Du es erneut versuchst.",
+        "tooManySyncsRetryAfter": "Zu viele Synchronisierungen. Versuche es in etwa {{minutes}} Min. erneut.",
+        "appValidationTimeout": "Die Bestätigung kam nicht rechtzeitig an. Beginne neu.",
+        "authAttemptExpired": "Dieser Anmeldeversuch ist abgelaufen. Beginne neu.",
+        "sessionExpired": "Die Sitzung ist abgelaufen. Melde Dich erneut an.",
+        "formatChanged": "Die Website der Bank sieht nicht mehr wie erwartet aus. Es wurde nichts importiert.",
+        "invalidSessionState": "Die gespeicherte Sitzung ist unbrauchbar. Melde Dich erneut an.",
+        "serverError": "Etwas ist schiefgelaufen. Versuche es später erneut."
+      },
+      "keypad": {
+        "title": "Passwort anklicken",
+        "description": "Klicke die Tasten mit den sechs Ziffern Deines Passworts der Reihe nach an. Die Tasten werden von der Bank gemischt. Picsou sieht Deine Ziffern nicht.",
+        "key": "Taste {{position}}",
+        "entered": "{{count}} von 6 Ziffern eingegeben",
+        "countdownLabel": "Verbleibende Zeit:",
+        "cancel": "Abbrechen",
+        "clear": "Löschen",
+        "validate": "Bestätigen"
       }
     }
   },

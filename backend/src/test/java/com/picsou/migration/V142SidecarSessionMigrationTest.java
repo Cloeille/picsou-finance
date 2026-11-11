@@ -39,7 +39,7 @@ class V142SidecarSessionMigrationTest {
     private static final List<SidecarBank> V142_BANKS = java.util.Arrays.stream(SidecarBank.values())
         .filter(SidecarBank::storedInSidecarSession)
         .filter(bank -> bank != SidecarBank.NATIXIS && bank != SidecarBank.BANQUE_POPULAIRE
-            && bank != SidecarBank.TRADE_REPUBLIC).toList();
+            && bank != SidecarBank.TRADE_REPUBLIC && bank != SidecarBank.BNP).toList();
 
     private static final String ROW = """
         SELECT bank, member_id, session_state, encrypted_credentials, unsupported_contracts,

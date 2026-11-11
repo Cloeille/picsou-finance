@@ -282,7 +282,7 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
                 self.assertEqual(runner, {"x86_64": "ubuntu-latest", "aarch64": "ubuntu-24.04-arm"}[arch])
 
     def test_camoufox_starts_headful_offline_in_each_built_sidecar_on_both_architectures(self):
-        for service in ("amex-auth", "revolut-auth"):
+        for service in ("amex-auth", "bnp-auth", "revolut-auth"):
             for arch in ("x86_64", "aarch64"):
                 with self.subTest(service=service, arch=arch):
                     commands = _sidecar_steps(service, arch)
@@ -533,7 +533,7 @@ class CiJobSelectionTest(unittest.TestCase):
     def test_runs_without_a_file_list_select_every_sidecar(self):
         everything = _select_sidecars([], every=True, changes=())
         self.assertEqual(json.loads(everything["matrix"]), _legs())
-        self.assertEqual(len(_legs()), len(_inventory()) + 2)
+        self.assertEqual(len(_legs()), len(_inventory()) + 3)
         self.assertEqual(_select_sidecars([], changes=["frontend"]), {"jobs": '["frontend"]', "matrix": "[]"})
         removed = _select_sidecars(["services/gone-auth/main.py"], changes=["workflow-inventory", "sidecar"])
         self.assertEqual(removed, {"jobs": '["workflow-inventory"]', "matrix": "[]"})
@@ -541,7 +541,7 @@ class CiJobSelectionTest(unittest.TestCase):
     def test_a_change_selects_the_jobs_it_can_affect(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
         sidecars = {f"sidecar:{entry['service']}" for entry in _inventory()} | {
-            "sidecar:amex-auth:arm64", "sidecar:revolut-auth:arm64",
+            "sidecar:amex-auth:arm64", "sidecar:bnp-auth:arm64", "sidecar:revolut-auth:arm64",
         }
         everything = (_selectable(jobs) - {"sidecar"}) | sidecars
         services = {"compose-sidecar-build", "workflow-inventory"}
@@ -790,7 +790,7 @@ class SharedSidecarBaseTest(unittest.TestCase):
         }
         for service in _shared_base_services():
             with self.subTest(service=service):
-                if service in {"amex-auth", "revolut-auth"}:
+                if service in {"amex-auth", "bnp-auth", "revolut-auth"}:
                     expected = "camoufox"
                 else:
                     expected = "chromium" if service in uses_playwright else "python"
@@ -819,7 +819,7 @@ class SharedSidecarBaseTest(unittest.TestCase):
         }
         self.assertEqual(workflow["jobs"]["base"]["outputs"]["matrix"], "${{ steps.matrix.outputs.matrix }}")
         self.assertEqual(
-            {matrix[service]["base"] for service in ("amex-auth", "revolut-auth")},
+            {matrix[service]["base"] for service in ("amex-auth", "bnp-auth", "revolut-auth")},
             {"camoufox"},
         )
         for service in _shared_base_services():

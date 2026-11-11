@@ -13,6 +13,7 @@ Picsou deploys as the app, PostgreSQL and up to fifteen opt-in authentication si
 - **`caisse-epargne-auth`** — Caisse d'Epargne browser-assisted login (keypad + Sécur'Pass) and session-replay read sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/caisse-epargne-auth`.
 - **`banque-populaire-auth`** — Banque Populaire sidecar on the same shared BPCE code (region + keypad + Sécur'Pass login, session-replay reads), published to GHCR as `ghcr.io/cloeille/picsou-finance/banque-populaire-auth`.
 - **`lbp-auth`** — La Banque Postale browser-login sidecar (current account and livrets, on demand), published to GHCR as `ghcr.io/cloeille/picsou-finance/lbp-auth`.
+- **`bnp-auth`** — BNP Paribas / Hello bank! login (customer number, keypad clicked in the member's browser, app approval or SMS code) and account sidecar, on the shared `sidecar-camoufox` base, published as `ghcr.io/cloeille/picsou-finance/bnp-auth`. Opt-in through the Compose profile `bnp` (or `all-connectors`); the backend reaches it at `BNP_AUTH_URL` (`application.yml` defaults to `http://bnp-auth:8001`); see [`bnp-paribas.md`](bnp-paribas.md).
 - **`fortuneo-auth`** — Fortuneo login/2FA, positions and transaction-history sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/fortuneo-auth`.
 - **`revolut-auth`**, **`corum-auth`**, **`sofidy-auth`** — provider sidecars published under the same GHCR repository prefix.
 - **`cmes-auth`** — browserless Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cmes-auth`. The backend reaches it at `CMES_AUTH_URL` (`application.yml` defaults to `http://cmes-auth:8001`); see [`cmes-epargne-salariale.md`](cmes-epargne-salariale.md).
@@ -99,7 +100,7 @@ set (`services/base/requirements*.txt`): `python` (Python 3.12 slim bookworm,
 fastapi, uvicorn, pydantic, httpx), `chromium` (the same plus Playwright 1.64.1 and
 Chromium in `/opt/playwright-browsers`), and `camoufox` (the same Python base plus
 Playwright 1.64.1, Camoufox 0.4.11, Firefox 152.0.4-beta.30 and Xvfb).
-AMEX and Revolut use `camoufox`, including the target CPU's x86_64 or arm64 browser.
+AMEX, BNP Paribas and Revolut use `camoufox`, including the target CPU's x86_64 or arm64 browser.
 Their shared browser/addons live in `/opt/camoufox-cache/camoufox`, readable by
 both service users; GeoIP is downloaded once into the Camoufox package directory.
 A sidecar Dockerfile only adds its user and code.
@@ -230,7 +231,7 @@ connector is enabled: the app starts without it, and each sidecar refuses to sta
 when it is missing or empty. Sidecar URLs are set in one place,
 `backend/src/main/resources/application.yml` (`app.<sidecar>.url`, Compose service
 name); `application-dev.yml` gives each one its own `127.0.0.1` port. Compose and the
-entrypoint set none. The AMEX service uses `init: true` so an init process reaps orphaned
+entrypoint set none. The AMEX and BNP Paribas services use `init: true` so an init process reaps orphaned
 browser children during repeated logins. The app does not generate the
 shared secret: the sidecars run in separate containers and
 cannot read the app's `/data/.secrets/` volume.
@@ -488,6 +489,7 @@ docker compose -f docker/docker-compose.yml up        # COMPOSE_PROFILES selects
   → bourso-auth (uvicorn:8001, internal only)
   → caisse-epargne-auth (uvicorn:8001, internal only)
   → banque-populaire-auth (uvicorn:8001, internal only)
+  → bnp-auth (uvicorn:8001, internal only)
   → fortuneo-auth (uvicorn:8001, internal only)
   → corum-auth (uvicorn:8001, internal only)
   → sofidy-auth (uvicorn:8001, internal only)
@@ -560,6 +562,7 @@ docker save ghcr.io/cloeille/picsou-finance:latest \
   ghcr.io/cloeille/picsou-finance/bourso-auth:latest \
   ghcr.io/cloeille/picsou-finance/caisse-epargne-auth:latest \
   ghcr.io/cloeille/picsou-finance/banque-populaire-auth:latest \
+  ghcr.io/cloeille/picsou-finance/bnp-auth:latest \
   ghcr.io/cloeille/picsou-finance/fortuneo-auth:latest \
   ghcr.io/cloeille/picsou-finance/corum-auth:latest \
   ghcr.io/cloeille/picsou-finance/sofidy-auth:latest \

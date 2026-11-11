@@ -117,6 +117,11 @@ class SidecarContractTest {
             return new Calls(() -> a.fetchAccounts(STATE), () -> a.initiateAuth("1234567890"),
                 () -> a.completeAuth("process"));
         }, null, INVALID_CREDENTIALS, SESSION_EXPIRED);
+        rig(SidecarBank.BNP, (c, t) -> {
+            var a = new BnpAdapter(c, JSON, t, t, t, t);
+            return new Calls(() -> a.fetchAccounts(STATE), () -> a.initiateAuth("1234567890", "bnp"),
+                () -> a.completeAuth("process", null));
+        }, null, INVALID_CREDENTIALS, SESSION_EXPIRED);
         rig(SidecarBank.BANQUE_POPULAIRE, (c, t) -> {
             var a = new BanquePopulaireAdapter(c, JSON, t, t, t, t, t);
             return new Calls(() -> a.fetchAccounts(STATE),
@@ -219,6 +224,13 @@ class SidecarContractTest {
         coded(SidecarBank.FORTUNEO, Call.FETCH, HttpStatus.BAD_GATEWAY, PORTFOLIO_INCOMPLETE),
         coded(SidecarBank.FORTUNEO, Call.FETCH, HttpStatus.CONFLICT, INVESTOR_PROFILE_REQUIRED),
         coded(SidecarBank.FORTUNEO, Call.COMPLETE, HttpStatus.BAD_REQUEST, INVALID_OTP),
+        coded(SidecarBank.BNP, Call.FETCH, HttpStatus.UNAUTHORIZED, SESSION_EXPIRED),
+        coded(SidecarBank.BNP, Call.FETCH, HttpStatus.BAD_GATEWAY, PORTFOLIO_INCOMPLETE),
+        coded(SidecarBank.BNP, Call.FETCH, HttpStatus.BAD_GATEWAY, UPSTREAM_FORMAT_CHANGED),
+        coded(SidecarBank.BNP, Call.INITIATE, HttpStatus.UNAUTHORIZED, INVALID_CREDENTIALS),
+        coded(SidecarBank.BNP, Call.INITIATE, HttpStatus.TOO_MANY_REQUESTS, RATE_LIMITED),
+        coded(SidecarBank.BNP, Call.COMPLETE, HttpStatus.REQUEST_TIMEOUT, APP_VALIDATION_TIMEOUT),
+        coded(SidecarBank.BNP, Call.COMPLETE, HttpStatus.GONE, AUTH_ATTEMPT_EXPIRED),
         coded(SidecarBank.NATIXIS, Call.FETCH, HttpStatus.UNAUTHORIZED, SESSION_EXPIRED),
         coded(SidecarBank.NATIXIS, Call.FETCH, HttpStatus.BAD_GATEWAY, PORTFOLIO_INCOMPLETE),
         coded(SidecarBank.NATIXIS, Call.FETCH, HttpStatus.BAD_GATEWAY, UPSTREAM_FORMAT_CHANGED),

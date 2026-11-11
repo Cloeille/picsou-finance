@@ -28,9 +28,10 @@ pop-up for both.
 }
 ```
 
-**Sidecar check.** The registry covers all sixteen authentication sidecars, including
+**Sidecar check.** The registry covers all seventeen authentication sidecars, including
 `cic-auth` (CIC online banking), separately from `cmes-auth` (employee savings),
-plus `banque-populaire-auth`, `lbp-auth` (La Banque Postale) and `natixis-auth` (Natixis Interépargne).
+plus `banque-populaire-auth`, `lbp-auth` (La Banque Postale), `natixis-auth` (Natixis Interépargne)
+and `bnp-auth` (BNP Paribas and Hello bank!).
 Only sidecars the household uses are probed: one with at least one row in its session table,
 including an expired session. Each in-use sidecar gets `GET /health` (2 s per probe, in
 parallel, 3 s overall). CIC uses `app.sidecars.cic-auth.url` (`CIC_AUTH_URL`) and expects `sidecar-python`.
@@ -97,7 +98,7 @@ global error redirect: a 5xx on this optional check never sends the app to `/err
 
 | Choice | Why | Rejected alternative |
 |--------|-----|----------------------|
-| Probe only sidecars with a session row | An install that never uses a bank may run without its sidecar; warning it forever is noise. | Probe all sixteen (false alarms on lean installs). |
+| Probe only sidecars with a session row | An install that never uses a bank may run without its sidecar; warning it forever is noise. | Probe all seventeen (false alarms on lean installs). |
 | Base reported by `/health` from an image `ENV` | The only signal that tells "new image" from "old container still running", without Docker socket access. | Reading the Docker API from the app (needs the socket, a privilege escalation). |
 | Backend calls GitHub, not the browser | The CSP keeps `connect-src 'self'`, and one cached call serves every admin. | Browser `fetch` to api.github.com (CSP change, one call per page load). |
 | Failure cached for 6 h too | An offline install would otherwise call GitHub on every admin page load. | Cache successes only. |
@@ -115,7 +116,7 @@ global error redirect: a 5xx on this optional check never sends the app to `/err
 
 ## Tests
 
-- `InstanceStatusServiceTest` — all sixteen registry targets, including CIC's, Banque Populaire's, LBP's and Natixis' base, URL and
+- `InstanceStatusServiceTest` — all seventeen registry targets, including CIC's, Banque Populaire's, LBP's, Natixis' and BNP's base, URL and
   session-count supplier; classification against stub HTTP servers, not-in-use sidecars never probed;
   session counts run one at a time; a slow count stays within the deadline and neither reports
   its own sidecar nor marks an already counted one unreachable; a count still blocked on the

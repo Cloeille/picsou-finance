@@ -153,6 +153,7 @@ jobs:
           migration.V142SidecarSessionMigrationTest
           migration.V146NatixisSidecarSessionMigrationTest
           migration.V149TradeRepublicSidecarSessionMigrationTest
+          migration.V150BnpSidecarSessionMigrationTest
           EOF
 
   frontend:

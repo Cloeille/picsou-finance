@@ -91,6 +91,7 @@
 | 2026-11-05 | [CORUM Life contracts sync as one assurance-vie account each](./decisions/2026-11-05-corum-life-sync.md) | Active |
 | 2026-11-05 | [Banque Populaire shares the Caisse d'Epargne code through a BPCE package and sync engine](./decisions/2026-11-05-bpce-shared-sidecar-and-engine.md) | Active |
 | 2026-11-05 | [La Banque Postale through a dedicated sidecar, replacing Enable Banking](./decisions/2026-11-05-la-banque-postale-sidecar.md) | Active |
+| 2026-11-09 | [BNP Paribas and Hello bank! through a dedicated Camoufox sidecar](./decisions/2026-11-09-bnp-paribas-sidecar.md) | Proposed (unverified) |
 | 2026-11-06 | [Natixis Interépargne through a browserless sidecar that keeps only the refresh token](./decisions/2026-11-06-natixis-interepargne-httpx-sidecar.md) | Active |
 | 2026-11-07 | [Contract kinds seen in few live runs are enabled per bank and demoted, not fatal](./decisions/2026-11-07-provisional-kinds-per-bank.md) | Active |
 
@@ -153,6 +154,7 @@
 | Logos on account cards (catalog-resolved, bundled, wallet picker, property kind) | 2026-11-05 | [bank-logos.md](./features/bank-logos.md) |
 | Logos beside holding tickers (crypto: batched CoinGecko lookup; shares/ETFs: Yahoo quote page, stored in PostgreSQL) | 2026-11-05 | [holding-logos.md](./features/holding-logos.md) |
 | La Banque Postale sync (sidecar replacing Enable Banking) | 2026-11-06 | [la-banque-postale.md](./features/la-banque-postale.md) |
+| BNP Paribas / Hello bank! sync (sidecar, unverified) | 2026-11-09 | [bnp-paribas.md](./features/bnp-paribas.md) |
 | Add Account modal (unified sync + manual) | 2026-08-13 | [add-account-modal.md](./features/add-account-modal.md) |
 | Account visibility (hidden accounts, `/sync` Comptes tab) | 2026-07-15 | [account-visibility.md](./features/account-visibility.md) |
 | Docker deployment and migration-safe releases | 2026-10-31 | [docker-deployment.md](./features/docker-deployment.md) |
