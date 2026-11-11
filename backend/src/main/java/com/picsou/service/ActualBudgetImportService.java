@@ -285,7 +285,7 @@ public class ActualBudgetImportService {
         ledgerAccounts(budget, targetAccounts).forEach(account -> ledger.put(account.getId(), account));
         plan.moveSources().forEach(id -> ledger.putIfAbsent(id, resolved.memberAccounts().get(id)));
         for (Account account : ledger.values()) {
-            account.setCurrentBalance(transactions.sumAmountByAccountId(account.getId()));
+            account.setCurrentBalance(persistence.computeManualLedgerBalance(account));
             accounts.save(account);
             persistence.reconstructSnapshotsFromDb(account);
         }

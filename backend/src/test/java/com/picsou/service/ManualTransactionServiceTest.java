@@ -7,13 +7,17 @@ import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.finary.FinaryPersistenceHelper;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
+import com.picsou.model.BalanceSnapshot;
 import com.picsou.model.Category;
 import com.picsou.model.CategoryKind;
+import com.picsou.model.SnapshotSource;
 import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
 import com.picsou.repository.AccountRepository;
+import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.CategoryRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.PriceService;
 import com.picsou.service.budget.CategorizationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,7 +29,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -38,6 +44,8 @@ class ManualTransactionServiceTest {
 
     @Mock AccountRepository accountRepository;
     @Mock TransactionRepository transactionRepository;
+    @Mock BalanceSnapshotRepository balanceSnapshotRepository;
+    @Mock PriceService priceService;
     @Mock HoldingComputeService holdingComputeService;
     @Mock FinaryPersistenceHelper finaryPersistenceHelper;
     @Mock CategoryRepository categoryRepository;
@@ -213,16 +221,74 @@ class ManualTransactionServiceTest {
 
         when(accountRepository.findByIdAndMemberId(1L, 10L)).thenReturn(Optional.of(account));
         when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(transactionRepository.sumAmountByAccountId(1L)).thenReturn(new BigDecimal("1000"));
+        when(finaryPersistenceHelper.computeManualLedgerBalance(account)).thenReturn(new BigDecimal("1000"));
 
         TransactionResponse result = manualTransactionService.addTransaction(1L, 10L, req);
 
         assertThat(result).isNotNull();
         assertThat(result.amount()).isEqualByComparingTo("1000");
-        verify(transactionRepository).sumAmountByAccountId(1L);
+        assertThat(account.getCurrentBalance()).isEqualByComparingTo("1000");
+        verify(finaryPersistenceHelper).computeManualLedgerBalance(account);
         verify(accountRepository).save(account);
         verify(holdingComputeService, never()).recomputeHoldings(any());
         verify(finaryPersistenceHelper).reconstructSnapshotsFromDb(account);
+    }
+
+    @Test
+    void addTransaction_withMonthEndStatements_statementsSurviveAndBalanceIsAnchored() {
+        // The issue #543 scenario end to end at service level, with a REAL persistence
+        // helper: a February statement of 1200, then a +50 March transaction for history.
+        LocalDate today = LocalDate.now();
+        LocalDate february = today.minusDays(10);
+        LocalDate march = today.minusDays(3);
+        Account account = checkingAccount();
+        account.setCurrentBalance(new BigDecimal("1200"));
+        BalanceSnapshot statement = BalanceSnapshot.builder()
+            .account(account).date(february).balance(new BigDecimal("1200"))
+            .investedAmount(new BigDecimal("1200")).source(SnapshotSource.MANUAL)
+            .nativeBalance(new BigDecimal("1200")).build();
+        TransactionRequest req = new TransactionRequest(
+            march,
+            "History top-up",
+            new BigDecimal("50"),
+            TransactionType.DEPOSIT,
+            null, null, null, null, "EUR", null
+        );
+
+        FinaryPersistenceHelper realPersistence = new FinaryPersistenceHelper(
+            balanceSnapshotRepository, transactionRepository, priceService);
+        ManualTransactionService service = new ManualTransactionService(
+            accountRepository, transactionRepository, holdingComputeService,
+            realPersistence, categoryRepository, categorizationService,
+            new InstrumentFieldResolver(openFigiIsinConverter));
+
+        when(accountRepository.findByIdAndMemberId(1L, 10L)).thenReturn(Optional.of(account));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(balanceSnapshotRepository.findFirstByAccountIdAndSourceAndDateLessThanEqualOrderByDateDesc(
+            1L, SnapshotSource.MANUAL, today)).thenReturn(Optional.of(statement));
+        when(transactionRepository.sumAmountByAccountIdAfterStatement(eq(1L), eq(february), any(Instant.class)))
+            .thenReturn(new BigDecimal("50"));
+        when(transactionRepository.findByAccountIdOrderByDateDesc(1L)).thenReturn(List.of(
+            Transaction.builder().account(account).date(march).amount(new BigDecimal("50"))
+                .nativeCurrency("EUR").build()));
+        when(balanceSnapshotRepository.findRecentByAccountId(1L, LocalDate.of(2000, 1, 1)))
+            .thenReturn(List.of(statement));
+
+        service.addTransaction(1L, 10L, req);
+
+        // Balance anchored on the statement, not the transaction sum...
+        assertThat(account.getCurrentBalance()).isEqualByComparingTo("1250");
+        // ...and the statement row is never deleted.
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<java.util.List<BalanceSnapshot>> deleted =
+            ArgumentCaptor.forClass(java.util.List.class);
+        verify(balanceSnapshotRepository).deleteAllInBatch(deleted.capture());
+        assertThat(deleted.getValue()).doesNotContain(statement);
+        ArgumentCaptor<BalanceSnapshot> saved = ArgumentCaptor.forClass(BalanceSnapshot.class);
+        verify(balanceSnapshotRepository, atLeastOnce()).save(saved.capture());
+        assertThat(saved.getAllValues()).extracting(BalanceSnapshot::getDate)
+            .contains(today, march)
+            .doesNotContain(february);
     }
 
     @Test
@@ -442,12 +508,12 @@ class ManualTransactionServiceTest {
 
         when(accountRepository.findByIdAndMemberId(1L, 10L)).thenReturn(Optional.of(account));
         when(transactionRepository.findByIdAndAccountId(5L, 1L)).thenReturn(Optional.of(tx));
-        when(transactionRepository.sumAmountByAccountId(1L)).thenReturn(BigDecimal.ZERO);
+        when(finaryPersistenceHelper.computeManualLedgerBalance(account)).thenReturn(BigDecimal.ZERO);
 
         manualTransactionService.deleteTransaction(1L, 5L, 10L);
 
         verify(transactionRepository).delete(tx);
-        verify(transactionRepository).sumAmountByAccountId(1L);
+        verify(finaryPersistenceHelper).computeManualLedgerBalance(account);
         verify(accountRepository).save(account);
         verify(finaryPersistenceHelper).reconstructSnapshotsFromDb(account);
         verify(holdingComputeService, never()).recomputeHoldings(any());

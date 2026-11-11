@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
@@ -70,6 +71,21 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
 
     @Query("SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t WHERE t.account.id = :accountId AND t.date > :date")
     BigDecimal sumAmountByAccountIdAndDateAfter(@Param("accountId") Long accountId, @Param("date") LocalDate date);
+
+    /**
+     * Movements the anchor statement does not contain: anything dated after it, plus
+     * same-day rows created after it. A same-day row created before the statement is
+     * already inside the hand-entered figure (end-of-day statements include their day's
+     * transactions), so counting it again would double it.
+     */
+    @Query("""
+        SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t
+        WHERE t.account.id = :accountId
+          AND (t.date > :date OR (t.date = :date AND t.createdAt > :createdAt))
+        """)
+    BigDecimal sumAmountByAccountIdAfterStatement(@Param("accountId") Long accountId,
+                                                  @Param("date") LocalDate date,
+                                                  @Param("createdAt") Instant createdAt);
 
     /**
      * Rows a bank importer must compare a freshly fetched window against. Manual rows are

@@ -3,6 +3,7 @@ package com.picsou.service;
 import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.dto.AccountResponse;
+import com.picsou.finary.FinaryPersistenceHelper;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
 import com.picsou.model.BalanceSnapshot;
@@ -114,7 +115,7 @@ class SyncServiceCurrencyMatchTest {
             accountRepository, snapshotRepository, mock(AccountHoldingRepository.class),
             null, null, null, debtRepository, null, new PriceService(priceProvider, null),
             new LoanAmortizationService(), null, null, null, null, null, null, null, null,
-            mock(PeerLoanTransactionLinks.class)));
+            mock(PeerLoanTransactionLinks.class), mock(FinaryPersistenceHelper.class)));
         // Only response enrichment is stubbed; snapshot persistence and FX conversion run normally.
         doReturn(mock(AccountResponse.class)).when(accountService).toResponse(any(Account.class));
         bankTransactionImportService = mock(BankTransactionImportService.class);

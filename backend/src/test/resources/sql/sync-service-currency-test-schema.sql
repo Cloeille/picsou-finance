@@ -57,6 +57,9 @@ CREATE TABLE balance_snapshot (
     balance NUMERIC(20, 8) NOT NULL,
     invested_amount NUMERIC(20, 8) NOT NULL,
     created_at TIMESTAMP NOT NULL,
+    source VARCHAR(16) NOT NULL DEFAULT 'DERIVED',
+    native_balance NUMERIC(20, 8),
+    statement_entered_at TIMESTAMP WITH TIME ZONE,
     UNIQUE (account_id, date)
 );
 

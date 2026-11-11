@@ -41,4 +41,15 @@ public class BalanceSnapshot {
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private java.time.Instant createdAt = java.time.Instant.now();
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    @Builder.Default
+    private SnapshotSource source = SnapshotSource.DERIVED;
+
+    @Column(name = "native_balance", precision = 20, scale = 8)
+    private BigDecimal nativeBalance;
+
+    @Column(name = "statement_entered_at")
+    private java.time.Instant statementEnteredAt;
 }

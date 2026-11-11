@@ -13,6 +13,7 @@ import com.picsou.dto.ScpiPositionResponse;
 import com.picsou.dto.SnapshotRequest;
 import com.picsou.dto.TransactionResponse;
 import com.picsou.exception.ResourceNotFoundException;
+import com.picsou.finary.FinaryPersistenceHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.picsou.model.ScpiProvider;
@@ -24,6 +25,7 @@ import com.picsou.model.Debt;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.PropertyValuation;
 import com.picsou.model.RealEstateMetadata;
+import com.picsou.model.SnapshotSource;
 import com.picsou.model.ValuationMode;
 import com.picsou.port.BankConnectorPort;
 import com.picsou.repository.AccountHoldingRepository;
@@ -107,6 +109,7 @@ public class AccountService {
     private final PeerLoanTermsRepository peerLoanTermsRepository;
     private final PeerLoanRepaymentRepository peerLoanRepaymentRepository;
     private final PeerLoanTransactionLinks peerLoanTransactionLinks;
+    private final FinaryPersistenceHelper finaryPersistenceHelper;
 
     public AccountService(
         AccountRepository accountRepository,
@@ -127,7 +130,8 @@ public class AccountService {
         ScpiFundService scpiFundService,
         PeerLoanTermsRepository peerLoanTermsRepository,
         PeerLoanRepaymentRepository peerLoanRepaymentRepository,
-        PeerLoanTransactionLinks peerLoanTransactionLinks
+        PeerLoanTransactionLinks peerLoanTransactionLinks,
+        FinaryPersistenceHelper finaryPersistenceHelper
     ) {
         this.accountRepository = accountRepository;
         this.snapshotRepository = snapshotRepository;
@@ -148,6 +152,7 @@ public class AccountService {
         this.peerLoanTermsRepository = peerLoanTermsRepository;
         this.peerLoanRepaymentRepository = peerLoanRepaymentRepository;
         this.peerLoanTransactionLinks = peerLoanTransactionLinks;
+        this.finaryPersistenceHelper = finaryPersistenceHelper;
     }
 
     /**
@@ -282,8 +287,20 @@ public class AccountService {
             BigDecimal oldBalance = account.getCurrentBalance();
             BigDecimal newBalance = signedBalance(account.getType(), req.currentBalance());
             account.setCurrentBalance(newBalance);
+            // Only a figure that changed is a statement. The form sends the balance it was
+            // opened with, so a rename would otherwise pin today's balance, and a transaction
+            // dated before today, added, edited or deleted later, would stop moving it.
             if (newBalance.compareTo(oldBalance) != 0) {
-                upsertSnapshotFromNative(account, newBalance, LocalDate.now());
+                BalanceSnapshot snap = upsertSnapshotFromNative(account, newBalance, LocalDate.now());
+                if (account.getType().isLedger()) {
+                    // A typed balance on a manual ledger is a statement about today: without
+                    // the mark, the next transaction would anchor on an older statement and
+                    // silently drop the edited figure (issue #543).
+                    snap.setSource(SnapshotSource.MANUAL);
+                    snap.setNativeBalance(newBalance);
+                    snap.setStatementEnteredAt(java.time.Instant.now());
+                    snapshotRepository.save(snap);
+                }
             }
         }
 
@@ -376,16 +393,41 @@ public class AccountService {
                 "A peer loan's balance comes from its repayment ledger, not a manual snapshot");
         }
         BigDecimal balance = signedBalance(account.getType(), req.balance());
+        boolean manualLedger = account.isManual() && account.getType().isLedger();
 
-        // Update current balance if this is the most recent snapshot
-        Optional<BalanceSnapshot> latest = snapshotRepository.findLatestByAccountId(accountId);
-        if (latest.isEmpty() || !req.date().isBefore(latest.get().getDate())) {
-            account.setCurrentBalance(balance);
-            account.setLastSyncedAt(Instant.now());
-            accountRepository.save(account);
+        // Update current balance if this is the most recent snapshot — except on a manual
+        // ledger, where the anchored recompute below covers every case (a back-dated
+        // statement moves the anchor just like a latest one).
+        if (!manualLedger) {
+            Optional<BalanceSnapshot> latest = snapshotRepository.findLatestByAccountId(accountId);
+            if (latest.isEmpty() || !req.date().isBefore(latest.get().getDate())) {
+                account.setCurrentBalance(balance);
+                account.setLastSyncedAt(Instant.now());
+                accountRepository.save(account);
+            }
         }
 
-        return upsertSnapshotFromNative(account, balance, req.date());
+        // Hand-entered statements are ground truth: later rebuilds preserve MANUAL rows.
+        // Re-entering an older statement flips it, which is also the recovery path for
+        // statements entered before the source column existed. The native figure travels
+        // with the row so the balance anchor never depends on a later FX rate.
+        BalanceSnapshot snap = upsertSnapshotFromNative(account, balance, req.date());
+        snap.setSource(SnapshotSource.MANUAL);
+        snap.setNativeBalance(balance);
+        snap.setStatementEnteredAt(java.time.Instant.now());
+        snapshotRepository.save(snap);
+
+        if (manualLedger) {
+            // Entering a statement can move the anchor even when it is not the latest row
+            // (transaction first, statement after): recompute the anchored balance and the
+            // derived history so both orders converge (issue #543).
+            account.setCurrentBalance(finaryPersistenceHelper.computeManualLedgerBalance(account));
+            account.setLastSyncedAt(Instant.now());
+            accountRepository.save(account);
+            finaryPersistenceHelper.reconstructSnapshotsFromDb(account);
+        }
+
+        return snap;
     }
 
     public List<BalanceSnapshot> getHistory(Long accountId, Long memberId, LocalDate from, LocalDate to) {
@@ -481,7 +523,17 @@ public class AccountService {
      * provider has no historical FX, and an approximate EUR figure beats a USD one read as EUR.
      */
     BalanceSnapshot upsertSnapshotFromNative(Account account, BigDecimal nativeBalance, LocalDate date) {
-        return upsertSnapshot(account, toSnapshotEur(account, nativeBalance), date);
+        BalanceSnapshot snap = upsertSnapshot(account, toSnapshotEur(account, nativeBalance), date);
+        if (snap.getSource() == SnapshotSource.MANUAL) {
+            // A hand-entered row keeps its native figure current: updateAccount rewrites
+            // today's row through here, and a stale native would anchor the next rebuild
+            // on the old statement (issue #543). The entry instant moves too: the row may
+            // have been created DERIVED earlier the same day.
+            snap.setNativeBalance(nativeBalance);
+            snap.setStatementEnteredAt(java.time.Instant.now());
+            return snapshotRepository.save(snap);
+        }
+        return snap;
     }
 
     private BigDecimal toSnapshotEur(Account account, BigDecimal nativeBalance) {

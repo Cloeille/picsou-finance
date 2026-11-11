@@ -651,8 +651,9 @@ public class HomeBankImportService {
 
     /**
      * Mirrors ManualTransactionService.recomputeDerivedState for the cash balance: every manual
-     * target that received at least one new row (whatever its mapping action) gets its balance and
-     * snapshot history rebuilt from the ledger. Synced (non-manual) targets keep their provider
+     * target that received at least one new row (whatever its mapping action) gets its balance
+     * anchored on the latest hand-entered statement when there is one, and its derived
+     * snapshot history rebuilt. Synced (non-manual) targets keep their provider
      * balance, and accounts that only hit deduplicated rows are left untouched.
      */
     private void recomputeDerivedState(ParsedHomeBankData parsed, Map<String, AccountMapping> mappings,
@@ -663,7 +664,7 @@ public class HomeBankImportService {
                     || !account.isManual() || !accountsWithNewRows.contains(account.getId())) {
                 continue;
             }
-            account.setCurrentBalance(transactions.sumAmountByAccountId(account.getId()));
+            account.setCurrentBalance(persistence.computeManualLedgerBalance(account));
             persistence.reconstructSnapshotsFromDb(account);
             accounts.save(account);
         }
