@@ -725,6 +725,23 @@ the incident's ad-hoc SQL. Issue #195's hand-created tables were missing CHECK c
 of unrecorded or falsely recorded manual changes. Do not keep `SPRING_FLYWAY_ENABLED=false` as a
 lasting fix. The release workflow deliberately refuses to guess how to reconcile that drift.
 
+### Starting an older image on a newer database
+
+The backend refuses to start when the database has applied a Flyway version that its image does
+not ship ([#553](https://github.com/Cloeille/picsou-finance/issues/553)). Before this, Spring
+Boot's default (`ignore-migration-patterns: *:future`) only logged `Schema "public" has a version
+(146) that is newer than the latest available migration (128)` and the app died later in Hibernate
+with `Schema-validation: missing table [amex_session]`. Now Flyway fails first:
+
+```
+Detected applied migration not resolved locally: 146.
+```
+
+Run an image at or above the database's newest version, or restore a backup taken before the newer
+image migrated. Never delete rows from `flyway_schema_history` to get past it: the schema still
+holds what those migrations created. This also applies to a rolling update where an old replica
+restarts after a new one has migrated.
+
 ### Safe release deployment
 
 Follow [the production release runbook](./release-deployment.md). `docker/deploy.sh` is the
