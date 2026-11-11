@@ -25,6 +25,7 @@ import { AccountTypeBadge } from '@/components/shared/AccountTypeBadge'
 import { CardNatureField } from '@/components/shared/CardNatureField'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { LoanDetailSection } from '@/components/loan/LoanDetailSection'
+import { OwnershipEditor } from '@/components/property/OwnershipEditor'
 import { SavingsConfigSection } from '@/features/savings/SavingsConfigSection'
 import { useSavingsSuggestions } from '@/features/savings/hooks'
 import { PropertyDetailSection } from '@/components/property/PropertyDetailSection'
@@ -340,7 +341,14 @@ export function AccountDetailPage() {
       ) : null}
 
       {/* Loan detail */}
-      {isLoan && account && <LoanDetailSection accountId={account.id} canEdit={account.isOwner !== false} />}
+      {isLoan && account && <LoanDetailSection accountId={account.id} />}
+      {/* A mortgage split is independent from the property's and from the debt details:
+          the editor lives outside the summary's loading and error branches so the split
+          stays editable with or without debt details, for owners and co-owners
+          (issues #354, #550). */}
+      {isLoan && account && (
+        <OwnershipEditor accountId={account.id} canEdit={account.isOwner !== false} />
+      )}
 
       {/* Property detail: description, valuation, financing and ownership split */}
       {isRealEstate && account && <PropertyDetailSection account={account} />}

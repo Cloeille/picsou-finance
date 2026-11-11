@@ -443,6 +443,7 @@ jobs:
           20 config.SsoLoginIntegrationTest
           2 config.SsoHandshakeSessionRaceIntegrationTest
           21 adapter.sidecar.SidecarBankCodesTest
+          2 migration.FutureMigrationStartupTest
           EOF
       # The next runs balance their shards on these class times.
       - name: Collect the backend class timings

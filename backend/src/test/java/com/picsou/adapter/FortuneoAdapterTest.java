@@ -10,7 +10,9 @@ import com.picsou.support.WebClientStubs;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -121,6 +123,44 @@ class FortuneoAdapterTest {
             assertThat(account.transactions()).singleElement().satisfies(tx ->
                 assertThat(tx.label()).isEqualTo("Virement recu"));
         });
+    }
+
+    @Test
+    void fetchAccounts_decodesAPayloadLargerThanTheDefault256KbCodecLimit() throws Exception {
+        // A real checking account with a long history (1196 transactions in #460)
+        // exceeds Spring's 256 KB default buffer.
+        StringBuilder txs = new StringBuilder();
+        for (int i = 0; i < 3000; i++) {
+            if (i > 0) txs.append(',');
+            txs.append("{\"date\":\"2026-07-20\",\"label\":\"").append("X".repeat(80))
+                .append("\",\"amount\":-1.00}");
+        }
+        String body = "[{\"externalId\":\"cc-1\",\"name\":\"C\",\"type\":\"CHECKING\","
+            + "\"balanceEur\":1.00,\"cashBalance\":1.00,\"positions\":[],"
+            + "\"transactions\":[" + txs + "],\"snapshotComplete\":true}]";
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        assertThat(bytes.length).isGreaterThan(256 * 1024);
+
+        HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        server.createContext("/accounts", exchange -> {
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        server.start();
+        try {
+            FortuneoAdapter adapter = new FortuneoAdapter(
+                SidecarTestSupport.factory("fortuneo-auth", "http://127.0.0.1:" + server.getAddress().getPort()),
+                new ObjectMapper());
+
+            var accounts = adapter.fetchAccounts("encrypted-browser-state");
+
+            assertThat(accounts).singleElement()
+                .satisfies(account -> assertThat(account.transactions()).hasSize(3000));
+        } finally {
+            server.stop(0);
+        }
     }
 
     private FortuneoAdapter adapterReturning(HttpStatus status, String body) {

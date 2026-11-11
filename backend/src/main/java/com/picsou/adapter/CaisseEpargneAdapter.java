@@ -51,11 +51,8 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
         ObjectMapper objectMapper
     ) {
         this(
-            // A real account with a long history exceeds Spring's 256 KB default buffer.
             clients.create(SidecarBank.CAISSE_EPARGNE.label(), SidecarBank.CAISSE_EPARGNE.serviceName(),
-                builder -> builder
-                    .clientConnector(new ReactorClientHttpConnector(httpClient()))
-                    .codecs(c -> c.defaultCodecs().maxInMemorySize(16 * 1024 * 1024))),
+                builder -> builder.clientConnector(new ReactorClientHttpConnector(httpClient()))),
             objectMapper,
             DEFAULT_CHECK_TIMEOUT,
             DEFAULT_ACCOUNTS_TIMEOUT

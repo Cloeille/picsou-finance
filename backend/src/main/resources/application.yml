@@ -29,6 +29,10 @@ spring:
     # before the 1.1.0 branch's V33-V47). Without this, validate-on-migrate
     # rejects the out-of-order migrations and the app fails to start.
     out-of-order: true
+    # Spring Boot defaults this to ["*:future"], which turns an applied version this image does
+    # not ship into a warning. An older image on a newer database must fail here, naming the
+    # missing version, not later in Hibernate with a missing table.
+    ignore-migration-patterns: []
 
   jackson:
     serialization:
