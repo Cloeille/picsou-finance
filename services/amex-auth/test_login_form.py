@@ -48,6 +48,10 @@ class FakeLoginPage:
         self.polls = 0
         self.reloads = 0
         self.on_reload_abort = on_reload_abort
+        self.locator_handlers = []
+
+    async def add_locator_handler(self, locator, handler):
+        self.locator_handlers.append(locator.selector)
 
     def on(self, event, handler):
         self.handlers.setdefault(event, []).append(handler)
@@ -164,6 +168,13 @@ class OpenLoginFormTest(unittest.IsolatedAsyncioTestCase):
                 await asyncio.wait_for(main._open_login_form(page), timeout=5)
         self.assertEqual(caught.exception.detail, "UPSTREAM_UNAVAILABLE")
         self.assertEqual(page.reloads, 1)
+
+    async def test_cookie_banner_is_declined_whenever_it_appears(self):
+        # Seen live: the banner arrives after the form and its overlay swallows
+        # the submit click, so a check made only while waiting misses it.
+        page = FakeLoginPage(["module_ok", "form"])
+        await main._open_login_form(page)
+        self.assertEqual(page.locator_handlers, [main.COOKIE_BANNER_DECLINE_SELECTOR])
 
     async def test_loaded_module_with_a_form_too_slow_is_reloaded(self):
         # Seen live: the module loads and the form still misses the first wait.

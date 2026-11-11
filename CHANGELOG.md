@@ -230,6 +230,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you are asked to try again ("Impossible de joindre American Express") instead of being told the
   site format changed. That message now only appears when the page loads twice without its fields (#482).
 
+- **American Express login no longer stalls behind the cookie banner.** When the consent banner
+  showed up after the login form, it blocked the sign-in click and the connection failed with
+  "Impossible de joindre American Express". It is now declined whenever it appears.
+
 - **Caisse d'Epargne remembers your identifier.** A reconnect after the bank session
   expired no longer asks for the identifier again: the one from the last successful login is
   stored encrypted, like BoursoBank's (migration `V145`). The password and the Sécur'Pass

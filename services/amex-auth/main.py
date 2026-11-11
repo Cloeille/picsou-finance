@@ -111,9 +111,10 @@ OTP_SUBMIT_EXCLUDE_PATTERN = re.compile(
 METHOD_HEADING_SUBSTRINGS = {"sms": "sms", "email": "e-mail"}
 
 # Post-OTP "Appareil de confiance" (trusted device) interstitial: AMEX shows
-# this after accepting the code, asking to remember the device. We never tick
-# the checkbox or name the device (browser is ephemeral) -- just click
-# through with "Continuer" so the poll loop can reach the dashboard.
+# this after accepting the code, asking to remember the device. We tick the
+# checkbox (so AMEX recognises the device on the next login and skips the
+# code), without naming the device, then click "Continuer" so the poll loop
+# can reach the dashboard.
 TRUST_DEVICE_CHECKBOX_SELECTOR = "[data-testid=trust-device]"
 TRUST_DEVICE_CONTINUE_PATTERN = re.compile(r"^\s*continuer\s*$", re.IGNORECASE)
 
@@ -144,6 +145,11 @@ class InitiateRequest(BaseModel):
     # push (see module docstring) -- the caller picks which channel AMEX
     # should send the code to.
     method: Literal["sms", "email"]
+    # Previous session this sidecar produced: its cookies are added to the new
+    # browser context so AMEX can recognise the trusted device.
+    sessionState: str | None = Field(default=None, max_length=200_000)
+    # Unattended re-login: stop at the verify page instead of sending a code.
+    unattended: bool = False
 
 
 class CompleteRequest(BaseModel):
@@ -641,15 +647,6 @@ async def _login_form_visible(page: Page) -> bool:
         return False
 
 
-async def _decline_cookie_banner(page: Page) -> None:
-    try:
-        banner = page.locator(COOKIE_BANNER_DECLINE_SELECTOR).first
-        if await banner.is_visible():
-            await banner.click(timeout=2_000)
-    except PlaywrightError:
-        pass  # banner not shown (already consented or A/B) -- continue
-
-
 async def _open_login_form(page: Page) -> None:
     """Opens the login page and waits for its client-rendered form (#482).
 
@@ -664,6 +661,13 @@ async def _open_login_form(page: Page) -> None:
     is reloaded too: live, the module sometimes loads and the form still takes
     longer than the wait. Only a second miss reports a format change.
     """
+    # The consent banner can appear after the form, and its overlay then swallows
+    # the submit click until the login times out. Playwright runs this handler
+    # before any action whenever the banner is visible, whenever it arrives.
+    await page.add_locator_handler(
+        page.locator(COOKIE_BANNER_DECLINE_SELECTOR).first,
+        lambda banner: banner.click(),
+    )
     watch = _LoginModuleWatch()
     page.on("response", watch.on_response)
     page.on("requestfailed", watch.on_request_failed)
@@ -671,7 +675,6 @@ async def _open_login_form(page: Page) -> None:
     attempt = 1
     deadline = time.monotonic() + LOGIN_FORM_TIMEOUT_MS / 1000
     while True:
-        await _decline_cookie_banner(page)
         if await _login_form_visible(page):
             if attempt > 1:
                 log.info("AMEX login form shown after reload attempt=%d", attempt)
@@ -698,6 +701,102 @@ async def _open_login_form(page: Page) -> None:
     raise HTTPException(status_code=503, detail="UPSTREAM_UNAVAILABLE")
 
 
+async def _tick_trust_device(trust_element: Any) -> bool:
+    """Ticks the trusted-device checkbox (the input inside the marked element,
+    or the element itself). Returns whether it ended up ticked."""
+    try:
+        inner = trust_element.locator("input[type=checkbox]")
+        if await inner.count() > 0:
+            await inner.first.check(force=True)
+            return True
+        await trust_element.click()
+        return True
+    except PlaywrightError as exc:
+        log.warning("AMEX trusted-device tick failed error_type=%s", _safe_error_type(exc))
+        return False
+
+
+async def _capture_post_login_session(
+    page: Page,
+    context: BrowserContext,
+    enrichment: dict[str, Any],
+    account_token_future: asyncio.Future,
+    account_token_listener: Any,
+) -> str:
+    """Post-login capture shared by `initiate` (no code asked) and `complete`:
+    account token, loyalty enrichment, then the serialized session state."""
+    account_token: str | None = None
+    try:
+        account_token = await asyncio.wait_for(
+            account_token_future, timeout=ACCOUNT_TOKEN_CAPTURE_TIMEOUT_SECONDS
+        )
+        token_source = "xhr"
+    except asyncio.TimeoutError:
+        token_source = None
+    page.remove_listener("request", account_token_listener)
+
+    if not account_token:
+        account_token = await _account_token(page, await context.cookies())
+        token_source = "helper" if account_token else None
+
+    log.info("AMEX account token capture token_found=%s source=%s", bool(account_token), token_source)
+
+    try:
+        async with page.expect_response(
+            lambda response: "ReadLoyaltyTransactions" in response.url
+            and '"periodIndex":0' in (response.request.post_data or "").replace(" ", ""),
+            timeout=20_000,
+        ) as loyalty_response_info:
+            await page.goto(
+                "https://global.americanexpress.com/rewards/summary",
+                wait_until="domcontentloaded",
+                timeout=20_000,
+            )
+        loyalty_response = await loyalty_response_info.value
+        loyalty_payload = await loyalty_response.json()
+        earned_points = _parse_loyalty_earned(loyalty_payload)
+        if earned_points is not None:
+            enrichment["rewardPoints"] = earned_points
+    except Exception:
+        log.info("AMEX loyalty summary capture unavailable")
+
+    cookies = await context.cookies()
+    return _serialize_cookies(cookies, account_token, enrichment)
+
+
+_COOKIE_KEYS = ("name", "value", "domain", "path", "expires", "httpOnly", "secure", "sameSite")
+
+
+def _reusable_cookies(raw: str) -> list[dict[str, Any]]:
+    """Cookies of a previous sessionState, reduced to what Playwright's
+    `add_cookies` accepts. Raises ValueError/HTTPException when unreadable."""
+    cookies, _token, _enrichment = _restore_cookies(raw)
+    reusable: list[dict[str, Any]] = []
+    for cookie in cookies:
+        kept = {key: cookie[key] for key in _COOKIE_KEYS if key in cookie and cookie[key] is not None}
+        expires = kept.get("expires")
+        if not isinstance(expires, (int, float)) or isinstance(expires, bool) or expires <= 0:
+            kept.pop("expires", None)
+        if not isinstance(kept.get("value"), str) or not (kept.get("domain") or kept.get("url")):
+            continue
+        reusable.append(kept)
+    if not reusable:
+        raise ValueError("no reusable cookie")
+    return reusable
+
+
+async def _reuse_previous_session(context: BrowserContext, session_state: str | None) -> None:
+    """Adds the previous session's cookies to the fresh context before the
+    login page opens, so AMEX recognises the trusted device. Never fails the
+    login."""
+    if not session_state:
+        return
+    try:
+        await context.add_cookies(_reusable_cookies(session_state))
+    except Exception as exc:
+        log.warning("AMEX previous session not reused error_type=%s", _safe_error_type(exc))
+
+
 @app.post("/initiate", response_model=InitiateResponse)
 async def initiate(req: InitiateRequest) -> dict:
     await _pending.expire()
@@ -718,6 +817,7 @@ async def initiate(req: InitiateRequest) -> dict:
         )
         browser = await camoufox.__aenter__()
         context = await browser.new_context(timezone_id="Europe/Paris")
+        await _reuse_previous_session(context, req.sessionState)
         page = await context.new_page()
         enrichment: dict[str, Any] = {}
 
@@ -762,6 +862,9 @@ async def initiate(req: InitiateRequest) -> dict:
         )
 
         # _open_login_form already required the submit button to be visible.
+        # Token capture registered before the click so a login that needs no code
+        # still catches the dashboard XHRs carrying the account_token header.
+        account_token_future, account_token_listener = _capture_account_token_header(page)
         await page.locator(SUBMIT_BUTTON_SELECTOR).first.click()
 
         outcome = await _wait_for_login_outcome(page, LOGIN_RESULT_TIMEOUT_SECONDS)
@@ -792,6 +895,12 @@ async def initiate(req: InitiateRequest) -> dict:
             raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
 
         if outcome == "verify":
+            page.remove_listener("request", account_token_listener)
+            if req.unattended:
+                # Choosing a channel is what sends the SMS: nobody is there to
+                # read it, so stop before that.
+                log.info("AMEX unattended re-login stopped at the verify page")
+                raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
             await _select_otp_method(page, req.method)
             await _find_otp_input(page)  # confirms the input exists before storing pending state
 
@@ -814,13 +923,15 @@ async def initiate(req: InitiateRequest) -> dict:
             }
 
         # "success": no second factor was raised.
-        cookies = await context.cookies()
+        session_state = await _capture_post_login_session(
+            page, context, enrichment, account_token_future, account_token_listener
+        )
         await _close_resources(context, browser, camoufox)
         return {
             "processId": None,
             "mfaRequired": False,
             "mfaType": None,
-            "sessionState": _serialize_cookies(cookies),
+            "sessionState": session_state,
         }
     except HTTPException:
         await _close_resources(context, browser, camoufox)
@@ -942,6 +1053,8 @@ async def complete(req: CompleteRequest) -> dict:
                 try:
                     trust_checkbox = page.locator(TRUST_DEVICE_CHECKBOX_SELECTOR)
                     if await trust_checkbox.count() > 0 and await trust_checkbox.first.is_visible():
+                        ticked = await _tick_trust_device(trust_checkbox.first)
+                        log.info("AMEX trusted-device step: ticked=%s", ticked)
                         continue_button = page.get_by_role(
                             "button", name=TRUST_DEVICE_CONTINUE_PATTERN
                         ).first
@@ -999,43 +1112,10 @@ async def complete(req: CompleteRequest) -> dict:
 
             raise HTTPException(status_code=401, detail="AUTH_ATTEMPT_EXPIRED")
 
-        account_token: str | None = None
-        try:
-            account_token = await asyncio.wait_for(
-                account_token_future, timeout=ACCOUNT_TOKEN_CAPTURE_TIMEOUT_SECONDS
-            )
-            token_source = "xhr"
-        except asyncio.TimeoutError:
-            token_source = None
-        page.remove_listener("request", _account_token_listener)
-
-        if not account_token:
-            account_token = await _account_token(page, await context.cookies())
-            token_source = "helper" if account_token else None
-
-        log.info("AMEX account token capture token_found=%s source=%s", bool(account_token), token_source)
-
-        try:
-            async with page.expect_response(
-                lambda response: "ReadLoyaltyTransactions" in response.url
-                and '"periodIndex":0' in (response.request.post_data or "").replace(" ", ""),
-                timeout=20_000,
-            ) as loyalty_response_info:
-                await page.goto(
-                    "https://global.americanexpress.com/rewards/summary",
-                    wait_until="domcontentloaded",
-                    timeout=20_000,
-                )
-            loyalty_response = await loyalty_response_info.value
-            loyalty_payload = await loyalty_response.json()
-            earned_points = _parse_loyalty_earned(loyalty_payload)
-            if earned_points is not None:
-                enrichment["rewardPoints"] = earned_points
-        except Exception:
-            log.info("AMEX loyalty summary capture unavailable")
-
-        cookies = await context.cookies()
-        return {"sessionState": _serialize_cookies(cookies, account_token, enrichment)}
+        session_state = await _capture_post_login_session(
+            page, context, enrichment, account_token_future, _account_token_listener
+        )
+        return {"sessionState": session_state}
 
     except HTTPException:
         raise
