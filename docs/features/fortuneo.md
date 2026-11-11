@@ -48,7 +48,8 @@ on a dedicated internal network shared only with the backend; a separate
 sidecar-only egress network lets Chromium reach Fortuneo without making the
 credential-bearing API reachable by the rest of the stack. `FortuneoAdapter`
 builds its client through `SidecarWebClientFactory`, like every other sidecar
-adapter. A custom remote sidecar URL must use HTTPS; plain HTTP is accepted
+adapter; the factory lets a response buffer up to 16 MB, since an account with a
+long history is past Spring's 256 KB default (#460). A custom remote sidecar URL must use HTTPS; plain HTTP is accepted
 only for a single-label Compose service name or loopback development. Every
 call carries the shared `APP_SIDECAR_API_KEY`, and the sidecar answers any other
 call with a 401 challenge; see
