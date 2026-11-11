@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   family dashboard's shared net worth added each pocket on top of its wallet, and the MCP
   `get_net_worth_history` and `get_profit_and_loss` tools did the same when called without
   account ids. A pocket now counts only when its wallet is not in the same list.
+- **Long descriptions overflowed the rows of the "Add account" source list.** A description longer than the dialog (Caisse d'Epargne, German or Spanish copy, any row on a phone) kept its one-line width, ran past the card's right edge and pushed that row's arrow out of line with the others. A description now wraps inside its row, clamped to two lines with the full text as a tooltip, and every arrow keeps its size and position.
 - **The dashboard holdings card counted property, SCPI and Revolut pockets as cash.** Its
   "Euros" line added up every account that is neither a holdings account nor a debt, so a flat
   or an SCPI was shown as euros, and a Revolut wallet's money was counted again through each of
