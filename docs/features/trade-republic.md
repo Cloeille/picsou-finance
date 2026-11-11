@@ -10,11 +10,12 @@ Trade Republic is a German neobroker popular in France. Picsou syncs portfolio b
 
 ### Authentication (delegated to the `tr-auth` sidecar)
 
-`TradeRepublicAdapter` calls three endpoints of the sidecar through the shared `SidecarClient`, which keeps the sidecar's `{"detail": CODE}` as the `SyncException` code:
+`TradeRepublicAdapter` calls four endpoints of the sidecar through the shared `SidecarClient`, which keeps the sidecar's `{"detail": CODE}` as the `SyncException` code:
 
 1. **`POST /initiate`** -- Sends phone number + PIN. Returns `{processId, flow, countdownInSeconds}`. `flow` is `confirmInApp` (the member confirms in the Trade Republic app) or `otp` (TR fell back to a 4-digit code).
 2. **`POST /complete`** -- Sends `processId` and `tan` (`null` for `confirmInApp`). Blocks while the member confirms, up to 120 s in the sidecar and 150 s in the adapter, then returns an opaque `sessionState`. The 120 s is one deadline over the whole wait: a poll or a WAF token refresh still running when it passes is cancelled, so the sidecar answers `APP_VALIDATION_TIMEOUT` before the adapter gives up. The adapter always sends the `tan` key, with an explicit `null`, because the sidecar forbids unknown fields but declares it.
 3. **`POST /session`** -- Sends the stored `sessionState`. Returns `{sessionToken, claims}`: a live `tr_session` cookie value and the decoded claims, which list the securities and cash accounts in `act.acc.owner`. The refresh cookie is not rotated, so the stored state never changes.
+4. **`POST /transactions`** -- Sends the stored `sessionState`, `from` and `to`. Returns Trade Republic's CSV export of the activity over that window, unchanged (see [Automatic transaction import](#automatic-transaction-import)).
 
 Phone number and PIN are never stored: they are used for the `/initiate` call and dropped. The state holds only the refresh cookie, the device cookie and the subject.
 
@@ -42,7 +43,7 @@ Sessions live in the shared `sidecar_session` table (bank `TRADE_REPUBLIC`), lik
 `TradeRepublicSyncService` builds a `SidecarSyncTemplate` with a `Strategy`:
 
 - `completeAuth()` calls `/complete`, then `insertQueued` stores the encrypted `sessionState` (AES-256-GCM through `CryptoEncryption`, see [encryption-at-rest.md](./encryption-at-rest.md)), lifts the soft-delete tombstones on the member's TR accounts in the same transaction, and queues the first import on the `tradeRepublicSyncExecutor` single-worker executor. It returns a `SessionStatusResponse` straight away. A Disconnect clicked during the in-app wait bumps a per-member generation, so the login that finishes afterwards stores nothing and answers `AUTH_ATTEMPT_EXPIRED` (the fence CIC and CMES use).
-- A job runs in three short transactions fenced on the session row. `fetch` calls `/session`, reads the portfolio over the WebSocket and resolves every ISIN to its ticker through OpenFIGI, outside any transaction. `commit` runs `upsertAccount` for each account inside the job's transaction, with no network call while it holds the session row lock.
+- A job runs in three short transactions fenced on the session row. `fetch` calls `/session`, reads the portfolio over the WebSocket and resolves every ISIN to its ticker through OpenFIGI, then fetches the CSV export through `/transactions`, all outside any transaction. `commit` runs `upsertAccount` for each account inside the job's transaction, with no network call while it holds the session row lock. `afterCommit` imports the export's transactions in a transaction of its own.
 - `SESSION_EXPIRED` and `INVALID_SESSION_STATE` end the session: it is kept but inactive, the member sees "reconnect". Any other failure (`UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`...) leaves it active so the next sync retries.
 - A backend restart turns `QUEUED`/`RUNNING` rows into a retryable failure: `TradeRepublicSyncService` is one of the services `SidecarSyncRecovery` runs at boot.
 
@@ -126,9 +127,20 @@ The two legs are strict mirrors: the investment leg always carries the **opposit
 
 **Balance ownership**: the TR Cash balance stays owned by the sync — the import writes ledger rows but never overwrites `currentBalance`. More generally, `ManualTransactionService` now recomputes a cash account's balance/history from its transactions **only for manual accounts** (`refreshManualCashBalance`). For a synced account the balance and snapshots come from the connector; recomputing them from this (deliberately partial — `TRANSFER_IN/OUT` excluded) ledger would corrupt the balance the next time a manual transaction is added.
 
-**Endpoint**: `POST /api/tr/accounts/{id}/transactions/import-csv` (multipart `file` param). The `{id}` is validated to belong to the authenticated member. Returns `{ inserted: N, skipped: M }`.
+**Endpoint**: `POST /api/tr/accounts/{id}/transactions/import-csv` (multipart `file` param). The `{id}` is validated to belong to the authenticated member. Returns `{ inserted: N, skipped: M, nonEur: K }`, `nonEur` counting the rows left out because their `currency` is not EUR (see below).
 
 **Frontend**: on the **TR Cash** (CHECKING) account detail page, the **"+ Ajouter CSV (TR)"** button appears next to the manual-transaction button. After upload, a sonner toast shows the count of inserted rows and, if some were already present, the skip count.
+
+### Automatic transaction import
+
+Each sync also imports the transactions, with no upload. After the accounts are fetched, `TradeRepublicAdapter.fetchTransactionsCsv()` calls the sidecar's `POST /transactions` (`sessionState`, `from`, `to`; 120 s timeout) and gets Trade Republic's own CSV export back. The body goes through the same parser as the manual import (`importTransactions(Reader, memberId)`), so both paths write identical `<transaction_id>_cash` / `_inv` external IDs and never duplicate each other's rows.
+
+- **Window**: `to` is today (Europe/Paris). `from` is the newest imported TR Cash entry minus 14 days, or today minus 3 years on a first import. The session's `lastSyncCompletedAt` is not used: queueing and starting a run both clear it. The 14-day overlap is harmless because rows already present are skipped. `from` is never older than today minus 1830 days, the longest window the sidecar accepts: a newest entry over five years old would otherwise ask for a window refused with `INVALID_DATA` on every sync.
+- **Size**: the export is read whole into memory. The adapter's WebClient raises Spring's 256 KiB default codec limit to 16 MiB (as Caisse d'Epargne does). A real 3-year, 721-row export was 155 KB, so the default dropped any export past about 1,200 rows.
+- **Currency**: every stored amount is EUR. A row whose `currency` column (found by its header name) is set to anything other than EUR is left out and counted (`nonEur`), on the manual upload too. A header without a `currency` column logs a WARN and reads every amount as EUR, as before. `original_currency` is not checked: on a card payment abroad it names the charged currency while `amount` stays the EUR debit.
+- **Order**: the export is fetched in `Strategy.fetch()`, outside any transaction. `commit()` upserts the accounts only. The import runs in `afterCommit()`, in its own transaction, so a row that cannot be written rolls back the transactions alone and leaves the synced balances and holdings in place.
+- **Failure policy**: any sidecar failure on the export other than `SESSION_EXPIRED` is logged by code or exception type and the sync still ends `SUCCESS` without transactions. `SESSION_EXPIRED` fails the sync like the account fetch. Neither the CSV nor its rows are logged.
+- **Log line**: the completion line reports `transactions=fetched` when an export was received; the import itself logs `tx=<inserted>`, `skipped=<n>` and `nonEur=<n>`.
 
 ### Scheduled sync
 
@@ -163,7 +175,9 @@ TRController.completeAuth() --> TRSyncService.completeAuth()
         fetch:  sidecar POST /session --> sessionToken + claims
                 WebSocket (Cookie: tr_session): connect -> availableCash
                   -> compactPortfolioByType (per secAccNo) -> instrument -> ticker ISIN.<venue>
+                sidecar POST /transactions (sessionState, from, to) --> CSV export
         commit: upsert accounts + holdings (job transaction)
+        afterCommit: import the CSV's transactions (own transaction)
 
 MemberSyncService (daily) --> TRSyncService.resyncReporting() --> same job when the session is usable
 ```

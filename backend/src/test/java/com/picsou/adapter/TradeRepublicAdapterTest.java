@@ -2,6 +2,7 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarTestSupport;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -22,6 +23,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -209,6 +211,62 @@ class TradeRepublicAdapterTest {
         TradeRepublicAdapter adapter = adapterFor(server, Duration.ofMillis(25));
 
         assertThat(codeOf(catchThrowable(() -> adapter.openSession("state")))).isEqualTo("UPSTREAM_UNAVAILABLE");
+    }
+
+    // ─── fetchTransactionsCsv ─────────────────────────────────────────────────────────────
+
+    @Test
+    void fetchTransactionsCsv_postsTheWindowAndReturnsTheBodyUntouched() {
+        AtomicReference<String> body = new AtomicReference<>();
+        AtomicReference<String> path = new AtomicReference<>();
+        String csv = "datetime,date\n2026-10-01T10:00:00Z,2026-10-01\n";
+        server = HttpServer.create().host("127.0.0.1").port(0)
+            .handle((request, response) -> request.receive().aggregate().asString().doOnNext(body::set)
+                .then(Mono.fromRunnable(() -> path.set(request.path())))
+                .then(response.header("Content-Type", "text/csv").sendString(Mono.just(csv)).then()))
+            .bindNow();
+        TradeRepublicAdapter adapter = adapterFor(server, RESPONSE_TIMEOUT);
+
+        String result = adapter.fetchTransactionsCsv("state", LocalDate.of(2023, 11, 4), LocalDate.of(2026, 11, 4));
+
+        assertThat(result).isEqualTo(csv);
+        assertThat(path.get()).endsWith("transactions");
+        assertThat(body.get()).contains("\"sessionState\":\"state\"")
+            .contains("\"from\":\"2023-11-04\"").contains("\"to\":\"2026-11-04\"");
+    }
+
+    @Test
+    void fetchTransactionsCsv_returnsAnExportLargerThanTheDefault256KibCodecLimit() {
+        // A real 3-year export of 721 rows was 155 KB: about 1,200 rows cross Spring's 256 KiB default.
+        String row = "2026-10-01T10:00:00Z,2026-10-01,DEFAULT,CASH,CARD_PAYMENT," + "X".repeat(180) + "\n";
+        String csv = "datetime,date\n" + row.repeat(600 * 1024 / row.length());
+        assertThat(csv.getBytes(StandardCharsets.UTF_8).length).isGreaterThan(256 * 1024);
+        server = HttpServer.create().host("127.0.0.1").port(0)
+            .handle((request, response) -> request.receive().then(
+                response.header("Content-Type", "text/csv").sendString(Mono.just(csv)).then()))
+            .bindNow();
+        TradeRepublicAdapter adapter = new TradeRepublicAdapter(
+            SidecarTestSupport.factory("tr-auth", "http://127.0.0.1:" + server.port()), new ObjectMapper());
+
+        String result = adapter.fetchTransactionsCsv("state", LocalDate.of(2023, 11, 4), LocalDate.of(2026, 11, 4));
+
+        assertThat(result).isEqualTo(csv);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "401, SESSION_EXPIRED, SESSION_EXPIRED",
+        "422, INVALID_SESSION_STATE, INVALID_SESSION_STATE",
+        "422, INVALID_DATA, INVALID_DATA",
+        "429, RATE_LIMITED, RATE_LIMITED",
+        "502, UPSTREAM_UNAVAILABLE, UPSTREAM_UNAVAILABLE"
+    })
+    void fetchTransactionsCsv_keepsTheCodeTheSidecarDeclares(int status, String detail, String expected) {
+        TradeRepublicAdapter adapter = adapterReturning(status, "{\"detail\":\"" + detail + "\"}");
+
+        assertThat(codeOf(catchThrowable(() ->
+            adapter.fetchTransactionsCsv("state", LocalDate.of(2026, 1, 1), LocalDate.of(2026, 2, 1)))))
+            .isEqualTo(expected);
     }
 
     private static String codeOf(Throwable thrown) {
