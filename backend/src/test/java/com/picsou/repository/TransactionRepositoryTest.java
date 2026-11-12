@@ -88,6 +88,30 @@ class TransactionRepositoryTest {
         assertThat(second).extracting(Transaction::getId).containsExactly(sell.getId(), buy.getId());
     }
 
+    @Test
+    void sumAmountByAccountIdAfterStatement_countsLaterDatesAndSameDayRowsCreatedAfter() {
+        Account account = testEntityManager.getEntityManager().getReference(Account.class, 1L);
+        LocalDate statementDate = LocalDate.of(2026, 7, 1);
+        java.time.Instant statementCreated = java.time.Instant.parse("2026-07-01T10:00:00Z");
+        // Dated after: always counted. Same day, created after: counted (the statement cannot
+        // contain it yet). Same day, created before: already inside the statement, excluded.
+        // Dated before: excluded.
+        transactionRepository.save(Transaction.builder().account(account).date(statementDate.plusDays(2))
+            .description("later").amount(new BigDecimal("100")).nativeCurrency("EUR").build());
+        transactionRepository.save(Transaction.builder().account(account).date(statementDate)
+            .description("same-day-late").amount(new BigDecimal("-50")).nativeCurrency("EUR")
+            .createdAt(statementCreated.plusSeconds(3600)).build());
+        transactionRepository.save(Transaction.builder().account(account).date(statementDate)
+            .description("same-day-early").amount(new BigDecimal("1000")).nativeCurrency("EUR")
+            .createdAt(statementCreated.minusSeconds(3600)).build());
+        transactionRepository.save(Transaction.builder().account(account).date(statementDate.minusDays(5))
+            .description("before").amount(new BigDecimal("1000")).nativeCurrency("EUR").build());
+        testEntityManager.flush();
+
+        assertThat(transactionRepository.sumAmountByAccountIdAfterStatement(
+            1L, statementDate, statementCreated)).isEqualByComparingTo("50");
+    }
+
     // ─── ISIN repair queries ────────────────────────────────────────────────────
     // A ticker that is still a raw ISIN is one an earlier resolution failed to convert; it can
     // never be priced, so the whole position drops out of its account's value (GH issue #74).

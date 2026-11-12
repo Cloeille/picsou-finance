@@ -1,6 +1,21 @@
 import type { AxiosResponse, InternalAxiosRequestConfig } from 'axios'
-import type { CicSessionStatus, PreciousMetalProduct, ScpiPosition, ScpiPositionRequest } from '@/types/api'
-import { mockAccounts } from './data/accounts'
+import type {
+  CicSessionStatus,
+  PeerLoanDetail,
+  PeerLoanFromTransactionRequest,
+  PeerLoanLink,
+  PeerLoanRepayment,
+  PeerLoanRepaymentFromTransactionRequest,
+  PeerLoanRepaymentKind,
+  PeerLoanRepaymentRequest,
+  PeerLoanSimulationRequest,
+  PeerLoanSimulationResponse,
+  PeerLoanTermsRequest,
+  PreciousMetalProduct,
+  ScpiPosition,
+  ScpiPositionRequest,
+} from '@/types/api'
+import { mockAccounts, mockBanquePopulaireAccounts } from './data/accounts'
 import {
   mockAllocationTargets,
   mockDiversification,
@@ -28,6 +43,7 @@ import {
   mockCategories,
   mockCategoryDetail,
   mockFlow,
+  mockLedger,
   mockRecurring,
   mockRules,
   mockSpendingByCategory,
@@ -35,8 +51,9 @@ import {
   mockUncategorized,
 } from './data/budget'
 import { mockUpcomingDividends } from './data/dividends'
-import type { CashflowPeriod, CategorizeRequest } from '@/types/api'
+import type { CashflowPeriod, CategorizeRequest, Transaction } from '@/types/api'
 import { demoLoanSchedule } from './data/loans'
+import { demoPeerLoans } from './data/peer-loans'
 
 function randomDelay(): number {
   return 200 + Math.random() * 400
@@ -107,6 +124,11 @@ handlers.set(key('GET', '/auth/sessions'), () => [
   },
 ])
 handlers.set(key('DELETE', '/auth/sessions'), () => null)
+// SSO is never configured in the demo; the sign-in methods are password-only.
+handlers.set(key('GET', '/auth/sso'), () => ({ enabled: false, providerName: 'SSO' }))
+handlers.set(key('GET', '/auth/sign-in-methods'), () => ({
+  hasPassword: true, mfaEnabled: false, identities: [], ssoEnabled: false, providerName: 'SSO', adminGroupManaged: false,
+}))
 
 // Access keys — demo shows one active key (read-only)
 handlers.set(key('GET', '/access-keys'), () => [
@@ -148,8 +170,8 @@ for (const id of [1]) {
 // whole shell via `members.filter`. Return a small, realistic family: the demo
 // admin (not switchable) plus one managed member the admin can impersonate.
 handlers.set(key('GET', '/family/members'), () => [
-  { id: 1, displayName: 'Demo', avatarColor: '#6366f1', managed: false, hasLogin: true, activated: true, loginName: 'demo', mfaEnabled: false },
-  { id: 2, displayName: 'Léa', avatarColor: '#ec4899', managed: true, hasLogin: false, activated: false, loginName: null, mfaEnabled: false },
+  { id: 1, displayName: 'Demo', avatarColor: '#6366f1', managed: false, hasLogin: true, activated: true, loginName: 'demo', mfaEnabled: false, hasPassword: true, ssoLinked: false },
+  { id: 2, displayName: 'Léa', avatarColor: '#ec4899', managed: true, hasLogin: false, activated: false, loginName: null, mfaEnabled: false, hasPassword: false, ssoLinked: false },
 ])
 
 // Dashboard
@@ -310,6 +332,386 @@ const demoExchangePositions = (() => {
 handlers.set(key('GET', '/accounts/6/positions'), () => demoExchangePositions)
 handlers.set(key('GET', '/accounts/:id/positions'), () => [])
 
+// Peer loans: accounts 16 and 17 carry the configured fixtures. The demo keeps a mutable
+// copy so Save, a repayment, Simulate and close behave like the API instead of falling
+// through to the permissive 200 {} fallback.
+const _peerLoanDetails = new Map<number, PeerLoanDetail>(
+  demoPeerLoans.map((loan) => [loan.accountId, JSON.parse(JSON.stringify(loan)) as PeerLoanDetail]),
+)
+
+const round2 = (value: number): number => Math.round(value * 100) / 100
+
+// The one place that knows which transaction belongs to which loan. The two list handlers
+// annotate from it, like the API does from the loan tables, so a link created by a demo
+// write shows up on every list that carries the transaction, and disappears with the row.
+// A repayment link remembers its row, so deleting the repayment unlinks the transaction.
+const _peerLoanLinks = new Map<number, { link: PeerLoanLink; repaymentId?: number }>()
+
+function withPeerLoanLinks(transactions: Transaction[]): Transaction[] {
+  return transactions.map((transaction) => {
+    const entry = _peerLoanLinks.get(transaction.id)
+    return entry ? { ...transaction, peerLoanLink: entry.link } : transaction
+  })
+}
+
+/**
+ * Mirrors the hardened API: a write-off goes through close(), a repayment cannot exceed
+ * what the loan can absorb, and an interest row needs accrued interest to pay. The
+ * adapter turns the throw into a rejected promise, like a 4xx from the backend.
+ */
+function assertDemoRepaymentAllowed(
+  current: PeerLoanDetail,
+  data: PeerLoanRepaymentRequest,
+): void {
+  if (data.kind === 'WRITE_OFF') {
+    throw new Error('A write-off is recorded by closing the loan, not by adding a repayment')
+  }
+  const maxAcceptable = current.interestAccrued + current.principalRemaining
+  if (data.amount > maxAcceptable) {
+    throw new Error(
+      `A repayment cannot exceed ${maxAcceptable} (accrued interest plus remaining capital)`)
+  }
+  if (data.kind === 'INTEREST' && (current.interestAccrued <= 0 || data.amount > current.interestAccrued)) {
+    throw new Error('An interest repayment cannot exceed the accrued interest')
+  }
+}
+
+function demoPeerLoanDetail(accountId: number): PeerLoanDetail {
+  const existing = _peerLoanDetails.get(accountId)
+  if (existing) return existing
+  const account = _demoAccounts.find((candidate) => candidate.id === accountId)
+  return {
+    accountId,
+    accountName: account?.name ?? '',
+    configured: false,
+    principal: 0,
+    principalRemaining: 0,
+    interestAccrued: 0,
+    interestReceived: 0,
+    principalRepaid: 0,
+    totalRepaid: 0,
+    writtenOff: 0,
+    repaidPct: 0,
+    repayments: [],
+    curve: [],
+  }
+}
+
+/** Mirrors PeerLoanCalculator's annuity so the dialog gets finite figures in demo mode. */
+function demoPeerLoanSimulation(data: PeerLoanSimulationRequest): PeerLoanSimulationResponse {
+  const principal = data.principal
+  const monthlyRate = (data.annualRate ?? 0) / 12
+  if (data.months != null && data.months > 0) {
+    const months = data.months
+    const monthly = monthlyRate === 0
+      ? principal / months
+      : principal * monthlyRate / (1 - (1 + monthlyRate) ** -months)
+    const total = monthly * months
+    return {
+      monthlyPayment: round2(monthly),
+      months,
+      totalInterest: round2(Math.max(0, total - principal)),
+      totalCost: round2(total),
+    }
+  }
+  const payment = data.monthlyPayment ?? 0
+  if (monthlyRate === 0) {
+    const months = Math.max(1, Math.ceil(principal / payment))
+    return { monthlyPayment: round2(payment), months, totalInterest: 0, totalCost: round2(principal) }
+  }
+  const ratio = 1 - principal * monthlyRate / payment
+  if (ratio <= 0) throw new Error('The monthly payment does not cover the monthly interest')
+  const months = Math.max(1, Math.ceil(-Math.log(ratio) / Math.log(1 + monthlyRate)))
+  const growth = (1 + monthlyRate) ** (months - 1)
+  const beforeFinal = principal * growth - payment * (growth - 1) / monthlyRate
+  const final = Math.max(0, beforeFinal) * (1 + monthlyRate)
+  const total = payment * (months - 1) + final
+  return {
+    monthlyPayment: round2(payment),
+    months,
+    totalInterest: round2(Math.max(0, total - principal)),
+    totalCost: round2(total),
+  }
+}
+
+function demoNewPeerLoanAccount(accountId: number, name: string): void {
+  if (_demoAccounts.some((account) => account.id === accountId)) return
+  _demoAccounts = [..._demoAccounts, {
+    ...mockAccounts[0],
+    id: accountId,
+    name,
+    type: 'PEER_LOAN',
+    currentBalance: 0,
+    currentBalanceEur: 0,
+    isManual: true,
+    color: '#0d9488',
+  }]
+}
+
+// The account lists and the budget ledger (which serves the main checking account) carry
+// distinct ids, so a transaction opened from either list resolves here.
+function demoTransactionById(transactionId: number) {
+  return [...Object.values(mockTransactions).flat(), ...mockLedger]
+    .find((transaction) => transaction.id === transactionId)
+}
+
+handlers.set(key('GET', '/accounts/:id'), (_config, { id }) =>
+  _demoAccounts.find((account) => account.id === Number(id)) ?? {})
+
+handlers.set(key('GET', '/accounts/:id/peer-loan'), (_config, { id }) =>
+  demoPeerLoanDetail(Number(id)))
+
+handlers.set(key('PUT', '/accounts/:id/peer-loan'), (config, { id }) => {
+  const accountId = Number(id)
+  const data: PeerLoanTermsRequest = JSON.parse(config.data || '{}')
+  const current = demoPeerLoanDetail(accountId)
+  const linked = _demoAccounts.find((account) => account.id === data.linkedAccountId)
+  const detail: PeerLoanDetail = {
+    ...current,
+    configured: true,
+    accountName: current.accountName || linked?.name || 'Prêt',
+    principal: data.principal,
+    lentAt: data.lentAt,
+    expectedBack: data.expectedBack ?? null,
+    annualRate: data.annualRate ?? 0,
+    ratePeriod: data.ratePeriod ?? 'ANNUAL',
+    plannedMonthlyAmount: data.plannedMonthlyAmount ?? null,
+    plannedMonths: data.plannedMonths ?? null,
+    linkedAccountId: data.linkedAccountId,
+    linkedAccountName: linked?.name ?? null,
+    note: data.note ?? null,
+    principalRemaining: round2(Math.max(0, data.principal - current.principalRepaid)),
+    repaidPct: data.principal > 0 ? round2(current.principalRepaid * 100 / data.principal) : 0,
+  }
+  _peerLoanDetails.set(accountId, detail)
+  return detail
+})
+
+handlers.set(key('POST', '/accounts/:id/peer-loan/repayments'), (config, { id }) => {
+  const accountId = Number(id)
+  const data: PeerLoanRepaymentRequest = JSON.parse(config.data || '{}')
+  const current = demoPeerLoanDetail(accountId)
+  assertDemoRepaymentAllowed(current, data)
+  const repayment: PeerLoanRepayment = {
+    id: Date.now(),
+    paidOn: data.paidOn,
+    amount: data.amount,
+    kind: data.kind ?? 'PRINCIPAL',
+    note: data.note ?? null,
+    interestPart: 0,
+    capitalPart: data.amount,
+    // Picsou writes the deposit unless the member records a compensation.
+    hasCashLeg: data.withCashLeg !== false,
+    cashLegOwned: true,
+  }
+  const applied = Math.min(data.amount, current.principalRemaining)
+  const repaid = current.principalRepaid + applied
+  _peerLoanDetails.set(accountId, {
+    ...current,
+    principalRemaining: round2(current.principalRemaining - applied),
+    principalRepaid: round2(repaid),
+    totalRepaid: round2(current.totalRepaid + data.amount),
+    repaidPct: current.principal > 0 ? round2(repaid * 100 / current.principal) : 0,
+    repayments: [...current.repayments, repayment],
+  })
+  return repayment
+})
+
+handlers.set(key('PUT', '/accounts/:id/peer-loan/repayments/:repaymentId'), (config, { id, repaymentId }) => {
+  const accountId = Number(id)
+  const target = Number(repaymentId)
+  const data: PeerLoanRepaymentRequest = JSON.parse(config.data || '{}')
+  const current = demoPeerLoanDetail(accountId)
+  const previous = current.repayments.find((repayment) => repayment.id === target)
+  // Same guard as the backend, with the row being edited excluded like the service does:
+  // the ceiling is what the loan can still absorb without it.
+  assertDemoRepaymentAllowed({
+    ...current,
+    principalRemaining: current.principalRemaining + (previous?.capitalPart ?? previous?.amount ?? 0),
+    principalRepaid: current.principalRepaid - (previous?.capitalPart ?? previous?.amount ?? 0),
+  }, data)
+  const updated = current.repayments.map((repayment) => {
+    if (repayment.id !== target) return repayment
+    // The split follows the amount: the accrued interest part is unchanged, the rest
+    // is capital — the same rule the POST handler applies to a new row.
+    const interest = repayment.interestPart ?? 0
+    return {
+      ...repayment,
+      paidOn: data.paidOn,
+      amount: data.amount,
+      kind: data.kind ?? repayment.kind,
+      note: data.note ?? null,
+      interestPart: interest,
+      capitalPart: Math.max(0, data.amount - interest),
+    }
+  })
+  // An edited amount moves the capital: recompute the derived figures from the rows,
+  // like the POST handler does, or the detail contradicts its own journal.
+  const principalRepaid = round2(updated.reduce((sum, row) => sum + (row.capitalPart ?? row.amount), 0))
+  const totalRepaid = round2(updated.reduce((sum, row) => sum + row.amount, 0))
+  _peerLoanDetails.set(accountId, {
+    ...current,
+    principalRemaining: round2(Math.max(0, current.principal - principalRepaid)),
+    principalRepaid,
+    totalRepaid,
+    repaidPct: current.principal > 0 ? round2(principalRepaid * 100 / current.principal) : 0,
+    repayments: updated,
+  })
+  return updated.find((repayment) => repayment.id === target)
+})
+
+handlers.set(key('DELETE', '/accounts/:id/peer-loan/repayments/:repaymentId'), (_config, { id, repaymentId }) => {
+  const accountId = Number(id)
+  const target = Number(repaymentId)
+  const current = demoPeerLoanDetail(accountId)
+  const removed = current.repayments.find((repayment) => repayment.id === target)
+  if (removed) {
+    for (const [transactionId, entry] of _peerLoanLinks) {
+      if (entry.repaymentId === target) _peerLoanLinks.delete(transactionId)
+    }
+    const restored = current.principalRemaining + (removed.capitalPart ?? removed.amount)
+    _peerLoanDetails.set(accountId, {
+      ...current,
+      principalRemaining: round2(Math.min(current.principal, restored)),
+      principalRepaid: round2(Math.max(0, current.principalRepaid - (removed.capitalPart ?? removed.amount))),
+      repayments: current.repayments.filter((repayment) => repayment.id !== target),
+    })
+  }
+  return {}
+})
+
+handlers.set(key('POST', '/accounts/:id/peer-loan/close'), (config, { id }) => {
+  const accountId = Number(id)
+  const current = demoPeerLoanDetail(accountId)
+  const date = (config.params as Record<string, string> | undefined)?.date
+    ?? new Date().toISOString().slice(0, 10)
+  const detail: PeerLoanDetail = {
+    ...current,
+    closedAt: date,
+    writtenOff: round2(current.writtenOff + current.principalRemaining),
+    principalRemaining: 0,
+  }
+  _peerLoanDetails.set(accountId, detail)
+  return detail
+})
+
+handlers.set(key('POST', '/peer-loans/simulate'), (config) =>
+  demoPeerLoanSimulation(JSON.parse(config.data || '{}')))
+
+handlers.set(key('POST', '/peer-loans/from-transaction'), (config) => {
+  const body: PeerLoanFromTransactionRequest = JSON.parse(config.data || '{}')
+  const transaction = demoTransactionById(body.transactionId)
+  const accountId = 1000 + _peerLoanDetails.size
+  const name = body.beneficiary?.trim() || transaction?.merchantLabel || transaction?.description || 'Prêt'
+  demoNewPeerLoanAccount(accountId, name)
+  const detail: PeerLoanDetail = {
+    ...demoPeerLoanDetail(accountId),
+    accountName: name,
+    configured: true,
+    principal: Math.abs(transaction?.amount ?? 0),
+    lentAt: transaction?.date ?? new Date().toISOString().slice(0, 10),
+    annualRate: 0,
+    ratePeriod: 'ANNUAL',
+    principalRemaining: Math.abs(transaction?.amount ?? 0),
+    repayments: [],
+    curve: [],
+  }
+  _peerLoanDetails.set(accountId, detail)
+  _peerLoanLinks.set(body.transactionId, { link: { kind: 'LENDING', accountId, accountName: name } })
+  return detail
+})
+
+handlers.set(key('POST', '/accounts/:id/peer-loan/repayments/from-transaction'), (config, { id }) => {
+  const accountId = Number(id)
+  const body: PeerLoanRepaymentFromTransactionRequest = JSON.parse(config.data || '{}')
+  const transaction = demoTransactionById(body.transactionId)
+  const current = demoPeerLoanDetail(accountId)
+  // A forged body can smuggle any string through JSON: read it as the full kind union
+  // rather than the narrowed request type, mirroring the backend's validation order.
+  const kind = (body.kind ?? 'PRINCIPAL') as PeerLoanRepaymentKind
+  // Like the backend: an explicit INTEREST row needs accrued interest to pay, but an
+  // overpaying linked transaction links anyway — the row already exists, so linking
+  // creates no money and the ledger clamps to what the loan can absorb.
+  if (kind === 'WRITE_OFF') {
+    throw new Error('A write-off is recorded by closing the loan, not by adding a repayment')
+  }
+  if (kind === 'INTEREST' && (current.interestAccrued <= 0 || (transaction ? Math.abs(transaction.amount) : 0) > current.interestAccrued)) {
+    throw new Error('An interest repayment cannot exceed the accrued interest')
+  }
+  const amount = Math.abs(transaction?.amount ?? 0)
+  const repayment: PeerLoanRepayment = {
+    id: Date.now(),
+    paidOn: transaction?.date ?? new Date().toISOString().slice(0, 10),
+    amount,
+    kind,
+    note: transaction?.description ?? null,
+    interestPart: 0,
+    capitalPart: amount,
+    // The transaction already exists: it is linked, never written, so deleting only unlinks it.
+    hasCashLeg: true,
+    cashLegOwned: false,
+  }
+  const applied = Math.min(amount, current.principalRemaining)
+  const repaid = current.principalRepaid + applied
+  const detail: PeerLoanDetail = {
+    ...current,
+    principalRemaining: round2(current.principalRemaining - applied),
+    principalRepaid: round2(repaid),
+    totalRepaid: round2(current.totalRepaid + amount),
+    repaidPct: current.principal > 0 ? round2(repaid * 100 / current.principal) : 0,
+    repayments: [...current.repayments, repayment],
+  }
+  _peerLoanDetails.set(accountId, detail)
+  _peerLoanLinks.set(body.transactionId, {
+    link: { kind: 'REPAYMENT', accountId, accountName: current.accountName },
+    repaymentId: repayment.id,
+  })
+  return detail
+})
+// The open list and the overview read the same mutable store as the detail: a demo
+// Save, repayment or close must move the totals, the picker and the cards together.
+handlers.set(key('GET', '/peer-loans/open'), () => [..._peerLoanDetails.values()]
+  .filter((loan) => !loan.closedAt)
+  .map((loan) => ({ accountId: loan.accountId, name: loan.accountName, remaining: loan.principalRemaining })))
+handlers.set(key('GET', '/peer-loans/overview'), () => {
+  const loans = [..._peerLoanDetails.values()].map((loan) => ({
+    accountId: loan.accountId,
+    name: loan.accountName,
+    principal: loan.principal,
+    principalRemaining: loan.principalRemaining,
+    repaidPct: loan.repaidPct,
+    interestAccrued: loan.interestAccrued,
+    interestReceived: loan.interestReceived,
+    lentAt: loan.lentAt,
+    expectedBack: loan.expectedBack,
+    installmentsBehind: loan.installmentsBehind,
+    lastPaymentDate: loan.repayments.at(-1)?.paidOn ?? null,
+    lastPaymentAmount: loan.repayments.at(-1)?.amount ?? null,
+    closedAt: loan.closedAt,
+  })).sort((left, right) =>
+    Number(left.closedAt != null) - Number(right.closedAt != null)
+    || left.name.localeCompare(right.name))
+
+  const peerAccounts = mockAccounts.filter((account) => account.type === 'PEER_LOAN')
+  const dates = peerAccounts.length > 0 ? accountBalanceHistory(peerAccounts[0]) : []
+  const history = dates.map((point, index) => ({
+    date: point.date,
+    outstanding: Math.round(peerAccounts.reduce(
+      (sum, account) => sum + (accountBalanceHistory(account)[index]?.balance ?? 0), 0) * 100) / 100,
+  }))
+
+  return {
+    totalOutstanding: Math.round(loans
+      .filter((loan) => loan.closedAt == null)
+      .reduce((sum, loan) => sum + loan.principalRemaining, 0) * 100) / 100,
+    openCount: loans.filter((loan) => loan.closedAt == null).length,
+    closedCount: loans.filter((loan) => loan.closedAt != null).length,
+    interestAccrued: Math.round(loans.reduce((sum, loan) => sum + loan.interestAccrued, 0) * 100) / 100,
+    loans,
+    history,
+  }
+})
+
 // Live quotes. The holdings fixtures win over the exchange positions for a ticker both carry, so
 // re-pricing a holdings table with these leaves its values exactly as the fixture states them.
 const demoPrices: Record<string, number> = {}
@@ -370,9 +772,9 @@ handlers.set(key('GET', '/prices/:ticker/intraday'), (_config, { ticker }) => {
 // Account details: transactions for all accounts
 for (let i = 1; i <= mockAccounts.length; i++) {
   handlers.set(key('GET', `/accounts/${i}/transactions`), (config) =>
-    i === mockAccounts.find((account) => account.type === 'CHECKING')?.id
+    withPeerLoanLinks(i === mockAccounts.find((account) => account.type === 'CHECKING')?.id
       ? mockTransactionSearch({ ...config.params, accountId: i })
-      : mockTransactions[i] ?? [])
+      : mockTransactions[i] ?? []))
 }
 
 // Pocket rename (accounts 9 and 10) — re-uses the standard PUT /accounts/:id shape.
@@ -890,6 +1292,37 @@ handlers.set(key('DELETE', '/simplefin/connection'), () => {
   return null
 })
 
+// Wise jars follow the SimpleFIN demo: connect imports the jars at once (no jar accounts
+// exist in the demo data, so the list is empty), sync stamps lastSyncedAt, disconnect resets.
+const demoWise = {
+  connected: false,
+  connectionId: null as number | null,
+  status: null as string | null,
+  lastSyncedAt: null as string | null,
+  maskedToken: null as string | null,
+}
+handlers.set(key('GET', '/wise/status'), () => ({ ...demoWise }))
+handlers.set(key('POST', '/wise/connect'), () => {
+  demoWise.connected = true
+  demoWise.connectionId = 1
+  demoWise.status = 'CONNECTED'
+  demoWise.maskedToken = '••••demo'
+  demoWise.lastSyncedAt = new Date().toISOString()
+  return []
+})
+handlers.set(key('POST', '/wise/sync'), () => {
+  demoWise.lastSyncedAt = new Date().toISOString()
+  return []
+})
+handlers.set(key('DELETE', '/wise/connection'), () => {
+  demoWise.connected = false
+  demoWise.connectionId = null
+  demoWise.status = null
+  demoWise.lastSyncedAt = null
+  demoWise.maskedToken = null
+  return null
+})
+
 // Amundi Épargne Salariale — same demo convention: reads report a disconnected
 // session, mutations fake-succeed with the real response shapes.
 const demoAmundiStatus = {
@@ -924,6 +1357,38 @@ handlers.set(key('POST', '/cmes/auth/initiate'), () => ({
 handlers.set(key('POST', '/cmes/auth/complete'), () => demoCmesStatus)
 handlers.set(key('POST', '/cmes/sync'), () => demoCmesStatus)
 handlers.set(key('DELETE', '/cmes/session'), () => null)
+
+// Natixis Interépargne — simulates the SMS-challenge login so Connect in demo
+// mode ends on an active session instead of an unexplained "No active session".
+const NATIXIS_DISCONNECTED = {
+  isActive: false,
+  syncStatus: 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: null,
+  lastSyncError: null,
+}
+let demoNatixisStatus: typeof NATIXIS_DISCONNECTED | Record<string, unknown> = NATIXIS_DISCONNECTED
+const activateDemoNatixis = () => {
+  const now = new Date().toISOString()
+  demoNatixisStatus = {
+    isActive: true,
+    syncStatus: 'SUCCESS',
+    lastSyncStartedAt: now,
+    lastSyncCompletedAt: now,
+    lastSyncError: null,
+  }
+  return demoNatixisStatus
+}
+handlers.set(key('GET', '/natixis/status'), () => demoNatixisStatus)
+handlers.set(key('POST', '/natixis/auth/initiate'), () => ({
+  processId: 'demo-natixis', mfaRequired: true, mfaType: 'SMS',
+}))
+handlers.set(key('POST', '/natixis/auth/complete'), activateDemoNatixis)
+handlers.set(key('POST', '/natixis/sync'), () => (demoNatixisStatus.isActive ? activateDemoNatixis() : demoNatixisStatus))
+handlers.set(key('DELETE', '/natixis/session'), () => {
+  demoNatixisStatus = NATIXIS_DISCONNECTED
+  return null
+})
 
 // BoursoBank — same convention. Its demo accounts already carry
 // `provider: 'BoursoBank'`, so without these the Sync-all modal would list a
@@ -970,6 +1435,140 @@ handlers.set(key('POST', '/caisse-epargne/sync'), () => demoCaisseEpargneStatus)
 handlers.set(key('DELETE', '/caisse-epargne/session'), () => ({
   removed: true, bankSessionRevoked: false, message: '',
 }))
+
+// La Banque Postale — the mobile approval is a human step, so the demo answers
+// the keypad then a completed session; the status stays consistent across reads.
+let demoLbpAuthenticated = false
+let demoLbpSynced = false
+const demoLbpStatus = () => ({
+  isActive: demoLbpAuthenticated,
+  syncStatus: demoLbpSynced ? 'SUCCESS' : 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: demoLbpSynced ? '2026-11-06T12:00:00Z' : null,
+  lastSyncError: null,
+  unsupported: [],
+  unsupportedCount: 0,
+  savedIdentifier: null,
+})
+handlers.set(key('GET', '/lbp/status'), () => demoLbpStatus())
+handlers.set(key('POST', '/lbp/auth/initiate'), () => ({
+  processId: 'demo',
+  keypad: { keys: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'], columns: 5 },
+  expiresInSeconds: 300,
+}))
+handlers.set(key('POST', '/lbp/auth/keypad'), () => ({
+  processId: 'demo', status: 'APPROVAL_PENDING',
+}))
+handlers.set(key('POST', '/lbp/auth/complete'), () => {
+  demoLbpAuthenticated = true
+  return demoLbpStatus()
+})
+handlers.set(key('POST', '/lbp/sync'), () => {
+  demoLbpAuthenticated = true
+  demoLbpSynced = true
+  return demoLbpStatus()
+})
+handlers.set(key('DELETE', '/lbp/session'), () => {
+  demoLbpAuthenticated = false
+  demoLbpSynced = false
+  return { removed: true, bankSessionRevoked: false, message: '' }
+})
+
+// BNP Paribas / Hello bank! — same shortcut: a demo keypad (text keys), an app approval, then a session.
+let demoBnpAuthenticated = false
+let demoBnpSynced = false
+const demoBnpStatus = () => ({
+  isActive: demoBnpAuthenticated,
+  syncStatus: demoBnpSynced ? 'SUCCESS' : 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: demoBnpSynced ? '2026-11-06T12:00:00Z' : null,
+  lastSyncError: null,
+  unsupported: [],
+  unsupportedCount: 0,
+})
+handlers.set(key('GET', '/bnp/status'), () => demoBnpStatus())
+handlers.set(key('POST', '/bnp/auth/initiate'), () => ({
+  processId: 'demo',
+  keypad: { keys: ['3', '8', '1', '0', '5', '9', '2', '7', '4', '6'], columns: 5 },
+  expiresInSeconds: 300,
+}))
+handlers.set(key('POST', '/bnp/auth/keypad'), () => ({
+  processId: 'demo', status: 'APPROVAL_PENDING',
+}))
+handlers.set(key('POST', '/bnp/auth/complete'), () => {
+  demoBnpAuthenticated = true
+  return demoBnpStatus()
+})
+handlers.set(key('POST', '/bnp/sync'), () => {
+  demoBnpAuthenticated = true
+  demoBnpSynced = true
+  return demoBnpStatus()
+})
+handlers.set(key('DELETE', '/bnp/session'), () => {
+  demoBnpAuthenticated = false
+  demoBnpSynced = false
+  return { removed: true, bankSessionRevoked: false, message: '' }
+})
+
+// Banque Populaire — the same BPCE login as Caisse d'Epargne, so the same shortcut:
+// any region and identifier get the demo pad, and Sécur'Pass answers connected at once.
+// Completing the sign-in makes the session live but not yet synced; only the sync answers
+// SUCCESS, so the panel sees SUCCESS from its own sync and closes the add-account wizard.
+// The sync stamps its time once and every status read repeats it: a fresh timestamp per read
+// would look like a new sync to useProviderStatus and refetch the account views forever.
+// The first sync also adds the connector's accounts, and later syncs and reconnects leave them
+// be; disconnecting resets the status and the stamp but keeps the accounts, as the backend does.
+let demoBanquePopulaireState: 'idle' | 'connected' | 'synced' = 'idle'
+let demoBanquePopulaireSyncedAt: string | null = null
+const demoBanquePopulaireStatus = () => {
+  if (demoBanquePopulaireState === 'idle') return { ...demoCaisseEpargneStatus }
+  if (demoBanquePopulaireState === 'connected') return { ...demoCaisseEpargneStatus, isActive: true }
+  return {
+    ...demoCaisseEpargneStatus,
+    isActive: true,
+    syncStatus: 'SUCCESS',
+    lastSyncStartedAt: demoBanquePopulaireSyncedAt,
+    lastSyncCompletedAt: demoBanquePopulaireSyncedAt,
+  }
+}
+handlers.set(key('GET', '/banque-populaire/status'), () => demoBanquePopulaireStatus())
+handlers.set(key('POST', '/banque-populaire/auth/initiate'), () => ({
+  processId: 'demo',
+  keypad: { images: Array.from({ length: 10 }, () => DEMO_PAD_PNG), columns: 5 },
+  expiresInSeconds: 90,
+}))
+handlers.set(key('POST', '/banque-populaire/auth/keypad'), () => ({
+  processId: 'demo', status: 'SECURPASS_PENDING',
+}))
+handlers.set(key('POST', '/banque-populaire/auth/complete'), () => {
+  demoBanquePopulaireState = 'connected'
+  return { connected: true }
+})
+handlers.set(key('POST', '/banque-populaire/sync'), () => {
+  demoBanquePopulaireState = 'synced'
+  const syncedAt = new Date().toISOString()
+  demoBanquePopulaireSyncedAt = syncedAt
+  // A later sync restamps the accounts it already made (createdAt kept) and adds none twice.
+  const fixtureIds = new Set(mockBanquePopulaireAccounts.map(a => a.id))
+  const known = new Set(_demoAccounts.map(a => a.id))
+  const added = mockBanquePopulaireAccounts
+    .filter(a => !known.has(a.id))
+    .map(a => ({ ...a, createdAt: syncedAt, lastSyncedAt: syncedAt }))
+  _demoAccounts = [
+    ..._demoAccounts.map(a => (fixtureIds.has(a.id) ? { ...a, lastSyncedAt: syncedAt } : a)),
+    ...added,
+  ]
+  return demoBanquePopulaireStatus()
+})
+for (const { id } of mockBanquePopulaireAccounts) {
+  handlers.set(key('GET', `/accounts/${id}`), () => _demoAccounts.find(a => a.id === id))
+  handlers.set(key('GET', `/accounts/${id}/transactions`), () => [])
+}
+handlers.set(key('DELETE', '/banque-populaire/session'), () => {
+  demoBanquePopulaireState = 'idle'
+  demoBanquePopulaireSyncedAt = null
+  return { removed: true, bankSessionRevoked: false, message: '' }
+})
 
 // Demo authentication bypasses the bank's mobile/SMS confirmation.
 const demoCicStatus: CicSessionStatus = {
@@ -1043,16 +1642,31 @@ handlers.set(key('GET', '/revolut/status'), () => ({ connected: false, remembere
 handlers.set(key('GET', '/revolut/sync/progress'), () => demoIdleSyncProgress)
 
 // Trade Republic - session status
-handlers.set(key('GET', '/tr/status'), () => ({ isActive: false, expiresAt: null }))
+const demoTrStatus = {
+  isActive: false,
+  syncStatus: 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: null,
+  lastSyncError: null,
+  maskedPhone: '+33 * ** ** ** 78',
+}
+handlers.set(key('GET', '/tr/status'), () => demoTrStatus)
 
 // Trade Republic - initiate auth
-handlers.set(key('POST', '/tr/auth/initiate'), () => ({ processId: 'demo-tr-process' }))
+handlers.set(key('POST', '/tr/auth/initiate'), () => ({
+  processId: 'demo-tr-process', flow: 'confirmInApp', countdownInSeconds: 120,
+}))
+
+// Trade Republic - reconnect with the stored phone (PIN or password only)
+handlers.set(key('POST', '/tr/auth/reconnect'), () => ({
+  processId: 'demo-tr-process', flow: 'confirmInApp', countdownInSeconds: 120,
+}))
 
 // Trade Republic - complete auth
-handlers.set(key('POST', '/tr/auth/complete'), () => [])
+handlers.set(key('POST', '/tr/auth/complete'), () => demoTrStatus)
 
 // Trade Republic - sync
-handlers.set(key('POST', '/tr/sync'), () => [])
+handlers.set(key('POST', '/tr/sync'), () => demoTrStatus)
 
 // Trade Republic - import CSV
 handlers.set(key('POST', '/tr/import'), () => [])
@@ -1381,7 +1995,8 @@ handlers.set(key('PUT', '/transactions/:id/category'), (config, { id }) => {
 
 // The budget ledger on the main checking account: the rows the Spending pages and the review
 // inbox summarize, so a search over any period lists what they count.
-handlers.set(key('GET', '/transactions'), (config) => mockTransactionSearch(config.params ?? {}))
+handlers.set(key('GET', '/transactions'), (config) =>
+  withPeerLoanLinks(mockTransactionSearch(config.params ?? {})))
 // Optional AI categorizer over the inbox (legacy sync shape).
 handlers.set(key('POST', '/transactions/categorize-ai'), () => ({
   running: false, total: 0, processed: 0, applied: 0, suggested: 0, done: true, error: null,
@@ -1494,15 +2109,21 @@ export function createDemoAdapter() {
       console.warn(`[demo] no handler registered for "${k}" — returning empty 200`)
     }
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       setTimeout(() => {
-        resolve({
-          data: match ? match.handler(config, match.params) : {},
-          status: 200,
-          statusText: 'OK',
-          headers: {},
-          config,
-        } as AxiosResponse)
+        // A handler that throws (for example the peer-loan simulation when a payment never
+        // amortises) must reject the promise, otherwise the caller awaits forever.
+        try {
+          resolve({
+            data: match ? match.handler(config, match.params) : {},
+            status: 200,
+            statusText: 'OK',
+            headers: {},
+            config,
+          } as AxiosResponse)
+        } catch (error) {
+          reject(error)
+        }
       }, randomDelay())
     })
   }

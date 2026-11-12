@@ -31,10 +31,9 @@ import java.util.concurrent.TimeoutException;
  * then the status decides. Each session table's CHECK constraint lists only its own bank's codes,
  * so an undeclared code must never be turned into a {@link SyncException} code.
  *
- * <p>Trade Republic, DEGIRO and Revolut deliberately stay out: their sidecars do not use the
- * {@code detail}-code contract (DEGIRO relays a bare 401 for an expired session, Trade Republic
- * relays the broker's own status), so they take the shared {@link SidecarWebClientFactory} client
- * and keep their own mapping.
+ * <p>DEGIRO and Revolut deliberately stay out: their sidecars do not use the {@code detail}-code
+ * contract (DEGIRO relays a bare 401 for an expired session), so they take the shared
+ * {@link SidecarWebClientFactory} client and keep their own mapping.
  */
 public final class SidecarClient {
 
@@ -155,7 +154,13 @@ public final class SidecarClient {
         return new SyncException(message, cause, code.name());
     }
 
-    private SidecarErrorCode responseCode(WebClientResponseException response) {
+    /**
+     * The code this bank declared in the response's {@code detail}, or {@code null} when the body
+     * has none, is not JSON, or names a code the bank does not declare. Lets a caller that maps a
+     * bare status itself (a 409 that means "page changed" for one sidecar step) leave a response
+     * that carries its own code to {@link #mapError}.
+     */
+    public SidecarErrorCode responseCode(WebClientResponseException response) {
         try {
             JsonNode body = objectMapper.readTree(response.getResponseBodyAsString());
             JsonNode detailNode = body.path("detail");

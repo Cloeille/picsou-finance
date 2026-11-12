@@ -73,18 +73,28 @@
 | 2026-09-26 | [CORUM client space fills existing SCPI accounts through a browser sidecar](./decisions/2026-09-26-corum-scpi-sidecar.md) | Active (points 5 and 7 superseded) |
 | 2026-09-27 | [Sofidy Espace Associé fills existing SCPI accounts through a browserless sidecar](./decisions/2026-09-27-sofidy-scpi-sidecar.md) | Active (point 5 superseded) |
 | 2026-10-04 | [SimpleFIN as its own connector, beside Enable Banking](./decisions/2026-10-04-simplefin-beside-enable-banking.md) | Active |
+| 2026-11-06 | [A generic BROKERAGE type and the bank behind a SimpleFIN account](./decisions/2026-11-06-brokerage-type-and-simplefin-institutions.md) | Active |
+| 2026-11-03 | [Wise jars through a personal API token, beside Enable Banking](./decisions/2026-11-03-wise-jars-beside-enable-banking.md) | Active |
 | 2026-10-16 | [CORUM and Sofidy syncs create and link their SCPI accounts](./decisions/2026-10-16-scpi-sync-creates-accounts.md) | Active |
 | 2026-10-08 | [Rehearse release migrations before replacing the production API](./decisions/2026-10-08-rehearse-release-migrations.md) | Active |
 | 2026-10-21 | [Sidecars build on three shared base images](./decisions/2026-10-21-shared-sidecar-base-image.md) | Active |
 | 2026-10-27 | [Spring AI 1.1 for the MCP SSE keep-alive](./decisions/2026-10-27-spring-ai-1-1-for-mcp-sse-keep-alive.md) | Active |
+| 2026-11-05 | [Peer loans as a receivable account with a dated repayment ledger](./decisions/2026-11-05-peer-loans-receivable.md) | Active |
 | 2026-10-31 | [Trusted proxy client addresses](./decisions/2026-10-31-trusted-proxy-client-address.md) | Active |
 | 2026-10-31 | [Helm chart in the repository, published by CI next to the images](./decisions/2026-10-31-helm-chart-published-from-ci.md) | Active |
 | 2026-11-01 | [Sidecars share one Python package for their plumbing](./decisions/2026-11-01-shared-sidecar-package.md) | Active |
 | 2026-11-02 | [Ports only for swappable providers](./decisions/2026-11-02-ports-only-for-swappable-providers.md) | Active |
+| 2026-11-02 | [One sidecar session table and one sync cycle for ten banks](./decisions/2026-11-02-one-sidecar-session-table.md) | Active |
 | 2026-11-03 | [Spring Boot serves the SPA and every response header](./decisions/2026-11-03-spring-serves-the-spa.md) | Active (nginx step superseded) |
 | 2026-11-03 | [One non-root Java process in the app image](./decisions/2026-11-03-one-non-root-process.md) | Active |
 | 2026-11-04 | [SSO login through an external OIDC provider, alongside passwords](./decisions/2026-11-04-sso-login-alongside-passwords.md) | Active |
 | 2026-11-05 | [CORUM Life contracts sync as one assurance-vie account each](./decisions/2026-11-05-corum-life-sync.md) | Active |
+| 2026-11-05 | [Banque Populaire shares the Caisse d'Epargne code through a BPCE package and sync engine](./decisions/2026-11-05-bpce-shared-sidecar-and-engine.md) | Active |
+| 2026-11-05 | [La Banque Postale through a dedicated sidecar, replacing Enable Banking](./decisions/2026-11-05-la-banque-postale-sidecar.md) | Active |
+| 2026-11-09 | [BNP Paribas and Hello bank! through a dedicated Camoufox sidecar](./decisions/2026-11-09-bnp-paribas-sidecar.md) | Proposed (unverified) |
+| 2026-11-06 | [Natixis Interépargne through a browserless sidecar that keeps only the refresh token](./decisions/2026-11-06-natixis-interepargne-httpx-sidecar.md) | Active |
+| 2026-11-07 | [Contract kinds seen in few live runs are enabled per bank and demoted, not fatal](./decisions/2026-11-07-provisional-kinds-per-bank.md) | Active |
+| 2026-11-06 | [Parallel CI legs that prove their own completeness](./decisions/2026-11-06-parallel-ci-legs.md) | Active |
 
 ## Feature notes
 
@@ -101,6 +111,7 @@
 | Dashboard — Time range isolation | 2026-04-13 | [dashboard-time-range-isolation.md](./features/dashboard-time-range-isolation.md) |
 | Bank sync | 2026-10-31 | [bank-sync.md](./features/bank-sync.md) |
 | SimpleFIN sync | 2026-10-04 | [simplefin-sync.md](./features/simplefin-sync.md) |
+| Wise jars | 2026-11-03 | [wise-jars.md](./features/wise-jars.md) |
 | Budget & Cashflow | 2026-11-05 | [budget.md](./features/budget.md) |
 | Budget categorization rules (word-picker authoring UX) | 2026-06-28 | [budget-rules.md](./features/budget-rules.md) |
 | Optional AI transaction categorization | 2026-06-26 | [ai-categorization.md](./features/ai-categorization.md) |
@@ -113,6 +124,7 @@
 | DEGIRO sync | 2026-08-05 | [degiro-sync.md](./features/degiro-sync.md) |
 | Amundi Épargne Salariale sync | 2026-08-09 | [amundi-epargne-salariale.md](./features/amundi-epargne-salariale.md) |
 | Crédit Mutuel / CIC Épargne Salariale sync | 2026-10-24 | [cmes-epargne-salariale.md](./features/cmes-epargne-salariale.md) |
+| Natixis Interépargne sync | 2026-11-06 | [natixis-interepargne.md](./features/natixis-interepargne.md) |
 | CIC online-banking sync (livrets) | 2026-10-24 | [cic-banking.md](./features/cic-banking.md) |
 | American Express France credit-card sidecar | 2026-10-31 | [amex-sidecar.md](./features/amex-sidecar.md) |
 | Trade Republic — Holdings deduplication | 2026-05-18 | [trade-republic-holding-deduplication.md](./features/trade-republic-holding-deduplication.md) |
@@ -136,11 +148,14 @@
 | Actual Budget import | 2026-10-04 | [actual-budget-import.md](./features/actual-budget-import.md) |
 | Realized P&L on closed positions | 2026-07-11 | [realized-pnl.md](./features/realized-pnl.md) |
 | BoursoBank sync | 2026-09-28 | [bourso-bank.md](./features/bourso-bank.md) |
-| Caisse d'Epargne sync (sidecar and on-demand backend, no login yet) | 2026-10-07 | [caisse-epargne.md](./features/caisse-epargne.md) |
+| Caisse d'Epargne sync (browser-assisted login, on-demand sync) | 2026-11-05 | [caisse-epargne.md](./features/caisse-epargne.md) |
+| Banque Populaire sync (shared BPCE code, region + keypad + Sécur'Pass login, on demand) | 2026-11-08 | [banque-populaire.md](./features/banque-populaire.md) |
 | Accounts overview (PnL chart + summary card + filters + card anatomy + sortable positions) | 2026-11-05 | [accounts-overview.md](./features/accounts-overview.md) |
 | Savings livrets (classification + projected interest) | 2026-06-28 | [savings-livrets.md](./features/savings-livrets.md) |
 | Logos on account cards (catalog-resolved, bundled, wallet picker, property kind) | 2026-11-05 | [bank-logos.md](./features/bank-logos.md) |
 | Logos beside holding tickers (crypto: batched CoinGecko lookup; shares/ETFs: Yahoo quote page, stored in PostgreSQL) | 2026-11-05 | [holding-logos.md](./features/holding-logos.md) |
+| La Banque Postale sync (sidecar replacing Enable Banking) | 2026-11-06 | [la-banque-postale.md](./features/la-banque-postale.md) |
+| BNP Paribas / Hello bank! sync (sidecar, unverified) | 2026-11-09 | [bnp-paribas.md](./features/bnp-paribas.md) |
 | Add Account modal (unified sync + manual) | 2026-08-13 | [add-account-modal.md](./features/add-account-modal.md) |
 | Account visibility (hidden accounts, `/sync` Comptes tab) | 2026-07-15 | [account-visibility.md](./features/account-visibility.md) |
 | Docker deployment and migration-safe releases | 2026-10-31 | [docker-deployment.md](./features/docker-deployment.md) |
@@ -158,6 +173,7 @@
 | Admin recovery (lost-admin console reset) | 2026-11-04 | [admin-recovery.md](./features/admin-recovery.md) |
 | Frontend error display (`extractErrorMessage`) | 2026-05-31 | [frontend-error-display.md](./features/frontend-error-display.md) |
 | Loan accounts (LOAN type, amortization view) | 2026-04-26 | [loans.md](./features/loans.md) |
+| Peer loans (receivables between individuals) | 2026-11-05 | [peer-loans.md](./features/peer-loans.md) |
 | Real estate valuation | 2026-08-11 | [real-estate-valuation.md](./features/real-estate-valuation.md) |
 | SCPI shares | 2026-11-05 | [scpi.md](./features/scpi.md) |
 | CORUM Life (assurance-vie) sync | 2026-11-05 | [corum-life.md](./features/corum-life.md) |

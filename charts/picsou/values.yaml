@@ -104,7 +104,8 @@ app:
   envFrom: []
 
   # Mount an RSA private key for Enable Banking from a Secret instead of
-  # generating it in the wizard (which stores it under /data/keys).
+  # generating it in the wizard (which stores it under /data/keys). The file is
+  # 0440, owned by root and by podSecurityContext.fsGroup, which must stay set.
   enableBanking:
     existingSecret: ""
     key: enablebanking.pem
@@ -315,9 +316,31 @@ sidecars:
     enabled: true
     urlEnv: BOURSO_AUTH_URL
     port: 8001
+  banque-populaire-auth:
+    enabled: true
+    urlEnv: BANQUE_POPULAIRE_AUTH_URL
+    port: 8001
+    env:
+      CE_LOG_PRODUCT_DETAILS: ""
   caisse-epargne-auth:
     enabled: true
     urlEnv: CAISSE_EPARGNE_AUTH_URL
+    port: 8001
+    # Diagnostics only: "1" adds the bank's catalogue product name to the log line of a
+    # contract Picsou does not import (see services/caisse-epargne-auth/README.md).
+    env:
+      CE_LOG_PRODUCT_DETAILS: ""
+  bnp-auth:
+    enabled: true
+    urlEnv: BNP_AUTH_URL
+    port: 8001
+    # Compose runs this one with `init: true` so orphaned browser processes are
+    # reaped. Sharing the process namespace makes the pause container PID 1,
+    # which does the same.
+    shareProcessNamespace: true
+  lbp-auth:
+    enabled: true
+    urlEnv: LBP_AUTH_URL
     port: 8001
   bourse-direct-auth:
     enabled: true
@@ -354,6 +377,10 @@ sidecars:
   cmes-auth:
     enabled: true
     urlEnv: CMES_AUTH_URL
+    port: 8001
+  natixis-auth:
+    enabled: true
+    urlEnv: NATIXIS_AUTH_URL
     port: 8001
   cic-auth:
     enabled: true

@@ -216,6 +216,78 @@ class SavingsInterestServiceTest {
             .isNotEqualByComparingTo(result.projectedInterestFullYear());
     }
 
+    // ─── (g) First snapshot after some of the year's movements ──────────────
+
+    /**
+     * Livret connected on Jun 10 with 10 000 €; the import brought two earlier deposits of 500 €
+     * (Apr 5, May 5). The Jun 10 balance already contains them, so the Jan-1 capital is 9 000 €.
+     * <pre>
+     *   Q1–Q7  (Jan  1–Apr 15):  9 000 × 3 / 2400 = 11.25  × 7  =  78.75
+     *   Q8–Q9  (Apr 16–May 15):  9 500 × 3 / 2400 = 11.875 × 2  =  23.75
+     *   Q10–Q24 (May 16–Dec 31): 10 000 × 3 / 2400 = 12.50 × 15 = 187.50
+     *   Total = 290.00
+     * </pre>
+     */
+    @Test
+    void snapshotAfterDeposits_depositsCountedOnce() {
+        stubSnapshot(LocalDate.of(2025, 6, 10), new BigDecimal("10000"));
+        stubTransactions(List.of(
+            tx(LocalDate.of(2025, 4, 5), new BigDecimal("500")),
+            tx(LocalDate.of(2025, 5, 5), new BigDecimal("500"))
+        ));
+
+        SavingsInterestProjection result = service.computeProjection(
+            account, livretA("3.00"), LocalDate.of(2025, 12, 31)
+        );
+
+        assertThat(result.estimatedInterestYtd()).isEqualByComparingTo("290.00");
+        assertThat(result.projectedInterestFullYear()).isEqualByComparingTo("290.00");
+    }
+
+    /**
+     * Same movement as (b), but the year's first snapshot is the end-of-day balance of the deposit
+     * day (Jan 20, 11 200 €), as a ledger rebuild writes it. The result must match (b): 333.00.
+     */
+    @Test
+    void snapshotOnDepositDay_sameAsOpeningSnapshot() {
+        stubSnapshot(LocalDate.of(2025, 1, 20), new BigDecimal("11200"));
+        stubTransactions(List.of(
+            tx(LocalDate.of(2025, 1, 20), new BigDecimal("1200"))
+        ));
+
+        SavingsInterestProjection result = service.computeProjection(
+            account, livretA("3.00"), LocalDate.of(2025, 12, 31)
+        );
+
+        assertThat(result.estimatedInterestYtd()).isEqualByComparingTo("333.00");
+        assertThat(result.projectedInterestFullYear()).isEqualByComparingTo("333.00");
+    }
+
+    /**
+     * A withdrawal before the first snapshot is out of that snapshot too: 10 000 € on Mar 10
+     * after a 1 000 € withdrawal on Feb 5 means 11 000 € on Jan 1 — then the same schedule as (c)
+     * with 11 000 € instead of 10 000 €.
+     * <pre>
+     *   Q1–Q2  (Jan  1–31):     11 000 × 3 / 2400 = 13.75 × 2  =  27.50
+     *   Q3–Q24 (Feb  1–Dec 31): 10 000 × 3 / 2400 = 12.50 × 22 = 275.00
+     *   Total = 302.50
+     * </pre>
+     */
+    @Test
+    void snapshotAfterWithdrawal_withdrawalCountedOnce() {
+        stubSnapshot(LocalDate.of(2025, 3, 10), new BigDecimal("10000"));
+        stubTransactions(List.of(
+            tx(LocalDate.of(2025, 2, 5), new BigDecimal("-1000"))
+        ));
+
+        SavingsInterestProjection result = service.computeProjection(
+            account, livretA("3.00"), LocalDate.of(2025, 12, 31)
+        );
+
+        assertThat(result.estimatedInterestYtd()).isEqualByComparingTo("302.50");
+        assertThat(result.projectedInterestFullYear()).isEqualByComparingTo("302.50");
+    }
+
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     private void stubSnapshot(LocalDate date, BigDecimal balance) {

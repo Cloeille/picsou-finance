@@ -77,7 +77,11 @@ recomputes its holdings instead, and a valued account (`SCPI`, `REAL_ESTATE`,
 `EMPLOYEE_SAVINGS`) keeps its valuation: the transaction is recorded but never moves the balance
 or its history, since summing a SCPI's dividends would replace the value of its shares.
 
-When a manual transaction is added, edited, or deleted on a **manual** cash account (`account.isManual = true`), `ManualTransactionService` recomputes `account.currentBalance` as the sum of all transaction amounts via a single aggregate query (`sumAmountByAccountId`). It then calls `FinaryPersistenceHelper.reconstructSnapshotsFromDb()` to rebuild the balance history from scratch.
+When a manual transaction is added, edited, or deleted on a **manual** cash account (`account.isManual = true`), `ManualTransactionService` recomputes `account.currentBalance` anchored on the latest hand-entered statement when there is one (`FinaryPersistenceHelper.computeManualLedgerBalance()`: the statement plus the transactions booked after it, via `sumAmountByAccountIdAfterStatement` — a same-day transaction counts only if created after the statement was entered (`statement_entered_at`, not row creation: a recycled DERIVED row keeps its old `created_at`), since end-of-day statements already include their day's earlier movements). The anchor is the statement's stored native figure, so a later FX move never changes the balance on its own (rows written before the native figure existed fall back to converting the EUR value back). With no statement the ledger is assumed complete from zero and the balance stays the sum of all transaction amounts (`sumAmountByAccountId`). It then calls `FinaryPersistenceHelper.reconstructSnapshotsFromDb()`, which rebuilds the derived history but never deletes or overwrites a hand-entered (`MANUAL`) snapshot: manual dates are skipped and no derived row is created before the oldest statement. The HomeBank, Actual Budget and Finary file import paths share the statement preservation through the same helper; manual transactions, HomeBank, and Actual Budget also anchor the balance on the statement, while the Finary file importer and a Finary API re-sync only preserve statements (the balance stays the imported figure).
+
+Entering a statement also recomputes: `addManualSnapshot` anchors the balance and rebuilds the derived history on manual ledger accounts, so the transaction-then-statement order converges to the same state as statement-then-transaction (issue #543).
+
+A balance typed in the account form is a statement dated today only when it differs from the current balance. The form sends the balance it was opened with, so saving a rename adds no statement and the ledger keeps following its transactions. Statements entered before the `source` column existed (`V151`) are `DERIVED` and are protected once entered again in the monthly history.
 
 ### Synced accounts
 
@@ -171,7 +175,7 @@ After submit, `useAddTransaction` / `useDeleteTransaction` hooks invalidate the 
 
 | Choice | Why | Rejected alternative |
 |--------|-----|----------------------|
-| Derive balance from transactions | Keeps single source of truth; avoids divergence between manual entries and computed balance | Letting users set balance directly (leads to inconsistency with transactions) |
+| Derive balance from transactions, anchored on statements | Keeps single source of truth; avoids divergence between manual entries and computed balance | Letting users set balance directly (leads to inconsistency with transactions) |
 | `is_manual` flag on transaction | Minimal schema change; syncs can cleanly skip manual rows | Separate `manual_transaction` table (more joins, more complex) |
 | Delete-synced-rows-except-manual on re-sync | Manual data survives any number of re-syncs | Timestamped merge (more complex, edge cases with overlapping date ranges) |
 | VWAP for averageBuyIn | Standard financial convention for cost basis | FIFO (more complex, requires ordered lot tracking) |
@@ -190,6 +194,7 @@ After submit, `useAddTransaction` / `useDeleteTransaction` hooks invalidate the 
 ## Tests
 
 - `HoldingComputeServiceTest` — 11 unit tests: BUY-only, multi-BUY VWAP, BUY+SELL, fully-sold position, null ticker/quantity skipping, multiple tickers, existing holding update, plus position name = newest transaction's name and name-preserved-when-transactions-have-none.
-- `ManualTransactionServiceTest` — 11 unit tests: manual cash add (balance + snapshots recomputed), synced cash add (transaction saved, balance/snapshots untouched), investment add (holdings recomputed, for both manual and synced accounts), non-owned account rejection, manual delete, synced-account delete (no reconstruct), synced-transaction delete rejection, not-found rejection, plus ISIN input → resolved ticker/name/description and plain-ticker uppercased with the user "Nom" winning.
+- `ManualTransactionServiceTest` — manual cash add (balance anchored via the helper + snapshots rebuilt), synced cash add (transaction saved, balance/snapshots untouched), investment add (holdings recomputed, for both manual and synced accounts), non-owned account rejection, manual delete, synced-account delete (no reconstruct), synced-transaction delete rejection, not-found rejection, plus ISIN input → resolved ticker/name/description and plain-ticker uppercased with the user "Nom" winning.
+- `FinaryPersistenceHelperTest` — statement preservation: hand-entered snapshots survive a rebuild (never deleted, dates skipped, no derived row before the oldest statement, a manual today wins over the anchor); balance anchoring (no statement → sum of every transaction, statement → statement plus later transactions, foreign-currency anchor converted back, missing rate throws).
 - `TransactionsList.test.tsx` — localized BUY, SELL, DIVIDEND, and FEE fallbacks, provider-description preservation, localized search, and date-heading behavior.
 - `OpenFigiIsinConverterTest` — 4 unit tests for the `isIsin()` detector: valid ISINs, case/whitespace normalization, rejects tickers/non-ISIN strings, rejects null/blank.

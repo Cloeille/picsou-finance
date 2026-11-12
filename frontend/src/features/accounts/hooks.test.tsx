@@ -460,6 +460,24 @@ describe('usePortfolio', () => {
     expect(line?.priceUpdatedAt).not.toBe('2026-08-19T08:00:00Z')
   })
 
+  it("adds the euro fund of a Caisse d'Epargne assurance vie, not of a manual one", async () => {
+    list.mockResolvedValue([
+      { id: 11, name: 'AV synced', type: 'ASSURANCE_VIE', provider: "Caisse d'Epargne", isManual: false, color: '#000', currentBalanceEur: 500, cashBalance: 300 },
+      { id: 13, name: 'AV hand-made', type: 'ASSURANCE_VIE', provider: "Caisse d'Epargne", isManual: true, color: '#000', currentBalanceEur: 500, cashBalance: 300 },
+      { id: 12, name: 'AV manual', type: 'ASSURANCE_VIE', provider: null, color: '#000', currentBalanceEur: 500, cashBalance: 300 },
+    ])
+    holdings.mockResolvedValue([])
+    prices.mockResolvedValue({})
+
+    const { result } = renderHook(() => usePortfolio(), { wrapper: makeWrapper() })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    const funds = (result.current.data ?? []).filter(line => line.id.startsWith('per-euro-fund-'))
+    expect(funds).toEqual([
+      expect.objectContaining({ accountId: 11, nameKey: 'accounts.lifeEuroFundBalance', valueEur: 300 }),
+    ])
+  })
+
   it('includes the PER euro fund alongside units without double-counting the account total', async () => {
     list.mockResolvedValue([
       {
@@ -555,6 +573,32 @@ describe('usePortfolio', () => {
     ])
   })
 
+  it('leaves property and SCPI out of the Euros cash line and counts a listed pocket once', async () => {
+    list.mockResolvedValue([
+      { id: 2, name: 'Checking', type: 'CHECKING', color: '#000', currentBalanceEur: 1500 },
+      { id: 3, name: 'Flat', type: 'REAL_ESTATE', color: '#000', currentBalanceEur: 300000 },
+      { id: 4, name: 'SCPI', type: 'SCPI', color: '#000', currentBalanceEur: 20000 },
+      // A Revolut wallet carries the sum of its pockets.
+      { id: 10, name: 'Revolut', type: 'CHECKING', color: '#000', currentBalanceEur: 1000 },
+      { id: 11, name: 'Holiday', type: 'SAVINGS', color: '#000', currentBalanceEur: 400, parentAccountId: 10 },
+      // A pocket whose wallet is not listed has nothing else carrying it.
+      { id: 12, name: 'Shared pocket', type: 'SAVINGS', color: '#000', currentBalanceEur: 200, parentAccountId: 99 },
+    ])
+
+    const { result } = renderHook(() => usePortfolio(), { wrapper: makeWrapper() })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.data).toEqual([
+      expect.objectContaining({
+        id: 'cash-aggregated',
+        accountIds: [2, 10, 12],
+        accountName: 'Checking, Revolut, Shared pocket',
+        accountType: 'CHECKING',
+        valueEur: 2700,
+      }),
+    ])
+  })
+
   it('refreshes mounted dashboard, history and PnL queries only when a polled value changes', async () => {
     vi.useFakeTimers()
     let livePrice = 10
@@ -578,6 +622,7 @@ describe('usePortfolio', () => {
       totalLiabilities: 0,
       netWorthHistory: [],
       distribution: [],
+      assets: [],
       liabilities: [],
       goalSummaries: [],
     } satisfies DashboardData))

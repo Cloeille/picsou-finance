@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -76,7 +77,11 @@ public class FinaryPersistenceHelper {
     ) {}
 
     /**
-     * Reconstruct balance snapshots by walking backwards from current balance
+     * Reconstruct balance snapshots by walking backwards from current balance.
+     *
+     * <p>Like {@link #reconstructSnapshotsFromDb}, hand-entered statements are preserved:
+     * only derived rows are deleted and rebuilt, manual dates are skipped, and nothing is
+     * created before the oldest manual statement.
      */
     public int reconstructSnapshots(Account account, ParsedFinaryAccount finaryAcc,
                                     List<ParsedFinaryTransaction> allTransactions) {
@@ -88,9 +93,23 @@ public class FinaryPersistenceHelper {
 
         BigDecimal anchor = toEurOrFail(finaryAcc.balance(), finaryAcc.currency());
 
+        List<BalanceSnapshot> all =
+            balanceSnapshotRepository.findRecentByAccountId(account.getId(), LocalDate.of(2000, 1, 1));
+        LocalDate today = LocalDate.now();
+        List<BalanceSnapshot> manual =
+            all.stream().filter(s -> s.getSource() == SnapshotSource.MANUAL).toList();
+        Set<LocalDate> manualDates =
+            manual.stream().map(BalanceSnapshot::getDate).collect(Collectors.toSet());
+        // Reached statements only: a future statement must not wipe the past history.
+        LocalDate oldestManual = manual.stream().map(BalanceSnapshot::getDate)
+            .filter(date -> !date.isAfter(today)).min(LocalDate::compareTo).orElse(null);
+
         if (accountTx.isEmpty()) {
-            // No transactions; just create a snapshot for today
-            LocalDate today = LocalDate.now();
+            // No transactions; the anchor is today with the file balance — unless the
+            // member typed a statement for today, which wins.
+            if (manualDates.contains(today)) {
+                return 0;
+            }
             balanceSnapshotRepository.findByAccountIdAndDate(account.getId(), today)
                 .ifPresent(balanceSnapshotRepository::delete);
             balanceSnapshotRepository.flush();
@@ -115,27 +134,36 @@ public class FinaryPersistenceHelper {
             runningBalance = runningBalance.subtract(toEurOrFail(tx.amount(), tx.currency()));
         }
 
-        // Delete existing snapshots for this account (batch delete executes immediately)
-        List<BalanceSnapshot> existing = balanceSnapshotRepository.findRecentByAccountId(account.getId(), LocalDate.of(2000, 1, 1));
-        balanceSnapshotRepository.deleteAllInBatch(existing);
+        // Delete derived snapshots only (batch delete executes immediately)
+        List<BalanceSnapshot> derived =
+            all.stream().filter(s -> s.getSource() != SnapshotSource.MANUAL).toList();
+        balanceSnapshotRepository.deleteAllInBatch(derived);
 
         int count = 0;
 
-        // Anchor point: today with current balance
-        LocalDate today = LocalDate.now();
-        balanceSnapshotRepository.save(BalanceSnapshot.builder()
-            .account(account)
-            .date(today)
-            .balance(anchor)
-            .investedAmount(anchor)
-            .build());
-        count++;
+        // Anchor point: today with the file balance, unless the member typed a statement
+        // for today
+        if (!manualDates.contains(today)) {
+            balanceSnapshotRepository.save(BalanceSnapshot.builder()
+                .account(account)
+                .date(today)
+                .balance(anchor)
+                .investedAmount(anchor)
+                .build());
+            count++;
+        }
 
-        // Remove today to avoid duplicate with the anchor point above
+        // Remove today to avoid duplicate with anchor point above
         snapshots.remove(today);
 
         // Save snapshots
         for (Map.Entry<LocalDate, BigDecimal> entry : snapshots.entrySet()) {
+            if (manualDates.contains(entry.getKey())) {
+                continue;
+            }
+            if (oldestManual != null && entry.getKey().isBefore(oldestManual)) {
+                continue;
+            }
             balanceSnapshotRepository.save(BalanceSnapshot.builder()
                 .account(account)
                 .date(entry.getKey())
@@ -187,16 +215,38 @@ public class FinaryPersistenceHelper {
     /**
      * Reconstruct balance snapshots from already-persisted Transaction entities.
      * Same algorithm as reconstructSnapshots() but reads from DB instead of parsed DTOs.
+     *
+     * <p>Hand-entered statements ({@code MANUAL} rows) are ground truth and are never
+     * deleted or overwritten: only the derived rows are rebuilt, manual dates are skipped,
+     * and no derived row is created before the oldest manual statement (history before the
+     * first statement is unknown — a gap is honest, an invented point is not).
      */
     public int reconstructSnapshotsFromDb(Account account) {
         List<Transaction> accountTx = transactionRepository.findByAccountIdOrderByDateDesc(account.getId());
         BigDecimal currentBalance = toEurOrFail(account.getCurrentBalance(), account.getCurrency());
 
+        List<BalanceSnapshot> all =
+            balanceSnapshotRepository.findRecentByAccountId(account.getId(), LocalDate.of(2000, 1, 1));
+        LocalDate today = LocalDate.now();
+        List<BalanceSnapshot> manual =
+            all.stream().filter(s -> s.getSource() == SnapshotSource.MANUAL).toList();
+        Set<LocalDate> manualDates =
+            manual.stream().map(BalanceSnapshot::getDate).collect(Collectors.toSet());
+        // The cutoff only looks at reached statements: a future statement must not wipe
+        // the past derived history while the balance still ignores it.
+        LocalDate oldestManual = manual.stream().map(BalanceSnapshot::getDate)
+            .filter(date -> !date.isAfter(today)).min(LocalDate::compareTo).orElse(null);
+
         if (accountTx.isEmpty()) {
-            LocalDate today = LocalDate.now();
-            balanceSnapshotRepository.findByAccountIdAndDate(account.getId(), today)
-                .ifPresent(balanceSnapshotRepository::delete);
-            balanceSnapshotRepository.flush();
+            // No transactions left: the derived rows were walked back from a ledger that no
+            // longer exists, so they go too — then re-anchor today with the current balance,
+            // unless the member typed a statement for today, which wins.
+            List<BalanceSnapshot> derived =
+                all.stream().filter(s -> s.getSource() != SnapshotSource.MANUAL).toList();
+            balanceSnapshotRepository.deleteAllInBatch(derived);
+            if (manualDates.contains(today)) {
+                return 0;
+            }
             balanceSnapshotRepository.save(BalanceSnapshot.builder()
                 .account(account)
                 .date(today)
@@ -217,26 +267,34 @@ public class FinaryPersistenceHelper {
             runningBalance = runningBalance.subtract(toEurOrFail(tx.getAmount(), tx.getNativeCurrency()));
         }
 
-        // Delete existing snapshots for this account (batch delete executes immediately)
-        List<BalanceSnapshot> existing = balanceSnapshotRepository.findRecentByAccountId(account.getId(), LocalDate.of(2000, 1, 1));
-        balanceSnapshotRepository.deleteAllInBatch(existing);
+        // Delete derived snapshots only (batch delete executes immediately)
+        List<BalanceSnapshot> derived =
+            all.stream().filter(s -> s.getSource() != SnapshotSource.MANUAL).toList();
+        balanceSnapshotRepository.deleteAllInBatch(derived);
 
         int count = 0;
 
-        // Anchor: today with current balance
-        LocalDate today = LocalDate.now();
-        balanceSnapshotRepository.save(BalanceSnapshot.builder()
-            .account(account)
-            .date(today)
-            .balance(currentBalance)
-            .investedAmount(currentBalance)
-            .build());
-        count++;
+        // Anchor: today with current balance, unless the member typed a statement for today
+        if (!manualDates.contains(today)) {
+            balanceSnapshotRepository.save(BalanceSnapshot.builder()
+                .account(account)
+                .date(today)
+                .balance(currentBalance)
+                .investedAmount(currentBalance)
+                .build());
+            count++;
+        }
 
         // Remove today to avoid duplicate with anchor
         snapshots.remove(today);
 
         for (Map.Entry<LocalDate, BigDecimal> entry : snapshots.entrySet()) {
+            if (manualDates.contains(entry.getKey())) {
+                continue;
+            }
+            if (oldestManual != null && entry.getKey().isBefore(oldestManual)) {
+                continue;
+            }
             balanceSnapshotRepository.save(BalanceSnapshot.builder()
                 .account(account)
                 .date(entry.getKey())
@@ -247,6 +305,58 @@ public class FinaryPersistenceHelper {
         }
 
         return count;
+    }
+
+    /**
+     * Balance of a manual ledger account anchored on the latest hand-entered statement:
+     * the statement plus the transactions booked after it. With no statement the ledger is
+     * assumed complete from zero and the balance is the sum of every transaction (the
+     * previous behaviour, unchanged for statement-free accounts).
+     *
+     * <p>The anchor is the statement's stored native figure, so a later FX move never changes
+     * the balance on its own. Rows written before the native figure existed fall back to
+     * converting the EUR value back at the current rate. A statement dated in the future is
+     * stored but ignored until its date: a future statement must not drive today's balance.
+     */
+    public BigDecimal computeManualLedgerBalance(Account account) {
+        LocalDate today = LocalDate.now();
+        Optional<BalanceSnapshot> anchor = balanceSnapshotRepository
+            .findFirstByAccountIdAndSourceAndDateLessThanEqualOrderByDateDesc(
+                account.getId(), SnapshotSource.MANUAL, today);
+        if (anchor.isEmpty()) {
+            return transactionRepository.sumAmountByAccountId(account.getId());
+        }
+        BalanceSnapshot statement = anchor.get();
+        BigDecimal anchorNative = statement.getNativeBalance() != null
+            ? statement.getNativeBalance()
+            : toNativeOrFail(statement.getBalance(), account.getCurrency());
+        // Same-day ordering runs on the entry instant, not the row creation: a DERIVED row
+        // recycled into a statement keeps its old created_at. Legacy rows fall back to it.
+        java.time.Instant enteredAt = statement.getStatementEnteredAt() != null
+            ? statement.getStatementEnteredAt()
+            : statement.getCreatedAt();
+        return anchorNative.add(transactionRepository.sumAmountByAccountIdAfterStatement(
+            account.getId(), statement.getDate(), enteredAt));
+    }
+
+    /**
+     * Mirror of {@link #toEurOrFail}: converts a EUR snapshot value back to the account's
+     * currency. Defensive only: every current MANUAL writer stores the native figure and the
+     * migration backfills older rows as DERIVED, so in practice this always carries one.
+     * Statements carry their native value and never touch a rate. A missing rate aborts
+     * for the same reason — engraving an unconverted value as the balance would silently
+     * rewrite what the member owns.
+     */
+    BigDecimal toNativeOrFail(BigDecimal eurAmount, String currency) {
+        if (eurAmount == null || currency == null || currency.isBlank() || "EUR".equalsIgnoreCase(currency)) {
+            return eurAmount;
+        }
+        BigDecimal rate = priceService.getFxRateEur(currency.toUpperCase(Locale.ROOT));
+        if (rate == null || rate.signum() == 0) {
+            throw new SyncException("No EUR rate for " + currency
+                + " -- cannot anchor the balance on the hand-entered statement, try again once the rate is available");
+        }
+        return eurAmount.divide(rate, 8, RoundingMode.HALF_UP);
     }
 
     /**

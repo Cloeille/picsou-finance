@@ -3,18 +3,19 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.adapter.sidecar.SidecarClient;
+import com.picsou.adapter.sidecar.SidecarSessionState;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import com.picsou.model.AccountType;
-import com.picsou.util.LogSanitizer;
+import com.picsou.port.SidecarErrorCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -23,7 +24,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.URI;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -38,10 +41,11 @@ import java.util.function.Predicate;
  * Adapter for Trade Republic's unofficial API.
  *
  * Auth (HTTP) is delegated to the tr-auth Python sidecar, which handles
- * the AWS WAF browser challenge that cannot be solved from plain Java HTTP.
+ * the AWS WAF challenge that cannot be solved from plain Java HTTP.
  *
  * Data fetching uses the TR WebSocket API directly (no WAF needed).
- * Protocol version: 31. Session token is passed in each subscription payload.
+ * Protocol version: 31. The session token authenticates the handshake as a {@code tr_session} cookie
+ * and is still passed in each subscription payload.
  *
  * WebSocket subscriptions used:
  *   - availableCash      → cash balance
@@ -60,9 +64,21 @@ public class TradeRepublicAdapter {
     private static final int    WS_VERSION = 31;
     // Lang & Schwarz Exchange, TR's home venue for equities and ETFs (GH #23).
     private static final String DEFAULT_EXCHANGE = "LSX";
-    private static final String AUTH_SERVICE_UNAVAILABLE =
-        "Trade Republic authentication service is unavailable. Please make sure tr-auth is running on port 8001.";
-    private static final Duration DEFAULT_REFRESH_TIMEOUT = Duration.ofSeconds(15);
+    private static final Duration DEFAULT_AUTH_TIMEOUT = Duration.ofSeconds(45);
+    /**
+     * An in-app confirmation waits on a human unlocking their phone. The sidecar caps that wait at
+     * 120 s, so this has to sit above it or the adapter would time out on a login about to succeed.
+     */
+    private static final Duration DEFAULT_COMPLETE_TIMEOUT = Duration.ofSeconds(150);
+    private static final Duration DEFAULT_SESSION_TIMEOUT = Duration.ofSeconds(45);
+    /** TR renders the export on demand, which takes a while over a long window. */
+    private static final Duration DEFAULT_TRANSACTIONS_TIMEOUT = Duration.ofSeconds(120);
+    /**
+     * The CSV export is read whole, and Spring's 256 KiB default drops it from about 1,200 rows
+     * (a real 721-row, 3-year export was 155 KB). 16 MiB, as for Caisse d'Epargne, holds some
+     * 70,000 rows, past what the 5-year window the sidecar accepts can carry.
+     */
+    private static final int TRANSACTIONS_MAX_BYTES = 16 * 1024 * 1024;
     // Total time the WebSocket read may take before the sync goes on with what it has.
     // Kept under WS_HARD_TIMEOUT around the whole exchange, which fails the sync.
     static final Duration WS_WAIT_CAP = Duration.ofSeconds(30);
@@ -77,152 +93,155 @@ public class TradeRepublicAdapter {
         AccountType type
     ) {}
 
-    private final WebClient    sidecarClient;
-    private final ObjectMapper objectMapper;
-    private final Duration     refreshTimeout;
-    private final URI          wsUri;
+    private final SidecarClient sidecar;
+    private final ObjectMapper  objectMapper;
+    private final Duration      authTimeout;
+    private final Duration      completeTimeout;
+    private final Duration      sessionTimeout;
+    private final Duration      transactionsTimeout;
+    private final URI           wsUri;
 
     @Autowired
     public TradeRepublicAdapter(
         SidecarWebClientFactory clients,
         ObjectMapper objectMapper
     ) {
-        this(objectMapper, clients.create("Trade Republic", "tr-auth"), DEFAULT_REFRESH_TIMEOUT, URI.create(WS_URL));
+        this(
+            objectMapper,
+            clients.create(SidecarBank.TRADE_REPUBLIC.label(), SidecarBank.TRADE_REPUBLIC.serviceName(),
+                builder -> builder.codecs(c -> c.defaultCodecs().maxInMemorySize(TRANSACTIONS_MAX_BYTES))),
+            DEFAULT_AUTH_TIMEOUT,
+            DEFAULT_COMPLETE_TIMEOUT,
+            DEFAULT_SESSION_TIMEOUT,
+            URI.create(WS_URL)
+        );
     }
 
-    TradeRepublicAdapter(ObjectMapper objectMapper, WebClient sidecarClient, Duration refreshTimeout, URI wsUri) {
-        this.objectMapper   = objectMapper;
-        this.sidecarClient  = sidecarClient;
-        this.refreshTimeout = refreshTimeout;
-        this.wsUri          = wsUri;
+    TradeRepublicAdapter(ObjectMapper objectMapper, WebClient client, Duration timeout, URI wsUri) {
+        this(objectMapper, client, timeout, timeout, timeout, timeout, wsUri);
     }
 
-    // ─── Auth (delegated to Python sidecar) ───────────────────────────────────
+    TradeRepublicAdapter(
+        ObjectMapper objectMapper,
+        WebClient client,
+        Duration authTimeout,
+        Duration completeTimeout,
+        Duration sessionTimeout,
+        URI wsUri
+    ) {
+        this(objectMapper, client, authTimeout, completeTimeout, sessionTimeout,
+            DEFAULT_TRANSACTIONS_TIMEOUT, wsUri);
+    }
+
+    TradeRepublicAdapter(
+        ObjectMapper objectMapper,
+        WebClient client,
+        Duration authTimeout,
+        Duration completeTimeout,
+        Duration sessionTimeout,
+        Duration transactionsTimeout,
+        URI wsUri
+    ) {
+        this.transactionsTimeout = transactionsTimeout;
+        this.objectMapper    = objectMapper;
+        this.sidecar         = new SidecarClient(client, objectMapper, SidecarBank.TRADE_REPUBLIC,
+            SidecarErrorCode.AUTH_ATTEMPT_EXPIRED);
+        this.authTimeout     = authTimeout;
+        this.completeTimeout = completeTimeout;
+        this.sessionTimeout  = sessionTimeout;
+        this.wsUri           = wsUri;
+    }
+
+    // ─── Auth (delegated to the tr-auth sidecar) ──────────────────────────────
 
     /**
-     * Step 1: Sends phone number + PIN to Trade Republic.
-     * TR dispatches a 2FA code via SMS/app notification.
-     * Credentials are NOT stored — they are used only for this call.
+     * Step 1: sends phone number + PIN to Trade Republic through the sidecar, which answers once
+     * TR has asked for the second factor. Credentials are NOT stored: they are used only for this call.
      *
      * @param phoneNumber international format (+33…) or local (06…, auto-converted)
-     * @param pin         numeric PIN
-     * @return processId to use in {@link #completeAuth(String, String)}
+     * @param pin         4-digit PIN or password (1..128 characters)
      */
-    public String initiateAuth(String phoneNumber, String pin) {
+    public TrInitiate initiateAuth(String phoneNumber, String pin) {
         log.info("Delegating TR auth initiation to tr-auth sidecar");
-
-        JsonNode response = sidecarClient.post()
-            .uri("/initiate")
-            .contentType(MediaType.APPLICATION_JSON)
-            .bodyValue(Map.of("phoneNumber", phoneNumber, "pin", pin))
-            .retrieve()
-            .bodyToMono(JsonNode.class)
-            .onErrorResume(WebClientResponseException.class, ex -> {
-                String body = ex.getResponseBodyAsString();
-                log.error("tr-auth sidecar /initiate failed ({}) : {}", ex.getStatusCode(), LogSanitizer.safe(body));
-                return Mono.error(mapAuthError(ex,
-                    "Trade Republic authentication failed. Please check your credentials and try again."));
-            })
-            .timeout(Duration.ofSeconds(60)) // headless browser takes time
-            .onErrorMap(ex -> !(ex instanceof SyncException), ex -> new SyncException(
-                AUTH_SERVICE_UNAVAILABLE,
-                ex))
-            .blockOptional()
-            .orElseThrow(() -> new SyncException("No response from the Trade Republic service. Please try again later."));
-
-        String processId = response.path("processId").asText(null);
-        if (processId == null || processId.isBlank()) {
-            throw new SyncException("Trade Republic did not return a valid session. Please try again.");
+        TrInitiate response = sidecar.post(
+            "/initiate",
+            Map.of("phoneNumber", phoneNumber, "pin", pin),
+            TrInitiate.class,
+            authTimeout,
+            "Could not initiate Trade Republic authentication",
+            SidecarErrorCode.INVALID_CREDENTIALS
+        );
+        if (response.processId() == null || response.processId().isBlank()) {
+            throw sidecar.coded(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED,
+                "Trade Republic did not return an authentication attempt", null);
         }
-        return processId;
+        return response;
     }
 
     /**
-     * Step 2: Exchanges the 2FA code for a session token + refresh token.
+     * Step 2: waits for the in-app confirmation (or checks the 4-digit code) and returns the
+     * serialized session state, opaque to the domain.
      *
-     * @param processId returned by {@link #initiateAuth()}
-     * @param tan       6-digit code from SMS/app
-     * @return session tokens
+     * @param tan the 4-digit {@code otp} or 6-digit {@code authenticator} code, null for {@code confirmInApp}
      */
-    public TrTokens completeAuth(String processId, String tan) {
-        log.info("Delegating TR 2FA completion to tr-auth sidecar, processId={}", processId);
-
-        JsonNode response = sidecarClient.post()
-            .uri("/complete")
-            .contentType(MediaType.APPLICATION_JSON)
-            .bodyValue(Map.of("processId", processId, "tan", tan))
-            .retrieve()
-            .bodyToMono(JsonNode.class)
-            .onErrorResume(WebClientResponseException.class, ex -> {
-                String body = ex.getResponseBodyAsString();
-                log.error("tr-auth sidecar /complete failed ({}) : {}", ex.getStatusCode(), LogSanitizer.safe(body));
-                return Mono.error(mapAuthError(ex,
-                    "The verification code is invalid or has expired. Please request a new one."));
-            })
-            .timeout(Duration.ofSeconds(60))
-            .onErrorMap(ex -> !(ex instanceof SyncException), ex -> new SyncException(
-                AUTH_SERVICE_UNAVAILABLE,
-                ex))
-            .blockOptional()
-            .orElseThrow(() -> new SyncException("No response from the Trade Republic service. Please try again later."));
-
-        String sessionToken = response.path("sessionToken").asText(null);
-        if (sessionToken == null || sessionToken.isBlank()) {
-            throw new SyncException("Trade Republic verification did not complete. Please try again.");
+    public String completeAuth(String processId, String tan) {
+        log.info("Delegating TR login completion to tr-auth sidecar");
+        // The sidecar declares `tan`, so the key carries an explicit null rather than being omitted.
+        Map<String, Object> body = new HashMap<>();
+        body.put("processId", processId);
+        body.put("tan", tan);
+        SidecarSessionState response = sidecar.post(
+            "/complete",
+            body,
+            SidecarSessionState.class,
+            completeTimeout,
+            "Could not complete Trade Republic authentication",
+            SidecarErrorCode.INVALID_OTP
+        );
+        if (response.sessionState() == null || response.sessionState().isBlank()) {
+            throw sidecar.coded(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED,
+                "Trade Republic did not return a session", null);
         }
-        String refreshToken = response.path("refreshToken").asText(null);
-        return new TrTokens(sessionToken, refreshToken);
+        return response.sessionState();
     }
 
     /**
-     * Refreshes the session token using the stored refresh token (no 2FA needed).
-     * The refresh token itself has a ~2h validity.
-     *
-     * @param refreshToken the stored tr_refresh value
-     * @return new session tokens (refreshToken may be rotated)
+     * Turns the stored state into a live {@code tr_session} cookie value and the decoded claims
+     * (the securities and cash accounts live in {@code act.acc.owner}). The refresh cookie is not
+     * rotated, so the stored state never changes.
      */
-    public TrTokens refreshSession(String refreshToken) {
-        log.info("Refreshing TR session via tr-auth sidecar");
-
-        JsonNode response = sidecarClient.post()
-            .uri("/refresh")
-            .contentType(MediaType.APPLICATION_JSON)
-            .bodyValue(Map.of("refreshToken", refreshToken))
-            .retrieve()
-            .bodyToMono(JsonNode.class)
-            .onErrorResume(WebClientResponseException.class, ex -> {
-                log.error("tr-auth sidecar /refresh failed ({}) : {}", ex.getStatusCode(), LogSanitizer.safe(ex.getResponseBodyAsString()));
-                // The sidecar relays TR's status verbatim: only 401/403 mean the
-                // refresh token was actually rejected. Anything else (TR 429
-                // rate-limit, sidecar 5xx) is transient and must not destroy the
-                // stored session.
-                int status = ex.getStatusCode().value();
-                if (status == 401 || status == 403) {
-                    return Mono.error(new SyncException("SESSION_EXPIRED"));
-                }
-                return Mono.error(new SyncException(
-                    AUTH_SERVICE_UNAVAILABLE,
-                    ex));
-            })
-            .timeout(refreshTimeout)
-            .onErrorMap(ex -> !(ex instanceof SyncException), ex -> new SyncException(
-                AUTH_SERVICE_UNAVAILABLE,
-                ex))
-            .blockOptional()
-            // An empty 2xx body is a sidecar/proxy defect, not a TR rejection —
-            // it must not carry the SESSION_EXPIRED sentinel that destroys the
-            // stored session. Only a 4xx above means TR refused the token.
-            .orElseThrow(() -> new SyncException(
-                "Trade Republic authentication service returned an empty response. Please try again later."));
-
-        String newSession = response.path("sessionToken").asText(null);
-        if (newSession == null || newSession.isBlank()) {
-            throw new SyncException(
-                "Trade Republic authentication service returned an empty response. Please try again later.");
+    public TrSession openSession(String sessionState) {
+        log.info("Opening TR session via tr-auth sidecar");
+        TrSession session = sidecar.post(
+            "/session",
+            Map.of("sessionState", sessionState),
+            TrSession.class,
+            sessionTimeout,
+            "Could not open the Trade Republic session",
+            SidecarErrorCode.SESSION_EXPIRED
+        );
+        if (session.sessionToken() == null || session.sessionToken().isBlank()) {
+            throw sidecar.coded(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED,
+                "Trade Republic returned no session token", null);
         }
-        String newRefresh = response.path("refreshToken").asText(null);
-        log.info("TR session refreshed successfully");
-        return new TrTokens(newSession, newRefresh != null ? newRefresh : refreshToken);
+        return session;
+    }
+
+    /**
+     * Trade Republic's own CSV export of the account activity between two dates (inclusive),
+     * rendered by the sidecar from the stored session. The body is returned untouched: the
+     * caller's parser owns its format, and it carries personal data, so it is never logged here.
+     */
+    public String fetchTransactionsCsv(String sessionState, LocalDate from, LocalDate to) {
+        log.info("Fetching TR transactions export via tr-auth sidecar");
+        return sidecar.post(
+            "/transactions",
+            Map.of("sessionState", sessionState, "from", from.toString(), "to", to.toString()),
+            String.class,
+            transactionsTimeout,
+            "Could not fetch the Trade Republic transactions",
+            SidecarErrorCode.SESSION_EXPIRED
+        );
     }
 
     // ─── Data (WebSocket, no WAF needed) ──────────────────────────────────────
@@ -234,9 +253,14 @@ public class TradeRepublicAdapter {
      * Raw responses are logged at INFO level to help diagnose format changes.
      */
     public List<TrAccountData> fetchAccounts(String sessionToken) {
+        return fetchAccounts(sessionToken, null);
+    }
+
+    /** As above; {@code claims} is the decoded {@code tr_claims} the sidecar returned with the session. */
+    public List<TrAccountData> fetchAccounts(String sessionToken, JsonNode claims) {
         log.info("Fetching TR portfolio via WebSocket (protocol v{})", WS_VERSION);
 
-        List<SecAccount> secAccounts = extractSecAccounts(sessionToken);
+        List<SecAccount> secAccounts = extractSecAccounts(sessionToken, claims);
         log.info("TR JWT sec accounts: {}",
             secAccounts.stream()
                 .map(acc -> acc.wrapper() + ":" + acc.name())
@@ -278,6 +302,7 @@ public class TradeRepublicAdapter {
 
         HttpHeaders headers = new HttpHeaders();
         headers.set("Origin", "https://app.traderepublic.com");
+        headers.set(HttpHeaders.COOKIE, "tr_session=" + sessionToken);
         String connectMsg = buildConnectMessage();
 
         new ReactorNettyWebSocketClient()
@@ -287,8 +312,9 @@ public class TradeRepublicAdapter {
                         session.receive()
                             .map(msg -> msg.getPayloadAsText())
                             .concatMap(text -> {
-                                log.info("TR WS <-- {}", text.length() > 500
-                                        ? text.substring(0, 500) + "…" : text);
+                                log.info("TR WS <-- {}", describeFrame(text));
+                                // Opt-in only: the payload is account data (numbers, balances, positions).
+                                log.trace("TR WS <-- payload: {}", text);
 
                                 if ("connected".equals(text.trim())) {
                                     int id1 = subIdCounter.incrementAndGet();
@@ -350,9 +376,8 @@ public class TradeRepublicAdapter {
                                     if (receivedPortfolioIds.add(account.externalId())) {
                                         receivedPortfolios.incrementAndGet();
                                     }
-                                    log.info("TR compactPortfolioByType [{}] raw: {}", account.name(),
-                                             payload.length() > 2000
-                                                     ? payload.substring(0, 2000) + "…" : payload);
+                                    log.info("TR compactPortfolioByType [{}] answered ({} chars)",
+                                             account.name(), payload.length());
                                     if ("E".equals(extractWsType(text))) {
                                         erroredPortfolioIds.add(account.externalId());
                                         expectedTickers.compareAndSet(-1, 0);
@@ -440,8 +465,8 @@ public class TradeRepublicAdapter {
                                             log.info("TR compactPortfolioByType [{}]: no positions found", account.name());
                                         }
                                     } catch (Exception ex) {
-                                        log.error("Failed to parse compactPortfolioByType [{}]: {}",
-                                            account.name(), payload, ex);
+                                        log.error("Failed to parse compactPortfolioByType [{}] ({})",
+                                            account.name(), ex.getClass().getSimpleName());
                                         erroredPortfolioIds.add(account.externalId());
                                         expectedTickers.compareAndSet(-1, 0);
                                     }
@@ -507,7 +532,10 @@ public class TradeRepublicAdapter {
             .block();
 
         if (authExpired.get()) {
-            throw new SyncException("SESSION_EXPIRED");
+            // A token the sidecar just minted was refused: not proof the stored session is dead
+            // (a dead one fails at /session), so the session is kept and the sync retried.
+            throw sidecar.coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE,
+                "Trade Republic refused the session token. Please try again.", null);
         }
 
         // ─── Build accounts from collected data ──────────────────────────────
@@ -550,8 +578,8 @@ public class TradeRepublicAdapter {
                 }
             }
 
-            log.info("TR portfolio [{}]: {} positions, {} with live prices, total value: {}",
-                     secAccount.name(), positionsByIsin.size(), priced, totalPortfolioValue);
+            log.info("TR portfolio [{}]: {} positions, {} with live prices",
+                     secAccount.name(), positionsByIsin.size(), priced);
 
             List<TrPosition> positions = new ArrayList<>();
             for (var entry : positionsByIsin.entrySet()) {
@@ -603,50 +631,6 @@ public class TradeRepublicAdapter {
 
     // ─── Private helpers ──────────────────────────────────────────────────────
 
-    /**
-     * Maps a tr-auth failure to a user-facing {@link SyncException}. Only the sidecar's
-     * {@code detail} is matched: a FastAPI 422 validation body echoes the request input,
-     * so matching the whole body would let a request value pose as an error code.
-     */
-    private SyncException mapAuthError(WebClientResponseException ex, String fallback) {
-        String detail = errorDetail(ex.getResponseBodyAsString());
-        // tr-auth could not get past AWS WAF; TR never saw the credentials.
-        if (detail.equals("TR_WAF_BLOCKED")) {
-            return new SyncException("Trade Republic blocked the request. Please retry in a minute.");
-        }
-        if (detail.equals("TR_UNREACHABLE")) {
-            return new SyncException("Trade Republic did not respond. Please try again in a moment.");
-        }
-        // TR's own errors arrive as: TR rejected request: {...PIN_INVALID...}
-        if (detail.contains("VALIDATION_CODE_INVALID")) {
-            return new SyncException("VALIDATION_CODE_INVALID");
-        }
-        if (detail.contains("NUMBER_INVALID")) {
-            return new SyncException("NUMBER_INVALID");
-        }
-        if (detail.contains("PIN_INVALID")) {
-            return new SyncException("PIN_INVALID");
-        }
-        if (detail.contains("AUTHENTICATION_ERROR")) {
-            return new SyncException("AUTHENTICATION_ERROR");
-        }
-        // TR_BROWSER_FAILED and any unhandled sidecar error: not the user's input.
-        if (ex.getStatusCode().is5xxServerError()) {
-            return new SyncException(AUTH_SERVICE_UNAVAILABLE);
-        }
-        return new SyncException(fallback);
-    }
-
-    /** The sidecar's {@code detail} when it is a string, else "" (validation arrays, non-JSON). */
-    private String errorDetail(String responseBody) {
-        try {
-            JsonNode detail = objectMapper.readTree(responseBody).path("detail");
-            return detail.isTextual() ? detail.asText() : "";
-        } catch (JsonProcessingException ex) {
-            return "";
-        }
-    }
-
     private boolean isAuthError(String payload) {
         return payload != null && payload.contains("AUTHENTICATION_ERROR");
     }
@@ -667,6 +651,25 @@ public class TradeRepublicAdapter {
         int second = text.indexOf(' ', first + 1);
         if (second < 0) return text.substring(first + 1);
         return text.substring(second + 1);
+    }
+
+    /**
+     * A frame for the log: its subscription id, its type and its size. Never its payload: an
+     * answer carries the member's account numbers, balances and positions.
+     */
+    static String describeFrame(String text) {
+        String frame = text.trim();
+        int first = frame.indexOf(' ');
+        if (first < 0) {
+            return frame.length() <= 16 ? frame : "(" + text.length() + " chars)";
+        }
+        int second = frame.indexOf(' ', first + 1);
+        String id = frame.substring(0, first);
+        String type = second < 0 ? frame.substring(first + 1) : frame.substring(first + 1, second);
+        if (id.isEmpty() || !id.chars().allMatch(Character::isDigit) || type.length() != 1) {
+            return "(" + text.length() + " chars)";
+        }
+        return id + " " + type + " (" + text.length() + " chars)";
     }
 
     /** The frame type between the id and the payload: A (answer), D (delta), E (error), C (complete). */
@@ -825,12 +828,10 @@ public class TradeRepublicAdapter {
         return buildSub(id, payload);
     }
 
-    private List<SecAccount> extractSecAccounts(String sessionToken) {
+    private List<SecAccount> extractSecAccounts(String sessionToken, JsonNode claims) {
         try {
-            String[] parts = sessionToken.split("\\.");
-            if (parts.length < 2) return List.of();
-            String payload = new String(java.util.Base64.getUrlDecoder().decode(parts[1]));
-            JsonNode root = objectMapper.readTree(payload);
+            JsonNode root = claims != null && claims.path("act").isObject() ? claims : jwtPayload(sessionToken);
+            if (root == null) return List.of();
             JsonNode ownerAccounts = root.path("act").path("acc").path("owner");
             if (!ownerAccounts.isObject()) return List.of();
 
@@ -846,9 +847,16 @@ public class TradeRepublicAdapter {
             });
             return result;
         } catch (Exception ex) {
-            log.warn("Failed to extract sec account numbers from JWT: {}", ex.getMessage());
+            log.warn("Failed to extract sec account numbers from the session claims: {}", ex.getMessage());
         }
         return List.of();
+    }
+
+    /** The payload of a JWT-shaped token, or null when the token is not one. */
+    private JsonNode jwtPayload(String token) throws JsonProcessingException {
+        String[] parts = token.split("\\.");
+        if (parts.length < 2) return null;
+        return objectMapper.readTree(new String(java.util.Base64.getUrlDecoder().decode(parts[1])));
     }
 
     private void addSecAccountsFromWrapper(
@@ -908,7 +916,6 @@ public class TradeRepublicAdapter {
     }
 
     private List<TrAccountData> parseCashJson(String json) {
-        log.info("TR availableCash raw: {}", json);
         List<TrAccountData> accounts = new ArrayList<>();
         BigDecimal value = parseCashValue(json);
         if (value.compareTo(BigDecimal.ZERO) >= 0) {
@@ -938,7 +945,7 @@ public class TradeRepublicAdapter {
                 }
             }
         } catch (Exception ex) {
-            log.error("Failed to parse TR availableCash: {}", json, ex);
+            log.error("Failed to parse TR availableCash ({})", ex.getClass().getSimpleName());
         }
         return BigDecimal.ZERO;
     }
@@ -951,7 +958,11 @@ public class TradeRepublicAdapter {
         return BigDecimal.ZERO;
     }
 
-    public record TrTokens(String sessionToken, String refreshToken) {}
+    /** Answer to {@code /initiate}: {@code flow} is {@code confirmInApp} or {@code otp}. */
+    public record TrInitiate(String processId, String flow, Integer countdownInSeconds) {}
+
+    /** A live {@code tr_session} cookie value and the claims TR issued with it. */
+    public record TrSession(String sessionToken, JsonNode claims) {}
 
     public record TrPosition(
         String isin,

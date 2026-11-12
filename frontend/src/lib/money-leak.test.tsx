@@ -3,8 +3,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { act, render } from '@testing-library/react'
 import { HoldingsTable } from '@/components/shared/HoldingsTable'
 import { PyramidSection } from '@/pages/analysis/PyramidSection'
+import { PeerLoansOverviewCard } from '@/components/peer-loan/PeerLoansOverviewCard'
 import { useAppStore } from '@/stores/app-store'
-import type { HoldingResponse, WealthPyramid } from '@/types/api'
+import type { HoldingResponse, PeerLoansOverview, WealthPyramid } from '@/types/api'
+
+vi.mock('react-router', () => ({ useNavigate: () => vi.fn() }))
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -85,6 +88,31 @@ function pyramid(): WealthPyramid {
   } as unknown as WealthPyramid
 }
 
+function peerLoansOverview(): PeerLoansOverview {
+  return {
+    totalOutstanding: 987654,
+    openCount: 1,
+    closedCount: 0,
+    interestAccrued: 123456,
+    loans: [{
+      accountId: 1,
+      name: 'Jean',
+      principal: 987654,
+      principalRemaining: 555444,
+      repaidPct: 50,
+      interestAccrued: 123456,
+      interestReceived: 0,
+      lentAt: '2026-01-01',
+      expectedBack: null,
+      installmentsBehind: 0,
+      lastPaymentDate: '2026-02-01',
+      lastPaymentAmount: 137137,
+      closedAt: null,
+    }],
+    history: [],
+  }
+}
+
 describe('no amount survives privacy mode', () => {
   beforeEach(() => {
     useAppStore.getState().setHideAmounts(false)
@@ -98,6 +126,10 @@ describe('no amount survives privacy mode', () => {
     // The alert reads "{{value}} beyond your target", so the amount has no element of its own to
     // intercept — it has to be masked before it reaches t().
     expectNoAmountsAfterToggle(<PyramidSection pyramid={pyramid()} />)
+  })
+
+  it('peer-loans overview — totals, remaining and last payment', () => {
+    expectNoAmountsAfterToggle(<PeerLoansOverviewCard data={peerLoansOverview()} />)
   })
 
   it('leaves the published quote legible, which is the one deliberate exception', () => {

@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.adapter.sidecar.SidecarClient;
-import com.picsou.adapter.sidecar.SidecarSession;
+import com.picsou.adapter.sidecar.SidecarSessionState;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.model.AccountType;
 import com.picsou.port.SidecarErrorCode;
@@ -27,7 +27,12 @@ import java.util.Map;
  */
 @Component
 public class AmexAdapter {
-    private static final Duration DEFAULT_AUTH_TIMEOUT = Duration.ofSeconds(45);
+    /**
+     * Browser start, up to two 20 s waits for the client-rendered login form
+     * (one reload, #482), typing, then up to 30 s for the login outcome and the
+     * one-time-code channel step: past 70 s in the worst case, hence 90 s.
+     */
+    private static final Duration DEFAULT_AUTH_TIMEOUT = Duration.ofSeconds(90);
     /** A single OTP submission round-trip, not a human approving a push. */
     private static final Duration DEFAULT_VALIDATION_TIMEOUT = Duration.ofSeconds(40);
     private static final Duration DEFAULT_ACCOUNTS_TIMEOUT = Duration.ofSeconds(90);
@@ -94,10 +99,10 @@ public class AmexAdapter {
         Map<String, Object> body = new HashMap<>();
         body.put("processId", processId);
         body.put("otp", otp);
-        SidecarSession response = sidecar.post(
+        SidecarSessionState response = sidecar.post(
             "/complete",
             body,
-            SidecarSession.class,
+            SidecarSessionState.class,
             validationTimeout,
             "Could not complete Amex authentication",
             SidecarErrorCode.INVALID_OTP

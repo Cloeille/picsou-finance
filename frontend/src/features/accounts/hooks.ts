@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useBudgetSettings } from '@/features/budget/hooks'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useInvalidatingMutation } from '@/hooks/use-invalidating-mutation'
 import { accountsApi, realEstateApi } from './api'
 import type { AccountRequest, Account, DebtRequest, HoldingResponse, OwnershipRequest, RealEstateMetadataRequest, ScpiPositionRequest, ScpiProvider, TransactionImportRequest, TransactionRequest } from '@/types/api'
-import { HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES, QUERY_STALE_TIMES } from '@/lib/constants'
+import { euroFundLabelKey, hasSyncedEuroFund } from './euro-fund'
+import { HOLDINGS_CASH_ACCOUNT_TYPES, HOLDING_ACCOUNT_TYPES, QUERY_STALE_TIMES } from '@/lib/constants'
 
 export interface HoldingWithAccount extends HoldingResponse {
   accountName: string
@@ -190,14 +192,15 @@ export function usePortfolio() {
       )
       lines.push(...holdingResults.flat())
 
-      // PER accounts keep the euro-fund balance separately from their account total. Do not
-      // use currentBalanceEur here: it already includes unit-linked holdings in the same PER.
+      // PER accounts, and assurance vie imported from the Caisse d'Epargne, keep the euro-fund
+      // balance separately from their account total. Do not use currentBalanceEur here: it
+      // already includes unit-linked holdings in the same contract.
       for (const account of accounts) {
-        if (account.type !== 'PER' || account.cashBalance == null || account.cashBalance <= 0) continue
+        if (!hasSyncedEuroFund(account) || account.cashBalance == null || account.cashBalance <= 0) continue
         lines.push({
           id: `per-euro-fund-${account.id}`,
           name: account.name,
-          nameKey: 'accounts.perEuroFundBalance',
+          nameKey: euroFundLabelKey(account),
           ticker: 'EUR',
           isCash: true,
           quantity: 0,
@@ -249,9 +252,13 @@ export function usePortfolio() {
         }
       })
 
-      // Cash accounts — aggregate into a single "Euros" line (debts are not cash)
-      const cashAccounts = accounts.filter(
-        a => !HOLDING_ACCOUNT_TYPES.includes(a.type) && !LIABILITY_ACCOUNT_TYPES.includes(a.type),
+      // Cash accounts — aggregate into a single "Euros" line. Only bank and savings types:
+      // debts, property and SCPI are not cash. A pocket whose wallet is in the same cash list
+      // is left out, because the wallet's balance already carries it.
+      const cashTyped = accounts.filter(a => HOLDINGS_CASH_ACCOUNT_TYPES.includes(a.type))
+      const cashIds = new Set(cashTyped.map(a => a.id))
+      const cashAccounts = cashTyped.filter(
+        a => a.parentAccountId == null || !cashIds.has(a.parentAccountId),
       )
       if (cashAccounts.length > 0) {
         enriched.push({
@@ -356,6 +363,20 @@ export function useAccount(id: number) {
 // (useAccountHoldings was removed: it was unused and shared the query key
 // ['accounts', id, 'holdings'] with useHoldingsWithLivePrices while running a
 // different queryFn — a cache-collision trap.)
+
+/**
+ * Builds the opt-in logo URL of the bank behind an aggregator account, or `null` when the member
+ * has not enabled logos (the same switch as merchant logos) or the account has no logo to ask for.
+ * Returning `null` up front spares a 404 per card; the URL is same-origin, so the auth cookie rides along.
+ */
+export function useInstitutionLogoUrl(): (account: Pick<Account, 'id' | 'institution'>) => string | null {
+  const { data: settings } = useBudgetSettings()
+  const enabled = settings?.logoFetchEnabled ?? false
+  return useCallback(
+    (account) => (enabled && account.institution?.hasLogo ? `/api/accounts/${account.id}/institution-logo` : null),
+    [enabled],
+  )
+}
 
 /** The gold products a PRECIOUS_METALS account can hold; fetched only when the form needs them. */
 export function usePreciousMetals(enabled: boolean) {
@@ -468,7 +489,15 @@ export function useCreateAccount() {
 export function useUpdateAccount() {
   return useInvalidatingMutation({
     mutationFn: ({ id, data }: { id: number; data: AccountRequest }) => accountsApi.update(id, data),
-    invalidates: (_data, variables) => [['accounts'], ['dashboard'], ['accounts', variables.id]],
+    invalidates: (_data, variables) => [
+      ['accounts'],
+      ['dashboard'],
+      ['accounts', variables.id],
+      // Both payloads carry the account name, so a rename must refresh them too.
+      ['peer-loan', variables.id],
+      ['peer-loans', 'open'],
+      ['peer-loans', 'overview'],
+    ],
   })
 }
 
@@ -489,7 +518,13 @@ export function useAccountDeletionImpact(accountId: number | null) {
 export function useDeleteAccount() {
   return useInvalidatingMutation({
     mutationFn: (id: number) => accountsApi.delete(id),
-    invalidates: [['accounts'], ['dashboard'], ['goals']],
+    invalidates: [
+      ['accounts'],
+      ['dashboard'],
+      ['goals'],
+      ['peer-loans', 'open'],
+      ['peer-loans', 'overview'],
+    ],
   })
 }
 

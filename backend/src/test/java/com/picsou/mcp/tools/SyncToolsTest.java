@@ -70,7 +70,7 @@ class SyncToolsTest {
         String text = tools.triggerBankSync();
 
         assertThat(text).contains("enable-banking: FAILED — denied");
-        verify(memberSyncService).resyncForUser(MID, Set.of("enable-banking", "enable-banking-retry", "simplefin"));
+        verify(memberSyncService).resyncForUser(MID, Set.of("enable-banking", "enable-banking-retry", "simplefin", "wise"));
     }
 
     @Test
@@ -83,7 +83,7 @@ class SyncToolsTest {
         tools.triggerBrokerSync();
 
         verify(memberSyncService).resyncForUser(MID, Set.of(
-            "trade-republic", "bourso", "bourse-direct", "amundi", "cmes", "corum", "fortuneo", "amex", "ibkr", "degiro"));
+            "trade-republic", "bourso", "bourse-direct", "amundi", "cmes", "corum", "natixis", "lbp", "bnp", "fortuneo", "amex", "ibkr", "degiro"));
     }
 
     @Test

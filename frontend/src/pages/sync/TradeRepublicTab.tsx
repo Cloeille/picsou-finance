@@ -1,65 +1,71 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import {
+  AlertTriangle,
   RefreshCw,
   Upload,
   LogOut,
 } from 'lucide-react'
-import type { TrSessionStatus } from '@/types/api'
-import { formatDateTime } from '@/lib/utils'
+import {
+  useClearTrSession,
+  useImportTrCsv,
+  useSyncTradeRepublic,
+  useTrSessionStatus,
+} from '@/features/sync/hooks'
+import { useAccounts } from '@/features/accounts/hooks'
+import { formatTrAuthError, trErrorMessage } from '@/lib/errors'
 import { TradeRepublicLogin } from '@/components/sync/TradeRepublicLogin'
 
 export function TradeRepublicTab() {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const { data: sessionStatus, isLoading: statusLoading } = useQuery<TrSessionStatus>({
-    queryKey: ['sync', 'tr', 'status'],
-    queryFn: () => api.get<TrSessionStatus>('/tr/status').then(r => r.data),
-  })
+  const { data: sessionStatus, isLoading: statusLoading } = useTrSessionStatus()
+  const { data: accounts } = useAccounts()
+  const syncMutation = useSyncTradeRepublic()
+  const importCsvMutation = useImportTrCsv()
+  const logoutMutation = useClearTrSession()
 
   const isConnected = sessionStatus?.isActive ?? false
-
-  const syncMutation = useMutation({
-    mutationFn: () => api.post('/tr/sync').then(r => r.data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['sync', 'tr', 'status'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-    },
-  })
-
-  const importCsvMutation = useMutation({
-    mutationFn: (file: File) => {
-      const formData = new FormData()
-      formData.append('file', file)
-      return api.post('/tr/import', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      }).then(r => r.data)
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    },
-  })
-
-  const logoutMutation = useMutation({
-    mutationFn: () => api.delete('/tr/session').then(r => r.data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['sync', 'tr', 'status'] })
-    },
-  })
+  const syncStatus = sessionStatus?.syncStatus ?? 'IDLE'
+  const isSyncing = syncStatus === 'QUEUED' || syncStatus === 'RUNNING'
+  const requestingSync = syncMutation.isPending || isSyncing
+  const backgroundError = syncStatus === 'FAILED'
+    ? (trErrorMessage(t, sessionStatus?.lastSyncError) ?? t('sync.tr.errors.serverError'))
+    : null
+  const visibleError = error ?? backgroundError
+  // Accounts a past session imported stop updating once it is gone (an expiry, a disconnect, or
+  // the upgrade that dropped the old sessions): say so, the daily sync skips them silently.
+  // CSV imports (tr_csv_*) never had a session, so they say nothing.
+  const staleAccounts = !isConnected && (accounts ?? []).some(
+    account => account.provider === 'Trade Republic' && !account.isManual
+      && !account.externalAccountId?.startsWith('tr_csv_'),
+  )
 
   function handleCsvChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    if (file) importCsvMutation.mutate(file)
+    if (!file) return
+    setError(null)
+    importCsvMutation.mutate(file, {
+      onSuccess: () => {
+        if (fileInputRef.current) fileInputRef.current.value = ''
+      },
+      onError: (err: unknown) => setError(formatTrAuthError(err, t)),
+    })
+  }
+
+  function handleSync() {
+    setError(null)
+    syncMutation.mutate(undefined, { onError: (err: unknown) => setError(formatTrAuthError(err, t)) })
+  }
+
+  function handleClear() {
+    setError(null)
+    logoutMutation.mutate(undefined, { onError: (err: unknown) => setError(formatTrAuthError(err, t)) })
   }
 
   if (statusLoading) {
@@ -82,22 +88,41 @@ export function TradeRepublicTab() {
                   {t('sync.tr.noSession')}
                 </Badge>
               )}
-              {isConnected && sessionStatus?.expiresAt && (
-                <span className="text-sm text-muted-foreground">
-                  {t('sync.tr.expiresAt')} {formatDateTime(sessionStatus.expiresAt)}
-                </span>
-              )}
             </div>
           </div>
+          {isSyncing && (
+            <p className="mt-2 text-sm text-muted-foreground">
+              {syncStatus === 'QUEUED' ? t('sync.tr.queued') : t('sync.tr.syncing')}
+            </p>
+          )}
+          {syncStatus === 'SUCCESS' && sessionStatus?.lastSyncCompletedAt && (
+            <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-400">
+              {t('sync.tr.syncSuccess')}
+            </p>
+          )}
         </CardContent>
       </Card>
+
+      {visibleError && (
+        <Card size="sm" className="border-destructive/30">
+          <CardContent className="flex items-center gap-3 py-4">
+            <AlertTriangle className="size-5 shrink-0 text-destructive" />
+            <p className="flex-1 text-sm text-destructive">{visibleError}</p>
+            {error && (
+              <Button size="sm" variant="outline" onClick={() => setError(null)}>
+                {t('common.retry')}
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Connected controls */}
       {isConnected && (
         <div className="flex flex-wrap gap-3">
-          <Button onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending}>
-            <RefreshCw />
-            {t('sync.tr.sync')}
+          <Button onClick={handleSync} disabled={requestingSync}>
+            <RefreshCw className={requestingSync ? 'animate-spin' : undefined} />
+            {requestingSync ? t('sync.tr.syncing') : t('sync.tr.sync')}
           </Button>
 
           <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={importCsvMutation.isPending}>
@@ -105,7 +130,7 @@ export function TradeRepublicTab() {
             {t('sync.tr.importCsv')}
           </Button>
 
-          <Button variant="destructive" onClick={() => logoutMutation.mutate()} disabled={logoutMutation.isPending}>
+          <Button variant="destructive" onClick={handleClear} disabled={logoutMutation.isPending}>
             <LogOut />
             {t('sync.tr.clearSession')}
           </Button>
@@ -120,7 +145,11 @@ export function TradeRepublicTab() {
         </div>
       )}
 
-      {!isConnected && <TradeRepublicLogin variant="page" />}
+      {staleAccounts && !visibleError && (
+        <p className="text-sm text-muted-foreground">{t('sync.tr.staleAccounts')}</p>
+      )}
+
+      {!isConnected && <TradeRepublicLogin variant="page" maskedPhone={sessionStatus?.maskedPhone ?? null} />}
     </div>
   )
 }

@@ -8,6 +8,7 @@ import {
   useAccountTransactions, useAddTransaction, useDeleteTransaction,
   useUpdateTransaction, useUpdateHolding, useDeleteHolding, useImportTRTransactions
 } from '@/features/accounts/hooks'
+import { euroFundLabelKey, hasSyncedEuroFund } from '@/features/accounts/euro-fund'
 import { useCategories, useCategorize } from '@/features/budget/hooks'
 import { useHistory } from '@/features/history/hooks'
 import { BalanceHistoryChart } from '@/components/shared/BalanceHistoryChart'
@@ -25,6 +26,16 @@ import { AccountTypeBadge } from '@/components/shared/AccountTypeBadge'
 import { CardNatureField } from '@/components/shared/CardNatureField'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { LoanDetailSection } from '@/components/loan/LoanDetailSection'
+import { PeerLoanDetailSection } from '@/components/peer-loan/PeerLoanDetailSection'
+import { CreatePeerLoanDialog } from '@/components/peer-loan/CreatePeerLoanDialog'
+import { AssignRepaymentDialog } from '@/components/peer-loan/AssignRepaymentDialog'
+import {
+  useAssignPeerLoanRepayment,
+  useCreatePeerLoanFromTransaction,
+  useOpenPeerLoans,
+} from '@/features/peer-loans/hooks'
+import { extractErrorMessage } from '@/lib/errors'
+import { OwnershipEditor } from '@/components/property/OwnershipEditor'
 import { SavingsConfigSection } from '@/features/savings/SavingsConfigSection'
 import { useSavingsSuggestions } from '@/features/savings/hooks'
 import { PropertyDetailSection } from '@/components/property/PropertyDetailSection'
@@ -37,7 +48,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ArrowLeft, Calendar, TrendingUp, TrendingDown, Upload } from 'lucide-react'
 import { formatLocalDate, formatNumber, formatPercent, localeFromLanguage } from '@/lib/utils'
-import { accountTypeLabelKey, HOLDING_ACCOUNT_TYPES } from '@/lib/constants'
+import { accountTypeLabelKey, CASH_ACCOUNT_TYPES, HOLDING_ACCOUNT_TYPES } from '@/lib/constants'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
 import type { HoldingResponse, Transaction } from '@/types/api'
 
@@ -64,6 +75,9 @@ export function AccountDetailPage() {
   const deleteHoldingMutation = useDeleteHolding(accountId)
   const updateHoldingMutation = useUpdateHolding(accountId)
   const importTRMutation = useImportTRTransactions(accountId)
+  const createPeerLoan = useCreatePeerLoanFromTransaction()
+  const assignRepayment = useAssignPeerLoanRepayment()
+  const openLoans = useOpenPeerLoans()
   const { data: pnlData } = useHistory(accountId ? [accountId] : [], 12)
   const { data: savingsSuggestions } = useSavingsSuggestions()
   const { data: categories } = useCategories()
@@ -75,6 +89,8 @@ export function AccountDetailPage() {
   const [showImport, setShowImport] = useState(false)
   const [editingTx, setEditingTx] = useState<Transaction | null>(null)
   const [editingHolding, setEditingHolding] = useState<HoldingResponse | null>(null)
+  const [peerLoanTx, setPeerLoanTx] = useState<Transaction | null>(null)
+  const [repaymentTx, setRepaymentTx] = useState<Transaction | null>(null)
   const [range, setRange] = useState<TimeRange>('1Y')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -118,6 +134,11 @@ export function AccountDetailPage() {
 
   const chartData = (history ?? []).map(s => ({ date: s.date, balance: s.balance }))
   const isLoan = account?.type === 'LOAN'
+  // A peer loan is a receivable: its own section replaces the transaction ledger and the
+  // snapshot list, exactly as a LOAN's amortization view does.
+  const isPeerLoan = account?.type === 'PEER_LOAN'
+  const hidesLedger = isLoan || isPeerLoan
+  const canStartPeerLoan = account ? CASH_ACCOUNT_TYPES.includes(account.type) : false
   // A freshly bank-synced livret is typed CHECKING until configured, so also surface the
   // section when it already has a config or the detector flagged it as a savings candidate.
   const savingsSuggestion = Array.isArray(savingsSuggestions)
@@ -150,7 +171,7 @@ export function AccountDetailPage() {
   const overviewSections = (
     <>
       {/* History chart */}
-      {!isLoan && showHoldings && pnlData && pnlData.length > 1 ? (
+      {!hidesLedger && showHoldings && pnlData && pnlData.length > 1 ? (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{t('accounts.valueAndInvested')}</CardTitle>
@@ -159,7 +180,7 @@ export function AccountDetailPage() {
             <NetWorthChart data={pnlData} range={range} onRangeChange={setRange} />
           </CardContent>
         </Card>
-      ) : !isLoan && chartData.length > 1 ? (
+      ) : !hidesLedger && chartData.length > 1 ? (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{t('accounts.history')}</CardTitle>
@@ -173,7 +194,7 @@ export function AccountDetailPage() {
       {/* Holdings and realized P&L are rendered once, above, outside this fragment. */}
 
       {/* Transactions */}
-      {!isLoan && transactions && (
+      {!hidesLedger && transactions && (
         <>
           <input
             type="file"
@@ -205,12 +226,16 @@ export function AccountDetailPage() {
             onEdit={(tx) => setEditingTx(tx)}
             categories={categories}
             onCategorize={handleCategorize}
+            onCreatePeerLoan={setPeerLoanTx}
+            onAssignRepayment={setRepaymentTx}
+            canAssignRepayment={(tx) => tx.amount > 0 && canStartPeerLoan}
+            canCreatePeerLoan={(tx) => tx.amount < 0 && canStartPeerLoan}
           />
         </>
       )}
 
       {/* Snapshot list */}
-      {!isLoan && recentSnapshots.length > 0 && (
+      {!hidesLedger && recentSnapshots.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{t('accounts.snapshots')}</CardTitle>
@@ -308,7 +333,7 @@ export function AccountDetailPage() {
             <CurrencyDisplay value={displayBalance} className={`text-3xl font-bold ${isLoan ? 'text-red-500' : 'text-foreground'}`} />
             {showHoldings && account.cashBalance != null && (
               <p className="mt-1 text-xs text-muted-foreground">
-                {t('common.labelColon', { label: t(account.type === 'PER' ? 'accounts.perEuroFundBalance' : 'accounts.cashBalance') })} <CurrencyDisplay value={account.cashBalance} />
+                {t('common.labelColon', { label: t(hasSyncedEuroFund(account) ? euroFundLabelKey(account) : 'accounts.cashBalance') })} <CurrencyDisplay value={account.cashBalance} />
               </p>
             )}
             {account.currency !== 'EUR' && (
@@ -341,6 +366,16 @@ export function AccountDetailPage() {
 
       {/* Loan detail */}
       {isLoan && account && <LoanDetailSection accountId={account.id} />}
+      {/* A mortgage split is independent from the property's and from the debt details:
+          the editor lives outside the summary's loading and error branches so the split
+          stays editable with or without debt details, for owners and co-owners
+          (issues #354, #550). */}
+      {isLoan && account && (
+        <OwnershipEditor accountId={account.id} canEdit={account.isOwner !== false} />
+      )}
+
+      {/* Peer loan detail: nominal receivable, dated ledger, forecast and closure */}
+      {isPeerLoan && account && <PeerLoanDetailSection accountId={account.id} />}
 
       {/* Property detail: description, valuation, financing and ownership split */}
       {isRealEstate && account && <PropertyDetailSection account={account} />}
@@ -350,11 +385,11 @@ export function AccountDetailPage() {
       {/* Contract figures the insurer reports (a synced assurance-vie). */}
       {account?.type === 'ASSURANCE_VIE' && account.contract && <LifeContractSection account={account} />}
 
-      {/* Upcoming dividends for a libre securities account or a PEA only. Other wrappers
-          (assurance vie, PER, employee savings) and a checking account stay off this view.
-          Keyed on the account id: this route reuses the page across :id, and the carousel
-          scroll must not carry from one compte to the next. */}
-      {account && (account.type === 'COMPTE_TITRES' || account.type === 'PEA') && (
+      {/* Upcoming dividends for a libre securities account, a brokerage account or a PEA only.
+          Other wrappers (assurance vie, PER, employee savings) and a checking account stay off
+          this view. Keyed on the account id: this route reuses the page across :id, and the
+          carousel scroll must not carry from one compte to the next. */}
+      {account && (account.type === 'COMPTE_TITRES' || account.type === 'BROKERAGE' || account.type === 'PEA') && (
         <AccountDividendsSection
           key={`dividends-${account.id}`}
           accountId={account.id}
@@ -478,6 +513,45 @@ export function AccountDetailPage() {
           setEditingHolding(null)
         }}
         isLoading={updateHoldingMutation.isPending}
+      />
+
+      {/* Create a peer loan from an outgoing transaction (the transaction becomes its
+          cash leg, so the outflow is not counted twice). */}
+      <CreatePeerLoanDialog
+        open={!!peerLoanTx}
+        onOpenChange={(open) => { if (!open) setPeerLoanTx(null) }}
+        transaction={peerLoanTx}
+        loading={createPeerLoan.isPending}
+        onSubmit={async (data) => {
+          try {
+            const created = await createPeerLoan.mutateAsync(data)
+            toast.success(t('peerLoan.fromTransaction.created'))
+            setPeerLoanTx(null)
+            navigate(`/accounts/${created.accountId}`)
+          } catch (err) {
+            toast.error(extractErrorMessage(err, t('common.error')))
+            throw err
+          }
+        }}
+      />
+
+      <AssignRepaymentDialog
+        open={!!repaymentTx}
+        onOpenChange={(open) => { if (!open) setRepaymentTx(null) }}
+        transaction={repaymentTx}
+        loans={openLoans.data ?? []}
+        loading={assignRepayment.isPending}
+        onSubmit={async (loanAccountId, data) => {
+          try {
+            await assignRepayment.mutateAsync({ accountId: loanAccountId, data })
+            toast.success(t('peerLoan.assignRepayment.created'))
+            setRepaymentTx(null)
+            navigate(`/accounts/${loanAccountId}`)
+          } catch (err) {
+            toast.error(extractErrorMessage(err, t('common.error')))
+            throw err
+          }
+        }}
       />
 
       {/* Monthly history dialog */}

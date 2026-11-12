@@ -44,7 +44,12 @@ import { formatPercent } from '@/lib/utils'
 
 type WealthMode = 'net' | 'gross' | 'financial'
 
-const EXCLUDED_FINANCIAL = new Set(['CHECKING', 'LOAN'])
+// Financial wealth = liquid and investable assets only. Checking is the day-to-day
+// cash excluded by design; real estate is tangible property; physical precious
+// metals are tangible movables; OTHER has an unknown nature and must not inflate
+// the figure by default. SCPI stays in: a share of a real-estate fund is an
+// intangible, exchangeable security.
+const EXCLUDED_FINANCIAL = new Set(['CHECKING', 'LOAN', 'REAL_ESTATE', 'PRECIOUS_METALS', 'OTHER'])
 
 export function DashboardPage() {
   const { t } = useTranslation()
@@ -63,24 +68,25 @@ export function DashboardPage() {
     if (!data) return []
     switch (wealthMode) {
       case 'gross':
-        // Assets only (no liabilities)
-        return data.distribution.map(d => d.accountId)
+        // Assets only (no liabilities), receivables included
+        return data.assets.map(d => d.accountId)
       case 'financial':
-        // Financial assets: drop checking and any loan that slipped into distribution
-        return data.distribution
+        // Financial assets: drop everything in EXCLUDED_FINANCIAL (checking,
+        // loans, real estate, physical metals, OTHER)
+        return data.assets
           .filter(d => !EXCLUDED_FINANCIAL.has(d.accountType))
           .map(d => d.accountId)
       default:
-        // Net worth: all accounts including liabilities
-        return [...data.distribution.map(d => d.accountId), ...data.liabilities.map(l => l.accountId)]
+        // Net worth: all accounts including liabilities and receivables
+        return [...data.assets.map(d => d.accountId), ...data.liabilities.map(l => l.accountId)]
     }
   }, [data, wealthMode])
   // Accounts that actually have holdings/tickers — used for PnL only.
   // Mirrors the chart filter: in "financial" mode we still drop excluded categories
-  // (in practice CHECKING/LOAN don't carry holdings, so this is a no-op safety net).
+  // (e.g. a real-estate or metals account carrying holdings).
   const investmentAccountIds = useMemo(() => {
     if (!data) return []
-    return data.distribution
+    return data.assets
       .filter(d => d.hasHoldings)
       .filter(d => wealthMode !== 'financial' || !EXCLUDED_FINANCIAL.has(d.accountType))
       .map(d => d.accountId)
@@ -116,19 +122,32 @@ export function DashboardPage() {
   // Compute wealth value based on selected mode
   const wealthValue = useMemo(() => {
     if (!data) return 0
-    const sumAccounts = (items: typeof data.distribution, exclude?: Set<string>) =>
+    const sumAccounts = (items: typeof data.assets, exclude?: Set<string>) =>
       items
         .filter(d => !exclude || !exclude.has(d.accountType))
         .reduce((s, d) => s + d.balanceEur, 0)
 
     switch (wealthMode) {
       case 'gross':
-        return sumAccounts(data.distribution)
+        return sumAccounts(data.assets)
       case 'financial':
-        return sumAccounts(data.distribution, EXCLUDED_FINANCIAL)
+        return sumAccounts(data.assets, EXCLUDED_FINANCIAL)
       default:
         return data.totalNetWorth
     }
+  }, [data, wealthMode])
+
+  // Distribution shown beside the hero: in financial mode it mirrors the same
+  // filter as the headline value and the history curve, so the donut never
+  // shows a category the figure excludes. Percentages are recomputed over the
+  // filtered total — the backend shares cover the whole portfolio.
+  const displayDistribution = useMemo(() => {
+    if (!data) return []
+    if (wealthMode !== 'financial') return data.distribution
+    const filtered = data.distribution.filter(d => !EXCLUDED_FINANCIAL.has(d.accountType))
+    const total = filtered.reduce((s, d) => s + d.balanceEur, 0)
+    if (total <= 0) return filtered.map(d => ({ ...d, percentage: 0 }))
+    return filtered.map(d => ({ ...d, percentage: (d.balanceEur / total) * 100 }))
   }, [data, wealthMode])
 
   // ALL uses live PnL; selected ranges use only their range PnL. Unknown is not zero.
@@ -269,7 +288,7 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        <DistributionPie data={data.distribution} />
+        <DistributionPie data={displayDistribution} />
       </div>
 
       {/* Property wealth: gross, mortgage debt and the equity between them. Renders nothing

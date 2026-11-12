@@ -11,6 +11,7 @@ import com.picsou.dto.HoldingResponse;
 import com.picsou.dto.RealEstateMetadataResponse;
 import com.picsou.dto.SnapshotRequest;
 import com.picsou.exception.ResourceNotFoundException;
+import com.picsou.finary.FinaryPersistenceHelper;
 import com.picsou.model.ScpiProvider;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
@@ -22,17 +23,22 @@ import com.picsou.model.PropertyKind;
 import com.picsou.model.PropertyValuation;
 import com.picsou.model.RealEstateMetadata;
 import com.picsou.model.RecurringCadence;
+import com.picsou.model.SnapshotSource;
+import com.picsou.model.Transaction;
 import com.picsou.model.WealthTier;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.DebtRepository;
+import com.picsou.repository.PeerLoanRepaymentRepository;
+import com.picsou.repository.PeerLoanTermsRepository;
 import com.picsou.repository.PriceSnapshotRepository;
 import com.picsou.repository.PropertyValuationRepository;
 import com.picsou.repository.RealEstateMetadataRepository;
 import com.picsou.repository.SavingsInterestConfigRepository;
 import com.picsou.repository.ScpiPositionRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.PeerLoanTransactionLinks;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -41,11 +47,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -55,6 +63,8 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -78,6 +88,7 @@ class AccountServiceTest {
     @Mock InstrumentLogoService instrumentLogoService;
     @Mock ScpiPositionRepository scpiPositionRepository;
     @Mock ScpiFundService scpiFundService;
+    @Mock FinaryPersistenceHelper finaryPersistenceHelper;
     @InjectMocks AccountService accountService;
 
     private Account ownedAccount() {
@@ -220,17 +231,32 @@ class AccountServiceTest {
         Account card = Account.builder().id(1L).name("Card").type(AccountType.CREDIT_CARD)
             .currency("EUR").isManual(true).currentBalance(new BigDecimal("-500")).build();
         when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(card));
-        when(snapshotRepository.findLatestByAccountId(1L)).thenReturn(Optional.empty());
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(snapshotRepository.findByAccountIdAndDate(eq(1L), any())).thenReturn(Optional.empty());
         when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(priceService.toEur(new BigDecimal("-800"), "EUR", null)).thenReturn(new BigDecimal("-800"));
+        when(finaryPersistenceHelper.computeManualLedgerBalance(card)).thenReturn(new BigDecimal("-800"));
 
         BalanceSnapshot saved = accountService.addManualSnapshot(
             1L, 7L, new SnapshotRequest(new BigDecimal("800"), LocalDate.now()));
 
         assertThat(saved.getBalance()).isEqualByComparingTo("-800");
         assertThat(card.getCurrentBalance()).isEqualByComparingTo("-800");
+    }
+
+    @Test
+    void addManualSnapshot_rejectsAPeerLoanWhoseBalanceComesFromItsLedger() {
+        Account loan = Account.builder().id(1L).name("Jean").type(AccountType.PEER_LOAN)
+            .currency("EUR").isManual(true).currentBalance(new BigDecimal("500")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(loan));
+
+        assertThatThrownBy(() -> accountService.addManualSnapshot(
+            1L, 7L, new SnapshotRequest(new BigDecimal("500"), LocalDate.now())))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("repayment ledger");
+
+        assertThat(loan.getCurrentBalance()).isEqualByComparingTo("500");
+        verify(accountRepository, never()).save(any());
     }
 
     @Test
@@ -448,6 +474,11 @@ class AccountServiceTest {
             new BigDecimal(balance), true, "#6366f1", null, null, null, null);
     }
 
+    private static AccountRequest eurBalanceRequest(String balance) {
+        return new AccountRequest("Livret", AccountType.LIVRET_A, null, "EUR",
+            new BigDecimal(balance), true, "#6366f1", null, null, null, null);
+    }
+
     private static Account usdManualAccount(String balance) {
         return Account.builder().id(1L).name("US checking").type(AccountType.CHECKING)
             .currency("USD").currentBalance(new BigDecimal(balance)).isManual(true).build();
@@ -467,27 +498,166 @@ class AccountServiceTest {
         accountService.update(1L, usdBalanceRequest("150"), 7L);
 
         ArgumentCaptor<BalanceSnapshot> snapshot = ArgumentCaptor.forClass(BalanceSnapshot.class);
-        verify(snapshotRepository).save(snapshot.capture());
+        verify(snapshotRepository, times(2)).save(snapshot.capture());
         // The history reads balance_snapshot.balance as EUR: 150 USD must land as 135, not 150.
         assertThat(snapshot.getValue().getBalance()).isEqualByComparingTo("135");
         assertThat(account.getCurrentBalance()).isEqualByComparingTo("150");
+        // A typed balance on a manual ledger is a statement about today: marked MANUAL so
+        // the next transaction anchors on it instead of dropping the edited figure.
+        assertThat(snapshot.getValue().getSource()).isEqualTo(SnapshotSource.MANUAL);
+        assertThat(snapshot.getValue().getNativeBalance()).isEqualByComparingTo("150");
     }
 
     @Test
     void addManualSnapshot_storesTheBalanceInEur_andKeepsTheNativeFigureOnTheAccount() {
         Account account = usdManualAccount("100");
         when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(account));
-        when(snapshotRepository.findLatestByAccountId(1L)).thenReturn(Optional.empty());
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(snapshotRepository.findByAccountIdAndDate(eq(1L), any())).thenReturn(Optional.empty());
         when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(priceService.toEur(new BigDecimal("200"), "USD", null)).thenReturn(new BigDecimal("180"));
+        when(finaryPersistenceHelper.computeManualLedgerBalance(account)).thenReturn(new BigDecimal("200"));
 
         BalanceSnapshot saved = accountService.addManualSnapshot(
             1L, 7L, new SnapshotRequest(new BigDecimal("200"), LocalDate.now()));
 
         assertThat(saved.getBalance()).isEqualByComparingTo("180");
         assertThat(account.getCurrentBalance()).isEqualByComparingTo("200");
+        // Hand-entered: later rebuilds preserve the row and anchor the balance on its
+        // native figure, never on a later FX rate.
+        assertThat(saved.getSource()).isEqualTo(SnapshotSource.MANUAL);
+        assertThat(saved.getNativeBalance()).isEqualByComparingTo("200");
+        verify(finaryPersistenceHelper).reconstructSnapshotsFromDb(account);
+    }
+
+    @Test
+    void addManualSnapshot_backDatedStatementAfterATransaction_recomputesTheAnchoredBalance() {
+        // Reverse order of the usual flow (issue #543): a -50 transaction is already in,
+        // then the October statement of 500 arrives — the balance must become 450, not -50.
+        LocalDate today = LocalDate.now();
+        LocalDate october = today.minusDays(10);
+        Account account = Account.builder().id(1L).name("Livret").type(AccountType.LIVRET_A)
+            .currency("EUR").isManual(true).currentBalance(new BigDecimal("-50")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(account));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(snapshotRepository.findByAccountIdAndDate(eq(1L), any())).thenReturn(Optional.empty());
+        when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(priceService.toEur(new BigDecimal("500"), "EUR", null)).thenReturn(new BigDecimal("500"));
+        when(finaryPersistenceHelper.computeManualLedgerBalance(account))
+            .thenReturn(new BigDecimal("450"));
+
+        BalanceSnapshot saved = accountService.addManualSnapshot(
+            1L, 7L, new SnapshotRequest(new BigDecimal("500"), october));
+
+        assertThat(saved.getSource()).isEqualTo(SnapshotSource.MANUAL);
+        assertThat(saved.getNativeBalance()).isEqualByComparingTo("500");
+        assertThat(saved.getStatementEnteredAt()).isNotNull();
+        assertThat(account.getCurrentBalance()).isEqualByComparingTo("450");
+        verify(finaryPersistenceHelper).reconstructSnapshotsFromDb(account);
+    }
+
+    @Test
+    void addManualSnapshot_transactionThenBackDatedStatement_convergesToTheAnchoredBalance() {
+        // The exact issue #543 report, with a REAL persistence helper: a -50 transaction is
+        // already in when the October statement of 500 arrives — balance 450, statement kept.
+        LocalDate today = LocalDate.now();
+        LocalDate october = today.minusDays(10);
+        LocalDate november = today.minusDays(3);
+        Account account = Account.builder().id(1L).name("Livret").type(AccountType.LIVRET_A)
+            .currency("EUR").isManual(true).currentBalance(new BigDecimal("-50")).build();
+        Transaction posted = Transaction.builder().account(account).date(november)
+            .amount(new BigDecimal("-50")).nativeCurrency("EUR").build();
+        FinaryPersistenceHelper realPersistence = new FinaryPersistenceHelper(
+            snapshotRepository, transactionRepository, priceService);
+        AccountService service = new AccountService(accountRepository, snapshotRepository,
+            holdingRepository, transactionRepository, realEstateMetadataRepository,
+            propertyValuationRepository, debtRepository, savingsInterestConfigRepository, priceService,
+            loanAmortizationService, accessResolver, bankLogoResolver, cryptoLogoService,
+            instrumentLogoService, scpiPositionRepository, scpiFundService,
+            mock(PeerLoanTermsRepository.class), mock(PeerLoanRepaymentRepository.class),
+            mock(PeerLoanTransactionLinks.class), realPersistence);
+
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(account));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
+        when(priceService.toEur(new BigDecimal("500"), "EUR", null)).thenReturn(new BigDecimal("500"));
+        when(priceService.toEur(new BigDecimal("-50"), "EUR", null)).thenReturn(new BigDecimal("-50"));
+        when(snapshotRepository.findByAccountIdAndDate(eq(1L), any())).thenReturn(Optional.empty());
+        when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        BalanceSnapshot statement = BalanceSnapshot.builder()
+            .account(account).date(october).balance(new BigDecimal("500"))
+            .investedAmount(new BigDecimal("500")).source(SnapshotSource.MANUAL)
+            .nativeBalance(new BigDecimal("500")).build();
+        when(snapshotRepository.findFirstByAccountIdAndSourceAndDateLessThanEqualOrderByDateDesc(
+            1L, SnapshotSource.MANUAL, today)).thenReturn(Optional.of(statement));
+        when(transactionRepository.sumAmountByAccountIdAfterStatement(eq(1L), eq(october), any(Instant.class)))
+            .thenReturn(new BigDecimal("-50"));
+        when(transactionRepository.findByAccountIdOrderByDateDesc(1L)).thenReturn(List.of(posted));
+        when(snapshotRepository.findRecentByAccountId(1L, LocalDate.of(2000, 1, 1)))
+            .thenReturn(List.of(statement));
+
+        BalanceSnapshot saved = service.addManualSnapshot(
+            1L, 7L, new SnapshotRequest(new BigDecimal("500"), october));
+
+        assertThat(saved.getSource()).isEqualTo(SnapshotSource.MANUAL);
+        assertThat(account.getCurrentBalance()).isEqualByComparingTo("450");
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<java.util.List<BalanceSnapshot>> deleted =
+            ArgumentCaptor.forClass(java.util.List.class);
+        verify(snapshotRepository).deleteAllInBatch(deleted.capture());
+        assertThat(deleted.getValue()).doesNotContain(statement);
+        ArgumentCaptor<BalanceSnapshot> snapshots = ArgumentCaptor.forClass(BalanceSnapshot.class);
+        verify(snapshotRepository, atLeastOnce()).save(snapshots.capture());
+        Map<LocalDate, java.util.List<BigDecimal>> byDate = snapshots.getAllValues().stream()
+            .collect(Collectors.groupingBy(BalanceSnapshot::getDate,
+                Collectors.mapping(BalanceSnapshot::getBalance, Collectors.toList())));
+        // Today anchored at 450, the November transaction date rebuilt at 450 (not the stale
+        // -50); October only carries the upserted statement itself, never a rebuild.
+        assertThat(byDate.get(today)).containsExactly(new BigDecimal("450"));
+        assertThat(byDate.get(november)).containsExactly(new BigDecimal("450"));
+        assertThat(byDate.get(october)).allSatisfy(balance ->
+            assertThat(balance).isEqualByComparingTo("500"));
+    }
+
+    @Test
+    void update_sameBalanceOnManualLedger_addsNoStatement() {
+        // The form sends the balance it was opened with: a rename must not turn it into a
+        // statement, or a transaction dated before today would stop moving the balance.
+        Account account = Account.builder().id(1L).name("Livret").type(AccountType.LIVRET_A)
+            .currency("EUR").isManual(true).currentBalance(new BigDecimal("500")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(account));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
+
+        accountService.update(1L, eurBalanceRequest("500"), 7L);
+
+        assertThat(account.getCurrentBalance()).isEqualByComparingTo("500");
+        verify(snapshotRepository, never()).save(any());
+    }
+
+    @Test
+    void upsertSnapshotFromNative_refreshesNativeOnAManualRow() {
+        LocalDate today = LocalDate.now();
+        Account account = usdManualAccount("1200");
+        BalanceSnapshot statement = BalanceSnapshot.builder()
+            .account(account).date(today).balance(new BigDecimal("1080"))
+            .investedAmount(new BigDecimal("1080")).source(SnapshotSource.MANUAL)
+            .nativeBalance(new BigDecimal("1200")).build();
+        when(snapshotRepository.findByAccountIdAndDate(1L, today)).thenReturn(Optional.of(statement));
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
+        when(priceService.toEur(new BigDecimal("1200"), "USD", null)).thenReturn(new BigDecimal("1080"));
+        when(priceService.toEur(new BigDecimal("1300"), "USD", null)).thenReturn(new BigDecimal("1170"));
+        when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        // updateAccount rewrites today's row through here: without the native refresh the
+        // next rebuild would anchor on the old 1200 statement (issue #543).
+        BalanceSnapshot result = accountService.upsertSnapshotFromNative(
+            account, new BigDecimal("1300"), today);
+
+        assertThat(result.getBalance()).isEqualByComparingTo("1170");
+        assertThat(result.getSource()).isEqualTo(SnapshotSource.MANUAL);
+        assertThat(result.getNativeBalance()).isEqualByComparingTo("1300");
+        verify(snapshotRepository, times(2)).save(any(BalanceSnapshot.class));
     }
 
     @Test
@@ -815,6 +985,51 @@ class AccountServiceTest {
         assertThat(valuation.investedEur()).isEqualByComparingTo("900");
     }
 
+    /**
+     * A SimpleFIN brokerage account: the balance is in USD, one fund resolves on the price feed
+     * and one (a 401(k) fund known only by its CUSIP) does not, so only the bridge's own value,
+     * stored converted to EUR at sync time, stands for it. Dropping that line from the value
+     * while the cost baseline stays the whole balance reported a loss the size of the fund.
+     */
+    private Account simplefinBrokerage() {
+        return Account.builder().id(1L).name("Retirement").type(AccountType.BROKERAGE)
+            .provider("SimpleFIN").currency("USD").currentBalance(new BigDecimal("10000")).build();
+    }
+
+    @Test
+    void valuation_simplefinPositionYahooCannotPrice_isValuedAtTheBridgesFigureNotDropped() {
+        Account account = simplefinBrokerage();
+        AccountHolding priced = AccountHolding.builder().ticker("AAA").quantity(new BigDecimal("20")).build();
+        AccountHolding unpriced = AccountHolding.builder().ticker("BBB").quantity(new BigDecimal("50"))
+            .providerValueEur(new BigDecimal("7000")).providerPriceDate(LocalDate.of(2026, 1, 2)).build();
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(priced, unpriced));
+        stubQuotes("AAA", "100", "BBB", null);
+        when(priceService.getFxRateEur("USD")).thenReturn(new BigDecimal("0.9"));
+
+        AccountService.Valuation valuation = accountService.valuation(account);
+
+        assertThat(valuation.liveEur()).isEqualByComparingTo("9000"); // 20 x 100 + 7000
+        assertThat(valuation.investedEur()).isEqualByComparingTo("9000"); // 10000 USD at 0.9: no false loss
+    }
+
+    @Test
+    void valuation_simplefinPortfolioNoPriceFeedKnows_isTheSumOfTheBridgesFiguresNotZero() {
+        Account account = simplefinBrokerage();
+        AccountHolding first = AccountHolding.builder().ticker("31617H102").quantity(new BigDecimal("12"))
+            .providerValueEur(new BigDecimal("6000")).build();
+        AccountHolding second = AccountHolding.builder().ticker("922908553").quantity(new BigDecimal("3"))
+            .providerValueEur(new BigDecimal("3000")).build();
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(first, second));
+        stubQuotes("31617H102", null, "922908553", null);
+        when(priceService.getFxRateEur("USD")).thenReturn(new BigDecimal("0.9"));
+
+        AccountService.Valuation valuation = accountService.valuation(account);
+
+        assertThat(valuation.liveEur()).isEqualByComparingTo("9000");
+        assertThat(valuation.investedEur()).isEqualByComparingTo("9000");
+        assertThat(valuation.anyPriced()).isTrue();
+    }
+
     @Test
     void liveBalanceEur_cashAccount_convertsStoredBalance() {
         Account cash = Account.builder()
@@ -909,6 +1124,33 @@ class AccountServiceTest {
         stubQuotes("FR0010405035", "123.456");
 
         assertThat(accountService.liveBalanceEur(account)).isEqualByComparingTo("1234.56");
+    }
+
+    /**
+     * Natixis employer funds are quoted nowhere: a quote that resolves for one of
+     * their tickers is another instrument's, so even when every line "resolves" the
+     * plan keeps the values Natixis reported.
+     */
+    @Test
+    void natixis_keepsTheProviderValuesEvenWhenEveryTickerWouldResolve() {
+        Account account = Account.builder().id(6L).name("PEE — ACME")
+            .type(AccountType.EMPLOYEE_SAVINGS).provider(NatixisSyncService.PROVIDER)
+            .currency("EUR").currentBalance(new BigDecimal("1500.50")).build();
+        AccountHolding holding = AccountHolding.builder()
+            .id(60L).ticker("FR0010405035").quantity(new BigDecimal("10"))
+            .providerValueEur(new BigDecimal("1500.50")).providerPnlEur(new BigDecimal("100.50")).build();
+        when(holdingRepository.findByAccount_Id(6L)).thenReturn(List.of(holding));
+        when(accountRepository.findByIdAndMemberId(6L, 1L)).thenReturn(Optional.of(account));
+        when(holdingRepository.findByAccountIdOrderByCurrentPriceDesc(6L)).thenReturn(List.of(holding));
+        // An unrelated instrument's price that the old code would have used: 10 x 999.
+        org.mockito.Mockito.lenient().when(priceService.getQuotes(any())).thenReturn(Map.of("FR0010405035",
+            new PriceService.Quote(new BigDecimal("999"), LocalDate.now(), true)));
+
+        assertThat(accountService.liveBalanceEur(account)).isEqualByComparingTo("1500.50");
+        HoldingResponse line = accountService.getHoldings(6L, 1L).getFirst();
+        assertThat(line.currentValueEur()).isEqualByComparingTo("1500.50");
+        assertThat(line.pnlEur()).isEqualByComparingTo("100.50");
+        verify(priceService, never()).getQuotes(any());
     }
 
     /**
@@ -1171,9 +1413,31 @@ class AccountServiceTest {
     }
 
     @Test
+    void caisseEpargneAssuranceVie_isValuedFromInsurerFiguresLikeAPer_andAManualOneIsNot() {
+        AccountHolding uc = AccountHolding.builder()
+            .ticker("UC_A").quantity(new BigDecimal("10"))
+            .currentPrice(new BigDecimal("50")).quoteCurrency("USD")
+            .providerValueEur(new BigDecimal("500")).build();
+        when(holdingRepository.findByAccount_Id(6L)).thenReturn(List.of(uc));
+        when(priceService.getQuotes(any())).thenReturn(
+            Map.of("UC_A", new PriceService.Quote(new BigDecimal("60"), LocalDate.now(), true)));
+
+        Account synced = Account.builder().id(6L).name("Synthetic life insurance")
+            .type(AccountType.ASSURANCE_VIE).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .currentBalance(new BigDecimal("1500")).cashBalance(new BigDecimal("1000")).isManual(false).build();
+
+        AccountService.Valuation valuation = accountService.valuation(synced);
+
+        // 1000 euro fund + 10 units at the live 60, repriced between syncs.
+        assertThat(valuation.liveEur()).isEqualByComparingTo("1600");
+        // The insurer baseline is the live value itself; the generic path would report a cost basis.
+        assertThat(valuation.investedEur()).isEqualByComparingTo("1600");
+    }
+
+    @Test
     void caisseEpargnePer_usesLiveQuotesAndKeepsUnresolvedBankValuationsStale() {
         Account account = Account.builder().id(6L).name("Synthetic pension")
-            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).isManual(false).currency("EUR")
             .currentBalance(new BigDecimal("1700")).cashBalance(new BigDecimal("1000")).build();
         LocalDate navDate = LocalDate.of(2026, 10, 6);
         AccountHolding ucA = AccountHolding.builder()
@@ -1228,9 +1492,36 @@ class AccountServiceTest {
     }
 
     @Test
+    void banquePopulairePer_usesLiveQuotesAndKeepsUnresolvedBankValuationsStale() {
+        Account account = Account.builder().id(7L).name("Synthetic BP pension")
+            .type(AccountType.PER).provider("Banque Populaire Rives de Paris").externalAccountId("bp_contract:BP1").isManual(false).currency("EUR")
+            .currentBalance(new BigDecimal("1700")).cashBalance(new BigDecimal("1000")).build();
+        LocalDate navDate = LocalDate.of(2026, 10, 6);
+        AccountHolding ucA = AccountHolding.builder()
+            .ticker("UC_A").quantity(new BigDecimal("10"))
+            .currentPrice(new BigDecimal("50")).quoteCurrency("USD")
+            .providerValueEur(new BigDecimal("500")).build();
+        AccountHolding ucB = AccountHolding.builder()
+            .ticker("UC_B").quantity(new BigDecimal("2"))
+            .currentPrice(new BigDecimal("999")).quoteCurrency("USD")
+            .providerValueEur(new BigDecimal("200")).providerPriceDate(navDate).build();
+        List<AccountHolding> holdings = List.of(ucA, ucB);
+        when(holdingRepository.findByAccount_Id(7L)).thenReturn(holdings);
+        when(priceService.getQuotes(any())).thenReturn(
+            Map.of("UC_A", new PriceService.Quote(new BigDecimal("55"), LocalDate.now(), true)));
+
+        AccountService.Valuation atNewPrice = accountService.valuation(account);
+
+        assertThat(atNewPrice.liveEur()).isEqualByComparingTo("1750");
+        assertThat(atNewPrice.investedEur()).isEqualByComparingTo("1750");
+        assertThat(atNewPrice.anyPriced()).isTrue();
+        assertThat(atNewPrice.anyStale()).isTrue();
+    }
+
+    @Test
     void caisseEpargnePer_ignoresNonpositiveQuotesAndBankValues() {
         Account account = Account.builder().id(7L).name("Synthetic pension")
-            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).isManual(false).currency("EUR")
             .currentBalance(new BigDecimal("1700")).cashBalance(new BigDecimal("1000")).build();
         AccountHolding valued = AccountHolding.builder()
             .ticker("UC_A").quantity(new BigDecimal("10"))
@@ -1263,7 +1554,7 @@ class AccountServiceTest {
     @Test
     void caisseEpargnePer_liveQuoteStaysFreshWhenBankFallbackIsInvalid() {
         Account account = Account.builder().id(10L).name("Synthetic pension")
-            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).isManual(false).currency("EUR")
             .currentBalance(new BigDecimal("500")).cashBalance(BigDecimal.ZERO).build();
         AccountHolding holding = AccountHolding.builder()
             .ticker("UC_A").quantity(new BigDecimal("10")).providerValueEur(BigDecimal.ZERO).build();
@@ -1279,7 +1570,7 @@ class AccountServiceTest {
     @Test
     void caisseEpargnePer_allMissingQuotesKeepsTheCompleteBankTotalAsStaleAndPriced() {
         Account account = Account.builder().id(8L).name("Synthetic pension")
-            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).isManual(false).currency("EUR")
             .currentBalance(new BigDecimal("1700")).cashBalance(new BigDecimal("1000")).build();
         List<AccountHolding> holdings = List.of(
             AccountHolding.builder().ticker("UC_A").quantity(new BigDecimal("10"))
@@ -1298,7 +1589,7 @@ class AccountServiceTest {
     @Test
     void caisseEpargnePer_euroPocketWithoutHoldingsUsesItsStoredBalance() {
         Account account = Account.builder().id(9L).name("Synthetic pension")
-            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).isManual(false).currency("EUR")
             .currentBalance(new BigDecimal("1000")).cashBalance(new BigDecimal("1000")).build();
         when(holdingRepository.findByAccount_Id(9L)).thenReturn(List.of());
         when(priceService.toEur(new BigDecimal("1000"), "EUR", null)).thenReturn(new BigDecimal("1000"));
@@ -1366,7 +1657,9 @@ class AccountServiceTest {
         AccountService service = new AccountService(accountRepository, snapshotRepository, holdingRepository,
             transactionRepository, realEstateMetadataRepository, propertyValuationRepository, debtRepository,
             savingsInterestConfigRepository, realPrices, loanAmortizationService, accessResolver,
-            bankLogoResolver, cryptoLogoService, instrumentLogoService, scpiPositionRepository, scpiFundService);
+            bankLogoResolver, cryptoLogoService, instrumentLogoService, scpiPositionRepository, scpiFundService,
+            mock(PeerLoanTermsRepository.class), mock(PeerLoanRepaymentRepository.class),
+            mock(PeerLoanTransactionLinks.class), mock(FinaryPersistenceHelper.class));
         // What a verified-EUR Finary crypto snapshot stores: 10 REG that Finary values at 10 EUR.
         Account account = Account.builder().id(9L).name("Finary wallet").type(AccountType.CRYPTO)
             .currency("EUR").currentBalance(BigDecimal.TEN).build();
@@ -1635,6 +1928,27 @@ class AccountServiceTest {
         assertThat(h.getAverageBuyIn()).isEqualByComparingTo("150");
         // 400 - 2 x 150
         assertThat(line.pnlEur()).isEqualByComparingTo("100");
+    }
+
+    @Test
+    void updateHolding_caisseEpargneInsurerContract_keepsTheInsurerValueAndClearsOnlyThePnl() {
+        for (AccountType type : List.of(AccountType.PER, AccountType.ASSURANCE_VIE)) {
+            Account insurer = Account.builder().id(1L).type(type).currency("EUR")
+                .provider(CaisseEpargneSyncService.PROVIDER).isManual(false).externalAccountId("ce_contract:V1").build();
+            AccountHolding h = AccountHolding.builder()
+                .account(insurer).ticker("UC_A").quantity(new BigDecimal("2"))
+                .providerValueEur(new BigDecimal("400")).providerPnlEur(new BigDecimal("40")).build();
+            when(accountRepository.findByIdAndMemberId(1L, 9L)).thenReturn(Optional.of(insurer));
+            when(holdingRepository.findByAccountIdAndTicker(1L, "UC_A")).thenReturn(Optional.of(h));
+            when(holdingRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            stubQuotes("UC_A", null);
+
+            accountService.updateHolding(1L, 9L, "UC_A", null, new BigDecimal("150"));
+
+            assertThat(h.getProviderValueEur()).as(type.name()).isEqualByComparingTo("400");
+            assertThat(h.getProviderPnlEur()).as(type.name()).isNull();
+            assertThat(h.getAverageBuyIn()).isEqualByComparingTo("150");
+        }
     }
 
     @Test

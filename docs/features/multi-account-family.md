@@ -64,7 +64,10 @@ also reads manual shares through member-scoped batch lookups, so stale or manual
 corrupted `shared_resource` rows are omitted instead of leaking another member's
 account or goal.
 
-The `FamilyViewService` aggregates shared data for the family dashboard.
+The `FamilyViewService` aggregates shared data for the family dashboard. The shared net
+worth leaves out a Revolut pocket whose parent wallet is also listed, since the parent's
+balance already carries it (see `revolut-sidecar.md`, pocket nesting); the pocket keeps its
+own card. A pocket shared without its wallet still counts.
 
 ### Profile activation flow
 

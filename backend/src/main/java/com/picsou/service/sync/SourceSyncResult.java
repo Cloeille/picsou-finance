@@ -10,14 +10,14 @@ public record SourceSyncResult(String source, Status status, String message) {
     String code = exception.getCode();
     String message = exception.getMessage();
     boolean needsReauth = switch (source) {
-      case "trade-republic" -> "SESSION_EXPIRED".equals(code)
+      case "trade-republic" -> "SESSION_EXPIRED".equals(code) || "INVALID_SESSION_STATE".equals(code)
           || (code == null && "AUTHENTICATION_ERROR".equals(message));
       case "revolut" -> "SESSION_EXPIRED".equals(code)
           || (code == null && "SESSION_EXPIRED".equals(message));
       case "ibkr" -> code == null && (endsWithProviderCode(message, "1012")
           || endsWithProviderCode(message, "1015"));
-      case "bourso", "cmes", "cic", "corum" -> "SESSION_EXPIRED".equals(code) || "INVALID_CREDENTIALS".equals(code);
-      case "bourse-direct", "amundi", "fortuneo", "amex", "simplefin" -> "SESSION_EXPIRED".equals(code);
+      case "bourso", "cmes", "cic", "corum", "natixis", "lbp", "bnp" -> "SESSION_EXPIRED".equals(code) || "INVALID_CREDENTIALS".equals(code);
+      case "bourse-direct", "amundi", "fortuneo", "amex", "simplefin", "wise" -> "SESSION_EXPIRED".equals(code);
       default -> false;
     };
     return new SourceSyncResult(source, needsReauth ? Status.NEEDS_REAUTH : Status.FAILED,

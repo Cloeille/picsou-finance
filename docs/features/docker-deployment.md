@@ -1,19 +1,23 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-11-04 (the app generates the JWT and encryption keys, never the database password; connectors opt-in through Compose profiles; one supported stack; sidecar URLs only in application.yml; shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility)
+> Last updated: 2026-11-06 (the app generates the JWT and encryption keys, never the database password; connectors opt-in through Compose profiles; one supported stack; sidecar URLs only in application.yml; shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility; La Banque Postale on the shared Chromium base)
 
 ## Context
 
-Picsou deploys as the app, PostgreSQL and up to thirteen opt-in authentication sidecars orchestrated by `docker/docker-compose.yml`, the only supported Compose stack. It retains shared sidecar bases and explicit proxy trust:
+Picsou deploys as the app, PostgreSQL and up to fifteen opt-in authentication sidecars orchestrated by `docker/docker-compose.yml`, the only supported Compose stack. It retains shared sidecar bases and explicit proxy trust:
 - **`picsou:latest`** — main app: frontend + backend in one Spring Boot process, no Python, no nginx. Published to GHCR as `ghcr.io/cloeille/picsou-finance`.
 - **`docker-tr-auth`** — Trade Republic auth sidecar: headless Chromium + Python/uvicorn. Published to GHCR as `ghcr.io/cloeille/picsou-finance/tr-auth`.
 - **`bourse-direct-auth`** — isolated Bourse Direct login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` and reachable only on the Compose network.
 - **`amundi-auth`** — Amundi login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/amundi-auth`.
 - **`bourso-auth`** — BoursoBank login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourso-auth`.
-- **`caisse-epargne-auth`** — browserless Caisse d'Epargne read sidecar (session replay, no in-app login yet), published to GHCR as `ghcr.io/cloeille/picsou-finance/caisse-epargne-auth`.
+- **`caisse-epargne-auth`** — Caisse d'Epargne browser-assisted login (keypad + Sécur'Pass) and session-replay read sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/caisse-epargne-auth`.
+- **`banque-populaire-auth`** — Banque Populaire sidecar on the same shared BPCE code (region + keypad + Sécur'Pass login, session-replay reads), published to GHCR as `ghcr.io/cloeille/picsou-finance/banque-populaire-auth`.
+- **`lbp-auth`** — La Banque Postale browser-login sidecar (current account and livrets, on demand), published to GHCR as `ghcr.io/cloeille/picsou-finance/lbp-auth`.
+- **`bnp-auth`** — BNP Paribas / Hello bank! login (customer number, keypad clicked in the member's browser, app approval or SMS code) and account sidecar, on the shared `sidecar-camoufox` base, published as `ghcr.io/cloeille/picsou-finance/bnp-auth`. Opt-in through the Compose profile `bnp` (or `all-connectors`); the backend reaches it at `BNP_AUTH_URL` (`application.yml` defaults to `http://bnp-auth:8001`); see [`bnp-paribas.md`](bnp-paribas.md).
 - **`fortuneo-auth`** — Fortuneo login/2FA, positions and transaction-history sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/fortuneo-auth`.
 - **`revolut-auth`**, **`corum-auth`**, **`sofidy-auth`** — provider sidecars published under the same GHCR repository prefix.
 - **`cmes-auth`** — browserless Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cmes-auth`. The backend reaches it at `CMES_AUTH_URL` (`application.yml` defaults to `http://cmes-auth:8001`); see [`cmes-epargne-salariale.md`](cmes-epargne-salariale.md).
+- **`natixis-auth`** — browserless Natixis Interépargne login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/natixis-auth`. The backend reaches it at `NATIXIS_AUTH_URL` (`application.yml` defaults to `http://natixis-auth:8001`); see [`natixis-interepargne.md`](natixis-interepargne.md).
 - **`cic-auth`** — browserless CIC online-banking login/2FA and account sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cic-auth`. The backend reaches it at `CIC_AUTH_URL` (`application.yml` defaults to `http://cic-auth:8001`); see [`cic-banking.md`](cic-banking.md).
 - **`amex-auth`** — American Express login and account sidecar, built with Camoufox/Firefox, published as `ghcr.io/cloeille/picsou-finance/amex-auth`.
 - **`degiro-auth`** — browserless DEGIRO authentication and portfolio sidecar, published as `ghcr.io/cloeille/picsou-finance/degiro-auth`.
@@ -26,8 +30,8 @@ from the upstream release's direct `GeoLite2-City.mmdb` asset URL,
 without querying the unauthenticated GitHub releases API, whose per-IP quota
 shared CI runners exhaust. Download failures still fail the build; no token is
 baked into the image and GeoIP support is retained.
-A push to `1.1.0` publishes `:1.1.0`; `:latest` follows main
-or version-tag pushes, not release-branch pushes. The deployment Compose file
+A version tag `1.1.0` publishes `:1.1.0`; `:latest` moves only to the highest
+stable version tag, never on a branch push. The deployment Compose file
 offers both `image:` and `build:` for AMEX and DEGIRO, like the other sidecars.
 For a pinned release deployment, override their image values with
 `ghcr.io/cloeille/picsou-finance/amex-auth:1.1.0` and
@@ -85,7 +89,8 @@ There is no supervisor: Docker (`restart: unless-stopped`) and Kubernetes restar
 
 - **No proxy timeouts.** nginx cut requests at 60 s (90 s for the Caisse d'Epargne keypad, 180 s for the Caisse d'Epargne, CMES and CIC login completions). Tomcat has no response timeout, and the backend caps its own waits on third-party APIs and sidecars.
 - **`/mcp` streams** straight from Tomcat. The SSE keep-alive and `spring.mvc.async.request-timeout` settings are unchanged.
-- **Request size.** nginx's default 1 MB body limit used to apply everywhere. Authenticated uploads now follow Spring's multipart limit (10 MB). The endpoints an anonymous client can reach (`/api/setup`, `/api/auth/`, `/oauth2/register`) keep a 1 MB cap in `AnonymousBodyLimitFilter`, which answers 413 from the `Content-Length` before the body is read (a body of unknown length is refused too); without it a few dozen concurrent 20 MB JSON posts exhausted the heap of a 1.5 GB container.
+- **Request size.** nginx's default 1 MB body limit used to apply everywhere. Authenticated uploads now follow Spring's multipart limit (10 MB). The endpoints an anonymous client can reach (`/api/setup`, `/api/auth/`, `/oauth2/register`) keep a 1 MB cap in `AnonymousBodyLimitFilter`, which answers 413 from the `Content-Length` before the body is read (a body of unknown length is refused too); without it a few dozen concurrent 20 MB JSON posts exhausted the heap of a 1.5 GB container. Spring's `FormContentFilter` is off (`spring.mvc.formcontent.filter.enabled: false`): it runs before every security filter and would read a form-encoded PUT/PATCH/DELETE body whole, on any path.
+- **Slow clients.** nginx buffered request bodies, so a slow client held an nginx connection, not a Tomcat thread. Tomcat now keeps its defaults: 200 worker threads, 100 queued connections, a 60 s read timeout between packets, not a deadline for the whole request. A few hundred clients that send a body slowly can occupy every thread; a client that sends a little data before each timeout holds its thread indefinitely, and new requests replace finished ones. `/actuator/health/liveness` is served by the same threads and stalls meanwhile. Lowering those bounds would make starvation easier, not harder. An instance reachable from the internet belongs behind a reverse proxy that buffers request bodies (nginx does by default), and the proxy must be the only route to port 8080: the default Compose file publishes 8080 on every host interface, so add [`docker/docker-compose.no-http.yml`](../../docker/docker-compose.no-http.yml) when the proxy reaches the app over the Docker network. With nginx, set `client_max_body_size 10m` (its 1 MB default would refuse the 10 MB uploads) and keep `/mcp` unbuffered (`proxy_buffering off`), see [MCP proxy settings](mcp-server.md#gotchas--pitfalls).
 - **Existing `/data` and `docker run`.** Compose and `deploy.sh` hand `/data` to uid 1000 themselves. With a plain `docker run`, do it once: `docker run --rm --user 0 --entrypoint chown -v <volume>:/data <image> -R 1000:1000 /data`. Until then the app refuses to start (`Cannot write secret file … AccessDeniedException`) and generates no new secret.
 - **No 502/504 pages from the image.** A stopped app is a refused connection, or your own proxy's error page.
 
@@ -96,7 +101,7 @@ set (`services/base/requirements*.txt`): `python` (Python 3.12 slim bookworm,
 fastapi, uvicorn, pydantic, httpx), `chromium` (the same plus Playwright 1.64.1 and
 Chromium in `/opt/playwright-browsers`), and `camoufox` (the same Python base plus
 Playwright 1.64.1, Camoufox 0.4.11, Firefox 152.0.4-beta.30 and Xvfb).
-AMEX and Revolut use `camoufox`, including the target CPU's x86_64 or arm64 browser.
+AMEX, BNP Paribas and Revolut use `camoufox`, including the target CPU's x86_64 or arm64 browser.
 Their shared browser/addons live in `/opt/camoufox-cache/camoufox`, readable by
 both service users; GeoIP is downloaded once into the Camoufox package directory.
 A sidecar Dockerfile only adds its user and code.
@@ -205,11 +210,11 @@ connector.
   list with `docker compose -f docker/docker-compose.yml rm --stop --force <bank>-auth`.
   Repeat this when you disable a bank. `all-connectors` needs no stop step.
 - A sync against a disabled connector reaches no host. DEGIRO and Revolut show their existing
-  "No response" messages. Trade Republic maps the failure to `AUTH_SERVICE_UNAVAILABLE`.
-  Other sidecars map it to `UPSTREAM_UNAVAILABLE`. None of them surfaces a 500. Connection failures
+  "No response" messages. Every other sidecar, Trade Republic included, maps it to
+  `UPSTREAM_UNAVAILABLE`. None of them surfaces a 500. Connection failures
   handled by the shared translator, Fortuneo adapter, and Revolut scheduled sync log one-line
-  warnings without a stack trace. Trade Republic scheduled sync and Revolut progress polling still
-  log their errors with a stack trace.
+  warnings without a stack trace. A scheduled sync that cannot be queued, Trade Republic
+  included, and Revolut progress polling still log their errors with a stack trace.
 - The [instance-status alert](./admin-instance-status.md) probes only sidecars that hold
   sessions, so a bank nobody connected never raises `SIDECAR_UNREACHABLE`. A connector
   disabled after it was used does, which is the intended warning.
@@ -218,7 +223,7 @@ connector.
 
 ### Sidecar shared secret — `APP_SIDECAR_API_KEY`
 
-The backend and every `*-auth` sidecar (Trade Republic, Revolut, BoursoBank, Caisse d'Epargne,
+The backend and every `*-auth` sidecar (Trade Republic, Revolut, BoursoBank, Caisse d'Epargne, Banque Populaire,
 Bourse Direct, Amundi, Fortuneo, DEGIRO, AMEX, CORUM, Sofidy, Crédit Mutuel / CIC
 Épargne Salariale, CIC online banking) share one secret.
 Generate it with `openssl rand -base64 32`. `docker/docker-compose.yml` forwards it
@@ -227,7 +232,7 @@ connector is enabled: the app starts without it, and each sidecar refuses to sta
 when it is missing or empty. Sidecar URLs are set in one place,
 `backend/src/main/resources/application.yml` (`app.<sidecar>.url`, Compose service
 name); `application-dev.yml` gives each one its own `127.0.0.1` port. Compose and the
-entrypoint set none. The AMEX service uses `init: true` so an init process reaps orphaned
+entrypoint set none. The AMEX and BNP Paribas services use `init: true` so an init process reaps orphaned
 browser children during repeated logins. The app does not generate the
 shared secret: the sidecars run in separate containers and
 cannot read the app's `/data/.secrets/` volume.
@@ -319,6 +324,12 @@ and PRODUCTION is the only mode listing real banks — so bank sync is unreachab
 |---|---|---|
 | Public FQDN | ACME (Let's Encrypt / ZeroSSL) | Public, zero manual steps |
 | `.localhost` / `.local` / `.internal` / bare IP | `local` (Caddy's built-in CA) | Root must be installed per device, from `/data/caddy/pki/authorities/local/root.crt` in the `caddy_data` volume |
+
+When a client omits SNI (common for HTTPS URLs whose host is a literal IP address), Caddy uses
+`PICSOU_DOMAIN` as `default_sni`. Because it is also the site address, this selects the matching
+managed certificate rather than failing the TLS handshake with no certificate. Clients that send
+an explicit SNI continue to use their requested name. This does not change certificate trust:
+LAN devices must still trust the Caddy local CA.
 
 Caddy sets `X-Forwarded-Proto`/`-Host`/`-For` by default. Tomcat's native forwarding support reads
 them from the known Caddy peer only. See [trusted proxy client addresses](#trusted-proxy-client-addresses).
@@ -484,10 +495,13 @@ docker compose -f docker/docker-compose.yml up        # COMPOSE_PROFILES selects
   → amundi-auth (uvicorn:8001, internal only)
   → bourso-auth (uvicorn:8001, internal only)
   → caisse-epargne-auth (uvicorn:8001, internal only)
+  → banque-populaire-auth (uvicorn:8001, internal only)
+  → bnp-auth (uvicorn:8001, internal only)
   → fortuneo-auth (uvicorn:8001, internal only)
   → corum-auth (uvicorn:8001, internal only)
   → sofidy-auth (uvicorn:8001, internal only)
   → cmes-auth (uvicorn:8001, internal only)
+  → natixis-auth (uvicorn:8001, internal only)
   → cic-auth (uvicorn:8001, internal only)
   → amex-auth (uvicorn:8001, internal only)
   → degiro-auth (uvicorn:8001, internal only)
@@ -554,11 +568,14 @@ docker save ghcr.io/cloeille/picsou-finance:latest \
   ghcr.io/cloeille/picsou-finance/amundi-auth:latest \
   ghcr.io/cloeille/picsou-finance/bourso-auth:latest \
   ghcr.io/cloeille/picsou-finance/caisse-epargne-auth:latest \
+  ghcr.io/cloeille/picsou-finance/banque-populaire-auth:latest \
+  ghcr.io/cloeille/picsou-finance/bnp-auth:latest \
   ghcr.io/cloeille/picsou-finance/fortuneo-auth:latest \
   ghcr.io/cloeille/picsou-finance/corum-auth:latest \
   ghcr.io/cloeille/picsou-finance/sofidy-auth:latest \
   ghcr.io/cloeille/picsou-finance/cmes-auth:latest \
   ghcr.io/cloeille/picsou-finance/cic-auth:latest \
+  ghcr.io/cloeille/picsou-finance/natixis-auth:latest \
   ghcr.io/cloeille/picsou-finance/amex-auth:latest \
   ghcr.io/cloeille/picsou-finance/degiro-auth:latest \
   | gzip > picsou-release.tar.gz
@@ -596,18 +613,24 @@ docker pull ghcr.io/cloeille/picsou-finance/bourse-direct-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/amundi-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/bourso-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/caisse-epargne-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/banque-populaire-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/fortuneo-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/corum-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/sofidy-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/cmes-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/cic-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/natixis-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/amex-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/degiro-auth:1.1.0
 ```
 
 Tag scheme:
-- `main` push (CI green) → `nightly` + `latest`
-- version tag (`1.0.0` or `v1.0.0`, CI green) → `latest` + semver (`1.0.0`, `1.0`, `1`)
+- `main` push (CI green) → `nightly` + `sha-<short>`
+- version tag (`1.0.0` or `v1.0.0`, CI green) → semver (`1.0.0`, `1.0`), plus `1` when it is
+  the highest release of its major and `latest` when it is the highest stable tag. A patch of an
+  older line (`1.0.19` after `1.1.0`) or a prerelease (`1.2.0-rc.1`) leaves both where they are.
+- `latest` never follows `main`: a revert on `main` would hand installs that auto-update
+  `:latest` an image with fewer migrations than their database already ran (#553).
 - feature-branch pushes no longer publish an image (open a PR to run CI; build
   locally if you need a one-off image)
 
@@ -718,6 +741,23 @@ the incident's ad-hoc SQL. Issue #195's hand-created tables were missing CHECK c
 of unrecorded or falsely recorded manual changes. Do not keep `SPRING_FLYWAY_ENABLED=false` as a
 lasting fix. The release workflow deliberately refuses to guess how to reconcile that drift.
 
+### Starting an older image on a newer database
+
+The backend refuses to start when the database has applied a Flyway version that its image does
+not ship ([#553](https://github.com/Cloeille/picsou-finance/issues/553)). Before this, Spring
+Boot's default (`ignore-migration-patterns: *:future`) only logged `Schema "public" has a version
+(146) that is newer than the latest available migration (128)` and the app died later in Hibernate
+with `Schema-validation: missing table [amex_session]`. Now Flyway fails first:
+
+```
+Detected applied migration not resolved locally: 146.
+```
+
+Run an image at or above the database's newest version, or restore a backup taken before the newer
+image migrated. Never delete rows from `flyway_schema_history` to get past it: the schema still
+holds what those migrations created. This also applies to a rolling update where an old replica
+restarts after a new one has migrated.
+
 ### Safe release deployment
 
 Follow [the production release runbook](./release-deployment.md). `docker/deploy.sh` is the
@@ -762,6 +802,7 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 - **`VITE_DEMO_MODE` build arg** defaults to `false`. Pass `--build-arg VITE_DEMO_MODE=true` for a demo build.
 - **Spring Boot listens on 8080** and is the only process. `server.port` is 8080 in `application.yml`; there is no 9090 any more.
 - **`/data` must be writable by uid 1000.** Compose runs the one-shot `data-permissions` service (same image, `user: "0:0"`, `chown -R 1000:1000 /data`) before the app; `deploy.sh` runs it explicitly because it recreates the app with `--no-deps`. A bind mount whose filesystem ignores `chown` (NAS, CIFS) needs mount options `uid=1000,gid=1000` instead.
+  `docker compose up app --no-deps` skips that service too: run `data-permissions` once first, with the same Compose options as the app (same `-f` files and `-p` project name, so it chowns the same volume): `docker compose -f docker/docker-compose.yml run --rm --no-deps data-permissions` from the repository root, or `docker compose run --rm --no-deps data-permissions` from `docker/`. A plain `docker run` install needs the one-off `chown` given under the main image above.
 - **`SPA_LOCATION` blank means no SPA.** `app.spa.location` registers nothing when empty (development uses Vite, backend tests are unaffected). A SPA file that Spring cannot read gives `index.html` for routes and a 404 for any path with a static extension. An unreadable `index.html` itself gives a 404 for every route, since there is no page to fall back to.
 - **`docker/tests/header_diff.py BASE CANDIDATE`** compares status and headers of two running instances, path by path, plain and with `X-Forwarded-Proto: https`. Use it against a pre-change image to prove nothing observable changed.
 - **`caddy_data` must persist.** It holds issued certificates *and the internal CA's root key*. Deleting the volume regenerates the root, invalidating the certificate every device was told to trust — everyone has to re-install it.
@@ -770,6 +811,7 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 - **Enabling the `tls` profile against a pre-built GHCR image does not get the HSTS fix.** An image built before the HSTS gate existed still sends HSTS unconditionally — which is precisely the lockout combination with an internal-CA certificate. Pull a current image, or rebuild with `--build`.
 - **Sidecar URLs live only in `application.yml`.** Compose sets no `*_AUTH_URL`; an operator `.env` value still overrides the default.
 - **Bourse Direct 2FA state is process-local.** Keep `bourse-direct-auth` at one replica unless request affinity or shared pending state is added.
+- **La Banque Postale state is process-local for the whole sync, not just the login.** Keep `app` at one replica (or route all `/api/lbp/*` requests for the same member to the same replica for the duration of an active sync): `/auth/keypad`, `/auth/complete`, the following reads, and a disconnect from another device must reach the backend that handled `/auth/initiate`, or the pending login is lost (`AUTH_ATTEMPT_EXPIRED`) and the generation guard misfires. Keep `lbp-auth` at one replica too: it holds the pending Chromium context, so `/keypad` and `/complete` must reach the same sidecar. A restart, rollout or redeploy of either service drops the pending state and fails the active sync; the user starts again.
 - **Secrets are never regenerated.** If `/data/.secrets/jwt_secret` exists, it is reused. Deleting it will log out all users and invalidate all encrypted secrets in the DB.
 - **Spring Boot env var naming:** Properties under `app.*` require the `APP_` prefix. `app.finary.email` → `APP_FINARY_EMAIL`. Variables like `JWT_SECRET` work because `application.yml` maps them explicitly.
 - **Stale env vars removed (2026-04-19):** `TR_PHONE_NUMBER`, `TR_PIN`, `FINARY_TOTP`, `POWENS_*`, `FINARY_EMAIL`, `FINARY_PASSWORD`. Do not re-add them.

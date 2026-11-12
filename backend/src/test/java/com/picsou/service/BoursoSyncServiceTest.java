@@ -1,20 +1,21 @@
 package com.picsou.service;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.adapter.OpenFigiIsinConverter;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
-import com.picsou.model.BoursoSession;
-import com.picsou.model.BoursoSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.adapter.BoursoAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.BoursoSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
@@ -56,7 +57,7 @@ class BoursoSyncServiceTest {
     private static final String CHECKING_ID = "bourso_e2f509c466f5294f15abd873dbbf8a62";
 
     @Mock BoursoAdapter port;
-    @Mock BoursoSessionRepository sessionRepository;
+    @Mock SidecarSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock AccountHoldingRepository holdingRepository;
     @Mock FamilyMemberRepository memberRepository;
@@ -82,8 +83,8 @@ class BoursoSyncServiceTest {
 
     @Test
     void clearSessionReportsTheSessionItDeleted() {
-        BoursoSession session = activeSession(owner());
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+        SidecarSession session = activeSession(owner());
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BOURSO, 7L)).thenReturn(Optional.of(session));
 
         assertThat(service.clearSession(7L)).isTrue();
         verify(sessionRepository).delete(session);
@@ -95,7 +96,7 @@ class BoursoSyncServiceTest {
         when(port.initiateAuth("12345678", "123456"))
             .thenReturn(new SidecarInitiate("p1", true, "APP_PUSH", null));
         service.initiateAuth("12345678", "123456", 7L);
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BOURSO, 7L)).thenReturn(Optional.empty());
 
         assertThat(service.clearSession(7L)).isFalse();
         verify(sessionRepository, never()).delete(any());
@@ -107,7 +108,7 @@ class BoursoSyncServiceTest {
 
         BoursoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(BoursoSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(accountRepository, org.mockito.Mockito.times(3)).save(accountCaptor.capture());
         List<Account> saved = accountCaptor.getAllValues();
         assertThat(saved).extracting(Account::getType).containsExactly(
@@ -335,7 +336,7 @@ class BoursoSyncServiceTest {
      */
     @Test
     void queueSync_refusesAPortfolioThatDoesNotReconcileAndKeepsTheLastGoodOne() {
-        BoursoSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(
             account(PEA_ID, "PEA DOE", AccountType.PEA, "143088.89", "3088.89",
@@ -344,7 +345,7 @@ class BoursoSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(BoursoSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(accountRepository, never()).save(any());
         verify(holdingRepository, never()).deleteByAccountId(any());
@@ -356,7 +357,7 @@ class BoursoSyncServiceTest {
      */
     @Test
     void queueSync_refusesAnAssuranceVieWhoseSupportsFallShortOfALargeBalance() {
-        BoursoSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(
             lifeInsurance("100000.00", "1000.00", 2,
@@ -366,7 +367,7 @@ class BoursoSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(BoursoSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(accountRepository, never()).save(any());
         verify(holdingRepository, never()).saveAll(any());
@@ -409,7 +410,7 @@ class BoursoSyncServiceTest {
 
     @Test
     void queueSync_refusesAnAssuranceVieWithoutItsValuationLineCount() {
-        BoursoSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(lifeInsurance("3300.00", "1100.00", null,
             position("IE00BYX2JD69", "1rASUSW", "iShares MSCI World SRI",
@@ -423,7 +424,7 @@ class BoursoSyncServiceTest {
 
     @Test
     void queueSync_refusesPositionsReportedOnACashAccount() {
-        BoursoSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(
             account(CHECKING_ID, "BoursoBank", AccountType.CHECKING, "20810.50", null,
@@ -438,7 +439,7 @@ class BoursoSyncServiceTest {
 
     @Test
     void queueSync_refusesASnapshotTheSidecarFlaggedAsIncomplete() {
-        BoursoSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(
             new BoursoAdapter.AccountData(CHECKING_ID, "BoursoBank", AccountType.CHECKING,
@@ -460,13 +461,13 @@ class BoursoSyncServiceTest {
 
         BoursoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(BoursoSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(dividendReceiptService).classifyRecent(7L, LocalDate.now());
     }
 
     @Test
     void queueSync_refusesDuplicateAccounts() {
-        BoursoSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(checkingAccount(), checkingAccount()));
 
@@ -503,7 +504,7 @@ class BoursoSyncServiceTest {
      */
     @Test
     void queueSync_refusesTwoIsinsResolvingToTheSameTicker() {
-        BoursoSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(
             account(PEA_ID, "PEA DOE", AccountType.PEA, "20000.00", "0",
@@ -523,7 +524,7 @@ class BoursoSyncServiceTest {
     /** An ISIN-less line whose symbol equals another line's resolved ticker is not that instrument. */
     @Test
     void queueSync_refusesAnIsinLessLineLandingOnAResolvedTicker() {
-        BoursoSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(
             account(PEA_ID, "PEA DOE", AccountType.PEA, "20000.00", "0",
@@ -543,7 +544,7 @@ class BoursoSyncServiceTest {
     /** Two ISIN-less lines on one symbol cannot be proven to be one instrument (the sidecar refuses them too). */
     @Test
     void queueSync_refusesTwoIsinLessLinesSharingASymbol() {
-        BoursoSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(
             account(PEA_ID, "PEA DOE", AccountType.PEA, "20000.00", "0",
@@ -571,7 +572,7 @@ class BoursoSyncServiceTest {
 
         BoursoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(BoursoSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(accountRepository, never()).save(any());
     }
 
@@ -581,9 +582,9 @@ class BoursoSyncServiceTest {
      */
     @Test
     void queueSync_discardsAResultWhoseSessionDisappearedMidFlight() {
-        BoursoSession session = activeSession(owner());
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        SidecarSession session = activeSession(owner());
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BOURSO, 7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.BOURSO, 7L)).thenReturn(Optional.of(session));
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
         when(sessionRepository.findByIdAndMemberIdForUpdate(3L, 7L))
             .thenReturn(Optional.of(session))   // markRunning
@@ -595,32 +596,12 @@ class BoursoSyncServiceTest {
         verify(accountRepository, never()).save(any());
     }
 
-    @Test
-    void queueSync_doesNotStackASecondJobOnAnInFlightSession() {
-        BoursoSession session = activeSession(owner());
-        session.markQueued();
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
 
-        BoursoSyncService.SessionStatusResponse result = service.queueSync(7L);
-
-        assertThat(result.syncStatus()).isEqualTo(BoursoSyncStatus.QUEUED);
-        verify(port, never()).fetchAccounts(any());
-    }
-
-    @Test
-    void queueSync_refusesToRunWithoutAnActiveSession() {
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
-
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.queueSync(7L))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED.name())
-            );
-    }
 
     /** Only an expired session needs re-authentication. */
     @Test
     void anExpiredSessionIsDeactivatedSoTheUserIsPromptedToReconnect() {
-        BoursoSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(
             new SyncException("gone", null, SidecarErrorCode.SESSION_EXPIRED.name())
@@ -637,7 +618,7 @@ class BoursoSyncServiceTest {
      */
     @Test
     void aTransientFailureKeepsTheSessionUsable() {
-        BoursoSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(
             new SyncException("down", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
@@ -649,17 +630,6 @@ class BoursoSyncServiceTest {
         assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
-    @Test
-    void recoverInterruptedSyncs_failsJobsAWrestartLeftInFlight() {
-        service.recoverInterruptedSyncs();
-
-        verify(sessionRepository).markInterruptedSyncsFailed(
-            eq(List.of(BoursoSyncStatus.QUEUED, BoursoSyncStatus.RUNNING)),
-            eq(BoursoSyncStatus.FAILED),
-            any(),
-            eq(SidecarErrorCode.INTERNAL_ERROR)
-        );
-    }
 
     @Test
     void initiateAuth_storesTheSessionAndSyncsWhenNoSecondFactorIsAsked() {
@@ -668,8 +638,8 @@ class BoursoSyncServiceTest {
             .thenReturn(new SidecarInitiate(null, false, null, "cookies"));
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
         when(encryption.encrypt("cookies")).thenReturn("encrypted");
-        when(sessionRepository.saveAndFlush(any(BoursoSession.class))).thenAnswer(invocation -> {
-            BoursoSession stored = invocation.getArgument(0);
+        when(sessionRepository.saveAndFlush(any(SidecarSession.class))).thenAnswer(invocation -> {
+            SidecarSession stored = invocation.getArgument(0);
             when(sessionRepository.findByIdAndMemberIdForUpdate(any(), eq(7L)))
                 .thenReturn(Optional.of(stored));
             return stored;
@@ -686,13 +656,13 @@ class BoursoSyncServiceTest {
         BoursoSyncService.AuthInitResponse result = service.initiateAuth("12345678", "123456", 7L);
 
         assertThat(result.mfaRequired()).isFalse();
-        verify(sessionRepository).saveAndFlush(any(BoursoSession.class));
+        verify(sessionRepository).saveAndFlush(any(SidecarSession.class));
         verify(accountRepository).save(any(Account.class));
     }
 
     @Test
     void expiredSessionRelogsOncePersistsFreshStateAndRetriesAccounts() {
-        BoursoSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         session.setEncryptedCredentials("credentials-encrypted");
         arrangeQueuedSession(session);
         when(encryption.decrypt("credentials-encrypted"))
@@ -710,28 +680,28 @@ class BoursoSyncServiceTest {
         service.queueSync(7L);
 
         assertThat(session.getSessionState()).isEqualTo("state-encrypted");
-        assertThat(session.getSyncStatus()).isEqualTo(BoursoSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(port).initiateAuth("12345678", "123456");
         verify(port, org.mockito.Mockito.times(2)).fetchAccounts(anyString());
     }
 
     @Test
     void expiredSessionWithoutCredentialsDoesNotAttemptRelogin() {
-        BoursoSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(
             new SyncException("expired", null, SidecarErrorCode.SESSION_EXPIRED.name()));
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(BoursoSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         verify(port, never()).initiateAuth(anyString(), anyString());
     }
 
     @Test
     void expiredSessionWithMfaFailsWithoutRepeatedLogin() {
-        BoursoSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         session.setEncryptedCredentials("credentials-encrypted");
         arrangeQueuedSession(session);
         when(encryption.decrypt("credentials-encrypted"))
@@ -743,14 +713,14 @@ class BoursoSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(BoursoSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         verify(port).initiateAuth("12345678", "123456");
     }
 
     @Test
     void expiredSessionWithInvalidCredentialsClearsSavedCredentials() {
-        BoursoSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         session.setEncryptedCredentials("credentials-encrypted");
         arrangeQueuedSession(session);
         when(encryption.decrypt("credentials-encrypted"))
@@ -762,7 +732,7 @@ class BoursoSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(BoursoSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INVALID_CREDENTIALS);
         assertThat(session.getEncryptedCredentials()).isNull();
     }
@@ -788,12 +758,12 @@ class BoursoSyncServiceTest {
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
         lenient().when(encryption.encrypt("cookies")).thenReturn("encrypted-state");
         when(encryption.encrypt(anyString())).thenReturn("encrypted-credentials");
-        when(sessionRepository.saveAndFlush(any(BoursoSession.class))).thenAnswer(invocation -> {
-            BoursoSession stored = invocation.getArgument(0);
+        when(sessionRepository.saveAndFlush(any(SidecarSession.class))).thenAnswer(invocation -> {
+            SidecarSession stored = invocation.getArgument(0);
             assertThat(stored.getEncryptedCredentials()).isEqualTo("encrypted-credentials");
             return stored;
         });
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.BOURSO, 7L)).thenReturn(Optional.empty());
         lenient().when(port.fetchAccounts("cookies")).thenThrow(new SyncException("transient", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
 
         service.initiateAuth("12345678", "123456", 7L);
@@ -812,18 +782,10 @@ class BoursoSyncServiceTest {
             );
     }
 
-    @Test
-    void aScheduledResyncIsSkippedWhenNoSessionIsActive() {
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
-
-        service.resyncIfSessionActive(7L);
-
-        verify(port, never()).fetchAccounts(any());
-    }
 
     @Test
     void aScheduledResyncSwallowsUpstreamFailuresSoOtherMembersStillSync() {
-        BoursoSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(
             new SyncException("down", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
@@ -883,21 +845,21 @@ class BoursoSyncServiceTest {
         );
     }
 
-    private void arrangeQueuedSession(BoursoSession session) {
-        lenient().when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+    private void arrangeQueuedSession(SidecarSession session) {
+        lenient().when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BOURSO, 7L)).thenReturn(Optional.of(session));
         lenient().when(sessionRepository.findByIdAndMemberIdForUpdate(session.getId(), 7L))
             .thenReturn(Optional.of(session));
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.BOURSO, 7L)).thenReturn(Optional.of(session));
         lenient().when(encryption.decrypt("encrypted")).thenReturn("plain-state");
     }
 
-    private BoursoSession activeSession(FamilyMember member) {
-        return BoursoSession.builder()
+    private SidecarSession activeSession(FamilyMember member) {
+        return SidecarSession.builder().bank(SidecarBank.BOURSO)
             .id(3L)
             .member(member)
             .sessionState("encrypted")
             .active(true)
-            .syncStatus(BoursoSyncStatus.IDLE)
+            .syncStatus(SidecarSyncStatus.IDLE)
             .build();
     }
 

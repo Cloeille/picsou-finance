@@ -59,6 +59,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -149,6 +150,14 @@ class ActualBudgetImportServiceTest {
         when(transactionRepository.sumAmountByAccountId(anyLong())).thenAnswer(call -> transactions.stream()
                 .filter(t -> t.getAccount().getId().equals(call.getArgument(0)))
                 .map(Transaction::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add));
+        // Balance anchoring is delegated to the helper: mirror the statement-free
+        // behaviour (sum of the ledger) over the same in-memory rows.
+        lenient().when(persistence.computeManualLedgerBalance(any())).thenAnswer(call -> {
+            Account account = call.getArgument(0);
+            return transactions.stream()
+                .filter(t -> t.getAccount().getId().equals(account.getId()))
+                .map(Transaction::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        });
         service = new ActualBudgetImportService(new ActualBudgetFileParser(), accountRepository, categoryRepository,
                 transactionRepository, memberRepository, persistence, clock);
     }

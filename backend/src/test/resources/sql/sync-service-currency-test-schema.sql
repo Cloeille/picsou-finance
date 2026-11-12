@@ -35,6 +35,8 @@ CREATE TABLE account (
     ticker VARCHAR(20),
     logo_url VARCHAR(255),
     logo_key VARCHAR(32),
+    institution_name VARCHAR(100),
+    institution_domain VARCHAR(255),
     requisition_id BIGINT,
     opened_at DATE,
     provider_invested_eur DECIMAL(20, 8),
@@ -55,6 +57,9 @@ CREATE TABLE balance_snapshot (
     balance NUMERIC(20, 8) NOT NULL,
     invested_amount NUMERIC(20, 8) NOT NULL,
     created_at TIMESTAMP NOT NULL,
+    source VARCHAR(16) NOT NULL DEFAULT 'DERIVED',
+    native_balance NUMERIC(20, 8),
+    statement_entered_at TIMESTAMP WITH TIME ZONE,
     UNIQUE (account_id, date)
 );
 

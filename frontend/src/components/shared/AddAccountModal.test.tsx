@@ -42,6 +42,7 @@ vi.mock('@/features/sync/hooks', () => ({
   useBankCountries: () => ({ data: undefined }),
   useInitiateBankSync: () => ({ mutate: vi.fn(), isPending: false }),
   useInitiateTrAuth: () => ({ mutate: initiateTrAuth, isPending: false }),
+  useReconnectTrAuth: () => ({ mutate: vi.fn(), isPending: false }),
   useCompleteTrAuth: () => ({ mutate: completeTrAuth, isPending: false }),
   useAddCryptoExchange: () => ({ mutate: addCryptoExchange, isPending: false }),
   useAddCryptoWallet: () => ({ mutate: vi.fn(), isPending: false }),
@@ -79,6 +80,12 @@ vi.mock('@/components/sync/CaisseEpargnePanel', () => ({
   ),
 }))
 
+vi.mock('@/components/sync/BanquePopulairePanel', () => ({
+  BanquePopulairePanel: ({ onConnected }: { onConnected?: () => void }) => (
+    <button onClick={onConnected}>banque-populaire-wizard</button>
+  ),
+}))
+
 vi.mock('@/components/sync/IbkrPanel', () => ({
   IbkrPanel: ({ onConnected }: { onConnected?: () => void }) => (
     <button onClick={onConnected}>ibkr-wizard</button>
@@ -88,6 +95,12 @@ vi.mock('@/components/sync/IbkrPanel', () => ({
 vi.mock('@/components/sync/SimplefinPanel', () => ({
   SimplefinPanel: ({ onConnected }: { onConnected?: () => void }) => (
     <button onClick={onConnected}>simplefin-wizard</button>
+  ),
+}))
+
+vi.mock('@/components/sync/WisePanel', () => ({
+  WisePanel: ({ onConnected }: { onConnected?: () => void }) => (
+    <button onClick={onConnected}>wise-wizard</button>
   ),
 }))
 
@@ -130,9 +143,7 @@ function fillPhoneAndPin() {
   fireEvent.change(screen.getByLabelText('sync.tr.phone'), {
     target: { value: '+33612345678' },
   })
-  const pinInput = screen.getAllByRole('textbox').find((input) => input !== screen.getByLabelText('sync.tr.phone'))
-  if (!pinInput) throw new Error('PIN input not found')
-  fireEvent.change(pinInput, { target: { value: '1234' } })
+  fireEvent.change(screen.getByLabelText('sync.tr.pin'), { target: { value: '1234' } })
 }
 
 describe('AddAccountModal Trade Republic wizard', () => {
@@ -170,8 +181,8 @@ describe('AddAccountModal Trade Republic wizard', () => {
   })
 
   it('moves focus to the TAN input once the PIN is accepted', async () => {
-    initiateTrAuth.mockImplementation((_params, options: { onSuccess: (data: { processId: string }) => void }) => {
-      options.onSuccess({ processId: 'process-123' })
+    initiateTrAuth.mockImplementation((_params, options: { onSuccess: (data: { processId: string; flow: string; countdownInSeconds: number }) => void }) => {
+      options.onSuccess({ processId: 'process-123', flow: 'otp', countdownInSeconds: 120 })
     })
 
     renderTradeRepublicWizard()
@@ -183,8 +194,8 @@ describe('AddAccountModal Trade Republic wizard', () => {
   })
 
   it('keeps the TAN form visible when completion fails', async () => {
-    initiateTrAuth.mockImplementation((_params, options: { onSuccess: (data: { processId: string }) => void }) => {
-      options.onSuccess({ processId: 'process-123' })
+    initiateTrAuth.mockImplementation((_params, options: { onSuccess: (data: { processId: string; flow: string; countdownInSeconds: number }) => void }) => {
+      options.onSuccess({ processId: 'process-123', flow: 'otp', countdownInSeconds: 120 })
     })
     completeTrAuth.mockImplementation((_params, options: { onError: (error: unknown) => void }) => {
       options.onError({ response: { status: 500, data: { detail: 'VALIDATION_CODE_INVALID' } } })
@@ -453,6 +464,43 @@ describe('AddAccountModal Caisse d\'Epargne wizard', () => {
   })
 })
 
+describe('AddAccountModal Banque Populaire wizard', () => {
+  it('lists the source with its own description', () => {
+    render(<AddAccountModal open onOpenChange={vi.fn()} />)
+
+    expect(screen.getByText('sync.banquePopulaire.title')).toBeInTheDocument()
+    expect(screen.getByText('addAccount.desc.banquePopulaire')).toBeInTheDocument()
+  })
+
+  it('opens the connector and closes after authentication', () => {
+    const onOpenChange = vi.fn()
+    render(<AddAccountModal open onOpenChange={onOpenChange} />)
+
+    fireEvent.click(screen.getByText('sync.banquePopulaire.title'))
+    fireEvent.click(screen.getByRole('button', { name: 'banque-populaire-wizard' }))
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+})
+
+describe('AddAccountModal source rows', () => {
+  // jsdom does no layout, so the real geometry is covered by e2e/add-account-source-list.spec.ts;
+  // this pins the classes that keep a long description inside its row and the arrow in place.
+  it('lets a long description wrap in the row and keeps the arrow fixed-size', () => {
+    render(<AddAccountModal open onOpenChange={vi.fn()} />)
+
+    const description = screen.getByText('addAccount.desc.caisseEpargne')
+    expect(description).toHaveClass('line-clamp-2')
+    expect(description).toHaveAttribute('title', 'addAccount.desc.caisseEpargne')
+
+    const column = description.parentElement!
+    expect(column).toHaveClass('min-w-0', 'flex-1', 'whitespace-normal')
+
+    const row = column.parentElement!
+    expect(row.querySelector('svg.lucide-arrow-right')).toHaveClass('shrink-0')
+  })
+})
+
 describe('AddAccountModal SimpleFIN wizard', () => {
   it('opens the connector and closes after authentication', () => {
     const onOpenChange = vi.fn()
@@ -465,7 +513,7 @@ describe('AddAccountModal SimpleFIN wizard', () => {
   })
 })
 
-describe.each(['amex', 'corum', 'sofidy'])('AddAccountModal %s wizard', (key) => {
+describe.each(['wise', 'amex', 'corum', 'sofidy'])('AddAccountModal %s wizard', (key) => {
   it('lists the source, opens the connector and closes after authentication', () => {
     const onOpenChange = vi.fn()
     render(<AddAccountModal open onOpenChange={onOpenChange} />)

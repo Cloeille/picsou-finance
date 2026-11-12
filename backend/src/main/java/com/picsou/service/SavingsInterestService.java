@@ -204,7 +204,8 @@ public class SavingsInterestService {
      *
      * <p>Strategy (in order of preference):</p>
      * <ol>
-     *   <li>Earliest {@link BalanceSnapshot} found within the year.</li>
+     *   <li>Earliest {@link BalanceSnapshot} found within the year, minus the net flows of the
+     *       year booked up to and including its date.</li>
      *   <li>Fallback: {@code current_balance − net transaction flows of the year}.</li>
      * </ol>
      */
@@ -217,7 +218,17 @@ public class SavingsInterestService {
         List<BalanceSnapshot> snapshots = balanceSnapshotRepository
             .findByAccountIdAndDateBetweenOrderByDateAsc(account.getId(), jan1, dec31);
         if (!snapshots.isEmpty()) {
-            return snapshots.get(0).getBalance();
+            // A snapshot is read as the balance at the end of its date (the convention
+            // BalanceHistoryReconstructor uses), so it is taken to contain every movement booked
+            // from Jan 1 up to it.
+            // The quinzaine loop replays those movements, so they are taken back out here;
+            // otherwise they would be counted twice.
+            BalanceSnapshot earliest = snapshots.get(0);
+            BigDecimal flowsUpToSnapshot = yearTxs.stream()
+                .filter(t -> !t.getDate().isAfter(earliest.getDate()))
+                .map(Transaction::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+            return earliest.getBalance().subtract(flowsUpToSnapshot);
         }
         // Fallback: reverse-engineer the opening balance from the closing balance and net flows.
         // current_balance = startingCapital + netFlows  →  startingCapital = current_balance − netFlows

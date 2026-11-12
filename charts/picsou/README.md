@@ -544,7 +544,7 @@ See [`values.yaml`](values.yaml), every key is commented. The main ones:
 | `global.imageTag` | `""` (appVersion) | Tag for every Picsou image |
 | `secrets.existingSecret` | `""` | Secret with the keys above; required with GitOps |
 | `app.env` | `SPRING_PROFILES_ACTIVE: prod` | Extra environment variables for the app |
-| `app.enableBanking.existingSecret` | `""` | Secret holding the Enable Banking private key |
+| `app.enableBanking.existingSecret` | `""` | Secret holding the Enable Banking private key, mounted `0440` root:`fsGroup`; rendering fails without `app.podSecurityContext.fsGroup` |
 | `app.persistence.size` | `1Gi` | `/data` volume (generated secrets, keys) |
 | `ingress.*` / `httpRoute.*` | disabled | Exposure, TLS on the controller |
 | `sidecars.<name>.enabled` | `true` | Deploy this sidecar |

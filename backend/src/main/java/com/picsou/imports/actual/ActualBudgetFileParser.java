@@ -42,15 +42,27 @@ public class ActualBudgetFileParser {
     private final int maxEntries;
     private final long maxUncompressedBytes;
     private final ActualBudgetDatabaseReader reader;
+    private final Path temporaryRoot;
 
     public ActualBudgetFileParser() {
         this(DEFAULT_MAX_ENTRIES, DEFAULT_MAX_UNCOMPRESSED_BYTES, new ActualBudgetDatabaseReader());
     }
 
     ActualBudgetFileParser(int maxEntries, long maxUncompressedBytes, ActualBudgetDatabaseReader reader) {
+        this(maxEntries, maxUncompressedBytes, reader, Path.of(System.getProperty("java.io.tmpdir")));
+    }
+
+    /** Writes its temporary copies under {@code temporaryRoot} instead of the system one. */
+    ActualBudgetFileParser(Path temporaryRoot) {
+        this(DEFAULT_MAX_ENTRIES, DEFAULT_MAX_UNCOMPRESSED_BYTES, new ActualBudgetDatabaseReader(), temporaryRoot);
+    }
+
+    private ActualBudgetFileParser(int maxEntries, long maxUncompressedBytes, ActualBudgetDatabaseReader reader,
+                                   Path temporaryRoot) {
         this.maxEntries = maxEntries;
         this.maxUncompressedBytes = maxUncompressedBytes;
         this.reader = reader;
+        this.temporaryRoot = temporaryRoot;
     }
 
     public ParsedActualBudget parse(byte[] upload) {
@@ -59,7 +71,7 @@ public class ActualBudgetFileParser {
         }
         Path directory = null;
         try {
-            directory = createPrivateDirectory();
+            directory = createPrivateDirectory(temporaryRoot);
             Path database = directory.resolve("budget.sqlite");
             writeDatabase(upload, database);
             return reader.read(database);
@@ -155,12 +167,12 @@ public class ActualBudgetFileParser {
                 && Arrays.equals(bytes, 0, prefix.length, prefix, 0, prefix.length);
     }
 
-    private static Path createPrivateDirectory() throws IOException {
+    private static Path createPrivateDirectory(Path root) throws IOException {
         if (FileSystems.getDefault().supportedFileAttributeViews().contains("posix")) {
-            return Files.createTempDirectory("picsou-actual-",
+            return Files.createTempDirectory(root, "picsou-actual-",
                     PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
         }
-        return Files.createTempDirectory("picsou-actual-");
+        return Files.createTempDirectory(root, "picsou-actual-");
     }
 
     private static void deleteRecursively(Path directory) {

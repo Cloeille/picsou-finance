@@ -1,13 +1,12 @@
 package com.picsou.service;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.EnableBankingConfigProvider;
 import com.picsou.model.AppSetting;
 import com.picsou.repository.AppSettingRepository;
-import com.picsou.repository.BourseDirectSessionRepository;
-import com.picsou.repository.BoursoSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.FinarySessionRepository;
-import com.picsou.repository.FortuneoSessionRepository;
-import com.picsou.repository.TradeRepublicSessionRepository;
+import com.picsou.repository.LbpSessionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -33,28 +32,22 @@ public class IntegrationsService {
 
     private final AppSettingRepository settingRepository;
     private final EnableBankingConfigProvider enableBankingConfig;
-    private final TradeRepublicSessionRepository tradeRepublicSessions;
     private final FinarySessionRepository finarySessions;
-    private final BourseDirectSessionRepository bourseDirectSessions;
-    private final BoursoSessionRepository boursoSessions;
-    private final FortuneoSessionRepository fortuneoSessions;
+    private final SidecarSessionRepository sidecarSessions;
+    private final LbpSessionRepository lbpSessions;
     private final UserContext userContext;
 
     public IntegrationsService(AppSettingRepository settingRepository,
                                EnableBankingConfigProvider enableBankingConfig,
-                               TradeRepublicSessionRepository tradeRepublicSessions,
                                FinarySessionRepository finarySessions,
-                               BourseDirectSessionRepository bourseDirectSessions,
-                               BoursoSessionRepository boursoSessions,
-                               FortuneoSessionRepository fortuneoSessions,
+                               SidecarSessionRepository sidecarSessions,
+                               LbpSessionRepository lbpSessions,
                                UserContext userContext) {
         this.settingRepository = settingRepository;
         this.enableBankingConfig = enableBankingConfig;
-        this.tradeRepublicSessions = tradeRepublicSessions;
         this.finarySessions = finarySessions;
-        this.bourseDirectSessions = bourseDirectSessions;
-        this.boursoSessions = boursoSessions;
-        this.fortuneoSessions = fortuneoSessions;
+        this.sidecarSessions = sidecarSessions;
+        this.lbpSessions = lbpSessions;
         this.userContext = userContext;
     }
 
@@ -96,7 +89,7 @@ public class IntegrationsService {
      *   <li><strong>traderepublic</strong> / <strong>finary</strong> — a login
      *       session row exists (these have no env config; auth is runtime).</li>
      *   <li><strong>boursedirect</strong> / <strong>boursobank</strong> /
-     *       <strong>fortuneo</strong> — an
+     *       <strong>fortuneo</strong> / <strong>lbp</strong> — an
      *       active sidecar session row exists.</li>
      *   <li><strong>crypto</strong> (no config to detect) — no cheap signal, so
      *       it falls back to the stored flag.</li>
@@ -117,13 +110,17 @@ public class IntegrationsService {
     private boolean isDetectedConfigured(String key) {
         return switch (key) {
             case "enablebanking" -> enableBankingConfig.isConfiguredLenient();
-            case "traderepublic" -> tradeRepublicSessions.count() > 0;
+            case "traderepublic" -> sidecarSessions.countByBank(SidecarBank.TRADE_REPUBLIC) > 0;
             case "finary" -> finarySessions.count() > 0;
-            case "boursedirect" -> bourseDirectSessions.existsByActiveTrue();
-            case "boursobank" -> boursoSessions.existsByActiveTrue();
-            case "fortuneo" -> fortuneoSessions.existsByMemberIdAndActiveTrue(
+            case "boursedirect" -> sidecarSessions.existsByBankAndActiveTrue(SidecarBank.BOURSE_DIRECT);
+            case "boursobank" -> sidecarSessions.existsByBankAndActiveTrue(SidecarBank.BOURSO);
+            case "fortuneo" -> sidecarSessions.existsByBankAndMemberIdAndActiveTrue(
+                SidecarBank.FORTUNEO,
                 userContext.currentMemberId()
             );
+            case "lbp" -> lbpSessions.findByMemberId(userContext.currentMemberId())
+                .map(session -> session.isActive())
+                .orElse(false);
             default -> false;
         };
     }

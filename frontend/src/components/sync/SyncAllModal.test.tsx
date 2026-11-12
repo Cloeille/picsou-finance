@@ -58,7 +58,7 @@ function mockStatusEndpoints() {
       case '/crypto/wallet':
         return Promise.resolve({ data: [] })
       case '/tr/status':
-        return Promise.resolve({ data: { isActive: false, expiresAt: null } })
+        return Promise.resolve({ data: trStatus })
       case '/bourso/status':
         return Promise.resolve({ data: { isActive: false, syncStatus: 'IDLE', lastSyncError: null, lastSyncStartedAt: null, lastSyncCompletedAt: null } })
       case '/finary/status':
@@ -73,16 +73,24 @@ function mockStatusEndpoints() {
         return Promise.resolve({ data: { connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null } })
       case '/simplefin/status':
         return Promise.resolve({ data: simplefinStatus })
+      case '/wise/status':
+        return Promise.resolve({ data: wiseStatus })
       case '/amex/status':
         return Promise.resolve({ data: amexStatus })
       case '/caisse-epargne/status':
         return Promise.resolve({ data: caisseEpargneStatus })
+      case '/banque-populaire/status':
+        return Promise.resolve({ data: banquePopulaireStatus })
       case '/corum/status':
         return Promise.resolve({ data: corumStatus })
       case '/cmes/status':
         return Promise.resolve({ data: cmesStatus })
+      case '/natixis/status':
+        return Promise.resolve({ data: natixisStatus })
       case '/cic/status':
         return Promise.resolve({ data: cicStatus })
+      case '/lbp/status':
+        return Promise.resolve({ data: lbpStatus })
       case '/sofidy/status':
         return Promise.resolve({ data: sofidyStatus })
       case '/accounts':
@@ -100,6 +108,7 @@ function mockStatusEndpoints() {
 /** Overridden per test to drive the session-provider rows. */
 let amundiStatus: Record<string, unknown>
 let simplefinStatus: Record<string, unknown>
+let wiseStatus: Record<string, unknown>
 let accountsFixture: unknown[]
 let revolutStatus: Record<string, unknown>
 let revolutProgress: Record<string, unknown>
@@ -124,10 +133,15 @@ const SIMPLEFIN_DISCONNECTED = {
 }
 let amexStatus: Record<string, unknown>
 let caisseEpargneStatus: Record<string, unknown>
+let banquePopulaireStatus: Record<string, unknown>
 let corumStatus: Record<string, unknown>
 let sofidyStatus: Record<string, unknown>
 let cmesStatus: Record<string, unknown>
+let natixisStatus: Record<string, unknown>
 let cicStatus: Record<string, unknown>
+let lbpStatus: Record<string, unknown>
+const TR_NO_SESSION = { isActive: false, syncStatus: 'IDLE', lastSyncError: null, lastSyncStartedAt: '2026-07-07T08:00:00Z', lastSyncCompletedAt: null, maskedPhone: null }
+let trStatus: Record<string, unknown>
 
 const AMUNDI_INACTIVE = {
   isActive: false, syncStatus: 'IDLE', lastSyncError: null,
@@ -160,6 +174,15 @@ const CAISSE_EPARGNE_ACCOUNT = {
   provider: "Caisse d'Epargne",
 }
 
+/** A current account created by the Banque Populaire sidecar: its provider is the regional bank's name. */
+const BANQUE_POPULAIRE_ACCOUNT = {
+  ...TR_ACCOUNT,
+  id: 8,
+  name: 'Compte courant',
+  type: 'CHECKING',
+  provider: 'Banque Populaire Rives de Paris',
+}
+
 /** An account created by the Crédit Mutuel / CIC Épargne Salariale sidecar (`CmesSyncService.PROVIDER`). */
 const CMES_ACCOUNT = {
   ...TR_ACCOUNT,
@@ -178,6 +201,15 @@ const CIC_ACCOUNT = {
   provider: 'CIC',
 }
 
+/** An account created by the La Banque Postale sidecar (`LbpSyncService.PROVIDER`). */
+const LBP_ACCOUNT = {
+  ...TR_ACCOUNT,
+  id: 8,
+  name: 'Livret A',
+  type: 'LIVRET_A',
+  provider: 'La Banque Postale',
+}
+
 /** A SCPI account linked to no provider fund; tests set `provider` and the fund codes. */
 const SCPI_ACCOUNT = {
   ...TR_ACCOUNT,
@@ -192,12 +224,17 @@ const SCPI_ACCOUNT = {
 function resetFixtures() {
   amundiStatus = AMUNDI_INACTIVE
   simplefinStatus = SIMPLEFIN_DISCONNECTED
+  wiseStatus = SIMPLEFIN_DISCONNECTED
   amexStatus = AMUNDI_INACTIVE
   caisseEpargneStatus = { ...AMUNDI_INACTIVE, unsupported: [], unsupportedCount: 0 }
+  banquePopulaireStatus = { ...AMUNDI_INACTIVE, unsupported: [], unsupportedCount: 0 }
   corumStatus = AMUNDI_INACTIVE
   sofidyStatus = AMUNDI_INACTIVE
   cmesStatus = AMUNDI_INACTIVE
+  natixisStatus = AMUNDI_INACTIVE
   cicStatus = AMUNDI_INACTIVE
+  lbpStatus = { ...AMUNDI_INACTIVE, unsupported: [], unsupportedCount: 0, savedIdentifier: null }
+  trStatus = TR_NO_SESSION
   accountsFixture = [TR_ACCOUNT]
   revolutStatus = REVOLUT_NOT_REMEMBERED
   revolutProgress = REVOLUT_DONE
@@ -251,6 +288,44 @@ describe('SyncAllModal Trade Republic inline auth', () => {
     mockStatusEndpoints()
   })
 
+  it('reconnects an expired session with the PIN or password only, through /tr/auth/reconnect', async () => {
+    trStatus = { ...TR_NO_SESSION, syncStatus: 'FAILED', lastSyncError: 'SESSION_EXPIRED', maskedPhone: '+33 * ** ** ** 78' }
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/tr/auth/reconnect') {
+        return Promise.resolve({ data: { processId: 'process-123', flow: 'confirmInApp', countdownInSeconds: 120 } })
+      }
+      if (url === '/tr/auth/complete') return new Promise(() => {})
+      return Promise.reject(new Error(`Unexpected POST ${url}`))
+    })
+
+    renderModal()
+    const trRow = (await screen.findByText('Trade Republic')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(trRow).getByRole('button'))
+
+    expect(await screen.findByTestId('tr-modal-masked-phone')).toHaveTextContent('+33 * ** ** ** 78')
+    expect(screen.queryByLabelText('sync.tr.phone')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('sync.tr.pin'), { target: { value: 'my password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))
+
+    expect(await screen.findByText('sync.tr.appConfirmPrompt')).toBeInTheDocument()
+    expect(apiPost).toHaveBeenCalledWith('/tr/auth/reconnect', { pin: 'my password' })
+    expect(apiPost).not.toHaveBeenCalledWith('/tr/auth/initiate', expect.anything())
+  })
+
+  it('falls back to the phone and PIN form when the reconnect finds no stored phone (409)', async () => {
+    trStatus = { ...TR_NO_SESSION, syncStatus: 'FAILED', lastSyncError: 'SESSION_EXPIRED', maskedPhone: '+33 * ** ** ** 78' }
+    apiPost.mockRejectedValue({ response: { status: 409, data: { code: 'INVALID_SESSION_STATE' } } })
+
+    renderModal()
+    const trRow = (await screen.findByText('Trade Republic')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(trRow).getByRole('button'))
+    fireEvent.change(await screen.findByLabelText('sync.tr.pin'), { target: { value: 'pw' } })
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))
+
+    expect(await screen.findByLabelText('sync.tr.phone')).toBeInTheDocument()
+    expect(screen.queryByTestId('tr-modal-masked-phone')).not.toBeInTheDocument()
+  })
+
   it('shows the mapped error and stays on the phone/PIN step when initiation fails', async () => {
     apiPost.mockRejectedValue({
       response: { status: 422, data: { detail: 'PIN_INVALID' } },
@@ -272,7 +347,7 @@ describe('SyncAllModal Trade Republic inline auth', () => {
   it('shows the mapped error, keeps the TAN step and clears the code when completion fails', async () => {
     apiPost.mockImplementation((url: string) => {
       if (url === '/tr/auth/initiate') {
-        return Promise.resolve({ data: { processId: 'process-123' } })
+        return Promise.resolve({ data: { processId: 'process-123', flow: 'otp', countdownInSeconds: 120 } })
       }
       if (url === '/tr/auth/complete') {
         return Promise.reject({
@@ -295,14 +370,35 @@ describe('SyncAllModal Trade Republic inline auth', () => {
     const tanInput = screen.getByLabelText('sync.tr.tan')
     expect(tanInput).toBeInTheDocument()
     await waitFor(() => expect(tanInput).toHaveValue(''))
-    expect(apiPost).toHaveBeenCalledWith('/tr/auth/complete', {
-      processId: 'process-123',
-      tan: '9876',
+    expect(apiPost).toHaveBeenCalledWith(
+      '/tr/auth/complete',
+      { processId: 'process-123', tan: '9876' },
+      expect.any(Object),
+    )
+  })
+
+  it('shows the app prompt and completes without a code when the login is confirmed in the app', async () => {
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/tr/auth/initiate') {
+        return Promise.resolve({ data: { processId: 'process-123', flow: 'confirmInApp', countdownInSeconds: 120 } })
+      }
+      if (url === '/tr/auth/complete') return new Promise(() => {})
+      return Promise.reject(new Error(`Unexpected POST ${url}`))
     })
+
+    renderModal()
+    await openTrFormAndFillCredentials()
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))
+
+    expect(await screen.findByText('sync.tr.appConfirmPrompt')).toBeInTheDocument()
+    expect(screen.queryByLabelText('sync.tr.tan')).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith('/tr/auth/complete', { processId: 'process-123' }, expect.any(Object)),
+    )
   })
 
   it('moves to the TAN step without an error message when initiation succeeds', async () => {
-    apiPost.mockResolvedValue({ data: { processId: 'process-123' } })
+    apiPost.mockResolvedValue({ data: { processId: 'process-123', flow: 'otp', countdownInSeconds: 120 } })
 
     renderModal()
     await openTrFormAndFillCredentials()
@@ -338,6 +434,7 @@ describe('SyncAllModal session providers', () => {
     expect(screen.queryByText('DEGIRO')).not.toBeInTheDocument()
     expect(screen.queryByText('Interactive Brokers')).not.toBeInTheDocument()
     expect(screen.queryByText('SimpleFIN')).not.toBeInTheDocument()
+    expect(screen.queryByText('Wise Jars')).not.toBeInTheDocument()
   })
 
   it('lists SimpleFIN when connected and syncs through its endpoint', async () => {
@@ -350,6 +447,29 @@ describe('SyncAllModal session providers', () => {
     fireEvent.click(within(row).getByRole('button'))
 
     await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/simplefin/sync'))
+  })
+
+  it('lists Wise Jars when connected and syncs through its endpoint', async () => {
+    wiseStatus = { ...SIMPLEFIN_DISCONNECTED, connected: true, connectionId: 1, status: 'CONNECTED' }
+    apiPost.mockResolvedValue({ data: [] })
+    renderModal()
+
+    const row = (await screen.findByText('Wise Jars')).closest('[data-slot="card"]') as HTMLElement
+    expect(row).not.toBeNull()
+    fireEvent.click(within(row).getByRole('button'))
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/wise/sync'))
+  })
+
+  it('sends a Wise Jars row whose token Wise refused to its tab instead of retrying it', async () => {
+    wiseStatus = { ...SIMPLEFIN_DISCONNECTED, connected: true, connectionId: 1, status: 'REAUTH_REQUIRED' }
+    renderModal()
+
+    const row = (await screen.findByText('Wise Jars')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=wise'))
+    expect(apiPost).not.toHaveBeenCalledWith('/wise/sync')
   })
 
   it('spins a row while its server-side sync job is queued or running', async () => {
@@ -387,6 +507,50 @@ describe('SyncAllModal session providers', () => {
     const amundiRow = (await screen.findByText('Amundi')).closest('[data-slot="card"]') as HTMLElement
     expect(amundiRow).not.toBeNull()
     expect(within(amundiRow).getByText('sync.all.sessionExpired')).toBeInTheDocument()
+  })
+
+  it('lists La Banque Postale when it holds accounts even if its session expired', async () => {
+    accountsFixture = [TR_ACCOUNT, LBP_ACCOUNT]
+    renderModal()
+
+    const row = (await screen.findByText('La Banque Postale')).closest('[data-slot="card"]') as HTMLElement
+    expect(row).not.toBeNull()
+    expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
+  })
+
+  it('lists La Banque Postale after a session existed even if every account is gone', async () => {
+    lbpStatus = {
+      ...AMUNDI_INACTIVE,
+      savedIdentifier: '1234567890',
+      unsupported: [],
+      unsupportedCount: 0,
+    }
+    renderModal()
+
+    const row = (await screen.findByText('La Banque Postale')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=lbp'))
+  })
+
+  it('syncs La Banque Postale through /lbp/sync when its session is live', async () => {
+    lbpStatus = {
+      ...AMUNDI_INACTIVE,
+      isActive: true,
+      syncStatus: 'SUCCESS',
+      lastSyncCompletedAt: '2026-11-06T12:00:00Z',
+      unsupported: [],
+      unsupportedCount: 0,
+      savedIdentifier: null,
+    }
+    accountsFixture = [TR_ACCOUNT, LBP_ACCOUNT]
+    apiPost.mockResolvedValue({ data: lbpStatus })
+    renderModal()
+
+    const row = (await screen.findByText('La Banque Postale')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/lbp/sync'))
   })
 
   it('syncs through the provider endpoint when the session is live', async () => {
@@ -507,6 +671,72 @@ describe('SyncAllModal session providers', () => {
     expect(apiPost).not.toHaveBeenCalledWith('/caisse-epargne/sync')
   })
 
+  it('lists and syncs a live Banque Populaire session', async () => {
+    banquePopulaireStatus = { ...banquePopulaireStatus, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockResolvedValue({ data: banquePopulaireStatus })
+    renderModal()
+
+    const row = (await screen.findByText('Banque Populaire')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/banque-populaire/sync'))
+    expect(apiPost).not.toHaveBeenCalledWith('/caisse-epargne/sync')
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  /** Same BPCE keypad plus Sécur'Pass login as Caisse d'Epargne: only its tab can run it. */
+  it('keeps an expired Banque Populaire row with its accounts and routes to its tab', async () => {
+    accountsFixture = [TR_ACCOUNT, BANQUE_POPULAIRE_ACCOUNT]
+    renderModal()
+
+    const row = (await screen.findByText('Banque Populaire')).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=banque-populaire'))
+    expect(apiPost).not.toHaveBeenCalledWith('/banque-populaire/sync')
+  })
+
+  /** One label per `BanquePopulaireRegion.institutionName()`. */
+  it.each([
+    'Banque Populaire Alsace Lorraine Champagne',
+    'Banque Populaire Aquitaine Centre Atlantique',
+    'Banque Populaire Auvergne Rhône Alpes',
+    'Banque Populaire Bourgogne Franche-Comté',
+    'BRED Banque Populaire',
+    'Banque Populaire Grand Ouest',
+    'Banque Populaire Méditerranée',
+    'Banque Populaire du Nord',
+    'Banque Populaire Occitane',
+    'Banque Populaire Rives de Paris',
+    'Banque Populaire du Sud',
+    'Banque Populaire Val de France',
+  ])('keeps an expired Banque Populaire row for an account labelled %s', async (provider) => {
+    accountsFixture = [TR_ACCOUNT, { ...BANQUE_POPULAIRE_ACCOUNT, provider }]
+    renderModal()
+
+    const row = (await screen.findByText('Banque Populaire')).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
+  })
+
+  it.each(['Banque Populaire Rives de Paris', 'Banque Populaire'])(
+    'lists no Banque Populaire row for a manual account labelled %s',
+    async (provider) => {
+      // Picked from the bank catalog or typed: nothing ever connected it.
+      accountsFixture = [TR_ACCOUNT, { ...BANQUE_POPULAIRE_ACCOUNT, provider, isManual: true }]
+      renderModal()
+
+      await screen.findByText('Trade Republic')
+      expect(screen.queryByText('Banque Populaire')).not.toBeInTheDocument()
+    },
+  )
+
+  it('lists no Banque Populaire row for an account of another bank whose name merely mentions it', async () => {
+    accountsFixture = [TR_ACCOUNT, { ...BANQUE_POPULAIRE_ACCOUNT, provider: 'Banque Populaire Imaginaire' }]
+    renderModal()
+
+    await screen.findByText('Trade Republic')
+    expect(screen.queryByText('Banque Populaire')).not.toBeInTheDocument()
+  })
+
   /** The backend refuses a dead CE session (`SESSION_EXPIRED`), so the batch must skip the row. */
   it("leaves an expired Caisse d'Epargne row out of \"Sync all\"", async () => {
     amundiStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'IDLE' }
@@ -581,6 +811,53 @@ describe('SyncAllModal session providers', () => {
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=cmes'))
     expect(apiPost).not.toHaveBeenCalledWith('/cmes/sync')
   })
+
+  it('lists and syncs a live Natixis Interépargne session', async () => {
+    natixisStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockResolvedValue({ data: natixisStatus })
+    renderModal()
+
+    const row = (await screen.findByText('Natixis Interépargne')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/natixis/sync'))
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  // The sync request only queues the import, so the row stays busy until the status says it ran.
+  it('keeps a row busy while its queued import runs, then frees it on SUCCESS', async () => {
+    natixisStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockImplementation(() => Promise.resolve({ data: { ...natixisStatus, syncStatus: 'QUEUED' } }))
+    renderModal()
+
+    const row = (await screen.findByText('Natixis Interépargne')).closest('[data-slot="card"]') as HTMLElement
+    const button = within(row).getByRole('button')
+    await waitFor(() => expect(button).toBeEnabled())
+
+    natixisStatus = { ...natixisStatus, syncStatus: 'QUEUED' }
+    fireEvent.click(button)
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/natixis/sync'))
+    await waitFor(() => expect(button).toBeDisabled())
+    expect(button.querySelector('.animate-spin')).not.toBeNull()
+
+    // Sync all must not queue a second Natixis import while one is in flight.
+    apiPost.mockClear()
+    const syncAll = screen.getByRole('button', { name: /sync\.all\.syncing/ })
+    expect(syncAll).toBeDisabled()
+    fireEvent.click(syncAll)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(apiPost).not.toHaveBeenCalledWith('/natixis/sync')
+    expect(button).toBeDisabled()
+
+    // The hook polls every 1.5 s while QUEUED or RUNNING.
+    natixisStatus = { ...natixisStatus, syncStatus: 'RUNNING' }
+    await new Promise(resolve => setTimeout(resolve, 1_700))
+    expect(button).toBeDisabled()
+    expect(button.querySelector('.animate-spin')).not.toBeNull()
+
+    natixisStatus = { ...natixisStatus, syncStatus: 'SUCCESS', lastSyncCompletedAt: '2026-08-10T08:00:00Z' }
+    await waitFor(() => expect(button).toBeEnabled(), { timeout: 4_000 })
+    expect(button.querySelector('.animate-spin')).toBeNull()
+  }, 15_000)
 
   it('lists and syncs a live CIC (livrets) session', async () => {
     cicStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }

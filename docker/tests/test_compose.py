@@ -17,6 +17,16 @@ def service_block(service):
     return match.group(1)
 
 
+class CaddyTlsConfigTest(unittest.TestCase):
+    def test_default_sni_uses_the_configured_site_name(self):
+        caddyfile = (COMPOSE_FILE.parent / "Caddyfile").read_text(encoding="utf-8")
+        self.assertRegex(
+            caddyfile,
+            r"(?ms)^\{\s+default_sni \{\$PICSOU_DOMAIN:picsou\.localhost\}\s+\}",
+        )
+        self.assertIn("{$PICSOU_DOMAIN:picsou.localhost} {", caddyfile)
+
+
 class ComposePasswordTest(unittest.TestCase):
     @staticmethod
     def compose_password_for(service):

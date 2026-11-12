@@ -1,6 +1,7 @@
 package com.picsou.repository;
 
 import com.picsou.model.BalanceSnapshot;
+import com.picsou.model.SnapshotSource;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -60,5 +61,10 @@ public interface BalanceSnapshotRepository extends JpaRepository<BalanceSnapshot
     /** Latest snapshot on or before a given date (for per-month contribution calc) */
     Optional<BalanceSnapshot> findFirstByAccountIdAndDateLessThanEqualOrderByDateDesc(
         Long accountId, LocalDate date
+    );
+
+    /** Latest hand-entered statement on or before a date (anchor for manual ledger balances). */
+    Optional<BalanceSnapshot> findFirstByAccountIdAndSourceAndDateLessThanEqualOrderByDateDesc(
+        Long accountId, SnapshotSource source, LocalDate date
     );
 }

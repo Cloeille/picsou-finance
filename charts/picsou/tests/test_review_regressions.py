@@ -409,6 +409,42 @@ class ReviewRegressionsTest(unittest.TestCase):
                                   if r["kind"] == "Secret")
                     self.assertEqual(secret["data"], stored)
 
+    def test_enable_banking_key_is_group_readable_by_the_app(self):
+        resources = self.resources("--set", "app.enableBanking.existingSecret=eb")
+        pod = next(r for r in resources if r["kind"] == "Deployment"
+                   and r["metadata"]["name"] == "picsou")["spec"]["template"]["spec"]
+        volume = next(v for v in pod["volumes"] if v["name"] == "enablebanking")
+        self.assertEqual(volume["secret"]["defaultMode"], 0o440)
+        self.assertEqual(pod["securityContext"]["fsGroup"], 1000)
+
+    def test_enable_banking_key_reaches_the_app(self):
+        resources = self.resources("--set", "app.enableBanking.existingSecret=eb",
+                                   "--set", "app.enableBanking.key=custom.pem")
+        pod = next(r for r in resources if r["kind"] == "Deployment"
+                   and r["metadata"]["name"] == "picsou")["spec"]["template"]["spec"]
+        app = pod["containers"][0]
+        volume = next(v for v in pod["volumes"] if v["name"] == "enablebanking")
+        self.assertEqual(volume["secret"]["secretName"], "eb")
+        self.assertEqual(volume["secret"]["items"], [{"key": "custom.pem", "path": "custom.pem"}])
+        mount = next(m for m in app["volumeMounts"] if m["name"] == "enablebanking")
+        self.assertEqual(mount["mountPath"], "/run/secrets/enablebanking")
+        self.assertIs(mount["readOnly"], True)
+        env = {entry["name"]: entry.get("value") for entry in app["env"]}
+        self.assertEqual(env["ENABLEBANKING_PRIVATE_KEY_PATH"],
+                         mount["mountPath"] + "/" + volume["secret"]["items"][0]["path"])
+
+    def test_enable_banking_key_without_fs_group_fails_to_render(self):
+        result = self.render("--set", "app.enableBanking.existingSecret=eb",
+                             "--set", "app.podSecurityContext.fsGroup=null")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("requires app.podSecurityContext.fsGroup", result.stderr)
+        self.resources("--set", "app.podSecurityContext.fsGroup=null")
+        resources = self.resources("--set", "app.enableBanking.existingSecret=eb",
+                                   "--set", "app.podSecurityContext.fsGroup=0")
+        pod = next(r for r in resources if r["kind"] == "Deployment"
+                   and r["metadata"]["name"] == "picsou")["spec"]["template"]["spec"]
+        self.assertEqual(pod["securityContext"]["fsGroup"], 0)
+
     def test_operator_environment_replaces_all_app_defaults_by_name(self):
         resources = self.resources("--set", "app.enableBanking.existingSecret=eb")
         original = next(r for r in resources if r["kind"] == "Deployment"

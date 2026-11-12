@@ -21,9 +21,9 @@ import static com.picsou.port.SidecarErrorCode.*;
  * treated as unknown rather than stored. {@code SidecarBankCodesTest} pins every set to the latest
  * CHECK on its table.
  *
- * <p>Trade Republic, DEGIRO and Revolut stay out: their sidecars do not use the {@code detail}-code
- * contract (DEGIRO relays a bare 401 for an expired session, Trade Republic relays the broker's own
- * status), so they take the shared {@link SidecarWebClientFactory} client and keep their own mapping.
+ * <p>DEGIRO and Revolut stay out: their sidecars do not use the {@code detail}-code contract (DEGIRO
+ * relays a bare 401 for an expired session), so they take the shared {@link SidecarWebClientFactory}
+ * client and keep their own mapping.
  */
 public enum SidecarBank {
 
@@ -49,6 +49,44 @@ public enum SidecarBank {
         say(INVALID_DATA, "Amundi returned invalid savings plan data"),
         say(UPSTREAM_UNAVAILABLE, "Amundi is temporarily unavailable"),
         say(INTERNAL_ERROR, "Amundi is temporarily unavailable"))),
+
+    /** Same BPCE platform and sidecar contract as {@link #CAISSE_EPARGNE}, so the same codes. */
+    BANQUE_POPULAIRE("Banque Populaire", "banque-populaire-auth", Map.ofEntries(
+        say(SESSION_EXPIRED, "The Banque Populaire session expired"),
+        say(INVALID_SESSION_STATE, "The stored Banque Populaire session is unusable"),
+        say(INVALID_CREDENTIALS, "Banque Populaire refused the identifier or password"),
+        say(KEYPAD_EXPIRED, "The Banque Populaire keypad expired. Start again."),
+        say(INVALID_POSITIONS, "The keypad choice is not valid. Start again."),
+        say(KEYPAD_CHANGED, "Banque Populaire changed its login page. Nothing was sent."),
+        say(APP_VALIDATION_TIMEOUT, "The sign-in was not approved in Sécur'Pass in time"),
+        say(AUTH_ATTEMPT_EXPIRED, "This Banque Populaire sign-in attempt expired. Start again."),
+        say(UPSTREAM_FORMAT_CHANGED, "The Banque Populaire data format changed"),
+        say(UPSTREAM_UNAVAILABLE, "Banque Populaire is temporarily unavailable"),
+        say(INTERNAL_ERROR, "Banque Populaire is temporarily unavailable"))),
+
+    /**
+     * BNP Paribas and Hello bank! (same platform, other base URL). The customer number opens an
+     * attempt, the member clicks the six digits on the bank's shuffled keypad, then confirms the
+     * strong authentication (Clé Digitale app or SMS code). No password or code is ever stored.
+     */
+    BNP("BNP Paribas", "bnp-auth", Map.ofEntries(
+        say(SESSION_EXPIRED, "The BNP Paribas session expired, reconnect to resume syncing"),
+        say(INVALID_SESSION_STATE, "The stored BNP Paribas session is unusable"),
+        say(INVALID_CREDENTIALS, "BNP Paribas refused the customer number or the code"),
+        say(KEYPAD_EXPIRED, "The BNP Paribas keypad expired. Start again."),
+        say(INVALID_POSITIONS, "The keypad choice is not valid. Start again."),
+        say(KEYPAD_CHANGED, "BNP Paribas changed its login page. Nothing was sent."),
+        say(MFA_TYPE_UNSUPPORTED, "BNP Paribas asked for a strong authentication Picsou does not support"),
+        say(INVALID_OTP, "BNP Paribas rejected the verification code"),
+        say(APP_VALIDATION_TIMEOUT, "The sign-in was not approved in the Clé Digitale app in time"),
+        say(AUTH_ATTEMPT_EXPIRED, "This BNP Paribas sign-in attempt expired. Start again."),
+        say(RATE_LIMITED, "BNP Paribas locked or delayed further attempts, try again later"),
+        say(ACTION_REQUIRED, "BNP Paribas asks for an action on its website before Picsou can sign in"),
+        say(PORTFOLIO_INCOMPLETE, "BNP Paribas returned an incomplete portfolio"),
+        say(UPSTREAM_FORMAT_CHANGED, "The BNP Paribas data format changed"),
+        say(INVALID_DATA, "BNP Paribas returned invalid account data"),
+        say(UPSTREAM_UNAVAILABLE, "BNP Paribas is temporarily unavailable"),
+        say(INTERNAL_ERROR, "BNP Paribas is temporarily unavailable"))),
 
     BOURSE_DIRECT("Bourse Direct", "bourse-direct-auth", Map.ofEntries(
         say(INVALID_CREDENTIALS, "Bourse Direct rejected the credentials"),
@@ -101,6 +139,23 @@ public enum SidecarBank {
         say(UPSTREAM_FORMAT_CHANGED, "The Caisse d'Epargne data format changed"),
         say(UPSTREAM_UNAVAILABLE, "Caisse d'Epargne is temporarily unavailable"),
         say(INTERNAL_ERROR, "Caisse d'Epargne is temporarily unavailable"))),
+
+    /**
+     * The sign-in is approved in the bank's mobile app: there is no {@code INVALID_OTP}, because
+     * no code is submitted. Certicode is no longer the flow for a modern account.
+     */
+    LBP("La Banque Postale", "lbp-auth", Map.ofEntries(
+        say(SESSION_EXPIRED, "The La Banque Postale session expired"),
+        say(INVALID_SESSION_STATE, "The stored La Banque Postale session is unusable"),
+        say(INVALID_CREDENTIALS, "La Banque Postale refused the identifier or password"),
+        say(KEYPAD_EXPIRED, "The La Banque Postale keypad expired. Start again."),
+        say(INVALID_POSITIONS, "The keypad choice is not valid. Start again."),
+        say(KEYPAD_CHANGED, "La Banque Postale changed its login page. Nothing was sent."),
+        say(APP_VALIDATION_TIMEOUT, "The sign-in was not approved in the mobile app in time"),
+        say(AUTH_ATTEMPT_EXPIRED, "This La Banque Postale sign-in attempt expired. Start again."),
+        say(UPSTREAM_FORMAT_CHANGED, "The La Banque Postale data format changed"),
+        say(UPSTREAM_UNAVAILABLE, "La Banque Postale is temporarily unavailable"),
+        say(INTERNAL_ERROR, "La Banque Postale is temporarily unavailable"))),
 
     /** The second factor is a mobile confirmation or an SMS code, depending on how the saver's access is set up. */
     CIC("CIC", "cic-auth", Map.ofEntries(
@@ -162,6 +217,24 @@ public enum SidecarBank {
         say(UPSTREAM_UNAVAILABLE, "Fortuneo is temporarily unavailable"),
         say(INTERNAL_ERROR, "Fortuneo is temporarily unavailable"))),
 
+    /**
+     * Natixis always asks for a second factor (SMS, voice call or e-mail code), so no stored password
+     * can log in again unattended: an expired session waits for the saver to reconnect.
+     */
+    NATIXIS("Natixis Interépargne", "natixis-auth", Map.ofEntries(
+        say(INVALID_CREDENTIALS, "Natixis Interépargne rejected the e-mail or password"),
+        say(MFA_TYPE_UNSUPPORTED,
+            "Natixis Interépargne only offers passkey login or an unsupported second factor for this account"),
+        say(INVALID_OTP, "Natixis Interépargne rejected the verification code"),
+        say(RATE_LIMITED, "Natixis Interépargne blocked further attempts, try again later"),
+        say(AUTH_ATTEMPT_EXPIRED, "The Natixis Interépargne authentication attempt expired"),
+        say(SESSION_EXPIRED, "The Natixis Interépargne session expired, reconnect to resume syncing"),
+        say(PORTFOLIO_INCOMPLETE, "Natixis Interépargne returned incomplete savings plans"),
+        say(UPSTREAM_FORMAT_CHANGED, "The Natixis Interépargne website format changed"),
+        say(INVALID_DATA, "Natixis Interépargne returned invalid savings plan data"),
+        say(UPSTREAM_UNAVAILABLE, "Natixis Interépargne is temporarily unavailable"),
+        say(INTERNAL_ERROR, "Natixis Interépargne is temporarily unavailable"))),
+
     SOFIDY("Sofidy", "sofidy-auth", Map.ofEntries(
         say(INVALID_CREDENTIALS, "Sofidy rejected the associate code or the password"),
         say(MFA_INVALID, "Sofidy rejected the verification code"),
@@ -175,7 +248,27 @@ public enum SidecarBank {
         say(UPSTREAM_FORMAT_CHANGED, "The Sofidy website format changed"),
         say(INVALID_DATA, "Sofidy returned invalid portfolio data"),
         say(UPSTREAM_UNAVAILABLE, "Sofidy is temporarily unavailable"),
-        say(INTERNAL_ERROR, "Sofidy is temporarily unavailable")));
+        say(INTERNAL_ERROR, "Sofidy is temporarily unavailable"))),
+
+    /**
+     * The sidecar logs in with the phone number and PIN, then waits for an in-app confirmation (or a
+     * 4-digit code when TR falls back to the v1 login). It stores no password: the session state holds
+     * only the refresh cookie, the device cookie and the subject. {@code INVALID_SESSION_STATE} ends
+     * the session, as a refresh cookie the sidecar cannot read can never be renewed.
+     */
+    TRADE_REPUBLIC("Trade Republic", "tr-auth", Map.ofEntries(
+        say(INVALID_CREDENTIALS, "Trade Republic rejected the phone number or PIN"),
+        say(INVALID_OTP, "Trade Republic rejected the verification code"),
+        say(APP_VALIDATION_TIMEOUT, "The Trade Republic app confirmation was not given in time"),
+        say(APP_VALIDATION_CANCELLED, "The Trade Republic app confirmation was refused"),
+        say(AUTH_ATTEMPT_EXPIRED, "The Trade Republic authentication attempt expired"),
+        say(SESSION_EXPIRED, "The Trade Republic session expired"),
+        say(INVALID_SESSION_STATE, "The stored Trade Republic session is unusable"),
+        say(RATE_LIMITED, "Trade Republic is rate-limiting this login, try again later"),
+        say(UPSTREAM_FORMAT_CHANGED, "The Trade Republic API format changed"),
+        say(INVALID_DATA, "Trade Republic returned invalid account data"),
+        say(UPSTREAM_UNAVAILABLE, "Trade Republic is temporarily unavailable"),
+        say(INTERNAL_ERROR, "Trade Republic is temporarily unavailable")));
 
     private final String label;
     private final String serviceName;
@@ -201,6 +294,14 @@ public enum SidecarBank {
     /** The {@code app.sidecars.<name>} key the sidecar's base URL is read from. */
     public String serviceName() {
         return serviceName;
+    }
+
+    /**
+     * Whether this bank's sessions live in {@code sidecar_session}. La Banque Postale keeps its own
+     * {@code lbp_session} table until it moves over in a follow-up.
+     */
+    public boolean storedInSidecarSession() {
+        return this != LBP;
     }
 
     /** The codes this bank's sidecar declares, i.e. the values its session table accepts. */

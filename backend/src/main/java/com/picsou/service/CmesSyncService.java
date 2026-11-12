@@ -10,21 +10,20 @@ import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
-import com.picsou.model.CmesSession;
-import com.picsou.model.CmesSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.adapter.CmesAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.CmesSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.dao.DataAccessException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,7 +48,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 
 import static com.picsou.service.SyncValues.clean;
-import static com.picsou.service.SyncValues.errorCode;
 import static com.picsou.service.SyncValues.limit;
 import static com.picsou.service.SyncValues.moneyClose;
 import static com.picsou.service.SyncValues.requireTransactionResult;
@@ -79,14 +77,14 @@ public class CmesSyncService {
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private final CmesAdapter port;
-    private final CmesSessionRepository sessionRepository;
+    private final SidecarSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final AccountHoldingRepository holdingRepository;
     private final FamilyMemberRepository memberRepository;
     private final AccountService accountService;
     private final CryptoEncryption encryption;
     private final TransactionTemplate txTemplate;
-    private final Executor syncExecutor;
+    private final SidecarSyncTemplate<List<PreparedPlan>> sync;
     private final Map<String, PendingCredentials> pendingCredentials = new ConcurrentHashMap<>();
     /**
      * Bumped by {@link #clearSession}: a login that was waiting on the bank when
@@ -98,7 +96,7 @@ public class CmesSyncService {
 
     public CmesSyncService(
         CmesAdapter port,
-        CmesSessionRepository sessionRepository,
+        SidecarSessionRepository sessionRepository,
         AccountRepository accountRepository,
         AccountHoldingRepository holdingRepository,
         FamilyMemberRepository memberRepository,
@@ -115,7 +113,50 @@ public class CmesSyncService {
         this.accountService = accountService;
         this.encryption = encryption;
         this.txTemplate = txTemplate;
-        this.syncExecutor = syncExecutor;
+        this.sync = new SidecarSyncTemplate<>(SidecarBank.CMES, new Strategy(), sessionRepository,
+            memberRepository, encryption, txTemplate, syncExecutor, false);
+    }
+
+    private final class Strategy implements SidecarSyncStrategy<List<PreparedPlan>> {
+        @Override
+        public List<PreparedPlan> fetch(SidecarSyncJob job) {
+            List<CmesAdapter.PlanData> fetched;
+            try {
+                fetched = port.fetchPlans(job.plainState());
+            } catch (SyncException ex) {
+                if (codeOf(ex) != SidecarErrorCode.SESSION_EXPIRED) throw ex;
+                fetched = reauthenticateAndFetch(job);
+            }
+            return preparePlans(fetched);
+        }
+
+        @Override
+        public void commit(SidecarSyncJob job, List<PreparedPlan> prepared, Instant syncedAt) {
+            FamilyMember member = memberRepository.findById(job.memberId())
+                .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
+            List<Account> imported = accountRepository.findAllByMemberIdAndProvider(job.memberId(), PROVIDER);
+            // Resolved before any write: an ambiguous match fails the sync with
+            // every account as it was.
+            Map<String, Account> inherited = inheritedAccounts(prepared, imported);
+            for (PreparedPlan data : prepared) {
+                upsertAccount(data, inherited.get(data.externalId()), member, job.memberId(), syncedAt);
+            }
+            closeUnlistedPlans(prepared, imported, job.memberId(), syncedAt);
+        }
+
+        @Override
+        public String describe(List<PreparedPlan> prepared) {
+            return "plans=" + prepared.size();
+        }
+
+        @Override
+        public void onFailure(SidecarSession session, SidecarErrorCode code) {
+            // A rejected password must not be replayed by every scheduled sync:
+            // the site locks the access after a few failures.
+            if (code == SidecarErrorCode.INVALID_CREDENTIALS) {
+                session.setEncryptedCredentials(null);
+            }
+        }
     }
 
     public AuthInitResponse initiateAuth(String login, String password, Long memberId) {
@@ -176,45 +217,13 @@ public class CmesSyncService {
     }
 
     public SessionStatusResponse queueSync(Long memberId) {
-        QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
-            CmesSession session = sessionRepository.findByMemberIdForUpdate(memberId)
-                .orElseThrow(() -> error(
-                    SidecarErrorCode.SESSION_EXPIRED,
-                    "No active CMES session. Please reconnect.",
-                    null
-                ));
-            if (!session.isActive()) {
-                throw error(
-                    SidecarErrorCode.SESSION_EXPIRED,
-                    "The CMES session expired. Please reconnect.",
-                    null
-                );
-            }
-            if (session.getSyncStatus() == CmesSyncStatus.QUEUED
-                || session.getSyncStatus() == CmesSyncStatus.RUNNING) {
-                return new QueueDecision(null, toStatus(session));
-            }
-
-            String plainState = encryption.decrypt(session.getSessionState());
-            session.markQueued();
-            sessionRepository.save(session);
-            return new QueueDecision(
-                new SyncJob(session.getId(), memberId, plainState),
-                toStatus(session)
-            );
-        }));
-
-        if (decision.job() != null) {
-            submit(decision.job());
-            return getStatus(memberId);
-        }
-        return decision.status();
+        return toStatus(sync.queue(memberId, false));
     }
 
     /** The stored session, even an expired one: only its remembered-device cookie is reused. */
     private String previousPlainState(Long memberId) {
         try {
-            return sessionRepository.findByMemberId(memberId)
+            return sessionRepository.findByBankAndMemberId(SidecarBank.CMES, memberId)
                 .map(session -> encryption.decrypt(session.getSessionState()))
                 .orElse(null);
         } catch (RuntimeException ex) {
@@ -236,75 +245,22 @@ public class CmesSyncService {
 
     private SessionStatusResponse storeSessionAndQueue(String plainState, Long memberId, String login, String password,
                                                        long generation) {
-        SyncJob job;
+        SidecarSyncJob job;
         synchronized (sessionWriteLock) {
             requireGeneration(memberId, generation);
             job = insertSession(plainState, memberId, login, password);
         }
-        submit(job);
+        sync.submit(job);
         return getStatus(memberId);
     }
 
-    private SyncJob insertSession(String plainState, Long memberId, String login, String password) {
-        return requireTransactionResult(txTemplate.execute(status -> {
-            FamilyMember member = memberRepository.findById(memberId)
-                .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
-            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
-            sessionRepository.flush();
-
-            CmesSession newSession = CmesSession.create(
-                member,
-                encryption.encrypt(plainState),
-                Instant.now()
-            );
-            if (login != null && password != null) {
-                newSession.setEncryptedCredentials(encryption.encrypt(serializeCredentials(login, password)));
-            }
-            newSession.markQueued();
-            CmesSession stored = sessionRepository.saveAndFlush(newSession);
-            return new SyncJob(stored.getId(), memberId, plainState);
-        }));
-    }
-
-    private void submit(SyncJob job) {
-        try {
-            syncExecutor.execute(() -> executeJob(job));
-        } catch (RuntimeException ex) {
-            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
-            throw error(
-                SidecarErrorCode.INTERNAL_ERROR,
-                "Could not schedule the CMES synchronization",
-                ex
-            );
-        }
-    }
-
-    private void executeJob(SyncJob job) {
-        if (!markRunning(job)) {
-            return;
-        }
-        try {
-            List<CmesAdapter.PlanData> fetched;
-            try {
-                fetched = port.fetchPlans(job.plainState());
-            } catch (SyncException ex) {
-                if (codeOf(ex) != SidecarErrorCode.SESSION_EXPIRED) throw ex;
-                fetched = reauthenticateAndFetch(job);
-            }
-            List<PreparedPlan> prepared = preparePlans(fetched);
-            if (commitPlans(job, prepared)) {
-                log.info("CMES sync completed (member={}; plans={})", job.memberId(), prepared.size());
-            } else {
-                log.info("Discarded stale CMES sync result (member={})", job.memberId());
-            }
-        } catch (SyncException ex) {
-            SidecarErrorCode code = codeOf(ex);
-            markFailed(job, code);
-            log.warn("CMES sync failed (member={}; code={})", job.memberId(), code);
-        } catch (Exception ex) {
-            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
-            log.error("CMES sync failed unexpectedly (member={})", job.memberId(), ex);
-        }
+    private SidecarSyncJob insertSession(String plainState, Long memberId, String login, String password) {
+        return requireTransactionResult(txTemplate.execute(status ->
+            sync.insertQueued(memberId, plainState, false, session -> {
+                if (login != null && password != null) {
+                    session.setEncryptedCredentials(encryption.encrypt(serializeCredentials(login, password)));
+                }
+            })));
     }
 
     /**
@@ -313,12 +269,12 @@ public class CmesSyncService {
      * for its remembered-device cookie; a login that still asks for a second
      * factor cannot be finished unattended and reads as an expired session.
      */
-    private List<CmesAdapter.PlanData> reauthenticateAndFetch(SyncJob job) {
-        CmesSession session = requireTransactionResult(txTemplate.execute(
+    private List<CmesAdapter.PlanData> reauthenticateAndFetch(SidecarSyncJob job) {
+        SidecarSession session = requireTransactionResult(txTemplate.execute(
             status -> sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
         )).orElse(null);
         if (session == null || !session.isActive()
-            || session.getSyncStatus() != CmesSyncStatus.RUNNING
+            || session.getSyncStatus() != SidecarSyncStatus.RUNNING
             || session.getEncryptedCredentials() == null) {
             throw error(SidecarErrorCode.SESSION_EXPIRED, "CMES session expired", null);
         }
@@ -339,7 +295,7 @@ public class CmesSyncService {
         String newState = result.sessionState();
         Boolean updated = txTemplate.execute(status -> sessionRepository
             .findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
-            .filter(current -> current.isActive() && current.getSyncStatus() == CmesSyncStatus.RUNNING)
+            .filter(current -> current.isActive() && current.getSyncStatus() == SidecarSyncStatus.RUNNING)
             .map(current -> {
                 current.updateSessionState(encryption.encrypt(newState), Instant.now());
                 sessionRepository.save(current);
@@ -371,32 +327,6 @@ public class CmesSyncService {
         } catch (JsonProcessingException ex) {
             throw new IllegalArgumentException("Invalid credentials", ex);
         }
-    }
-
-    private boolean markRunning(SyncJob job) {
-        return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<CmesSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
-                job.sessionId(),
-                job.memberId()
-            );
-            if (current.isEmpty()) {
-                log.info("CMES sync session disappeared before execution (member={})", job.memberId());
-                return false;
-            }
-            CmesSession session = current.get();
-            if (!session.isActive() || session.getSyncStatus() != CmesSyncStatus.QUEUED) {
-                log.warn(
-                    "CMES sync cannot start from state {} (member={}; active={})",
-                    session.getSyncStatus(),
-                    job.memberId(),
-                    session.isActive()
-                );
-                return false;
-            }
-            session.markRunning(Instant.now());
-            sessionRepository.save(session);
-            return true;
-        }));
     }
 
     private List<PreparedPlan> preparePlans(List<CmesAdapter.PlanData> fetched) {
@@ -509,48 +439,6 @@ public class CmesSyncService {
             invested = invested.add(position.valueEur().subtract(position.pnlEur()));
         }
         return invested;
-    }
-
-    private boolean commitPlans(SyncJob job, List<PreparedPlan> prepared) {
-        return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<CmesSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
-                job.sessionId(),
-                job.memberId()
-            );
-            if (current.isEmpty()) {
-                log.info("CMES sync session disappeared before commit (member={})", job.memberId());
-                return false;
-            }
-            CmesSession session = current.get();
-            if (!session.isActive()) {
-                log.warn("CMES sync session became inactive before commit (member={})", job.memberId());
-                return false;
-            }
-            if (session.getSyncStatus() != CmesSyncStatus.RUNNING) {
-                log.warn(
-                    "CMES sync cannot commit from state {} (member={})",
-                    session.getSyncStatus(),
-                    job.memberId()
-                );
-                return false;
-            }
-
-            FamilyMember member = memberRepository.findById(job.memberId())
-                .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
-            Instant syncedAt = Instant.now();
-            List<Account> imported = accountRepository.findAllByMemberIdAndProvider(job.memberId(), PROVIDER);
-            // Resolved before any write: an ambiguous match fails the sync with
-            // every account as it was.
-            Map<String, Account> inherited = inheritedAccounts(prepared, imported);
-            for (PreparedPlan data : prepared) {
-                upsertAccount(data, inherited.get(data.externalId()), member, job.memberId(), syncedAt);
-            }
-            closeUnlistedPlans(prepared, imported, job.memberId(), syncedAt);
-
-            session.markSuccessful(syncedAt);
-            sessionRepository.save(session);
-            return true;
-        }));
     }
 
     /**
@@ -696,43 +584,6 @@ public class CmesSyncService {
         }
     }
 
-    private void markFailed(SyncJob job, SidecarErrorCode code) {
-        try {
-            txTemplate.executeWithoutResult(status -> {
-                Optional<CmesSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
-                    job.sessionId(),
-                    job.memberId()
-                );
-                if (current.isEmpty()) {
-                    log.info("CMES sync session disappeared before failure was recorded (member={})", job.memberId());
-                    return;
-                }
-                CmesSession session = current.get();
-                if (!session.isSyncInFlight()) {
-                    log.warn(
-                        "CMES sync failure ignored from state {} (member={}; code={})",
-                        session.getSyncStatus(),
-                        job.memberId(),
-                        code
-                    );
-                    return;
-                }
-                // A rejected password must not be replayed by every scheduled sync:
-                // the site locks the access after a few failures.
-                if (code == SidecarErrorCode.INVALID_CREDENTIALS) session.setEncryptedCredentials(null);
-                session.markFailed(code, Instant.now());
-                sessionRepository.save(session);
-            });
-        } catch (RuntimeException ex) {
-            log.error(
-                "Could not persist CMES sync failure (member={}; code={})",
-                job.memberId(),
-                code,
-                ex
-            );
-        }
-    }
-
     /**
      * Queued jobs live in a process-local executor and cannot survive a backend
      * restart. Turn persisted in-flight states into a retryable failure instead
@@ -740,22 +591,12 @@ public class CmesSyncService {
      */
     @Transactional
     public void recoverInterruptedSyncs() {
-        int recovered = sessionRepository.markInterruptedSyncsFailed(
-            List.of(CmesSyncStatus.QUEUED, CmesSyncStatus.RUNNING),
-            CmesSyncStatus.FAILED,
-            Instant.now(),
-            SidecarErrorCode.INTERNAL_ERROR
-        );
-        if (recovered > 0) {
-            log.warn("Recovered {} interrupted CMES sync job(s)", recovered);
-        }
+        sync.recoverInterrupted();
     }
 
     @Transactional(readOnly = true)
     public SessionStatusResponse getStatus(Long memberId) {
-        return sessionRepository.findByMemberId(memberId)
-            .map(this::toStatus)
-            .orElseGet(SessionStatusResponse::inactive);
+        return sync.find(memberId).map(this::toStatus).orElseGet(SessionStatusResponse::inactive);
     }
 
     /**
@@ -767,50 +608,17 @@ public class CmesSyncService {
     public boolean clearSession(Long memberId) {
         synchronized (sessionWriteLock) {
             authGenerations.merge(memberId, 1L, Long::sum);
-            boolean removed = Boolean.TRUE.equals(txTemplate.execute(status -> {
-                var session = sessionRepository.findByMemberIdForUpdate(memberId);
-                session.ifPresent(sessionRepository::delete);
-                return session.isPresent();
-            }));
+            boolean removed = sync.clear(memberId);
             pendingCredentials.entrySet().removeIf(entry -> entry.getValue().memberId().equals(memberId));
             return removed;
         }
     }
 
     public SourceSyncResult resyncReporting(Long memberId) {
-        try {
-            SessionStatusResponse status = getStatus(memberId);
-            if (!status.isActive()) {
-                if (status.lastSyncError() == SidecarErrorCode.SESSION_EXPIRED
-                    || status.lastSyncError() == SidecarErrorCode.INVALID_CREDENTIALS) {
-                    return new SourceSyncResult(SOURCE, SourceSyncResult.Status.NEEDS_REAUTH,
-                        status.lastSyncError().name());
-                }
-                if (status.lastSyncError() != null) {
-                    return new SourceSyncResult(SOURCE, SourceSyncResult.Status.FAILED,
-                        status.lastSyncError().name());
-                }
-                return new SourceSyncResult(SOURCE, SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session");
-            }
-            queueSync(memberId);
-            return new SourceSyncResult(SOURCE, SourceSyncResult.Status.QUEUED, "");
-        } catch (ResourceNotFoundException ex) {
-            return new SourceSyncResult(SOURCE, SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "Member not found");
-        } catch (DataAccessException ex) {
-            log.error("Database error during scheduled CMES sync (member={})", memberId, ex);
-            return new SourceSyncResult(SOURCE, SourceSyncResult.Status.FAILED, "Database error");
-        } catch (SyncException ex) {
-            log.warn("Could not queue scheduled CMES sync (member={}; code={})", memberId, ex.getCode(), ex);
-            SourceSyncResult classified = SourceSyncResult.fromSyncException(SOURCE, ex);
-            return new SourceSyncResult(SOURCE, classified.status(),
-                classified.status() == SourceSyncResult.Status.NEEDS_REAUTH ? ex.getCode() : "Sync failed");
-        } catch (Exception ex) {
-            log.error("CMES scheduled sync failed unexpectedly for member {}", memberId, ex);
-            return new SourceSyncResult(SOURCE, SourceSyncResult.Status.FAILED, "Unexpected sync error");
-        }
+        return sync.resyncReporting(memberId, "cmes", log, this::getStatus, this::queueSync);
     }
 
-    private SessionStatusResponse toStatus(CmesSession session) {
+    private SessionStatusResponse toStatus(SidecarSession session) {
         return new SessionStatusResponse(
             session.isActive(),
             session.getSyncStatus(),
@@ -821,7 +629,7 @@ public class CmesSyncService {
     }
 
     private SidecarErrorCode codeOf(SyncException exception) {
-        return SyncValues.errorCode(exception, SidecarBank.CMES, SidecarErrorCode.UPSTREAM_UNAVAILABLE);
+        return sync.codeOf(exception);
     }
 
     private SyncException error(SidecarErrorCode code, String message, Throwable cause) {
@@ -899,21 +707,19 @@ public class CmesSyncService {
 
     public record SessionStatusResponse(
         boolean isActive,
-        CmesSyncStatus syncStatus,
+        SidecarSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError
-    ) {
+    ) implements SidecarSessionView {
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, CmesSyncStatus.IDLE, null, null, null);
+            return new SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null);
         }
     }
 
     private record Credentials(String login, String password) {}
     private record PendingCredentials(String login, String password, Instant expiresAt, Long memberId,
                                       long generation) {}
-    private record QueueDecision(SyncJob job, SessionStatusResponse status) {}
-    private record SyncJob(Long sessionId, Long memberId, String plainState) {}
     private record PreparedPlan(
         String externalId,
         List<String> legacyExternalIds,
