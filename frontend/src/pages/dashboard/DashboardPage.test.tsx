@@ -164,7 +164,8 @@ describe('DashboardPage portfolio performance', () => {
 })
 
 describe('DashboardPage financial wealth mode', () => {
-  // The headline and the curve read `assets`, the donut reads `distribution`: same accounts here.
+  // The headline and the curve read `assets`, the donut reads `distribution`. The backend keeps
+  // a receivable out of `distribution`, so only `assets` carries the peer loan.
   const ACCOUNTS: DashboardData['assets'] = [
     { accountId: 1, name: 'Livret', color: '#1', balanceEur: 1000, percentage: 0, accountType: 'SAVINGS', hasHoldings: false },
     { accountId: 2, name: 'Appart', color: '#2', balanceEur: 215000, percentage: 0, accountType: 'REAL_ESTATE', hasHoldings: true },
@@ -173,12 +174,15 @@ describe('DashboardPage financial wealth mode', () => {
     { accountId: 5, name: 'Divers', color: '#5', balanceEur: 500, percentage: 0, accountType: 'OTHER', hasHoldings: false },
     { accountId: 6, name: 'Napoleon', color: '#6', balanceEur: 700, percentage: 0, accountType: 'PRECIOUS_METALS', hasHoldings: false },
   ]
+  const PEER_LOAN: DashboardData['assets'][number] = {
+    accountId: 7, name: 'Loan to Camille', color: '#7', balanceEur: 2000, percentage: 0, accountType: 'PEER_LOAN', hasHoldings: false,
+  }
   const FINANCIAL_DATA: DashboardData = {
-    totalNetWorth: 219500,
+    totalNetWorth: 221500,
     totalLiabilities: 0,
     netWorthHistory: [],
     distribution: ACCOUNTS,
-    assets: ACCOUNTS,
+    assets: [...ACCOUNTS, PEER_LOAN],
     liabilities: [],
     goalSummaries: [],
   }
@@ -207,12 +211,21 @@ describe('DashboardPage financial wealth mode', () => {
     fireEvent.click(screen.getByText('dashboard.financialWorth'))
   }
 
-  it('excludes real estate, checking, other and metals from the headline value but keeps SCPI', () => {
+  it('excludes real estate, checking, other, metals and a peer loan from the headline value but keeps SCPI', () => {
     switchToFinancialWealth()
 
     // The hero figure is the only amount on screen (no liabilities, no goals)
     const values = screen.getAllByTestId('currency').map(el => el.textContent)
     expect(values).toEqual(['3000'])
+  })
+
+  it('counts a peer loan in gross wealth, which the financial figure leaves out', () => {
+    renderDashboard()
+    fireEvent.click(screen.getByText('dashboard.grossWorth'))
+
+    const values = screen.getAllByTestId('currency').map(el => el.textContent)
+    expect(values).toEqual(['221500'])
+    expect(hooks.useHistory.mock.calls.at(-1)?.[0]).toEqual([1, 2, 3, 4, 5, 6, 7])
   })
 
   it('feeds only financial accounts to the history curve', () => {

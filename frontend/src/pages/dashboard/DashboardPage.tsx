@@ -47,9 +47,10 @@ type WealthMode = 'net' | 'gross' | 'financial'
 // Financial wealth = liquid and investable assets only. Checking is the day-to-day
 // cash excluded by design; real estate is tangible property; physical precious
 // metals are tangible movables; OTHER has an unknown nature and must not inflate
-// the figure by default. SCPI stays in: a share of a real-estate fund is an
-// intangible, exchangeable security.
-const EXCLUDED_FINANCIAL = new Set(['CHECKING', 'LOAN', 'REAL_ESTATE', 'PRECIOUS_METALS', 'OTHER'])
+// the figure by default. A peer loan is a real asset but neither liquid nor
+// invested, so it counts in net and gross wealth only. SCPI stays in: a share
+// of a real-estate fund is an intangible, exchangeable security.
+const EXCLUDED_FINANCIAL = new Set(['CHECKING', 'LOAN', 'REAL_ESTATE', 'PRECIOUS_METALS', 'PEER_LOAN', 'OTHER'])
 
 export function DashboardPage() {
   const { t } = useTranslation()
@@ -72,7 +73,7 @@ export function DashboardPage() {
         return data.assets.map(d => d.accountId)
       case 'financial':
         // Financial assets: drop everything in EXCLUDED_FINANCIAL (checking,
-        // loans, real estate, physical metals, OTHER)
+        // loans, real estate, physical metals, peer loans, OTHER)
         return data.assets
           .filter(d => !EXCLUDED_FINANCIAL.has(d.accountType))
           .map(d => d.accountId)
