@@ -1,5 +1,7 @@
 package com.picsou.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.OpenFigiIsinConverter;
 import com.picsou.adapter.OpenFigiIsinConverter.TickerResult;
 import com.picsou.config.CryptoEncryption;
@@ -61,6 +63,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.regex.Pattern;
 
 import static com.picsou.service.SyncValues.requireTransactionResult;
 
@@ -74,6 +77,11 @@ public class TradeRepublicSyncService {
     private static final int OVERLAP_DAYS = 14;
     /** The longest window tr-auth's {@code /transactions} accepts ({@code EXPORT_MAX_DAYS} there). */
     private static final int EXPORT_MAX_DAYS = 1830;
+    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final Pattern INTERNATIONAL_PHONE = Pattern.compile("\\+\\d{6,15}");
+    private static final Pattern PHONE_SEPARATORS = Pattern.compile("[\\s.\\-()]");
+    private static final int COUNTRY_PREFIX_LENGTH = 3;
+    private static final int VISIBLE_PHONE_DIGITS = 2;
 
     private final TradeRepublicAdapter          trPort;
     private final AccountRepository             accountRepository;
@@ -85,6 +93,7 @@ public class TradeRepublicSyncService {
     private final SecurityIdentityService       identityService;
     private final CategorizationService         categorizationService;
     private final CategoryRepository            categoryRepository;
+    private final CryptoEncryption              encryption;
     private final SidecarSyncTemplate<Prepared> sync;
     private final TransactionTemplate           txTemplate;
     /** Bumped by every disconnect, so a login that was waiting meanwhile stores nothing. */
@@ -118,6 +127,7 @@ public class TradeRepublicSyncService {
         this.categorizationService = categorizationService;
         this.categoryRepository = categoryRepository;
         this.txTemplate        = txTemplate;
+        this.encryption        = encryption;
         this.sync = new SidecarSyncTemplate<>(SidecarBank.TRADE_REPUBLIC, new Strategy(), sessionRepository,
             familyMemberRepository, encryption, txTemplate, syncExecutor, false);
     }
@@ -227,12 +237,23 @@ public class TradeRepublicSyncService {
     // --- Auth ---
 
     /**
-     * Step 1: sends phone+PIN to TR, which asks for the second factor (an in-app confirmation, or a
-     * 4-digit code on the fallback login). Credentials are used immediately and never stored.
+     * Step 1: sends phone+PIN (or password) to TR, which asks for the second factor (an in-app
+     * confirmation, a 4-digit code, or a 6-digit authenticator code). The PIN is used immediately
+     * and never stored.
      */
     public AuthInitResponse initiateAuth(String phoneNumber, String pin) {
         TrInitiate result = trPort.initiateAuth(phoneNumber, pin);
         return new AuthInitResponse(result.processId(), result.flow(), result.countdownInSeconds());
+    }
+
+    /**
+     * The phone number kept in the member's stored session state (active or deactivated), or empty
+     * when there is no session or it predates the stored phone. Lets the member reconnect with the
+     * PIN alone.
+     */
+    @Transactional(readOnly = true)
+    public Optional<String> storedPhone(Long memberId) {
+        return sync.find(memberId).map(this::phoneOf);
     }
 
     /**
@@ -670,8 +691,51 @@ public class TradeRepublicSyncService {
             session.getSyncStatus(),
             session.getLastSyncStartedAt(),
             session.getLastSyncCompletedAt(),
-            session.getLastSyncError()
+            session.getLastSyncError(),
+            maskPhone(phoneOf(session))
         );
+    }
+
+    /** The phone in the session's decrypted state, null when absent, unreadable or not JSON. Never logged. */
+    private String phoneOf(SidecarSession session) {
+        try {
+            String plain = encryption.decrypt(session.getSessionState());
+            if (plain == null) {
+                return null;
+            }
+            JsonNode phone = JSON.readTree(plain).get("phone");
+            return phone != null && phone.isTextual() && !phone.asText().isBlank() ? phone.asText().trim() : null;
+        } catch (RuntimeException | java.io.IOException ex) {
+            return null;
+        }
+    }
+
+    /**
+     * Keeps the country prefix and the last two digits: {@code +33612345699} becomes
+     * {@code +33 * ** ** ** 99}. Separators are ignored, since a state stored before the sidecar
+     * dropped them can hold {@code +33 6 12 ...}. Null for anything that is not an international number.
+     */
+    static String maskPhone(String phone) {
+        phone = phone == null ? null : PHONE_SEPARATORS.matcher(phone).replaceAll("");
+        if (phone == null || !INTERNATIONAL_PHONE.matcher(phone).matches()) {
+            return null;
+        }
+        String national = phone.substring(COUNTRY_PREFIX_LENGTH);
+        if (national.length() <= VISIBLE_PHONE_DIGITS) {
+            return null;
+        }
+        String hidden = "*".repeat(national.length() - VISIBLE_PHONE_DIGITS);
+        String masked = hidden + national.substring(national.length() - VISIBLE_PHONE_DIGITS);
+        StringBuilder grouped = new StringBuilder();
+        int head = masked.length() % 2;
+        grouped.append(masked, 0, head);
+        for (int i = head; i < masked.length(); i += 2) {
+            if (grouped.length() > 0) {
+                grouped.append(' ');
+            }
+            grouped.append(masked, i, i + 2);
+        }
+        return phone.substring(0, COUNTRY_PREFIX_LENGTH) + " " + grouped;
     }
 
     // --- Private ---
@@ -836,10 +900,11 @@ public class TradeRepublicSyncService {
         SidecarSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
-        SidecarErrorCode lastSyncError
+        SidecarErrorCode lastSyncError,
+        String maskedPhone
     ) implements SidecarSessionView {
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null);
+            return new SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null, null);
         }
     }
 }

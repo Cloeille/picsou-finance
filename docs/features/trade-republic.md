@@ -1,6 +1,6 @@
 # Feature: Trade Republic Sync
 
-> Last updated: 2026-11-03 (sessions move to the shared `sidecar_session` table; in-app confirmation login)
+> Last updated: 2026-11-05 (password and authenticator login, one-field reconnect with the stored phone)
 
 ## Context
 
@@ -12,12 +12,20 @@ Trade Republic is a German neobroker popular in France. Picsou syncs portfolio b
 
 `TradeRepublicAdapter` calls four endpoints of the sidecar through the shared `SidecarClient`, which keeps the sidecar's `{"detail": CODE}` as the `SyncException` code:
 
-1. **`POST /initiate`** -- Sends phone number + PIN. Returns `{processId, flow, countdownInSeconds}`. `flow` is `confirmInApp` (the member confirms in the Trade Republic app) or `otp` (TR fell back to a 4-digit code).
-2. **`POST /complete`** -- Sends `processId` and `tan` (`null` for `confirmInApp`). Blocks while the member confirms, up to 120 s in the sidecar and 150 s in the adapter, then returns an opaque `sessionState`. The 120 s is one deadline over the whole wait: a poll or a WAF token refresh still running when it passes is cancelled, so the sidecar answers `APP_VALIDATION_TIMEOUT` before the adapter gives up. The adapter always sends the `tan` key, with an explicit `null`, because the sidecar forbids unknown fields but declares it.
+1. **`POST /initiate`** -- Sends phone number + PIN or password. Returns `{processId, flow, countdownInSeconds}`. `flow` is `confirmInApp` (the member confirms in the Trade Republic app), `otp` (TR fell back to a 4-digit code) or `authenticator` (the 6-digit code of the member's authenticator app).
+2. **`POST /complete`** -- Sends `processId` and `tan` (`null` for `confirmInApp`; 4 digits for `otp`, 6 digits for `authenticator`). Blocks while the member confirms, up to 120 s in the sidecar and 150 s in the adapter, then returns an opaque `sessionState`. The 120 s is one deadline over the whole wait: a poll or a WAF token refresh still running when it passes is cancelled, so the sidecar answers `APP_VALIDATION_TIMEOUT` before the adapter gives up. The adapter always sends the `tan` key, with an explicit `null`, because the sidecar forbids unknown fields but declares it.
 3. **`POST /session`** -- Sends the stored `sessionState`. Returns `{sessionToken, claims}`: a live `tr_session` cookie value and the decoded claims, which list the securities and cash accounts in `act.acc.owner`. The refresh cookie is not rotated, so the stored state never changes.
 4. **`POST /transactions`** -- Sends the stored `sessionState`, `from` and `to`. Returns Trade Republic's CSV export of the activity over that window, unchanged (see [Automatic transaction import](#automatic-transaction-import)).
 
-Phone number and PIN are never stored: they are used for the `/initiate` call and dropped. The state holds only the refresh cookie, the device cookie and the subject.
+The PIN or password is never stored: it is used for the `/initiate` call and dropped. It may be any non-empty string up to 128 characters (`@Size(min = 1, max = 128)` on `InitiateAuthRequest.pin` and `ReconnectRequest.pin`, matching the sidecar); the request records mask it in `toString()`.
+
+The phone number is kept, inside the encrypted session state only (not in `encrypted_credentials`, no migration): the state is `{refresh, device, sub, phone}`, with `phone` normalised to `+33…` by the sidecar. A state stored before this change has no `phone`, so it has to be re-entered once.
+
+#### One-field reconnect
+
+`GET /api/tr/status` adds `maskedPhone`: the country prefix and the last two digits, for example `+33 * ** ** ** 99`; `null` when there is no session or its state has no phone. The phone is decrypted per call, parsed with Jackson, never logged, and bad JSON gives `null`.
+
+`POST /api/tr/auth/reconnect {pin}` reads the phone from the member's stored session (active or deactivated, since an expired session keeps its row) and calls the same initiate path. It returns the same `{processId, flow, countdownInSeconds}` and shares the per-IP `trAuthBuckets` limit with `/auth/initiate`. With no stored phone it answers **409** with `code: INVALID_SESSION_STATE`, so the frontend falls back to the full phone + PIN form. Completion stays `POST /api/tr/auth/complete`, which stores the new state and queues the sync. `DELETE /api/tr/session` removes the row, and the phone with it.
 
 Failures keep the code the sidecar declared, restricted to `SidecarBank.TRADE_REPUBLIC`'s list: `INVALID_CREDENTIALS`, `INVALID_OTP`, `APP_VALIDATION_TIMEOUT`, `APP_VALIDATION_CANCELLED`, `AUTH_ATTEMPT_EXPIRED`, `SESSION_EXPIRED`, `INVALID_SESSION_STATE`, `RATE_LIMITED`, `UPSTREAM_FORMAT_CHANGED`, `INVALID_DATA`, `UPSTREAM_UNAVAILABLE`, `INTERNAL_ERROR`. A code outside the list, and a timeout, become `UPSTREAM_UNAVAILABLE`. A bare 401 means `INVALID_CREDENTIALS` on `/initiate`, `INVALID_OTP` on `/complete` and `SESSION_EXPIRED` on `/session`; a bare 410 means `AUTH_ATTEMPT_EXPIRED`.
 
@@ -47,7 +55,7 @@ Sessions live in the shared `sidecar_session` table (bank `TRADE_REPUBLIC`), lik
 - `SESSION_EXPIRED` and `INVALID_SESSION_STATE` end the session: it is kept but inactive, the member sees "reconnect". Any other failure (`UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`...) leaves it active so the next sync retries.
 - A backend restart turns `QUEUED`/`RUNNING` rows into a retryable failure: `TradeRepublicSyncService` is one of the services `SidecarSyncRecovery` runs at boot.
 
-`POST /api/tr/sync` queues an import and returns the status (throttled per client IP by the shared `syncBuckets`, 10 a minute, like the other sync entry points); `GET /api/tr/status` and `DELETE /api/tr/session` read and delete the row. All of them answer `{isActive, syncStatus, lastSyncStartedAt, lastSyncCompletedAt, lastSyncError}`, except the delete (204) and the two auth steps.
+`POST /api/tr/sync` queues an import and returns the status (throttled per client IP by the shared `syncBuckets`, 10 a minute, like the other sync entry points); `GET /api/tr/status` and `DELETE /api/tr/session` read and delete the row. All of them answer `{isActive, syncStatus, lastSyncStartedAt, lastSyncCompletedAt, lastSyncError, maskedPhone}`, except the delete (204) and the two auth steps.
 
 ### Data fetching (WebSocket, no sidecar)
 
@@ -144,6 +152,8 @@ Each sync also imports the transactions, with no upload. After the accounts are 
 
 ### Scheduled sync
 
+The daily and MCP syncs never start a login: an expired session stays `SESSION_EXPIRED` until the member reconnects with `/auth/reconnect` or `/auth/initiate`.
+
 `MemberSyncService` calls `TradeRepublicSyncService.resyncReporting()` for the daily run. It goes through `SidecarSyncTemplate.resyncReporting`: no session reports "not connected", an inactive or expired one reports "needs re-authentication", otherwise an import is queued. The daily run needs no refresh step of its own: every job opens a fresh cookie through `/session`.
 
 ### Key files
@@ -225,7 +235,7 @@ Without rule 2, Playwright installs to `/root/.cache/ms-playwright/`, which the 
 - **Local Maven dev uses localhost**: `application-dev.yml` overrides `app.sidecars.tr-auth.url` to `http://127.0.0.1:8001` because `tr-auth` is a Docker-internal DNS name. When running the backend with `mvn spring-boot:run`, start the sidecar separately on port 8001.
 - **tr-auth 500 = Playwright crash**: A generic 500 from the sidecar almost always means the Chromium browser could not launch. Check `PLAYWRIGHT_BROWSERS_PATH` is `/opt/playwright-browsers` and readable by `trauth` (see Docker section above). Run `docker logs <tr-auth-container>` to confirm.
 - **Dockerfile changes need an explicit rebuild**: `docker compose up -d` does NOT rebuild existing images. After editing `services/tr-auth/Dockerfile`, run `docker compose build tr-auth && docker compose up -d tr-auth`. Symptom of a stale image: `docker compose ps` shows `tr-auth` with a SHA-only `IMAGE` column instead of a tagged name (`picsou-tr-auth` / `docker-tr-auth`), and the runtime error references a path that doesn't match the current Dockerfile (e.g. `/home/trauth/.cache/ms-playwright/` when the shared base sets `PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers`).
-- **`tan` is optional**: `CompleteAuthRequest.tan` is `null` for the `confirmInApp` flow and 4 digits for `otp`; the sidecar validates it.
+- **`tan` is optional**: `CompleteAuthRequest.tan` is absent or `null` for the `confirmInApp` flow, 4 digits for `otp` and 6 digits for `authenticator`; anything else is rejected with 422 before reaching the sidecar.
 - **Initiation errors are not TAN prompts**: a failed `/tr/auth/initiate` call
   has no reliable `processId`, so frontend screens must keep the user on the
   phone/PIN step and clear any stale process id. Only `/tr/auth/complete` errors

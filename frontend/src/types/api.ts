@@ -1058,13 +1058,20 @@ export type TrErrorCode =
   | 'INTERNAL_ERROR'
 
 /** Same shape as every sidecar-backed session: a deactivated session reports `SESSION_EXPIRED`. */
-export type TrSessionStatus = SidecarSessionStatusOf<TrErrorCode>
+export type TrSessionStatus = SidecarSessionStatusOf<
+  TrErrorCode,
+  {
+    /** Phone stored with the session (e.g. `+33 * ** ** ** 78`), `null` when none: reconnect needs it. */
+    maskedPhone: string | null
+  }
+>
 
 /**
  * `confirmInApp`: the member confirms the login in the Trade Republic app and `auth/complete`
  * stays open until they do. `otp`: Trade Republic texted a 4-digit code the member types.
+ * `authenticator`: the member types the 6-digit code of their authenticator (TOTP) app.
  */
-export type TrAuthFlow = 'confirmInApp' | 'otp'
+export type TrAuthFlow = 'confirmInApp' | 'otp' | 'authenticator'
 
 export interface TrAuthInitResponse {
   processId: string

@@ -12,11 +12,13 @@ from fastapi.testclient import TestClient
 
 import main
 from tr_fakes import (CLAIMS, DEVICE, EXPORT_DOWNLOAD, EXPORT_REQUEST, EXPORT_STATUS, JOB_ID, PIN, PROCESS_ID, REFRESH,
-                      SESSION, SESSION_ROUTE, SUB, V1_CODE, V1_LOGIN, V2_LOGIN, V2_POLL, FakeTR, confirmed,
-                      csv_reply, encode_claims, export_job, pending, reply)
+                      SESSION, SESSION_ROUTE, SUB, V1_CODE, V1_LOGIN, V2_AUTHENTICATOR, V2_LOGIN, V2_POLL, FakeTR,
+                      authenticator_pending, confirmed, csv_reply, encode_claims, export_job, pending, reply)
 
 TEST_KEY = "tr-sidecar-test-key"
 AUTH = {"X-Picsou-Sidecar-Key": TEST_KEY}
+PASSWORD = "Tr0ub4dor&3 horse"
+PHONE = "+33612345678"
 CREDENTIALS = {"phoneNumber": "0612345678", "pin": PIN}
 STATE = json.dumps({"refresh": REFRESH, "device": DEVICE, "sub": SUB})
 
@@ -52,7 +54,7 @@ class EndpointCase(unittest.TestCase):
 
 class InitiateTest(EndpointCase):
     def test_v2_ok_returns_a_confirm_in_app_flow(self):
-        tr = self.run_tr({V2_LOGIN: reply(200, {"processId": PROCESS_ID, "claims": None})})
+        tr = self.run_tr({V2_LOGIN: reply(200, {"processId": PROCESS_ID, "claims": None}), V2_POLL: pending()})
 
         body = self.initiate()
 
@@ -60,13 +62,14 @@ class InitiateTest(EndpointCase):
         self.assertEqual(body["countdownInSeconds"], main.APP_VALIDATION_TIMEOUT_SECONDS)
         self.assertNotEqual(body["processId"], PROCESS_ID)
         sent = tr.calls(*V2_LOGIN)[0]
-        self.assertEqual(json.loads(sent.content), {"phoneNumber": "+33612345678", "pin": PIN})
+        self.assertEqual(json.loads(sent.content), {"phoneNumber": PHONE, "pin": PIN})
         self.assertEqual(sent.headers["x-aws-waf-token"], "waf")
         self.assertIn("x-tr-device-info", sent.headers)
         self.assertEqual(tr.calls(*V1_LOGIN), [])
+        self.assertEqual(len(tr.calls(*V2_POLL)), 1)
 
     def test_device_info_is_a_base64_json_with_a_random_128_hex_device_id(self):
-        tr = self.run_tr({V2_LOGIN: reply(200, {"processId": PROCESS_ID})})
+        tr = self.run_tr({V2_LOGIN: reply(200, {"processId": PROCESS_ID}), V2_POLL: pending()})
         self.initiate()
         self.initiate()
 
@@ -135,8 +138,41 @@ class InitiateTest(EndpointCase):
 
         self.assertDetail(self.client.post("/initiate", json=CREDENTIALS), 500, "INTERNAL_ERROR")
 
+    def test_a_password_is_sent_verbatim_and_never_logged(self):
+        tr = self.run_tr({V2_LOGIN: reply(200, {"processId": PROCESS_ID}), V2_POLL: pending()})
+        with self.assertLogs(level="DEBUG") as logs:
+            response = self.client.post("/initiate", json={**CREDENTIALS, "pin": PASSWORD})
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(json.loads(tr.calls(*V2_LOGIN)[0].content)["pin"], PASSWORD)
+        self.assertNotIn(PASSWORD, "\n".join(logs.output))
+
+    def test_an_empty_or_over_long_secret_is_invalid_data(self):
+        tr = self.run_tr({})
+        for secret in ("", "x" * 129):
+            with self.subTest(length=len(secret)):
+                self.assertDetail(self.client.post("/initiate", json={**CREDENTIALS, "pin": secret}),
+                                  422, "INVALID_DATA")
+        self.assertEqual(tr.requests, [])
+
+    def test_the_first_poll_asking_for_the_authenticator_returns_that_flow(self):
+        tr = self.run_tr({V2_LOGIN: reply(200, {"processId": PROCESS_ID}), V2_POLL: authenticator_pending()})
+
+        body = self.initiate()
+
+        self.assertEqual(body["flow"], "authenticator")
+        self.assertEqual(body["countdownInSeconds"], 120)
+        self.assertEqual(len(tr.calls(*V2_POLL)), 1)
+        self.assertEqual(tr.calls(*V2_POLL)[0].headers["x-tr-device-info"],
+                         tr.calls(*V2_LOGIN)[0].headers["x-tr-device-info"])
+
+    def test_a_failing_first_poll_leaves_confirm_in_app(self):
+        self.run_tr({V2_LOGIN: reply(200, {"processId": PROCESS_ID}), V2_POLL: reply(500)})
+
+        self.assertEqual(self.initiate()["flow"], "confirmInApp")
+
     def test_the_pin_is_never_logged(self):
-        self.run_tr({V2_LOGIN: reply(200, {"processId": PROCESS_ID})})
+        self.run_tr({V2_LOGIN: reply(200, {"processId": PROCESS_ID}), V2_POLL: pending()})
         with self.assertLogs(level="DEBUG") as logs:
             self.initiate()
 
@@ -158,7 +194,7 @@ class CompleteConfirmInAppTest(EndpointCase):
 
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(json.loads(response.json()["sessionState"]),
-                         {"refresh": REFRESH, "device": DEVICE, "sub": SUB})
+                         {"refresh": REFRESH, "device": DEVICE, "sub": SUB, "phone": PHONE})
         self.assertNotIn(SESSION, response.text)
         self.assertEqual(len(tr.calls(*V2_POLL)), 3)
 
@@ -276,7 +312,7 @@ class CompleteOtpTest(EndpointCase):
 
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(json.loads(response.json()["sessionState"]),
-                         {"refresh": REFRESH, "device": DEVICE, "sub": SUB})
+                         {"refresh": REFRESH, "device": DEVICE, "sub": SUB, "phone": PHONE})
         self.assertEqual(tr.calls(*V1_CODE)[0].headers["x-tr-device-info"],
                          tr.calls(*V1_LOGIN)[0].headers["x-tr-device-info"])
 
@@ -322,6 +358,135 @@ class CompleteOtpTest(EndpointCase):
             response = self.client.post("/complete", json={"processId": process_id, "tan": "1234"})
 
         self.assertDetail(response, 503, "UPSTREAM_UNAVAILABLE")
+
+
+class CompleteAuthenticatorTest(EndpointCase):
+    def start(self, routes):
+        tr = self.run_tr({V2_LOGIN: reply(200, {"processId": PROCESS_ID}),
+                          V2_POLL: [authenticator_pending(), confirmed()], **routes})
+        self.assertEqual(self.initiate()["flow"], "authenticator")
+        return tr, next(iter(main._pending._states))
+
+    def complete(self, process_id, tan="123456"):
+        return self.client.post("/complete", json={"processId": process_id, "tan": tan})
+
+    def test_the_right_code_returns_a_session_state_with_the_phone(self):
+        tr, process_id = self.start({V2_AUTHENTICATOR: reply(200, {})})
+
+        response = self.complete(process_id)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(json.loads(response.json()["sessionState"]),
+                         {"refresh": REFRESH, "device": DEVICE, "sub": SUB, "phone": PHONE})
+        self.assertNotIn(SESSION, response.text)
+        sent = tr.calls(*V2_AUTHENTICATOR)[0]
+        self.assertEqual(json.loads(sent.content), {"code": "123456"})
+        self.assertEqual(sent.headers["x-aws-waf-token"], "waf")
+        infos = {r.headers["x-tr-device-info"] for r in [*tr.calls(*V2_LOGIN), *tr.calls(*V2_POLL), sent]}
+        self.assertEqual(len(infos), 1)
+
+    def test_cookies_set_by_the_verification_are_kept(self):
+        self.run_tr({V2_LOGIN: reply(200, {"processId": PROCESS_ID}),
+                     V2_POLL: [authenticator_pending(), reply(200, {"status": "COMPLETED"})],
+                     V2_AUTHENTICATOR: reply(200, {}, cookies={
+                         "tr_refresh": REFRESH, "tr_device": DEVICE, "tr_claims": encode_claims(CLAIMS)})})
+        self.assertEqual(self.initiate()["flow"], "authenticator")
+        process_id = next(iter(main._pending._states))
+
+        response = self.complete(process_id)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(json.loads(response.json()["sessionState"])["refresh"], REFRESH)
+
+    def test_a_wrong_code_is_401_and_the_same_attempt_accepts_a_retry(self):
+        for code_error in ("VALIDATION_CODE_INVALID", "VALIDATION_CODE_ALREADY_USED"):
+            with self.subTest(code_error=code_error):
+                tr, process_id = self.start({V2_AUTHENTICATOR: [
+                    reply(400, {"errors": [{"errorCode": code_error}]}), reply(200, {})]})
+
+                self.assertDetail(self.complete(process_id), 401, "INVALID_OTP")
+                self.assertEqual(self.complete(process_id, "654321").status_code, 200)
+                codes = [json.loads(r.content)["code"] for r in tr.calls(*V2_AUTHENTICATOR)]
+                self.assertEqual(codes, ["123456", "654321"])
+
+    def test_process_gone_or_not_found_is_an_expired_attempt(self):
+        for code_error in ("PROCESS_GONE", "NOT_FOUND"):
+            with self.subTest(code_error=code_error):
+                _, process_id = self.start({V2_AUTHENTICATOR: reply(
+                    410 if code_error == "PROCESS_GONE" else 404, {"errors": [{"errorCode": code_error}]})})
+
+                self.assertDetail(self.complete(process_id), 410, "AUTH_ATTEMPT_EXPIRED")
+                self.assertDetail(self.complete(process_id), 410, "AUTH_ATTEMPT_EXPIRED")
+
+    def test_already_processed_is_cancelled(self):
+        _, process_id = self.start({V2_AUTHENTICATOR: reply(409, {"errors": [{"errorCode": "ALREADY_PROCESSED"}]})})
+
+        self.assertDetail(self.complete(process_id), 401, "APP_VALIDATION_CANCELLED")
+
+    def test_too_many_requests_is_rate_limited(self):
+        for response in (reply(429, {"errors": [{"errorCode": "TOO_MANY_REQUESTS",
+                                                  "meta": {"nextAttemptInSeconds": 30}}]}),
+                         reply(400, {"errors": [{"errorCode": "TOO_MANY_REQUESTS"}]})):
+            with self.subTest(status=response.status_code):
+                _, process_id = self.start({V2_AUTHENTICATOR: response})
+
+                self.assertDetail(self.complete(process_id), 429, "RATE_LIMITED")
+
+    def test_5xx_and_network_errors_are_upstream_unavailable(self):
+        def unreachable(request):
+            raise main.httpx.ConnectError("refused", request=request)
+
+        for route in (reply(500, {"errors": []}), unreachable):
+            with self.subTest(route=route):
+                _, process_id = self.start({V2_AUTHENTICATOR: route})
+
+                self.assertDetail(self.complete(process_id), 502, "UPSTREAM_UNAVAILABLE")
+
+    def test_a_bad_code_format_is_422_and_never_reaches_tr(self):
+        tr, process_id = self.start({V2_AUTHENTICATOR: reply(200, {})})
+        before = len(tr.requests)
+
+        for body in ({"processId": process_id}, {"processId": process_id, "tan": "1234"},
+                     {"processId": process_id, "tan": "12345"}, {"processId": process_id, "tan": "12345a"},
+                     {"processId": process_id, "tan": "1234567"}):
+            with self.subTest(body=body):
+                self.assertDetail(self.client.post("/complete", json=body), 422, "INVALID_OTP")
+        self.assertEqual(len(tr.requests), before)
+        self.assertEqual(self.complete(process_id).status_code, 200)
+
+    def test_the_token_fetch_and_the_confirmation_wait_share_one_budget(self):
+        # A slow WAF token leaves less time for the in-app confirmation, not a fresh full wait,
+        # so the authenticator flow also answers before the backend's /complete timeout.
+        tr, process_id = self.start({V2_AUTHENTICATOR: reply(200, {})})
+        tr.routes[V2_POLL] = pending()
+
+        async def slow_token():
+            await asyncio.sleep(0.5)
+            return "waf"
+
+        with patch.object(main, "get_waf_token", slow_token):
+            started = time.monotonic()
+            response = self.complete(process_id)
+
+        self.assertDetail(response, 408, "APP_VALIDATION_TIMEOUT")
+        self.assertLess(time.monotonic() - started, 0.65)
+
+    def test_the_code_is_never_logged(self):
+        _, process_id = self.start({V2_AUTHENTICATOR: reply(200, {})})
+        with self.assertLogs(level="DEBUG") as logs:
+            self.complete(process_id, "987654")
+
+        self.assertNotIn("987654", "\n".join(logs.output))
+
+
+class CompleteOtpFourDigitsTest(EndpointCase):
+    def test_a_six_digit_code_is_refused_by_the_v1_flow(self):
+        self.run_tr({V2_LOGIN: reply(503), V1_LOGIN: reply(200, {"processId": PROCESS_ID})})
+        self.assertEqual(self.initiate()["flow"], "otp")
+        process_id = next(iter(main._pending._states))
+
+        self.assertDetail(self.client.post("/complete", json={"processId": process_id, "tan": "123456"}),
+                          422, "INVALID_OTP")
 
 
 class SessionTest(EndpointCase):
@@ -386,6 +551,13 @@ class SessionTest(EndpointCase):
                 self.assertDetail(self.client.post("/session", json={"sessionState": state}),
                                   422, "INVALID_SESSION_STATE")
         self.assertEqual(tr.requests, [])
+
+    def test_a_state_without_phone_is_still_accepted(self):
+        self.run_tr({SESSION_ROUTE: self.session_ok()})
+
+        for state in (STATE, json.dumps({"refresh": REFRESH, "device": DEVICE, "sub": SUB, "phone": PHONE})):
+            with self.subTest(state=state):
+                self.assertEqual(self.client.post("/session", json={"sessionState": state}).status_code, 200)
 
     def test_missing_session_state_is_422_invalid_session_state(self):
         self.assertDetail(self.client.post("/session", json={}), 422, "INVALID_SESSION_STATE")

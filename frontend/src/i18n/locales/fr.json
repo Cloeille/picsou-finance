@@ -1253,7 +1253,7 @@
     "tr": {
       "title": "Trade Republic",
       "phone": "Numéro de téléphone",
-      "pin": "Code PIN",
+      "pin": "Code PIN ou mot de passe",
       "tan": "Code de vérification",
       "connect": "Connecter",
       "sync": "Synchroniser",
@@ -1264,16 +1264,16 @@
       "errors": {
         "tooManyAttempts": "Trop de tentatives. Réessayez dans quelques minutes.",
         "invalidPhoneNumber": "Numéro de téléphone invalide.",
-        "invalidPin": "Code PIN incorrect.",
+        "invalidPin": "Code PIN ou mot de passe incorrect.",
         "invalidTan": "Code de vérification incorrect ou expiré. Utilisez le dernier code reçu, ou relancez l'étape pour en recevoir un nouveau.",
         "authenticationFailed": "Échec de l'authentification Trade Republic.",
         "serviceUnavailable": "Le service Trade Republic local n'est pas disponible. Relancez les serveurs puis réessayez.",
         "serverError": "Erreur serveur Trade Republic. Réessayez.",
         "phoneNumberRequired": "Numéro de téléphone requis.",
-        "pinRequired": "Code PIN requis.",
+        "pinRequired": "Code PIN ou mot de passe requis.",
         "validationFailed": "Données invalides.",
         "unknownError": "Une erreur inattendue s'est produite.",
-        "invalidCredentials": "Numéro de téléphone ou code PIN Trade Republic incorrect.",
+        "invalidCredentials": "Numéro de téléphone ou code PIN/mot de passe Trade Republic incorrect.",
         "appValidationTimeout": "La connexion n'a pas été confirmée dans l'application à temps. Recommencez la connexion.",
         "appValidationCancelled": "La connexion a été refusée dans l'application Trade Republic. Recommencez la connexion.",
         "authAttemptExpired": "La tentative d'authentification a expiré. Recommencez la connexion.",
@@ -1285,7 +1285,11 @@
       "queued": "Synchronisation en attente…",
       "syncing": "Synchronisation en cours…",
       "syncSuccess": "Dernière synchronisation réussie.",
-      "staleAccounts": "Vos comptes Trade Republic ne sont plus mis à jour : leur session a pris fin. Reconnectez-vous ci-dessous pour reprendre la synchronisation quotidienne."
+      "staleAccounts": "Vos comptes Trade Republic ne sont plus mis à jour : leur session a pris fin. Reconnectez-vous ci-dessous pour reprendre la synchronisation quotidienne.",
+      "authenticatorCode": "Code de l'application d'authentification",
+      "authenticatorPrompt": "Saisissez le code à 6 chiffres de votre application d'authentification, puis confirmez la connexion dans l'app Trade Republic.",
+      "reconnectPhone": "Numéro de téléphone",
+      "useAnotherNumber": "Utiliser un autre numéro"
     },
     "revolut": {
       "title": "Revolut",
@@ -1594,7 +1598,7 @@
       "openRevolut": "Ouvrir la page Revolut pour se connecter",
       "sessionExpired": "Session expirée",
       "reconnect": "Se reconnecter depuis l'onglet du fournisseur",
-      "trManualInfo": "Trade Republic est la seule banque qui nécessite une reconnexion manuelle. Vous devrez ressaisir votre numéro et PIN à chaque synchronisation.",
+      "trManualInfo": "Les sessions Trade Republic expirent au bout d'environ 24 heures. Pour vous reconnecter, ressaisissez votre PIN ou mot de passe ; le numéro est conservé.",
       "trSlowWarning": "La connexion peut prendre quelques instants, c'est normal.",
       "revolutManualInfo": "Revolut nécessite une approbation sur votre téléphone. Cliquez sur l'icône pour saisir vos identifiants."
     },

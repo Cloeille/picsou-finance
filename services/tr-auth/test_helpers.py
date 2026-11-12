@@ -17,6 +17,11 @@ class PhoneTest(unittest.TestCase):
     def test_international_number_is_kept(self):
         self.assertEqual(main.normalise_phone("+4915123456789"), "+4915123456789")
 
+    def test_separators_are_dropped_so_the_stored_phone_is_plus_and_digits(self):
+        self.assertEqual(main.normalise_phone("+33 6 12 34 56 78"), "+33612345678")
+        self.assertEqual(main.normalise_phone("06.12.34.56.78"), "+33612345678")
+        self.assertEqual(main.normalise_phone("06-12-34-56-78"), "+33612345678")
+
     def test_mask_keeps_only_the_last_two_digits(self):
         self.assertEqual(main.mask_phone(main.normalise_phone("0612345678")), "****78")
         self.assertEqual(main.mask_phone("+33 6 12 34 56 07"), "****07")

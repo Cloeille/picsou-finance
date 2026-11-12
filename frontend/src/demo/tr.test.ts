@@ -9,6 +9,7 @@ const inactiveSession = {
   lastSyncStartedAt: null,
   lastSyncCompletedAt: null,
   lastSyncError: null,
+  maskedPhone: '+33 * ** ** ** 78',
 } satisfies TrSessionStatus
 
 const initiated = {
@@ -23,6 +24,7 @@ describe('demo Trade Republic session contracts', () => {
   it.each([
     { method: 'GET', url: '/tr/status', expected: inactiveSession },
     { method: 'POST', url: '/tr/auth/initiate', expected: initiated },
+    { method: 'POST', url: '/tr/auth/reconnect', expected: initiated },
     { method: 'POST', url: '/tr/auth/complete', expected: inactiveSession },
     { method: 'POST', url: '/tr/sync', expected: inactiveSession },
     { method: 'DELETE', url: '/tr/session', expected: null },

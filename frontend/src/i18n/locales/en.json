@@ -1253,7 +1253,7 @@
     "tr": {
       "title": "Trade Republic",
       "phone": "Phone number",
-      "pin": "PIN code",
+      "pin": "PIN or password",
       "tan": "Verification code",
       "connect": "Connect",
       "sync": "Synchronize",
@@ -1264,16 +1264,16 @@
       "errors": {
         "tooManyAttempts": "Too many attempts. Please wait a few minutes.",
         "invalidPhoneNumber": "Invalid phone number.",
-        "invalidPin": "Incorrect PIN.",
+        "invalidPin": "Incorrect PIN or password.",
         "invalidTan": "The verification code is incorrect or expired. Use the latest code you received, or restart the step to receive a new one.",
         "authenticationFailed": "Trade Republic authentication failed.",
         "serviceUnavailable": "The local Trade Republic service is unavailable. Restart the servers, then try again.",
         "serverError": "Trade Republic server error. Please try again.",
         "phoneNumberRequired": "Phone number is required.",
-        "pinRequired": "PIN is required.",
+        "pinRequired": "PIN or password is required.",
         "validationFailed": "Invalid data.",
         "unknownError": "An unexpected error occurred.",
-        "invalidCredentials": "Incorrect Trade Republic phone number or PIN.",
+        "invalidCredentials": "Incorrect Trade Republic phone number or PIN/password.",
         "appValidationTimeout": "The login was not confirmed in the app in time. Please start over.",
         "appValidationCancelled": "The login was declined in the Trade Republic app. Please start over.",
         "authAttemptExpired": "The authentication attempt expired. Please start over.",
@@ -1285,7 +1285,11 @@
       "queued": "Sync queued…",
       "syncing": "Syncing…",
       "syncSuccess": "Last sync succeeded.",
-      "staleAccounts": "Your Trade Republic accounts are no longer updated: their session has ended. Sign in again below to resume the daily sync."
+      "staleAccounts": "Your Trade Republic accounts are no longer updated: their session has ended. Sign in again below to resume the daily sync.",
+      "authenticatorCode": "Authenticator code",
+      "authenticatorPrompt": "Enter the 6-digit code from your authenticator app, then confirm the sign-in in the Trade Republic app.",
+      "reconnectPhone": "Phone number",
+      "useAnotherNumber": "Use another number"
     },
     "revolut": {
       "title": "Revolut",
@@ -1594,7 +1598,7 @@
       "openRevolut": "Open the Revolut page to connect",
       "sessionExpired": "Session expired",
       "reconnect": "Reconnect on the provider's tab",
-      "trManualInfo": "Trade Republic is the only bank that requires manual re-authentication. You will need to re-enter your phone number and PIN each time you sync.",
+      "trManualInfo": "Trade Republic sessions end after about 24 hours. To reconnect, re-enter your PIN or password; the phone number is kept.",
       "trSlowWarning": "Connection may take a few moments, this is normal.",
       "revolutManualInfo": "Revolut requires approval on your phone. Click the icon to enter your credentials."
     },

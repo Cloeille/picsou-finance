@@ -48,6 +48,7 @@ function renderTab() {
 }
 
 const OTP_INIT = { processId: 'process-123', flow: 'otp', countdownInSeconds: 120 }
+const AUTHENTICATOR_INIT = { processId: 'process-123', flow: 'authenticator', countdownInSeconds: 120 }
 const APP_INIT = { processId: 'process-123', flow: 'confirmInApp', countdownInSeconds: 120 }
 
 const DISCONNECTED = {
@@ -214,6 +215,134 @@ describe('TradeRepublicTab authentication flow', () => {
 
     expect(await screen.findByText('sync.tr.errors.invalidTan')).toBeInTheDocument()
     expect(screen.getByLabelText('sync.tr.tan')).toBeInTheDocument()
+  })
+})
+
+describe('TradeRepublicTab password and authenticator', () => {
+  beforeEach(() => {
+    apiGet.mockReset()
+    apiPost.mockReset()
+    apiDelete.mockReset()
+    serve(DISCONNECTED)
+  })
+
+  it('sends a password with letters and more than 4 characters verbatim', async () => {
+    apiPost.mockResolvedValue({ data: OTP_INIT })
+
+    renderTab()
+    fireEvent.change(await screen.findByLabelText('sync.tr.phone'), { target: { value: '+336****5678' } })
+    const pin = screen.getByLabelText('sync.tr.pin')
+    expect(pin).toHaveAttribute('type', 'password')
+    expect(pin).toHaveAttribute('maxlength', '128')
+    expect(pin).toHaveAttribute('autocomplete', 'current-password')
+    fireEvent.change(pin, { target: { value: 'Sup3r-secret pass' } })
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))
+
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith('/tr/auth/initiate', {
+        phoneNumber: '+336****5678',
+        pin: 'Sup3r-secret pass',
+      }),
+    )
+  })
+
+  it('shows a 6-digit code field for the authenticator flow and completes with the code', async () => {
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/tr/auth/initiate') return Promise.resolve({ data: AUTHENTICATOR_INIT })
+      return Promise.resolve({ data: { ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED' } })
+    })
+
+    renderTab()
+    await fillCredentials()
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))
+
+    const code = await screen.findByLabelText('sync.tr.authenticatorCode')
+    expect(screen.getByText('sync.tr.authenticatorPrompt')).toBeInTheDocument()
+    expect(screen.queryByText('sync.tr.appConfirmPrompt')).not.toBeInTheDocument()
+    fireEvent.change(code, { target: { value: '12345678' } })
+    expect(code).toHaveValue('123456')
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))
+
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith(
+        '/tr/auth/complete',
+        { processId: 'process-123', tan: '123456' },
+        expect.any(Object),
+      ),
+    )
+  })
+
+  it('keeps the authenticator code field after INVALID_OTP', async () => {
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/tr/auth/initiate') return Promise.resolve({ data: AUTHENTICATOR_INIT })
+      return Promise.reject({ response: { status: 422, data: { code: 'INVALID_OTP' } } })
+    })
+
+    renderTab()
+    await fillCredentials()
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))
+    fireEvent.change(await screen.findByLabelText('sync.tr.authenticatorCode'), { target: { value: '654321' } })
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))
+
+    expect(await screen.findByText('sync.tr.errors.invalidTan')).toBeInTheDocument()
+    expect(screen.getByLabelText('sync.tr.authenticatorCode')).toBeInTheDocument()
+  })
+})
+
+// SESSION_EXPIRED ends the session (isActive false) but keeps its row and the stored phone, so
+// the login form under the expiry message asks only for the PIN or password.
+describe('TradeRepublicTab reconnect', () => {
+  const EXPIRED = {
+    ...DISCONNECTED,
+    isActive: false,
+    syncStatus: 'FAILED',
+    lastSyncError: 'SESSION_EXPIRED',
+    maskedPhone: '+33 * ** ** ** 78',
+  }
+
+  beforeEach(() => {
+    apiGet.mockReset()
+    apiPost.mockReset()
+    apiDelete.mockReset()
+    serve(EXPIRED)
+  })
+
+  it('asks for the PIN or password only, shows the masked phone and sends just the pin', async () => {
+    let finish: (value: unknown) => void = () => {}
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/tr/auth/reconnect') return Promise.resolve({ data: APP_INIT })
+      if (url === '/tr/auth/complete') return new Promise(resolve => { finish = resolve })
+      return Promise.reject(new Error(`Unexpected POST ${url}`))
+    })
+
+    renderTab()
+
+    expect(await screen.findByText('sync.tr.errors.sessionExpired')).toBeInTheDocument()
+    expect(screen.getByTestId('tr-masked-phone')).toHaveTextContent('+33 * ** ** ** 78')
+    expect(screen.queryByLabelText('sync.tr.phone')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('sync.tr.pin'), { target: { value: 'my password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))
+
+    expect(await screen.findByText('sync.tr.appConfirmPrompt')).toBeInTheDocument()
+    expect(apiPost).toHaveBeenCalledWith('/tr/auth/reconnect', { pin: 'my password' })
+    expect(apiPost).not.toHaveBeenCalledWith('/tr/auth/initiate', expect.anything())
+    expect(apiDelete).not.toHaveBeenCalled()
+
+    finish({ data: { ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED', maskedPhone: EXPIRED.maskedPhone } })
+    await waitFor(() => expect(screen.queryByText('sync.tr.appConfirmPrompt')).not.toBeInTheDocument())
+    expect(apiPost).toHaveBeenCalledWith('/tr/auth/complete', { processId: 'process-123' }, expect.any(Object))
+  })
+
+  it('falls back to the full login form on INVALID_SESSION_STATE', async () => {
+    apiPost.mockRejectedValue({ response: { status: 409, data: { code: 'INVALID_SESSION_STATE' } } })
+
+    renderTab()
+
+    fireEvent.change(await screen.findByLabelText('sync.tr.pin'), { target: { value: 'pw' } })
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))
+
+    expect(await screen.findByLabelText('sync.tr.phone')).toBeInTheDocument()
+    expect(screen.queryByTestId('tr-masked-phone')).not.toBeInTheDocument()
   })
 })
 

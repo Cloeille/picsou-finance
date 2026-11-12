@@ -1648,11 +1648,17 @@ const demoTrStatus = {
   lastSyncStartedAt: null,
   lastSyncCompletedAt: null,
   lastSyncError: null,
+  maskedPhone: '+33 * ** ** ** 78',
 }
 handlers.set(key('GET', '/tr/status'), () => demoTrStatus)
 
 // Trade Republic - initiate auth
 handlers.set(key('POST', '/tr/auth/initiate'), () => ({
+  processId: 'demo-tr-process', flow: 'confirmInApp', countdownInSeconds: 120,
+}))
+
+// Trade Republic - reconnect with the stored phone (PIN or password only)
+handlers.set(key('POST', '/tr/auth/reconnect'), () => ({
   processId: 'demo-tr-process', flow: 'confirmInApp', countdownInSeconds: 120,
 }))
 
