@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **"Financial assets" on the dashboard counted money lent to people.** In that mode the
+  figure and the curve included a peer loan, while the donut beside them did not, so the two
+  disagreed (a 1,000 livret, a 5,000 PEA and 2,000 lent showed 8,000 next to a donut adding
+  up to 6,000). A peer loan now counts in net and gross wealth only, as the
+  [peer loans decision](docs/decisions/2026-11-05-peer-loans-receivable.md) describes: a real
+  asset, but not an investment.
+
 ## [1.2.0] — 2026-11-12
 
 ### Added

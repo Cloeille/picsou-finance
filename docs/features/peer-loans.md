@@ -1,6 +1,6 @@
 # Feature: Peer loans (receivables between individuals)
 
-> Last updated: 2026-11-08
+> Last updated: 2026-11-12
 > Status: ✅ v1 implemented. See
 > [the ADR](../decisions/2026-11-05-peer-loans-receivable.md).
 
@@ -355,6 +355,9 @@ Backend:
 - `backend/.../service/DashboardService.java` - receivable excluded from the allocation
   distribution; the response also carries an `assets` list (receivable included) that the
   wealth modes, history and gross figure use
+- `frontend/src/pages/dashboard/DashboardPage.tsx` - `EXCLUDED_FINANCIAL` leaves the
+  receivable out of the "financial" wealth mode (figure and curve): it counts in net and
+  gross wealth only
 - `backend/.../model/AssetClass.java`, `WealthTier.java` — exhaustive switches
 - `backend/.../db/migration/V135__account_type_peer_loan.sql`,
   `V136__peer_loans.sql`, `V137__peer_loan_cash_leg.sql`,
