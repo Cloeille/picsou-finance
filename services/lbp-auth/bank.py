@@ -41,7 +41,8 @@ BASE = "https://voscomptesenligne.labanquepostale.fr"
 ALLOWED_HOST = "voscomptesenligne.labanquepostale.fr"
 # The only CloudFront distributions the bank was observed loading subresources
 # from. Exact hosts (case-insensitive): no suffix rule, so an attacker
-# distribution is never allow-listed. Never used for Document navigations.
+# distribution is never allow-listed. Never used for top-level Document
+# navigations (subframe documents follow the asset rule instead).
 PINNED_CDN_HOSTS = {"dqnjn206bwvk2.cloudfront.net", "d2ydsn9mah1r4u.cloudfront.net"}
 # Operator escape hatch, read at request time so no rebuild is needed when
 # the bank rotates its distributions: comma-separated extra CloudFront hosts
@@ -1124,8 +1125,9 @@ class BrowserBankClient(HttpxBankClient):
 
         The bank rotates its CloudFront distributions: the scripts the page
         needs may live on a host nobody pinned. The hosts come from the page
-        the bank itself served, are usable as subresources only (the guards
-        never admit them as Documents), and die with this login attempt.
+        the bank itself served, are usable as subresources or subframe
+        documents only (never as a top-level Document navigation), and die
+        with this login attempt.
         Returns the newly learned hosts (hostnames only, never page content).
         """
         try:

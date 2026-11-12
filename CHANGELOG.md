@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   capped, loudly logged (host, path, resource type, frame), plus an
   operator-provided `LBP_EXTRA_CDN_HOSTS` list for emergencies. Websockets
   and the httpx replay path still refuse anything off the bank origin.
-- **"Financial assets" on the dashboard counted money lent to people.**
+- **"Financial assets" on the dashboard counted money lent to people.** In that mode the
   figure and the curve included a peer loan, while the donut beside them did not, so the two
   disagreed (a 1,000 livret, a 5,000 PEA and 2,000 lent showed 8,000 next to a donut adding
   up to 6,000). A peer loan now counts in net and gross wealth only, as the
