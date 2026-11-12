@@ -125,15 +125,39 @@ must be diagnosed from the sidecar's typed error, never by replaying it.
   They cross to the backend in transit and are never logged or persisted there:
   only the encrypted cookie session is kept.
 - No login step is retried: a wrong password can lock the bank account.
-- Every Chromium and httpx request — including each redirect hop — must be a
-  bank-owned document destination (bank origin or `*.labanquepostale.fr`) or,
-  for non-Document subresources only, one of the two pinned CloudFront hosts
-  observed live; anything else fails closed before it is sent. The
-  exact-origin-only version broke the live login (keypad scripts and
+- Every Chromium request — including each redirect hop — must be a
+  bank-owned document destination (bank origin or `*.labanquepostale.fr`), a
+  subframe document or subresource to an admitted host (pinned CloudFront,
+  `LBP_EXTRA_CDN_HOSTS`, learned, or auto-admitted), or a shape-valid
+  `*.cloudfront.net` host the page requests for the first time
+  (auto-admitted, see below); anything else fails closed before it is sent.
+  A top-level navigation to a non-bank host is never admitted: a redirect
+  must not carry the session off-origin. The bank's login embeds its
+  anti-fraud checks as subframes that navigate to its own CloudFront
+  distributions, so subframe documents follow the asset rule while the main
+  frame stays bank-only; the frame (`top`/`sub`) is logged with every block.
+  The exact-origin-only version broke the live login (keypad scripts and
   anti-fraud payloads come from CloudFront and `transverse.labanquepostale.fr`,
   and the bank refused the credentials with them blocked); the
-  `*.cloudfront.net` interim proved too broad and was replaced by pinning. Blocked requests
-  log the host only, never the URL.
+  `*.cloudfront.net` interim proved too broad and was replaced by pinning,
+  but the bank rotates its distributions, so pins alone go stale mid-week.
+  Auto-admission keeps the rotation survivable: the first paused request to
+  an unknown but shape-valid (https, labels, no credentials)
+  CloudFront host — main-frame script or subframe page, never a top-level
+  navigation — is admitted for that attempt only and let through, loudly
+  logged with host, resource type and path. Websockets and httpx never
+  auto-admit, admissions are capped, and the pure
+  allow-list, the retour/navigation guards and the httpx replay path still
+  refuse attacker hosts.
+  Residual risk, stated plainly: a bank page that references an
+  attacker-controlled distribution would load its script in page context —
+  that requires the bank to serve attacker content, in which case the pinned
+  hosts would not save the login either; only the identifier/password
+  exposure differs, and both stay out of the logs.
+  Blocked and admitted requests log host and path (never the query or
+  fragment, where tokens live), plus resource type and frame. Learned hosts
+  are scoped to one login attempt and reloaded from the served pages
+  (at most two page reloads at `/initiate`).
 - `/accounts` retries a transient `502 UPSTREAM_UNAVAILABLE` once, with the same
   cookie jar: it is an idempotent read, not a login step. The retry logs the
   failing path and status.

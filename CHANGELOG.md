@@ -9,7 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **"Financial assets" on the dashboard counted money lent to people.** In that mode the
+- **La Banque Postale login survives the bank's CloudFront rotations.** The
+  sidecar pinned two distributions, so every rotation broke the keypad scripts
+  and the login failed. It now learns the asset hosts from the bank's own
+  pages (every URL spelling) and auto-admits a shape-valid distribution the
+  page requests for the first time — main-frame scripts and anti-fraud
+  subframes, never a top-level navigation — scoped to the login attempt,
+  capped, loudly logged (host, path, resource type, frame), plus an
+  operator-provided `LBP_EXTRA_CDN_HOSTS` list for emergencies. Websockets
+  and the httpx replay path still refuse anything off the bank origin.
+- **"Financial assets" on the dashboard counted money lent to people.**
   figure and the curve included a peer loan, while the donut beside them did not, so the two
   disagreed (a 1,000 livret, a 5,000 PEA and 2,000 lent showed 8,000 next to a donut adding
   up to 6,000). A peer loan now counts in net and gross wealth only, as the
