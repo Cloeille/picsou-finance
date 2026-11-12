@@ -81,6 +81,13 @@ LOGIN_MODULE_URL_MARKER = "/one-identity-login/"
 LOGIN_MODULE_FILE_PREFIX = "one-identity-login."
 COOKIE_BANNER_DECLINE_SELECTOR = "#user-consent-management-granular-banner-decline-all-button"
 LOGIN_RESULT_TIMEOUT_SECONDS = 30
+# AMEX's own login request, sent by the page on submit. Akamai Bot Manager refuses a
+# login it scores as a bot by answering this request 403; the page then retries it
+# and shows nothing (live 2026-11-10: six 403 in a row, no error, no captcha).
+LOGIN_POST_PATH = "/myca/logon/emea/action/login"
+# ponytail: two consecutive 403s, one is tolerated as a flake; raise if a real login
+# is ever seen recovering after two.
+LOGIN_BLOCKED_AFTER_403S = 2
 
 # Verify page (two-step-verification/verify): pick the SMS/e-mail option,
 # click through any intermediate confirm step, then find the OTP input.
@@ -311,12 +318,16 @@ async def _otp_challenge_visible(page: Page) -> bool:
     return True
 
 
-async def _wait_for_login_outcome(page: Page, timeout_seconds: int) -> str:
+async def _wait_for_login_outcome(
+    page: Page, timeout_seconds: int, login_post: "_LoginPostWatch | None" = None
+) -> str:
     """Poll for the known post-submit outcomes.
 
     Returns "success", "verify" (the SMS/e-mail method-selection challenge
     appeared), "invalid" (AMEX's own bad-credentials message rendered on
-    the login page), or "timeout" (none of the above within the deadline).
+    the login page), "blocked" (Akamai answered the login request 403
+    LOGIN_BLOCKED_AFTER_403S times in a row, see LOGIN_POST_PATH), or
+    "timeout" (none of the above within the deadline).
 
     A "timeout" is NOT proof of bad credentials: live investigation with
     fake credentials found the #loginSubmit click firing correctly and
@@ -340,6 +351,8 @@ async def _wait_for_login_outcome(page: Page, timeout_seconds: int) -> str:
             return "invalid"
         if await _otp_challenge_visible(page):
             return "verify"
+        if login_post is not None and login_post.blocked:
+            return "blocked"
         await asyncio.sleep(0.25)
     return "timeout"
 
@@ -630,6 +643,30 @@ class _LoginModuleWatch:
             self.failed = True
 
 
+class _LoginPostWatch:
+    """Counts the 403s Akamai answers to AMEX's login request, in a row."""
+
+    def __init__(self) -> None:
+        self.responses = 0
+        self.refused_in_a_row = 0
+        self.akamai_edge = False
+
+    def on_response(self, response: Any) -> None:
+        if LOGIN_POST_PATH not in response.url.split("?", 1)[0]:
+            return
+        self.responses += 1
+        if response.status == 403:
+            self.refused_in_a_row += 1
+            server = str((response.headers or {}).get("server", "")).lower()
+            self.akamai_edge = self.akamai_edge or "akamai" in server
+        else:
+            self.refused_in_a_row = 0
+
+    @property
+    def blocked(self) -> bool:
+        return self.refused_in_a_row >= LOGIN_BLOCKED_AFTER_403S
+
+
 async def _login_form_visible(page: Page) -> bool:
     try:
         return (
@@ -762,9 +799,20 @@ async def initiate(req: InitiateRequest) -> dict:
         )
 
         # _open_login_form already required the submit button to be visible.
+        login_post = _LoginPostWatch()
+        page.on("response", login_post.on_response)
         await page.locator(SUBMIT_BUTTON_SELECTOR).first.click()
 
-        outcome = await _wait_for_login_outcome(page, LOGIN_RESULT_TIMEOUT_SECONDS)
+        outcome = await _wait_for_login_outcome(page, LOGIN_RESULT_TIMEOUT_SECONDS, login_post)
+
+        if outcome == "blocked":
+            # Not the password: the request never reached the credential check.
+            # Retrying from the same host feeds the bot score, so fail at once.
+            log.warning(
+                "AMEX login blocked by anti-bot login_post_403=%d akamai_edge=%s",
+                login_post.refused_in_a_row, login_post.akamai_edge,
+            )
+            raise HTTPException(status_code=503, detail="UPSTREAM_UNAVAILABLE")
 
         if outcome == "invalid":
             # AMEX's own bad-credentials message rendered on the login page
@@ -783,7 +831,10 @@ async def initiate(req: InitiateRequest) -> dict:
                 alerts = await page.query_selector_all(
                     "[role=alert], .alert, [class*=error], [data-testid*=error]"
                 )
-                log.warning("AMEX login outcome=timeout alerts_present=%s", bool(alerts))
+                log.warning(
+                    "AMEX login outcome=timeout alerts_present=%s login_post_responses=%d",
+                    bool(alerts), login_post.responses,
+                )
             except Exception as exc:
                 log.warning(
                     "AMEX login timeout diagnostics failed error_type=%s",
