@@ -6,6 +6,13 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # init and analyze must run the same release: analyze refuses a config
+    # written by a different init version, so a lone bump of either fails
+    # every CodeQL job (#491, #492).
+    groups:
+      codeql-action:
+        patterns:
+          - github/codeql-action/*
   - package-ecosystem: maven
     directory: /backend
     schedule:
@@ -24,6 +31,12 @@ updates:
     directory: /frontend
     schedule:
       interval: weekly
+    # TypeScript 7 is the native port: typescript-eslint caps its peer range at
+    # typescript <6.1.0 and tsconfig `baseUrl` is removed, so a lone major bump
+    # does not lint or typecheck (#526). Minor and patch updates still come through.
+    ignore:
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
   # All sidecars inherit these pins; requirements-{chromium,camoufox}.txt keep
   # browser-specific dependencies separate. Browser bumps require review
   # of the Camoufox protocol compatibility and the image smoke tests.
@@ -31,6 +44,13 @@ updates:
     directory: /services/base
     schedule:
       interval: weekly
+    # Camoufox 0.5.x requires Playwright <1.63 (this target pins 1.64.1) and
+    # changes the installer that pin_camoufox.py subclasses. It is one
+    # hand-written migration (Playwright pin, pin_camoufox.py, smoke_camoufox.py
+    # in amex-auth and revolut-auth), not a version bump (see #383 and #490).
+    ignore:
+      - dependency-name: camoufox
+        versions: [">=0.5"]
   # Includes the digest-pinned Python base and all application/sidecar images.
   - package-ecosystem: docker
     directories:
@@ -59,6 +79,11 @@ updates:
       # cannot install. services/base/test_dockerfile.py guards the pin.
       - dependency-name: python
         versions: [">=3.13"]
+      # PostgreSQL 18 moves PGDATA and cannot open a 16 data directory: it is a
+      # planned migration (mount path, upgrade path, chart, tests, docs), not a
+      # tag bump. Tracked in #508.
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
   # Compose image references are a separate ecosystem from Dockerfiles.
   - package-ecosystem: docker-compose
     directories:
@@ -66,3 +91,8 @@ updates:
       - /docker
     schedule:
       interval: weekly
+    ignore:
+      # Same pin as the docker entry above: the postgres image stays on 16 until
+      # the planned PostgreSQL 18 migration (#508).
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
