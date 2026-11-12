@@ -770,6 +770,73 @@ class LearnFromPageTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(learned, set())
 
 
+class SettlePageHostsTest(unittest.IsolatedAsyncioTestCase):
+    async def test_reloads_while_new_hosts_appear_then_stops(self):
+        class FlakyPage:
+            def __init__(self, pages):
+                self.pages = pages
+                self.index = 0
+                self.reloads = 0
+
+            async def content(self):
+                return self.pages[min(self.index, len(self.pages) - 1)]
+
+            async def reload(self, **kwargs):
+                self.reloads += 1
+                self.index += 1
+
+        page = FlakyPage(
+            [
+                '<script src="https://a1aaaa11111111.cloudfront.net/a.js"></script>',
+                '<script src="https://b2bbbb22222222.cloudfront.net/b.js"></script>',
+                "<p>done</p>",
+            ]
+        )
+        learned: set[str] = set()
+        await bank.BrowserBankClient._settle_page_hosts(page, learned)
+        self.assertEqual(page.reloads, 2)
+        self.assertEqual(learned, {"a1aaaa11111111.cloudfront.net", "b2bbbb22222222.cloudfront.net"})
+
+    async def test_no_reload_when_nothing_new(self):
+        class StaticPage:
+            def __init__(self):
+                self.reloads = 0
+
+            async def content(self):
+                return "<html><body>no cdn here</body></html>"
+
+            async def reload(self, **kwargs):  # pragma: no cover
+                self.reloads += 1
+
+        page = StaticPage()
+        learned: set[str] = set()
+        await bank.BrowserBankClient._settle_page_hosts(page, learned)
+        self.assertEqual(page.reloads, 0)
+        self.assertEqual(learned, set())
+
+    async def test_reloads_are_capped_but_last_state_is_inspected(self):
+        class RotatingPage:
+            def __init__(self):
+                self.calls = 0
+                self.reloads = 0
+
+            async def content(self):
+                self.calls += 1
+                host = f"host{self.calls:04d}.cloudfront.net"
+                return f'<script src="https://{host}/a.js"></script>'
+
+            async def reload(self, **kwargs):
+                self.reloads += 1
+
+        page = RotatingPage()
+        learned: set[str] = set()
+        await bank.BrowserBankClient._settle_page_hosts(page, learned)
+        self.assertEqual(page.reloads, 2)
+        self.assertEqual(
+            learned, {"host0001.cloudfront.net", "host0002.cloudfront.net", "host0003.cloudfront.net"}
+        )
+
+
 class AutoAdmitGuardTest(unittest.IsolatedAsyncioTestCase):
     async def test_first_unknown_distribution_is_admitted_then_left_through(self):
         learned: set[str] = set()
@@ -789,6 +856,35 @@ class AutoAdmitGuardTest(unittest.IsolatedAsyncioTestCase):
         with self.assertNoLogs("lbp-auth", level="INFO"):
             await guard(second)
         self.assertEqual(second.action, "continue")
+
+    async def test_fraud_beacon_xhr_auto_admits(self):
+        # Production evidence: the bank's anti-fraud posts its fingerprint
+        # to the live distribution; blocking data egress to unknown hosts
+        # would block the login itself, so shape-validated attempt-scoped
+        # XHR/fetch is admitted and the residual risk lives in the README.
+        learned: set[str] = set()
+        guard = bank._route_guard(learned)
+        beacon = FakeRoute(
+            "https://d21j9nkdg2p3wo.cloudfront.net/321226/1ytb//", resource_type="xhr"
+        )
+        await guard(beacon)
+        self.assertEqual(beacon.action, "continue")
+        self.assertEqual(learned, {"d21j9nkdg2p3wo.cloudfront.net"})
+
+    async def test_cdp_fraud_beacon_xhr_continues(self):
+        learned: set[str] = set()
+        context = FakeGuardedContext()
+        await bank._new_guarded_page(context, learned)
+        event = {
+            "requestId": "3",
+            "frameId": "MAIN",
+            "request": {"url": "https://d21j9nkdg2p3wo.cloudfront.net/321226/1ytb//"},
+            "resourceType": "XHR",
+        }
+        await context.session.handlers["Fetch.requestPaused"](event)
+        methods = [method for method, _ in context.session.sent if method not in ("Fetch.enable", "Page.getFrameTree")]
+        self.assertEqual(methods, ["Fetch.continueRequest"])
+        self.assertEqual(learned, {"d21j9nkdg2p3wo.cloudfront.net"})
 
     async def test_documents_never_auto_admit(self):
         learned: set[str] = set()

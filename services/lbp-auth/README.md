@@ -153,7 +153,16 @@ must be diagnosed from the sidecar's typed error, never by replaying it.
   attacker-controlled distribution would load its script in page context —
   that requires the bank to serve attacker content, in which case the pinned
   hosts would not save the login either; only the identifier/password
-  exposure differs, and both stay out of the logs.
+  exposure differs, and both stay out of the logs. The same holds for the
+  data channel: the bank's anti-fraud posts its fingerprint to the live
+  distribution (observed as XHR to `/321226/…`), so blocking egress to
+  unknown hosts would block the login itself — shape-validated,
+  attempt-scoped XHR/fetch to `*.cloudfront.net` is admitted, and a
+  compromised bank page could exfiltrate DOM data the same way. The guards
+  still prevent the worse channels: top-level navigations (no session
+  off-origin), cookie-jar replay over httpx, websockets, anything off the
+  CloudFront suffix or malformed; admissions are capped and every one is
+  logged.
   Blocked and admitted requests log host and path (never the query or
   fragment, where tokens live), plus resource type and frame. Learned hosts
   are scoped to one login attempt and reloaded from the served pages

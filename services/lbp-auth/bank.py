@@ -906,17 +906,9 @@ class BrowserBankClient(HttpxBankClient):
             await self._goto(page, BASE + IDENTIF + "?origin=particuliers")
             # The login scripts may live on a rotated distribution the pins
             # do not know, and anything they request is auto-admitted on
-            # first sight: learn the hosts from the served pages and reload
-            # while the set still grows, so the keypad scripts load before
-            # the identifier is checked. Bounded: two reloads at most,
-            # cookies are kept, no form submitted yet.
-            known: set[str] = set()
-            for _ in range(3):
-                await self._learn_page_cdn_hosts(page, learned)
-                if learned <= known:
-                    break
-                known = set(learned)
-                await page.reload(wait_until="domcontentloaded", timeout=45_000)
+            # first sight: settle the hosts while the set grows, so the
+            # keypad scripts load before the identifier is checked.
+            await self._settle_page_hosts(page, learned)
             await page.wait_for_selector("#identifiant", timeout=45_000)
             await page.fill("#identifiant", customer_id)
             # `continuer()` reveals the password panel after checking the identifier.
@@ -1106,6 +1098,25 @@ class BrowserBankClient(HttpxBankClient):
             },
             separators=(",", ":"),
         )
+
+    @staticmethod
+    async def _settle_page_hosts(
+        page: Any, learned: set[str], max_reloads: int = 2
+    ) -> None:
+        """Learn CDN hosts from the served page, reloading while the set grows.
+
+        At most ``max_reloads`` reloads, then one final learn inspects the
+        last state. Cookies are kept and no form is submitted, so this is
+        only safe on the pre-login pages of `/initiate`.
+        """
+        known: set[str] = set()
+        for _ in range(max_reloads):
+            await BrowserBankClient._learn_page_cdn_hosts(page, learned)
+            if learned <= known:
+                return
+            known = set(learned)
+            await page.reload(wait_until="domcontentloaded", timeout=45_000)
+        await BrowserBankClient._learn_page_cdn_hosts(page, learned)
 
     @staticmethod
     async def _learn_page_cdn_hosts(page: Any, learned: set[str]) -> set[str]:
