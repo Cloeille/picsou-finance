@@ -127,9 +127,10 @@ finished releases, and a release is tagged from it (`make release`).
   2. Merge `main` into `release/1.3.0`, so every fix released in 1.2.1 reaches 1.3.0 (a merge,
      not a rebase). Do this after every patch release. `CHANGELOG.md` conflicts there: keep the
      `## [1.2.1]` section from `main` and every entry under `[Unreleased]`.
-  3. When 1.3.0 is ready, first merge the open patch branch into `release/1.3.0` if it holds fixes
-     that no patch release shipped, so that they ship in 1.3.0 (1.2.0 took `release/1.1.1` this
-     way). Then merge `release/1.3.0` into `main` and run `make release VERSION=1.3.0`.
+  3. When 1.3.0 is ready, freeze the open patch branch too: nothing else merges into it until
+     step 4 deletes it. If it holds commits that no release shipped, merge it into `release/1.3.0`
+     first, so that they ship in 1.3.0 (1.2.0 took `release/1.1.1` this way). Then merge
+     `release/1.3.0` into `main` and run `make release VERSION=1.3.0`.
   4. After each release, cut the next branches from `main` (`release/1.2.2` after 1.2.1,
      `release/1.3.1` and `release/1.4.0` after 1.3.0). A minor release also ends the patch branch
      that was open before it. Retarget every pull request that is still open against a branch you
