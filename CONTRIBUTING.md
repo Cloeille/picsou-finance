@@ -129,7 +129,8 @@ finished releases, and a release is tagged from it (`make release`).
      `## [1.2.1]` section from `main` and every entry under `[Unreleased]`.
   3. When 1.3.0 is ready, freeze the open patch branch too: nothing else merges into it until
      step 4 deletes it. If it holds commits that no release shipped, merge it into `release/1.3.0`
-     first, so that they ship in 1.3.0 (1.2.0 took `release/1.1.1` this way). Then merge
+     before you rename the `[Unreleased]` section there, so that its entries land in `## [1.3.0]`
+     and its commits ship in 1.3.0 (1.2.0 took `release/1.1.1` this way). Then merge
      `release/1.3.0` into `main` and run `make release VERSION=1.3.0`.
   4. After each release, cut the next branches from `main` (`release/1.2.2` after 1.2.1,
      `release/1.3.1` and `release/1.4.0` after 1.3.0). A minor release also ends the patch branch
