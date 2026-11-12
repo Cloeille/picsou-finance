@@ -183,6 +183,26 @@ learned the hard way. Do not re-implement them per class:
 The three interlock: the guard alone turns a config problem into a silent pass, and the
 API pin alone makes Docker-less machines fail the whole suite.
 
+CI runs the backend suite in 3 shards of test classes (`.github/scripts/backend_shards.py`),
+balanced on the class times of the last main run. `ci-ok` then fails when a top-level test
+class ran in two shards or in none, and checks the PostgreSQL classes ran in full. Which
+classes share a JVM changes with the timings, so a test must not count what other code leaves
+in shared places such as the system temp directory: give such code a root a `@TempDir` can
+replace (`ActualBudgetFileParser` does).
+
+To reproduce a shard locally (the `--out` folder must be absolute: Maven runs in `backend/`):
+
+```bash
+python3 .github/scripts/backend_shards.py --shards 3 --shard 2 --out /tmp/s
+make test-backend SHARD_INCLUDES=/tmp/s/backend-shard-2.includes
+# The last shard runs everything the others do not:
+python3 .github/scripts/backend_shards.py --shards 3 --shard 3 --out /tmp/s
+make test-backend SHARD_EXCLUDES=/tmp/s/backend-shard-3.excludes
+```
+
+Without `--timings <file.json>` the split is by hash, so a shard's classes differ from CI's
+timed split; `--write-timings <reports-dir> <file.json>` builds that file from surefire reports.
+
 Keep **one fresh container per test class** (`@Container static final`, never shared across
 classes): migration tests migrate to specific versions and seed rows, so a shared database would
 leak state between them. Helpers: `migrateTo` / `migrateToOutOfOrder` (the latter mirrors
@@ -199,7 +219,8 @@ unspecified, so otherwise the other tests may assert against post-mutation state
 
 - **Unit tests:** Vitest (`vitest`) with `@testing-library/react` and `jsdom`.
 - **E2E tests:** Playwright (`@playwright/test`) against demo mode. CI runs them
-  in the `e2e` job (`make test-e2e PLAYWRIGHT_DEPS=--with-deps`).
+  in the `e2e` job (`make test-e2e`). The job probes a headless Chromium launch and
+  runs `playwright install-deps chromium` (apt) only if the probe fails.
 - **Page readiness:** `waitForURL` only confirms navigation. Lazy routes can still
   render nothing during the delayed `RouteFallback`, and data can still be loading.
   Use retrying assertions on the expected page content before reading the DOM.
@@ -207,6 +228,8 @@ unspecified, so otherwise the other tests may assert against post-mutation state
   named goal cards and their progress bars. A CSS grid or an immediate `count()`
   does not establish that the goals have loaded.
 - Run them with `make test-frontend` and `make test-e2e` (starts Vite with `VITE_DEMO_MODE=true`).
+- CI runs `make lint-frontend` and two Vitest shards (`make unit-frontend SHARD=1/2`, `SHARD=2/2`) as
+  parallel legs; `ci-ok` checks their JSON reports together ran every test file exactly once.
 
 ## Sidecar tests
 
@@ -224,6 +247,13 @@ that needs a live account or a real login is a script, not a `test_*.py` module 
 `services/sofidy-auth/test_live_portal.py` has no test case, so discovery runs nothing
 from it). `services/base` tests run the same way in the Camoufox base, which includes
 the Python one (`sidecar-base` job). Camoufox sidecars also run on a native ARM64 runner.
+
+## Release smoke tests
+
+`docker/tests/test_deploy_integration.py` runs one `release-deployment` leg per parametrize
+id (`.github/scripts/release_cases.py` reads them), each building the image and requiring
+`1 passed`; the `unit` leg runs shellcheck, `test_deploy.py`, and checks the collected ids
+match the legs.
 
 ## Running tests
 

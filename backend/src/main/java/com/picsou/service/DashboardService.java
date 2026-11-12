@@ -217,7 +217,13 @@ public class DashboardService {
             BigDecimal monthlyPayment = null;
             Double percentPaid = null;
             if (debt != null) {
-                monthlyPayment = loanAmortizationService.resolveMonthlyPayment(debt);
+                // Weighted like balanceEur so a shared loan shows the member's part of the
+                // instalment (issue #459). Null stays null: a loan with no configured payment
+                // has no monthlyPayment to weigh.
+                BigDecimal resolved = loanAmortizationService.resolveMonthlyPayment(debt);
+                if (resolved != null) {
+                    monthlyPayment = AccountAccessResolver.weigh(resolved, shares.get(account.getId()));
+                }
                 // Progress is the loan's own: borrowed vs remaining capital, both unweighted.
                 // The share cancels out of the ratio, and weighing borrowed would turn a
                 // zero share into 0/0 and make a configured loan look unconfigured.

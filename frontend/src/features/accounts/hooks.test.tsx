@@ -573,6 +573,32 @@ describe('usePortfolio', () => {
     ])
   })
 
+  it('leaves property and SCPI out of the Euros cash line and counts a listed pocket once', async () => {
+    list.mockResolvedValue([
+      { id: 2, name: 'Checking', type: 'CHECKING', color: '#000', currentBalanceEur: 1500 },
+      { id: 3, name: 'Flat', type: 'REAL_ESTATE', color: '#000', currentBalanceEur: 300000 },
+      { id: 4, name: 'SCPI', type: 'SCPI', color: '#000', currentBalanceEur: 20000 },
+      // A Revolut wallet carries the sum of its pockets.
+      { id: 10, name: 'Revolut', type: 'CHECKING', color: '#000', currentBalanceEur: 1000 },
+      { id: 11, name: 'Holiday', type: 'SAVINGS', color: '#000', currentBalanceEur: 400, parentAccountId: 10 },
+      // A pocket whose wallet is not listed has nothing else carrying it.
+      { id: 12, name: 'Shared pocket', type: 'SAVINGS', color: '#000', currentBalanceEur: 200, parentAccountId: 99 },
+    ])
+
+    const { result } = renderHook(() => usePortfolio(), { wrapper: makeWrapper() })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.data).toEqual([
+      expect.objectContaining({
+        id: 'cash-aggregated',
+        accountIds: [2, 10, 12],
+        accountName: 'Checking, Revolut, Shared pocket',
+        accountType: 'CHECKING',
+        valueEur: 2700,
+      }),
+    ])
+  })
+
   it('refreshes mounted dashboard, history and PnL queries only when a polled value changes', async () => {
     vi.useFakeTimers()
     let livePrice = 10

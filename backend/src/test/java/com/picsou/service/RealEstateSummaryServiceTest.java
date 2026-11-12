@@ -153,6 +153,62 @@ class RealEstateSummaryServiceTest {
     }
 
     @Test
+    void summarize_halfOwnedLoan_halvesLinkedLoanMonthlyPayment() {
+        Account house = property(10L, "400000");
+        Account loan = loanAccount(20L, ALICE);
+        Debt debt = Debt.builder().startDate(java.time.LocalDate.of(2024, 1, 1)).endDate(java.time.LocalDate.of(2044, 1, 1)).account(loan).linkedAccount(house).member(ALICE)
+            .borrowedAmount(new BigDecimal("200000")).monthlyPayment(new BigDecimal("800")).build();
+
+        // Alice owns the whole house but only half the mortgage: the linked line shows
+        // her half of the remaining capital and her half of the instalment (issue #459).
+        when(accessResolver.readableAccounts(1L)).thenReturn(List.of(house, loan));
+        when(accessResolver.sharesFor(any(), eq(1L)))
+            .thenReturn(Map.of(10L, FULL, 20L, new BigDecimal("50")));
+        when(accountService.liveBalanceEur(house)).thenReturn(new BigDecimal("400000"));
+        when(metadataRepository.findByAccountId(10L)).thenReturn(Optional.empty());
+        when(debtRepository.findByLinkedAccountId(10L)).thenReturn(List.of(debt));
+        when(loanAmortizationService.computeRemainingBalance(eq(debt), any(LocalDate.class)))
+            .thenReturn(new BigDecimal("150000"));
+
+        RealEstateSummaryResponse result = service.summarize(1L);
+
+        assertThat(result.properties()).singleElement()
+            .satisfies(line -> {
+                assertThat(line.loans()).singleElement()
+                    .satisfies(linked -> {
+                        assertThat(linked.outstandingBalance()).isEqualByComparingTo("75000");
+                        assertThat(linked.monthlyPayment()).isEqualByComparingTo("400.00");
+                    });
+            });
+    }
+
+    @Test
+    void summarize_loanWithoutMonthlyPayment_keepsNullInsteadOfZero() {
+        Account house = property(10L, "400000");
+        Account loan = loanAccount(20L, ALICE);
+        // No monthlyPayment on the Debt: an unconfigured loan has no instalment to weigh.
+        Debt debt = Debt.builder().startDate(java.time.LocalDate.of(2024, 1, 1)).endDate(java.time.LocalDate.of(2044, 1, 1)).account(loan).linkedAccount(house).member(ALICE)
+            .borrowedAmount(new BigDecimal("200000")).build();
+
+        when(accessResolver.readableAccounts(1L)).thenReturn(List.of(house, loan));
+        when(accessResolver.sharesFor(any(), eq(1L)))
+            .thenReturn(Map.of(10L, FULL, 20L, new BigDecimal("50")));
+        when(accountService.liveBalanceEur(house)).thenReturn(new BigDecimal("400000"));
+        when(metadataRepository.findByAccountId(10L)).thenReturn(Optional.empty());
+        when(debtRepository.findByLinkedAccountId(10L)).thenReturn(List.of(debt));
+        when(loanAmortizationService.computeRemainingBalance(eq(debt), any(LocalDate.class)))
+            .thenReturn(new BigDecimal("150000"));
+
+        RealEstateSummaryResponse result = service.summarize(1L);
+
+        assertThat(result.properties()).singleElement()
+            .satisfies(line -> {
+                assertThat(line.loans()).singleElement()
+                    .satisfies(linked -> assertThat(linked.monthlyPayment()).isNull());
+            });
+    }
+
+    @Test
     void summarize_multipleLoansOnOneProperty_areAllCounted() {
         Account house = property(10L, "400000");
         Account main = loanAccount(20L, ALICE);
@@ -319,5 +375,36 @@ class RealEstateSummaryServiceTest {
             assertThat(line.subscriptionPriceEur()).isEqualByComparingTo("1135");
             assertThat(line.grossValue()).isEqualByComparingTo("12351.85");
         });
+    }
+
+    @Test
+    void summarizeVisible_leavesOutHiddenPropertiesAndHiddenLoans() {
+        Account house = property(10L, "400000");
+        Account hiddenLoan = loanAccount(20L, ALICE);
+        hiddenLoan.setHidden(true);
+        Account hiddenFlat = property(11L, "200000");
+        hiddenFlat.setHidden(true);
+        Debt debt = Debt.builder().account(hiddenLoan).linkedAccount(house).member(ALICE)
+            .lenderName("BNP").build();
+
+        when(accessResolver.readableAccounts(1L)).thenReturn(List.of(house, hiddenLoan, hiddenFlat));
+        when(accessResolver.sharesFor(any(), eq(1L)))
+            .thenReturn(Map.of(10L, FULL, 11L, FULL, 20L, FULL));
+        when(accountService.liveBalanceEur(house)).thenReturn(new BigDecimal("400000"));
+        lenient().when(accountService.liveBalanceEur(hiddenFlat)).thenReturn(new BigDecimal("200000"));
+        when(debtRepository.findByLinkedAccountId(10L)).thenReturn(List.of(debt));
+
+        RealEstateSummaryResponse visible = service.summarizeVisible(1L);
+
+        assertThat(visible.grossValue()).isEqualByComparingTo("400000");
+        assertThat(visible.outstandingDebt()).isEqualByComparingTo("0");
+        assertThat(visible.loanToValue()).isEqualByComparingTo("0");
+        assertThat(visible.properties()).singleElement()
+            .satisfies(line -> assertThat(line.accountId()).isEqualTo(10L));
+
+        // The property card's own summary is unchanged: it still lists both, with the loan.
+        RealEstateSummaryResponse all = service.summarize(1L);
+        assertThat(all.grossValue()).isEqualByComparingTo("600000");
+        assertThat(all.outstandingDebt()).isEqualByComparingTo("150000");
     }
 }

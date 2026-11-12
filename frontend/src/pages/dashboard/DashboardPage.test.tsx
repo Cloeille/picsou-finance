@@ -1,9 +1,11 @@
 import '@testing-library/jest-dom'
 import type { ReactNode } from 'react'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DashboardData } from '@/types/api'
+
+const distributionPieSpy = vi.hoisted(() => vi.fn())
 
 const hooks = vi.hoisted(() => ({
   useDashboard: vi.fn(),
@@ -32,7 +34,7 @@ vi.mock('@/components/shared/PageHeader', () => ({
   PageHeader: ({ title, actions }: { title: string; actions?: ReactNode }) => <header><h1>{title}</h1>{actions}</header>,
 }))
 vi.mock('@/components/shared/NetWorthChart', () => ({ NetWorthChart: () => null }))
-vi.mock('@/components/shared/DistributionPie', () => ({ DistributionPie: () => null }))
+vi.mock('@/components/shared/DistributionPie', () => ({ DistributionPie: distributionPieSpy }))
 vi.mock('@/components/shared/LoadingSkeleton', () => ({ LoadingSkeleton: () => null }))
 vi.mock('@/components/shared/HoldingsCard', () => ({ HoldingsCard: () => null }))
 vi.mock('@/components/shared/LiabilitiesCard', () => ({ LiabilitiesCard: () => null }))
@@ -56,7 +58,9 @@ vi.mock('@/components/ui/dropdown-menu', () => {
   return {
     DropdownMenu: Part,
     DropdownMenuContent: Part,
-    DropdownMenuItem: Part,
+    DropdownMenuItem: ({ children, onClick }: { children?: ReactNode; onClick?: () => void }) => (
+      <button onClick={onClick}>{children}</button>
+    ),
     DropdownMenuTrigger: Part,
   }
 })
@@ -156,5 +160,93 @@ describe('DashboardPage portfolio performance', () => {
     expect(row?.querySelector('[data-testid="currency"]')).toHaveTextContent('0')
     expect(row).toHaveTextContent('(0.0%)')
     expect(row?.querySelector('svg')).not.toBeNull()
+  })
+})
+
+describe('DashboardPage financial wealth mode', () => {
+  // The headline and the curve read `assets`, the donut reads `distribution`: same accounts here.
+  const ACCOUNTS: DashboardData['assets'] = [
+    { accountId: 1, name: 'Livret', color: '#1', balanceEur: 1000, percentage: 0, accountType: 'SAVINGS', hasHoldings: false },
+    { accountId: 2, name: 'Appart', color: '#2', balanceEur: 215000, percentage: 0, accountType: 'REAL_ESTATE', hasHoldings: true },
+    { accountId: 3, name: 'Courant', color: '#3', balanceEur: 300, percentage: 0, accountType: 'CHECKING', hasHoldings: false },
+    { accountId: 4, name: 'SCPI Rendement', color: '#4', balanceEur: 2000, percentage: 0, accountType: 'SCPI', hasHoldings: true },
+    { accountId: 5, name: 'Divers', color: '#5', balanceEur: 500, percentage: 0, accountType: 'OTHER', hasHoldings: false },
+    { accountId: 6, name: 'Napoleon', color: '#6', balanceEur: 700, percentage: 0, accountType: 'PRECIOUS_METALS', hasHoldings: false },
+  ]
+  const FINANCIAL_DATA: DashboardData = {
+    totalNetWorth: 219500,
+    totalLiabilities: 0,
+    netWorthHistory: [],
+    distribution: ACCOUNTS,
+    assets: ACCOUNTS,
+    liabilities: [],
+    goalSummaries: [],
+  }
+
+  beforeEach(() => {
+    hooks.useDashboard.mockReturnValue({ data: FINANCIAL_DATA, isLoading: false })
+    hooks.useNetWorthIntraday.mockReturnValue({ data: [] })
+    hooks.usePnl.mockReturnValue({
+      data: {
+        total: 219500,
+        invested: null,
+        pnl: null,
+        pnlPercent: null,
+        valueAtFrom: 219500,
+        rangePnl: null,
+        rangePnlPercent: null,
+      },
+    })
+    hooks.useHistory.mockReturnValue({ data: [] })
+    hooks.useBankSyncStatus.mockReturnValue({ data: [] })
+    distributionPieSpy.mockClear()
+  })
+
+  function switchToFinancialWealth() {
+    renderDashboard()
+    fireEvent.click(screen.getByText('dashboard.financialWorth'))
+  }
+
+  it('excludes real estate, checking, other and metals from the headline value but keeps SCPI', () => {
+    switchToFinancialWealth()
+
+    // The hero figure is the only amount on screen (no liabilities, no goals)
+    const values = screen.getAllByTestId('currency').map(el => el.textContent)
+    expect(values).toEqual(['3000'])
+  })
+
+  it('feeds only financial accounts to the history curve', () => {
+    switchToFinancialWealth()
+
+    const lastCall = hooks.useHistory.mock.calls.at(-1)
+    expect(lastCall?.[0]).toEqual([1, 4])
+  })
+
+  it('feeds only financial holding accounts to the PnL', () => {
+    switchToFinancialWealth()
+
+    const lastCall = hooks.usePnl.mock.calls.at(-1)
+    expect(lastCall?.[0]).toEqual([4])
+  })
+
+  it('hides non-financial accounts from the distribution donut', () => {
+    hooks.useDashboard.mockReturnValue({
+      data: {
+        ...FINANCIAL_DATA,
+        distribution: FINANCIAL_DATA.distribution.map(item => ({
+          ...item,
+          percentage: (item.balanceEur / 219500) * 100,
+        })),
+      },
+      isLoading: false,
+    })
+    switchToFinancialWealth()
+
+    const props = distributionPieSpy.mock.calls.at(-1)?.[0] as {
+      data: { accountId: number; percentage: number }[]
+    }
+    expect(props.data.map(d => d.accountId)).toEqual([1, 4])
+    expect(props.data[0]?.percentage).toBeCloseTo(33.3, 1)
+    expect(props.data[1]?.percentage).toBeCloseTo(66.7, 1)
   })
 })

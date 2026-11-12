@@ -61,7 +61,23 @@ public class RealEstateSummaryService {
     }
 
     public RealEstateSummaryResponse summarize(Long memberId) {
+        return summarize(memberId, true);
+    }
+
+    /**
+     * The same summary over the accounts the dashboard counts: a hidden property is left out,
+     * and so is a loan whose account is hidden. For totals that must agree with the dashboard's,
+     * such as the wealth pyramid; the property card itself keeps {@link #summarize(Long)}.
+     */
+    public RealEstateSummaryResponse summarizeVisible(Long memberId) {
+        return summarize(memberId, false);
+    }
+
+    private RealEstateSummaryResponse summarize(Long memberId, boolean includeHidden) {
         List<Account> accounts = accessResolver.readableAccounts(memberId);
+        if (!includeHidden) {
+            accounts = accounts.stream().filter(a -> !a.isHidden()).toList();
+        }
         Map<Long, BigDecimal> shares = accessResolver.sharesFor(accounts, memberId);
         LocalDate today = LocalDate.now();
 
@@ -76,7 +92,8 @@ public class RealEstateSummaryService {
 
         for (Account account : accounts) {
             if (account.getType() == AccountType.SCPI) {
-                PaperRollup rolled = paperLine(account, shares.get(account.getId()), memberId, today);
+                PaperRollup rolled = paperLine(account, shares.get(account.getId()), memberId, today,
+                    includeHidden);
                 if (rolled != null) {
                     paper.add(rolled.line());
                     paperGross = paperGross.add(rolled.gross());
@@ -103,7 +120,7 @@ public class RealEstateSummaryService {
                 .map(m -> AccountAccessResolver.weigh(m.getRentalIncome(), share))
                 .orElse(BigDecimal.ZERO);
 
-            LoanRollup loans = loansFor(account, memberId, today);
+            LoanRollup loans = loansFor(account, memberId, today, includeHidden);
             // Resolved once: the date and the confidence come from the same row, and looking
             // it up per field would double the query count for every property.
             Optional<PropertyValuation> latest = latestValuation(account.getId());
@@ -170,7 +187,8 @@ public class RealEstateSummaryService {
      * A SCPI share sits beside the houses, not inside them. Its value is the stored withdrawal
      * total; the open-data estimator is never asked.
      */
-    private PaperRollup paperLine(Account account, BigDecimal share, Long memberId, LocalDate today) {
+    private PaperRollup paperLine(Account account, BigDecimal share, Long memberId, LocalDate today,
+                                  boolean includeHidden) {
         if (share == null || share.signum() <= 0) {
             return null;
         }
@@ -179,7 +197,7 @@ public class RealEstateSummaryService {
         Optional<ScpiPosition> position = ownerId == null
             ? Optional.empty()
             : scpiPositionRepository.findByAccountIdAndMemberId(account.getId(), ownerId);
-        LoanRollup loans = loansFor(account, memberId, today);
+        LoanRollup loans = loansFor(account, memberId, today, includeHidden);
         return new PaperRollup(
             new PaperLine(
                 account.getId(),
@@ -209,7 +227,7 @@ public class RealEstateSummaryService {
      * while the mortgage is split evenly — and assuming they are equal would quietly produce
      * the wrong equity.
      */
-    private LoanRollup loansFor(Account property, Long memberId, LocalDate asOf) {
+    private LoanRollup loansFor(Account property, Long memberId, LocalDate asOf, boolean includeHidden) {
         List<Debt> debts = debtRepository.findByLinkedAccountId(property.getId());
         if (debts.isEmpty()) {
             return new LoanRollup(BigDecimal.ZERO, List.of());
@@ -224,7 +242,7 @@ public class RealEstateSummaryService {
             memberId);
         for (Debt debt : debts) {
             Account loanAccount = debt.getAccount();
-            if (loanAccount == null) {
+            if (loanAccount == null || (!includeHidden && loanAccount.isHidden())) {
                 continue;
             }
             // A loan the viewer holds no share of contributes nothing to their equity, even
@@ -240,13 +258,17 @@ public class RealEstateSummaryService {
                 : (loanAccount.getCurrentBalance() != null ? loanAccount.getCurrentBalance() : BigDecimal.ZERO);
             BigDecimal outstanding = AccountAccessResolver.weigh(remaining, loanShare);
             total = total.add(outstanding);
+            // Same share as the outstanding balance: a co-owner sees their part of the
+            // instalment, not the whole loan's (issue #459). Null stays null.
+            BigDecimal monthlyPayment = debt.getMonthlyPayment() == null ? null
+                : scale(AccountAccessResolver.weigh(debt.getMonthlyPayment(), loanShare));
             lines.add(new LinkedLoan(
                 loanAccount.getId(),
                 loanAccount.getName(),
                 debt.getLenderName(),
                 scale(outstanding),
                 loanShare,
-                debt.getMonthlyPayment(),
+                monthlyPayment,
                 debt.getEndDate()
             ));
         }

@@ -246,11 +246,13 @@ export function AddAccountModal({ open, onOpenChange, defaultType, onCreated }: 
                       onClick={() => handleSourceClick(key)}
                     >
                       <Icon className="size-5 text-muted-foreground shrink-0" />
-                      <div className="text-left">
+                      {/* Button is inline-flex + whitespace-nowrap: without min-w-0 and whitespace-normal the
+                          text column keeps its one-line width, overflows the row and pushes the arrow out. */}
+                      <div className="min-w-0 flex-1 whitespace-normal text-left">
                         <p className="text-sm font-medium">{t(labelKey)}</p>
-                        <p className="text-xs text-muted-foreground">{t(descKey)}</p>
+                        <p className="line-clamp-2 text-xs text-muted-foreground" title={t(descKey)}>{t(descKey)}</p>
                       </div>
-                      <ArrowRight className="size-4 text-muted-foreground ml-auto shrink-0" />
+                      <ArrowRight className="size-4 text-muted-foreground shrink-0" />
                     </Button>
                   ))}
                 </div>

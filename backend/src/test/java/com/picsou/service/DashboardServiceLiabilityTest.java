@@ -160,6 +160,58 @@ class DashboardServiceLiabilityTest {
         assertThat(entry.percentPaid()).isCloseTo(25.0, org.assertj.core.data.Offset.offset(0.01));
     }
 
+    @Test
+    void co_owned_loan_monthlyPayment_isWeightedByTheShare() {
+        // A 200 000 loan with 150 000 left and an 800 instalment, seen by a half-owner:
+        // the balance and the instalment halve, the progress stays the loan's own.
+        DashboardResponse result = sharedLoanDashboard(
+            java.util.Map.of(14L, new BigDecimal("50")), new BigDecimal("800.00"));
+
+        DashboardResponse.LiabilityEntry entry = result.liabilities().get(0);
+        assertThat(entry.balanceEur()).isEqualByComparingTo("75000");
+        assertThat(entry.monthlyPayment()).isEqualByComparingTo("400.00");
+        assertThat(result.totalMonthlyPayment()).isEqualByComparingTo("400.00");
+        assertThat(entry.percentPaid()).isCloseTo(25.0, org.assertj.core.data.Offset.offset(0.01));
+    }
+
+    @Test
+    void zero_share_loan_monthlyPayment_isZero() {
+        DashboardResponse result = sharedLoanDashboard(
+            java.util.Map.of(14L, BigDecimal.ZERO), new BigDecimal("800.00"));
+
+        DashboardResponse.LiabilityEntry entry = result.liabilities().get(0);
+        assertThat(entry.balanceEur()).isEqualByComparingTo("0");
+        assertThat(entry.monthlyPayment()).isEqualByComparingTo("0");
+        assertThat(result.totalMonthlyPayment()).isEqualByComparingTo("0");
+    }
+
+    /** A 200 000 loan with 150 000 left (25% repaid) and the given instalment, seen through the given member shares. */
+    private DashboardResponse sharedLoanDashboard(
+        java.util.Map<Long, BigDecimal> shares, BigDecimal resolvedMonthlyPayment) {
+        Account loan = new Account();
+        loan.setId(14L);
+        loan.setName("Shared mortgage");
+        loan.setType(AccountType.LOAN);
+        loan.setCurrentBalance(new BigDecimal("-150000"));
+        loan.setCurrency("EUR");
+        loan.setColor("#6366f1");
+
+        Debt debt = new Debt();
+        debt.setAccount(loan);
+        debt.setBorrowedAmount(new BigDecimal("200000"));
+
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of(loan));
+        when(holdingRepository.findByAccount_Id(14L)).thenReturn(List.of());
+        when(accountService.liveBalanceEur(loan)).thenReturn(new BigDecimal("150000"));
+        org.mockito.Mockito.doReturn(shares).when(accessResolver).sharesFor(any(), any());
+        when(debtRepository.findByAccountIdIn(List.of(14L))).thenReturn(List.of(debt));
+        when(loanAmortizationService.resolveMonthlyPayment(debt)).thenReturn(resolvedMonthlyPayment);
+        when(historyService.buildHistory(any(), any(Integer.class), any())).thenReturn(List.of());
+        when(goalRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of());
+
+        return dashboardService.getDashboard(1L, null);
+    }
+
     /** A 200 000 loan with 150 000 left (25% repaid), seen through the given member shares. */
     private DashboardResponse.LiabilityEntry jointLoanEntry(java.util.Map<Long, BigDecimal> shares) {
         Account loan = new Account();

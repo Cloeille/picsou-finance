@@ -58,11 +58,15 @@ net worth.
 Copied from `DashboardService.getDashboard`, deliberately and literally: `readableAccounts` →
 `sharesFor` → one `valuation` per account → `AccountAccessResolver.weigh` applied **exactly
 once**. Weighting twice is the easy bug, and it would make this page disagree with the dashboard
-about the same portfolio.
+about the same portfolio. The same accounts as the dashboard, too: hidden accounts are filtered
+out and pocket sub-accounts (`parentAccountId` set) are skipped, their balance being already in
+the parent wallet's.
 
-Property enters **net of the mortgage financing it**, via `RealEstateSummaryService.summarize`
+Property enters **net of the mortgage financing it**, via `RealEstateSummaryService.summarizeVisible`
 rather than a local gross-minus-loans. Re-deriving it would let the Analysis page and the
-property card disagree about the same house.
+property card disagree about the same house. `summarizeVisible` is `summarize` over the same
+accounts as above: a hidden property is left out, and so is a loan whose account is hidden.
+Otherwise a hidden house's mortgage would be subtracted without the house.
 
 ### The safety net, and the allocation base
 

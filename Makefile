@@ -5,7 +5,7 @@ COMPOSE  := docker compose -f docker/docker-compose.yml
 SIDECARS := $(patsubst services/%/Dockerfile,%,$(wildcard services/*-auth/Dockerfile))
 REMOTE   ?= origin
 
-.PHONY: help dev db dev-backend dev-frontend format deps test test-backend test-frontend test-e2e \
+.PHONY: help dev db dev-backend dev-frontend format deps test test-backend test-frontend lint-frontend unit-frontend test-e2e \
         test-sidecars test-sidecar-base test-sidecar build release
 
 help:
@@ -14,6 +14,8 @@ help:
 	@echo "make test                      backend, frontend (unit and e2e), every sidecar"
 	@echo "make test-backend [TEST=Class] backend Maven tests, or one class or method"
 	@echo "make test-frontend             lint, typecheck, Vitest"
+	@echo "make lint-frontend             ESLint (zero warnings) and TypeScript"
+	@echo "make unit-frontend [SHARD=i/n] Vitest, optionally one shard (VITEST_JSON=file writes a JSON report)"
 	@echo "make test-e2e                  Playwright in demo mode"
 	@echo "make test-sidecar SIDECAR=x    one sidecar image and its tests (x: $(firstword $(SIDECARS)), ...)"
 	@echo "make test-sidecars             the shared base, then every sidecar"
@@ -79,15 +81,24 @@ test: test-backend test-frontend test-e2e test-sidecars
 
 # The suite never calls a real sidecar: any key will do. SOFIDY_PYTHON=python3 also
 # runs the Java/Python Sofidy contract test (needs `pip install -r services/base/requirements.txt`).
+# CI shards the suite with SHARD_INCLUDES or SHARD_EXCLUDES: an absolute surefire
+# includesFile or excludesFile (.github/scripts/backend_shards.py).
 test-backend: export APP_SIDECAR_API_KEY ?= test-only
 test-backend: export PYTHONPATH := $(CURDIR)/services/base
 test-backend:
-	cd backend && mvn -B test $(if $(SOFIDY_PYTHON),-Dsofidy.contract.python=$(SOFIDY_PYTHON)) $(if $(TEST),-Dtest=$(TEST))
+	cd backend && mvn -B test $(if $(SOFIDY_PYTHON),-Dsofidy.contract.python=$(SOFIDY_PYTHON)) $(if $(TEST),-Dtest=$(TEST)) $(if $(SHARD_INCLUDES),-Dsurefire.includesFile=$(SHARD_INCLUDES)) $(if $(SHARD_EXCLUDES),-Dsurefire.excludesFile=$(SHARD_EXCLUDES))
 
-test-frontend: | frontend/node_modules
-	cd frontend && bun run lint --max-warnings=0 && bun run typecheck && bun run test
+test-frontend: lint-frontend unit-frontend
 
-# CI adds PLAYWRIGHT_DEPS=--with-deps: a fresh runner lacks Chromium's system libraries.
+lint-frontend: | frontend/node_modules
+	cd frontend && bun run lint --max-warnings=0 && bun run typecheck
+
+# CI runs one shard per job and checks the JSON reports together cover every test file.
+unit-frontend: | frontend/node_modules
+	cd frontend && bun run test $(if $(SHARD),--shard=$(SHARD)) $(if $(VITEST_JSON),--reporter=default --reporter=json --outputFile.json=$(abspath $(VITEST_JSON)))
+
+# PLAYWRIGHT_DEPS=--with-deps also installs Chromium's system libraries through apt. CI no
+# longer sets it: it installs them only when a headless launch probe fails.
 test-e2e: | frontend/node_modules
 	cd frontend && bunx playwright install $(PLAYWRIGHT_DEPS) chromium && VITE_DEMO_MODE=true bun run test:e2e
 

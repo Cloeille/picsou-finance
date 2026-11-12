@@ -13,6 +13,7 @@ jobs:
   # sidecar is built FROM the same digest and Docker stores its layers once.
   base:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -23,11 +24,17 @@ jobs:
       app-version: ${{ steps.versions.outputs.app-version }}
       image-tag: ${{ steps.versions.outputs.image-tag }}
       chart-release-version: ${{ steps.versions.outputs.chart-release-version }}
+      latest: ${{ steps.versions.outputs.latest }}
+      latest-major: ${{ steps.versions.outputs.latest-major }}
       matrix: ${{ steps.matrix.outputs.matrix }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # All tags, to tell whether this tag is the highest release.
+          fetch-depth: 0
 
       # Compute the immutable image tag once. The image builders and chart must
       # consume the same output so a chart can only name a tag this run pushes.
@@ -37,10 +44,23 @@ jobs:
         run: |
           short_sha="${GITHUB_SHA::7}"
           chart_release_version=""
+          latest=false
+          latest_major=false
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             app_version="${GITHUB_REF_NAME#v}"
             image_tag="$app_version"
             chart_release_version="$app_version"
+            # A floating tag moves only forward: latest to the highest stable
+            # release, the major tag (1) to the highest of that major. Never main,
+            # a prerelease, or a patch of an older line pushed after a newer one.
+            stable='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+            if [[ "$app_version" =~ $stable ]]; then
+              releases=$(git tag --list | sed 's/^v//' | { grep -E "$stable" || true; } | sort -V)
+              highest=$(tail -1 <<< "$releases")
+              highest_major=$({ grep "^${app_version%%.*}\." || true; } <<< "$releases" | tail -1)
+              if [[ "$app_version" == "$highest" ]]; then latest=true; fi
+              if [[ "$app_version" == "$highest_major" ]]; then latest_major=true; fi
+            fi
           else
             app_version="nightly-${short_sha}"
             image_tag="sha-${short_sha}"
@@ -49,6 +69,8 @@ jobs:
             echo "app-version=$app_version"
             echo "image-tag=$image_tag"
             echo "chart-release-version=$chart_release_version"
+            echo "latest=$latest"
+            echo "latest-major=$latest_major"
           } >> "$GITHUB_OUTPUT"
 
       # The app image, then one entry per services/*-auth folder with its base.
@@ -83,14 +105,14 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ steps.names.outputs.python }}
+          flavor: latest=false
           tags: |
             type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/main' }}
             type=ref,event=branch,enable=${{ github.ref != 'refs/heads/main' }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=raw,value=latest,enable=${{ steps.versions.outputs.latest == 'true' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=semver,pattern={{major}},enable=${{ steps.versions.outputs.latest-major == 'true' }}
             type=sha,format=short
 
       - name: Build and push the python base
@@ -113,14 +135,14 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ steps.names.outputs.chromium }}
+          flavor: latest=false
           tags: |
             type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/main' }}
             type=ref,event=branch,enable=${{ github.ref != 'refs/heads/main' }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=raw,value=latest,enable=${{ steps.versions.outputs.latest == 'true' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=semver,pattern={{major}},enable=${{ steps.versions.outputs.latest-major == 'true' }}
             type=sha,format=short
 
       - name: Build and push the chromium base
@@ -143,14 +165,14 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: ${{ steps.names.outputs.camoufox }}
+          flavor: latest=false
           tags: |
             type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/main' }}
             type=ref,event=branch,enable=${{ github.ref != 'refs/heads/main' }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=raw,value=latest,enable=${{ steps.versions.outputs.latest == 'true' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=semver,pattern={{major}},enable=${{ steps.versions.outputs.latest-major == 'true' }}
             type=sha,format=short
 
       - name: Build and push the Camoufox base
@@ -183,6 +205,7 @@ jobs:
   build:
     needs: base
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -210,23 +233,27 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Tag strategy (applied to every matrix image):
-      #   - push on main             -> nightly + latest
+      #   - push on main             -> nightly
       #   - push on any other branch -> branch name (e.g. 1.0.0, feature-foo)
-      #   - push of a version tag    -> latest + the semver (e.g. 1.0.0, 1.0, 1)
+      #   - push of a version tag    -> the semver (e.g. 1.0.0, 1.0), plus 1 when it is
+      #                                 the highest of its major and latest when it is
+      #                                 the highest stable tag
+      # flavor latest=false: metadata-action would otherwise tag latest on every
+      # semver tag, an older patch release included.
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.REGISTRY }}/${{ matrix.image }}
           # metadata-action emits the pinned sha/semver tag and lowercases image names.
+          flavor: latest=false
           tags: |
             type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/main' }}
             type=ref,event=branch,enable=${{ github.ref != 'refs/heads/main' }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=raw,value=latest,enable=${{ needs.base.outputs.latest == 'true' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=semver,pattern={{major}},enable=${{ needs.base.outputs.latest-major == 'true' }}
             type=sha,format=short
 
       - name: Build and push
@@ -255,6 +282,7 @@ jobs:
   chart:
     needs: [base, build]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write

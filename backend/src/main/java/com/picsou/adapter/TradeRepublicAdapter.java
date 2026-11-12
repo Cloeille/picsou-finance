@@ -312,8 +312,9 @@ public class TradeRepublicAdapter {
                         session.receive()
                             .map(msg -> msg.getPayloadAsText())
                             .concatMap(text -> {
-                                log.info("TR WS <-- {}", text.length() > 500
-                                        ? text.substring(0, 500) + "…" : text);
+                                log.info("TR WS <-- {}", describeFrame(text));
+                                // Opt-in only: the payload is account data (numbers, balances, positions).
+                                log.trace("TR WS <-- payload: {}", text);
 
                                 if ("connected".equals(text.trim())) {
                                     int id1 = subIdCounter.incrementAndGet();
@@ -375,9 +376,8 @@ public class TradeRepublicAdapter {
                                     if (receivedPortfolioIds.add(account.externalId())) {
                                         receivedPortfolios.incrementAndGet();
                                     }
-                                    log.info("TR compactPortfolioByType [{}] raw: {}", account.name(),
-                                             payload.length() > 2000
-                                                     ? payload.substring(0, 2000) + "…" : payload);
+                                    log.info("TR compactPortfolioByType [{}] answered ({} chars)",
+                                             account.name(), payload.length());
                                     if ("E".equals(extractWsType(text))) {
                                         erroredPortfolioIds.add(account.externalId());
                                         expectedTickers.compareAndSet(-1, 0);
@@ -465,8 +465,8 @@ public class TradeRepublicAdapter {
                                             log.info("TR compactPortfolioByType [{}]: no positions found", account.name());
                                         }
                                     } catch (Exception ex) {
-                                        log.error("Failed to parse compactPortfolioByType [{}]: {}",
-                                            account.name(), payload, ex);
+                                        log.error("Failed to parse compactPortfolioByType [{}] ({})",
+                                            account.name(), ex.getClass().getSimpleName());
                                         erroredPortfolioIds.add(account.externalId());
                                         expectedTickers.compareAndSet(-1, 0);
                                     }
@@ -578,8 +578,8 @@ public class TradeRepublicAdapter {
                 }
             }
 
-            log.info("TR portfolio [{}]: {} positions, {} with live prices, total value: {}",
-                     secAccount.name(), positionsByIsin.size(), priced, totalPortfolioValue);
+            log.info("TR portfolio [{}]: {} positions, {} with live prices",
+                     secAccount.name(), positionsByIsin.size(), priced);
 
             List<TrPosition> positions = new ArrayList<>();
             for (var entry : positionsByIsin.entrySet()) {
@@ -651,6 +651,25 @@ public class TradeRepublicAdapter {
         int second = text.indexOf(' ', first + 1);
         if (second < 0) return text.substring(first + 1);
         return text.substring(second + 1);
+    }
+
+    /**
+     * A frame for the log: its subscription id, its type and its size. Never its payload: an
+     * answer carries the member's account numbers, balances and positions.
+     */
+    static String describeFrame(String text) {
+        String frame = text.trim();
+        int first = frame.indexOf(' ');
+        if (first < 0) {
+            return frame.length() <= 16 ? frame : "(" + text.length() + " chars)";
+        }
+        int second = frame.indexOf(' ', first + 1);
+        String id = frame.substring(0, first);
+        String type = second < 0 ? frame.substring(first + 1) : frame.substring(first + 1, second);
+        if (id.isEmpty() || !id.chars().allMatch(Character::isDigit) || type.length() != 1) {
+            return "(" + text.length() + " chars)";
+        }
+        return id + " " + type + " (" + text.length() + " chars)";
     }
 
     /** The frame type between the id and the payload: A (answer), D (delta), E (error), C (complete). */
@@ -897,7 +916,6 @@ public class TradeRepublicAdapter {
     }
 
     private List<TrAccountData> parseCashJson(String json) {
-        log.info("TR availableCash raw: {}", json);
         List<TrAccountData> accounts = new ArrayList<>();
         BigDecimal value = parseCashValue(json);
         if (value.compareTo(BigDecimal.ZERO) >= 0) {
@@ -927,7 +945,7 @@ public class TradeRepublicAdapter {
                 }
             }
         } catch (Exception ex) {
-            log.error("Failed to parse TR availableCash: {}", json, ex);
+            log.error("Failed to parse TR availableCash ({})", ex.getClass().getSimpleName());
         }
         return BigDecimal.ZERO;
     }

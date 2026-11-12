@@ -133,7 +133,10 @@ interest_k = effective_capital_k × net_annual_rate_pct / 2400
 *immediately* from the start of *k*.)
 
 **Starting capital** is resolved in order of preference:
-1. Earliest `BalanceSnapshot` found within the current year.
+1. Earliest `BalanceSnapshot` found within the current year, minus the net transaction flows booked
+   from Jan 1 up to and including its date. A snapshot is read as the balance at the end of its
+   date, and those movements are replayed quinzaine by quinzaine, so leaving them in would count
+   them twice.
 2. Fallback: `account.current_balance − net transaction flows of the year` (reverse-engineering
    the opening balance from the closing balance).
 

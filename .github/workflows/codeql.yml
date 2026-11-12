@@ -16,7 +16,40 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # A pull request analyses only the languages its changed files can affect
+  # (codeql_languages.py); push and schedule runs analyse all of them.
+  select:
+    name: Select languages
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # paths-filter lists a pull request's files through the API.
+    permissions: {contents: read, pull-requests: read}
+    outputs:
+      matrix: ${{ steps.languages.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        if: github.event_name == 'pull_request' && github.event.pull_request.changed_files < 3000
+        # An API error must not skip the analysis: the next step then selects every language.
+        continue-on-error: true
+        with:
+          list-files: json
+          filters: |
+            changed: ['**']
+      - name: Select the languages
+        id: languages
+        env:
+          # Over 1000 paths, every language runs: the list stays under the 128 KiB env limit.
+          ALL: ${{ steps.filter.outcome != 'success' || steps.filter.outputs.changed_count >= 1000 }}
+          FILES: ${{ steps.filter.outputs.changed_count < 1000 && steps.filter.outputs.changed_files || '[]' }}
+        run: python3 .github/scripts/codeql_languages.py
+
   analyze:
+    needs: select
+    if: needs.select.outputs.matrix != '[]'
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -27,20 +60,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - language: java-kotlin
-            build-mode: none
-          - language: javascript-typescript
-            build-mode: none
-          - language: python
-            build-mode: none
-          - language: actions
-            build-mode: none
+        include: ${{ fromJSON(needs.select.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
@@ -51,6 +76,6 @@ jobs:
               - '**/dist/**'
               - '**/target/**'
               - 'frontend/public/**'
-      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           category: /language:${{ matrix.language }}

@@ -60,6 +60,13 @@ export const HOLDING_ACCOUNT_TYPES: AccountType[] = [
 /** Mirrors the backend's `AccountType.isLiability()`: debts, never part of the user's assets. */
 export const LIABILITY_ACCOUNT_TYPES: AccountType[] = ['LOAN', 'CREDIT_CARD']
 
+/**
+ * Bank and savings accounts: the dashboard holdings card's "Cash" tab and the types its
+ * aggregated "Euros" line adds up. Property, SCPI and debts are not cash; holdings accounts
+ * show their own lines.
+ */
+export const HOLDINGS_CASH_ACCOUNT_TYPES: AccountType[] = [...CASH_ACCOUNT_TYPES, 'OTHER']
+
 /** Translation key for an account type's display label. */
 export function accountTypeLabelKey(type: AccountType): string {
   return ACCOUNT_TYPES.find((t) => t.value === type)?.labelKey ?? 'accountTypes.other'

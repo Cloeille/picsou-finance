@@ -16,6 +16,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional(readOnly = true)
@@ -53,6 +54,7 @@ public class FamilyViewService {
     public FamilyDashboardResponse getFamilyDashboard(Long viewerMemberId) {
         List<SharedAccountInfo> sharedAccounts = new ArrayList<>();
         List<SharedGoalInfo> sharedGoals = new ArrayList<>();
+        BigDecimal totalNetWorth = BigDecimal.ZERO;
 
         List<FamilyMember> allMembers = memberRepository.findAllByOrderByCreatedAtAsc();
 
@@ -84,6 +86,7 @@ public class FamilyViewService {
                 // inside a loop over every family member -- members x accounts round trips to
                 // answer a question a single IN clause answers.
                 Map<Long, BigDecimal> accountShares = accessResolver.sharesFor(accounts, member.getId());
+                Set<Long> listedIds = accounts.stream().map(Account::getId).collect(Collectors.toSet());
 
                 for (Account acc : accounts) {
                     // Signed: LOAN accounts count negatively so totalNetWorth below is correct.
@@ -104,6 +107,12 @@ public class FamilyViewService {
                         acc.getCurrentBalance(),
                         balanceEur
                     ));
+                    // A pocket's balance is already in its parent wallet's, which is why the
+                    // dashboard leaves pockets out of net worth. It still gets its card, but
+                    // enters the total only when its parent is not listed to carry it.
+                    if (acc.getParentAccountId() == null || !listedIds.contains(acc.getParentAccountId())) {
+                        totalNetWorth = totalNetWorth.add(balanceEur);
+                    }
                 }
             }
 
@@ -164,10 +173,6 @@ public class FamilyViewService {
                 }
             }
         }
-
-        BigDecimal totalNetWorth = sharedAccounts.stream()
-            .map(SharedAccountInfo::balanceEur)
-            .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         return new FamilyDashboardResponse(sharedAccounts, sharedGoals, totalNetWorth);
     }

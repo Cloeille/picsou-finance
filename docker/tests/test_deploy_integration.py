@@ -3,6 +3,7 @@ import json
 import os
 import socket
 import subprocess
+import time
 import uuid
 from pathlib import Path
 
@@ -88,6 +89,13 @@ def test_packaged_release_migrates_repeats_and_preserves_api_on_bad_schema(tmp_p
             assert result.returncode == 0, (args, result.stdout, result.stderr)
         return result
 
+    def deploy_step(label, args, *, check=True):
+        started = time.monotonic()
+        try:
+            return command(args, check=check)
+        finally:
+            print(f"deploy.sh {label}: {time.monotonic() - started:.1f} s", flush=True)
+
     def sql(statement):
         return command([*compose, "exec", "-T", "db", "psql", "--username=picsou",
                         "--dbname=picsou", "-v", "ON_ERROR_STOP=1", "-At"], text=statement).stdout.strip()
@@ -104,8 +112,8 @@ def test_packaged_release_migrates_repeats_and_preserves_api_on_bad_schema(tmp_p
         image_id = command(["docker", "image", "inspect", "--format", "{{.Id}}", IMAGE]).stdout.strip()
         deploy = ["bash", str(REPO / "docker/deploy.sh"), image_id, origin, str(backup_dir), *flags]
         # Without --fresh, an unknown project must be refused before any container is created.
-        stray = command(["bash", str(REPO / "docker/deploy.sh"), image_id, origin, str(backup_dir),
-                         *stray_flags], check=False)
+        stray = deploy_step("stray", ["bash", str(REPO / "docker/deploy.sh"), image_id, origin,
+                                      str(backup_dir), *stray_flags], check=False)
         assert stray.returncode != 0
         assert "COMPOSE_PROJECT_NAME" in stray.stderr
         assert command([*stray_compose, "ps", "-aq"]).stdout.strip() == ""
@@ -119,8 +127,8 @@ def test_packaged_release_migrates_repeats_and_preserves_api_on_bad_schema(tmp_p
             # The first deploy also recreates the proxy and checks its active upstream.
             # Keep the old network layout, with a bootstrap alias for the current Caddyfile.
             caddyfile.write_text(current_caddyfile)
-        first = command(["bash", str(REPO / "docker/deploy.sh"), "--fresh", image_id, origin,
-                         str(backup_dir), *first_flags])
+        first = deploy_step("fresh", ["bash", str(REPO / "docker/deploy.sh"), "--fresh", image_id, origin,
+                                      str(backup_dir), *first_flags])
         assert "API returned 401" in first.stdout
         assert probe() == "401"
         container = app_id()
@@ -141,7 +149,7 @@ def test_packaged_release_migrates_repeats_and_preserves_api_on_bad_schema(tmp_p
             assert network not in previous_networks
             # Updating the bind mount leaves Caddy's in-memory config and networks unchanged.
             caddyfile.write_text(current_caddyfile)
-        repeat = command(deploy)
+        repeat = deploy_step("repeat", deploy)
         assert f"Previous app image: {image_id}" in repeat.stdout
         assert sql("SELECT count(*) FROM flyway_schema_history WHERE success;") == history
         assert sql("SELECT value FROM deploy_test_marker WHERE id = 1;") == "preserved"
@@ -162,7 +170,7 @@ def test_packaged_release_migrates_repeats_and_preserves_api_on_bad_schema(tmp_p
         # Valid recorded history is insufficient: physical schema validation must fail on the clone.
         before = app_id()
         sql("ALTER TABLE account DROP COLUMN payment_due_amount;")
-        incompatible = command(deploy, check=False)
+        incompatible = deploy_step("bad schema", deploy, check=False)
         assert incompatible.returncode != 0
         assert app_id() == before
         if legacy_tls:
@@ -176,7 +184,7 @@ def test_packaged_release_migrates_repeats_and_preserves_api_on_bad_schema(tmp_p
             "(installed_rank, version, description, type, script, checksum, installed_by, execution_time, success) "
             "SELECT max(installed_rank) + 1, '999', 'incompatible', 'SQL', 'V999__incompatible.sql', "
             "1, current_user, 0, true FROM flyway_schema_history;")
-        incompatible = command(deploy, check=False)
+        incompatible = deploy_step("future history", deploy, check=False)
         assert incompatible.returncode != 0
         assert app_id() == before
         if legacy_tls:

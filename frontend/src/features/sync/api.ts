@@ -715,7 +715,11 @@ export const finaryApi = {
   previewFile: (file: File) => {
     const form = new FormData()
     form.append('file', file)
-    return api.post<FinaryPreviewResponse>('/finary/preview', form).then(r => r.data)
+    return api
+      .post<FinaryPreviewResponse>('/finary/preview', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then(r => r.data)
   },
 
   previewApi: (totp?: string) =>

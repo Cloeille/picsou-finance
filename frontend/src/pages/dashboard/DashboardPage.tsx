@@ -44,7 +44,12 @@ import { formatPercent } from '@/lib/utils'
 
 type WealthMode = 'net' | 'gross' | 'financial'
 
-const EXCLUDED_FINANCIAL = new Set(['CHECKING', 'LOAN'])
+// Financial wealth = liquid and investable assets only. Checking is the day-to-day
+// cash excluded by design; real estate is tangible property; physical precious
+// metals are tangible movables; OTHER has an unknown nature and must not inflate
+// the figure by default. SCPI stays in: a share of a real-estate fund is an
+// intangible, exchangeable security.
+const EXCLUDED_FINANCIAL = new Set(['CHECKING', 'LOAN', 'REAL_ESTATE', 'PRECIOUS_METALS', 'OTHER'])
 
 export function DashboardPage() {
   const { t } = useTranslation()
@@ -66,7 +71,8 @@ export function DashboardPage() {
         // Assets only (no liabilities), receivables included
         return data.assets.map(d => d.accountId)
       case 'financial':
-        // Financial assets: drop checking and any loan that slipped into assets
+        // Financial assets: drop everything in EXCLUDED_FINANCIAL (checking,
+        // loans, real estate, physical metals, OTHER)
         return data.assets
           .filter(d => !EXCLUDED_FINANCIAL.has(d.accountType))
           .map(d => d.accountId)
@@ -77,7 +83,7 @@ export function DashboardPage() {
   }, [data, wealthMode])
   // Accounts that actually have holdings/tickers — used for PnL only.
   // Mirrors the chart filter: in "financial" mode we still drop excluded categories
-  // (in practice CHECKING/LOAN don't carry holdings, so this is a no-op safety net).
+  // (e.g. a real-estate or metals account carrying holdings).
   const investmentAccountIds = useMemo(() => {
     if (!data) return []
     return data.assets
@@ -129,6 +135,19 @@ export function DashboardPage() {
       default:
         return data.totalNetWorth
     }
+  }, [data, wealthMode])
+
+  // Distribution shown beside the hero: in financial mode it mirrors the same
+  // filter as the headline value and the history curve, so the donut never
+  // shows a category the figure excludes. Percentages are recomputed over the
+  // filtered total — the backend shares cover the whole portfolio.
+  const displayDistribution = useMemo(() => {
+    if (!data) return []
+    if (wealthMode !== 'financial') return data.distribution
+    const filtered = data.distribution.filter(d => !EXCLUDED_FINANCIAL.has(d.accountType))
+    const total = filtered.reduce((s, d) => s + d.balanceEur, 0)
+    if (total <= 0) return filtered.map(d => ({ ...d, percentage: 0 }))
+    return filtered.map(d => ({ ...d, percentage: (d.balanceEur / total) * 100 }))
   }, [data, wealthMode])
 
   // ALL uses live PnL; selected ranges use only their range PnL. Unknown is not zero.
@@ -269,7 +288,7 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        <DistributionPie data={data.distribution} />
+        <DistributionPie data={displayDistribution} />
       </div>
 
       {/* Property wealth: gross, mortgage debt and the equity between them. Renders nothing

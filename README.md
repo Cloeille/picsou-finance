@@ -124,7 +124,7 @@ docker compose -f docker/docker-compose.yml pull    # fetch the published images
 docker compose -f docker/docker-compose.yml up -d
 ```
 
-> The compose file pins `:latest`. To follow the bleeding edge instead, override with `:nightly` (built on every `main` push), or pin a release such as `:1.0.0`.
+> The compose file pins `:latest`, the highest release tag. To follow the bleeding edge instead, override with `:nightly`, which follows `main` and may carry migrations not yet released, or pin a release such as `:1.0.0`.
 >
 > Building from source instead of pulling? Run `docker compose -f docker/docker-compose.yml up --build` — the `build:` sections are kept for contributors.
 
@@ -172,6 +172,11 @@ Caddy picks the certificate strategy from `PICSOU_DOMAIN` alone — there is no 
 | A real domain (`picsou.example.com`) resolving to this host, `:80`+`:443` reachable | Let's Encrypt, publicly trusted | **Nothing.** Issued and renewed automatically |
 | A LAN IP (`192.168.1.50`) or a `.local` / `.internal` name | Caddy's built-in CA | Install its root once per device (3c) |
 | `picsou.localhost` (the default) | Caddy's built-in CA | Resolves **only on the Docker host** — fine for a smoke test, useless from a phone |
+
+When you open HTTPS with a LAN IP, some clients omit TLS SNI because the URL host is an IP
+literal. The bundled Caddy configuration uses `PICSOU_DOMAIN` as its default SNI in that case,
+so it can select the certificate it manages for that same address. The certificate still needs
+to be trusted on each device as described in 3c.
 
 A real domain is worth the effort: it is the only option with no per-device step. It does not need
 to be publicly reachable for day-to-day use — only during certificate issuance.
@@ -413,13 +418,12 @@ Single sign-on, the admin group and a step-by-step Zitadel setup are described i
 
 ### 5. Enable Banking key setup (optional)
 
-```bash
-mkdir -p docker/secrets
-openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out docker/secrets/enablebanking.pem
-openssl rsa -pubout -in docker/secrets/enablebanking.pem -out enablebanking_public.pem
-```
-
-Upload `enablebanking_public.pem` to your Enable Banking dashboard.
+The setup wizard generates the key pair, or imports a PEM you already have, and stores the private
+key in the `picsou_data` volume (`/data/keys`). Upload the public key it shows to your Enable Banking
+dashboard. An imported key must be an unencrypted PKCS#8 RSA private key
+(`-----BEGIN PRIVATE KEY-----`). Convert a PKCS#1 one (`BEGIN RSA PRIVATE KEY`) with
+`openssl pkcs8 -topk8 -nocrypt -in key.pem -out key-pkcs8.pem`. See
+[Bank sync](docs/features/bank-sync.md).
 
 ### Kubernetes (Helm)
 
