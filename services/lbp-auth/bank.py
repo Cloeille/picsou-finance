@@ -214,6 +214,10 @@ def _learn_cdn_hosts(html: Any) -> set[str]:
             if host.endswith(_CDN_SUFFIX) and _hostname_labels_valid(host):
                 found.add(host)
                 if len(found) >= MAX_LEARNED_CDN_HOSTS:
+                    log.info(
+                        "La Banque Postale CDN learning hit the cap hosts=%d",
+                        MAX_LEARNED_CDN_HOSTS,
+                    )
                     return found
     return found
 

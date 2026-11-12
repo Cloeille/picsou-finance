@@ -886,6 +886,22 @@ class AutoAdmitGuardTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(methods, ["Fetch.continueRequest"])
         self.assertEqual(learned, {"d21j9nkdg2p3wo.cloudfront.net"})
 
+    async def test_beacon_and_image_auto_admit_like_scripts(self):
+        # Locks the admitted surface: subresource kinds beyond scripts pass
+        # on first sight; only the top-level Document is special-cased.
+        for resource_type in ("ping", "image", "fetch", "stylesheet", "font"):
+            with self.subTest(resource_type=resource_type):
+                learned: set[str] = set()
+                guard = bank._route_guard(learned)
+                route = FakeRoute(
+                    "https://d21j9nkdg2p3wo.cloudfront.net/pixel.gif",
+                    resource_type=resource_type,
+                )
+                with self.assertLogs("lbp-auth", level="INFO"):
+                    await guard(route)
+                self.assertEqual(route.action, "continue")
+                self.assertEqual(learned, {"d21j9nkdg2p3wo.cloudfront.net"})
+
     async def test_documents_never_auto_admit(self):
         learned: set[str] = set()
         guard = bank._route_guard(learned)

@@ -13,8 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sidecar pinned two distributions, so every rotation broke the keypad scripts
   and the login failed. It now learns the asset hosts from the bank's own
   pages (every URL spelling) and auto-admits a shape-valid distribution the
-  page requests for the first time — main-frame scripts and anti-fraud
-  subframes, never a top-level navigation — scoped to the login attempt,
+  page requests for the first time — main-frame scripts and data beacons,
+  anti-fraud subframes, never a top-level navigation — scoped to the login
   capped, loudly logged (host, path, resource type, frame), plus an
   operator-provided `LBP_EXTRA_CDN_HOSTS` list for emergencies. Websockets
   and the httpx replay path still refuse anything off the bank origin.
