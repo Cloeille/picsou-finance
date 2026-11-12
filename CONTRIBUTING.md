@@ -89,17 +89,25 @@ finished releases, and a release is tagged from it (`make release`).
 
 | You change | Target | Example |
 |---|---|---|
-| A bug fix (`fix/xxx`), a patch or minor dependency bump | the patch branch | `release/1.1.1` |
-| A feature, refactor or major dependency bump (`feature/xxx`, `refactor/xxx`) | the next minor branch | `release/1.2.0` |
+| A bug fix (`fix/xxx`), a patch or minor dependency bump | the patch branch | `release/1.2.1` |
+| A feature, refactor or major dependency bump (`feature/xxx`, `refactor/xxx`) | the next minor branch | `release/1.3.0` |
 
 - **Which branch.** The open `release/x.y.z` whose version is the next patch (fixes) or the next
-  minor (features) after the latest stable tag (ignore prerelease tags such as `1.2.0-rc.1`). List
-  them with `git fetch origin && git branch -r --list 'origin/release/*'`; if none matches, ask in
-  the issue. A fix that is large or changes behaviour goes to the minor branch. A follow-up to an
-  open pull request goes to the same branch as its parent.
-- **Branch and sync from the target**, not from `main`: `git fetch origin`, then
-  `git switch -c fix/xxx origin/release/1.1.1`; to sync, `git fetch origin` again and merge
-  `origin/release/1.1.1` into your branch (a merge, not a rebase). Compare your diff
+  minor (features) after the latest stable tag (ignore prerelease tags such as `1.3.0-rc.1`). List
+  them with `git fetch --prune origin && git branch -r --list 'origin/release/*'`; if none matches,
+  ask in the issue. In a clone of your fork, `origin` is the fork, and a fork can keep a branch
+  that was deleted here: run both commands with the remote that points to this repository instead
+  (usually named `upstream`). A fix that is large or changes behaviour goes to the minor branch. A
+  follow-up to an open pull request goes to the same branch as its parent.
+- **A released branch is deleted.** `release/1.1.1` and `release/1.2.0` both shipped in 1.2.0 and
+  no longer exist. Never branch from, sync with or target a release branch that the command above
+  does not list. Without `--prune`, `git fetch` keeps a deleted branch in your clone. If your
+  branch started from a released branch, merge the open branch into your branch and target the
+  open branch. The open branches are cut from `main` after the release, so they contain the
+  released branch.
+- **Branch and sync from the target**, not from `main`: `git fetch --prune origin`, then
+  `git switch -c fix/xxx origin/release/1.2.1`; to sync, `git fetch origin` again and merge
+  `origin/release/1.2.1` into your branch (a merge, not a rebase). Compare your diff
   against the same branch.
 - **Migrations** take the next free `V<n>` across `main` and every open release branch, so two
   releases never ship the same version. Two pull requests on different release branches can still
@@ -114,12 +122,21 @@ finished releases, and a release is tagged from it (`make release`).
   section to `## [x.y.z]` on it (`make release` requires it) and leaves an empty `[Unreleased]`
   above it. A fix that misses the freeze waits for the next release branch.
 - **Release flow (maintainers).**
-  1. Merge `release/1.1.1` into `main` (a merge commit), push `main`, and run
-     `make release VERSION=1.1.1` (`HEAD` must be on `origin/main`).
-  2. Merge `main` into `release/1.2.0`, so every fix released in 1.1.1 reaches 1.2.0 (a merge,
+  1. Merge `release/1.2.1` into `main` with a pull request (a merge commit, not a squash), pull
+     `main`, and run `make release VERSION=1.2.1` (`HEAD` must be on `origin/main`).
+  2. Merge `main` into `release/1.3.0`, so every fix released in 1.2.1 reaches 1.3.0 (a merge,
      not a rebase). Do this after every patch release. `CHANGELOG.md` conflicts there: keep the
-     `## [1.1.1]` section from `main` and every entry under `[Unreleased]`.
-  3. When 1.2.0 is ready, merge `release/1.2.0` into `main` and run `make release VERSION=1.2.0`.
+     `## [1.2.1]` section from `main` and every entry under `[Unreleased]`.
+  3. When 1.3.0 is ready, freeze the open patch branch too: nothing else merges into it until
+     step 4 deletes it. If it holds commits that no release shipped, merge it into `release/1.3.0`
+     before you rename the `[Unreleased]` section there, so that its entries land in `## [1.3.0]`
+     and its commits ship in 1.3.0 (1.2.0 took `release/1.1.1` this way). Then merge
+     `release/1.3.0` into `main` and run `make release VERSION=1.3.0`.
+  4. After each release, cut the next branches from `main` (`release/1.2.2` after 1.2.1,
+     `release/1.3.1` and `release/1.4.0` after 1.3.0). A minor release also ends the patch branch
+     that was open before it. Retarget every pull request that is still open against a branch you
+     are about to delete, then delete the branch. Update the branch names in this section and in
+     [`CLAUDE.md`](CLAUDE.md).
 - **Exception.** A change to the release workflow itself (these rules, the CI triggers) targets
   `main`. Once it is merged, a maintainer merges `main` into every open release branch, because a
   push to a release branch runs the workflow files of that branch. Ask a maintainer before you open
