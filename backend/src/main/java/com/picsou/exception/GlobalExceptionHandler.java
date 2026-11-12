@@ -49,6 +49,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return detail;
     }
 
+    @ExceptionHandler(AiProviderNotConfiguredException.class)
+    ProblemDetail handleAiProviderNotConfigured(AiProviderNotConfiguredException ex) {
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        detail.setProperty("code", AiProviderNotConfiguredException.CODE);
+        return detail;
+    }
+
     @ExceptionHandler(TotpRequiredException.class)
     ProblemDetail handleTotpRequired(TotpRequiredException ex) {
         log.info("TOTP required: {}", ex.getMessage());

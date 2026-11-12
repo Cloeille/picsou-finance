@@ -136,6 +136,12 @@ served by `GET /api/admin/ai-calls` (admin-only).
   `ConcurrentHashMap` keyed by member ID. A JVM restart loses in-flight jobs; the client will see
   the status endpoint return `NOT_STARTED` and the user must re-trigger. Acceptable for a
   single-instance self-hosted setup.
+- **Enabled for the member, no usable provider for the instance.** When `AiConfigProvider.currentCategorizer()`
+  is the `NoopCategorizer` (no provider chosen, or one that could not be built, e.g. a missing API key),
+  `AiCategorizationJobService.start` throws
+  `AiProviderNotConfiguredException` (409, `code: AI_PROVIDER_NOT_CONFIGURED`) instead of returning
+  an empty "done" job, which would read as "nothing to categorize". The inbox shows an alert: an
+  admin gets a link to Administration › AI categorization, a member is told to ask an admin.
 - **One job per member.** The atomic guard (`ConcurrentHashMap.compute`) prevents double-submission;
   re-clicking "Categorize with AI" while a job is running returns the existing `AiJobStatus` (no stacking).
 - **Provider config is runtime admin, not env.** Provider, API key, model, and base URL are stored
@@ -193,6 +199,9 @@ served by `GET /api/admin/ai-calls` (admin-only).
 - `CategorizeTab.test.tsx` — suggestion pre-selects the dropdown + renders the chip; the
   "Categorize with AI" button is gated on the setting; progress indicator renders while status is
   `RUNNING`.
+- `AiCategorizationJobServiceTest.start_enabledWithoutProvider_throwsNotConfigured` and
+  `GlobalExceptionHandlerAiProviderTest` — no provider is a 409 with a stable code, no job starts;
+  `CategorizeTab.test.tsx` "no AI provider configured" — the alert and its admin link or member hint.
 
 ## Running Ollama in Docker
 

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **"Categorize with AI" now says when no AI provider is configured.** The button used to finish at once
+  with nothing done. The inbox now shows that no provider is set, with a link to Administration › AI
+  categorization for an admin, or a hint to ask an admin for a member.
+
 ## [1.2.0] — 2026-11-12
 
 ### Added

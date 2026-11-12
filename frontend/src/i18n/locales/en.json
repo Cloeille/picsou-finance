@@ -1102,6 +1102,9 @@
       "error": "Couldn't load transactions to categorize.",
       "aiProgress": "AI categorizing… {{processed}}/{{total}}",
       "aiDone": "AI done: {{applied}} applied, {{suggested}} suggested",
+      "aiNoProvider": "No AI provider is configured.",
+      "aiNoProviderAdminLink": "Set one up in Administration › AI categorization.",
+      "aiNoProviderAskAdmin": "Ask an administrator to set one up in Administration › AI categorization.",
       "createRule": "Create rule",
       "editRule": "Edit rule"
     },

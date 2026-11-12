@@ -5,6 +5,7 @@
 ```
 RuntimeException
   +-- ResourceNotFoundException      404 NOT_FOUND
+  +-- AiProviderNotConfiguredException 409 CONFLICT
   +-- SyncException                  422 UNPROCESSABLE_ENTITY
   +-- WalletRpcException             422 UNPROCESSABLE_ENTITY (adapter-level, see below)
   +-- BadCredentialsException        401 UNAUTHORIZED   (Spring Security)
@@ -33,6 +34,7 @@ A `@RestControllerAdvice` that extends `ResponseEntityExceptionHandler`. Returns
 | Handler method | Exception | Status | Detail |
 |---------------|-----------|--------|--------|
 | `handleNotFound` | `ResourceNotFoundException` | 404 | `ex.getMessage()` |
+| `handleAiProviderNotConfigured` | `AiProviderNotConfiguredException` | 409 | `ex.getMessage()` plus stable `code: AI_PROVIDER_NOT_CONFIGURED` |
 | `handleSync` | `SyncException` | 422 | `ex.getMessage()` plus optional stable `code` (logged at WARN) |
 | `handleWalletRpc` | `WalletRpcException` | 422 | generic `"Could not reach the blockchain network…"` (logged at WARN) |
 | `handleBadCredentials` | `BadCredentialsException` | 401 | `"Invalid credentials"` |

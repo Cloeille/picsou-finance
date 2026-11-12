@@ -1,8 +1,10 @@
 package com.picsou.service.budget;
 
+import com.picsou.adapter.NoopCategorizer;
 import com.picsou.config.AiConfigProvider;
 import com.picsou.config.AiProviderConfig;
 import com.picsou.dto.AiJobStatus;
+import com.picsou.exception.AiProviderNotConfiguredException;
 import com.picsou.model.AiCallLog;
 import com.picsou.port.TransactionCategorizerPort;
 import com.picsou.port.TransactionCategorizerPort.CategorizationInput;
@@ -86,14 +88,19 @@ public class AiCategorizationJobService {
 
     /**
      * Start a new job for the member, or return the current status if one is already running.
-     * Short-circuits immediately (returns done=true, total=0) when AI is disabled or no
+     * Short-circuits immediately (returns done=true, total=0) when AI is disabled for the member or no
      * categories are configured — there would be nothing for the model to choose from.
+     *
+     * @throws AiProviderNotConfiguredException when the member enabled AI but the instance has no usable provider
+     *         (none chosen, or one that could not be built, e.g. a required API key is missing)
      */
     public AiJobStatus start(Long memberId) {
         JobState existing = jobs.get(memberId);
         if (existing != null && existing.running) return existing.toStatus();   // fast path (non-authoritative)
         CategorizationService.AiContext ctx = categorizationService.loadAiContext(memberId);
-        if (!ctx.enabled() || ctx.options().isEmpty()) return new AiJobStatus(false, 0, 0, 0, 0, true, null);
+        if (!ctx.enabled()) return new AiJobStatus(false, 0, 0, 0, 0, true, null);
+        if (aiConfigProvider.currentCategorizer() instanceof NoopCategorizer) throw new AiProviderNotConfiguredException();
+        if (ctx.options().isEmpty()) return new AiJobStatus(false, 0, 0, 0, 0, true, null);
         List<Long> ids = categorizationService.uncategorizedIds(memberId);
         if (ids.isEmpty()) return new AiJobStatus(false, 0, 0, 0, 0, true, null);   // no-op guard
         JobState fresh = new JobState(ids.size());

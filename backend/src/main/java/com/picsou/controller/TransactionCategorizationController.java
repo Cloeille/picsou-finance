@@ -74,6 +74,7 @@ public class TransactionCategorizationController {
      * Returns 202 Accepted with the initial job status. If a job is already running for
      * this member, returns the current status without starting a new one.
      * No-op (returns done=true, total=0) when AI is disabled or no categories are configured.
+     * 409 {@code AI_PROVIDER_NOT_CONFIGURED} when the member enabled AI but no provider is set.
      */
     @PostMapping("/categorize-ai")
     public ResponseEntity<AiJobStatus> categorizeWithAi() {

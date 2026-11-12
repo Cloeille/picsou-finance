@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
-import { Inbox, RefreshCw, Sparkles } from 'lucide-react'
+import { Link } from 'react-router'
+import { Inbox, RefreshCw, Sparkles, TriangleAlert } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -21,6 +22,7 @@ import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { NativeSelect } from '@/components/shared/NativeSelect'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ErrorState } from '@/components/shared/ErrorState'
+import { AlertBanner } from '@/components/shared/AlertBanner'
 import { MerchantAvatar } from '@/components/shared/MerchantAvatar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { RuleWordPicker } from '@/components/budget/RuleWordPicker'
@@ -35,6 +37,8 @@ import {
   useUncategorized,
 } from '@/features/budget/hooks'
 import { formatDate, formatPercent, getLocale } from '@/lib/utils'
+import { getErrorCode } from '@/lib/errors'
+import { useAuthStore } from '@/stores/auth-store'
 import type { Category, RuleMatchType, UncategorizedTransaction } from '@/types/api'
 
 type RulePayload = {
@@ -225,6 +229,8 @@ export function CategorizeTab() {
   const aiEnabled = !!settings?.aiCategorizationEnabled
   const aiStatus = useCategorizeAiStatus(aiEnabled)
   const startAi = useStartCategorizeAi()
+  const noAiProvider = getErrorCode(startAi.error) === 'AI_PROVIDER_NOT_CONFIGURED'
+  const isAdmin = useAuthStore((s) => s.user?.role === 'ADMIN')
   const qc = useQueryClient()
 
   // Track the previous running value so we can detect the running → done transition.
@@ -282,6 +288,17 @@ export function CategorizeTab() {
           </Button>
         </div>
       </div>
+
+      {noAiProvider && (
+        <AlertBanner variant="roomy" role="alert" icon={<TriangleAlert className="size-4 shrink-0" />}>
+          <span>
+            {t('budget.categorize.aiNoProvider')}{' '}
+            {isAdmin
+              ? <Link to="/admin" className="font-medium underline">{t('budget.categorize.aiNoProviderAdminLink')}</Link>
+              : t('budget.categorize.aiNoProviderAskAdmin')}
+          </span>
+        </AlertBanner>
+      )}
 
       {isLoading && (
         <div className="space-y-3">

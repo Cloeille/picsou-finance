@@ -35,6 +35,8 @@ public class AiCategorizationTools {
             + "poll get_ai_categorization_status until COMPLETED or FAILED. started=false with state "
             + "COMPLETED and total 0 means there was nothing to do (AI categorization disabled for the "
             + "member, no categories, or nothing uncategorized): no job exists, do not poll. "
+            + "Fails with a 'No AI provider is configured' error when the member enabled AI categorization "
+            + "but the instance has no provider; an administrator sets one in Administration. "
             + "started is advisory; the running job is the source of truth.")
     @RequiresScope(Scopes.BUDGET_AI_WRITE)
     public AiCategorizationStart startAiCategorization() {

@@ -1102,6 +1102,9 @@
       "error": "Impossible de charger les transactions à catégoriser.",
       "aiProgress": "Catégorisation IA… {{processed}}/{{total}}",
       "aiDone": "IA terminée : {{applied}} appliquées, {{suggested}} suggérées",
+      "aiNoProvider": "Aucun fournisseur d'IA n'est configuré.",
+      "aiNoProviderAdminLink": "Configurez-en un dans Administration › Catégorisation IA.",
+      "aiNoProviderAskAdmin": "Demandez à un administrateur d'en configurer un dans Administration › Catégorisation IA.",
       "createRule": "Créer une règle",
       "editRule": "Modifier la règle"
     },

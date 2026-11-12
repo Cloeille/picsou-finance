@@ -10,16 +10,28 @@ const mocks = vi.hoisted(() => ({
   invalidateQueries: vi.fn(),
 }))
 
+const NO_PROVIDER_ERROR = { response: { status: 409, data: { code: 'AI_PROVIDER_NOT_CONFIGURED' } } }
+
 // Mutable state the mocked hooks read, so each test can vary settings/inbox/ai status.
 const state = vi.hoisted(() => ({
   settings: { aiCategorizationEnabled: false } as { aiCategorizationEnabled: boolean },
   txs: [] as unknown[],
   categories: [] as unknown[],
   aiData: null as AiJobStatus | null,
+  startAiError: null as unknown,
+  role: 'MEMBER' as 'ADMIN' | 'MEMBER',
 }))
 
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
+}))
+
+vi.mock('react-router', () => ({
+  Link: ({ to, children }: { to: string; children: React.ReactNode }) => <a href={to}>{children}</a>,
+}))
+
+vi.mock('@/stores/auth-store', () => ({
+  useAuthStore: (select: (s: { user: { role: string } }) => unknown) => select({ user: { role: state.role } }),
 }))
 
 vi.mock('react-i18next', () => ({
@@ -37,7 +49,7 @@ vi.mock('@/features/budget/hooks', () => ({
   useBudgetSettings: () => ({ data: state.settings }),
   useRecategorize: () => ({ mutate: vi.fn(), isPending: false }),
   useCategorizeAiStatus: () => ({ data: state.aiData }),
-  useStartCategorizeAi: () => ({ mutate: mocks.startAiMutate, isPending: false }),
+  useStartCategorizeAi: () => ({ mutate: mocks.startAiMutate, isPending: false, error: state.startAiError }),
   useCategorize: () => ({ mutate: vi.fn(), isPending: false }),
   useMerchantLogoUrl: () => () => null,
 }))
@@ -73,6 +85,8 @@ describe('CategorizeTab — AI suggestions', () => {
     state.txs = []
     state.categories = [TRANSPORT]
     state.aiData = null
+    state.startAiError = null
+    state.role = 'MEMBER'
     mocks.startAiMutate.mockReset()
     mocks.invalidateQueries.mockReset()
   })
@@ -113,6 +127,8 @@ describe('CategorizeTab — AI progress + resume', () => {
     state.txs = []
     state.categories = []
     state.aiData = null
+    state.startAiError = null
+    state.role = 'MEMBER'
     mocks.startAiMutate.mockReset()
     mocks.invalidateQueries.mockReset()
   })
@@ -148,5 +164,46 @@ describe('CategorizeTab — AI progress + resume', () => {
     })
     // The done summary line should also appear.
     expect(screen.getByText('budget.categorize.aiDone')).toBeInTheDocument()
+  })
+})
+
+describe('CategorizeTab — no AI provider configured', () => {
+  beforeEach(() => {
+    state.settings = { aiCategorizationEnabled: true }
+    state.txs = []
+    state.categories = []
+    state.aiData = aiJob()
+    state.startAiError = null
+    state.role = 'MEMBER'
+  })
+
+  it('shows no alert before the button is clicked', () => {
+    render(<CategorizeTab />)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('tells an admin that no provider is configured and links to Administration', () => {
+    state.startAiError = NO_PROVIDER_ERROR
+    state.role = 'ADMIN'
+    render(<CategorizeTab />)
+
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('budget.categorize.aiNoProvider')
+    expect(screen.getByRole('link', { name: 'budget.categorize.aiNoProviderAdminLink' }))
+      .toHaveAttribute('href', '/admin')
+  })
+
+  it('tells a member to ask an administrator, without a link they cannot open', () => {
+    state.startAiError = NO_PROVIDER_ERROR
+    render(<CategorizeTab />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('budget.categorize.aiNoProviderAskAdmin')
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+  })
+
+  it('shows no provider alert for another error', () => {
+    state.startAiError = { response: { status: 500, data: {} } }
+    render(<CategorizeTab />)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })

@@ -1,9 +1,13 @@
 package com.picsou.service.budget;
 
+import com.picsou.adapter.NoopCategorizer;
 import com.picsou.config.AiConfigProvider;
+import com.picsou.config.AiProviderConfig;
 import com.picsou.dto.AiJobStatus;
-import com.picsou.model.AiCategorizationMode;
+import com.picsou.exception.AiProviderNotConfiguredException;
 import com.picsou.model.AiCallLog;
+import com.picsou.model.AiCategorizationMode;
+import com.picsou.model.AiProvider;
 import com.picsou.port.TransactionCategorizerPort;
 import com.picsou.port.TransactionCategorizerPort.CategorizationInput;
 import com.picsou.port.TransactionCategorizerPort.CategorizationResult;
@@ -23,6 +27,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
@@ -41,6 +46,9 @@ class AiCategorizationJobServiceTest {
 
     /** Both executors are synchronous so that runJob executes inline and status is readable immediately. */
     private static final java.util.concurrent.Executor SYNC = Runnable::run;
+
+    private static final AiProviderConfig CONFIGURED =
+        new AiProviderConfig(AiProvider.OLLAMA, null, "qwen3:0.6b", "");
 
     AiCategorizationJobService service;
 
@@ -119,13 +127,27 @@ class AiCategorizationJobServiceTest {
     }
 
     @Test
+    void start_enabledWithoutProvider_throwsNotConfigured() {
+        org.mockito.Mockito.when(categorizationService.loadAiContext(1L))
+            .thenReturn(ctx(true, List.of(new CategoryOption("food", "Food"))));
+        org.mockito.Mockito.when(aiConfigProvider.currentCategorizer()).thenReturn(new NoopCategorizer());
+
+        assertThatThrownBy(() -> service.start(1L))
+            .isInstanceOf(AiProviderNotConfiguredException.class);
+
+        verify(categorizationService, never()).uncategorizedIds(any());
+        verify(categorizer, never()).categorize(any(), any(), any());
+        assertThat(service.status(1L).running()).isFalse();
+    }
+
+    @Test
     void start_processesAll_recordsAudit() {
         List<CategoryOption> options = List.of(new CategoryOption("food", "Food"));
         CategorizationService.AiContext ctx = ctx(true, options);
         org.mockito.Mockito.when(categorizationService.loadAiContext(1L)).thenReturn(ctx);
         org.mockito.Mockito.when(categorizationService.uncategorizedIds(1L)).thenReturn(List.of(1L, 2L, 3L));
         org.mockito.Mockito.when(aiConfigProvider.maxConcurrency()).thenReturn(10);
-        org.mockito.Mockito.when(aiConfigProvider.current()).thenReturn(Optional.empty());
+        org.mockito.Mockito.when(aiConfigProvider.current()).thenReturn(Optional.of(CONFIGURED));
 
         Map<Long, CategorizationInput> inputs = Map.of(
             1L, new CategorizationInput("Carrefour", "Carrefour", BigDecimal.TEN),
@@ -213,7 +235,7 @@ class AiCategorizationJobServiceTest {
         org.mockito.Mockito.when(categorizationService.loadAiContext(1L)).thenReturn(ctx);
         org.mockito.Mockito.when(categorizationService.uncategorizedIds(1L)).thenReturn(List.of(1L));
         org.mockito.Mockito.when(aiConfigProvider.maxConcurrency()).thenReturn(10);
-        org.mockito.Mockito.when(aiConfigProvider.current()).thenReturn(Optional.empty());
+        org.mockito.Mockito.when(aiConfigProvider.current()).thenReturn(Optional.of(CONFIGURED));
         org.mockito.Mockito.when(categorizationService.inputsFor(anyList(), eq(1L)))
             .thenReturn(Map.of(1L, new CategorizationInput("Test", "Test", BigDecimal.ONE)));
         org.mockito.Mockito.when(categorizer.categorize(any(), any(), any()))
@@ -239,7 +261,7 @@ class AiCategorizationJobServiceTest {
         org.mockito.Mockito.when(categorizationService.loadAiContext(1L)).thenReturn(ctx);
         org.mockito.Mockito.when(categorizationService.uncategorizedIds(1L)).thenReturn(List.of(1L, 2L, 3L));
         org.mockito.Mockito.when(aiConfigProvider.maxConcurrency()).thenReturn(2); // chunk size 2
-        org.mockito.Mockito.when(aiConfigProvider.current()).thenReturn(Optional.empty());
+        org.mockito.Mockito.when(aiConfigProvider.current()).thenReturn(Optional.of(CONFIGURED));
 
         // First chunk [1,2], second chunk [3]
         org.mockito.Mockito.when(categorizationService.inputsFor(anyList(), eq(1L)))
