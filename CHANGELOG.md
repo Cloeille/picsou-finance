@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hides the card behind a recap row with its total.
   Unlike `hidden`, collapsed accounts stay in every total, budget and chart — see
   `docs/features/account-list-display.md`.
+- **Transfers between your own accounts are recognised.** After each sync, a debit on one of your
+  accounts and the matching credit on another (same amount and currency, at most three days apart)
+  are both categorised *Virement interne*, so cash flow and the flow diagram stop counting them as
+  spending and income. A category you chose by hand is never changed, and when two legs could
+  match, Picsou leaves them alone rather than guess. See `docs/features/budget.md`. Closes #450.
 
 ## [1.2.1] — 2026-11-20
 

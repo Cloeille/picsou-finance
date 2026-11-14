@@ -167,8 +167,9 @@ It deliberately has no empty-rules early-out: the brand KB alone categorizes a r
   - Conservation invariant (test-locked): `intoHub == outOfHub == max(in, out)`.
   - **Known limits**: the two legs of one transfer booked on either side of a cycle boundary show up as a
     small transfer in/out in each cycle. Both legs of an internal transfer must be categorised
-    `TRANSFER`: for example, a checking debit categorised as a transfer and an uncategorised
-    Livret credit show an external transfer out rather than savings. The allocation view
+    `TRANSFER`. After each sync, `InternalTransferPairingService` pairs the legs it can prove
+    (see *Internal transfer pairing* below); a leg it leaves alone (ambiguous, manual, more than
+    three days apart) still shows as an external transfer or as spending. The allocation view
     (`AllocationService`) keeps its own gross
     rule (incoming legs only) and is not changed here, so its contributions can differ from the Sankey's
     net per-account figures.
@@ -191,6 +192,33 @@ It deliberately has no empty-rules early-out: the brand KB alone categorizes a r
 - **`MerchantAvatar`** (`components/shared/MerchantAvatar.tsx`) — initial-monogram with a
   **deterministic colour derived from the name**, fully offline; switches to a proxied `<img>` only
   when `logo_fetch_enabled` (M5). Used across every transaction list.
+
+### Internal transfer pairing
+
+`InternalTransferPairingService.pairRecent(memberId, today)` finds the two legs of a transfer
+between two of a member's own accounts and categorises both `virement-interne` (#450). It runs
+through `ReceivedDividendClassifier` once an import has committed, right after dividend classification:
+after every member sync (`MemberSyncService`) and at the end of each Fortuneo and BoursoBank job.
+
+- **Window**: the last 90 days of the member's owned, visible accounts (the bank sync lookback).
+  Hidden accounts (often a second connector's copy) and loan and peer-loan accounts are left out:
+  a repayment stays a `credit` expense.
+- **Legs**: a debit and a credit on two different accounts, same currency, exactly opposite
+  amounts, booked at most 3 days apart. Only cash legs qualify: no buy, sell, dividend or fee,
+  no Trade Republic `TRADING` row, no budget-neutral row.
+- **Manual wins**: a leg with `category_manual = true`, or a hand-entered row saved with a
+  category, never takes part, so its partner is not paired either.
+- **Ambiguity**: a pair is taken only when each leg is the other's single candidate. Two debits
+  for one credit, or two credits for one debit, leave every leg of that group alone. A manual,
+  typed or same-account leg counts as a candidate too (a refund on the same account, the real
+  partner categorised by hand), so it blocks a guess without ever being paired itself.
+- **Idempotent**: a leg already in a `TRANSFER` category (`epargne`, `investissement`, a previous
+  pairing) keeps its category, so a second run writes nothing. An `EXPENSE`/`INCOME` category set
+  by a rule, the brand base or the AI is replaced, and a pending AI suggestion is cleared.
+- **Known limits**: it pairs within one member's owned accounts only, never across family members
+  or on co-owned accounts read through sharing. Manual and file imports (CSV, HomeBank, Actual
+  Budget) are paired by the next sync, not at import time. A transfer whose legs differ (fees,
+  currency conversion) is not detected. Deferred-debit card settlements (#363) are out of scope.
 
 ### Period navigation
 
