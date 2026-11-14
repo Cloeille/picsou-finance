@@ -25,15 +25,13 @@ class _Locator:
         self.first = self
 
     async def is_visible(self):
-        if self.selector == main.COOKIE_BANNER_DECLINE_SELECTOR:
-            return False
         self.page.polls += 1
         return self.page.form_visible or (
             self.page.show_after_polls is not None and self.page.polls >= self.page.show_after_polls
         )
 
     async def click(self, timeout=None):
-        pass
+        self.page.clicks.append(self.selector)
 
 
 class FakeLoginPage:
@@ -48,6 +46,11 @@ class FakeLoginPage:
         self.polls = 0
         self.reloads = 0
         self.on_reload_abort = on_reload_abort
+        self.clicks = []
+        self.locator_handlers = []
+
+    async def add_locator_handler(self, locator, handler):
+        self.locator_handlers.append((locator, handler, self.polls))
 
     def on(self, event, handler):
         self.handlers.setdefault(event, []).append(handler)
@@ -164,6 +167,18 @@ class OpenLoginFormTest(unittest.IsolatedAsyncioTestCase):
                 await asyncio.wait_for(main._open_login_form(page), timeout=5)
         self.assertEqual(caught.exception.detail, "UPSTREAM_UNAVAILABLE")
         self.assertEqual(page.reloads, 1)
+
+    async def test_cookie_banner_is_declined_whenever_it_appears(self):
+        # Seen live: the banner arrives after the form and its overlay swallows
+        # the submit click, so a check made only while waiting misses it.
+        page = FakeLoginPage(["module_ok", "form"])
+        await main._open_login_form(page)
+        [(banner, handler, polls_before)] = page.locator_handlers
+        self.assertEqual(banner.selector, main.COOKIE_BANNER_DECLINE_SELECTOR)
+        self.assertEqual(polls_before, 0)
+        # Playwright calls the handler with the locator whenever the banner shows.
+        await handler(banner)
+        self.assertEqual(page.clicks, [main.COOKIE_BANNER_DECLINE_SELECTOR])
 
     async def test_loaded_module_with_a_form_too_slow_is_reloaded(self):
         # Seen live: the module loads and the form still misses the first wait.
