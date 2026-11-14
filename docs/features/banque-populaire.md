@@ -1,6 +1,6 @@
 # Feature: Banque Populaire sync
 
-> Last updated: 2026-11-09
+> Last updated: 2026-11-14
 > Status: sidecar, backend and frontend are in the codebase. Docker Compose (profile `banque-populaire`) and the Helm chart run the `banque-populaire-auth` sidecar. The user connects from the Sync page (Banque Populaire tab) or the add-account modal: they pick their regional bank, type their identifier, click their own digits on the bank's keypad, then approve in Sécur'Pass. Sync is on demand only. Full logins and syncs through Picsou ran against real Rives de Paris (2026-11-05) and Val de France (2026-11-08) accounts (see "Verification boundaries").
 
 ## Context
@@ -59,9 +59,19 @@ Banque Populaire accounts look like the ones Enable Banking creates for the same
 | `4/09` | `SAVINGS` (`TERM_DEPOSIT`, provisional), balance from the synthesis (no PFM transactions) | yes ("Tip Top'P 3 Ans", without `contractPfmId`) |
 | `4/10` | `SAVINGS` (`COOPERATIVE_SHARES`, provisional), balance from the synthesis (no PFM transactions) | yes ("Part Sociale BP", without `contractPfmId`) |
 | `4/05` | `PER` (via Natixis Assurances portal `espace-assurances-de-personnes.banquepopulaire.fr`) | yes (compact contract ID `PERIB<number>`, producer `PERIB`; #524) |
-| `6/12`, `6/13` loans, `2/11` revolving credit, anything else | listed in `unsupported`, never fetched, never fatal | revolving credit `2/11` seen (none with `contractPfmId`) |
+| `6/12` personal loan | `LOAN`, balance from the synthesis, detail from the personal-loan app (provisional) | no |
+| `6/13` home loan | `LOAN`, balance from the synthesis, detail from the home-loan app (provisional) | no |
+| `2/11` revolving credit, anything else | listed in `unsupported`, never fetched, never fatal | revolving credit `2/11` seen (none with `contractPfmId`) |
 
-Loans read their detail through separate OAuth clients on Caisse d'Epargne. Their Banque Populaire equivalents were never observed, so this version does not guess them. The PER is read from the Banque Populaire insurer portal (Natixis Assurances, `SITE.per`).
+Loans read their detail through separate OAuth clients, as on Caisse d'Epargne. The Banque Populaire clients were not observed in a live sync: they come from the bank's public web app configuration (the JavaScript bundles served without a login, read 2026-11-14), the same method that reproduces exactly the Caisse d'Epargne client ids observed live.
+
+- Personal loans (`6/12`, app `espace-gestion/pret-personnel`): client `4107d671-…`, scope `managePersonalLoanPrd readPersonalLoanPrd readUser`, that app's redirect, no `claims`, on the main authorization server and data host (`SITE.personal_loan`). Same detail path as Caisse d'Epargne.
+- Home loans (`6/13`, app `gestion-client/credit-immobilier`): client `873a10ce-…` (the same as Caisse d'Epargne), an empty scope, that app's redirect, no `claims`, on the BPCE hosts `www.as-ext-bad-me.bpce.fr` and `www.rs-ext-bad-me.bpce.fr` (`SITE.home_loan`). Same `/loan/v1/loans/{entityCode}-{id}` detail path.
+- `LOAN` is a provisional kind here: the client is unverified, so a refusal from either loan app (token or detail, including a 401) never ends the session, and a loan whose token cannot be minted or whose detail cannot be read or parsed is imported with its synthesis balance and no Debt details (`loan: null`), not left in `unavailable`. Caisse d'Epargne keeps the strict behaviour (a personal-loan 401 means an expired session).
+- A synthesis loan entry that cannot be read is demoted to `unsupported` instead of failing the sync. Cards are not imported here, so the `augmentedCards` skip of provisional kinds changes nothing.
+- Diagnostic logs for a report, field paths and codes only, never a value or an id: `loan detail unreadable: product=… code=… rejected=<field path>`, `loan detail unavailable: product=… code=…`, `loan imported without detail: product=…`.
+
+The PER is read from the Banque Populaire insurer portal (Natixis Assurances, `SITE.per`).
 
 ### Wrong identifier or password
 
@@ -74,15 +84,15 @@ The bank answers a wrong identifier or password with a modal titled "Identifiant
 | Shared `bpce` package + `BpceSyncEngine` | Same platform, one place to fix | Duplicating the Caisse d'Epargne stack |
 | Region chosen by the user at each login, stored on the session | The bank's page requires it; the sync needs it to name the accounts and find the logo | Guessing it from the identifier; taking it from the `/complete` request |
 | Provider = the regional bank's official name, logo from the Enable Banking catalog | The accounts look exactly like those Enable Banking creates for that bank | A generic `Banque Populaire` label; a bundled logo per region |
-| Loans unsupported | Their BP clients and hosts were not observed | Reusing the Caisse d'Epargne client ids |
+| Loans from the public app configuration, `LOAN` provisional | The clients are public and readable without a login, but unverified: a refusal costs only the loan detail, never the session | Waiting for a live run before reading loans; treating a loan-app 401 as an expired session |
 | PER via Natixis portal | Client ID and routing confirmed live (HTTP 201); format pinned to `PERIB` | Synthesis-only balance |
 
 ## Gotchas / Pitfalls
 
 - `V147` drops `banque_populaire_session` after the copy, so there is no rollback past it without a database restore. Upgrade offline, as for `V142`: stop the old app first, then use the [safe release deployment](release-deployment.md). A session the old app writes after the copy is lost with the table.
 - A BPCE `3/01` code covers both Livret A and Livret Jeune. The product label tells them apart (whole word `JEUNE`), for both banks. A LEP label (`LEP`, `EPARGNE POPULAIRE`) is imported as `LEP` (not observed live).
-- `3/02` (`SAVINGS`, Compte sur Livret), `3/04` (`PEL`), `4/09` (`TERM_DEPOSIT`, term deposit) and `4/10` (`COOPERATIVE_SHARES`, cooperative shares) are enabled on Banque Populaire through `Site.provisional_kinds=frozenset({"SAVINGS", "PEL", "TERM_DEPOSIT", "COOPERATIVE_SHARES"})` ([ADR](../decisions/2026-11-07-provisional-kinds-per-bank.md)): an unreadable entry is demoted to `unsupported` instead of failing the synthesis, and `3/02`, `4/09` and `4/10` stay in `unsupported_families` on Caisse d'Epargne until observed there.
-- The host allow-list is strictly `*.banquepopulaire.fr`. A `caisse-epargne.fr` or `bpce.fr` URL is refused for this bank, and the other way round for Caisse d'Epargne.
+- `3/02` (`SAVINGS`, Compte sur Livret), `3/04` (`PEL`), `4/09` (`TERM_DEPOSIT`, term deposit) and `4/10` (`COOPERATIVE_SHARES`, cooperative shares) are enabled on Banque Populaire through `Site.provisional_kinds=frozenset({"SAVINGS", "PEL", "TERM_DEPOSIT", "COOPERATIVE_SHARES", "PER", "LOAN"})` ([ADR](../decisions/2026-11-07-provisional-kinds-per-bank.md)): an unreadable entry is demoted to `unsupported` instead of failing the synthesis, and `3/02`, `4/09` and `4/10` stay in `unsupported_families` on Caisse d'Epargne until observed there.
+- The host allow-list is `*.banquepopulaire.fr` plus exactly the two BPCE home-loan hosts (`SITE.extra_hosts`: `www.as-ext-bad-me.bpce.fr`, `www.rs-ext-bad-me.bpce.fr`), no wildcard. A `caisse-epargne.fr` URL or any other `bpce.fr` host is refused for this bank, and the other way round for Caisse d'Epargne.
 - During login, an earlier authorize request (client `adad0322-…`, `response_type=id_token token`) runs on the login host. Only the authorize sent from the client space is captured, as for Caisse d'Epargne.
 - The shared sidecar code logs under the `bpce` logger name for both banks.
 - The 12 official names were written from the bank's own naming; whether each matches the Enable Banking catalog name exactly was not checked against the live catalog. A name the catalog spells differently simply gets no logo (the name tier ignores case only: accents, hyphens and spacing must match). `BanquePopulaireRegionTest` pins the names.
@@ -100,4 +110,4 @@ Run live end to end on 2026-11-05 with a Rives de Paris account, through the dev
 
 Run live on 2026-11-08 with a Val de France account: imported a current account, a Livret A (`3/01`), a Livret Jeune (`3/01`), an LDDS (`3/28`), and revealed a Compte sur Livret (`3/02`) and a PEL (`3/04`), both carrying a `contractPfmId`, plus `4/05` (PER), `4/09` (term deposit) and `4/10` (cooperative shares) without a `contractPfmId`.
 
-Not observed: LEP (`3/27` or `3/01` labelled LEP), loan, revolving-credit detail.
+Not observed live: personal and home loans (`6/12`, `6/13`). Their OAuth clients are read from the bank's public web app configuration (2026-11-14) and not yet verified against a real account, hence the provisional containment above. Also not observed: LEP (`3/27` or `3/01` labelled LEP), revolving-credit detail.

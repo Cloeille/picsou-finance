@@ -6,11 +6,14 @@ The bank is an `httpx.MockTransport` playing the hosts observed live (2026-11-05
 immediate-debit card, which this site does not import, Livret A and Livret Jeune
 both `3/01`, LDDS `3/28`, Compte sur Livret `3/02`, PEL `3/04`, term deposit `4/09`,
 cooperative shares `4/10`, a revolving
-credit `2/11` with a null balance) plus the loan families this site does not read and a
+credit `2/11` with a null balance, which this site does not read), a personal and a home loan and a
 PER `4/05` read from the insurer app (the `PERIB` shape of issue #524, synthetic digits).
-Every value is synthetic.
+Every value is synthetic. The personal-loan and home-loan apps (their public OAuth clients,
+read from the bank's web app configuration, never observed live) are played too: the first
+on the main hosts, the second on the two BPCE hosts it shares with Caisse d'Epargne.
 """
 
+import copy
 import json
 import os
 import unittest
@@ -32,7 +35,42 @@ HEADERS = {"X-Picsou-Sidecar-Key": TEST_KEY}
 AS_HOST = "www.as-ext-bad-ib.banquepopulaire.fr"
 LOGIN_HOST = "www.icgauth.banquepopulaire.fr"
 DATA_HOST = "www.rs-ext-bad-ib.banquepopulaire.fr"
+BPCE_AS_HOST = "www.as-ext-bad-me.bpce.fr"
+BPCE_RS_HOST = "www.rs-ext-bad-me.bpce.fr"
 ACCESS_TOKEN = "synthetic-access-token"
+LOAN_TOKEN = "synthetic-personal-loan-token"
+HOME_TOKEN = "synthetic-home-loan-token"
+LOAN_CLIENT_ID = "4107d671-4e78-4f18-8842-83d7ca6735a9"
+HOME_CLIENT_ID = "873a10ce-67a7-4917-ab31-e5a482617303"
+LOAN_PATH = "/bapi/personalLoanPrd/v1/personalLoanPrdSynthesisView/"
+HOME_LOAN_PATH = "/bapi/loan/v1/loans/"
+LOAN_SCOPE = "managePersonalLoanPrd readPersonalLoanPrd readUser"
+LOAN_REDIRECT = "https://www.banquepopulaire.fr/espace-gestion/pret-personnel/postMessage/index.html"
+HOME_REDIRECT = "https://www.banquepopulaire.fr/gestion-client/credit-immobilier/postMessage/index.html"
+PERSONAL_DETAIL = {"personalLoanPrdSynthesisView": {
+    "linkedAccount": {"iban": "FR7600000000000000000000001"},
+    "offer": {
+        "duration": 48,
+        "proposedAmount": {"value": 12000, "currencyCode": "EUR"},
+        "signatureDate": "15/09/2026",
+        "firstDueDate": "05/11/2026",
+    },
+    "folder": {
+        "lastDueDate": "05/10/2030",
+        "nextMonthlyPaymentAmount": {"value": 280.0, "currencyCode": "EUR"},
+        "tNC": 3,
+    },
+}}
+HOME_DETAIL = {"loan": {
+    "contractCharacteristic": {"subscriptionDate": "2022-05-02"},
+    "financialInformation": {
+        "amountBorrowed": {"currencyCode": "EUR", "value": 200000.0},
+        "duration": 240,
+        "nextDuedateRate": 1.2,
+        "nextDuedateAmount": {"currencyCode": "EUR", "value": 937.74},
+        "lastDuedate": "2042-06-05",
+    },
+}}
 CLIENT_ID = "00000000-0000-4000-8000-000000000001"
 SESSION_STATE = json.dumps({
     "cookies": [{"name": "SSO", "value": "BP-COOKIE-SECRET", "domain": ".banquepopulaire.fr", "path": "/"}],
@@ -102,6 +140,11 @@ class FakeBank(PerFakeBank):
         self.authn_status = "AUTHENTICATION_SUCCESS"
         self.failing_transactions: set[str] = set()
         self.synthesis = SYNTHESIS
+        # Client ids whose authorize answer leads to a refused AuthnRequest (401).
+        self.refused_clients: set[str] = set()
+        self.loan_detail = copy.deepcopy(PERSONAL_DETAIL)
+        self.home_detail = copy.deepcopy(HOME_DETAIL)
+        self.loan_detail_http = 200
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -109,8 +152,13 @@ class FakeBank(PerFakeBank):
     def handle(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
         host, path = request.url.host, request.url.path
-        if (host, path) == (AS_HOST, "/api/oauth/v2/authorize"):
-            return httpx.Response(200, json={"action": self.authorize_action, "parameters": {"SAMLRequest": "S"}})
+        if (host, path) in ((AS_HOST, "/api/oauth/v2/authorize"), (BPCE_AS_HOST, "/api/oauth/v2/authorize")):
+            action = self.authorize_action
+            if request.url.params.get("client_id") in self.refused_clients:
+                action = f"https://{LOGIN_HOST}/dacsrest/api/v1u0/saml2/refused"
+            return httpx.Response(200, json={"action": action, "parameters": {"SAMLRequest": "S"}})
+        if (host, path) == (LOGIN_HOST, "/dacsrest/api/v1u0/saml2/refused"):
+            return httpx.Response(401)
         if (host, path) == (LOGIN_HOST, "/dacsrest/api/v1u0/saml2/sso"):
             # Observed on both banks: a 303 to the transaction on the same host.
             return httpx.Response(303, headers={"location": "/dacsrest/api/v1u0/transaction/ctx"})
@@ -123,8 +171,20 @@ class FakeBank(PerFakeBank):
             return httpx.Response(200, json={"parameters": {"code": "synthetic-code"}})
         if (host, path) == (AS_HOST, "/api/oauth/v2/token"):
             form = dict(urllib.parse.parse_qsl(request.content.decode()))
-            token = PER_ACCESS_TOKEN if form.get("client_id") == PER_CLIENT_ID else ACCESS_TOKEN
+            token = {PER_CLIENT_ID: PER_ACCESS_TOKEN, LOAN_CLIENT_ID: LOAN_TOKEN}.get(form.get("client_id"), ACCESS_TOKEN)
             return httpx.Response(200, json={"access_token": token, "token_type": "Bearer", "expires_in": 267})
+        if (host, path) == (BPCE_AS_HOST, "/api/oauth/v2/token"):
+            return httpx.Response(200, json={"access_token": HOME_TOKEN, "token_type": "Bearer", "expires_in": 267})
+        if (host, path.rsplit("/", 1)[0] + "/") == (DATA_HOST, LOAN_PATH):
+            if self.loan_detail_http != 200:
+                return httpx.Response(self.loan_detail_http)
+            if request.headers.get("authorization") != f"Bearer {LOAN_TOKEN}":
+                return httpx.Response(401)
+            return httpx.Response(200, json=self.loan_detail)
+        if (host, path.rsplit("/", 1)[0] + "/") == (BPCE_RS_HOST, HOME_LOAN_PATH):
+            if request.headers.get("authorization") != f"Bearer {HOME_TOKEN}":
+                return httpx.Response(401)
+            return httpx.Response(200, json=self.home_detail)
         per = self.handle_per(request, ACCESS_TOKEN)
         if per is not None:
             return per
@@ -150,7 +210,13 @@ class FakeBank(PerFakeBank):
         return [
             dict(urllib.parse.parse_qsl(r.content.decode()))
             for r in self.requests
-            if (r.url.host, r.url.path) == (AS_HOST, "/api/oauth/v2/token")
+            if (r.url.host, r.url.path) in ((AS_HOST, "/api/oauth/v2/token"), (BPCE_AS_HOST, "/api/oauth/v2/token"))
+        ]
+
+    def authorize_requests(self, client_id: str) -> list[httpx.Request]:
+        return [
+            r for r in self.requests
+            if r.url.path == "/api/oauth/v2/authorize" and r.url.params.get("client_id") == client_id
         ]
 
 
@@ -187,6 +253,7 @@ class AccountsTest(unittest.TestCase):
              ("1003", "LIVRET_JEUNE"), ("1004", "LDDS"),
              ("1005", "SAVINGS"), ("1006", "PEL"),
              ("contract:TD1", "TERM_DEPOSIT"), ("contract:CS1", "COOPERATIVE_SHARES"),
+             ("contract:PRET1", "LOAN"), ("contract:IMMO1", "LOAN"),
              ("contract:" + PER_BANK_ID, "PER")],
         )
         jeune = body["accounts"][2]
@@ -252,23 +319,109 @@ class AccountsTest(unittest.TestCase):
         self.assertEqual(imported["1004"]["iban"], "FR76SYNTHETIC1004")  # the others are untouched
         self.assertEqual(body["unavailable"], [])
 
-    def test_loans_and_revolving_credit_are_unsupported_and_never_read(self):
+    def test_only_the_revolving_credit_is_unsupported_and_never_read(self):
         body = self.post("/accounts").json()
 
         self.assertEqual(body["unsupported"], [
-            {"externalId": "contract:PRET1", "familyCode": "6", "subFamilyCode": "12"},
-            {"externalId": "contract:IMMO1", "familyCode": "6", "subFamilyCode": "13"},
             {"externalId": "contract:FACELIA1", "familyCode": "2", "subFamilyCode": "11"},
         ])
         paths = [r.url.path for r in self.bank.requests if r.url.host == DATA_HOST]
         self.assertEqual(paths.count(fetcher.SYNTHESIS_PATH), 1)
+        self.assertFalse(any("FACELIA1" in r.url.path for r in self.bank.requests))
         self.assertEqual(
             sorted(r.url.params["accountIds"] for r in self.bank.requests if r.url.path == fetcher.TRANSACTIONS_PATH),
-            ["1001", "1002", "1003", "1004", "1005", "1006"],  # never term deposit, shares, PER or the card
+            ["1001", "1002", "1003", "1004", "1005", "1006"],  # never term deposit, shares, loans, PER or the card
         )
-        # The main token, then the PER chain's: no loan or home-loan chain is ever minted.
-        self.assertEqual([f["client_id"] for f in self.bank.token_forms()], [CLIENT_ID, PER_CLIENT_ID])
-        self.assertTrue(all(r.url.host.endswith(".banquepopulaire.fr") for r in self.bank.requests))
+        # The main token, then the personal-loan, home-loan and PER chains'.
+        self.assertEqual(
+            [f["client_id"] for f in self.bank.token_forms()],
+            [CLIENT_ID, LOAN_CLIENT_ID, HOME_CLIENT_ID, PER_CLIENT_ID],
+        )
+        self.assertTrue(all(r.url.host.endswith((".banquepopulaire.fr", ".bpce.fr")) for r in self.bank.requests))
+
+    def test_a_personal_loan_is_read_with_its_own_client_scope_and_redirect(self):
+        body = self.post("/accounts").json()
+
+        loan = {a["externalId"]: a for a in body["accounts"]}["contract:PRET1"]
+        self.assertEqual((loan["kind"], loan["balance"]), ("LOAN", "-1000.0"))
+        self.assertEqual((loan["loan"]["borrowedAmount"], loan["loan"]["durationMonths"]), ("12000", 48))
+        self.assertEqual(loan["loan"]["interestRate"], "0.03")
+        [authorize] = self.bank.authorize_requests(LOAN_CLIENT_ID)
+        self.assertEqual(authorize.url.host, AS_HOST)
+        params = authorize.url.params
+        self.assertEqual((params["scope"], params["redirect_uri"]), (LOAN_SCOPE, LOAN_REDIRECT))
+        self.assertNotIn("claims", params)
+        self.assertEqual(params["login_hint"], "SECRET-LOGIN-HINT")  # the session's other parameters are kept
+        [request] = [r for r in self.bank.requests if r.url.path == LOAN_PATH + "PRET1"]
+        self.assertEqual((request.url.host, request.headers["authorization"]), (DATA_HOST, f"Bearer {LOAN_TOKEN}"))
+        self.assertNotIn(LOAN_TOKEN, json.dumps(body))
+
+    def test_a_home_loan_is_read_from_the_bpce_host_with_its_own_client(self):
+        body = self.post("/accounts").json()
+
+        loan = {a["externalId"]: a for a in body["accounts"]}["contract:IMMO1"]
+        self.assertEqual((loan["kind"], loan["balance"]), ("LOAN", "-90000.0"))
+        self.assertEqual((loan["loan"]["borrowedAmount"], loan["loan"]["durationMonths"]), ("200000.0", 240))
+        [authorize] = self.bank.authorize_requests(HOME_CLIENT_ID)
+        self.assertEqual(authorize.url.host, BPCE_AS_HOST)
+        params = authorize.url.params
+        self.assertEqual((params["scope"], params["redirect_uri"]), ("", HOME_REDIRECT))
+        self.assertNotIn("claims", params)
+        [request] = [r for r in self.bank.requests if r.url.path == HOME_LOAN_PATH + "00000-IMMO1"]
+        self.assertEqual((request.url.host, request.headers["authorization"]), (BPCE_RS_HOST, f"Bearer {HOME_TOKEN}"))
+        self.assertNotIn(HOME_TOKEN, json.dumps(body))
+
+    def test_a_refused_loan_client_leaves_the_session_alive_and_the_loan_imported_without_detail(self):
+        for name, clients in (("personal", {LOAN_CLIENT_ID}), ("home", {HOME_CLIENT_ID})):
+            with self.subTest(name), patch.object(main, "_token_cache", replay.TokenCache(main.SITE)):
+                self.bank = FakeBank()
+                self.bank.refused_clients = clients
+                with self.assertLogs("bpce", "WARNING") as logs:
+                    response = self.post("/accounts")
+
+                self.assertEqual(response.status_code, 200, response.text)
+                body = response.json()
+                by_id = {a["externalId"]: a for a in body["accounts"]}
+                refused, other = ("contract:PRET1", "contract:IMMO1") if name == "personal" else ("contract:IMMO1", "contract:PRET1")
+                self.assertIsNone(by_id[refused]["loan"])
+                self.assertEqual(by_id[refused]["kind"], "LOAN")
+                self.assertIsNotNone(by_id[other]["loan"])
+                self.assertEqual(len(by_id), 11)
+                self.assertEqual(body["unavailable"], [])
+                self.assertTrue(any("loan imported without detail: product=" in line for line in logs.output))
+                # The session was not replayed again on account of the loan client: one refusal only.
+                self.assertEqual(len(self.bank.authorize_requests(next(iter(clients)))), 1)
+
+    def test_a_401_on_the_personal_loan_detail_leaves_the_session_alive(self):
+        self.bank.loan_detail_http = 401
+        with self.assertLogs("bpce", "WARNING") as logs:
+            response = self.post("/accounts")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        by_id = {a["externalId"]: a for a in response.json()["accounts"]}
+        self.assertIsNone(by_id["contract:PRET1"]["loan"])
+        self.assertEqual(by_id["contract:PRET1"]["balance"], "-1000.0")
+        self.assertIsNotNone(by_id["contract:IMMO1"]["loan"])
+        self.assertEqual(len(by_id), 11)
+        self.assertTrue(any("loan detail unavailable: product=PERSONAL code=UPSTREAM_UNAVAILABLE" in line for line in logs.output))
+
+    def test_an_unreadable_loan_detail_is_imported_without_detail_and_logs_the_field_only(self):
+        self.bank.loan_detail["personalLoanPrdSynthesisView"]["offer"]["signatureDate"] = "secret-date-value"
+        self.bank.loan_detail["personalLoanPrdSynthesisView"]["offer"]["proposedAmount"]["value"] = 4242.42
+        with self.assertLogs("bpce", "WARNING") as logs:
+            response = self.post("/accounts")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        by_id = {a["externalId"]: a for a in body["accounts"]}
+        self.assertIsNone(by_id["contract:PRET1"]["loan"])
+        self.assertEqual(by_id["contract:PRET1"]["balance"], "-1000.0")
+        self.assertEqual(body["unavailable"], [])
+        rendered = "\n".join(logs.output)
+        self.assertIn("loan detail unreadable: product=PERSONAL code=INVALID_LOAN_DETAIL rejected=loan.offer.signatureDate", rendered)
+        self.assertIn("loan imported without detail: product=PERSONAL", rendered)
+        for value in ("secret-date-value", "4242", "PRET1", "FR7600000000000000000000001", LOAN_TOKEN, ACCESS_TOKEN):
+            self.assertNotIn(value, rendered)
 
     def test_a_perib_per_is_read_from_the_insurer_with_the_per_token_only(self):
         body = self.post("/accounts").json()
@@ -332,7 +485,7 @@ class AccountsTest(unittest.TestCase):
                 self.assertEqual(response.status_code, 200)
                 body = response.json()
                 self.assertNotIn("contract:" + PER_BANK_ID, {a["externalId"] for a in body["accounts"]})
-                self.assertEqual(len(body["accounts"]), 8)
+                self.assertEqual(len(body["accounts"]), 10)
                 self.assertTrue(any(u.get("familyCode") == "4" and u.get("subFamilyCode") == "05" for u in body["unsupported"]))
 
 
@@ -349,7 +502,7 @@ class AccountsTest(unittest.TestCase):
             body = self.post("/accounts").json()
         self.assertNotIn("contract:" + PER_BANK_ID, {a["externalId"] for a in body["accounts"]})
         self.assertEqual([u["kind"] for u in body["unavailable"]], ["PER"])
-        self.assertEqual(len(body["accounts"]), 8)
+        self.assertEqual(len(body["accounts"]), 10)
 
     def test_nothing_secret_is_returned(self):
         text = self.post("/accounts").text
@@ -364,7 +517,8 @@ class AccountsTest(unittest.TestCase):
     def test_a_chain_step_off_banque_populaire_is_refused_before_it_is_sent(self):
         for action in (
             "https://www.icgauth.caisse-epargne.fr/dacsrest/api/v1u0/saml2/sso",
-            "https://www.as-ext-bad-me.bpce.fr/api/oauth/v2/authorize",
+            "https://www.as-ext-bad-ce.caisse-epargne.fr/api/oauth/v2/authorize",
+            "https://www.bpce.fr/api/oauth/v2/authorize",
             "https://evil.example.com/sso",
         ):
             with self.subTest(action=action):
@@ -387,20 +541,41 @@ class SiteTest(unittest.TestCase):
         for url in (site.login_url, site.authorize_url, site.token_url, site.data_base_url):
             self.assertTrue(replay.is_allowed_url(site, url), url)
 
-    def test_no_loan_app_but_a_per_app(self):
-        self.assertIsNone(main.SITE.personal_loan)
-        self.assertIsNone(main.SITE.home_loan)
-        self.assertIsNotNone(main.SITE.per)
-        self.assertEqual(main.SITE.unsupported_families, frozenset({("6", "12"), ("6", "13"), ("3", "27")}))
-        self.assertEqual(main.SITE.provisional_kinds, frozenset({"SAVINGS", "PEL", "TERM_DEPOSIT", "COOPERATIVE_SHARES", "PER"}))
+    def test_a_loan_app_per_app_and_the_provisional_kinds(self):
+        site = main.SITE
+        self.assertEqual(
+            (site.personal_loan.name, dict(site.personal_loan.overrides), site.personal_loan.drop),
+            ("personal-loan", {"client_id": LOAN_CLIENT_ID, "scope": LOAN_SCOPE, "redirect_uri": LOAN_REDIRECT}, ("claims",)),
+        )
+        self.assertEqual(
+            (site.home_loan.chain.name, dict(site.home_loan.chain.overrides), site.home_loan.chain.drop),
+            ("home-loan", {"client_id": HOME_CLIENT_ID, "scope": "", "redirect_uri": HOME_REDIRECT}, ("claims",)),
+        )
+        self.assertEqual(site.home_loan.authorize_url, f"https://{BPCE_AS_HOST}/api/oauth/v2/authorize")
+        self.assertEqual(site.home_loan.token_url, f"https://{BPCE_AS_HOST}/api/oauth/v2/token")
+        self.assertEqual(site.home_loan.base_url, f"https://{BPCE_RS_HOST}")
+        self.assertIsNotNone(site.per)
+        self.assertEqual(site.unsupported_families, frozenset({("3", "27")}))
+        self.assertEqual(
+            site.provisional_kinds, frozenset({"SAVINGS", "PEL", "TERM_DEPOSIT", "COOPERATIVE_SHARES", "PER", "LOAN"})
+        )
 
-    def test_the_allow_list_is_banque_populaire_only(self):
-        self.assertEqual(main.SITE.extra_hosts, frozenset())
+    def test_the_allow_list_is_banque_populaire_plus_the_two_bpce_loan_hosts(self):
+        self.assertEqual(main.SITE.extra_hosts, frozenset({BPCE_AS_HOST, BPCE_RS_HOST}))
+        for url in (
+            f"https://{BPCE_AS_HOST}/api/oauth/v2/token",
+            f"https://{BPCE_RS_HOST}/bapi/loan/v1/loans/x",
+        ):
+            with self.subTest(url=url):
+                self.assertTrue(replay.is_allowed_url(main.SITE, url))
         for url in (
             "https://www.caisse-epargne.fr/espace-client/",
             "https://www.as-ext-bad-ce.caisse-epargne.fr/api/oauth/v2/token",
-            "https://www.as-ext-bad-me.bpce.fr/api/oauth/v2/token",
-            "https://www.rs-ext-bad-me.bpce.fr/bapi/loan/v1/loans/x",
+            "https://www.bpce.fr/",
+            "https://www.as-ext-bad-ib.bpce.fr/",
+            "https://evil.rs-ext-bad-me.bpce.fr/",
+            "https://www.rs-ext-bad-me.bpce.fr.evil.fr/",
+            "http://www.rs-ext-bad-me.bpce.fr/",
             "https://banquepopulaire.fr/",
             "https://www.banquepopulaire.fr.evil.example/",
             "https://evilbanquepopulaire.fr/",
