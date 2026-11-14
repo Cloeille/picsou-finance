@@ -21,7 +21,7 @@ only (the observed contract held no euro fund). A real end-to-end sync is still 
 before claiming a successful PER import.
 
 - `POST /api/caisse-epargne/sync` queues one sync (202). It is **on demand only**: no scheduler, no startup sync, no auto-resync hook. It is rate-limited like the other sync endpoints (10 requests/min per IP, shared `syncBuckets`).
-- `GET /api/caisse-epargne/status` returns `isActive`, `syncStatus`, timestamps, `lastSyncError`, `unsupportedCount` and the `unsupported` list (`externalId`, `familyCode`, `subFamilyCode`; the last is null when the bank sends no sub family and on a list stored before it was recorded). The Sync tab shows each as `family/sub`, never its id.
+- `GET /api/caisse-epargne/status` returns `isActive`, `syncStatus`, timestamps, `lastSyncError`, `unsupportedCount` and the `unsupported` list (`externalId`, `familyCode`, `subFamilyCode`; the last is null when the bank sends no sub family and on a list stored before it was recorded). The Sync tab shows each as `family/sub`, never its id. Known loan and credit codes (`6/12` personal loan, `6/13` home loan, `2/11` revolving credit) are named before the code, e.g. "Home loan (6/13)", and after a successful sync the success line adds how many contracts were not imported.
 - `DELETE /api/caisse-epargne/session` deletes the stored row and answers `{removed, bankSessionRevoked: false, message}`. **It does not revoke the bank session**, which may stay active until it expires. The UI must say so and must not claim a logout.
 - The sync fetches outside any transaction, validates the whole snapshot, then writes every account and its transactions in one transaction. A failure on any account rolls all of them back.
 

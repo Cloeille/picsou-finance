@@ -1371,6 +1371,13 @@
         "serverError": "BoursoBank ist nicht erreichbar. Bitte erneut versuchen."
       }
     },
+    "bpceContracts": {
+      "personalLoan": "Ratenkredit",
+      "homeLoan": "Immobilienkredit",
+      "revolvingCredit": "Rahmenkredit",
+      "notImported_one": "{{count}} Vertrag nicht importiert, Details unten.",
+      "notImported_other": "{{count}} Verträge nicht importiert, Details unten."
+    },
     "caisseEpargne": {
       "title": "Caisse d'Epargne",
       "customerId": "Kennung",

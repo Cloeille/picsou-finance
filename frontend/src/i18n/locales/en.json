@@ -1687,6 +1687,13 @@
         "serverError": "Could not reach BoursoBank. Please try again."
       }
     },
+    "bpceContracts": {
+      "personalLoan": "Personal loan",
+      "homeLoan": "Home loan",
+      "revolvingCredit": "Revolving credit",
+      "notImported_one": "{{count}} contract not imported, details below.",
+      "notImported_other": "{{count}} contracts not imported, details below."
+    },
     "caisseEpargne": {
       "title": "Caisse d'Epargne",
       "customerId": "Identifier",

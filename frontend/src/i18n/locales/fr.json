@@ -1687,6 +1687,13 @@
         "serverError": "Impossible de joindre BoursoBank. Veuillez réessayer."
       }
     },
+    "bpceContracts": {
+      "personalLoan": "Prêt personnel",
+      "homeLoan": "Prêt immobilier",
+      "revolvingCredit": "Crédit renouvelable",
+      "notImported_one": "{{count}} contrat non importé, détail ci-dessous.",
+      "notImported_other": "{{count}} contrats non importés, détail ci-dessous."
+    },
     "caisseEpargne": {
       "title": "Caisse d'Epargne",
       "customerId": "Identifiant",
