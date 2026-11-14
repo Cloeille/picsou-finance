@@ -145,6 +145,7 @@ class FakeBank(PerFakeBank):
         self.loan_detail = copy.deepcopy(PERSONAL_DETAIL)
         self.home_detail = copy.deepcopy(HOME_DETAIL)
         self.loan_detail_http = 200
+        self.home_detail_http = 200
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -182,6 +183,8 @@ class FakeBank(PerFakeBank):
                 return httpx.Response(401)
             return httpx.Response(200, json=self.loan_detail)
         if (host, path.rsplit("/", 1)[0] + "/") == (BPCE_RS_HOST, HOME_LOAN_PATH):
+            if self.home_detail_http != 200:
+                return httpx.Response(self.home_detail_http)
             if request.headers.get("authorization") != f"Bearer {HOME_TOKEN}":
                 return httpx.Response(401)
             return httpx.Response(200, json=self.home_detail)
@@ -404,6 +407,80 @@ class AccountsTest(unittest.TestCase):
         self.assertIsNotNone(by_id["contract:IMMO1"]["loan"])
         self.assertEqual(len(by_id), 11)
         self.assertTrue(any("loan detail unavailable: product=PERSONAL code=UPSTREAM_UNAVAILABLE" in line for line in logs.output))
+
+    def _with_synthesis(self, replace):
+        """Serve a copy of the synthesis in which `replace(item)` has edited each entry in place."""
+        items = []
+        for item in copy.deepcopy(SYNTHESIS["items"]):
+            replace(item)
+            items.append(item)
+        self.bank.synthesis = {"items": items}
+
+    def test_an_unreadable_loan_entry_is_demoted_to_unsupported_and_never_fails_sync(self):
+        def no_identification(item):
+            if item["identity"]["productFamilyPFM"]["code"] == "6" and item["identity"]["subProductFamilyPFM"]["code"] == "12":
+                item["identification"] = None
+
+        def positive_balance(item):
+            if item["identity"]["productFamilyPFM"]["code"] == "6" and item["identity"]["subProductFamilyPFM"]["code"] == "12":
+                item["identity"]["balance"]["value"] = 1000.0
+
+        for name, replace in (("identification is None", no_identification), ("positive balance", positive_balance)):
+            with self.subTest(name):
+                self._with_synthesis(replace)
+                response = self.post("/accounts")
+
+                self.assertEqual(response.status_code, 200, response.text)
+                body = response.json()
+                ids = {a["externalId"] for a in body["accounts"]}
+                self.assertNotIn("contract:PRET1", ids)
+                self.assertIn("contract:IMMO1", ids)
+                self.assertEqual(len(body["accounts"]), 10)
+                self.assertTrue(any(u.get("familyCode") == "6" and u.get("subFamilyCode") == "12" for u in body["unsupported"]))
+
+    def test_a_home_loan_without_a_usable_entity_code_is_imported_without_detail(self):
+        def entity_code(value, *, drop=False):
+            def replace(item):
+                if item["identity"]["subProductFamilyPFM"] and item["identity"]["subProductFamilyPFM"]["code"] == "13":
+                    if drop:
+                        del item["identification"]["contractId"]["entityCode"]
+                    else:
+                        item["identification"]["contractId"]["entityCode"] = value
+            return replace
+
+        cases = (("missing", entity_code(None, drop=True)), ("null", entity_code(None)), ("not alphanumeric", entity_code("00/00")))
+        for name, replace in cases:
+            with self.subTest(name):
+                self._with_synthesis(replace)
+                self.bank.requests.clear()
+                with self.assertLogs("bpce", "WARNING") as logs:
+                    response = self.post("/accounts")
+
+                self.assertEqual(response.status_code, 200, response.text)
+                body = response.json()
+                by_id = {a["externalId"]: a for a in body["accounts"]}
+                self.assertEqual(by_id["contract:IMMO1"]["kind"], "LOAN")
+                self.assertIsNone(by_id["contract:IMMO1"]["loan"])
+                self.assertEqual(by_id["contract:IMMO1"]["balance"], "-90000.0")
+                self.assertEqual(body["unavailable"], [])
+                self.assertEqual(len(by_id), 11)
+                self.assertTrue(any("loan detail unavailable: product=HOME code=UPSTREAM_FORMAT_CHANGED" in line for line in logs.output))
+                self.assertFalse(any(r.url.path.startswith(HOME_LOAN_PATH) for r in self.bank.requests))
+
+    def test_a_401_on_the_home_loan_detail_leaves_the_session_alive(self):
+        self.bank.home_detail_http = 401
+        with self.assertLogs("bpce", "WARNING") as logs:
+            response = self.post("/accounts")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        by_id = {a["externalId"]: a for a in body["accounts"]}
+        self.assertIsNone(by_id["contract:IMMO1"]["loan"])
+        self.assertEqual(by_id["contract:IMMO1"]["balance"], "-90000.0")
+        self.assertIsNotNone(by_id["contract:PRET1"]["loan"])
+        self.assertEqual(body["unavailable"], [])
+        self.assertEqual(len(by_id), 11)
+        self.assertTrue(any("loan detail unavailable: product=HOME code=UPSTREAM_UNAVAILABLE" in line for line in logs.output))
 
     def test_an_unreadable_loan_detail_is_imported_without_detail_and_logs_the_field_only(self):
         self.bank.loan_detail["personalLoanPrdSynthesisView"]["offer"]["signatureDate"] = "secret-date-value"
