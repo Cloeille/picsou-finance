@@ -95,6 +95,21 @@ describe('BpceSessionPanel unsupported contracts', () => {
     expect(await screen.findByText('sync.bpceContracts.notImported {"count":3}')).toBeInTheDocument()
   })
 
+  it('shows no count once the session is gone, since the list is hidden too', async () => {
+    apiGet.mockResolvedValue({
+      data: {
+        ...CONNECTED,
+        isActive: false,
+        unsupported: [{ externalId: 'SECRET-CONTRACT-ID-1', familyCode: '6', subFamilyCode: '13' }],
+        unsupportedCount: 1,
+      },
+    })
+    renderPanel()
+
+    expect(await screen.findByText('sync.banquePopulaire.syncSuccess')).toBeInTheDocument()
+    expect(screen.queryByText(/sync\.bpceContracts\.notImported/)).not.toBeInTheDocument()
+  })
+
   it('shows no count when every contract is imported', async () => {
     withUnsupported([])
     renderPanel()

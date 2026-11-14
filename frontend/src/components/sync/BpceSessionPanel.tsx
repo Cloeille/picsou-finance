@@ -495,7 +495,8 @@ export function BpceSessionPanel({
           {syncStatus === "SUCCESS" && status.data?.lastSyncCompletedAt && (
             <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-400">
               {t(key("syncSuccess"))}
-              {unsupportedCount > 0 && (
+              {/* The list it points to is only rendered for a live session. */}
+              {connected && unsupportedCount > 0 && (
                 <span className="text-muted-foreground">
                   {" "}
                   {t("sync.bpceContracts.notImported", { count: unsupportedCount })}

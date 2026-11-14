@@ -61,7 +61,7 @@ Banque Populaire accounts look like the ones Enable Banking creates for the same
 | `4/05` | `PER` (via Natixis Assurances portal `espace-assurances-de-personnes.banquepopulaire.fr`) | yes (compact contract ID `PERIB<number>`, producer `PERIB`; #524) |
 | `6/12`, `6/13` loans, `2/11` revolving credit, anything else | listed in `unsupported`, never fetched, never fatal | revolving credit `2/11` seen (none with `contractPfmId`) |
 
-The Sync tab lists each `unsupported` contract as `family/sub`, never its id; `6/12` (personal loan), `6/13` (home loan) and `2/11` (revolving credit) are named before the code, e.g. "Home loan (6/13)", and after a successful sync the success line adds how many contracts were not imported (the panel is shared with Caisse d'Epargne).
+The Sync tab lists each `unsupported` contract as `family/sub`, never its id; `6/12` (personal loan), `6/13` (home loan) and `2/11` (revolving credit) are named before the code, e.g. "Home loan (6/13)", and while the session is active the success line adds how many contracts were not imported (the panel is shared with Caisse d'Epargne).
 
 Loans read their detail through separate OAuth clients on Caisse d'Epargne. Their Banque Populaire equivalents were never observed, so this version does not guess them. The PER is read from the Banque Populaire insurer portal (Natixis Assurances, `SITE.per`).
 
