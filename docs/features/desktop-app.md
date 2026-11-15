@@ -91,11 +91,13 @@ the [ADR](../decisions/2026-11-15-desktop-app-tauri.md).
   stopped (longer than the sidecars' 10 min pending-login TTL, so an SMS step survives).
   Quitting stops every sidecar.
 - Chromium sidecars (amundi, banque-populaire, bourse-direct, caisse-epargne, corum, fortuneo,
-  lbp, tr) ship with Playwright but without a browser. The first start of one runs
-  `playwright install chromium-headless-shell` into `<data>/browsers` (~280 MB unpacked, logged
-  in `logs/browser-download.log`), shared by all of them; later starts reuse it. The bundled
-  Playwright pins the browser build, so a new release downloads its own once. The download
-  runs in the background: meanwhile the sidecar answers `503` ("Chromium is downloading…",
+  lbp, tr) ship with Playwright but without a browser. Once the backend is ready, the shell runs
+  `playwright install chromium-headless-shell` in the background into `<data>/browsers`
+  (~150 MB download, ~280 MB unpacked, logged in `logs/browser-download.log`), so the first sync
+  of a Chromium bank finds it ready; all of them share it. Later starts see it in place (a
+  no-op of a few seconds). The bundled
+  Playwright pins the browser build, so a new release downloads its own once. A sync that comes
+  before the download ends: the sidecar answers `503` ("Chromium is downloading…",
   `Retry-After: 30`) without starting, so no bank login is started for a caller that gave up.
   A failed download (offline, proxy, antivirus) answers `503` with the reason and retries on the
   next call; `PLAYWRIGHT_DOWNLOAD_HOST` points it at a mirror.
