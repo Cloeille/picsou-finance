@@ -833,14 +833,12 @@ class CiJobSelectionTest(unittest.TestCase):
         job = _load(CI_WORKFLOW)["jobs"]["native-sidecars"]
         self.assertEqual(job["strategy"]["matrix"]["os"], ["macos-latest", "windows-latest"])
         self.assertEqual(job["runs-on"], "${{ matrix.os }}")
-        runs = [step.get("run", "").strip() for step in job["steps"]]
-        self.assertIn("python -m pip install -r services/base/requirements.txt", runs)
-        self.assertIn("python .github/scripts/native_sidecars.py", runs)
-        python = next(step for step in job["steps"] if "setup-python" in step.get("uses", ""))
+        run = " ".join(next(step["run"] for step in job["steps"] if "native_sidecars.py" in step.get("run", "")).split())
         base = re.search(r"(?m)^FROM python:(\d+\.\d+)-", (ROOT / BASE_DOCKERFILE).read_text(encoding="utf-8"))
-        self.assertEqual(str(python["with"]["python-version"]), base.group(1))
-        # The toolcache lags the image's patch release, and html.parser changed between them.
-        self.assertIs(python["with"]["check-latest"], True)
+        # The image's minor on uv's managed builds: the runners' toolcache lags its patch release.
+        self.assertIn(f"--managed-python --python {base.group(1)} ", run)
+        self.assertIn("--with-requirements services/base/requirements.txt", run)
+        self.assertTrue(run.endswith("python .github/scripts/native_sidecars.py"))
 
     def test_native_script_rejects_a_sidecar_that_needs_a_browser(self):
         result = subprocess.run([sys.executable, str(ROOT / ".github/scripts/native_sidecars.py"), "tr-auth"],

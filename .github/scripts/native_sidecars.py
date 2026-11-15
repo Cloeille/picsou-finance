@@ -3,7 +3,8 @@
 For each sidecar on the `python` base (sidecars.py): its unittest modules from its folder,
 then a start with uvicorn bound to 127.0.0.1 on a free port and one GET /health. The
 shared package comes from services/base on PYTHONPATH, where the image has it in its
-site-packages. Needs `pip install -r services/base/requirements.txt`.
+site-packages. CI runs it under uv (see ci.yml); locally, any Python of the base
+image's minor with `pip install -r services/base/requirements.txt` does.
 
   python .github/scripts/native_sidecars.py            every browserless sidecar
   python .github/scripts/native_sidecars.py cic-auth   only the ones named

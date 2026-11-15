@@ -254,8 +254,9 @@ runs `python .github/scripts/native_sidecars.py`: each one's tests from its fold
 `services/base` on `PYTHONPATH`, then a start with uvicorn on `127.0.0.1` and a free
 port, and one `GET /health`. So a browserless sidecar must not hardcode a Linux path
 (`/tmp`, `/app`, `/data`): use `tempfile.gettempdir()` or an environment variable with
-today's Docker value as the default. Run it locally after
-`pip install -r services/base/requirements.txt`.
+today's Docker value as the default. CI runs it under uv on the latest 3.12 patch (the
+runners' own 3.12 stops at 3.12.10, whose `html.parser` differs). Locally, run it with
+the base image's Python after `pip install -r services/base/requirements.txt`.
 
 ## Release smoke tests
 
