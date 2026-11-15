@@ -12,6 +12,8 @@ use std::process::{Child, Command, Stdio};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+use crate::upgrade;
+
 pub const LOOPBACK: &str = "127.0.0.1";
 const DB_USER: &str = "picsou";
 const DB_NAME: &str = "picsou";
@@ -52,6 +54,22 @@ pub struct Stack {
 
 pub type Shared = std::sync::Arc<std::sync::Mutex<Stack>>;
 
+/// The version the backend jar and this shell are built from (Cargo.toml follows backend/pom.xml).
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// A start that did not reach the dashboard. `can_restore` offers the copy taken before the update.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Failed {
+    pub message: String,
+    pub can_restore: bool,
+}
+
+impl From<String> for Failed {
+    fn from(message: String) -> Self {
+        Failed { message, can_restore: false }
+    }
+}
+
 /// A child that dies with the app on Linux, even when the app is killed or crashes, so no
 /// orphan keeps the cluster's lock. PostgreSQL gets SIGINT, its fast shutdown. The signal is
 /// tied to the spawning thread, so `start` must run on a thread that lives as long as the app.
@@ -73,13 +91,24 @@ fn child(program: PathBuf, on_parent_death: Signal) -> Command {
 }
 
 /// Starts both processes and returns the URL the window loads once the backend is ready.
-pub fn start(layout: &Layout, stack: &Shared) -> Result<String, String> {
+pub fn start(layout: &Layout, stack: &Shared) -> Result<String, Failed> {
     let secrets = layout.secrets();
     private_dir(&layout.data).and_then(|_| private_dir(&secrets)).map_err(|e| format!("data folder: {e}"))?;
     let password = secret(&secrets.join("postgres_password")).map_err(|e| format!("database password: {e}"))?;
-    if !layout.cluster().join("PG_VERSION").exists() {
-        init_cluster(layout)?;
-    }
+    let upgrade_from = match upgrade::compare(upgrade::recorded(&layout.data).as_deref(), APP_VERSION) {
+        _ if !layout.cluster().join("PG_VERSION").exists() => {
+            init_cluster(layout)?;
+            None
+        }
+        upgrade::Before::Downgrade { from } => return Err(newer_data(&from).into()),
+        upgrade::Before::Upgrade { from } => {
+            // PostgreSQL is not running yet, so the copy is consistent.
+            upgrade::backup(&layout.data, &from, APP_VERSION, now_secs())
+                .map_err(|e| format!("Picsou could not copy your data before the update, so it did not start: {e}"))?;
+            Some(from)
+        }
+        upgrade::Before::Nothing => None,
+    };
 
     let db_port = free_port().map_err(|e| format!("no free port: {e}"))?;
     let pg_log = layout.log_path("postgres.log");
@@ -100,6 +129,8 @@ pub fn start(layout: &Layout, stack: &Shared) -> Result<String, String> {
     });
     wait_until(ready, "PostgreSQL", stack, |s| &mut s.postgres)?;
 
+    let backend_log = layout.log_path("backend.log");
+    let backend_log_start = fs::metadata(&backend_log).map(|m| m.len() as usize).unwrap_or(0);
     let port = preferred_port(&layout.data.join("desktop-port")).map_err(|e| format!("no free port: {e}"))?;
     let backend = child(layout.exe("jre", "java"), Signal::Terminate)
         // ponytail: fixed heap, sized for one household; read it from settings if users hit it.
@@ -112,8 +143,53 @@ pub fn start(layout: &Layout, stack: &Shared) -> Result<String, String> {
         .spawn()
         .map_err(|e| format!("the backend did not start: {e}"))?;
     keep(stack, backend, Signal::Terminate, |s| &mut s.backend)?;
-    wait_until(|| http_ok(port, "/actuator/health/readiness"), "The backend", stack, |s| &mut s.backend)?;
+    if let Err(message) = wait_until(|| http_ok(port, "/actuator/health/readiness"), "The backend", stack, |s| &mut s.backend) {
+        let log = fs::read(&backend_log).unwrap_or_default();
+        let new = String::from_utf8_lossy(log.get(backend_log_start..).unwrap_or_default()).into_owned();
+        return Err(explain(&message, upgrade::classify(&new), upgrade_from.as_deref()));
+    }
+    // Only a start that reached the dashboard moves the recorded version.
+    upgrade::record(&layout.data, APP_VERSION).map_err(|e| format!("data folder: {e}"))?;
     Ok(format!("http://{LOOPBACK}:{port}/"))
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+fn newer_data(from: &str) -> String {
+    format!(
+        "Your data was last opened by Picsou {from}, which is newer than this one ({APP_VERSION}). \
+         Install Picsou {from} or later. Your data was not changed."
+    )
+}
+
+/// The message for a backend that stopped, from what Flyway logged.
+pub fn explain(stopped: &str, failure: Option<upgrade::Failure>, upgrade_from: Option<&str>) -> Failed {
+    match (failure, upgrade_from) {
+        (Some(upgrade::Failure::NewerData), _) => newer_data("a newer version").into(),
+        (Some(upgrade::Failure::Migration(reason)), Some(from)) => Failed {
+            message: format!(
+                "The update from {from} to {APP_VERSION} could not update your data ({reason}). \
+                 A copy from before the update is kept: restore it, then reinstall Picsou {from}."
+            ),
+            can_restore: true,
+        },
+        (Some(upgrade::Failure::Migration(reason)), None) => format!("Your data could not be updated ({reason}). See the logs folder.").into(),
+        // A timeout or a crash mid-update may have touched the data too.
+        (None, Some(from)) => Failed {
+            message: format!("{stopped} This happened during the update from {from}: a copy from before it is kept."),
+            can_restore: true,
+        },
+        (None, None) => stopped.to_owned().into(),
+    }
+}
+
+/// Stops everything and puts back the copy taken before the update to this version.
+pub fn restore_backup(layout: &Layout, stack: &Shared) -> Result<(), String> {
+    let copy = upgrade::latest_backup(&layout.data, APP_VERSION).ok_or("no copy from before the update")?;
+    stop(stack);
+    upgrade::restore(&layout.data, &copy, now_secs()).map_err(|e| format!("restore failed: {e}"))
 }
 
 /// The backend's environment: loopback only, plain HTTP cookies, data under the app-data folder.
@@ -328,6 +404,19 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn a_failed_migration_after_an_update_offers_the_copy_and_newer_data_never_does() {
+        let failed = explain("The backend stopped", Some(upgrade::Failure::Migration("V150 failed".into())), Some("1.0.0"));
+        assert!(failed.can_restore);
+        assert!(failed.message.contains("from 1.0.0 to") && failed.message.contains("V150 failed"));
+
+        assert!(!explain("x", Some(upgrade::Failure::Migration("V150 failed".into())), None).can_restore);
+        let newer = explain("x", Some(upgrade::Failure::NewerData), Some("1.0.0"));
+        assert!(!newer.can_restore && newer.message.contains("was not changed"));
+        assert!(explain("The backend stopped.", None, Some("1.0.0")).can_restore);
+        assert_eq!(explain("The backend stopped", None, None), Failed::from("The backend stopped".to_owned()));
     }
 
     #[test]
