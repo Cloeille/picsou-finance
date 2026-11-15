@@ -24,8 +24,9 @@
  *
  * Keys are the exact `provider` string the backend writes. For crypto exchanges that string is
  * `ExchangeType.name()` (`CryptoExchangeSyncService.resolveAccount`), hence `MERIA` rather than
- * `Meria`; for Amundi it is `AmundiSyncService.PROVIDER`, accent and all, and for BoursoBank
- * `BoursoSyncService.PROVIDER`, for Natixis `NatixisSyncService.PROVIDER`; Trade Republic writes
+ * `Meria`; for Amundi it is `AmundiSyncService.PROVIDER`, accent and all, for BoursoBank
+ * `BoursoSyncService.PROVIDER`, for La Banque Postale `LbpSyncService.PROVIDER`, for Natixis
+ * `NatixisSyncService.PROVIDER`; Trade Republic writes
  * its name inline in `TradeRepublicSyncService.upsertAccount`; both CORUM connectors (SCPI and
  * CORUM Life) write `ScpiProvider.CORUM.displayName()`. `provider-logos.test.ts` pins
  * every literal so a rename on either side fails loudly instead of silently dropping the logo.
