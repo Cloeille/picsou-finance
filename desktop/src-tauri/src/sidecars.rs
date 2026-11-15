@@ -105,6 +105,10 @@ fn run(listener: TcpListener, service: &str, base: &str, layout: &Layout, stack:
                     None => match launch(service, base, layout, stack, key) {
                         Ok(port) => *upstream.insert(port),
                         Err(e) => {
+                            // In its log, where a user (and CI) looks, not only on a hidden stderr.
+                            if let Ok(mut log) = layout.log(&format!("{service}.log")) {
+                                let _ = writeln!(log, "picsou: {service} did not start: {e}");
+                            }
                             eprintln!("picsou: {service} did not start: {e}");
                             continue; // dropping the client refuses the connection
                         }

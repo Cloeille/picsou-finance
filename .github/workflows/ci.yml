@@ -370,8 +370,13 @@ jobs:
           if ($page -notmatch '<div id="root"') { throw 'the SPA is not served' }
           # Bank sidecars (#589): none runs at idle, the first call starts one on loopback.
           if (Get-Process python -ErrorAction SilentlyContinue) { throw 'a sidecar runs at idle' }
-          $bourso = Invoke-WebRequest "http://127.0.0.1:$port/api/setup/integrations/boursobank/health" -UseBasicParsing -TimeoutSec 90 | Select-Object -ExpandProperty Content
-          "bourso health: $bourso"
+          # The setup check gives a sidecar 3 s; a cold Python start may need more, so retry.
+          foreach ($try in 1..15) {
+            $bourso = Invoke-WebRequest "http://127.0.0.1:$port/api/setup/integrations/boursobank/health" -UseBasicParsing -TimeoutSec 90 | Select-Object -ExpandProperty Content
+            if ($bourso -match '"ok":true') { break }
+            Start-Sleep 2
+          }
+          "bourso health after $try call(s): $bourso"
           if ($bourso -notmatch '"ok":true') { throw 'the bourso sidecar did not answer' }
           if (-not (Get-Process python -ErrorAction SilentlyContinue)) { throw 'no sidecar process after the call' }
           $pids = (Get-Process java, postgres, python -ErrorAction SilentlyContinue).Id
