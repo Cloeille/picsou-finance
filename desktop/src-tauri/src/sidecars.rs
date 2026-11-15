@@ -6,6 +6,10 @@
 //! byte has moved for the idle time, the sidecar is stopped: bytes, not open connections, because
 //! the backend's client keeps idle connections pooled. The idle time outlives the
 //! sidecars' pending-login TTL (10 min), so a login waiting for its SMS code is not dropped.
+//!
+//! Chromium is not in the installer: the first start of a `chromium` sidecar downloads
+//! Playwright's headless shell, at the version of the bundled Playwright, into the app's data
+//! folder, shared by every Chromium sidecar. Later starts reuse it.
 
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
@@ -21,6 +25,88 @@ use crate::supervisor::{child, end, free_port, Layout, Shared, Signal, LOOPBACK}
 pub const IDLE: Duration = Duration::from_secs(15 * 60);
 const START_TIMEOUT: Duration = Duration::from_secs(60);
 const TICK: Duration = Duration::from_millis(200);
+/// A first Chromium download on a slow link.
+const BROWSER_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+
+/// Chromium for the `chromium` sidecars, downloaded once in the background.
+#[derive(Clone, PartialEq, Debug)]
+enum Browser {
+    Unknown,
+    Downloading,
+    Ready,
+    Failed(String),
+}
+
+static BROWSER: std::sync::Mutex<Browser> = std::sync::Mutex::new(Browser::Unknown);
+
+fn browsers(layout: &Layout) -> PathBuf {
+    layout.data.join("browsers")
+}
+
+/// `Ready`, or why not yet. Never blocks: a missing browser starts its download in the
+/// background, so a backend request is answered at once instead of being queued (and replayed
+/// after the caller gave up, which would start a bank login nobody waits for).
+fn browser(layout: &Layout, stack: &Shared) -> Browser {
+    let mut state = BROWSER.lock().unwrap_or_else(|e| e.into_inner());
+    if matches!(*state, Browser::Unknown | Browser::Failed(_)) {
+        *state = Browser::Downloading;
+        let (layout, stack) = (layout.clone(), stack.clone());
+        thread::spawn(move || {
+            let outcome = download_browser(&layout, &stack);
+            *BROWSER.lock().unwrap_or_else(|e| e.into_inner()) = match outcome {
+                Ok(()) => Browser::Ready,
+                Err(e) => Browser::Failed(e),
+            };
+        });
+    }
+    state.clone()
+}
+
+/// Runs `playwright install`; a no-op (seconds) when the browser is already in place.
+fn download_browser(layout: &Layout, stack: &Shared) -> Result<(), String> {
+    let log = || layout.log("browser-download.log").map_err(|e| e.to_string());
+    let mut command = child(python(&layout.runtime), Signal::Terminate);
+    command
+        .args(["-m", "playwright", "install", "chromium-headless-shell"])
+        .env("PYTHONPATH", layout.runtime.join("sidecars").join("site"))
+        .env("PYTHONNOUSERSITE", "1")
+        .env("PLAYWRIGHT_BROWSERS_PATH", browsers(layout))
+        .stdin(Stdio::null())
+        .stdout(log()?)
+        .stderr(log()?);
+    // Its own process group: Playwright's node downloader is a grandchild, ended with it.
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    let mut install = command.spawn().map_err(|e| format!("the Chromium download did not start: {e}"))?;
+    let deadline = Instant::now() + BROWSER_TIMEOUT;
+    loop {
+        match install.try_wait() {
+            Ok(Some(status)) if status.success() => return Ok(()),
+            Ok(Some(status)) => return Err(format!("the Chromium download failed ({status}); see logs/browser-download.log")),
+            _ if Instant::now() > deadline || stack.lock().unwrap_or_else(|e| e.into_inner()).stopping => {
+                #[cfg(unix)]
+                unsafe {
+                    libc::kill(-(install.id() as libc::pid_t), libc::SIGTERM);
+                }
+                end(install, Signal::Terminate);
+                return Err("the Chromium download was stopped".to_owned());
+            }
+            _ => sleep(TICK),
+        }
+    }
+}
+
+/// Answers a request the sidecar cannot serve yet, without starting it.
+fn unavailable(mut client: TcpStream, detail: &str) {
+    let body = serde_json::json!({ "detail": detail }).to_string();
+    let _ = client.set_nonblocking(false);
+    let _ = write!(
+        client,
+        "HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nRetry-After: 30\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let _ = client.shutdown(Shutdown::Both);
+}
 
 /// The (service, base) pairs listed by `fetch_runtime.py`; none when the runtime ships no sidecar.
 pub fn shipped(runtime: &Path) -> Vec<(String, String)> {
@@ -67,6 +153,12 @@ pub fn serve(layout: &Layout, stack: &Shared, key: &str, idle: Duration) -> io::
         // spawning thread, so the sidecar must be started from a thread that does not end.
         thread::spawn(move || run(listener, &service, &base, &layout, &stack, &key, idle));
     }
+    // For diagnostics (and the CI smoke test): which loopback port serves which sidecar.
+    let ports: serde_json::Map<_, _> =
+        env.iter().filter(|(k, _)| k.ends_with("_URL")).map(|(k, v)| (k.clone(), v.clone().into())).collect();
+    // Diagnostics only: a failed write must not stop Picsou.
+    let _ = std::fs::create_dir_all(&layout.data)
+        .and_then(|_| std::fs::write(layout.data.join("sidecar-ports.json"), serde_json::Value::Object(ports).to_string()));
     Ok(env)
 }
 
@@ -99,6 +191,19 @@ fn run(listener: TcpListener, service: &str, base: &str, layout: &Layout, stack:
             Ok((client, _)) => {
                 if upstream.is_some() && !running(stack, service) {
                     upstream = None;
+                }
+                if base == "chromium" && upstream.is_none() {
+                    match browser(layout, stack) {
+                        Browser::Ready => {}
+                        Browser::Failed(e) => {
+                            unavailable(client, &format!("Chromium is missing: {e}. Retry to download it again."));
+                            continue;
+                        }
+                        _ => {
+                            unavailable(client, "Chromium is downloading for its first use (about 150 MB). Retry in a few minutes.");
+                            continue;
+                        }
+                    }
                 }
                 let port = match upstream {
                     Some(port) => port,
@@ -153,6 +258,8 @@ fn launch(service: &str, base: &str, layout: &Layout, stack: &Shared, key: &str)
     let log = || layout.log(&format!("{service}.log")).map_err(|e| e.to_string());
     let sidecar = child(python(&layout.runtime), Signal::Terminate)
         .args(["-m", "uvicorn", "main:app", "--host", LOOPBACK, "--port", &port.to_string(), "--no-access-log"])
+        // Longer than the backend's pooled-connection idle time, so a reused one is not reset.
+        .args(["--timeout-keep-alive", "65"])
         .current_dir(root.join(service))
         .env("PYTHONPATH", path)
         // The runtime is read-only once installed: use the bytecode compiled at build time.
@@ -160,6 +267,7 @@ fn launch(service: &str, base: &str, layout: &Layout, stack: &Shared, key: &str)
         .env("PYTHONNOUSERSITE", "1")
         .env("PYTHONUTF8", "1")
         .env("PICSOU_SIDECAR_BASE", format!("sidecar-{base}"))
+        .env("PLAYWRIGHT_BROWSERS_PATH", browsers(layout))
         .env("APP_SIDECAR_API_KEY", key)
         .stdin(Stdio::null())
         .stdout(log()?)
@@ -284,6 +392,26 @@ http.server.HTTPServer(("127.0.0.1", port), H).serve_forever()
     #[cfg(unix)]
     fn count(stack: &Shared) -> usize {
         stack.lock().unwrap().sidecars.len()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_chromium_sidecar_answers_503_while_its_browser_downloads_and_does_not_start() {
+        let layout = fake_runtime("chromium");
+        std::fs::write(layout.runtime.join("sidecars.json"), r#"[{"service":"cic-auth","base":"chromium"}]"#).unwrap();
+        // A download that never ends: `python -m playwright` blocks.
+        std::fs::create_dir_all(layout.runtime.join("sidecars/site/playwright")).unwrap();
+        std::fs::write(layout.runtime.join("sidecars/site/playwright/__init__.py"), "").unwrap();
+        std::fs::write(layout.runtime.join("sidecars/site/playwright/__main__.py"), "import time\ntime.sleep(60)\n").unwrap();
+        let stack = Shared::default();
+        let env = serve(&layout, &stack, "k3y", Duration::from_secs(60)).unwrap();
+        let url = env.iter().find(|(k, _)| k == "CIC_AUTH_URL").map(|(_, v)| v.clone()).unwrap();
+
+        let answer = get(&url);
+        assert!(answer.starts_with("HTTP/1.1 503") && answer.contains("downloading"), "{answer}");
+        assert!(get(&url).starts_with("HTTP/1.1 503"), "still downloading");
+        assert_eq!(count(&stack), 0, "the sidecar is not started meanwhile");
+        crate::supervisor::stop(&stack);
     }
 
     #[cfg(unix)]
