@@ -30,7 +30,10 @@ fn failure_script(failed: &Failed) -> String {
 }
 
 fn layout(app: &tauri::AppHandle) -> tauri::Result<Layout> {
-    Ok(Layout { runtime: runtime_dir(app), data: app.path().app_data_dir()? })
+    // Tauri returns Windows paths as `\\?\C:\…`; initdb cannot find postgres.exe next to itself
+    // with that form, so both folders are simplified to `C:\…` (a no-op elsewhere).
+    let data = dunce::simplified(&app.path().app_data_dir()?).to_path_buf();
+    Ok(Layout { runtime: dunce::simplified(&runtime_dir(app)).to_path_buf(), data })
 }
 
 /// Called by the error page only: IPC is limited to the local `ui/` page, never the backend's.
