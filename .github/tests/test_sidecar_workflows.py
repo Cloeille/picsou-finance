@@ -878,7 +878,10 @@ class JobTimeoutTest(unittest.TestCase):
 
     # Minutes a job may be given: about twice its slowest observed run. Per job overrides the file's cap.
     FILE_CAP = {"ci.yml": 20, "codeql.yml": 60, "docker.yml": 30}
-    JOB_CAP = {("ci.yml", "e2e"): 30, ("ci.yml", "desktop-windows"): 40}  # bimodal: most runs take 2 min, the slow tail 9-15 min
+    JOB_CAP = {
+        ("ci.yml", "e2e"): 30,  # bimodal: most runs take 2 min, the slow tail 9-15 min
+        ("ci.yml", "desktop-windows"): 40,  # cold Rust, Maven and bun builds: 25-30 min
+    }
 
     def test_every_job_has_a_bounded_timeout(self):
         workflows = sorted((ROOT / ".github/workflows").glob("*.yml"))

@@ -60,17 +60,20 @@ the [ADR](../decisions/2026-11-15-desktop-app-tauri.md).
   artifact. The job installs it silently, starts the installed app, waits for the readiness
   probe, checks that only loopback listens, kills the app hard and checks no process is left.
 - Install per user (`%LOCALAPPDATA%\Picsou`, no admin prompt). Data in
-  `%APPDATA%\com.picsou.desktop`. WebView2 ships with Windows 10 and 11.
+  `%LOCALAPPDATA%\com.picsou.desktop` (local: a roaming profile never syncs the cluster). WebView2 ships with Windows 10 and 11.
 - Unsigned: SmartScreen shows "Windows protected your PC". Click **More info**, then **Run
   anyway**. Signing and auto-update stay in #591.
 - PostgreSQL runs under `pg_ctl` (Windows has no signals): `pg_ctl start -w` and
   `pg_ctl stop -m fast`. `pg_ctl` also drops admin rights, which PostgreSQL requires.
 - A job object with "kill on close" holds Picsou and its children: a crash or a kill from the
   Task Manager takes Java and PostgreSQL with it.
+- PostgreSQL carries the VC++ runtime DLLs copied from the JRE, and the shell links it
+  statically: a fresh Windows without the VC++ redistributable runs it.
 - The cluster uses the `C` locale and initdb's own `postgres` database: creating another one
   needs single-user mode, which PostgreSQL refuses to an elevated user, or client tools the
-  bundle does not ship.
-- Secrets are not 0600: NTFS has no POSIX modes. They sit in the user's own `%APPDATA%`; the
+  bundle does not ship. Known gap: `lower()` and `ILIKE` fold ASCII only, so "É" and "é"
+  differ on Windows; an ICU locale is the follow-up.
+- Secrets are not 0600: NTFS has no POSIX modes. They sit in the user's own `%LOCALAPPDATA%`; the
   backend logs a warning when it cannot chmod.
 
 ### Key files
