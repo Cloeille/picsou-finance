@@ -32,9 +32,30 @@ the [ADR](../decisions/2026-11-15-desktop-app-tauri.md).
 4. Quitting stops the backend (SIGTERM), then PostgreSQL with a fast shutdown (SIGINT). On Linux,
    both children also die with the app if it crashes or is killed (`PR_SET_PDEATHSIG`).
 
+### Updates and failed migrations (#588)
+
+- `app-version` in the data folder names the last version that reached the dashboard. It moves
+  only after the backend's readiness probe answers.
+- A start with another version copies `postgres/` and `secrets/` to
+  `backups/<seconds>-<from>-to-<to>/` before PostgreSQL starts, so the copy is consistent. The
+  copy is written to `*.partial` and renamed when complete. A retried update keeps the copy of
+  its first try. The last two copies are kept.
+- An older version on newer data does not start PostgreSQL: the window names the version to
+  install and the data is untouched. Flyway's own refusal (#554) gives the same message.
+- A Flyway failure after an update shows its reason and a "Restore my data from before the
+  update" button. Restoring stops the processes, moves the failed `postgres/` and `secrets/`
+  aside (`*.failed-<seconds>-<n>`, never deleted: delete them by hand once the restore works) and
+  puts the backup in place. The copy is staged as `*.restoring` first, so a failed restore
+  changes nothing. Copies keep the folders' modes (PostgreSQL requires 0700) and skip
+  `postmaster.pid`. Data without an `app-version` marker counts as an update from `unknown`. The user then
+  reinstalls the previous version.
+- The button calls the `restore_backup` command. IPC is open only to the bundled `ui/` page
+  (`capabilities/error-page.json` lists no remote URL), so the backend's pages cannot call it.
+
 ### Key files
 
 - `desktop/src-tauri/src/supervisor.rs` — processes, ports, secrets, first start
+- `desktop/src-tauri/src/upgrade.rs` — version marker, backups, restore, Flyway failure reading
 - `desktop/src-tauri/src/main.rs` — the window and the startup thread
 - `desktop/scripts/fetch_runtime.py` — builds `desktop/runtime` from the Docker release pins
 - `desktop/ui/index.html` — the waiting and error page
