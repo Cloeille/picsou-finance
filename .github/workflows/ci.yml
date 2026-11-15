@@ -379,6 +379,17 @@ jobs:
           "bourso health after $try call(s): $bourso"
           if ($bourso -notmatch '"ok":true') { throw 'the bourso sidecar did not answer' }
           if (-not (Get-Process python -ErrorAction SilentlyContinue)) { throw 'no sidecar process after the call' }
+          # A Chromium sidecar: its first start downloads Chromium once, the next start reuses it.
+          $corum = (Get-Content "$data/sidecar-ports.json" | ConvertFrom-Json).CORUM_AUTH_URL
+          $t0 = Get-Date; $ok = $false
+          # 503 while Chromium downloads, then the sidecar's own /health.
+          foreach ($try in 1..120) {
+            try { Invoke-WebRequest "$corum/health" -UseBasicParsing -TimeoutSec 10 | Out-Null; $ok = $true; break } catch { Start-Sleep 5 }
+          }
+          if (-not $ok) { throw 'the corum sidecar never answered' }
+          "corum first start: $([int]((Get-Date) - $t0).TotalSeconds) s"
+          if (-not (Test-Path "$data/browsers/chromium_headless_shell-*")) { throw 'Chromium was not downloaded' }
+          Get-Content "$data/logs/browser-download.log" -Tail 3
           $pids = (Get-Process java, postgres, python -ErrorAction SilentlyContinue).Id
           $listening = Get-NetTCPConnection -State Listen | Where-Object { $pids -contains $_.OwningProcess }
           $listening | Format-Table LocalAddress, LocalPort, OwningProcess

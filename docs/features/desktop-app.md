@@ -90,8 +90,21 @@ the [ADR](../decisions/2026-11-15-desktop-app-tauri.md).
   loopback port and the bytes are piped to it. After 15 min without an open connection it is
   stopped (longer than the sidecars' 10 min pending-login TTL, so an SMS step survives).
   Quitting stops every sidecar.
-- Chromium sidecars and the on-demand browser download come next; Camoufox ones (amex, bnp,
-  revolut) are not shipped on desktop.
+- Chromium sidecars (amundi, banque-populaire, bourse-direct, caisse-epargne, corum, fortuneo,
+  lbp, tr) ship with Playwright but without a browser. The first start of one runs
+  `playwright install chromium-headless-shell` into `<data>/browsers` (~280 MB unpacked, logged
+  in `logs/browser-download.log`), shared by all of them; later starts reuse it. The bundled
+  Playwright pins the browser build, so a new release downloads its own once. The download
+  runs in the background: meanwhile the sidecar answers `503` ("Chromium is downloading…",
+  `Retry-After: 30`) without starting, so no bank login is started for a caller that gave up.
+  A failed download (offline, proxy, antivirus) answers `503` with the reason and retries on the
+  next call; `PLAYWRIGHT_DOWNLOAD_HOST` points it at a mirror.
+- Linux: Chromium needs the usual desktop libraries (`libnss3`, `libnspr4`, `libatk1.0-0`,
+  `libatk-bridge2.0-0`, `libcups2`, `libgbm1`, `libxkbcommon0`, `libasound2`, …; the list of
+  `services/base/Dockerfile`). Windows needs nothing extra.
+- Playwright's driver adds ~135 MB to the runtime.
+- `<data>/sidecar-ports.json` maps each `<SERVICE>_URL` to its loopback port, for diagnostics.
+- Camoufox sidecars (amex, bnp, revolut) are not shipped on desktop.
 
 ### Key files
 
