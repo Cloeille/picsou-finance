@@ -3610,5 +3610,9 @@
     "updateInstructions": "To update your Docker instance, run:",
     "copied": "Copied",
     "copy": "Copy"
+  },
+  "desktop": {
+    "unavailable": "Not on desktop",
+    "unavailableDetail": "This bank needs a browser the desktop app does not include. Use the Docker version of Picsou to sync it."
   }
 }

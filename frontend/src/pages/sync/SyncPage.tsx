@@ -11,6 +11,8 @@ import { ScrollStrip } from '@/components/shared/ScrollStrip'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/badge'
+import { useDesktopUnavailable } from '@/features/desktop/hooks'
 import {
   ActualBudgetLogo,
   AmexLogo,
@@ -124,6 +126,7 @@ export function SyncPage() {
   const [tab, setTabState] = useState(() => (initialTab && VALID_IDS.has(initialTab) ? initialTab : 'banks'))
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<SyncCategory>('all')
+  const desktopUnavailable = useDesktopUnavailable()
 
   const setTab = (next: string) => {
     setTabState(next)
@@ -139,18 +142,21 @@ export function SyncPage() {
     })
   }, [category, query, t])
 
+  // A bank the desktop app does not ship: its panel says so instead of offering a login that cannot work.
+  const unavailableOnDesktop = <p className="text-sm text-muted-foreground">{t('desktop.unavailableDetail')}</p>
+
   const renderPanel = () => {
     switch (tab) {
       case 'banks': return <BankSyncTab onOpenWiseJars={() => setTab('wise')} />
       case 'exchanges': return <CryptoExchangeTab />
       case 'wallets': return <CryptoWalletTab />
       case 'tr': return <TradeRepublicTab />
-      case 'revolut': return <RevolutTab />
+      case 'revolut': return desktopUnavailable('revolut') ? unavailableOnDesktop : <RevolutTab />
       case 'bourso': return <BoursoTab />
       case 'caisse-epargne': return <CaisseEpargneTab />
       case 'banque-populaire': return <BanquePopulaireTab />
       case 'lbp': return <LbpTab />
-      case 'bnp': return <BnpTab />
+      case 'bnp': return desktopUnavailable('bnp') ? unavailableOnDesktop : <BnpTab />
       case 'bourse-direct': return <BourseDirectTab />
       case 'degiro': return <DegiroTab />
       case 'ibkr': return <IbkrTab />
@@ -161,7 +167,7 @@ export function SyncPage() {
       case 'natixis': return <NatixisTab />
       case 'cic': return <CicTab />
       case 'fortuneo': return <FortuneoTab />
-      case 'amex': return <AmexTab />
+      case 'amex': return desktopUnavailable('amex') ? unavailableOnDesktop : <AmexTab />
       case 'corum': return <CorumTab />
       case 'sofidy': return <SofidyTab />
       case 'actual': return <ActualBudgetTab />
@@ -251,6 +257,7 @@ export function SyncPage() {
                 >
                   <Icon className="size-4 shrink-0" />
                   <span>{t(labelKey)}</span>
+                  {desktopUnavailable(id) && <Badge variant="secondary" className="ml-1">{t('desktop.unavailable')}</Badge>}
                 </button>
               )
             })}
@@ -285,6 +292,7 @@ export function SyncPage() {
                 >
                   <Icon className={cn('size-4 shrink-0', active ? 'text-foreground' : 'text-muted-foreground')} />
                   <span className="truncate">{t(labelKey)}</span>
+                  {desktopUnavailable(id) && <Badge variant="secondary" className="ml-1">{t('desktop.unavailable')}</Badge>}
                 </button>
               )
             })

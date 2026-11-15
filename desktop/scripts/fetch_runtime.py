@@ -163,6 +163,9 @@ def sidecars(manifest, target):
         for name in image_files(folder / "Dockerfile"):
             shutil.copy2(folder / name, out / sidecar["service"] / name)
     (RUNTIME / "sidecars.json").write_text(json.dumps(shipped, indent=2), encoding="utf-8")
+    # The ones the desktop cannot run (Camoufox): the UI marks them "not available on desktop".
+    left_out = [s["service"] for s in manifest["sidecars"] if not s["desktop"]]
+    (RUNTIME / "sidecars-unavailable.json").write_text(json.dumps(left_out), encoding="utf-8")
     trim_python(RUNTIME / "python")
     # Bytecode once at build time, hash-checked so bundling's new mtimes do not invalidate it:
     # otherwise every cold start recompiles FastAPI and pydantic.

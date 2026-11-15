@@ -106,7 +106,12 @@ the [ADR](../decisions/2026-11-15-desktop-app-tauri.md).
   `services/base/Dockerfile`). Windows needs nothing extra.
 - Playwright's driver adds ~135 MB to the runtime.
 - `<data>/sidecar-ports.json` maps each `<SERVICE>_URL` to its loopback port, for diagnostics.
-- Camoufox sidecars (amex, bnp, revolut) are not shipped on desktop.
+- Camoufox sidecars (amex, bnp, revolut) are not shipped on desktop. `fetch_runtime.py` lists
+  them in `runtime/sidecars-unavailable.json`; the shell passes `PICSOU_DESKTOP=true` and
+  `PICSOU_DESKTOP_UNAVAILABLE` to the backend, which exposes them as `info.app.desktop` and
+  `info.app.desktop-unavailable` on `/actuator/info`. The SPA greys those banks out in "Add
+  account" with a "Not on desktop" badge, and their sync tab explains to use the Docker version.
+  Docker sets neither variable, so nothing changes there.
 
 ### Key files
 
