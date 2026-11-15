@@ -121,18 +121,21 @@ pub fn kill_children_with_the_app() {
     unsafe {
         let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
         if job.is_null() {
+            eprintln!("picsou: no job object, PostgreSQL and Java may outlive a crash: {}", std::io::Error::last_os_error());
             return;
         }
         let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
         info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        SetInformationJobObject(
+        let limited = SetInformationJobObject(
             job,
             JobObjectExtendedLimitInformation,
             &info as *const _ as *const std::ffi::c_void,
             std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
         );
         // The handle is never closed on purpose: it lives exactly as long as the process.
-        AssignProcessToJobObject(job, GetCurrentProcess());
+        if limited == 0 || AssignProcessToJobObject(job, GetCurrentProcess()) == 0 {
+            eprintln!("picsou: no job object, PostgreSQL and Java may outlive a crash: {}", std::io::Error::last_os_error());
+        }
     }
 }
 
@@ -365,6 +368,7 @@ fn init_cluster(layout: &Layout) -> Result<(), String> {
         .arg("-D").arg(&staging)
         .args(["-U", DB_USER, "--auth=scram-sha-256", "--encoding=UTF8", &format!("--locale={LOCALE}")])
         .arg(format!("--pwfile={}", layout.secrets().join("postgres_password").display()))
+        .stdin(Stdio::null())
         .stdout(log()?)
         .stderr(log()?)
         .status()
