@@ -3,6 +3,7 @@
 
 mod sidecars;
 mod supervisor;
+mod update;
 mod upgrade;
 
 use std::fs::OpenOptions;
@@ -95,7 +96,15 @@ fn tray(app: &tauri::App) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open Picsou", true, None::<&str>)?;
     let login = CheckMenuItem::with_id(app, "login", "Launch at login", can_launch_at_login(), autolaunch.is_enabled().unwrap_or(false), None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Picsou", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &login, &quit])?;
+    let mut items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = vec![&open, &login];
+    // Only a release build (updater key in its config) checks for updates.
+    let install = MenuItem::with_id(app, "update", "Picsou is up to date", false, None::<&str>)?;
+    if update::enabled(app.config()) {
+        *app.state::<update::TrayItem>().0.lock().unwrap_or_else(|e| e.into_inner()) = Some(install.clone());
+        items.push(&install);
+    }
+    items.push(&quit);
+    let menu = Menu::with_items(app, &items)?;
     let toggle = login.clone();
     let mut builder = TrayIconBuilder::with_id("main").tooltip("Picsou");
     if let Some(icon) = app.default_window_icon().cloned() {
@@ -111,6 +120,7 @@ fn tray(app: &tauri::App) -> tauri::Result<()> {
                 let _ = if autolaunch.is_enabled().unwrap_or(false) { autolaunch.disable() } else { autolaunch.enable() };
                 let _ = toggle.set_checked(autolaunch.is_enabled().unwrap_or(false));
             }
+            "update" => update::install(app),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -142,6 +152,7 @@ fn main() {
         }))
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![HIDDEN])))
         .manage(stack.clone())
+        .manage(update::TrayItem::default())
         .on_window_event(|window, event| {
             // Closing the window keeps Picsou running in the tray; only Quit stops it.
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -173,6 +184,9 @@ fn main() {
             if !started_hidden(std::env::args()) || !TRAY_OK.load(Ordering::SeqCst) {
                 show_window(app.handle());
             }
+            if update::enabled(app.config()) {
+                app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+            }
             let handle = app.handle().clone();
             let layout = layout(&handle)?;
             let stack = handle.state::<Shared>().inner().clone();
@@ -182,6 +196,9 @@ fn main() {
                     Ok(url) => match (handle.get_webview_window("main"), Url::parse(&url)) {
                         (Some(window), Ok(url)) => {
                             let _ = window.navigate(url);
+                            if update::enabled(handle.config()) {
+                                update::watch(&handle);
+                            }
                         }
                         _ => show_error(&handle, Failed::from("The window is gone.".to_owned())),
                     },
