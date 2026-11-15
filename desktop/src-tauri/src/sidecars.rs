@@ -134,6 +134,12 @@ fn well_formed(name: &str) -> bool {
     !name.is_empty() && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
+/// The sidecars of the Docker release this desktop build does not ship (`fetch_runtime.py`).
+pub fn unavailable_services(runtime: &Path) -> Vec<String> {
+    let text = std::fs::read_to_string(runtime.join("sidecars-unavailable.json")).unwrap_or_default();
+    serde_json::from_str::<Vec<String>>(&text).unwrap_or_default().into_iter().filter(|s| well_formed(s)).collect()
+}
+
 /// `bourso-auth` → `BOURSO_AUTH_URL`, the variable `application.yml` reads.
 pub fn url_variable(service: &str) -> String {
     format!("{}_URL", service.to_uppercase().replace('-', "_"))
@@ -149,7 +155,11 @@ fn python(runtime: &Path) -> PathBuf {
 
 /// Opens one port per shipped sidecar and returns the backend's variables for them.
 pub fn serve(layout: &Layout, stack: &Shared, key: &str, idle: Duration) -> io::Result<Vec<(String, String)>> {
-    let mut env = Vec::new();
+    // Surfaced by /actuator/info (`info.app.desktop`, `info.app.desktop-unavailable`): the SPA marks those banks unavailable.
+    let mut env = vec![
+        ("PICSOU_DESKTOP".to_owned(), "true".to_owned()),
+        ("PICSOU_DESKTOP_UNAVAILABLE".to_owned(), unavailable_services(&layout.runtime).join(",")),
+    ];
     let services = shipped(&layout.runtime);
     if !services.is_empty() {
         env.push(("APP_SIDECAR_API_KEY".to_owned(), key.to_owned()));
@@ -346,6 +356,17 @@ mod tests {
     fn services_map_to_the_backend_variables() {
         assert_eq!(url_variable("bourso-auth"), "BOURSO_AUTH_URL");
         assert_eq!(url_variable("caisse-epargne-auth"), "CAISSE_EPARGNE_AUTH_URL");
+    }
+
+    #[test]
+    fn the_unavailable_sidecars_reach_the_backend_info() {
+        let dir = std::env::temp_dir().join(format!("picsou-sidecars-unavailable-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("runtime")).unwrap();
+        std::fs::write(dir.join("runtime/sidecars-unavailable.json"), r#"["amex-auth","bnp-auth","../x"]"#).unwrap();
+        let layout = Layout { runtime: dir.join("runtime"), data: dir.join("data") };
+        let env = serve(&layout, &Shared::default(), "k", IDLE).unwrap();
+        assert!(env.contains(&("PICSOU_DESKTOP".to_owned(), "true".to_owned())));
+        assert!(env.contains(&("PICSOU_DESKTOP_UNAVAILABLE".to_owned(), "amex-auth,bnp-auth".to_owned())));
     }
 
     #[test]
