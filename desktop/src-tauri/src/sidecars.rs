@@ -7,9 +7,10 @@
 //! the backend's client keeps idle connections pooled. The idle time outlives the
 //! sidecars' pending-login TTL (10 min), so a login waiting for its SMS code is not dropped.
 //!
-//! Chromium is not in the installer: the first start of a `chromium` sidecar downloads
-//! Playwright's headless shell, at the version of the bundled Playwright, into the app's data
-//! folder, shared by every Chromium sidecar. Later starts reuse it.
+//! Chromium is not in the installer: once the backend is ready, `prefetch_browser` downloads
+//! Playwright's headless shell (the bundled Playwright's version) into the app's data folder in
+//! the background, before any sync needs it; every Chromium sidecar shares it. A sync that comes
+//! before the download ends gets a 503 "retry", never a queued request.
 
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
@@ -93,6 +94,14 @@ fn download_browser(layout: &Layout, stack: &Shared) -> Result<(), String> {
             }
             _ => sleep(TICK),
         }
+    }
+}
+
+/// Starts the Chromium download in the background when a Chromium sidecar ships, so the first
+/// sync finds it ready. A no-op (seconds) when it is already there.
+pub fn prefetch_browser(layout: &Layout, stack: &Shared) {
+    if shipped(&layout.runtime).iter().any(|(_, base)| base == "chromium") {
+        browser(layout, stack);
     }
 }
 
