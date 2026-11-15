@@ -57,6 +57,7 @@ jobs:
             # one under services/<name>-auth only that one (sidecars.py --select).
             sidecar: [*workflows, 'services/base/**', 'services/*-auth/**']
             compose-sidecar-build: [*workflows, 'services/**', 'docker/docker-compose.yml']
+            native-sidecars: [*workflows, 'services/base/**', 'services/*-auth/**']
             workflow-inventory: [*workflows, 'services/**', 'backend/src/main/resources/application*.yml', '.env.example',
                                  'docker/.env.example', 'docker/docker-compose.yml', 'docker/Dockerfile']
             helm-chart: [*workflows, 'charts/**', 'backend/src/main/resources/application.yml', 'docker/docker-compose.yml']
@@ -289,6 +290,26 @@ jobs:
       - name: Build and test the ${{ matrix.service }} image
         run: make test-sidecar SIDECAR=${{ matrix.service }} ARCH=${{ matrix.arch }}
 
+  # The browserless sidecars outside a container, on the systems the desktop app targets
+  # (#235): their tests, then a start on 127.0.0.1 and one /health call.
+  native-sidecars:
+    needs: changes
+    if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'native-sidecars')
+    name: native-sidecars (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - *checkout
+      - *python
+      - name: Install the shared pins
+        run: python -m pip install -r services/base/requirements.txt
+      - name: Test and start each browserless sidecar
+        run: python .github/scripts/native_sidecars.py
+
   compose-sidecar-build:
     needs: changes
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'compose-sidecar-build')
@@ -397,7 +418,7 @@ jobs:
   # chart failures must not prevent application images from being published.
   ci-ok:
     if: always()
-    needs: [changes, release-deployment, docker-compose, backend, frontend, e2e, sidecar-base, sidecar, compose-sidecar-build, workflow-inventory]
+    needs: [changes, release-deployment, docker-compose, backend, frontend, e2e, sidecar-base, sidecar, native-sidecars, compose-sidecar-build, workflow-inventory]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -472,7 +493,7 @@ jobs:
   # Images are only published after every release-blocking CI job is green, and
   # only on a push to main or a version tag — not on pull requests or release branches.
   docker:
-    needs: [ci-ok, release-deployment, docker-compose, backend, frontend, e2e, sidecar-base, sidecar, compose-sidecar-build, workflow-inventory]
+    needs: [ci-ok, release-deployment, docker-compose, backend, frontend, e2e, sidecar-base, sidecar, native-sidecars, compose-sidecar-build, workflow-inventory]
     if: github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/release/')
     uses: ./.github/workflows/docker.yml
     secrets: inherit

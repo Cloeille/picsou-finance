@@ -637,7 +637,7 @@ class CiJobSelectionTest(unittest.TestCase):
             },
             "charts/picsou/values.yaml": {"helm-chart"},
             "charts/picsou/templates/sidecars.yaml": {"helm-chart"},
-            "services/sofidy-auth/main.py": {"sidecar:sofidy-auth", "backend"} | services,
+            "services/sofidy-auth/main.py": {"sidecar:sofidy-auth", "backend", "native-sidecars"} | services,
             "services/tr-auth/main.py": {"sidecar:tr-auth"} | services,
             "services/amex-auth/main.py": {"sidecar:amex-auth", "sidecar:amex-auth:arm64"}
             | services,
@@ -647,10 +647,10 @@ class CiJobSelectionTest(unittest.TestCase):
             | services,
             "services/new-bank-auth/main.py": services,
             "services/base/requirements.txt": sidecars
-            | {"backend", "sidecar-base"}
+            | {"backend", "sidecar-base", "native-sidecars"}
             | services,
             "services/base/picsou_sidecar/app.py": sidecars
-            | {"backend", "sidecar-base"}
+            | {"backend", "sidecar-base", "native-sidecars"}
             | services,
             ".github/workflows/ci.yml": everything,
             ".github/tests/test_sidecar_workflows.py": everything,
@@ -828,6 +828,23 @@ class CiJobSelectionTest(unittest.TestCase):
             with self.subTest(job=job):
                 lines = [line.strip() for step in jobs[job]["steps"] for line in step.get("run", "").splitlines()]
                 self.assertIn(command, lines)
+
+    def test_browserless_sidecars_run_outside_a_container_on_macos_and_windows(self):
+        job = _load(CI_WORKFLOW)["jobs"]["native-sidecars"]
+        self.assertEqual(job["strategy"]["matrix"]["os"], ["macos-latest", "windows-latest"])
+        self.assertEqual(job["runs-on"], "${{ matrix.os }}")
+        runs = [step.get("run", "").strip() for step in job["steps"]]
+        self.assertIn("python -m pip install -r services/base/requirements.txt", runs)
+        self.assertIn("python .github/scripts/native_sidecars.py", runs)
+        python = next(step for step in job["steps"] if "setup-python" in step.get("uses", ""))
+        base = re.search(r"(?m)^FROM python:(\d+\.\d+)-", (ROOT / BASE_DOCKERFILE).read_text(encoding="utf-8"))
+        self.assertEqual(str(python["with"]["python-version"]), base.group(1))
+
+    def test_native_script_rejects_a_sidecar_that_needs_a_browser(self):
+        result = subprocess.run([sys.executable, str(ROOT / ".github/scripts/native_sidecars.py"), "tr-auth"],
+                                capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not a browserless sidecar: tr-auth", result.stderr)
 
     def test_frontend_ci_splits_lint_and_sharded_unit_tests(self):
         job = _load(CI_WORKFLOW)["jobs"]["frontend"]
