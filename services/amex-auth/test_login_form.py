@@ -32,6 +32,7 @@ class _Locator:
 
     async def click(self, timeout=None):
         self.page.clicks.append(self.selector)
+        self.page.click_timeouts.append(timeout)
 
 
 class FakeLoginPage:
@@ -47,6 +48,7 @@ class FakeLoginPage:
         self.reloads = 0
         self.on_reload_abort = on_reload_abort
         self.clicks = []
+        self.click_timeouts = []
         self.locator_handlers = []
 
     async def add_locator_handler(self, locator, handler):
@@ -179,6 +181,8 @@ class OpenLoginFormTest(unittest.IsolatedAsyncioTestCase):
         # Playwright calls the handler with the locator whenever the banner shows.
         await handler(banner)
         self.assertEqual(page.clicks, [main.COOKIE_BANNER_DECLINE_SELECTOR])
+        # Live: a ready decline button still missed a 2 s click.
+        self.assertEqual(page.click_timeouts, [5_000])
 
     async def test_loaded_module_with_a_form_too_slow_is_reloaded(self):
         # Seen live: the module loads and the form still misses the first wait.

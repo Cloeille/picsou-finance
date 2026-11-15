@@ -80,6 +80,8 @@ LOGIN_FORM_POLL_SECONDS = 0.5
 LOGIN_MODULE_URL_MARKER = "/one-identity-login/"
 LOGIN_MODULE_FILE_PREFIX = "one-identity-login."
 COOKIE_BANNER_DECLINE_SELECTOR = "#user-consent-management-granular-banner-decline-all-button"
+# Live (#568): a visible, enabled, stable decline button still missed a 2 s click.
+COOKIE_BANNER_CLICK_TIMEOUT_MS = 5_000
 LOGIN_RESULT_TIMEOUT_SECONDS = 30
 # AMEX's own login request, sent by the page on submit. Akamai Bot Manager refuses a
 # login it scores as a bot by answering this request 403; the page then retries it
@@ -697,7 +699,7 @@ async def _open_login_form(page: Page) -> None:
     # before any action whenever the banner is visible, whenever it arrives.
     await page.add_locator_handler(
         page.locator(COOKIE_BANNER_DECLINE_SELECTOR).first,
-        lambda banner: banner.click(timeout=2_000),
+        lambda banner: banner.click(timeout=COOKIE_BANNER_CLICK_TIMEOUT_MS),
     )
     watch = _LoginModuleWatch()
     page.on("response", watch.on_response)
