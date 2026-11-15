@@ -131,7 +131,8 @@ every 6 h, and offers "Install Picsou x.y.z" in the tray.
 - A prerelease is attached like any release, but `releases/latest` skips prereleases, so
   installed apps do not get it.
 - To attach to a release published before the key was set, run the workflow by hand
-  (Actions, "Desktop release", "Run workflow") with its tag.
+  (Actions, "Desktop release", "Run workflow") with its tag. Only a tag that contains this
+  workflow works: an older one has neither the release scripts nor the updater.
 
 One-time setup by a maintainer. The job is skipped until the variable exists.
 

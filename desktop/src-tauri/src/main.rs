@@ -146,7 +146,10 @@ fn main() {
     let app = tauri::Builder::default()
         // First, so a second launch only brings the running window forward.
         .plugin(tauri_plugin_single_instance::init(|app, argv, _| {
-            if !started_hidden(argv) {
+            // `picsou --install-update` does what the tray's Install entry does, scriptably.
+            if update::enabled(app.config()) && update::wants_install(argv.iter().cloned()) {
+                update::install(app);
+            } else if !started_hidden(argv) {
                 show_window(app);
             }
         }))

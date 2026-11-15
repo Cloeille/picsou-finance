@@ -17,7 +17,7 @@ class DesktopReleaseTest(unittest.TestCase):
         self.assertEqual(desktop_release.version("1.3.0"), "1.3.0")
         self.assertEqual(desktop_release.version("v1.3.0"), "1.3.0")
         self.assertEqual(desktop_release.version("1.3.0-rc.1"), "1.3.0-rc.1")
-        for tag in ("1.3", "latest", "v01.3.0", "1.3.0 "):
+        for tag in ("1.3", "latest", "v01.3.0", "1.3.0 ", "1.3.0\n"):
             with self.subTest(tag=tag), self.assertRaises(SystemExit):
                 desktop_release.version(tag)
 

@@ -20,7 +20,7 @@ SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z.-]+)
 def version(tag):
     """`v1.3.0` or `1.3.0` -> `1.3.0`; anything else is not a release the updater can compare."""
     value = tag[1:] if tag.startswith("v") else tag
-    if not SEMVER.match(value):
+    if not SEMVER.fullmatch(value):
         raise SystemExit(f"{tag!r} is not a semver release tag")
     return value
 
