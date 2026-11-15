@@ -6,10 +6,11 @@
   runtime/spa/        frontend/dist
 
 Versions come from `.github/scripts/sidecars.py --desktop`, so the desktop app follows the
-Docker release. Every download is checked against its published SHA-256. Linux x86_64 only
-for now; macOS and Windows come with #591.
+Docker release. Every download is checked against its published SHA-256. Targets: Linux and
+Windows on x86_64 (`--target windows`, default: this machine). macOS comes with #591.
 """
 
+import argparse
 import hashlib
 import io
 import json
@@ -25,8 +26,13 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME = ROOT / "desktop/runtime"
-ADOPTIUM = "https://api.adoptium.net/v3/assets/latest/{java}/hotspot?os=linux&architecture=x64&image_type=jre"
-ZONKY = "https://repo1.maven.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-linux-amd64"
+ADOPTIUM = "https://api.adoptium.net/v3/assets/latest/{java}/hotspot?os={os}&architecture=x64&image_type=jre"
+ZONKY = "https://repo1.maven.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-{os}-amd64"
+# Per target: the Adoptium/zonky OS name and the archive inside zonky's jar.
+TARGETS = {
+    "linux": {"os": "linux", "archive": "postgres-linux-x86_64.txz"},
+    "windows": {"os": "windows", "archive": "postgres-windows-x86_64.txz"},
+}
 
 
 def pins():
@@ -53,9 +59,9 @@ def text(url):
         return response.read().decode()
 
 
-def latest_postgres(major):
+def latest_postgres(zonky, major):
     """The newest zonky release of the Compose major, e.g. 16.9.0."""
-    metadata = ElementTree.fromstring(text(f"{ZONKY}/maven-metadata.xml"))
+    metadata = ElementTree.fromstring(text(f"{zonky}/maven-metadata.xml"))
     versions = [v.text for v in metadata.iter("version")
                 if v.text and re.fullmatch(r"\d+(\.\d+)*", v.text) and v.text.split(".")[0] == major]
     if not versions:
@@ -66,6 +72,16 @@ def latest_postgres(major):
 def extract(archive, target, strip_top=False):
     shutil.rmtree(target, ignore_errors=True)
     target.mkdir(parents=True)
+    if archive[:2] == b"PK":  # Adoptium ships Windows JREs as zip
+        with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
+            for info in zipped.infolist():
+                parts = Path(info.filename).parts[1 if strip_top else 0:]
+                if not parts or info.is_dir() or ".." in parts:
+                    continue
+                path = target.joinpath(*parts)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(zipped.read(info))
+        return
     with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
         for member in tar.getmembers():
             if strip_top:
@@ -77,17 +93,21 @@ def extract(archive, target, strip_top=False):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--target", choices=TARGETS, default="windows" if sys.platform == "win32" else "linux")
+    target = TARGETS[parser.parse_args().target]
     manifest = pins()
     if not (ROOT / "frontend/dist/index.html").exists() or not list((ROOT / "backend/target").glob("*.jar")):
         sys.exit("build the backend jar and frontend/dist first (make desktop)")
 
-    jre = json.loads(text(ADOPTIUM.format(java=manifest["java"])))[0]["binary"]["package"]
+    jre = json.loads(text(ADOPTIUM.format(java=manifest["java"], os=target["os"])))[0]["binary"]["package"]
     extract(download(jre["link"], jre["checksum"]), RUNTIME / "jre", strip_top=True)
 
-    version = latest_postgres(manifest["postgres"])
-    jar_url = f"{ZONKY}/{version}/embedded-postgres-binaries-linux-amd64-{version}.jar"
+    zonky = ZONKY.format(os=target["os"])
+    version = latest_postgres(zonky, manifest["postgres"])
+    jar_url = f"{zonky}/{version}/embedded-postgres-binaries-{target['os']}-amd64-{version}.jar"
     jar = zipfile.ZipFile(io.BytesIO(download(jar_url, text(f"{jar_url}.sha256"))))
-    extract(jar.read("postgres-linux-x86_64.txz"), RUNTIME / "postgres")
+    extract(jar.read(target["archive"]), RUNTIME / "postgres")
 
     shutil.copy2(next((ROOT / "backend/target").glob("picsou-backend-*.jar")), RUNTIME / "app.jar")
     shutil.rmtree(RUNTIME / "spa", ignore_errors=True)
