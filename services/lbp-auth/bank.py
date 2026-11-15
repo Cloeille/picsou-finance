@@ -54,7 +54,7 @@ LBP_EXTRA_CDN_HOSTS_ENV = "LBP_EXTRA_CDN_HOSTS"
 _CDN_SUFFIX = ".cloudfront.net"
 # The bank uses one live distribution (sometimes two during a switch); a
 # larger crop of admitted hosts is a broken page or a hijack, never a login.
-MAX_LEARNED_CDN_HOSTS = 3
+MAX_ADMITTED_CDN_HOSTS = 3
 # Every hostname label must be `[a-z0-9-]+` (casefolded): this rejects the
 # apex-as-label (`https://.cloudfront.net/`), empty labels
 # (`a..cloudfront.net`), a trailing dot, and any lookalike with an illegal
@@ -196,7 +196,7 @@ def _log_path(url: Any) -> str:
 
 
 def _auto_admit_cdn_host(
-    learned: set[str], url: str, resource_type: str, top_level: bool
+    admitted: set[str], url: str, resource_type: str, top_level: bool
 ) -> bool:
     """Admit a shape-valid CloudFront subresource host on first sight, once.
 
@@ -229,10 +229,10 @@ def _auto_admit_cdn_host(
         or not lowered.endswith(_CDN_SUFFIX)
         or not _hostname_labels_valid(lowered)
         or lowered in PINNED_CDN_HOSTS
-        or len(learned) >= MAX_LEARNED_CDN_HOSTS
+        or len(admitted) >= MAX_ADMITTED_CDN_HOSTS
     ):
         return False
-    learned.add(lowered)
+    admitted.add(lowered)
     log.info(
         "La Banque Postale auto-admitted CDN host host=%s resource=%s path=%s",
         lowered,
@@ -247,8 +247,8 @@ def _is_allowed_url(url: Any, extra: set[str] | None = None) -> bool:
 
     Asset rule for Chromium non-Document requests only (Script, XHR, Image,
     …): the pinned CloudFront distributions, the operator's
-    ``LBP_EXTRA_CDN_HOSTS`` and the hosts auto-admitted from the bank's own
-    pages during this login attempt (``extra``). An attacker distribution
+    ``LBP_EXTRA_CDN_HOSTS`` and the hosts auto-admitted on first request
+    during this login attempt (``extra``). An attacker distribution
     (``attacker.cloudfront.net``) is refused here too. Document
     navigations, httpx and websockets must use `_is_bank_document_url`
     instead and never call this.
@@ -316,10 +316,10 @@ def _route_guard(extra: set[str] | None = None) -> Any:
     another route callback. The CDP Fetch guard in `_new_guarded_page` sees
     every redirect hop and blocks those, so both stay registered. `data:` URLs
     never hit the network and stay allowed. ``extra`` carries the hosts auto-admitted
-    from the bank's own pages during this login attempt (subresources only).
+    on first request during this login attempt (subresources only).
     """
 
-    learned = extra if extra is not None else set()
+    admitted = extra if extra is not None else set()
 
     def _is_top_frame(request: Any) -> bool:
         # No frame (workers, odd drivers) fails closed as a top navigation.
@@ -335,10 +335,10 @@ def _route_guard(extra: set[str] | None = None) -> Any:
         else:
             # Subframe documents (anti-fraud iframes) follow the asset rule:
             # bank-owned or admitted CDN, never anything else.
-            allowed = _is_allowed_url(url, learned)
+            allowed = _is_allowed_url(url, admitted)
         if allowed or url.startswith("data:"):
             await route.continue_()
-        elif _auto_admit_cdn_host(learned, url, resource_type, top_level):
+        elif _auto_admit_cdn_host(admitted, url, resource_type, top_level):
             await route.continue_()
         else:
             # Host and path only: never the URL, which may carry a session token.
@@ -365,7 +365,7 @@ async def _new_guarded_page(context: Any, extra: set[str] | None = None) -> Any:
     must be bank-owned (`_is_bank_document_url`); only non-Document
     subresources (`resourceType` Script/XHR/Image/…) may additionally load
     from the pinned CDN hosts, the operator's ``LBP_EXTRA_CDN_HOSTS`` and the
-    hosts auto-admitted from the bank's own pages during this login attempt
+    hosts already auto-admitted during this login attempt
     (`_is_allowed_url`), or be auto-admitted on first sight
     (`_auto_admit_cdn_host`). Every hop must pass
     (data: URLs never hit the network and stay allowed); an off-origin hop,
@@ -375,7 +375,7 @@ async def _new_guarded_page(context: Any, extra: set[str] | None = None) -> Any:
     page = await context.new_page()
     session = await context.new_cdp_session(page)
     hops: dict[str, int] = {}
-    learned = extra if extra is not None else set()
+    admitted = extra if extra is not None else set()
     # The main frame hosts the login itself; subframes host the bank's
     # anti-fraud iframes. Unknown frame state fails closed as top-level.
     try:
@@ -396,10 +396,10 @@ async def _new_guarded_page(context: Any, extra: set[str] | None = None) -> Any:
         if resource_type == "Document" and top_level:
             allowed = _is_bank_document_url(url)
         else:
-            allowed = _is_allowed_url(url, learned)
+            allowed = _is_allowed_url(url, admitted)
         if count > MAX_REDIRECTS or not (allowed or url.startswith("data:")):
             if count <= MAX_REDIRECTS and _auto_admit_cdn_host(
-                learned, url, resource_type, top_level
+                admitted, url, resource_type, top_level
             ):
                 await session.send("Fetch.continueRequest", {"requestId": request_id})
                 return
@@ -867,11 +867,11 @@ class BrowserBankClient(HttpxBankClient):
             )
             state["context"] = context
             # No service worker (it could answer requests behind the route guard).
-            learned: set[str] = set()
-            state["cdn_hosts"] = learned
-            await context.route("**/*", _route_guard(learned))
+            admitted: set[str] = set()
+            state["cdn_hosts"] = admitted
+            await context.route("**/*", _route_guard(admitted))
             await context.route_web_socket("**/*", _websocket_guard())
-            page = await _new_guarded_page(context, learned)
+            page = await _new_guarded_page(context, admitted)
             state["page"] = page
             await self._goto(page, BASE + IDENTIF + "?origin=particuliers")
             # The login scripts may live on a rotated distribution the pins
