@@ -397,6 +397,36 @@ class TradingSummaryTest(unittest.TestCase):
             self.assertIsNone(parsed["positions"][0]["isin"])
             self.assertEqual(parsed["positions"][0]["currentValueEur"], Decimal("900.00"))
 
+    def test_an_unlisted_line_without_a_symbol_syncs_under_its_isin(self):
+        # Crowdfunding lines on a PEA-PME have an ISIN but no ticker (#573).
+        unlisted = position(
+            symbol=None, exchangeCode=None, isin="fr0013505062", amount="400.00",
+            label="Homunity Projet A",
+        )
+        listed = position(amount="500.00")
+        parsed = parse_trading_summary(summary(positions=[listed, unlisted]), "acc")
+
+        line = parsed["positions"][1]
+        self.assertEqual(line["symbol"], "FR0013505062")
+        self.assertEqual(line["isin"], "FR0013505062")
+        self.assertEqual(line["currentValueEur"], Decimal("400.00"))
+        self.assertEqual(parsed["positions"][0]["symbol"], "1rTCW8")
+
+    def test_an_unlisted_line_still_has_to_reconcile(self):
+        unlisted = position(symbol=None, isin="FR0013505062", amount="300.00")
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(summary(positions=[position(amount="500.00"), unlisted]), "acc")
+        self.assertEqual(raised.exception.code, INCOMPLETE)
+
+    def test_a_line_with_neither_symbol_nor_usable_isin_is_refused(self):
+        for symbol in (None, ""):
+            for isin in (None, "", "NOT-AN-ISIN"):
+                with self.assertRaises(AccountsFormatError) as raised:
+                    parse_trading_summary(
+                        summary(positions=[position(symbol=symbol, isin=isin)]), "acc"
+                    )
+                self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
     def test_finds_the_lines_whichever_section_carries_them(self):
         reordered = list(reversed(summary()))
         self.assertEqual(len(parse_trading_summary(reordered, "acc")["positions"]), 1)
