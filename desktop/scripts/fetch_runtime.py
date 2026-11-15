@@ -15,6 +15,7 @@ Windows on x86_64 (`--target windows`, default: this machine). macOS comes with 
 import argparse
 import hashlib
 import io
+import os
 import json
 import re
 from pathlib import Path
@@ -114,7 +115,10 @@ def trim_python(home):
     stdlib = lib / "python3.12" if (lib / "python3.12").exists() else lib
     doomed = [home / "include", home / "share", home / "tcl", home / "Scripts"]
     doomed += [stdlib / d for d in ("idlelib", "tkinter", "turtledemo", "ensurepip", "test", "lib2to3", "site-packages")]
-    doomed += [p for p in lib.iterdir() if p.name.startswith(("tcl", "tk", "itcl", "thread", "libtcl", "libtk", "pkgconfig"))]
+    if stdlib != lib:
+        # Linux: lib/ holds the Tcl/Tk trees next to python3.12/. On Windows lib/ IS the stdlib,
+        # where these prefixes would also match threading.py.
+        doomed += [p for p in lib.iterdir() if p.name.startswith(("tcl", "tk", "itcl", "thread", "libtcl", "libtk", "pkgconfig"))]
     doomed += [p for p in home.glob("DLLs/_tkinter*")] + [p for p in home.glob("DLLs/t*86t.dll")]
     for path in doomed:
         if path.is_dir():
@@ -163,6 +167,10 @@ def sidecars(manifest, target):
     # otherwise every cold start recompiles FastAPI and pydantic.
     subprocess.run([str(python), "-m", "compileall", "-q", "--invalidation-mode", "unchecked-hash",
                     *map(str, compile_later), str(RUNTIME / "python")], check=True)
+    # The trimmed runtime must still import what every sidecar needs, as the app will run it.
+    path = os.pathsep.join([str(out / "lib"), str(out / "site")])
+    subprocess.run([str(python), "-c", "import threading, asyncio, uvicorn, fastapi, httpx, picsou_sidecar"],
+                   check=True, env={**os.environ, "PYTHONPATH": path, "PYTHONNOUSERSITE": "1"})
     return [s["service"] for s in shipped]
 
 
