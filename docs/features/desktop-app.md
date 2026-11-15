@@ -76,11 +76,29 @@ the [ADR](../decisions/2026-11-15-desktop-app-tauri.md).
 - Secrets are not 0600: NTFS has no POSIX modes. They sit in the user's own `%LOCALAPPDATA%`; the
   backend logs a warning when it cannot chmod.
 
+### Bank sidecars (#589, browserless slice)
+
+- `fetch_runtime.py` adds `runtime/python/` (python-build-standalone, the base image's minor,
+  SHA-256 checked, Tk/IDLE/pip/headers trimmed: ~75 MB) and `runtime/sidecars/`: the shared
+  libraries of `services/base` without test helpers, the pinned packages of
+  `requirements.txt` in `site/`, and one folder per browserless sidecar holding exactly the
+  files its Dockerfile `COPY`s. `runtime/sidecars.json` lists them. Wheels must match the
+  bundled interpreter, so the runtime is built on its own OS.
+- `sidecars.rs` opens one loopback port per listed sidecar and hands the backend
+  `<SERVICE>_URL` plus `APP_SIDECAR_API_KEY` (generated once in `secrets/sidecar_api_key`).
+  Nothing runs at idle: the first connection starts `python -m uvicorn main:app` on a private
+  loopback port and the bytes are piped to it. After 15 min without an open connection it is
+  stopped (longer than the sidecars' 10 min pending-login TTL, so an SMS step survives).
+  Quitting stops every sidecar.
+- Chromium sidecars and the on-demand browser download come next; Camoufox ones (amex, bnp,
+  revolut) are not shipped on desktop.
+
 ### Key files
 
 - `desktop/src-tauri/src/supervisor.rs` — processes, ports, secrets, first start
 - `desktop/src-tauri/src/upgrade.rs` — version marker, backups, restore, Flyway failure reading
 - `desktop/src-tauri/src/main.rs` — the window and the startup thread
+- `desktop/src-tauri/src/sidecars.rs` — on-demand sidecars behind loopback ports
 - `desktop/scripts/fetch_runtime.py` — builds `desktop/runtime` from the Docker release pins (`--target linux|windows`)
 - `desktop/ui/index.html` — the waiting and error page
 
