@@ -2,12 +2,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod supervisor;
+mod upgrade;
 
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use supervisor::{Layout, Shared};
+use supervisor::{Failed, Layout, Shared};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::webview::PageLoadEvent;
@@ -21,11 +22,26 @@ const HIDDEN: &str = "--hidden";
 static TRAY_OK: AtomicBool = AtomicBool::new(false);
 
 /// A startup error, kept so a page that finishes loading after it still shows it.
-type Failure = Arc<Mutex<Option<String>>>;
+type Failure = Arc<Mutex<Option<Failed>>>;
 
-fn failure_script(message: &str) -> String {
-    let text = serde_json::to_string(message).unwrap_or_else(|_| "\"\"".to_owned());
-    format!("window.picsouFailed && window.picsouFailed({text})")
+fn failure_script(failed: &Failed) -> String {
+    let text = serde_json::to_string(&failed.message).unwrap_or_else(|_| "\"\"".to_owned());
+    format!("window.picsouFailed && window.picsouFailed({text}, {})", failed.can_restore)
+}
+
+fn layout(app: &tauri::AppHandle) -> tauri::Result<Layout> {
+    Ok(Layout { runtime: runtime_dir(app), data: app.path().app_data_dir()? })
+}
+
+/// Called by the error page only: IPC is limited to the local `ui/` page, never the backend's.
+/// Async, so the copy (seconds to minutes) runs off the main thread and the page stays responsive.
+#[tauri::command]
+async fn restore_backup(app: tauri::AppHandle) -> Result<String, String> {
+    let layout = layout(&app).map_err(|e| e.to_string())?;
+    supervisor::restore_backup(&layout, app.state::<Shared>().inner())?;
+    // A reload must not offer the button again: a second restore would move the restored data aside.
+    *app.state::<Failure>().lock().unwrap_or_else(|e| e.into_inner()) = None;
+    Ok("Your data from before the update is back. Reinstall the previous Picsou version, then open it.".to_owned())
 }
 
 /// `PICSOU_DESKTOP_RUNTIME` points a dev build at `desktop/runtime`; a bundle uses its resources.
@@ -98,12 +114,13 @@ fn tray(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
-fn show_error(app: &tauri::AppHandle, message: &str) {
+fn show_error(app: &tauri::AppHandle, failed: Failed) {
     // Even after a hidden start: an error nobody sees is a Picsou that silently never works.
     show_window(app);
-    *app.state::<Failure>().lock().unwrap_or_else(|e| e.into_inner()) = Some(message.to_owned());
+    // Stored first: a page that finishes loading in between replays it.
+    *app.state::<Failure>().lock().unwrap_or_else(|e| e.into_inner()) = Some(failed.clone());
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.eval(failure_script(message));
+        let _ = window.eval(failure_script(&failed));
     }
 }
 
@@ -129,11 +146,13 @@ fn main() {
             }
         })
         .manage(Failure::default())
+        .invoke_handler(tauri::generate_handler![restore_backup])
         .on_page_load(|webview, payload| {
             if payload.event() == PageLoadEvent::Finished {
-                let failure = webview.state::<Failure>().lock().unwrap_or_else(|e| e.into_inner()).clone();
-                if let Some(message) = failure {
-                    let _ = webview.eval(failure_script(&message));
+                let state = webview.state::<Failure>();
+                let failure = state.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(failed) = failure.as_ref() {
+                    let _ = webview.eval(failure_script(failed));
                 }
             }
         })
@@ -148,7 +167,7 @@ fn main() {
                 show_window(app.handle());
             }
             let handle = app.handle().clone();
-            let layout = Layout { runtime: runtime_dir(&handle), data: handle.path().app_data_dir()? };
+            let layout = layout(&handle)?;
             let stack = handle.state::<Shared>().inner().clone();
             // Startup takes tens of seconds (migrations); the window shows ui/index.html meanwhile.
             std::thread::spawn(move || {
@@ -157,9 +176,9 @@ fn main() {
                         (Some(window), Ok(url)) => {
                             let _ = window.navigate(url);
                         }
-                        _ => show_error(&handle, "The window is gone."),
+                        _ => show_error(&handle, Failed::from("The window is gone.".to_owned())),
                     },
-                    Err(message) => show_error(&handle, &message),
+                    Err(failed) => show_error(&handle, failed),
                 }
                 // PR_SET_PDEATHSIG fires when the spawning thread ends, not the process: this
                 // thread must outlive the children, or Linux stops them as soon as start returns.
