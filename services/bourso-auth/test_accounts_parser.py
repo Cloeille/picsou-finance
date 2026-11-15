@@ -66,7 +66,7 @@ def summary(cash="100.00", valuation="900.00", total="1000.00", positions=None):
     ]
 
 
-def position(symbol="1rTCW8", quantity="10", amount="900.00", currency="EUR", **overrides):
+def position(symbol: str | None = "1rTCW8", quantity="10", amount="900.00", currency="EUR", **overrides):
     raw = {
         "symbol": symbol,
         "label": "Amundi MSCI World",

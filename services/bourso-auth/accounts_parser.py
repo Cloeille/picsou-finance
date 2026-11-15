@@ -592,7 +592,9 @@ def _parse_position(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         raise AccountsFormatError(FORMAT_CHANGED, "Trading position is not an object")
 
-    symbol = text_value(raw.get("symbol"), 100)
+    # An unlisted instrument (crowdfunding on a PEA-PME, #573) has no BoursoBank
+    # symbol, only an ISIN. The ISIN then stands in, as for a single-fund contract.
+    symbol = text_value(raw.get("symbol"), 100) or _position_isin(raw, "")
     label = text_value(raw.get("label"), 200)
     quantity = _summary_money(raw.get("quantity"), "quantity")
     if symbol is None or label is None:
