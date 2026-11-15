@@ -108,6 +108,13 @@ def main():
     jar_url = f"{zonky}/{version}/embedded-postgres-binaries-{target['os']}-amd64-{version}.jar"
     jar = zipfile.ZipFile(io.BytesIO(download(jar_url, text(f"{jar_url}.sha256"))))
     extract(jar.read(target["archive"]), RUNTIME / "postgres")
+    if target["os"] == "windows":
+        # zonky's binaries import the MSVC runtime, which a fresh Windows may lack; the JRE ships it.
+        for dll in ("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"):
+            found = next((RUNTIME / "jre" / "bin").glob(dll, case_sensitive=False), None)
+            if found is None:
+                sys.exit(f"{dll} is missing from the JRE: PostgreSQL would not start without the VC++ runtime")
+            shutil.copy2(found, RUNTIME / "postgres" / "bin" / dll)
 
     shutil.copy2(next((ROOT / "backend/target").glob("picsou-backend-*.jar")), RUNTIME / "app.jar")
     shutil.rmtree(RUNTIME / "spa", ignore_errors=True)
