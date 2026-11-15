@@ -148,14 +148,15 @@ def sidecars(manifest, target):
     shutil.rmtree(out, ignore_errors=True)
     # Wheels must match the bundled interpreter, so the runtime is built on its own OS.
     subprocess.run([str(python), "-m", "pip", "install", "--quiet", "--no-compile", "--only-binary=:all:",
-                    "--target", str(out / "site"), "-r", str(ROOT / "services/base/requirements.txt")], check=True)
+                    "--target", str(out / "site"), "-r", str(ROOT / "services/base/requirements.txt"),
+                    "-r", str(ROOT / "services/base/requirements-chromium.txt")], check=True)
     compile_later = [out]
     # The image's rule: no test helper (test_*.py, testing.py) in the shipped libraries.
     tests = shutil.ignore_patterns("test_*.py", "testing.py", "__pycache__")
     for lib in SHARED_LIBS:
         shutil.copytree(ROOT / "services/base" / lib, out / "lib" / lib, ignore=tests)
-    # ponytail: browserless only; Chromium sidecars come with the on-demand browser download.
-    shipped = [s for s in manifest["sidecars"] if s["desktop"] and s["base"] == "python"]
+    # Chromium itself is not bundled: the app downloads it on the first Chromium sidecar start.
+    shipped = [s for s in manifest["sidecars"] if s["desktop"] and s["base"] in ("python", "chromium")]
     for sidecar in shipped:
         folder = ROOT / "services" / sidecar["service"]
         (out / sidecar["service"]).mkdir(parents=True)
@@ -169,7 +170,7 @@ def sidecars(manifest, target):
                     *map(str, compile_later), str(RUNTIME / "python")], check=True)
     # The trimmed runtime must still import what every sidecar needs, as the app will run it.
     path = os.pathsep.join([str(out / "lib"), str(out / "site")])
-    subprocess.run([str(python), "-c", "import threading, asyncio, uvicorn, fastapi, httpx, picsou_sidecar"],
+    subprocess.run([str(python), "-c", "import threading, asyncio, uvicorn, fastapi, httpx, picsou_sidecar, playwright.async_api"],
                    check=True, env={**os.environ, "PYTHONPATH": path, "PYTHONNOUSERSITE": "1"})
     return [s["service"] for s in shipped]
 
