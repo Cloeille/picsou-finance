@@ -52,12 +52,33 @@ the [ADR](../decisions/2026-11-15-desktop-app-tauri.md).
 - The button calls the `restore_backup` command. IPC is open only to the bundled `ui/` page
   (`capabilities/error-page.json` lists no remote URL), so the backend's pages cannot call it.
 
+### Windows (#591, unsigned)
+
+- CI job `desktop-windows` builds an NSIS installer (`Picsou_<version>_x64-setup.exe`) from the
+  same jar and SPA, with the Windows Temurin JRE and zonky PostgreSQL
+  (`fetch_runtime.py --target windows`), and uploads it as the `picsou-windows-installer`
+  artifact. The job installs it silently, starts the installed app, waits for the readiness
+  probe, checks that only loopback listens, kills the app hard and checks no process is left.
+- Install per user (`%LOCALAPPDATA%\Picsou`, no admin prompt). Data in
+  `%APPDATA%\com.picsou.desktop`. WebView2 ships with Windows 10 and 11.
+- Unsigned: SmartScreen shows "Windows protected your PC". Click **More info**, then **Run
+  anyway**. Signing and auto-update stay in #591.
+- PostgreSQL runs under `pg_ctl` (Windows has no signals): `pg_ctl start -w` and
+  `pg_ctl stop -m fast`. `pg_ctl` also drops admin rights, which PostgreSQL requires.
+- A job object with "kill on close" holds Picsou and its children: a crash or a kill from the
+  Task Manager takes Java and PostgreSQL with it.
+- The cluster uses the `C` locale and initdb's own `postgres` database: creating another one
+  needs single-user mode, which PostgreSQL refuses to an elevated user, or client tools the
+  bundle does not ship.
+- Secrets are not 0600: NTFS has no POSIX modes. They sit in the user's own `%APPDATA%`; the
+  backend logs a warning when it cannot chmod.
+
 ### Key files
 
 - `desktop/src-tauri/src/supervisor.rs` — processes, ports, secrets, first start
 - `desktop/src-tauri/src/upgrade.rs` — version marker, backups, restore, Flyway failure reading
 - `desktop/src-tauri/src/main.rs` — the window and the startup thread
-- `desktop/scripts/fetch_runtime.py` — builds `desktop/runtime` from the Docker release pins
+- `desktop/scripts/fetch_runtime.py` — builds `desktop/runtime` from the Docker release pins (`--target linux|windows`)
 - `desktop/ui/index.html` — the waiting and error page
 
 ## Technical choices
