@@ -105,6 +105,8 @@ const PER_ACCOUNT: Account = {
   logoKey: null,
   createdAt: '2026-08-01T00:00:00Z',
   hidden: false,
+  listPosition: null,
+  listCollapsed: false,
 }
 
 function mutation() {

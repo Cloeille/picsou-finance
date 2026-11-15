@@ -528,6 +528,21 @@ export function useDeleteAccount() {
   })
 }
 
+export function useSetListCollapsed() {
+  return useInvalidatingMutation({
+    mutationFn: ({ id, collapsed }: { id: number; collapsed: boolean }) =>
+      accountsApi.setListCollapsed(id, collapsed),
+    invalidates: (_data, variables) => [['accounts'], ['accounts', variables.id]],
+  })
+}
+
+export function useSetDisplayOrder() {
+  return useInvalidatingMutation({
+    mutationFn: (accountIds: number[]) => accountsApi.setDisplayOrder(accountIds),
+    invalidates: [['accounts']],
+  })
+}
+
 export function useAddSnapshot() {
   return useInvalidatingMutation({
     mutationFn: ({ id, balance, date }: { id: number; balance: number; date: string }) =>

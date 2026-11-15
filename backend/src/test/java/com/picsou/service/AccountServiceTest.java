@@ -14,6 +14,7 @@ import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.finary.FinaryPersistenceHelper;
 import com.picsou.model.ScpiProvider;
 import com.picsou.model.Account;
+import com.picsou.model.AccountDisplayPref;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
 import com.picsou.model.BalanceSnapshot;
@@ -26,6 +27,7 @@ import com.picsou.model.RecurringCadence;
 import com.picsou.model.SnapshotSource;
 import com.picsou.model.Transaction;
 import com.picsou.model.WealthTier;
+import com.picsou.repository.AccountDisplayPrefRepository;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
@@ -88,6 +90,7 @@ class AccountServiceTest {
     @Mock InstrumentLogoService instrumentLogoService;
     @Mock ScpiPositionRepository scpiPositionRepository;
     @Mock ScpiFundService scpiFundService;
+    @Mock AccountDisplayPrefRepository prefRepository;
     @Mock FinaryPersistenceHelper finaryPersistenceHelper;
     @InjectMocks AccountService accountService;
 
@@ -575,7 +578,8 @@ class AccountServiceTest {
             loanAmortizationService, accessResolver, bankLogoResolver, cryptoLogoService,
             instrumentLogoService, scpiPositionRepository, scpiFundService,
             mock(PeerLoanTermsRepository.class), mock(PeerLoanRepaymentRepository.class),
-            mock(PeerLoanTransactionLinks.class), realPersistence);
+            mock(PeerLoanTransactionLinks.class), realPersistence,
+            mock(AccountDisplayPrefRepository.class));
 
         when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(account));
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -721,6 +725,162 @@ class AccountServiceTest {
 
         assertThatThrownBy(() -> accountService.setHidden(1L, 1L, true))
             .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    void setListCollapsed_upsertsMergedValues_forReadableAccount() {
+        Account account = ownedAccount();
+        AccountDisplayPref pref = AccountDisplayPref.builder()
+            .account(account).listPosition(2).listCollapsed(false).build();
+        when(accessResolver.requireReadable(1L, 1L)).thenReturn(account);
+        when(accessResolver.shareFor(account, 1L)).thenReturn(null);
+        when(prefRepository.findByMemberIdAndAccountId(1L, 1L)).thenReturn(Optional.of(pref));
+
+        AccountResponse response = accountService.setListCollapsed(1L, 1L, true);
+
+        verify(prefRepository).upsertDisplayPref(1L, 1L, 2, true);
+        assertThat(response.listCollapsed()).isTrue();
+        assertThat(response.listPosition()).isEqualTo(2);
+    }
+
+    @Test
+    void setListCollapsed_upsertsDefaults_whenNoRowYet() {
+        Account account = ownedAccount();
+        when(accessResolver.requireReadable(1L, 1L)).thenReturn(account);
+        when(accessResolver.shareFor(account, 1L)).thenReturn(null);
+        when(prefRepository.findByMemberIdAndAccountId(1L, 1L)).thenReturn(Optional.empty());
+
+        AccountResponse response = accountService.setListCollapsed(1L, 1L, true);
+
+        verify(prefRepository).upsertDisplayPref(1L, 1L, null, true);
+        assertThat(response.listCollapsed()).isTrue();
+        assertThat(response.listPosition()).isNull();
+    }
+
+    @Test
+    void setListCollapsed_throws_whenAccountNotReadable() {
+        when(accessResolver.requireReadable(9L, 1L)).thenThrow(ResourceNotFoundException.account(9L));
+
+        assertThatThrownBy(() -> accountService.setListCollapsed(9L, 1L, true))
+            .isInstanceOf(ResourceNotFoundException.class);
+        verify(prefRepository, never()).upsertDisplayPref(any(), any(), any(), any());
+    }
+
+    @Test
+    void setListCollapsed_returnsViewerAwareResponse_forSharedAccount() {
+        FamilyMember owner = mock(FamilyMember.class);
+        when(owner.getId()).thenReturn(2L);
+        Account account = Account.builder()
+            .id(1L).name("Shared").type(AccountType.CHECKING).currency("EUR").member(owner).build();
+        when(accessResolver.requireReadable(1L, 1L)).thenReturn(account);
+        when(accessResolver.shareFor(account, 1L)).thenReturn(new BigDecimal("50"));
+        AccountDisplayPref pref = AccountDisplayPref.builder()
+            .account(account).listPosition(0).listCollapsed(false).build();
+        when(prefRepository.findByMemberIdAndAccountId(1L, 1L)).thenReturn(Optional.of(pref));
+
+        AccountResponse response = accountService.setListCollapsed(1L, 1L, true);
+
+        verify(prefRepository).upsertDisplayPref(1L, 1L, 0, true);
+        assertThat(response.isOwner()).isFalse();
+        assertThat(response.sharePercent()).isEqualByComparingTo("50");
+        assertThat(response.listCollapsed()).isTrue();
+        assertThat(response.listPosition()).isEqualTo(0);
+    }
+
+    @Test
+    void setDisplayOrder_assignsPositionsByIndex_andKeepsUnlisted() {
+        Account first = ownedAccount();
+        Account second = Account.builder()
+            .id(2L).name("B").type(AccountType.CHECKING).currency("EUR").build();
+        Account third = Account.builder()
+            .id(3L).name("C").type(AccountType.CHECKING).currency("EUR").build();
+        when(accessResolver.requireReadable(3L, 1L)).thenReturn(third);
+        when(accessResolver.requireReadable(1L, 1L)).thenReturn(first);
+        when(accessResolver.sharesFor(any(), eq(1L))).thenReturn(java.util.Map.of());
+        AccountDisplayPref pref1 = AccountDisplayPref.builder().account(first).listPosition(5).build();
+        AccountDisplayPref pref2 = AccountDisplayPref.builder()
+            .account(second).listPosition(7).listCollapsed(true).build();
+        AccountDisplayPref pref3 = AccountDisplayPref.builder().account(third).listPosition(0).build();
+        when(prefRepository.findByMemberId(1L))
+            .thenReturn(java.util.List.of(pref1, pref2, pref3));
+
+        java.util.List<AccountResponse> response = accountService.setDisplayOrder(1L, java.util.List.of(3L, 1L));
+
+        verify(prefRepository).upsertDisplayPref(3L, 1L, 0, false);
+        verify(prefRepository).upsertDisplayPref(1L, 1L, 1, false);
+        verify(prefRepository, never()).upsertDisplayPref(eq(2L), any(), any(), any());
+        verify(prefRepository, never()).clearPositionsByMemberId(any());
+        assertThat(response.stream().map(AccountResponse::id).toList())
+            .isEqualTo(java.util.List.of(3L, 1L));
+        assertThat(response.get(0).listPosition()).isEqualTo(0);
+        assertThat(response.get(1).listPosition()).isEqualTo(1);
+    }
+
+    @Test
+    void setDisplayOrder_clearsAllPositions_onEmptyList() {
+        java.util.List<AccountResponse> response = accountService.setDisplayOrder(1L, java.util.List.of());
+
+        verify(prefRepository).clearPositionsByMemberId(1L);
+        verify(prefRepository, never()).upsertDisplayPref(any(), any(), any(), any());
+        assertThat(response).isEmpty();
+    }
+
+    @Test
+    void setDisplayOrder_throwsOnDuplicateIds() {
+        assertThatThrownBy(() -> accountService.setDisplayOrder(1L, java.util.List.of(1L, 1L)))
+            .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(prefRepository);
+    }
+
+    @Test
+    void setDisplayOrder_throwsOnNullList_andSavesNothing() {
+        assertThatThrownBy(() -> accountService.setDisplayOrder(1L, null))
+            .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(prefRepository);
+    }
+
+    @Test
+    void setDisplayOrder_throwsWhenIdNotReadable_andSavesNothing() {
+        when(accessResolver.requireReadable(9L, 1L)).thenThrow(ResourceNotFoundException.account(9L));
+
+        assertThatThrownBy(() -> accountService.setDisplayOrder(1L, java.util.List.of(9L)))
+            .isInstanceOf(ResourceNotFoundException.class);
+        verify(prefRepository, never()).upsertDisplayPref(any(), any(), any(), any());
+        verify(prefRepository, never()).clearPositionsByMemberId(any());
+    }
+
+    @Test
+    void findAll_overlaysViewerDisplayPrefs() {
+        Account first = ownedAccount();
+        Account second = Account.builder()
+            .id(2L).name("B").type(AccountType.CHECKING).currency("EUR").build();
+        when(accessResolver.readableAccounts(1L)).thenReturn(java.util.List.of(first, second));
+        when(accessResolver.sharesFor(any(), eq(1L))).thenReturn(java.util.Map.of());
+        AccountDisplayPref pref = AccountDisplayPref.builder()
+            .account(first).listPosition(1).listCollapsed(true).build();
+        when(prefRepository.findByMemberId(1L)).thenReturn(java.util.List.of(pref));
+
+        java.util.List<AccountResponse> responses = accountService.findAll(1L);
+
+        assertThat(responses.get(0).listPosition()).isEqualTo(1);
+        assertThat(responses.get(0).listCollapsed()).isTrue();
+        assertThat(responses.get(1).listPosition()).isNull();
+        assertThat(responses.get(1).listCollapsed()).isFalse();
+    }
+
+    @Test
+    void findById_overlaysViewerDisplayPrefs() {
+        Account account = ownedAccount();
+        when(accessResolver.requireReadable(1L, 1L)).thenReturn(account);
+        when(accessResolver.shareFor(account, 1L)).thenReturn(null);
+        AccountDisplayPref pref = AccountDisplayPref.builder()
+            .account(account).listPosition(0).listCollapsed(true).build();
+        when(prefRepository.findByMemberIdAndAccountId(1L, 1L)).thenReturn(Optional.of(pref));
+
+        AccountResponse response = accountService.findById(1L, 1L);
+
+        assertThat(response.listPosition()).isEqualTo(0);
+        assertThat(response.listCollapsed()).isTrue();
     }
 
     @Test
@@ -1659,7 +1819,8 @@ class AccountServiceTest {
             savingsInterestConfigRepository, realPrices, loanAmortizationService, accessResolver,
             bankLogoResolver, cryptoLogoService, instrumentLogoService, scpiPositionRepository, scpiFundService,
             mock(PeerLoanTermsRepository.class), mock(PeerLoanRepaymentRepository.class),
-            mock(PeerLoanTransactionLinks.class), mock(FinaryPersistenceHelper.class));
+            mock(PeerLoanTransactionLinks.class), mock(FinaryPersistenceHelper.class),
+            mock(AccountDisplayPrefRepository.class));
         // What a verified-EUR Finary crypto snapshot stores: 10 REG that Finary values at 10 EUR.
         Account account = Account.builder().id(9L).name("Finary wallet").type(AccountType.CRYPTO)
             .currency("EUR").currentBalance(BigDecimal.TEN).build();
