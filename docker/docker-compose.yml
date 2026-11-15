@@ -233,8 +233,8 @@ services:
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
       # Emergency pins when the bank rotates its CloudFront distributions
-      # faster than a release (comma-separated, empty by default: the
-      # sidecar learns the live hosts from the bank's own pages).
+      # faster than a release (comma-separated, empty by default: unknown
+      # distributions are auto-admitted on first sight).
       LBP_EXTRA_CDN_HOSTS: ${LBP_EXTRA_CDN_HOSTS:-}
 
   banque-populaire-auth:
