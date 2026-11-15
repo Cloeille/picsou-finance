@@ -368,6 +368,13 @@ jobs:
           # The SPA is served from the install folder: the one check of a backslash SPA_LOCATION.
           $page = (Invoke-WebRequest "http://127.0.0.1:$port/" -UseBasicParsing -TimeoutSec 5).Content
           if ($page -notmatch '<div id="root"') { throw 'the SPA is not served' }
+          # Chromium is fetched in the background right after the start, before any sync asks.
+          $t0 = Get-Date
+          foreach ($try in 1..60) { if (Test-Path "$data/browsers/chromium_headless_shell-*/INSTALLATION_COMPLETE") { break }; Start-Sleep 5 }
+          if (-not (Test-Path "$data/browsers/chromium_headless_shell-*/INSTALLATION_COMPLETE")) { throw 'Chromium was not prefetched' }
+          "Chromium prefetched $([int]((Get-Date) - $t0).TotalSeconds) s after ready, before any corum call"
+          # The one-off `playwright install` exits once Chromium is in place.
+          foreach ($try in 1..12) { if (-not (Get-Process python -ErrorAction SilentlyContinue)) { break }; Start-Sleep 5 }
           # Bank sidecars (#589): none runs at idle, the first call starts one on loopback.
           if (Get-Process python -ErrorAction SilentlyContinue) { throw 'a sidecar runs at idle' }
           # The setup check gives a sidecar 3 s; a cold Python start may need more, so retry.
@@ -381,11 +388,6 @@ jobs:
           if (-not (Get-Process python -ErrorAction SilentlyContinue)) { throw 'no sidecar process after the call' }
           # A Chromium sidecar: its first start downloads Chromium once, the next start reuses it.
           $corum = (Get-Content "$data/sidecar-ports.json" | ConvertFrom-Json).CORUM_AUTH_URL
-          # Chromium is fetched in the background right after the start, before any sync asks.
-          $t0 = Get-Date
-          foreach ($try in 1..60) { if (Test-Path "$data/browsers/chromium_headless_shell-*/INSTALLATION_COMPLETE") { break }; Start-Sleep 5 }
-          if (-not (Test-Path "$data/browsers/chromium_headless_shell-*/INSTALLATION_COMPLETE")) { throw 'Chromium was not prefetched' }
-          "Chromium prefetched $([int]((Get-Date) - $t0).TotalSeconds) s after ready, before any corum call"
           $t0 = Get-Date; $ok = $false
           # 503 while Chromium downloads, then the sidecar's own /health.
           foreach ($try in 1..120) {
