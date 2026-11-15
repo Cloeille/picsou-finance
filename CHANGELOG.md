@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **La Banque Postale accounts show the bank's logo.** The connector writes
+  `La Banque Postale` as the account provider but the frontend had no
+  bundled mark for it, so the accounts fell back to the color circle. The
+  official mark now ships with the app.
 - **"Financial assets" on the dashboard counted money lent to people.** In that mode the
   figure and the curve included a peer loan, while the donut beside them did not, so the two
   disagreed (a 1,000 livret, a 5,000 PEA and 2,000 lent showed 8,000 next to a donut adding

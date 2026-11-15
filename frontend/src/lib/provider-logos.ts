@@ -34,6 +34,7 @@ export const PROVIDER_LOGOS: Record<string, string> = {
   MERIA: '/exchanges/meria.svg',
   'AMUNDI ÉPARGNE SALARIALE': '/providers/amundi.png',
   BOURSOBANK: '/providers/boursobank.png',
+  'LA BANQUE POSTALE': '/providers/la-banque-postale.svg',
   'TRADE REPUBLIC': '/providers/trade-republic.svg',
   'NATIXIS INTERÉPARGNE': '/providers/natixis-interepargne.svg',
   CORUM: '/providers/corum.svg',
