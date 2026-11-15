@@ -220,9 +220,7 @@ services:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
 
   lbp-auth:
-    # LBP_IMAGE lets an install pin a hotfixed sidecar without forking this
-    # file (default tracks the release image like every other connector).
-    image: ${LBP_IMAGE:-ghcr.io/cloeille/picsou-finance/lbp-auth:latest}
+    image: ghcr.io/cloeille/picsou-finance/lbp-auth:latest
     profiles: ["lbp", "all-connectors"]
     build:
       context: ../services/lbp-auth

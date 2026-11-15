@@ -128,9 +128,8 @@ must be diagnosed from the sidecar's typed error, never by replaying it.
 - Every Chromium request — including each redirect hop — must be a
   bank-owned document destination (bank origin or `*.labanquepostale.fr`), a
   subframe document or subresource to an admitted host (pinned CloudFront,
-  `LBP_EXTRA_CDN_HOSTS`, learned, or auto-admitted), or a shape-valid
-  `*.cloudfront.net` host the page requests for the first time
-  (auto-admitted, see below); anything else fails closed before it is sent.
+  `LBP_EXTRA_CDN_HOSTS`, or auto-admitted on first sight, see below); anything
+  else fails closed before it is sent.
   A top-level navigation to a non-bank host is never admitted: a redirect
   must not carry the session off-origin. The bank's login embeds its
   anti-fraud checks as subframes that navigate to its own CloudFront
@@ -138,9 +137,14 @@ must be diagnosed from the sidecar's typed error, never by replaying it.
   frame stays bank-only; the frame (`top`/`sub`) is logged with every block.
   The exact-origin-only version broke the live login (keypad scripts and
   anti-fraud payloads come from CloudFront and `transverse.labanquepostale.fr`,
-  and the bank refused the credentials with them blocked); the
-  `*.cloudfront.net` interim proved too broad and was replaced by pinning,
+  and the bank refused the credentials with them blocked); an early
+  `*.cloudfront.net` interim was judged too broad and replaced by pinning,
   but the bank rotates its distributions, so pins alone go stale mid-week.
+  This code returns to the `*.cloudfront.net` rule — capped at 3 hosts and
+  scoped to the login attempt — because the guards behind the original
+  objection still hold: top-level navigations, cookie-jar replay over httpx,
+  websockets and anything off the suffix stay refused, and every admission
+  is logged.
   Auto-admission keeps the rotation survivable: the first paused request to
   an unknown but shape-valid (https, labels, no credentials)
   CloudFront host — main-frame script or subframe page, never a top-level
@@ -164,9 +168,8 @@ must be diagnosed from the sidecar's typed error, never by replaying it.
   replay over httpx, websockets, anything off the CloudFront suffix or
   malformed; admissions are capped and every one is logged.
   Blocked and admitted requests log host and path (never the query or
-  fragment, where tokens live), plus resource type and frame. Learned hosts
-  are scoped to one login attempt and reloaded from the served pages
-  (at most two page reloads at `/initiate`).
+  fragment, where tokens live), plus resource type and frame. Admitted hosts
+  are scoped to one login attempt and die with it.
 - `/accounts` retries a transient `502 UPSTREAM_UNAVAILABLE` once, with the same
   cookie jar: it is an idempotent read, not a login step. The retry logs the
   failing path and status.

@@ -48,22 +48,13 @@ PINNED_CDN_HOSTS = {"dqnjn206bwvk2.cloudfront.net", "d2ydsn9mah1r4u.cloudfront.n
 # the bank rotates its distributions: comma-separated extra CloudFront hosts
 # (`LBP_EXTRA_CDN_HOSTS=d21....cloudfront.net,...`). Shape-validated like the
 # pins (label characters + `.cloudfront.net` suffix); anything else is
-# ignored. Learned hosts (below) cover rotations automatically; this stays
-# for pinning a host before the bank serves it.
+# ignored. Unknown distributions are auto-admitted on first sight (below);
+# this stays for pinning a host before the bank serves it.
 LBP_EXTRA_CDN_HOSTS_ENV = "LBP_EXTRA_CDN_HOSTS"
 _CDN_SUFFIX = ".cloudfront.net"
-# A bank page references a handful of asset hosts; a larger crop is a broken
-# page or a hijack, never a login.
-MAX_LEARNED_CDN_HOSTS = 16
-# The distributions are referenced as absolute URLs, protocol-relative URLs,
-# escaped (`\/`) URLs in inline JSON, or bare host strings in scripts: catch
-# every spelling so a rotation never depends on one markup style.
-_CDN_URL_RES = (
-    re.compile(r"https://([A-Za-z0-9.-]+\.cloudfront\.net)\b", re.IGNORECASE),
-    re.compile(r'["\']//([A-Za-z0-9.-]+\.cloudfront\.net)\b', re.IGNORECASE),
-    re.compile(r'https?:\\/\\/([A-Za-z0-9.-]+\.cloudfront\.net)\b', re.IGNORECASE),
-    re.compile(r'["\']([A-Za-z0-9.-]+\.cloudfront\.net)\b', re.IGNORECASE),
-)
+# The bank uses one live distribution (sometimes two during a switch); a
+# larger crop of admitted hosts is a broken page or a hijack, never a login.
+MAX_LEARNED_CDN_HOSTS = 3
 # Every hostname label must be `[a-z0-9-]+` (casefolded): this rejects the
 # apex-as-label (`https://.cloudfront.net/`), empty labels
 # (`a..cloudfront.net`), a trailing dot, and any lookalike with an illegal
@@ -196,32 +187,6 @@ def _env_cdn_hosts() -> set[str]:
     return _parse_cdn_hosts(os.environ.get(LBP_EXTRA_CDN_HOSTS_ENV, ""))
 
 
-def _learn_cdn_hosts(html: Any) -> set[str]:
-    """CloudFront hosts referenced by a bank-origin page, for subresources only.
-
-    The bank rotates its distributions: instead of tracking every rotation by
-    hand, admit the hosts the bank's own pages point at. Learned hosts are
-    never Documents (see the guards) and never leave the login attempt that
-    learned them; only shape-valid hosts are kept, capped so a broken page
-    cannot grow the set without bound.
-    """
-    if not isinstance(html, str):
-        return set()
-    found = set()
-    for pattern in _CDN_URL_RES:
-        for match in pattern.finditer(html):
-            host = match.group(1).casefold()
-            if host.endswith(_CDN_SUFFIX) and _hostname_labels_valid(host):
-                found.add(host)
-                if len(found) >= MAX_LEARNED_CDN_HOSTS:
-                    log.info(
-                        "La Banque Postale CDN learning hit the cap hosts=%d",
-                        MAX_LEARNED_CDN_HOSTS,
-                    )
-                    return found
-    return found
-
-
 def _log_path(url: Any) -> str:
     """The path of a blocked URL, never the query or fragment (tokens live there)."""
     try:
@@ -282,8 +247,8 @@ def _is_allowed_url(url: Any, extra: set[str] | None = None) -> bool:
 
     Asset rule for Chromium non-Document requests only (Script, XHR, Image,
     …): the pinned CloudFront distributions, the operator's
-    ``LBP_EXTRA_CDN_HOSTS`` and the hosts learned from the bank's own pages
-    during this login attempt (``extra``). An attacker distribution
+    ``LBP_EXTRA_CDN_HOSTS`` and the hosts auto-admitted from the bank's own
+    pages during this login attempt (``extra``). An attacker distribution
     (``attacker.cloudfront.net``) is refused here too. Document
     navigations, httpx and websockets must use `_is_bank_document_url`
     instead and never call this.
@@ -350,7 +315,7 @@ def _route_guard(extra: set[str] | None = None) -> Any:
     page answering 302 to an off-origin target is followed by Chromium without
     another route callback. The CDP Fetch guard in `_new_guarded_page` sees
     every redirect hop and blocks those, so both stay registered. `data:` URLs
-    never hit the network and stay allowed. ``extra`` carries the hosts learned
+    never hit the network and stay allowed. ``extra`` carries the hosts auto-admitted
     from the bank's own pages during this login attempt (subresources only).
     """
 
@@ -400,7 +365,7 @@ async def _new_guarded_page(context: Any, extra: set[str] | None = None) -> Any:
     must be bank-owned (`_is_bank_document_url`); only non-Document
     subresources (`resourceType` Script/XHR/Image/…) may additionally load
     from the pinned CDN hosts, the operator's ``LBP_EXTRA_CDN_HOSTS`` and the
-    hosts learned from the bank's own pages during this login attempt
+    hosts auto-admitted from the bank's own pages during this login attempt
     (`_is_allowed_url`), or be auto-admitted on first sight
     (`_auto_admit_cdn_host`). Every hop must pass
     (data: URLs never hit the network and stay allowed); an off-origin hop,
@@ -911,9 +876,8 @@ class BrowserBankClient(HttpxBankClient):
             await self._goto(page, BASE + IDENTIF + "?origin=particuliers")
             # The login scripts may live on a rotated distribution the pins
             # do not know, and anything they request is auto-admitted on
-            # first sight: settle the hosts while the set grows, so the
-            # keypad scripts load before the identifier is checked.
-            await self._settle_page_hosts(page, learned)
+            # first sight, so the keypad scripts load before the identifier
+            # is checked.
             await page.wait_for_selector("#identifiant", timeout=45_000)
             await page.fill("#identifiant", customer_id)
             # `continuer()` reveals the password panel after checking the identifier.
@@ -1030,9 +994,8 @@ class BrowserBankClient(HttpxBankClient):
             # device may be trusted (home page), or the challenge may be up.
             step = "inspect"
             # The challenge pages may reference a rotated distribution too;
-            # learn it so their polled scripts keep loading. No reload here:
-            # the flow state lives in this page.
-            await self._learn_page_cdn_hosts(page, state.setdefault("cdn_hosts", set()))
+            # their polled scripts are auto-admitted on first sight, so they
+            # keep loading. No reload here: the flow state lives in this page.
             try:
                 body = await page.content()
             except Exception:
@@ -1103,46 +1066,6 @@ class BrowserBankClient(HttpxBankClient):
             },
             separators=(",", ":"),
         )
-
-    @staticmethod
-    async def _settle_page_hosts(
-        page: Any, learned: set[str], max_reloads: int = 2
-    ) -> None:
-        """Learn CDN hosts from the served page, reloading while the set grows.
-
-        At most ``max_reloads`` reloads, then one final learn inspects the
-        last state. Cookies are kept and no form is submitted, so this is
-        only safe on the pre-login pages of `/initiate`.
-        """
-        known: set[str] = set()
-        for _ in range(max_reloads):
-            await BrowserBankClient._learn_page_cdn_hosts(page, learned)
-            if learned <= known:
-                return
-            known = set(learned)
-            await page.reload(wait_until="domcontentloaded", timeout=45_000)
-        await BrowserBankClient._learn_page_cdn_hosts(page, learned)
-
-    @staticmethod
-    async def _learn_page_cdn_hosts(page: Any, learned: set[str]) -> set[str]:
-        """Admit the CDN hosts referenced by the current bank-origin page.
-
-        The bank rotates its CloudFront distributions: the scripts the page
-        needs may live on a host nobody pinned. The hosts come from the page
-        the bank itself served, are usable as subresources or subframe
-        documents only (never as a top-level Document navigation), and die
-        with this login attempt.
-        Returns the newly learned hosts (hostnames only, never page content).
-        """
-        try:
-            html = await page.content()
-        except Exception:
-            return set()
-        new = _learn_cdn_hosts(html) - PINNED_CDN_HOSTS - _env_cdn_hosts() - learned
-        if new:
-            learned.update(new)
-            log.info("La Banque Postale learned CDN hosts hosts=%s", sorted(new))
-        return new
 
     async def _dispose(self, state: dict[str, Any]) -> None:
         await self._close_browser(
