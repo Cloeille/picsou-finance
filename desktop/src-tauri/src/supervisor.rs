@@ -12,7 +12,7 @@ use std::process::{Child, Command, Stdio};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use crate::upgrade;
+use crate::{sidecars, upgrade};
 
 pub const LOOPBACK: &str = "127.0.0.1";
 const DB_USER: &str = "picsou";
@@ -29,6 +29,7 @@ const LOCALE: &str = "C";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(180);
 const STOP_TIMEOUT: Duration = Duration::from_secs(20);
 
+#[derive(Clone)]
 pub struct Layout {
     pub runtime: PathBuf,
     pub data: PathBuf,
@@ -47,7 +48,7 @@ impl Layout {
     fn log_path(&self, name: &str) -> PathBuf {
         self.data.join("logs").join(name)
     }
-    fn log(&self, name: &str) -> std::io::Result<File> {
+    pub fn log(&self, name: &str) -> std::io::Result<File> {
         fs::create_dir_all(self.data.join("logs"))?;
         OpenOptions::new().create(true).append(true).open(self.data.join("logs").join(name))
     }
@@ -60,7 +61,9 @@ pub struct Stack {
     backend: Option<Child>,
     /// Windows: PostgreSQL runs under `pg_ctl` (program, cluster), which also stops it.
     pg_ctl: Option<(PathBuf, PathBuf)>,
-    stopping: bool,
+    /// Bank sidecars running right now, by service; `sidecars.rs` starts and stops them.
+    pub sidecars: std::collections::HashMap<String, Child>,
+    pub stopping: bool,
 }
 
 pub type Shared = std::sync::Arc<std::sync::Mutex<Stack>>;
@@ -84,7 +87,7 @@ impl From<String> for Failed {
 /// A child that dies with the app on Linux, even when the app is killed or crashes, so no
 /// orphan keeps the cluster's lock. PostgreSQL gets SIGINT, its fast shutdown. The signal is
 /// tied to the spawning thread, so `start` must run on a thread that lives as long as the app.
-fn child(program: PathBuf, on_parent_death: Signal) -> Command {
+pub fn child(program: PathBuf, on_parent_death: Signal) -> Command {
     let mut command = Command::new(program);
     #[cfg(target_os = "linux")]
     unsafe {
@@ -144,6 +147,7 @@ pub fn start(layout: &Layout, stack: &Shared) -> Result<String, Failed> {
     let secrets = layout.secrets();
     private_dir(&layout.data).and_then(|_| private_dir(&secrets)).map_err(|e| format!("data folder: {e}"))?;
     let password = secret(&secrets.join("postgres_password")).map_err(|e| format!("database password: {e}"))?;
+    let sidecar_key = secret(&secrets.join("sidecar_api_key")).map_err(|e| format!("sidecar key: {e}"))?;
     let upgrade_from = match upgrade::compare(upgrade::recorded(&layout.data).as_deref(), APP_VERSION) {
         _ if !layout.cluster().join("PG_VERSION").exists() => {
             init_cluster(layout)?;
@@ -170,6 +174,7 @@ pub fn start(layout: &Layout, stack: &Shared) -> Result<String, Failed> {
         .args(["-Xmx768m", "-XX:+UseSerialGC", "-jar"])
         .arg(layout.runtime.join("app.jar"))
         .envs(backend_env(layout, db_port, port, &password))
+        .envs(sidecars::serve(layout, stack, &sidecar_key, sidecars::IDLE).map_err(|e| format!("sidecar ports: {e}"))?)
         .stdin(Stdio::null())
         .stdout(layout.log("backend.log").map_err(|e| e.to_string())?)
         .stderr(layout.log("backend.log").map_err(|e| e.to_string())?)
@@ -300,11 +305,16 @@ pub fn backend_env(layout: &Layout, db_port: u16, port: u16, password: &str) -> 
 
 /// Stops the backend, then PostgreSQL with a fast shutdown, so the next start needs no recovery.
 pub fn stop(stack: &Shared) {
-    let (backend, postgres, pg_ctl) = {
+    let (backend, postgres, pg_ctl, running) = {
         let mut s = stack.lock().unwrap_or_else(|e| e.into_inner());
         s.stopping = true;
-        (s.backend.take(), s.postgres.take(), s.pg_ctl.take())
+        (s.backend.take(), s.postgres.take(), s.pg_ctl.take(), std::mem::take(&mut s.sidecars))
     };
+    // In parallel: each may take up to STOP_TIMEOUT to finish a request in flight.
+    let ending: Vec<_> = running.into_values().map(|s| std::thread::spawn(move || end(s, Signal::Terminate))).collect();
+    for handle in ending {
+        let _ = handle.join();
+    }
     if let Some(child) = backend {
         end(child, Signal::Terminate);
     }
@@ -404,7 +414,11 @@ fn create_database(layout: &Layout, staging: &Path) -> Result<(), String> {
 /// A random hex secret, written 0600 on first use and read back afterwards.
 pub fn secret(path: &Path) -> std::io::Result<String> {
     if let Ok(existing) = fs::read_to_string(path) {
-        return Ok(existing.trim().to_owned());
+        if !existing.trim().is_empty() {
+            return Ok(existing.trim().to_owned());
+        }
+        // Empty after a crash between create and write: regenerate rather than use "".
+        fs::remove_file(path)?;
     }
     let mut bytes = [0u8; 24];
     getrandom::fill(&mut bytes).map_err(std::io::Error::other)?;
@@ -457,7 +471,7 @@ fn http_ok(port: u16, path: &str) -> bool {
 }
 
 #[derive(Clone, Copy)]
-enum Signal {
+pub enum Signal {
     Terminate,
     Interrupt,
 }
@@ -472,14 +486,14 @@ impl Signal {
     }
 }
 
-fn end(mut child: Child, signal: Signal) {
+pub fn end(mut child: Child, signal: Signal) {
     #[cfg(unix)]
     unsafe {
         libc::kill(child.id() as libc::pid_t, signal.number());
     }
     #[cfg(not(unix))]
     {
-        // Only Java comes here on Windows: its data is in PostgreSQL, which pg_ctl stops cleanly.
+        // Java and the sidecars come here on Windows: neither keeps state; pg_ctl stops PostgreSQL.
         let _ = signal;
         let _ = child.kill();
     }
