@@ -17,6 +17,13 @@ use crate::supervisor::{self, Shared};
 
 const EVERY: Duration = Duration::from_secs(6 * 60 * 60);
 
+/// Passed to a second launch: installs the available update, as the tray entry does.
+pub const INSTALL_ARG: &str = "--install-update";
+
+pub fn wants_install(args: impl IntoIterator<Item = String>) -> bool {
+    args.into_iter().any(|arg| arg == INSTALL_ARG)
+}
+
 /// The tray entry, disabled until an update is found.
 #[derive(Default)]
 pub struct TrayItem(pub Mutex<Option<MenuItem<tauri::Wry>>>);
@@ -105,5 +112,11 @@ mod tests {
         assert!(!enabled(&config));
         config.plugins.0.insert("updater".into(), serde_json::json!({"pubkey": "dW50cnVzdGVk", "endpoints": []}));
         assert!(enabled(&config));
+    }
+
+    #[test]
+    fn the_install_argument_is_recognised() {
+        assert!(wants_install(["picsou".to_owned(), INSTALL_ARG.to_owned()]));
+        assert!(!wants_install(["picsou".to_owned(), "--hidden".to_owned()]));
     }
 }
