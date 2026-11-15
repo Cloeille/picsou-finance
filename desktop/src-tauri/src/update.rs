@@ -68,19 +68,28 @@ pub fn install(app: &AppHandle) {
 async fn install_now(app: &AppHandle) -> Result<(), String> {
     let stack = app.state::<Shared>().inner().clone();
     let before_exit = stack.clone();
-    // Windows: the installer runs, then the app exits; the hook stops the stack before that.
+    // Windows: the hook runs, then the installer starts and the app exits. Picsou's job object
+    // would kill the installer with the app, so the hook lifts it once the stack is stopped.
     let updater = app
         .updater_builder()
-        .on_before_exit(move || supervisor::stop(&before_exit))
+        .on_before_exit(move || {
+            supervisor::stop(&before_exit);
+            #[cfg(windows)]
+            supervisor::let_the_installer_outlive_the_app();
+        })
         .build()
         .map_err(|e| e.to_string())?;
     let Some(update) = updater.check().await.map_err(|e| e.to_string())? else {
         return Ok(());
     };
+    // Verified against the public key while downloading: a bad file never stops the stack.
     let bytes = update.download(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
     supervisor::stop(&stack);
-    update.install(bytes).map_err(|e| e.to_string())?;
-    // Linux (AppImage) and macOS replace the bundle in place: start the new version.
+    // Windows exits inside install. Elsewhere the bundle is replaced in place; the restart starts
+    // the new version, or the old one again if the install failed, so the app never stays down.
+    if let Err(e) = update.install(bytes) {
+        eprintln!("picsou: update failed: {e}");
+    }
     app.restart();
 }
 

@@ -1,0 +1,70 @@
+name: Desktop release
+
+# Builds the signed Windows installer of a published release and attaches it with the updater's
+# latest.json (#591): installed apps then offer the update in their tray. Off until the
+# maintainer sets the TAURI_UPDATER_PUBKEY variable and the signing secrets; see
+# docs/features/desktop-app.md, "Releases and updates".
+on:
+  release:
+    types: [published]
+  # Re-attaches to an existing release, e.g. one published before the key was set.
+  workflow_dispatch:
+    inputs:
+      tag: {description: 'Release tag', required: true, type: string}
+
+permissions: {contents: read}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  windows:
+    if: vars.TAURI_UPDATER_PUBKEY != ''
+    runs-on: windows-latest
+    timeout-minutes: 40
+    permissions: {contents: write}
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    defaults:
+      run: {shell: bash}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false, ref: "refs/tags/${{ env.TAG }}"}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with: {python-version: '3.12'}
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with: {distribution: temurin, java-version: '21', cache: maven}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - name: The signing key is set
+        env: {KEY: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::TAURI_UPDATER_PUBKEY is set but the TAURI_SIGNING_PRIVATE_KEY secret is not"
+            exit 1
+          fi
+      - name: Stamp the release version
+        run: echo "VERSION=$(python .github/scripts/desktop_release.py stamp "$TAG")" >> "$GITHUB_ENV"
+      - name: Build the backend jar
+        working-directory: backend
+        run: mvn -B -q package -DskipTests
+      - name: Build the SPA
+        working-directory: frontend
+        run: bun install --frozen-lockfile && bun run build
+      - name: Assemble the Windows runtime
+        run: python desktop/scripts/fetch_runtime.py --target windows
+      - name: Build and sign the installer
+        working-directory: desktop/src-tauri
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
+          PUBKEY: "${{ vars.TAURI_UPDATER_PUBKEY }}"
+        run: |
+          python ../../.github/scripts/desktop_release.py config "$PUBKEY" "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/release.json"
+          npx --yes @tauri-apps/cli@2.12.4 build --bundles nsis --config "$RUNNER_TEMP/release.json"
+      - name: Write latest.json and attach everything to the release
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          installer=$(ls desktop/src-tauri/target/release/bundle/nsis/*_"$VERSION"_x64-setup.exe)
+          python .github/scripts/desktop_release.py manifest "$TAG" "$GITHUB_REPOSITORY" "$installer" > latest.json
+          cat latest.json
+          gh release upload "$TAG" "$installer" "$installer.sig" latest.json --clobber -R "$GITHUB_REPOSITORY"
