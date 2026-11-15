@@ -13,6 +13,18 @@ use tauri::menu::MenuItem;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_updater::UpdaterExt;
 
+/// `logs/update.log` in the data folder: a release build has no console, so stderr is lost.
+fn note<R: tauri::Runtime>(app: &AppHandle<R>, line: &str) {
+    use std::io::Write;
+    let Ok(dir) = app.path().app_local_data_dir() else { return };
+    let logs = dunce::simplified(&dir).join("logs");
+    let _ = std::fs::create_dir_all(&logs);
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(logs.join("update.log")) {
+        let _ = writeln!(file, "{secs} {line}");
+    }
+}
+
 use crate::supervisor::{self, Shared};
 
 const EVERY: Duration = Duration::from_secs(6 * 60 * 60);
@@ -39,11 +51,14 @@ pub fn watch(app: &AppHandle) {
         loop {
             match app.updater().map_err(|e| e.to_string()) {
                 Ok(updater) => match updater.check().await {
-                    Ok(Some(update)) => offer(&app, &update.version),
+                    Ok(Some(update)) => {
+                        note(&app, &format!("update {} available", update.version));
+                        offer(&app, &update.version)
+                    }
                     Ok(None) => {}
-                    Err(e) => eprintln!("picsou: update check failed: {e}"),
+                    Err(e) => note(&app, &format!("update check failed: {e}")),
                 },
-                Err(e) => eprintln!("picsou: no updater: {e}"),
+                Err(e) => note(&app, &format!("no updater: {e}")),
             }
             tokio_sleep(EVERY).await;
         }
@@ -67,7 +82,7 @@ pub fn install(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         if let Err(e) = install_now(&app).await {
-            eprintln!("picsou: update failed: {e}");
+            note(&app, &format!("update failed: {e}"));
         }
     });
 }
@@ -75,6 +90,7 @@ pub fn install(app: &AppHandle) {
 async fn install_now(app: &AppHandle) -> Result<(), String> {
     let stack = app.state::<Shared>().inner().clone();
     let before_exit = stack.clone();
+    let hook_app = app.clone();
     // Windows: the hook runs, then the installer starts and the app exits. Picsou's job object
     // would kill the installer with the app, so the hook lifts it once the stack is stopped.
     let updater = app
@@ -83,19 +99,25 @@ async fn install_now(app: &AppHandle) -> Result<(), String> {
             supervisor::stop(&before_exit);
             #[cfg(windows)]
             supervisor::let_the_installer_outlive_the_app();
+            note(&hook_app, "starting the installer");
         })
         .build()
         .map_err(|e| e.to_string())?;
     let Some(update) = updater.check().await.map_err(|e| e.to_string())? else {
+        note(app, "install asked, no update available");
         return Ok(());
     };
+    note(app, &format!("downloading {}", update.version));
     // Verified against the public key while downloading: a bad file never stops the stack.
     let bytes = update.download(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
+    note(app, &format!("downloaded and verified {} bytes, stopping the stack", bytes.len()));
     supervisor::stop(&stack);
+    note(app, "stack stopped, installing");
     // Windows exits inside install. Elsewhere the bundle is replaced in place; the restart starts
     // the new version, or the old one again if the install failed, so the app never stays down.
-    if let Err(e) = update.install(bytes) {
-        eprintln!("picsou: update failed: {e}");
+    match update.install(bytes) {
+        Ok(()) => note(app, "installed in place, restarting"),
+        Err(e) => note(app, &format!("install failed, restarting the current version: {e}")),
     }
     app.restart();
 }
