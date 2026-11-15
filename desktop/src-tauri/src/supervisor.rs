@@ -111,12 +111,13 @@ pub fn child(program: PathBuf, on_parent_death: Signal) -> Command {
     command
 }
 
-/// Windows: puts Picsou in a job object that kills every process in it when the last handle
-/// closes, which the system does when Picsou exits, crashes or is killed. Children (pg_ctl,
-/// PostgreSQL, Java) inherit the job, so none outlives the app.
+/// The job of `kill_children_with_the_app`, lifted by `let_the_installer_outlive_the_app`.
 #[cfg(windows)]
 static JOB: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 
+/// Windows: puts Picsou in a job object that kills every process in it when the last handle
+/// closes, which the system does when Picsou exits, crashes or is killed. Children (pg_ctl,
+/// PostgreSQL, Java) inherit the job, so none outlives the app.
 #[cfg(windows)]
 pub fn kill_children_with_the_app() {
     use windows_sys::Win32::System::JobObjects::{

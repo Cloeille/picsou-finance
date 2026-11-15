@@ -7,7 +7,8 @@ name: Desktop release
 on:
   release:
     types: [published]
-  # Re-attaches to an existing release, e.g. one published before the key was set.
+  # Re-attaches to an existing release published before the key was set. The tag must contain
+  # this workflow's commit: an older tag has neither the scripts nor the updater.
   workflow_dispatch:
     inputs:
       tag: {description: 'Release tag', required: true, type: string}
@@ -43,7 +44,10 @@ jobs:
             exit 1
           fi
       - name: Stamp the release version
-        run: echo "VERSION=$(python .github/scripts/desktop_release.py stamp "$TAG")" >> "$GITHUB_ENV"
+        run: |
+          # Assigned first: inside echo, a failed stamp would leave VERSION empty and the step green.
+          VERSION=$(python .github/scripts/desktop_release.py stamp "$TAG")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
       - name: Build the backend jar
         working-directory: backend
         run: mvn -B -q package -DskipTests
