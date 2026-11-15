@@ -16,7 +16,16 @@ use crate::upgrade;
 
 pub const LOOPBACK: &str = "127.0.0.1";
 const DB_USER: &str = "picsou";
+#[cfg(not(windows))]
 const DB_NAME: &str = "picsou";
+// ponytail: Windows uses initdb's own database. Creating one needs single-user mode, which
+// PostgreSQL refuses to an elevated user, or client tools the bundle does not ship.
+#[cfg(windows)]
+const DB_NAME: &str = "postgres";
+#[cfg(not(windows))]
+const LOCALE: &str = "C.UTF-8";
+#[cfg(windows)]
+const LOCALE: &str = "C";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(180);
 const STOP_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -49,6 +58,8 @@ impl Layout {
 pub struct Stack {
     postgres: Option<Child>,
     backend: Option<Child>,
+    /// Windows: PostgreSQL runs under `pg_ctl` (program, cluster), which also stops it.
+    pg_ctl: Option<(PathBuf, PathBuf)>,
     stopping: bool,
 }
 
@@ -84,10 +95,45 @@ fn child(program: PathBuf, on_parent_death: Signal) -> Command {
             Ok(())
         });
     }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // No console window per child; the job object from `kill_children_with_the_app` ends them.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
     #[cfg(not(target_os = "linux"))]
-    // ponytail: Linux only; macOS and Windows get a job object or kqueue watch with #591.
+    // ponytail: macOS has no parent-death guard yet (#591).
     let _ = on_parent_death;
     command
+}
+
+/// Windows: puts Picsou in a job object that kills every process in it when the last handle
+/// closes, which the system does when Picsou exits, crashes or is killed. Children (pg_ctl,
+/// PostgreSQL, Java) inherit the job, so none outlives the app.
+#[cfg(windows)]
+pub fn kill_children_with_the_app() {
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation, SetInformationJobObject,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    unsafe {
+        let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+        if job.is_null() {
+            return;
+        }
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &info as *const _ as *const std::ffi::c_void,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        );
+        // The handle is never closed on purpose: it lives exactly as long as the process.
+        AssignProcessToJobObject(job, GetCurrentProcess());
+    }
 }
 
 /// Starts both processes and returns the URL the window loads once the backend is ready.
@@ -111,23 +157,7 @@ pub fn start(layout: &Layout, stack: &Shared) -> Result<String, Failed> {
     };
 
     let db_port = free_port().map_err(|e| format!("no free port: {e}"))?;
-    let pg_log = layout.log_path("postgres.log");
-    let log_start = fs::metadata(&pg_log).map(|m| m.len() as usize).unwrap_or(0);
-    let postgres = child(layout.exe("postgres", "postgres"), Signal::Interrupt)
-        .arg("-D").arg(layout.cluster())
-        .args(["-p", &db_port.to_string(), "-c", &format!("listen_addresses={LOOPBACK}")])
-        .args(["-c", "unix_socket_directories="])
-        .stdin(Stdio::null())
-        .stdout(layout.log("postgres.log").map_err(|e| e.to_string())?)
-        .stderr(layout.log("postgres.log").map_err(|e| e.to_string())?)
-        .spawn()
-        .map_err(|e| format!("PostgreSQL did not start: {e}"))?;
-    keep(stack, postgres, Signal::Interrupt, |s| &mut s.postgres)?;
-    // An open port is not enough: during crash recovery PostgreSQL listens but refuses sessions.
-    let ready = || fs::read(&pg_log).is_ok_and(|log| {
-        log.get(log_start..).is_some_and(|new| String::from_utf8_lossy(new).contains("ready to accept connections"))
-    });
-    wait_until(ready, "PostgreSQL", stack, |s| &mut s.postgres)?;
+    start_postgres(layout, stack, db_port)?;
 
     let backend_log = layout.log_path("backend.log");
     let backend_log_start = fs::metadata(&backend_log).map(|m| m.len() as usize).unwrap_or(0);
@@ -151,6 +181,58 @@ pub fn start(layout: &Layout, stack: &Shared) -> Result<String, Failed> {
     // Only a start that reached the dashboard moves the recorded version.
     upgrade::record(&layout.data, APP_VERSION).map_err(|e| format!("data folder: {e}"))?;
     Ok(format!("http://{LOOPBACK}:{port}/"))
+}
+
+#[cfg(not(windows))]
+fn start_postgres(layout: &Layout, stack: &Shared, db_port: u16) -> Result<(), String> {
+    let pg_log = layout.log_path("postgres.log");
+    let log_start = fs::metadata(&pg_log).map(|m| m.len() as usize).unwrap_or(0);
+    let postgres = child(layout.exe("postgres", "postgres"), Signal::Interrupt)
+        .arg("-D").arg(layout.cluster())
+        .args(["-p", &db_port.to_string(), "-c", &format!("listen_addresses={LOOPBACK}")])
+        .args(["-c", "unix_socket_directories="])
+        .stdin(Stdio::null())
+        .stdout(layout.log("postgres.log").map_err(|e| e.to_string())?)
+        .stderr(layout.log("postgres.log").map_err(|e| e.to_string())?)
+        .spawn()
+        .map_err(|e| format!("PostgreSQL did not start: {e}"))?;
+    keep(stack, postgres, Signal::Interrupt, |s| &mut s.postgres)?;
+    // An open port is not enough: during crash recovery PostgreSQL listens but refuses sessions.
+    let ready = || fs::read(&pg_log).is_ok_and(|log| {
+        log.get(log_start..).is_some_and(|new| String::from_utf8_lossy(new).contains("ready to accept connections"))
+    });
+    wait_until(ready, "PostgreSQL", stack, |s| &mut s.postgres)
+}
+
+/// Windows has no signals: `pg_ctl` starts PostgreSQL (with a restricted token, so an elevated
+/// user works too), waits until it accepts sessions, and later stops it with a fast shutdown.
+#[cfg(windows)]
+fn start_postgres(layout: &Layout, stack: &Shared, db_port: u16) -> Result<(), String> {
+    let pg_ctl = layout.exe("postgres", "pg_ctl");
+    {
+        let mut s = stack.lock().unwrap_or_else(|e| e.into_inner());
+        if s.stopping {
+            return Err("Picsou is quitting".to_owned());
+        }
+        s.pg_ctl = Some((pg_ctl.clone(), layout.cluster()));
+    }
+    let log = || layout.log("pg_ctl.log").map_err(|e| e.to_string());
+    let status = child(pg_ctl, Signal::Terminate)
+        .args(["start", "-w", "-t", &STARTUP_TIMEOUT.as_secs().to_string(), "-D"])
+        .arg(layout.cluster())
+        .arg("-l")
+        .arg(layout.log_path("postgres.log"))
+        .arg("-o")
+        .arg(format!("-p {db_port} -c listen_addresses={LOOPBACK}"))
+        .stdin(Stdio::null())
+        .stdout(log()?)
+        .stderr(log()?)
+        .status()
+        .map_err(|e| format!("PostgreSQL did not start: {e}"))?;
+    if !status.success() {
+        return Err(format!("PostgreSQL did not start ({status}). See the logs folder."));
+    }
+    Ok(())
 }
 
 fn now_secs() -> u64 {
@@ -215,10 +297,10 @@ pub fn backend_env(layout: &Layout, db_port: u16, port: u16, password: &str) -> 
 
 /// Stops the backend, then PostgreSQL with a fast shutdown, so the next start needs no recovery.
 pub fn stop(stack: &Shared) {
-    let (backend, postgres) = {
+    let (backend, postgres, pg_ctl) = {
         let mut s = stack.lock().unwrap_or_else(|e| e.into_inner());
         s.stopping = true;
-        (s.backend.take(), s.postgres.take())
+        (s.backend.take(), s.postgres.take(), s.pg_ctl.take())
     };
     if let Some(child) = backend {
         end(child, Signal::Terminate);
@@ -226,6 +308,15 @@ pub fn stop(stack: &Shared) {
     if let Some(child) = postgres {
         // SIGINT is PostgreSQL's fast shutdown: SIGTERM would wait for every client to leave.
         end(child, Signal::Interrupt);
+    }
+    if let Some((program, cluster)) = pg_ctl {
+        let _ = child(program, Signal::Terminate)
+            .args(["stop", "-m", "fast", "-w", "-t", &STOP_TIMEOUT.as_secs().to_string(), "-D"])
+            .arg(cluster)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
     }
 }
 
@@ -272,7 +363,7 @@ fn init_cluster(layout: &Layout) -> Result<(), String> {
     let log = || layout.log("postgres.log").map_err(|e| e.to_string());
     let status = child(layout.exe("postgres", "initdb"), Signal::Terminate)
         .arg("-D").arg(&staging)
-        .args(["-U", DB_USER, "--auth=scram-sha-256", "--encoding=UTF8", "--locale=C.UTF-8"])
+        .args(["-U", DB_USER, "--auth=scram-sha-256", "--encoding=UTF8", &format!("--locale={LOCALE}")])
         .arg(format!("--pwfile={}", layout.secrets().join("postgres_password").display()))
         .stdout(log()?)
         .stderr(log()?)
@@ -281,9 +372,18 @@ fn init_cluster(layout: &Layout) -> Result<(), String> {
     if !status.success() {
         return Err(format!("initdb failed ({status}). See the logs folder."));
     }
-    // The bundle ships no client tools: single-user mode creates the database before any port opens.
+    #[cfg(not(windows))]
+    create_database(layout, &staging)?;
+    // A cluster appears only complete: an interrupted first start is redone, never half-used.
+    fs::rename(&staging, layout.cluster()).map_err(|e| format!("database folder: {e}"))
+}
+
+/// The bundle ships no client tools: single-user mode creates the database before any port opens.
+#[cfg(not(windows))]
+fn create_database(layout: &Layout, staging: &Path) -> Result<(), String> {
+    let log = || layout.log("postgres.log").map_err(|e| e.to_string());
     let mut single = child(layout.exe("postgres", "postgres"), Signal::Terminate)
-        .args(["--single", "-D"]).arg(&staging).arg("postgres")
+        .args(["--single", "-D"]).arg(staging).arg("postgres")
         .stdin(Stdio::piped())
         .stdout(log()?)
         .stderr(log()?)
@@ -294,8 +394,7 @@ fn init_cluster(layout: &Layout) -> Result<(), String> {
     if !status.success() || !matches!(sent, Some(Ok(()))) {
         return Err(format!("the database could not be created ({status}). See the logs folder."));
     }
-    // A cluster appears only complete: an interrupted first start is redone, never half-used.
-    fs::rename(&staging, layout.cluster()).map_err(|e| format!("database folder: {e}"))
+    Ok(())
 }
 
 /// A random hex secret, written 0600 on first use and read back afterwards.
@@ -376,7 +475,7 @@ fn end(mut child: Child, signal: Signal) {
     }
     #[cfg(not(unix))]
     {
-        // ponytail: hard stop off Unix; a console control event comes with the Windows build (#591).
+        // Only Java comes here on Windows: its data is in PostgreSQL, which pg_ctl stops cleanly.
         let _ = signal;
         let _ = child.kill();
     }
@@ -426,7 +525,10 @@ mod tests {
 
         assert_eq!(env["SERVER_ADDRESS"], "127.0.0.1");
         assert_eq!(env["SERVER_PORT"], "8123");
+        #[cfg(not(windows))]
         assert_eq!(env["SPRING_DATASOURCE_URL"], "jdbc:postgresql://127.0.0.1:5433/picsou");
+        #[cfg(windows)]
+        assert_eq!(env["SPRING_DATASOURCE_URL"], "jdbc:postgresql://127.0.0.1:5433/postgres");
         assert_eq!(env["SPRING_DATASOURCE_PASSWORD"], "pw");
         assert_eq!(PathBuf::from(&env["PICSOU_SECRETS_DIR"]), root.join("data").join("secrets"));
         assert_eq!(PathBuf::from(&env["SPA_LOCATION"]), root.join("runtime").join("spa"));
