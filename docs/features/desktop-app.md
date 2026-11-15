@@ -113,6 +113,46 @@ the [ADR](../decisions/2026-11-15-desktop-app-tauri.md).
   account" with a "Not on desktop" badge, and their sync tab explains to use the Docker version.
   Docker sets neither variable, so nothing changes there.
 
+### Releases and updates (#591)
+
+Publishing a GitHub Release runs `.github/workflows/desktop-release.yml`. It builds the Windows
+installer at the release tag, signs it with the updater key, and attaches the installer, its
+`.sig` and `latest.json` to the release. An installed app reads
+`https://github.com/<repo>/releases/latest/download/latest.json` once the backend is ready, then
+every 6 h, and offers "Install Picsou x.y.z" in the tray.
+
+- The version comes from the tag (`1.3.0` or `v1.3.0`): `desktop_release.py stamp` writes it to
+  `Cargo.toml`, which the bundle, the updater and the backups (#588) all read.
+  `tauri.conf.json` carries no version on purpose.
+- Only the release build gets the updater config (`desktop_release.py config`, passed to
+  `tauri build --config`). PR and dev builds have no public key, so they never check.
+- The plugin checks the download against the public key before anything stops. On Windows the
+  installer runs in passive mode (progress bar, no question) and restarts Picsou.
+- A prerelease is attached like any release, but `releases/latest` skips prereleases, so
+  installed apps do not get it.
+- To attach to a release published before the key was set, run the workflow by hand
+  (Actions, "Desktop release", "Run workflow") with its tag.
+
+One-time setup by a maintainer. The job is skipped until the variable exists.
+
+1. Generate the key pair on a trusted machine:
+   `npx @tauri-apps/cli@2.12.4 signer generate -w picsou-updater.key`. It asks for a password and
+   writes `picsou-updater.key` (private) and `picsou-updater.key.pub` (public). Keep both
+   outside the repository, and back the private key up: losing it means installed apps can no
+   longer be updated, and users must reinstall by hand.
+2. In the repository, Settings, Secrets and variables, Actions:
+   - **Secrets** tab: `TAURI_SIGNING_PRIVATE_KEY` = the content of `picsou-updater.key`,
+     `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` = its password.
+   - **Variables** tab: `TAURI_UPDATER_PUBKEY` = the content of `picsou-updater.key.pub`.
+   With the CLI: `gh secret set TAURI_SIGNING_PRIVATE_KEY < picsou-updater.key`,
+   `gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, and
+   `gh variable set TAURI_UPDATER_PUBKEY < picsou-updater.key.pub`.
+3. Publish the next release as usual. The installer appears on the release page about 30 min
+   later.
+
+This key only proves an update comes from the project. It is not a code-signing certificate:
+SmartScreen still warns on the first install (see Windows above).
+
 ### Key files
 
 - `desktop/src-tauri/src/supervisor.rs` — processes, ports, secrets, first start

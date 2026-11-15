@@ -115,6 +115,9 @@ pub fn child(program: PathBuf, on_parent_death: Signal) -> Command {
 /// closes, which the system does when Picsou exits, crashes or is killed. Children (pg_ctl,
 /// PostgreSQL, Java) inherit the job, so none outlives the app.
 #[cfg(windows)]
+static JOB: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+
+#[cfg(windows)]
 pub fn kill_children_with_the_app() {
     use windows_sys::Win32::System::JobObjects::{
         AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation, SetInformationJobObject,
@@ -138,6 +141,35 @@ pub fn kill_children_with_the_app() {
         // The handle is never closed on purpose: it lives exactly as long as the process.
         if limited == 0 || AssignProcessToJobObject(job, GetCurrentProcess()) == 0 {
             eprintln!("picsou: no job object, PostgreSQL and Java may outlive a crash: {}", std::io::Error::last_os_error());
+            return;
+        }
+        JOB.store(job, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Windows, before the updater starts the installer and exits: the stack is stopped, so the job
+/// no longer kills on close, and the installer starts outside it instead of dying with the app.
+#[cfg(windows)]
+pub fn let_the_installer_outlive_the_app() {
+    use windows_sys::Win32::System::JobObjects::{
+        JobObjectExtendedLimitInformation, SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK,
+    };
+    let job = JOB.load(std::sync::atomic::Ordering::SeqCst);
+    if job.is_null() {
+        return;
+    }
+    unsafe {
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
+        let set = SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &info as *const _ as *const std::ffi::c_void,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        );
+        if set == 0 {
+            eprintln!("picsou: the installer may stop with the app: {}", std::io::Error::last_os_error());
         }
     }
 }
