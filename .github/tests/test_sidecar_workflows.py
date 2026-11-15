@@ -641,6 +641,7 @@ class CiJobSelectionTest(unittest.TestCase):
                 "backend", "release-deployment", "workflow-inventory",
             },
             "charts/picsou/values.yaml": {"helm-chart"},
+            "desktop/src-tauri/src/supervisor.rs": {"desktop"},
             "charts/picsou/templates/sidecars.yaml": {"helm-chart"},
             "services/sofidy-auth/main.py": {"sidecar:sofidy-auth", "backend", "native-sidecars"} | services,
             "services/tr-auth/main.py": {"sidecar:tr-auth"} | services,

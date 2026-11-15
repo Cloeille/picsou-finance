@@ -58,6 +58,7 @@ jobs:
             sidecar: [*workflows, 'services/base/**', 'services/*-auth/**']
             compose-sidecar-build: [*workflows, 'services/**', 'docker/docker-compose.yml']
             native-sidecars: [*workflows, 'services/base/**', 'services/*-auth/**']
+            desktop: [*workflows, 'desktop/**']
             workflow-inventory: [*workflows, 'services/**', 'backend/src/main/resources/application*.yml', '.env.example',
                                  'docker/.env.example', 'docker/docker-compose.yml', 'docker/Dockerfile',
                                  'backend/pom.xml', 'backend/src/test/**']
@@ -315,6 +316,28 @@ jobs:
           --with-requirements services/base/requirements.txt
           python .github/scripts/native_sidecars.py
 
+  # The desktop shell (#235): the supervisor's unit tests and a locked release build.
+  desktop:
+    needs: changes
+    if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'desktop')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run: {working-directory: desktop/src-tauri}
+    steps:
+      - *checkout
+      - name: Install the webview build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev
+      - name: Test and build the shell
+        env:
+          # Release LTO only slows CI; the bundles keep it.
+          CARGO_PROFILE_RELEASE_LTO: 'off'
+        run: |
+          # bundle.resources points at the gitignored runtime, which tauri-build requires to exist.
+          mkdir -p ../runtime
+          cargo test --locked
+          cargo build --locked --release
+
   compose-sidecar-build:
     needs: changes
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'compose-sidecar-build')
@@ -423,7 +446,7 @@ jobs:
   # chart failures must not prevent application images from being published.
   ci-ok:
     if: always()
-    needs: [changes, release-deployment, docker-compose, backend, frontend, e2e, sidecar-base, sidecar, native-sidecars, compose-sidecar-build, workflow-inventory]
+    needs: [changes, release-deployment, docker-compose, backend, frontend, e2e, sidecar-base, sidecar, native-sidecars, compose-sidecar-build, desktop, workflow-inventory]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
