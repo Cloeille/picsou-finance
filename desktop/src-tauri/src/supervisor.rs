@@ -188,6 +188,8 @@ pub fn start(layout: &Layout, stack: &Shared) -> Result<String, Failed> {
     }
     // Only a start that reached the dashboard moves the recorded version.
     upgrade::record(&layout.data, APP_VERSION).map_err(|e| format!("data folder: {e}"))?;
+    // After readiness, so the download never slows the start; before any sync can need it.
+    sidecars::prefetch_browser(layout, stack);
     Ok(format!("http://{LOOPBACK}:{port}/"))
 }
 
