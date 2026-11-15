@@ -125,6 +125,8 @@ fn show_error(app: &tauri::AppHandle, failed: Failed) {
 }
 
 fn main() {
+    #[cfg(windows)]
+    supervisor::kill_children_with_the_app();
     let stack: Shared = Default::default();
     let app = tauri::Builder::default()
         // First, so a second launch only brings the running window forward.
