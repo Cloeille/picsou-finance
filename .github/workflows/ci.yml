@@ -368,6 +368,10 @@ jobs:
           # The SPA is served from the install folder: the one check of a backslash SPA_LOCATION.
           $page = (Invoke-WebRequest "http://127.0.0.1:$port/" -UseBasicParsing -TimeoutSec 5).Content
           if ($page -notmatch '<div id="root"') { throw 'the SPA is not served' }
+          # The banks the desktop does not ship reach the SPA through /actuator/info.
+          $info = Invoke-WebRequest "http://127.0.0.1:$port/actuator/info" -UseBasicParsing -TimeoutSec 5 | Select-Object -ExpandProperty Content
+          "info: $info"
+          if ($info -notmatch '"desktop":"true"' -or $info -notmatch 'amex-auth') { throw 'the unavailable banks are not exposed' }
           # Chromium is fetched in the background right after the start, before any sync asks.
           $t0 = Get-Date
           foreach ($try in 1..60) { if (Test-Path "$data/browsers/chromium_headless_shell-*/INSTALLATION_COMPLETE") { break }; Start-Sleep 5 }
