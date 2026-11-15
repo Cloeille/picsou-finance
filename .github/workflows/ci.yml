@@ -368,7 +368,13 @@ jobs:
           # The SPA is served from the install folder: the one check of a backslash SPA_LOCATION.
           $page = (Invoke-WebRequest "http://127.0.0.1:$port/" -UseBasicParsing -TimeoutSec 5).Content
           if ($page -notmatch '<div id="root"') { throw 'the SPA is not served' }
-          $pids = (Get-Process java, postgres -ErrorAction SilentlyContinue).Id
+          # Bank sidecars (#589): none runs at idle, the first call starts one on loopback.
+          if (Get-Process python -ErrorAction SilentlyContinue) { throw 'a sidecar runs at idle' }
+          $bourso = Invoke-WebRequest "http://127.0.0.1:$port/api/setup/integrations/boursobank/health" -UseBasicParsing -TimeoutSec 90 | Select-Object -ExpandProperty Content
+          "bourso health: $bourso"
+          if ($bourso -notmatch '"ok":true') { throw 'the bourso sidecar did not answer' }
+          if (-not (Get-Process python -ErrorAction SilentlyContinue)) { throw 'no sidecar process after the call' }
+          $pids = (Get-Process java, postgres, python -ErrorAction SilentlyContinue).Id
           $listening = Get-NetTCPConnection -State Listen | Where-Object { $pids -contains $_.OwningProcess }
           $listening | Format-Table LocalAddress, LocalPort, OwningProcess
           if (@($listening).Count -lt 2) { throw 'expected PostgreSQL and Java to listen' }
@@ -376,7 +382,7 @@ jobs:
           # A hard kill, like a crash: the job object must take PostgreSQL and Java with it.
           Stop-Process -Id $app.Id -Force
           Start-Sleep 10
-          $left = Get-Process java, postgres, pg_ctl -ErrorAction SilentlyContinue
+          $left = Get-Process java, postgres, pg_ctl, python -ErrorAction SilentlyContinue
           if ($left) { $left | Format-Table Name, Id; throw 'processes outlived the app' }
           'no process left'
       - name: Show the app logs
