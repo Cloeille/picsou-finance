@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **La Banque Postale accounts show the bank's logo.** The connector writes
+  `La Banque Postale` as the account provider but the frontend had no
+  bundled mark for it, so the accounts fell back to the color circle. The
+  official mark now ships with the app.
 - **La Banque Postale login survives the bank's CloudFront rotations.** The
   sidecar pinned two distributions, so every rotation broke the keypad scripts
   and the login failed. It now auto-admits a shape-valid distribution the
