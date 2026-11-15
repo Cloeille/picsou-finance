@@ -89,20 +89,7 @@ pub fn install(app: &AppHandle) {
 
 async fn install_now(app: &AppHandle) -> Result<(), String> {
     let stack = app.state::<Shared>().inner().clone();
-    let before_exit = stack.clone();
-    let hook_app = app.clone();
-    // Windows: the hook runs, then the installer starts and the app exits. Picsou's job object
-    // would kill the installer with the app, so the hook lifts it once the stack is stopped.
-    let updater = app
-        .updater_builder()
-        .on_before_exit(move || {
-            supervisor::stop(&before_exit);
-            #[cfg(windows)]
-            supervisor::let_the_installer_outlive_the_app();
-            note(&hook_app, "starting the installer");
-        })
-        .build()
-        .map_err(|e| e.to_string())?;
+    let updater = app.updater().map_err(|e| e.to_string())?;
     let Some(update) = updater.check().await.map_err(|e| e.to_string())? else {
         note(app, "install asked, no update available");
         return Ok(());
@@ -113,8 +100,45 @@ async fn install_now(app: &AppHandle) -> Result<(), String> {
     note(app, &format!("downloaded and verified {} bytes, stopping the stack", bytes.len()));
     supervisor::stop(&stack);
     note(app, "stack stopped, installing");
-    // Windows exits inside install. Elsewhere the bundle is replaced in place; the restart starts
-    // the new version, or the old one again if the install failed, so the app never stays down.
+    install_bytes(app, &update, bytes);
+    Ok(())
+}
+
+/// Windows: the plugin's own install hung between its exit hook and the installer start, with
+/// no error (seen on windows-latest; cause not found). Picsou starts the verified NSIS installer
+/// itself, outside its job object, then exits; the installer replaces it and restarts it (`/R`).
+#[cfg(windows)]
+fn install_bytes(app: &AppHandle, update: &tauri_plugin_updater::Update, bytes: Vec<u8>) {
+    use std::os::windows::process::CommandExt;
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    let started = (|| -> std::io::Result<()> {
+        let dir = std::env::temp_dir().join(format!("picsou-update-{}", update.version));
+        std::fs::create_dir_all(&dir)?;
+        let installer = dir.join(format!("Picsou-{}-setup.exe", update.version));
+        std::fs::write(&installer, &bytes)?;
+        supervisor::let_the_installer_outlive_the_app();
+        std::process::Command::new(&installer)
+            .args(["/P", "/UPDATE", "/R"])
+            .creation_flags(DETACHED_PROCESS)
+            .spawn()?;
+        Ok(())
+    })();
+    match started {
+        Ok(()) => {
+            note(app, "installer started, exiting");
+            app.exit(0);
+        }
+        Err(e) => {
+            note(app, &format!("installer did not start, restarting the current version: {e}"));
+            app.restart();
+        }
+    }
+}
+
+/// Linux (AppImage) and macOS replace the bundle in place; the restart starts the new version,
+/// or the old one again if the install failed, so the app never stays down.
+#[cfg(not(windows))]
+fn install_bytes(app: &AppHandle, update: &tauri_plugin_updater::Update, bytes: Vec<u8>) {
     match update.install(bytes) {
         Ok(()) => note(app, "installed in place, restarting"),
         Err(e) => note(app, &format!("install failed, restarting the current version: {e}")),
