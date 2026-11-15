@@ -30,9 +30,10 @@ fn failure_script(failed: &Failed) -> String {
 }
 
 fn layout(app: &tauri::AppHandle) -> tauri::Result<Layout> {
+    // Local, not roaming: a PostgreSQL cluster must not sync with a roaming profile.
     // Tauri returns Windows paths as `\\?\C:\…`; initdb cannot find postgres.exe next to itself
     // with that form, so both folders are simplified to `C:\…` (a no-op elsewhere).
-    let data = dunce::simplified(&app.path().app_data_dir()?).to_path_buf();
+    let data = dunce::simplified(&app.path().app_local_data_dir()?).to_path_buf();
     Ok(Layout { runtime: dunce::simplified(&runtime_dir(app)).to_path_buf(), data })
 }
 
@@ -83,7 +84,7 @@ fn can_launch_at_login() -> bool {
 
 fn tray(app: &tauri::App) -> tauri::Result<()> {
     let autolaunch = app.autolaunch();
-    let data = app.path().app_data_dir()?;
+    let data = app.path().app_local_data_dir()?;
     std::fs::create_dir_all(&data)?;
     let marker = data.join("autostart-default");
     if can_launch_at_login() && first_start(&marker).unwrap_or(false) && autolaunch.enable().is_err() {

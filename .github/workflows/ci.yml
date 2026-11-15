@@ -326,10 +326,15 @@ jobs:
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with: {distribution: temurin, java-version: '21', cache: maven}
       - *bun
-      - name: Build the backend jar and the SPA
+      - name: Build the backend jar
+        working-directory: backend
+        run: mvn -B -q package -DskipTests
+      - name: Build the SPA
+        working-directory: frontend
         run: |
-          cd backend && mvn -B -q package -DskipTests && cd ..
-          cd frontend && bun install --frozen-lockfile && bun run build
+          bun install --frozen-lockfile
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          bun run build
       - name: Assemble the Windows runtime (JRE, PostgreSQL)
         run: python desktop/scripts/fetch_runtime.py --target windows
       - name: Build the installer
@@ -341,24 +346,32 @@ jobs:
         shell: pwsh
         run: |
           $installer = Get-ChildItem desktop/src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
-          Start-Process $installer.FullName -ArgumentList '/S' -Wait
-          $exe = Get-ChildItem "$env:LOCALAPPDATA/Picsou" -Filter *.exe -Recurse | Where-Object Name -notlike 'uninstall*' | Select-Object -First 1
-          $app = Start-Process $exe.FullName -PassThru
-          $data = "$env:APPDATA/com.picsou.desktop"
+          $setup = Start-Process $installer.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($setup.ExitCode) { throw "the installer exited with $($setup.ExitCode)" }
+          $exe = Join-Path $env:LOCALAPPDATA 'Picsou\picsou-desktop.exe'
+          if (-not (Test-Path $exe)) { throw "$exe is not installed" }
+          # A fresh Windows may lack the VC++ runtime: PostgreSQL must carry its own.
+          if (-not (Test-Path (Join-Path $env:LOCALAPPDATA 'Picsou\runtime\postgres\bin\vcruntime140.dll'))) { throw 'PostgreSQL ships without vcruntime140.dll' }
+          $app = Start-Process $exe -PassThru
+          $data = "$env:LOCALAPPDATA/com.picsou.desktop"
           $ready = $false
           foreach ($i in 1..120) {
             Start-Sleep 2
             $port = Get-Content "$data/desktop-port" -ErrorAction SilentlyContinue
             if ($port) {
-              try { Invoke-WebRequest "http://127.0.0.1:$port/actuator/health/readiness" -UseBasicParsing | Out-Null; $ready = $true; break } catch {}
+              try { Invoke-WebRequest "http://127.0.0.1:$port/actuator/health/readiness" -UseBasicParsing -TimeoutSec 5 | Out-Null; $ready = $true; break } catch {}
             }
           }
-          if (-not $ready) { Get-Content "$data/logs/*.log" -Tail 40 -ErrorAction SilentlyContinue; throw 'the installed app never became ready' }
+          if (-not $ready) { throw 'the installed app never became ready' }
           "ready after $($i * 2) s on port $port"
-          Invoke-WebRequest "http://127.0.0.1:$port/api/setup/status" -UseBasicParsing | Select-Object -ExpandProperty Content
+          Invoke-WebRequest "http://127.0.0.1:$port/api/setup/status" -UseBasicParsing -TimeoutSec 5 | Select-Object -ExpandProperty Content
+          # The SPA is served from the install folder: the one check of a backslash SPA_LOCATION.
+          $page = (Invoke-WebRequest "http://127.0.0.1:$port/" -UseBasicParsing -TimeoutSec 5).Content
+          if ($page -notmatch '<div id="root"') { throw 'the SPA is not served' }
           $pids = (Get-Process java, postgres -ErrorAction SilentlyContinue).Id
           $listening = Get-NetTCPConnection -State Listen | Where-Object { $pids -contains $_.OwningProcess }
           $listening | Format-Table LocalAddress, LocalPort, OwningProcess
+          if (@($listening).Count -lt 2) { throw 'expected PostgreSQL and Java to listen' }
           if ($listening | Where-Object LocalAddress -notin '127.0.0.1', '::ffff:127.0.0.1') { throw 'a service listens beyond loopback' }
           # A hard kill, like a crash: the job object must take PostgreSQL and Java with it.
           Stop-Process -Id $app.Id -Force
@@ -366,6 +379,14 @@ jobs:
           $left = Get-Process java, postgres, pg_ctl -ErrorAction SilentlyContinue
           if ($left) { $left | Format-Table Name, Id; throw 'processes outlived the app' }
           'no process left'
+      - name: Show the app logs
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-ChildItem "$env:LOCALAPPDATA/com.picsou.desktop/logs" -Filter *.log -ErrorAction SilentlyContinue | ForEach-Object {
+            "===== $($_.Name)"
+            Get-Content $_.FullName -Tail 60
+          }
       - name: Upload the installer
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
