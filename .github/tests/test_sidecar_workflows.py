@@ -839,6 +839,8 @@ class CiJobSelectionTest(unittest.TestCase):
         python = next(step for step in job["steps"] if "setup-python" in step.get("uses", ""))
         base = re.search(r"(?m)^FROM python:(\d+\.\d+)-", (ROOT / BASE_DOCKERFILE).read_text(encoding="utf-8"))
         self.assertEqual(str(python["with"]["python-version"]), base.group(1))
+        # The toolcache lags the image's patch release, and html.parser changed between them.
+        self.assertIs(python["with"]["check-latest"], True)
 
     def test_native_script_rejects_a_sidecar_that_needs_a_browser(self):
         result = subprocess.run([sys.executable, str(ROOT / ".github/scripts/native_sidecars.py"), "tr-auth"],

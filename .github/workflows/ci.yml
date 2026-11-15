@@ -304,7 +304,10 @@ jobs:
         os: [macos-latest, windows-latest]
     steps:
       - *checkout
-      - *python
+      # The latest 3.12 patch, like the base image: the runners' cached 3.12.10 still has
+      # the html.parser that a hidden-table test in cic-auth guards against.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with: {python-version: '3.12', check-latest: true}
       - name: Install the shared pins
         run: python -m pip install -r services/base/requirements.txt
       - name: Test and start each browserless sidecar
