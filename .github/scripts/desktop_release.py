@@ -15,7 +15,7 @@ from urllib.parse import quote
 ROOT = Path(__file__).resolve().parents[2]
 SHELL = ROOT / "desktop/src-tauri"
 # The updater's `<os>-<arch>` keys: the release must serve every installer it builds.
-PLATFORMS = ("linux-x86_64", "windows-x86_64")
+PLATFORMS = ("darwin-aarch64", "linux-x86_64", "windows-x86_64")
 SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z.-]+)?$")
 
 

@@ -113,12 +113,41 @@ the [ADR](../decisions/2026-11-15-desktop-app-tauri.md).
   account" with a "Not on desktop" badge, and their sync tab explains to use the Docker version.
   Docker sets neither variable, so nothing changes there.
 
+### macOS (#591, Apple Silicon, ad-hoc signed)
+
+- CI job `desktop-macos` builds `Picsou.app` and a `.dmg` on `macos-latest` (Apple Silicon)
+  with the macOS Temurin JRE, zonky PostgreSQL (`darwin-arm64v8`) and python-build-standalone
+  (`fetch_runtime.py --target macos`), and uploads the `.dmg` as the `picsou-macos-dmg`
+  artifact. The job starts the app with `open`, then runs the Windows job's checks: ready,
+  a sidecar on demand, Chromium prefetched, loopback only, nothing left after `kill -9`, and a
+  backup on a simulated update.
+- Intel Macs are not built: Apple stopped selling them, and a second build doubles the release.
+- Data in `~/Library/Application Support/com.picsou.desktop`.
+- **No Apple Developer account.** The app is ad-hoc signed (`signingIdentity: "-"`), free and
+  done by the build: Apple Silicon refuses to run code with no signature at all. It is not
+  notarized, so Gatekeeper blocks the first open of the downloaded app:
+  - macOS 15 and later: open it once, then System Settings, Privacy & Security, **Open Anyway**.
+  - macOS 14: right-click the app, **Open**, then **Open** again.
+  - Or once in Terminal: `xattr -dr com.apple.quarantine /Applications/Picsou.app`.
+- Updates (#591) replace the `.app` from `Picsou.app.tar.gz`. The updater downloads it itself, so
+  no quarantine flag is set and Gatekeeper does not ask again; the download is checked against
+  the updater key like on the other systems. Inferred from the plugin, not yet seen on a real Mac.
+- macOS has no parent-death signal. Each child starts through `/bin/sh`, which forks a watcher
+  and `exec`s the program in its own place: the watcher polls the app every 2 s and signals the
+  program once the app is gone (SIGINT for PostgreSQL, its fast shutdown), then exits.
+- The cluster uses the `C` locale: macOS has no `C.UTF-8`. Same ASCII-only case folding as
+  Windows.
+- With an Apple Developer account later: set `APPLE_CERTIFICATE`, `APPLE_SIGNING_IDENTITY`,
+  `APPLE_ID`, `APPLE_PASSWORD` and `APPLE_TEAM_ID` as secrets and pass them to the build step;
+  Tauri then signs with the Developer ID and notarizes, and the Gatekeeper step goes away.
+
 ### Releases and updates (#591)
 
 Publishing a GitHub Release runs `.github/workflows/desktop-release.yml`. It builds the Windows
-installer and the Linux AppImage at the release tag, each on its own OS, signs them with the
-updater key, and attaches both, their `.sig` and one `latest.json` listing both to the release.
-`latest.json` is written only once both are built, so no platform is offered a half release. An installed app reads
+installer, the Linux AppImage and the macOS app (`.app.tar.gz` for updates, `.dmg` for a first
+install) at the release tag, each on its own OS, signs them with the updater key, and attaches
+them, their `.sig` and one `latest.json` listing all three to the release. `latest.json` is
+written only once all are built, so no platform is offered a half release. An installed app reads
 `https://github.com/<repo>/releases/latest/download/latest.json` once the backend is ready, then
 every 6 h, and offers "Install Picsou x.y.z" in the tray.
 
@@ -167,7 +196,7 @@ SmartScreen still warns on the first install (see Windows above).
 - `desktop/src-tauri/src/upgrade.rs` — version marker, backups, restore, Flyway failure reading
 - `desktop/src-tauri/src/main.rs` — the window and the startup thread
 - `desktop/src-tauri/src/sidecars.rs` — on-demand sidecars behind loopback ports
-- `desktop/scripts/fetch_runtime.py` — builds `desktop/runtime` from the Docker release pins (`--target linux|windows`)
+- `desktop/scripts/fetch_runtime.py` — builds `desktop/runtime` from the Docker release pins (`--target linux|windows|macos`)
 - `desktop/ui/index.html` — the waiting and error page
 
 ## Technical choices
@@ -185,7 +214,8 @@ SmartScreen still warns on the first install (see Windows above).
   The startup thread parks forever after `start`; a thread that returns kills PostgreSQL and the
   backend half a second later (seen in the first real run).
 - `initdb` refuses to run as root, so the app cannot either.
-- macOS and Windows: no parent-death guard and a hard stop yet (#591).
+- Windows has no parent-death signal: the job object ends the children. macOS uses a watcher
+  per child (see macOS above).
 - A startup error can come before `ui/index.html` finished loading: it is kept and shown again
   from `on_page_load`.
 - Logs grow without rotation.
