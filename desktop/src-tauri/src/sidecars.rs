@@ -105,16 +105,32 @@ pub fn prefetch_browser(layout: &Layout, stack: &Shared) {
     }
 }
 
-/// Answers a request the sidecar cannot serve yet, without starting it.
-fn unavailable(mut client: TcpStream, detail: &str) {
+/// Answers a request the sidecar cannot serve yet, without starting it, on its own thread so the
+/// accept loop never waits on a slow client. The request is read first: the old answer closed the
+/// socket before the client had sent it, and macOS then failed the client's write with EPIPE.
+fn unavailable(client: TcpStream, detail: &str) {
+    let detail = detail.to_owned();
+    thread::spawn(move || answer_unavailable(client, &detail));
+}
+
+fn answer_unavailable(mut client: TcpStream, detail: &str) {
     let body = serde_json::json!({ "detail": detail }).to_string();
     let _ = client.set_nonblocking(false);
+    let _ = client.set_read_timeout(Some(Duration::from_secs(2)));
+    let mut request = Vec::new();
+    let mut buffer = [0u8; 4096];
+    while !request.windows(4).any(|w| w == b"\r\n\r\n") && request.len() < 64 * 1024 {
+        match client.read(&mut buffer) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => request.extend_from_slice(&buffer[..n]),
+        }
+    }
     let _ = write!(
         client,
         "HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nRetry-After: 30\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
-    let _ = client.shutdown(Shutdown::Both);
+    let _ = client.shutdown(Shutdown::Write);
 }
 
 /// The (service, base) pairs listed by `fetch_runtime.py`; none when the runtime ships no sidecar.
