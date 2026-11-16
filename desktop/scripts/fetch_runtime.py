@@ -196,6 +196,11 @@ def main():
     jar_url = f"{zonky}/{version}/embedded-postgres-binaries-{target['os']}-amd64-{version}.jar"
     jar = zipfile.ZipFile(io.BytesIO(download(jar_url, text(f"{jar_url}.sha256"))))
     extract(jar.read(target["archive"]), RUNTIME / "postgres")
+    if target["os"] == "linux":
+        # The backend runs headless: the JRE's X11, sound and splash libraries are never loaded,
+        # and their libasound/libX11 dependencies would make linuxdeploy (AppImage) fail.
+        for name in ("libjsound.so", "libawt_xawt.so", "libjawt.so", "libsplashscreen.so"):
+            (RUNTIME / "jre" / "lib" / name).unlink(missing_ok=True)
     # The procedural languages link a system Python 3.6, Perl 5.26 and Tcl that no desktop has, and
     # linuxdeploy (AppImage) refuses a library whose dependency is missing. Picsou uses none of them.
     for module in (RUNTIME / "postgres").rglob("*"):
