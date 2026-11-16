@@ -413,12 +413,12 @@ export function SettingsPage() {
           <div className="space-y-1 sm:justify-self-end sm:text-right">
             <p className="text-muted-foreground">GitHub</p>
             <a
-              href="https://github.com/cloeille/picsou-finance"
+              href="https://github.com/Cloeille/picsou-finance"
               target="_blank"
               rel="noreferrer"
               className="inline-flex min-h-10 max-w-full items-center gap-2 rounded-xl font-medium text-foreground transition-colors hover:text-muted-foreground"
             >
-              <span className="truncate">github.com/cloeille/picsou-finance</span>
+              <span className="truncate">github.com/Cloeille/picsou-finance</span>
               <ExternalLink className="size-4 text-muted-foreground" />
             </a>
           </div>
