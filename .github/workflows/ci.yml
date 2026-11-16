@@ -379,6 +379,23 @@ jobs:
           $left = Get-Process java, postgres, pg_ctl -ErrorAction SilentlyContinue
           if ($left) { $left | Format-Table Name, Id; throw 'processes outlived the app' }
           'no process left'
+          # An update (#588): data last opened by an older version is copied before it starts.
+          Set-Content "$data/app-version" '1.0.0' -NoNewline
+          Remove-Item "$data/desktop-port"
+          $app = Start-Process $exe -PassThru
+          $ready = $false
+          foreach ($i in 1..120) {
+            Start-Sleep 2
+            $port = Get-Content "$data/desktop-port" -ErrorAction SilentlyContinue
+            if ($port) {
+              try { Invoke-WebRequest "http://127.0.0.1:$port/actuator/health/readiness" -UseBasicParsing -TimeoutSec 5 | Out-Null; $ready = $true; break } catch {}
+            }
+          }
+          if (-not $ready) { throw 'the app never became ready after an update' }
+          $copy = Get-ChildItem "$data/backups" -Directory | Where-Object Name -like '*-1.0.0-to-*'
+          if (-not $copy -or -not (Test-Path "$($copy.FullName)/postgres/PG_VERSION")) { throw 'no copy of the data from before the update' }
+          "update ready after $($i * 2) s, copy: $($copy.Name), marker: $(Get-Content $data/app-version)"
+          Stop-Process -Id $app.Id -Force
       - name: Show the app logs
         if: failure()
         shell: pwsh

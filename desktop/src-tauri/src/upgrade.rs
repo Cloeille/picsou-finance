@@ -4,7 +4,7 @@
 //! with another version copies `postgres/` and `secrets/` to `backups/<seconds>-<from>-to-<to>/`
 //! first, while PostgreSQL is stopped, and keeps the last two copies.
 
-use std::fs::{self, File};
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -73,7 +73,8 @@ fn copy_dir(from: &Path, to: &Path) -> io::Result<()> {
             copy_dir(&entry.path(), &target)?;
         } else {
             fs::copy(entry.path(), &target)?;
-            File::open(&target)?.sync_all()?;
+            // Opened for writing: Windows' FlushFileBuffers refuses a read-only handle.
+            fs::OpenOptions::new().write(true).open(&target)?.sync_all()?;
         }
     }
     Ok(())
