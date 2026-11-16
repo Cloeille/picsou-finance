@@ -23,6 +23,8 @@ jobs:
   build:
     if: vars.TAURI_UPDATER_PUBKEY != ''
     strategy:
+      # One OS failing must not cancel the other: its log is the only clue for the next run.
+      fail-fast: false
       matrix:
         include:
           - {os: windows-latest, target: windows, bundle: nsis, platform: windows-x86_64, file: '*_x64-setup.exe'}
@@ -70,6 +72,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
           PUBKEY: "${{ vars.TAURI_UPDATER_PUBKEY }}"
+          # linuxdeploy's bundled strip can choke on newer ELF files; the JRE and CPython ship stripped.
+          NO_STRIP: 'true'
         run: |
           python ../../.github/scripts/desktop_release.py config "$PUBKEY" "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/release.json"
           npx --yes @tauri-apps/cli@2.12.4 build --bundles ${{ matrix.bundle }} --config "$RUNNER_TEMP/release.json"
