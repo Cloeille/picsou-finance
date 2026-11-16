@@ -78,8 +78,8 @@ the [ADR](../decisions/2026-11-15-desktop-app-tauri.md).
 
 ### Bank sidecars (#589, browserless slice)
 
-- `fetch_runtime.py` adds `runtime/python/` (python-build-standalone, the base image's minor,
-  SHA-256 checked, Tk/IDLE/pip/headers trimmed: ~75 MB) and `runtime/sidecars/`: the shared
+- `fetch_runtime.py` adds `runtime/python/` (python-build-standalone, the base image's minor
+  from the `PYTHON_BUILD` release pinned in the script, SHA-256 checked, Tk/IDLE/pip/headers trimmed: ~75 MB) and `runtime/sidecars/`: the shared
   libraries of `services/base` without test helpers, the pinned packages of
   `requirements.txt` in `site/`, and one folder per browserless sidecar holding exactly the
   files its Dockerfile `COPY`s. `runtime/sidecars.json` lists them. Wheels must match the
