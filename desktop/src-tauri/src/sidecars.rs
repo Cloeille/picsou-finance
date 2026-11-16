@@ -139,10 +139,12 @@ fn running(stack: &Shared, service: &str) -> bool {
     alive
 }
 
+/// Stops an idle sidecar off the accept loop: `end` can wait STOP_TIMEOUT for it to exit, and the
+/// port must keep accepting meanwhile (the next call starts a fresh sidecar on another port).
 fn forget(stack: &Shared, service: &str) {
     let taken = stack.lock().unwrap_or_else(|e| e.into_inner()).sidecars.remove(service);
     if let Some(sidecar) = taken {
-        end(sidecar, Signal::Terminate);
+        thread::spawn(move || end(sidecar, Signal::Terminate));
     }
 }
 
@@ -257,7 +259,9 @@ mod tests {
         std::fs::write(runtime.join("sidecars.json"), r#"[{"service":"cic-auth","base":"python"}]"#).unwrap();
         std::fs::write(
             runtime.join("sidecars/lib/uvicorn.py"),
-            r#"import http.server, os, sys
+            r#"import http.server, os, signal, sys
+if os.path.exists("stubborn"):
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
 port = int(sys.argv[sys.argv.index("--port") + 1])
 class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -311,5 +315,23 @@ http.server.HTTPServer(("127.0.0.1", port), H).serve_forever()
         assert!(get(&url).ends_with("k3y sidecar-python"), "started again on the next call");
         crate::supervisor::stop(&stack);
         assert_eq!(count(&stack), 0, "quitting ends it");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_slow_idle_stop_does_not_hold_the_next_call() {
+        // A sidecar that ignores SIGTERM keeps `end` waiting STOP_TIMEOUT (20 s) before SIGKILL.
+        let layout = fake_runtime("stubborn");
+        std::fs::write(layout.runtime.join("sidecars/cic-auth/stubborn"), "").unwrap();
+        let stack = Shared::default();
+        let env = serve(&layout, &stack, "k3y", Duration::from_secs(1)).unwrap();
+        let url = env.iter().find(|(k, _)| k == "CIC_AUTH_URL").map(|(_, v)| v.clone()).unwrap();
+        assert!(get(&url).ends_with("k3y sidecar-python"));
+        sleep(Duration::from_secs(3)); // idle: the stop of the stubborn sidecar begins
+
+        let asked = Instant::now();
+        assert!(get(&url).ends_with("k3y sidecar-python"), "a fresh sidecar answers");
+        assert!(asked.elapsed() < Duration::from_secs(10), "waited {:?} behind the idle stop", asked.elapsed());
+        crate::supervisor::stop(&stack);
     }
 }
