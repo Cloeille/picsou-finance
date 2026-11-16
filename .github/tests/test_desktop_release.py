@@ -62,16 +62,21 @@ class DesktopReleaseTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             exe = Path(tmp) / "Picsou_1.3.0_x64-setup.exe"
             appimage = Path(tmp) / "Picsou_1.3.0_amd64.AppImage"
-            for installer, sig in ((exe, "V0lO"), (appimage, "TElO")):
+            app = Path(tmp) / "Picsou.app.tar.gz"
+            for installer, sig in ((exe, "V0lO"), (appimage, "TElO"), (app, "TUFD")):
                 installer.write_bytes(b"x")
                 Path(f"{installer}.sig").write_text(sig + "\n", encoding="utf-8")
             now = datetime(2026, 11, 15, 20, 0, tzinfo=timezone.utc)
-            installers = {"windows-x86_64": exe, "linux-x86_64": appimage}
+            installers = {"windows-x86_64": exe, "linux-x86_64": appimage, "darwin-aarch64": app}
             self.assertEqual(desktop_release.manifest("v1.3.0", "o/r", installers, now), {
                 "version": "1.3.0",
                 "notes": "https://github.com/o/r/releases/tag/v1.3.0",
                 "pub_date": "2026-11-15T20:00:00Z",
                 "platforms": {
+                    "darwin-aarch64": {
+                        "signature": "TUFD",
+                        "url": "https://github.com/o/r/releases/download/v1.3.0/Picsou.app.tar.gz",
+                    },
                     "linux-x86_64": {
                         "signature": "TElO",
                         "url": "https://github.com/o/r/releases/download/v1.3.0/Picsou_1.3.0_amd64.AppImage",

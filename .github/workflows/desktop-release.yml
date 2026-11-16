@@ -1,7 +1,7 @@
 name: Desktop release
 
-# Builds the signed Windows installer and Linux AppImage of a published release and attaches
-# them with the updater's latest.json (#591): installed apps then offer the update in their tray. Off until the
+# Builds the signed Windows installer, Linux AppImage and macOS app of a published release and
+# attaches them with the updater's latest.json (#591): installed apps then offer the update in their tray. Off until the
 # maintainer sets the TAURI_UPDATER_PUBKEY variable and the signing secrets; see
 # docs/features/desktop-app.md, "Releases and updates".
 on:
@@ -27,8 +27,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: windows-latest, target: windows, bundle: nsis, platform: windows-x86_64, file: '*_x64-setup.exe'}
-          - {os: ubuntu-22.04, target: linux, bundle: appimage, platform: linux-x86_64, file: '*_amd64.AppImage'}
+          - {os: windows-latest, target: windows, bundle: nsis, platform: windows-x86_64, file: 'nsis/*_x64-setup.exe'}
+          - {os: ubuntu-22.04, target: linux, bundle: appimage, platform: linux-x86_64, file: 'appimage/*_amd64.AppImage'}
+          # The updater replaces the .app from its .tar.gz; the .dmg is for the first install.
+          - {os: macos-latest, target: macos, bundle: 'app,dmg', platform: darwin-aarch64, file: 'macos/*.app.tar.gz'}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     env:
@@ -84,8 +86,10 @@ jobs:
       - name: Keep the installer and its signature
         run: |
           mkdir out
-          installer=$(ls desktop/src-tauri/target/release/bundle/${{ matrix.bundle }}/${{ matrix.file }})
+          bundle=desktop/src-tauri/target/release/bundle
+          installer=$(ls $bundle/${{ matrix.file }})
           cp "$installer" "$installer.sig" out/
+          if [ "${{ matrix.target }}" = macos ]; then cp $bundle/dmg/*.dmg out/; fi
           echo "${{ matrix.platform }}=$(basename "$installer")" > "out/platform-${{ matrix.target }}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with: {name: "release-${{ matrix.target }}", path: out/, if-no-files-found: error, retention-days: 1}
@@ -111,4 +115,4 @@ jobs:
           ls
           python3 ../.github/scripts/desktop_release.py manifest "$TAG" "$GITHUB_REPOSITORY" "${pairs[@]}" > latest.json
           cat latest.json
-          gh release upload "$TAG" *.exe *.AppImage *.sig latest.json --clobber -R "$GITHUB_REPOSITORY"
+          gh release upload "$TAG" *.exe *.AppImage *.app.tar.gz *.dmg *.sig latest.json --clobber -R "$GITHUB_REPOSITORY"

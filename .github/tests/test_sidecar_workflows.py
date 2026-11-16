@@ -636,7 +636,7 @@ class CiJobSelectionTest(unittest.TestCase):
                 "backend", "release-deployment", "workflow-inventory",
             },
             "charts/picsou/values.yaml": {"helm-chart"},
-            "desktop/src-tauri/src/supervisor.rs": {"desktop", "desktop-windows"},
+            "desktop/src-tauri/src/supervisor.rs": {"desktop", "desktop-windows", "desktop-macos"},
             "charts/picsou/templates/sidecars.yaml": {"helm-chart"},
             "services/sofidy-auth/main.py": {"sidecar:sofidy-auth", "backend"} | services,
             "services/tr-auth/main.py": {"sidecar:tr-auth"} | services,
@@ -881,6 +881,7 @@ class JobTimeoutTest(unittest.TestCase):
     JOB_CAP = {
         ("ci.yml", "e2e"): 30,  # bimodal: most runs take 2 min, the slow tail 9-15 min
         ("ci.yml", "desktop-windows"): 40,  # cold Rust, Maven and bun builds: 25-30 min
+        ("ci.yml", "desktop-macos"): 40,  # same builds as Windows, on Apple Silicon
     }
 
     def test_every_job_has_a_bounded_timeout(self):

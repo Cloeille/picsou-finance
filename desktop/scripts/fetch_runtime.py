@@ -9,7 +9,7 @@
 
 Versions come from `.github/scripts/sidecars.py --desktop`, so the desktop app follows the
 Docker release. Every download is checked against its published SHA-256. Targets: Linux and
-Windows on x86_64 (`--target windows`, default: this machine). macOS comes with #591.
+Windows on x86_64 (`--target windows`) and macOS on Apple Silicon (`--target macos`); default: this machine.
 """
 
 import argparse
@@ -29,16 +29,22 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME = ROOT / "desktop/runtime"
-ADOPTIUM = "https://api.adoptium.net/v3/assets/latest/{java}/hotspot?os={os}&architecture=x64&image_type=jre"
-ZONKY = "https://repo1.maven.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-{os}-amd64"
+ADOPTIUM = "https://api.adoptium.net/v3/assets/latest/{java}/hotspot?os={os}&architecture={arch}&image_type=jre"
+ZONKY = "https://repo1.maven.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-{artifact}"
 # Pinned, like the JRE and PostgreSQL are by their manifests: a rebuild of the same commit fetches
 # the same CPython, and no GitHub API call (60 per hour unauthenticated) is needed. Bump by hand.
 PYTHON_BUILD = "20261110"
 PYTHON_RELEASE = f"https://github.com/astral-sh/python-build-standalone/releases/download/{PYTHON_BUILD}"
-# Per target: the Adoptium/zonky OS name, the archive inside zonky's jar, the CPython triple.
+# Per target: the OS family, Adoptium's OS and architecture, zonky's artifact and the archive inside
+# its jar, the CPython triple, and the sys.platform that can install its wheels.
 TARGETS = {
-    "linux": {"os": "linux", "archive": "postgres-linux-x86_64.txz", "python": "x86_64-unknown-linux-gnu"},
-    "windows": {"os": "windows", "archive": "postgres-windows-x86_64.txz", "python": "x86_64-pc-windows-msvc"},
+    "linux": {"os": "linux", "jre": ("linux", "x64"), "artifact": "linux-amd64",
+              "archive": "postgres-linux-x86_64.txz", "python": "x86_64-unknown-linux-gnu", "platform": "linux"},
+    "windows": {"os": "windows", "jre": ("windows", "x64"), "artifact": "windows-amd64",
+                "archive": "postgres-windows-x86_64.txz", "python": "x86_64-pc-windows-msvc", "platform": "win32"},
+    # Apple Silicon only: Intel Macs are no longer sold, and a second build doubles the release.
+    "macos": {"os": "macos", "jre": ("mac", "aarch64"), "artifact": "darwin-arm64v8",
+              "archive": "postgres-darwin-arm_64.txz", "python": "aarch64-apple-darwin", "platform": "darwin"},
 }
 # The shared packages of services/base, as the image's site-packages has them.
 SHARED_LIBS = ("picsou_sidecar", "euro_information", "bpce")
@@ -188,18 +194,26 @@ def sidecars(manifest, target):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--target", choices=TARGETS, default="windows" if sys.platform == "win32" else "linux")
+    here = next(name for name, t in TARGETS.items() if t["platform"] == sys.platform) if sys.platform in ("linux", "win32", "darwin") else "linux"
+    parser.add_argument("--target", choices=TARGETS, default=here)
     target = TARGETS[parser.parse_args().target]
     manifest = pins()
     if not (ROOT / "frontend/dist/index.html").exists() or not list((ROOT / "backend/target").glob("*.jar")):
         sys.exit("build the backend jar and frontend/dist first (make desktop)")
 
-    jre = json.loads(text(ADOPTIUM.format(java=manifest["java"], os=target["os"])))[0]["binary"]["package"]
+    jre_os, jre_arch = target["jre"]
+    jre = json.loads(text(ADOPTIUM.format(java=manifest["java"], os=jre_os, arch=jre_arch)))[0]["binary"]["package"]
     extract(download(jre["link"], jre["checksum"]), RUNTIME / "jre", strip_top=True)
+    if (RUNTIME / "jre/Contents/Home").is_dir():
+        # macOS JREs are a bundle (Contents/Home/bin/java): lift Home so jre/bin/java holds everywhere.
+        home = RUNTIME / "jre.home"
+        shutil.move(RUNTIME / "jre/Contents/Home", home)
+        shutil.rmtree(RUNTIME / "jre")
+        home.rename(RUNTIME / "jre")
 
-    zonky = ZONKY.format(os=target["os"])
+    zonky = ZONKY.format(artifact=target["artifact"])
     version = latest_postgres(zonky, manifest["postgres"])
-    jar_url = f"{zonky}/{version}/embedded-postgres-binaries-{target['os']}-amd64-{version}.jar"
+    jar_url = f"{zonky}/{version}/embedded-postgres-binaries-{target['artifact']}-{version}.jar"
     jar = zipfile.ZipFile(io.BytesIO(download(jar_url, text(f"{jar_url}.sha256"))))
     extract(jar.read(target["archive"]), RUNTIME / "postgres")
     if target["os"] == "linux":
@@ -223,7 +237,7 @@ def main():
     shutil.copy2(next((ROOT / "backend/target").glob("picsou-backend-*.jar")), RUNTIME / "app.jar")
     shutil.rmtree(RUNTIME / "spa", ignore_errors=True)
     shutil.copytree(ROOT / "frontend/dist", RUNTIME / "spa")
-    native = (target["os"] == "windows") == (sys.platform == "win32")
+    native = target["platform"] == sys.platform
     if not native:
         print(f"warning: no sidecars, a {target['os']} runtime built elsewhere cannot install their wheels", file=sys.stderr)
     served = sidecars(manifest, target) if native else []

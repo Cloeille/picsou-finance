@@ -22,9 +22,10 @@ const DB_NAME: &str = "picsou";
 // PostgreSQL refuses to an elevated user, or client tools the bundle does not ship.
 #[cfg(windows)]
 const DB_NAME: &str = "postgres";
-#[cfg(not(windows))]
+// macOS and Windows have no C.UTF-8 locale; C with UTF8 encoding sorts by code point there.
+#[cfg(target_os = "linux")]
 const LOCALE: &str = "C.UTF-8";
-#[cfg(windows)]
+#[cfg(not(target_os = "linux"))]
 const LOCALE: &str = "C";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(180);
 const STOP_TIMEOUT: Duration = Duration::from_secs(20);
@@ -88,6 +89,9 @@ impl From<String> for Failed {
 /// orphan keeps the cluster's lock. PostgreSQL gets SIGINT, its fast shutdown. The signal is
 /// tied to the spawning thread, so `start` must run on a thread that lives as long as the app.
 pub fn child(program: PathBuf, on_parent_death: Signal) -> Command {
+    #[cfg(target_os = "macos")]
+    let mut command = guarded(program, on_parent_death);
+    #[cfg(not(target_os = "macos"))]
     let mut command = Command::new(program);
     #[cfg(target_os = "linux")]
     unsafe {
@@ -105,9 +109,21 @@ pub fn child(program: PathBuf, on_parent_death: Signal) -> Command {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(CREATE_NO_WINDOW);
     }
-    #[cfg(not(target_os = "linux"))]
-    // ponytail: macOS has no parent-death guard yet (#591).
+    #[cfg(windows)]
     let _ = on_parent_death;
+    command
+}
+
+/// macOS has no parent-death signal: a shell starts a watcher, then `exec`s the program in its
+/// place, so the child keeps the shell's PID. The watcher polls the app; once it is gone (quit,
+/// crash or kill) it signals the program, and it exits by itself when the program does.
+/// ponytail: a 2 s poll per child, and a PID reused within 2 s of the program's exit could be
+/// signalled; kqueue's NOTE_EXIT in a helper would close both if it ever matters.
+#[cfg(target_os = "macos")]
+fn guarded(program: PathBuf, on_parent_death: Signal) -> Command {
+    const WATCH: &str = r#"app=$1; sig=$2; shift 2; ( while kill -0 "$app" && kill -0 $$; do sleep 2; done; kill -0 "$app" || kill -"$sig" $$ ) </dev/null >/dev/null 2>&1 & exec "$@""#;
+    let mut command = Command::new("/bin/sh");
+    command.args(["-c", WATCH, "picsou"]).arg(std::process::id().to_string()).arg(on_parent_death.number().to_string()).arg(program);
     command
 }
 

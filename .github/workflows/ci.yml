@@ -59,6 +59,7 @@ jobs:
             compose-sidecar-build: [*workflows, 'services/**', 'docker/docker-compose.yml']
             desktop: [*workflows, 'desktop/**']
             desktop-windows: [*workflows, 'desktop/**']
+            desktop-macos: [*workflows, 'desktop/**']
             workflow-inventory: [*workflows, 'services/**', 'backend/src/main/resources/application*.yml', '.env.example',
                                  'docker/.env.example', 'docker/docker-compose.yml', 'docker/Dockerfile']
             helm-chart: [*workflows, 'charts/**', 'backend/src/main/resources/application.yml', 'docker/docker-compose.yml']
@@ -446,6 +447,103 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # The macOS app (#591): Apple Silicon, ad-hoc signed because the project has no Apple Developer
+  # account. Started through LaunchServices like a double click, then the Windows job's checks:
+  # ready, a sidecar on demand, loopback only, nothing left after a hard kill, a backup on update.
+  desktop-macos:
+    needs: changes
+    if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'desktop-macos')
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - *checkout
+      - *python
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with: {distribution: temurin, java-version: '21', cache: maven}
+      - *bun
+      - name: Build the backend jar
+        working-directory: backend
+        run: mvn -B -q package -DskipTests
+      - name: Build the SPA
+        working-directory: frontend
+        run: bun install --frozen-lockfile && bun run build
+      - name: Assemble the macOS runtime (JRE, PostgreSQL, sidecars)
+        run: python desktop/scripts/fetch_runtime.py --target macos
+      - name: Build the app and the disk image
+        working-directory: desktop/src-tauri
+        env:
+          CARGO_PROFILE_RELEASE_LTO: 'off'
+        run: npx --yes @tauri-apps/cli@2.12.4 build --bundles app,dmg
+      - name: Start the app and check it
+        run: |
+          app="$PWD/desktop/src-tauri/target/release/bundle/macos/Picsou.app"
+          # Apple Silicon runs no unsigned code: the ad-hoc signature must hold.
+          codesign --verify --verbose=2 "$app"
+          codesign -dv "$app" 2>&1 | grep -q 'Signature=adhoc'
+          data="$HOME/Library/Application Support/com.picsou.desktop"
+          runtime="$app/Contents/Resources/runtime"
+          ready() {
+            for i in $(seq 1 120); do
+              sleep 2
+              port=$(cat "$data/desktop-port" 2>/dev/null || true)
+              if [ -n "$port" ] && curl -fs "http://127.0.0.1:$port/actuator/health/readiness" >/dev/null; then
+                echo "ready after $((i * 2)) s on port $port"; return 0
+              fi
+            done
+            echo "::error::$1"; return 1
+          }
+          open -n "$app"
+          ready 'the app never became ready'
+          port=$(cat "$data/desktop-port")
+          curl -fs "http://127.0.0.1:$port/api/setup/status"; echo
+          curl -fs "http://127.0.0.1:$port/" | grep -q '<div id="root"'
+          curl -fs "http://127.0.0.1:$port/actuator/info" | jq -e '(.app.desktop | tostring) == "true" and (.app["desktop-unavailable"] | contains("amex-auth"))'
+          # Chromium is fetched right after the start; the one-off installer then exits.
+          for try in $(seq 1 60); do ls "$data"/browsers/chromium_headless_shell-*/INSTALLATION_COMPLETE >/dev/null 2>&1 && break; sleep 5; done
+          ls "$data"/browsers/chromium_headless_shell-*/INSTALLATION_COMPLETE
+          for try in $(seq 1 12); do pgrep -f "$runtime/python" >/dev/null || break; sleep 5; done
+          if pgrep -f "$runtime/python" >/dev/null; then echo '::error::a sidecar runs at idle'; exit 1; fi
+          for try in $(seq 1 15); do
+            bourso=$(curl -s --max-time 90 "http://127.0.0.1:$port/api/setup/integrations/boursobank/health")
+            case "$bourso" in *'"ok":true'*) break ;; esac
+            sleep 2
+          done
+          echo "bourso health after $try call(s): $bourso"
+          case "$bourso" in *'"ok":true'*) ;; *) exit 1 ;; esac
+          corum=$(jq -r .CORUM_AUTH_URL "$data/sidecar-ports.json")
+          for try in $(seq 1 60); do curl -fs --max-time 10 "$corum/health" >/dev/null && break; sleep 5; done
+          curl -fs "$corum/health"; echo
+          pids=$(pgrep -f "$runtime/" | paste -sd, -)
+          listening=$(lsof -nP -iTCP -sTCP:LISTEN -a -p "$pids" | awk 'NR > 1 {print $9}' | sort -u)
+          echo "$listening"
+          [ "$(echo "$listening" | wc -l)" -ge 2 ] || { echo '::error::expected PostgreSQL and Java to listen'; exit 1; }
+          if echo "$listening" | grep -v '^127\.0\.0\.1:'; then echo '::error::a service listens beyond loopback'; exit 1; fi
+          # A hard kill, like a crash: each child's watcher must end it (macOS has no PDEATHSIG).
+          pkill -9 -f "$app/Contents/MacOS/picsou-desktop"
+          for try in $(seq 1 30); do pgrep -f "$runtime/" >/dev/null || break; sleep 1; done
+          if pgrep -fl "$runtime/"; then echo '::error::processes outlived the app'; exit 1; fi
+          echo "no process left after $try s"
+          # An update (#588): data last opened by an older version is copied before it starts.
+          printf 1.0.0 > "$data/app-version"
+          rm "$data/desktop-port"
+          open -n "$app"
+          ready 'the app never became ready after an update'
+          copy=$(ls -d "$data"/backups/*-1.0.0-to-* | head -1)
+          [ -f "$copy/postgres/PG_VERSION" ] || { echo '::error::no copy of the data from before the update'; exit 1; }
+          echo "update copy: $(basename "$copy"), marker: $(cat "$data/app-version")"
+          pkill -9 -f "$app/Contents/MacOS/picsou-desktop"
+      - name: Show the app logs
+        if: failure()
+        run: |
+          for f in "$HOME/Library/Application Support/com.picsou.desktop/logs/"*.log; do echo "===== $f"; tail -60 "$f"; done
+      - name: Upload the disk image
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: picsou-macos-dmg
+          path: desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 14
+
   compose-sidecar-build:
     needs: changes
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'compose-sidecar-build')
@@ -554,7 +652,7 @@ jobs:
   # chart failures must not prevent application images from being published.
   ci-ok:
     if: always()
-    needs: [changes, release-deployment, docker-compose, backend, frontend, e2e, sidecar-base, sidecar, compose-sidecar-build, desktop, desktop-windows, workflow-inventory]
+    needs: [changes, release-deployment, docker-compose, backend, frontend, e2e, sidecar-base, sidecar, compose-sidecar-build, desktop, desktop-windows, desktop-macos, workflow-inventory]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
