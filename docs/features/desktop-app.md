@@ -141,6 +141,34 @@ the [ADR](../decisions/2026-11-15-desktop-app-tauri.md).
   `APPLE_ID`, `APPLE_PASSWORD` and `APPLE_TEAM_ID` as secrets and pass them to the build step;
   Tauri then signs with the Developer ID and notarizes, and the Gatekeeper step goes away.
 
+### Enable Banking (#590, open: needs a real application)
+
+The backend sends `ENABLEBANKING_REDIRECT_URI` to Enable Banking, which must match a URL
+registered on its Control Panel. Docker installs use their public HTTPS host. The desktop
+backend listens on `127.0.0.1` on a random port, behind no TLS.
+
+What is known, from Enable Banking's docs and third-party guides (not tested here):
+- A **Sandbox** application accepts plain `http://localhost` redirects.
+- A **Production** application requires HTTPS redirects. `http://127.0.0.1` is then expected to
+  be refused, which would rule out a loopback callback for real banks.
+- Production can run in restricted mode (the user links their own accounts), which is what a
+  self-hosted Picsou uses.
+
+The spike to run, by someone with a Production application (about 15 min):
+1. Control Panel, the Production application, Allowed redirect URLs: try to add
+   `http://127.0.0.1:47823/sync/callback`. Note whether it is accepted.
+2. If it is: start the desktop app, set the redirect URL in Admin, Enable Banking to the same
+   value, and connect a bank. The backend would then need that fixed port (follow-up).
+3. If it is not: try `https://127.0.0.1:47823/sync/callback` (the app would need a local
+   certificate, which browsers distrust) and a custom scheme `picsou://sync/callback`.
+4. Write the result here and in the ADR.
+
+Until then the decision is: Enable Banking is not offered on desktop. Docker keeps it.
+Options once the result is known:
+- loopback accepted: a fixed backend port for the callback, with a fallback when taken;
+- custom scheme accepted: Tauri's deep-link plugin hands the code to the backend;
+- neither: keep it Docker-only, and show it with the "Not available on desktop" badge (#589).
+
 ### Releases and updates (#591)
 
 Publishing a GitHub Release runs `.github/workflows/desktop-release.yml`. It builds the Windows
