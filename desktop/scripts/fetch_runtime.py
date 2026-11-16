@@ -31,7 +31,10 @@ ROOT = Path(__file__).resolve().parents[2]
 RUNTIME = ROOT / "desktop/runtime"
 ADOPTIUM = "https://api.adoptium.net/v3/assets/latest/{java}/hotspot?os={os}&architecture=x64&image_type=jre"
 ZONKY = "https://repo1.maven.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-{os}-amd64"
-PYTHON_RELEASE = "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"
+# Pinned, like the JRE and PostgreSQL are by their manifests: a rebuild of the same commit fetches
+# the same CPython, and no GitHub API call (60 per hour unauthenticated) is needed. Bump by hand.
+PYTHON_BUILD = "20261110"
+PYTHON_RELEASE = f"https://github.com/astral-sh/python-build-standalone/releases/download/{PYTHON_BUILD}"
 # Per target: the Adoptium/zonky OS name, the archive inside zonky's jar, the CPython triple.
 TARGETS = {
     "linux": {"os": "linux", "archive": "postgres-linux-x86_64.txz", "python": "x86_64-unknown-linux-gnu"},
@@ -99,14 +102,17 @@ def extract(archive, target, strip_top=False):
 
 
 def python_asset(minor, triple):
-    """The newest stripped CPython build of the base image's minor, and its SHA-256."""
-    assets = json.loads(text(PYTHON_RELEASE))["assets"]
-    pattern = re.compile(rf"cpython-{re.escape(minor)}\.(\d+)\+\d+-{triple}-install_only_stripped\.tar\.gz")
-    found = [(int(m.group(1)), a) for a in assets if (m := pattern.fullmatch(a["name"]))]
+    """The newest stripped CPython build of the base image's minor in PYTHON_BUILD, and its SHA-256."""
+    pattern = re.compile(rf"cpython-{re.escape(minor)}\.(\d+)\+{PYTHON_BUILD}-{triple}-install_only_stripped\.tar\.gz")
+    found = []
+    for line in text(f"{PYTHON_RELEASE}/SHA256SUMS").splitlines():
+        sha256, _, name = line.partition("  ")
+        if m := pattern.fullmatch(name.strip()):
+            found.append((int(m.group(1)), name.strip(), sha256))
     if not found:
-        sys.exit(f"no python-build-standalone {minor} build for {triple}")
-    asset = max(found, key=lambda pair: pair[0])[1]
-    return asset["browser_download_url"], asset["digest"].removeprefix("sha256:")
+        sys.exit(f"no python-build-standalone {minor} build for {triple} in {PYTHON_BUILD}")
+    _, name, sha256 = max(found)
+    return f"{PYTHON_RELEASE}/{name}", sha256
 
 
 def trim_python(home):
