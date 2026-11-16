@@ -41,7 +41,17 @@ pub fn wants_install(args: impl IntoIterator<Item = String>) -> bool {
 pub struct TrayItem(pub Mutex<Option<MenuItem<tauri::Wry>>>);
 
 pub fn enabled(config: &tauri::Config) -> bool {
+    has_key(config) && self_updatable()
+}
+
+fn has_key(config: &tauri::Config) -> bool {
     config.plugins.0.get("updater").and_then(|u| u.get("pubkey")).and_then(|k| k.as_str()).is_some_and(|k| !k.is_empty())
+}
+
+/// Linux: only the AppImage replaces itself. A .deb belongs to the package manager, and the
+/// release publishes no .deb update, so a .deb install never offers one.
+fn self_updatable() -> bool {
+    !cfg!(target_os = "linux") || std::env::var_os("APPIMAGE").is_some()
 }
 
 /// Checks now and every 6 h; a found update becomes the tray's "Install Picsou x.y.z".
@@ -153,11 +163,11 @@ mod tests {
     #[test]
     fn only_a_build_with_an_updater_key_checks_for_updates() {
         let mut config: tauri::Config = serde_json::from_str(r#"{"identifier":"com.picsou.desktop"}"#).unwrap();
-        assert!(!enabled(&config));
+        assert!(!has_key(&config));
         config.plugins.0.insert("updater".into(), serde_json::json!({"pubkey": "", "endpoints": []}));
-        assert!(!enabled(&config));
+        assert!(!has_key(&config));
         config.plugins.0.insert("updater".into(), serde_json::json!({"pubkey": "dW50cnVzdGVk", "endpoints": []}));
-        assert!(enabled(&config));
+        assert!(has_key(&config));
     }
 
     #[test]

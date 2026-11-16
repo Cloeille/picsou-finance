@@ -1,7 +1,7 @@
 name: Desktop release
 
-# Builds the signed Windows installer of a published release and attaches it with the updater's
-# latest.json (#591): installed apps then offer the update in their tray. Off until the
+# Builds the signed Windows installer and Linux AppImage of a published release and attaches
+# them with the updater's latest.json (#591): installed apps then offer the update in their tray. Off until the
 # maintainer sets the TAURI_UPDATER_PUBKEY variable and the signing secrets; see
 # docs/features/desktop-app.md, "Releases and updates".
 on:
@@ -19,11 +19,16 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.release.tag_name || inputs.tag }}
 
 jobs:
-  windows:
+  # One build per OS: the runtime's wheels and binaries must match the system they run on.
+  build:
     if: vars.TAURI_UPDATER_PUBKEY != ''
-    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - {os: windows-latest, target: windows, bundle: nsis, platform: windows-x86_64, file: '*_x64-setup.exe'}
+          - {os: ubuntu-22.04, target: linux, bundle: appimage, platform: linux-x86_64, file: '*_amd64.AppImage'}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 40
-    permissions: {contents: write}
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
     defaults:
@@ -54,8 +59,11 @@ jobs:
       - name: Build the SPA
         working-directory: frontend
         run: bun install --frozen-lockfile && bun run build
-      - name: Assemble the Windows runtime
-        run: python desktop/scripts/fetch_runtime.py --target windows
+      - name: Install the webview build dependencies
+        if: matrix.target == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libfuse2
+      - name: Assemble the runtime
+        run: python desktop/scripts/fetch_runtime.py --target ${{ matrix.target }}
       - name: Build and sign the installer
         working-directory: desktop/src-tauri
         env:
@@ -64,11 +72,35 @@ jobs:
           PUBKEY: "${{ vars.TAURI_UPDATER_PUBKEY }}"
         run: |
           python ../../.github/scripts/desktop_release.py config "$PUBKEY" "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/release.json"
-          npx --yes @tauri-apps/cli@2.12.4 build --bundles nsis --config "$RUNNER_TEMP/release.json"
+          npx --yes @tauri-apps/cli@2.12.4 build --bundles ${{ matrix.bundle }} --config "$RUNNER_TEMP/release.json"
+      - name: Keep the installer and its signature
+        run: |
+          mkdir out
+          installer=$(ls desktop/src-tauri/target/release/bundle/${{ matrix.bundle }}/${{ matrix.file }})
+          cp "$installer" "$installer.sig" out/
+          echo "${{ matrix.platform }}=$(basename "$installer")" > "out/platform-${{ matrix.target }}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with: {name: "release-${{ matrix.target }}", path: out/, if-no-files-found: error, retention-days: 1}
+
+  # Once every installer is built: latest.json lists them all, so no platform gets a half release.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: {contents: write}
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false, ref: "refs/tags/${{ env.TAG }}"}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: {pattern: "release-*", path: dist, merge-multiple: true}
       - name: Write latest.json and attach everything to the release
         env: {GH_TOKEN: "${{ github.token }}"}
         run: |
-          installer=$(ls desktop/src-tauri/target/release/bundle/nsis/*_"$VERSION"_x64-setup.exe)
-          python .github/scripts/desktop_release.py manifest "$TAG" "$GITHUB_REPOSITORY" "$installer" > latest.json
+          cd dist
+          mapfile -t pairs < <(cat platform* 2>/dev/null || true)
+          ls
+          python3 ../.github/scripts/desktop_release.py manifest "$TAG" "$GITHUB_REPOSITORY" "${pairs[@]}" > latest.json
           cat latest.json
-          gh release upload "$TAG" "$installer" "$installer.sig" latest.json --clobber -R "$GITHUB_REPOSITORY"
+          gh release upload "$TAG" *.exe *.AppImage *.sig latest.json --clobber -R "$GITHUB_REPOSITORY"
