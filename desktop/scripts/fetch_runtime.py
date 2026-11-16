@@ -120,6 +120,8 @@ def trim_python(home):
         # where these prefixes would also match threading.py.
         doomed += [p for p in lib.iterdir() if p.name.startswith(("tcl", "tk", "itcl", "thread", "libtcl", "libtk", "pkgconfig"))]
     doomed += [p for p in home.glob("DLLs/_tkinter*")] + [p for p in home.glob("DLLs/t*86t.dll")]
+    # Linux: _tkinter links libtcl/libtk, which are gone; linuxdeploy (AppImage) fails on it.
+    doomed += list((stdlib / "lib-dynload").glob("_tkinter*")) if (stdlib / "lib-dynload").exists() else []
     for path in doomed:
         if path.is_dir():
             shutil.rmtree(path)
@@ -194,6 +196,11 @@ def main():
     jar_url = f"{zonky}/{version}/embedded-postgres-binaries-{target['os']}-amd64-{version}.jar"
     jar = zipfile.ZipFile(io.BytesIO(download(jar_url, text(f"{jar_url}.sha256"))))
     extract(jar.read(target["archive"]), RUNTIME / "postgres")
+    # The procedural languages link a system Python 3.6, Perl 5.26 and Tcl that no desktop has, and
+    # linuxdeploy (AppImage) refuses a library whose dependency is missing. Picsou uses none of them.
+    for module in (RUNTIME / "postgres").rglob("*"):
+        if module.is_file() and module.name.split(".")[0].startswith(("plpython", "plperl", "pltcl", "hstore_pl", "jsonb_pl", "ltree_pl", "bool_pl")):
+            module.unlink()
     if target["os"] == "windows":
         # zonky's binaries import the MSVC runtime, which a fresh Windows may lack; the JRE ships it.
         for dll in ("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"):
