@@ -2,7 +2,7 @@
 
     stamp TAG                      sets the shell's version to the tag's, prints it
     config PUBKEY REPO             the `tauri build --config` overlay of a release build
-    manifest TAG REPO INSTALLER    latest.json for the signed installer (INSTALLER.sig beside it)
+    manifest TAG REPO PLATFORM=INSTALLER...   latest.json (each INSTALLER.sig beside it)
 """
 
 from datetime import datetime, timezone
@@ -14,6 +14,8 @@ from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[2]
 SHELL = ROOT / "desktop/src-tauri"
+# The updater's `<os>-<arch>` keys: the release must serve every installer it builds.
+PLATFORMS = ("linux-x86_64", "windows-x86_64")
 SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z.-]+)?$")
 
 
@@ -62,22 +64,26 @@ def config(pubkey, repo):
     }
 
 
-def manifest(tag, repo, installer, now=None):
-    installer = Path(installer)
-    signature = installer.with_name(installer.name + ".sig").read_text(encoding="utf-8").strip()
-    if not signature:
-        raise SystemExit(f"{installer.name}.sig is empty")
+def manifest(tag, repo, installers, now=None):
+    """installers: {updater platform: installer path}, each with its `.sig` beside it."""
+    platforms = {}
+    for platform, installer in sorted(installers.items()):
+        installer = Path(installer)
+        signature = installer.with_name(installer.name + ".sig").read_text(encoding="utf-8").strip()
+        if not signature:
+            raise SystemExit(f"{installer.name}.sig is empty")
+        platforms[platform] = {
+            "signature": signature,
+            "url": f"https://github.com/{repo}/releases/download/{quote(tag)}/{quote(installer.name)}",
+        }
+    if set(platforms) != set(PLATFORMS):
+        raise SystemExit(f"latest.json needs {sorted(PLATFORMS)}, got {sorted(platforms)}")
     date = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
     return {
         "version": version(tag),
         "notes": f"https://github.com/{repo}/releases/tag/{quote(tag)}",
         "pub_date": date,
-        "platforms": {
-            "windows-x86_64": {
-                "signature": signature,
-                "url": f"https://github.com/{repo}/releases/download/{quote(tag)}/{quote(installer.name)}",
-            }
-        },
+        "platforms": platforms,
     }
 
 
@@ -87,8 +93,9 @@ def main(argv):
             print(stamp(tag))
         case ["config", pubkey, repo]:
             print(json.dumps(config(pubkey, repo)))
-        case ["manifest", tag, repo, installer]:
-            print(json.dumps(manifest(tag, repo, installer), indent=2))
+        case ["manifest", tag, repo, *installers]:
+            pairs = dict(item.split("=", 1) for item in installers if "=" in item)
+            print(json.dumps(manifest(tag, repo, pairs), indent=2))
         case _:
             raise SystemExit(__doc__)
 

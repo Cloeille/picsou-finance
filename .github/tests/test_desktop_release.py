@@ -58,25 +58,35 @@ class DesktopReleaseTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             desktop_release.config("  ", "o/r")
 
-    def test_latest_json_points_at_the_installer_of_this_tag(self):
+    def test_latest_json_points_at_each_installer_of_this_tag(self):
         with tempfile.TemporaryDirectory() as tmp:
-            installer = Path(tmp) / "Picsou_1.3.0_x64-setup.exe"
-            installer.write_bytes(b"MZ")
-            Path(f"{installer}.sig").write_text("U0lHTkFUVVJF\n", encoding="utf-8")
+            exe = Path(tmp) / "Picsou_1.3.0_x64-setup.exe"
+            appimage = Path(tmp) / "Picsou_1.3.0_amd64.AppImage"
+            for installer, sig in ((exe, "V0lO"), (appimage, "TElO")):
+                installer.write_bytes(b"x")
+                Path(f"{installer}.sig").write_text(sig + "\n", encoding="utf-8")
             now = datetime(2026, 11, 15, 20, 0, tzinfo=timezone.utc)
-            self.assertEqual(desktop_release.manifest("v1.3.0", "o/r", installer, now), {
+            installers = {"windows-x86_64": exe, "linux-x86_64": appimage}
+            self.assertEqual(desktop_release.manifest("v1.3.0", "o/r", installers, now), {
                 "version": "1.3.0",
                 "notes": "https://github.com/o/r/releases/tag/v1.3.0",
                 "pub_date": "2026-11-15T20:00:00Z",
-                "platforms": {"windows-x86_64": {
-                    "signature": "U0lHTkFUVVJF",
-                    "url": "https://github.com/o/r/releases/download/v1.3.0/Picsou_1.3.0_x64-setup.exe",
-                }},
+                "platforms": {
+                    "linux-x86_64": {
+                        "signature": "TElO",
+                        "url": "https://github.com/o/r/releases/download/v1.3.0/Picsou_1.3.0_amd64.AppImage",
+                    },
+                    "windows-x86_64": {
+                        "signature": "V0lO",
+                        "url": "https://github.com/o/r/releases/download/v1.3.0/Picsou_1.3.0_x64-setup.exe",
+                    },
+                },
             })
-            Path(f"{installer}.sig").write_text("\n", encoding="utf-8")
+            with self.assertRaises(SystemExit):  # a release that lost one installer
+                desktop_release.manifest("v1.3.0", "o/r", {"windows-x86_64": exe}, now)
+            Path(f"{exe}.sig").write_text("\n", encoding="utf-8")
             with self.assertRaises(SystemExit):
-                desktop_release.manifest("v1.3.0", "o/r", installer, now)
-
+                desktop_release.manifest("v1.3.0", "o/r", installers, now)
 
 if __name__ == "__main__":
     unittest.main()
