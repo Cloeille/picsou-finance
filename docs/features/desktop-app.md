@@ -116,8 +116,9 @@ the [ADR](../decisions/2026-11-15-desktop-app-tauri.md).
 ### Releases and updates (#591)
 
 Publishing a GitHub Release runs `.github/workflows/desktop-release.yml`. It builds the Windows
-installer at the release tag, signs it with the updater key, and attaches the installer, its
-`.sig` and `latest.json` to the release. An installed app reads
+installer and the Linux AppImage at the release tag, each on its own OS, signs them with the
+updater key, and attaches both, their `.sig` and one `latest.json` listing both to the release.
+`latest.json` is written only once both are built, so no platform is offered a half release. An installed app reads
 `https://github.com/<repo>/releases/latest/download/latest.json` once the backend is ready, then
 every 6 h, and offers "Install Picsou x.y.z" in the tray.
 
@@ -126,8 +127,14 @@ every 6 h, and offers "Install Picsou x.y.z" in the tray.
   `tauri.conf.json` carries no version on purpose.
 - Only the release build gets the updater config (`desktop_release.py config`, passed to
   `tauri build --config`). PR and dev builds have no public key, so they never check.
-- The plugin checks the download against the public key before anything stops. On Windows the
-  installer runs in passive mode (progress bar, no question) and restarts Picsou.
+- The plugin checks the download against the public key before anything stops.
+- Windows: Picsou stops its stack, writes the verified installer to `%TEMP%`, starts it detached
+  with `/P /UPDATE /R` (progress bar, no question, restarts Picsou) and exits. The plugin's own
+  Windows install hung on CI between its exit hook and the installer start, so it is not used.
+- Linux: only the AppImage updates itself (the plugin rewrites the file, then Picsou restarts).
+  A `.deb` install never offers an update: the package manager owns it.
+- Each step goes to `logs/update.log` in the data folder; a release build has no console.
+- The new version's first start copies the data before migrating it (#588), as for any update.
 - A prerelease is attached like any release, but `releases/latest` skips prereleases, so
   installed apps do not get it.
 - To attach to a release published before the key was set, run the workflow by hand
