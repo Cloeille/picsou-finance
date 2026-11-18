@@ -25,7 +25,7 @@ class ScpiPositionRequestTest {
 
     private static Set<String> violations(BigDecimal annualDistribution) {
         ScpiPositionRequest request = new ScpiPositionRequest(
-            null, null, null, null, new BigDecimal("10"), null, null, null, null,
+            null, null, null, null, null, new BigDecimal("10"), null, null, null, null,
             annualDistribution, null);
         return validator.validate(request).stream()
             .map(ConstraintViolation::getPropertyPath)

@@ -375,8 +375,10 @@ public class AccountService {
         scpiPositionRepository.findByAccountIdAndMemberId(id, memberId).ifPresent(position -> {
             scpiFundService.tombstone(memberId, ScpiProvider.CORUM, position.getCorumFundCode());
             scpiFundService.tombstone(memberId, ScpiProvider.SOFIDY, position.getSofidyFundCode());
+            scpiFundService.tombstone(memberId, ScpiProvider.LOUVE, position.getLouveFundCode());
             position.setCorumFundCode(null);
             position.setSofidyFundCode(null);
+            position.setLouveFundCode(null);
             scpiPositionRepository.save(position);
         });
         account.setDeletedAt(Instant.now());

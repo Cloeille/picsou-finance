@@ -167,7 +167,7 @@ class ScpiPositionServiceTest {
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         service.save(10L, 1L, new ScpiPositionRequest(
-            "FR0012345678", "CORUM", null, null,
+            "FR0012345678", "CORUM", null, null, null,
             new BigDecimal("10"), null, new BigDecimal("200"),
             DividendPolicy.CASH, null,
             new BigDecimal("8"), DistributionFrequency.MONTHLY));
@@ -201,7 +201,7 @@ class ScpiPositionServiceTest {
         assertThat(existing.getDistributionFrequency()).isEqualTo(DistributionFrequency.QUARTERLY);
 
         service.save(10L, 1L, new ScpiPositionRequest(
-            "FR0012345678", "CORUM", null, null,
+            "FR0012345678", "CORUM", null, null, null,
             new BigDecimal("10"), null, new BigDecimal("200"),
             DividendPolicy.CASH, null,
             null, null, true, true));
@@ -228,6 +228,7 @@ class ScpiPositionServiceTest {
             "FR0012345678",
             "CORUM",
             fundCode,
+            null,
             null,
             new BigDecimal(shares),
             subscription == null ? null : new BigDecimal(subscription),
