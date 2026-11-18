@@ -172,6 +172,8 @@ export const router = createBrowserRouter([
       },
       { path: 'sync', element: <SuspensePage><SyncPage /></SuspensePage> },
       { path: 'sync/callback', element: <SuspensePage><SyncPage /></SuspensePage> },
+      // Louve Invest's OAuth redirect URI (LouveSyncService.CALLBACK_PATH).
+      { path: 'sync/louve/callback', element: <SuspensePage><SyncPage /></SuspensePage> },
       { path: 'settings', element: <SuspensePage><SettingsPage /></SuspensePage> },
       { path: 'family', element: <SuspensePage><FamilyDashboardPage /></SuspensePage> },
       { path: 'settings/family', element: <SuspensePage><FamilySettingsPage /></SuspensePage> },

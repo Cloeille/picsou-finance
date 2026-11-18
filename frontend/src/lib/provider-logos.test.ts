@@ -125,6 +125,12 @@ describe('providerLogoUrl', () => {
     expect(providerLogoUrl('CORUM')).toBe('/providers/corum.svg')
   })
 
+  // Copied verbatim from ScpiProvider.LOUVE.displayName(), which LouveSyncService writes as
+  // the provider of every SCPI account it creates.
+  it('resolves the provider string the Louve Invest connector writes', () => {
+    expect(providerLogoUrl('Louve Invest')).toBe('/providers/louve-invest.png')
+  })
+
   it('resolves the exchange name the backend writes as provider', () => {
     expect(providerLogoUrl('MERIA')).toBe('/exchanges/meria.svg')
   })

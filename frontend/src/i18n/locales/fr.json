@@ -653,6 +653,8 @@
     "corumFundHint": "Facultatif. La synchronisation CORUM rattache ses fonds d'elle-même ; ne saisissez un code que pour forcer un rattachement.",
     "sofidyFundCode": "Code fonds Sofidy",
     "sofidyFundHint": "Facultatif. La synchronisation Sofidy rattache ses fonds d'elle-même ; ne saisissez un code que pour forcer un rattachement.",
+    "louveFundCode": "Code fonds Louve Invest",
+    "louveFundHint": "Facultatif. La synchronisation Louve Invest rattache ses fonds d'elle-même ; ne saisissez un code (par exemple aurore) que pour forcer un rattachement.",
     "dividendPolicy": "Dividendes",
     "cash": "Versés",
     "reinvest": "Réinvestis",
@@ -694,7 +696,8 @@
         "PRICE_INCOMPLETE": "parts mises à jour, prix de retrait manquant : solde conservé",
         "AMBIGUOUS": "plusieurs comptes SCPI portent ce nom, aucun n'a été rattaché. Choisissez-le en ajoutant une SCPI, ou renommez-en un.",
         "IGNORED": "ignoré, non synchronisé",
-        "MISSING_AT_PROVIDER": "n'apparaît plus chez le fournisseur, compte conservé"
+        "MISSING_AT_PROVIDER": "n'apparaît plus chez le fournisseur, compte conservé",
+        "UNSUPPORTED_OWNERSHIP": "détenu en nue-propriété ou en usufruit, non valorisé : compte laissé tel quel"
       }
     },
     "ignoreFund": "Ignorer ce fonds",
@@ -1203,6 +1206,7 @@
       "amex": "Carte de crédit American Express : solde et transactions",
       "corum": "SCPI et assurance-vie CORUM Life : parts, valorisation et opérations",
       "sofidy": "Parts de SCPI Sofidy, au prix de retrait",
+      "louve": "Parts de SCPI achetées via Louve Invest, en lecture seule, au prix de retrait",
       "property": "Maison, appartement, terrain…",
       "fortuneo": "Synchroniser vos comptes Fortuneo",
       "caisseEpargne": "Compte courant, Livret A, LDDS, PEL, LEP, PER, assurance vie, prêts et cartes à la Caisse d'Epargne",
@@ -2061,6 +2065,39 @@
         "formatChanged": "Le format du site Sofidy a changé. Vos données existantes ont été conservées.",
         "invalidData": "Sofidy a renvoyé des données incohérentes. Vos données existantes ont été conservées.",
         "serverError": "Impossible de joindre Sofidy. Veuillez réessayer."
+      }
+    },
+    "louve": {
+      "title": "Louve Invest",
+      "intro": "Picsou lit votre portefeuille de SCPI Louve Invest via la connexion officielle de Louve. Vous autorisez un accès en lecture seule sur la page de Louve : Picsou ne voit jamais votre mot de passe Louve.",
+      "connect": "Se connecter avec Louve Invest",
+      "reconnect": "Se reconnecter avec Louve Invest",
+      "completing": "Finalisation de la connexion…",
+      "sync": "Synchroniser",
+      "syncing": "Synchronisation…",
+      "disconnect": "Déconnecter",
+      "disconnectConfirm": "Picsou oublie l'accès Louve Invest et demande à Louve de le révoquer. Vos comptes SCPI sont conservés.",
+      "connected": "Connecté",
+      "notConnected": "Non connecté",
+      "needsReconnect": "Reconnexion nécessaire",
+      "lastSync": "Dernière synchro",
+      "neverSynced": "Pas encore synchronisé",
+      "connectedToast": "Louve Invest connecté. La première synchronisation est en cours.",
+      "scope": "Accès en lecture seule à votre portefeuille (portfolio:read). Synchronise les parts de SCPI détenues en pleine propriété, au prix de retrait ; un fonds sans compte en reçoit un, ou est rattaché au compte SCPI du même nom (« Aurore » ou « Louve Invest - Aurore »). Les parts en nue-propriété ou en usufruit et les contrats d'assurance-vie ne sont pas synchronisés.",
+      "errors": {
+        "consentDenied": "L'accès n'a pas été accordé sur Louve Invest. Rien n'a été connecté.",
+        "callbackInvalid": "Louve Invest a renvoyé une réponse incomplète. Recommencez la connexion.",
+        "connectFailed": "Impossible de connecter Louve Invest. Réessayez.",
+        "syncFailed": "Impossible de lancer la synchronisation Louve Invest. Réessayez.",
+        "lastSyncFailed": "La dernière synchronisation Louve Invest a échoué. Vos données existantes ont été conservées ; réessayez dans un instant.",
+        "disconnectFailed": "Impossible de déconnecter Louve Invest. Réessayez.",
+        "authAttemptExpired": "Cette tentative de connexion a expiré ou a déjà servi. Recommencez.",
+        "sessionExpired": "L'accès Louve Invest a été révoqué ou a expiré. Reconnectez-vous pour reprendre la synchronisation.",
+        "rateLimited": "Louve Invest limite les requêtes. Réessayez dans quelques minutes.",
+        "portfolioIncomplete": "Louve Invest a renvoyé un portefeuille incomplet. Vos données existantes ont été conservées.",
+        "formatChanged": "Le format des données Louve Invest a changé. Vos données existantes ont été conservées.",
+        "invalidData": "Louve Invest a renvoyé des données incohérentes. Vos données existantes ont été conservées.",
+        "serverError": "Impossible de joindre Louve Invest. Réessayez."
       }
     },
     "amex": {

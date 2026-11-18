@@ -642,6 +642,8 @@
     "corumFundHint": "Optional. Die CORUM-Synchronisierung verknüpft ihre Fonds selbst; geben Sie einen Code nur ein, um eine Verknüpfung zu erzwingen.",
     "sofidyFundCode": "Sofidy-Fondscode",
     "sofidyFundHint": "Optional. Die Sofidy-Synchronisierung verknüpft ihre Fonds selbst; geben Sie einen Code nur ein, um eine Verknüpfung zu erzwingen.",
+    "louveFundCode": "Louve-Invest-Fondscode",
+    "louveFundHint": "Optional. Die Louve-Invest-Synchronisierung verknüpft ihre Fonds selbst; geben Sie einen Code (z. B. aurore) nur ein, um eine Verknüpfung zu erzwingen.",
     "dividendPolicy": "Dividenden",
     "cash": "Ausgezahlt",
     "reinvest": "Reinvestiert",
@@ -683,7 +685,8 @@
         "PRICE_INCOMPLETE": "Anteile aktualisiert, Rücknahmepreis fehlt: Saldo beibehalten",
         "AMBIGUOUS": "mehrere SCPI-Konten tragen diesen Namen, keines wurde verknüpft. Wählen Sie ihn beim Hinzufügen einer SCPI oder benennen Sie eines um.",
         "IGNORED": "ignoriert, nicht synchronisiert",
-        "MISSING_AT_PROVIDER": "beim Anbieter nicht mehr aufgeführt, Konto beibehalten"
+        "MISSING_AT_PROVIDER": "beim Anbieter nicht mehr aufgeführt, Konto beibehalten",
+        "UNSUPPORTED_OWNERSHIP": "im bloßen Eigentum oder Nießbrauch gehalten, nicht bewertet: Konto unverändert"
       }
     },
     "ignoreFund": "Diesen Fonds ignorieren",
@@ -926,6 +929,7 @@
       "amex": "American Express Kreditkarte: Kontostand und Transaktionen",
       "corum": "CORUM-SCPI und CORUM-Life-Lebensversicherung: Anteile, Bewertung und Umsätze",
       "sofidy": "Sofidy-SCPI-Anteile zum Rücknahmepreis",
+      "louve": "Über Louve Invest gekaufte SCPI-Anteile, nur lesend, zum Rücknahmepreis",
       "property": "Haus, Wohnung, Grundstück…",
       "revolut": "Phone + passcode, on-demand sync",
       "fortuneo": "Fortuneo-Konten synchronisieren",
@@ -1820,6 +1824,39 @@
         "formatChanged": "Das Format der Sofidy-Website hat sich geändert. Ihre bestehenden Daten wurden beibehalten.",
         "invalidData": "Sofidy hat widersprüchliche Daten geliefert. Ihre bestehenden Daten wurden beibehalten.",
         "serverError": "Sofidy ist nicht erreichbar. Bitte erneut versuchen."
+      }
+    },
+    "louve": {
+      "title": "Louve Invest",
+      "intro": "Picsou liest Ihr SCPI-Portfolio bei Louve Invest über die offizielle Verbindung von Louve. Sie erlauben den Lesezugriff auf der Seite von Louve: Picsou sieht Ihr Louve-Passwort nie.",
+      "connect": "Mit Louve Invest verbinden",
+      "reconnect": "Erneut mit Louve Invest verbinden",
+      "completing": "Verbindung wird abgeschlossen…",
+      "sync": "Synchronisieren",
+      "syncing": "Synchronisierung…",
+      "disconnect": "Trennen",
+      "disconnectConfirm": "Picsou vergisst den Louve-Invest-Zugriff und bittet Louve, ihn zu widerrufen. Ihre SCPI-Konten bleiben erhalten.",
+      "connected": "Verbunden",
+      "notConnected": "Nicht verbunden",
+      "needsReconnect": "Erneute Verbindung nötig",
+      "lastSync": "Letzte Synchronisierung",
+      "neverSynced": "Noch nicht synchronisiert",
+      "connectedToast": "Louve Invest verbunden. Die erste Synchronisierung läuft.",
+      "scope": "Nur Lesezugriff auf Ihr Portfolio (portfolio:read). Synchronisiert die SCPI-Anteile im Volleigentum zum Rücknahmepreis; ein Fonds ohne Konto erhält eines oder wird mit dem gleichnamigen SCPI-Konto verknüpft („Aurore“ oder „Louve Invest - Aurore“). Anteile im bloßen Eigentum oder Nießbrauch und Lebensversicherungsverträge werden nicht synchronisiert.",
+      "errors": {
+        "consentDenied": "Der Zugriff wurde bei Louve Invest nicht erteilt. Es wurde nichts verbunden.",
+        "callbackInvalid": "Louve Invest hat eine unvollständige Antwort zurückgegeben. Starten Sie die Verbindung erneut.",
+        "connectFailed": "Louve Invest konnte nicht verbunden werden. Bitte erneut versuchen.",
+        "syncFailed": "Die Louve-Invest-Synchronisierung konnte nicht gestartet werden. Bitte erneut versuchen.",
+        "lastSyncFailed": "Die letzte Louve-Invest-Synchronisierung ist fehlgeschlagen. Ihre bestehenden Daten wurden beibehalten; versuchen Sie es gleich erneut.",
+        "disconnectFailed": "Louve Invest konnte nicht getrennt werden. Bitte erneut versuchen.",
+        "authAttemptExpired": "Dieser Verbindungsversuch ist abgelaufen oder wurde bereits verwendet. Bitte neu beginnen.",
+        "sessionExpired": "Der Louve-Invest-Zugriff wurde widerrufen oder ist abgelaufen. Verbinden Sie sich erneut, um weiter zu synchronisieren.",
+        "rateLimited": "Louve Invest begrenzt die Anfragen. Versuchen Sie es in einigen Minuten erneut.",
+        "portfolioIncomplete": "Louve Invest hat ein unvollständiges Portfolio geliefert. Ihre bestehenden Daten wurden beibehalten.",
+        "formatChanged": "Das Datenformat von Louve Invest hat sich geändert. Ihre bestehenden Daten wurden beibehalten.",
+        "invalidData": "Louve Invest hat widersprüchliche Daten geliefert. Ihre bestehenden Daten wurden beibehalten.",
+        "serverError": "Louve Invest ist nicht erreichbar. Bitte erneut versuchen."
       }
     },
     "fortuneo": {

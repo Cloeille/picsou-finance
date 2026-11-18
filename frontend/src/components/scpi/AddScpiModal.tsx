@@ -12,7 +12,7 @@ import { DateInput } from '@/components/shared/DateInput'
 import { useCreateAccount, useScpiFunds, useUpdateScpiPosition } from '@/features/accounts/hooks'
 import { formatApiError } from '@/lib/errors'
 import { parseAmount } from '@/lib/utils'
-import type { DistributionFrequency, DividendPolicy, ScpiPositionRequest } from '@/types/api'
+import type { DistributionFrequency, DividendPolicy, ScpiPositionRequest, ScpiProvider } from '@/types/api'
 
 interface AddScpiModalProps {
   open: boolean
@@ -28,6 +28,8 @@ const num = (v: string): number | undefined => (v.trim() === '' ? undefined : pa
  * One SCPI vehicle, in full ownership. There is no address and no floor area:
  * the open-data estimator cannot price a share, and must not be asked to.
  */
+const PROVIDER_LABEL: Record<ScpiProvider, string> = { CORUM: 'CORUM', SOFIDY: 'Sofidy', LOUVE: 'Louve Invest' }
+
 export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -53,6 +55,7 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
   const [isin, setIsin] = useState('')
   const [corumFundCode, setCorumFundCode] = useState('')
   const [sofidyFundCode, setSofidyFundCode] = useState('')
+  const [louveFundCode, setLouveFundCode] = useState('')
   const [createdAccountId, setCreatedAccountId] = useState<number | null>(null)
 
   const shares = num(shareCount)
@@ -78,6 +81,7 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
     setIsin('')
     setCorumFundCode('')
     setSofidyFundCode('')
+    setLouveFundCode('')
     setCreatedAccountId(null)
   }
 
@@ -91,8 +95,12 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
     if (!fund) return
     if (name.trim() === '' && fund.label) setName(fund.label)
     if (fund.provider === 'CORUM') setCorumFundCode(fund.fundCode)
+    else if (fund.provider === 'LOUVE') setLouveFundCode(fund.fundCode)
     else setSofidyFundCode(fund.fundCode)
-    if (managementCompany.trim() === '') setManagementCompany(fund.provider === 'CORUM' ? 'CORUM' : 'Sofidy')
+    // Louve Invest distributes funds of other management companies: the next sync fills it in.
+    if (managementCompany.trim() === '' && fund.provider !== 'LOUVE') {
+      setManagementCompany(fund.provider === 'CORUM' ? 'CORUM' : 'Sofidy')
+    }
   }
 
   async function submit() {
@@ -116,6 +124,7 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
       managementCompany: managementCompany.trim() || null,
       corumFundCode: corumFundCode.trim() || null,
       sofidyFundCode: sofidyFundCode.trim() || null,
+      louveFundCode: louveFundCode.trim() || null,
       shareCount: shares,
       subscriptionPriceEur: num(subscriptionPrice) ?? null,
       withdrawalPriceEur: num(withdrawalPrice) ?? null,
@@ -150,7 +159,7 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
                 <option value="">{t('scpi.seenFundNone')}</option>
                 {pickable.map(fund => (
                   <option key={`${fund.provider}:${fund.fundCode}`} value={`${fund.provider}:${fund.fundCode}`}>
-                    {(fund.label ?? fund.fundCode) + ` (${fund.provider === 'CORUM' ? 'CORUM' : 'Sofidy'} ${fund.fundCode})`
+                    {(fund.label ?? fund.fundCode) + ` (${PROVIDER_LABEL[fund.provider]} ${fund.fundCode})`
                       + (fund.ignored ? ` — ${t('scpi.seenFundIgnored')}` : '')}
                   </option>
                 ))}
@@ -244,6 +253,16 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
               onChange={(e) => setSofidyFundCode(e.target.value.toUpperCase())}
             />
             <p className="text-xs text-muted-foreground">{t('scpi.sofidyFundHint')}</p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="scpi-louve-fund">{t('scpi.louveFundCode')}</Label>
+            <Input
+              id="scpi-louve-fund"
+              value={louveFundCode}
+              maxLength={40}
+              onChange={(e) => setLouveFundCode(e.target.value.toLowerCase())}
+            />
+            <p className="text-xs text-muted-foreground">{t('scpi.louveFundHint')}</p>
           </div>
           </details>
           <div className="grid grid-cols-2 gap-4">

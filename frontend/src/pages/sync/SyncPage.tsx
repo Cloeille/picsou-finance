@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSearchParams } from 'react-router'
+import { useLocation, useSearchParams } from 'react-router'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { ScrollStrip } from '@/components/shared/ScrollStrip'
@@ -24,6 +24,8 @@ import { CicTab } from './CicTab'
 import { AmexTab } from './AmexTab'
 import { CorumTab } from './CorumTab'
 import { SofidyTab } from './SofidyTab'
+import { LouveTab } from './LouveTab'
+import { LOUVE_CALLBACK_PATH } from '@/components/sync/LouvePanel'
 import { BoursoTab } from './BoursoTab'
 import { CaisseEpargneTab } from './CaisseEpargneTab'
 import { BanquePopulaireTab } from './BanquePopulaireTab'
@@ -35,8 +37,11 @@ import { ActualBudgetTab } from './ActualBudgetTab'
 export function SyncPage() {
   const { t } = useTranslation()
   const [searchParams] = useSearchParams()
+  const { pathname } = useLocation()
   // Controlled so ScrollStrip sees every selection, not only the deep-linked one.
-  const [tab, setTab] = useState(() => searchParams.get('tab') ?? 'banks')
+  // Louve Invest's OAuth callback lands on its own path and opens its tab.
+  const [tab, setTab] = useState(() =>
+    pathname === LOUVE_CALLBACK_PATH ? 'louve' : searchParams.get('tab') ?? 'banks')
 
   return (
     <div className="space-y-6">
@@ -67,6 +72,7 @@ export function SyncPage() {
             <TabsTrigger value="amex" className="flex-none">{t('sync.amex.title')}</TabsTrigger>
             <TabsTrigger value="corum" className="flex-none">{t('sync.corum.title')}</TabsTrigger>
             <TabsTrigger value="sofidy" className="flex-none">{t('sync.sofidy.title')}</TabsTrigger>
+            <TabsTrigger value="louve" className="flex-none">{t('sync.louve.title')}</TabsTrigger>
             <TabsTrigger value="actual" className="flex-none">{t('sync.actual.title')}</TabsTrigger>
             <TabsTrigger value="finary" className="flex-none">{t('sync.finary.title')}</TabsTrigger>
             <TabsTrigger value="homebank" className="flex-none">{t('sync.homebank.title')}</TabsTrigger>
@@ -141,6 +147,9 @@ export function SyncPage() {
         </TabsContent>
         <TabsContent value="sofidy" className="mt-6">
           <SofidyTab />
+        </TabsContent>
+        <TabsContent value="louve" className="mt-6">
+          <LouveTab />
         </TabsContent>
         <TabsContent value="actual" className="mt-6">
           <ActualBudgetTab />

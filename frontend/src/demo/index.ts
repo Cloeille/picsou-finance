@@ -252,7 +252,7 @@ handlers.set(key('GET', '/accounts/:id/deletion-impact'), () => ({
   removesConnection: false, connectionLabel: null,
 }))
 
-// SCPI funds seen by a sync: the demo has no CORUM/Sofidy connection.
+// SCPI funds seen by a sync: the demo has no CORUM/Sofidy/Louve Invest connection.
 handlers.set(key('GET', '/scpi/funds'), () => [])
 
 // Account CRUD
@@ -267,6 +267,7 @@ for (const account of mockAccounts.filter(account => account.type === 'SCPI')) {
       managementCompany: data.managementCompany?.trim() || null,
       corumFundCode: data.corumFundCode == null ? current.scpi?.corumFundCode ?? null : data.corumFundCode.trim() || null,
       sofidyFundCode: data.sofidyFundCode == null ? current.scpi?.sofidyFundCode ?? null : data.sofidyFundCode.trim() || null,
+      louveFundCode: data.louveFundCode == null ? current.scpi?.louveFundCode ?? null : data.louveFundCode.trim() || null,
       shareCount: data.shareCount,
       subscriptionPriceEur: data.subscriptionPriceEur ?? null,
       withdrawalPriceEur: data.withdrawalPriceEur ?? null,
@@ -1621,6 +1622,7 @@ handlers.set(key('GET', '/bourse-direct/status'), () => ({ ...demoIdleSidecar, e
 handlers.set(key('GET', '/amex/status'), () => demoIdleSidecar)
 handlers.set(key('GET', '/corum/status'), () => demoIdleSidecar)
 handlers.set(key('GET', '/sofidy/status'), () => demoIdleSidecar)
+handlers.set(key('GET', '/louve/status'), () => ({ connected: false, status: null, lastSyncedAt: null }))
 handlers.set(key('GET', '/degiro/status'), () => ({ isActive: false, status: null, lastSyncedAt: null }))
 handlers.set(key('GET', '/finary/status'), () => ({
   connected: false, sessionId: null, status: null, lastSyncedAt: null, maskedEmail: null,

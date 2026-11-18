@@ -27,7 +27,7 @@ const account: Account = {
     subscriptionPriceEur: 1000, withdrawalPriceEur: 880, withdrawalValueEur: 8800,
     dividendPolicy: 'REINVEST', jouissanceDate: '2026-02-01', valuationStatus: 'OK',
     annualDistributionPerShareEur: 12, distributionFrequency: 'QUARTERLY',
-    corumFundCode: 'FUND-42', sofidyFundCode: 'DY',
+    corumFundCode: 'FUND-42', sofidyFundCode: 'DY', louveFundCode: 'aurore',
   },
 }
 
@@ -52,14 +52,14 @@ describe('ScpiDetailSection fund links', () => {
         subscriptionPriceEur: 1000, withdrawalPriceEur: 880,
         dividendPolicy: 'REINVEST', jouissanceDate: '2026-02-01',
         annualDistributionPerShareEur: 12, distributionFrequency: 'QUARTERLY',
-        corumFundCode: 'FUND-42', sofidyFundCode: 'DY',
+        corumFundCode: 'FUND-42', sofidyFundCode: 'DY', louveFundCode: 'aurore',
       },
     }))
   })
 
   it('links an existing unlinked account without replacing its other position fields', async () => {
     render(<ScpiDetailSection account={{
-      ...account, scpi: { ...account.scpi!, corumFundCode: null, sofidyFundCode: null },
+      ...account, scpi: { ...account.scpi!, corumFundCode: null, sofidyFundCode: null, louveFundCode: null },
     }} />)
     fireEvent.click(screen.getByRole('button', { name: 'scpi.edit' }))
     fireEvent.change(screen.getByLabelText('scpi.corumFundCode'), { target: { value: ' FUND-99 ' } })
@@ -71,12 +71,12 @@ describe('ScpiDetailSection fund links', () => {
         subscriptionPriceEur: 1000, withdrawalPriceEur: 880,
         dividendPolicy: 'REINVEST', jouissanceDate: '2026-02-01',
         annualDistributionPerShareEur: 12, distributionFrequency: 'QUARTERLY',
-        corumFundCode: 'FUND-99', sofidyFundCode: 'DY',
+        corumFundCode: 'FUND-99', sofidyFundCode: 'DY', louveFundCode: '',
       },
     }))
   })
 
-  it.each(['corumFundCode', 'sofidyFundCode'] as const)('detaches %s with an explicit empty string', async (field) => {
+  it.each(['corumFundCode', 'sofidyFundCode', 'louveFundCode'] as const)('detaches %s with an explicit empty string', async (field) => {
     render(<ScpiDetailSection account={account} />)
     fireEvent.click(screen.getByRole('button', { name: 'scpi.edit' }))
     fireEvent.change(screen.getByLabelText(`scpi.${field}`), { target: { value: '' } })
