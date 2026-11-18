@@ -1,6 +1,6 @@
 package com.picsou.service;
 
-import com.picsou.adapter.LouveAdapter;
+import com.picsou.adapter.LouveOAuthClient;
 import com.picsou.model.LouveOAuthClientRegistration;
 import com.picsou.repository.LouveOAuthClientRepository;
 import org.slf4j.Logger;
@@ -22,15 +22,15 @@ public class LouveClientRegistry {
     private static final Logger log = LoggerFactory.getLogger(LouveClientRegistry.class);
 
     private final LouveOAuthClientRepository repository;
-    private final LouveAdapter adapter;
+    private final LouveOAuthClient oauth;
     private final TransactionTemplate tx;
     private final Clock clock;
 
     public LouveClientRegistry(
-        LouveOAuthClientRepository repository, LouveAdapter adapter, TransactionTemplate tx, Clock clock
+        LouveOAuthClientRepository repository, LouveOAuthClient oauth, TransactionTemplate tx, Clock clock
     ) {
         this.repository = repository;
-        this.adapter = adapter;
+        this.oauth = oauth;
         this.tx = tx;
         this.clock = clock;
     }
@@ -63,7 +63,7 @@ public class LouveClientRegistry {
     }
 
     private String register(String redirectUri) {
-        String clientId = adapter.registerClient(redirectUri);
+        String clientId = oauth.register(redirectUri);
         try {
             tx.executeWithoutResult(status -> repository.saveAndFlush(LouveOAuthClientRegistration.builder()
                 .redirectUri(redirectUri).clientId(clientId).registeredAt(clock.instant()).build()));

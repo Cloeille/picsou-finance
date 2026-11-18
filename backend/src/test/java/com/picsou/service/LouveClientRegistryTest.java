@@ -1,6 +1,6 @@
 package com.picsou.service;
 
-import com.picsou.adapter.LouveAdapter;
+import com.picsou.adapter.LouveOAuthClient;
 import com.picsou.model.LouveOAuthClientRegistration;
 import com.picsou.repository.LouveOAuthClientRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,12 +32,12 @@ class LouveClientRegistryTest {
     private static final String OTHER = "https://other.example/sync/louve/callback";
 
     private final List<LouveOAuthClientRegistration> rows = new ArrayList<>();
-    private LouveAdapter adapter;
+    private LouveOAuthClient oauth;
     private LouveClientRegistry registry;
 
     @BeforeEach
     void setUp() {
-        adapter = mock(LouveAdapter.class);
+        oauth = mock(LouveOAuthClient.class);
         LouveOAuthClientRepository repository = mock(LouveOAuthClientRepository.class);
         when(repository.findByRedirectUri(anyString())).thenAnswer(inv -> rows.stream()
             .filter(r -> r.getRedirectUri().equals(inv.getArgument(0))).findFirst());
@@ -53,9 +53,9 @@ class LouveClientRegistryTest {
             ((Consumer<TransactionStatus>) inv.getArgument(0)).accept(mock(TransactionStatus.class));
             return null;
         }).when(tx).executeWithoutResult(any());
-        when(adapter.registerClient(PROD)).thenReturn("client-prod", "client-prod-2");
-        when(adapter.registerClient(OTHER)).thenReturn("client-other");
-        registry = new LouveClientRegistry(repository, adapter, tx,
+        when(oauth.register(PROD)).thenReturn("client-prod", "client-prod-2");
+        when(oauth.register(OTHER)).thenReturn("client-other");
+        registry = new LouveClientRegistry(repository, oauth, tx,
             Clock.fixed(Instant.parse("2026-11-17T08:00:00Z"), ZoneOffset.UTC));
     }
 
@@ -65,7 +65,7 @@ class LouveClientRegistryTest {
         assertThat(registry.clientIdFor(PROD)).isEqualTo("client-prod");
         assertThat(registry.clientIdFor(OTHER)).isEqualTo("client-other");
 
-        verify(adapter, times(1)).registerClient(PROD);
+        verify(oauth, times(1)).register(PROD);
         assertThat(rows).extracting(LouveOAuthClientRegistration::getRedirectUri).containsExactly(PROD, OTHER);
         assertThat(Optional.of(rows.get(0).getRegisteredAt())).contains(Instant.parse("2026-11-17T08:00:00Z"));
     }
@@ -77,7 +77,7 @@ class LouveClientRegistryTest {
         registry.forget(PROD, "client-prod");
 
         assertThat(registry.clientIdFor(PROD)).isEqualTo("client-prod-2");
-        verify(adapter, times(2)).registerClient(PROD);
+        verify(oauth, times(2)).register(PROD);
     }
 
     @Test
@@ -89,6 +89,6 @@ class LouveClientRegistryTest {
         registry.forget(PROD, "client-prod"); // a late refusal of the old id
 
         assertThat(registry.clientIdFor(PROD)).isEqualTo("client-prod-2");
-        verify(adapter, times(2)).registerClient(PROD);
+        verify(oauth, times(2)).register(PROD);
     }
 }

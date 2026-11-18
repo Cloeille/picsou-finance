@@ -1,6 +1,7 @@
 package com.picsou.service;
 
 import com.picsou.adapter.LouveAdapter;
+import com.picsou.adapter.LouveOAuthClient;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.LouveConnection;
@@ -67,6 +68,7 @@ class LouveConnectionPostgresTest {
     @Autowired LouveConnectionRepository connections;
     @Autowired FamilyMemberRepository members;
     @MockitoBean LouveAdapter adapter;
+    @MockitoBean LouveOAuthClient oauth;
     @MockitoBean CryptoEncryption encryption;
     @MockitoBean ScpiFundReconciler reconciler;
     @MockitoBean LouveClientRegistry clients;

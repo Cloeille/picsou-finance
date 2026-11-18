@@ -66,6 +66,7 @@ public class LouveSyncService {
         SidecarErrorCode.SESSION_EXPIRED.name(), SidecarErrorCode.INVALID_SESSION_STATE.name());
 
     private final LouveAdapter adapter;
+    private final LouveOAuthClient oauth;
     private final LouveConnectionRepository connections;
     private final FamilyMemberRepository members;
     private final CryptoEncryption encryption;
@@ -76,6 +77,7 @@ public class LouveSyncService {
 
     public LouveSyncService(
         LouveAdapter adapter,
+        LouveOAuthClient oauth,
         LouveConnectionRepository connections,
         FamilyMemberRepository members,
         CryptoEncryption encryption,
@@ -85,6 +87,7 @@ public class LouveSyncService {
         Clock clock
     ) {
         this.adapter = adapter;
+        this.oauth = oauth;
         this.connections = connections;
         this.members = members;
         this.encryption = encryption;
@@ -123,7 +126,7 @@ public class LouveSyncService {
             connections.save(connection);
             return null;
         });
-        return new StartResponse(adapter.authorizeUri(clientId, redirectUri, state,
+        return new StartResponse(oauth.authorizeUri(clientId, redirectUri, state,
             LouveOAuthClient.challenge(verifier)).toString());
     }
 

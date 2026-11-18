@@ -63,6 +63,7 @@ class LouveSyncServiceTest {
     private LouveConnection row;
 
     private LouveAdapter adapter;
+    private LouveOAuthClient oauth;
     private LouveClientRegistry clients;
     private LouveConnectionRepository connections;
     private FamilyMemberRepository members;
@@ -72,6 +73,7 @@ class LouveSyncServiceTest {
     @BeforeEach
     void setUp() {
         adapter = mock(LouveAdapter.class);
+        oauth = mock(LouveOAuthClient.class);
         clients = mock(LouveClientRegistry.class);
         connections = mock(LouveConnectionRepository.class);
         reconciler = mock(ScpiFundReconciler.class);
@@ -101,13 +103,13 @@ class LouveSyncServiceTest {
         }).when(connections).delete(any());
 
         lenient().when(clients.clientIdFor(REDIRECT)).thenReturn("client-1");
-        lenient().when(adapter.authorizeUri(anyString(), anyString(), anyString(), anyString()))
+        lenient().when(oauth.authorizeUri(anyString(), anyString(), anyString(), anyString()))
             .thenAnswer(inv -> URI.create("https://app.louveinvest.com/mcp/oauth/authorize?state=" + inv.getArgument(2)
                 + "&code_challenge=" + inv.getArgument(3)));
         lenient().when(reconciler.reconcile(eq(MEMBER), eq(ScpiProvider.LOUVE), anyList(), anyList(), any()))
             .thenReturn(Map.of());
 
-        service = new LouveSyncService(adapter, connections, members, encryption, inlineTransactions(),
+        service = new LouveSyncService(adapter, oauth, connections, members, encryption, inlineTransactions(),
             reconciler, clients, clock);
     }
 

@@ -11,7 +11,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
-import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -88,14 +87,6 @@ public class LouveAdapter {
     public record Snapshot(BigDecimal declaredSellingTotal, List<Position> positions, Map<String, Fund> funds) {}
 
     // -- connection ------------------------------------------------------------------------
-
-    public String registerClient(String redirectUri) {
-        return oauth.register(redirectUri);
-    }
-
-    public URI authorizeUri(String clientId, String redirectUri, String state, String codeChallenge) {
-        return oauth.authorizeUri(clientId, redirectUri, state, codeChallenge);
-    }
 
     /** Exchanges the code and returns the session state to store (encrypted) for the member. */
     public String exchangeCode(String clientId, String redirectUri, String code, String verifier) {
