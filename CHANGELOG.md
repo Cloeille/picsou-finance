@@ -24,8 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   subscription price, management company, ISIN and declared distribution filled in. An existing
   account named "Aurore" or "Louve Invest - Aurore" is linked rather than duplicated. Shares held in
   bare ownership or usufruct are listed but not valued, and life-insurance contracts are not
-  synced yet. The encrypted OAuth tokens and the instance's Louve client registration are stored
-  by `V153`. See `docs/features/louve-invest.md`.
+  synced yet. Louve sends you back to the Picsou address you connected from, which must be one
+  of the allowed origins in Administration > Security (HTTPS, or `localhost` for development).
+  The encrypted OAuth tokens are stored by `V153`; the instance's Louve client registration is
+  kept in the application settings. See `docs/features/louve-invest.md`.
 
 ## [1.2.0] — 2026-11-12
 
