@@ -1,6 +1,5 @@
 package com.picsou.controller;
 
-import com.picsou.config.ClientIp;
 import com.picsou.config.DynamicCorsConfigurationSource;
 import com.picsou.config.RateLimitConfig;
 import com.picsou.service.LouveSyncService;
@@ -22,6 +21,9 @@ import java.net.URI;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+
+import static com.picsou.config.PerIpRateLimit.tooManyRequests;
+import static com.picsou.config.PerIpRateLimit.tryConsume;
 
 /**
  * Louve Invest connection, laid out like the other API connectors ({@code /api/wise},
@@ -65,8 +67,8 @@ public class LouveController {
      */
     @PostMapping("/auth/start")
     public ResponseEntity<?> start(HttpServletRequest request) {
-        if (!consume(authBuckets, request, RateLimitConfig::createLouveAuthBucket)) {
-            return rateLimited("Too many Louve Invest connection attempts. Please wait before retrying.");
+        if (!tryConsume(authBuckets, request, RateLimitConfig::createLouveAuthBucket)) {
+            return tooManyRequests("Too many Louve Invest connection attempts. Please wait before retrying.");
         }
         String origin = allowedOrigin(request.getHeader(HttpHeaders.ORIGIN));
         if (origin == null) {
@@ -82,8 +84,8 @@ public class LouveController {
 
     @PostMapping("/auth/complete")
     public ResponseEntity<?> complete(@Valid @RequestBody CompleteRequest body, HttpServletRequest request) {
-        if (!consume(authBuckets, request, RateLimitConfig::createLouveAuthBucket)) {
-            return rateLimited("Too many Louve Invest connection attempts. Please wait before retrying.");
+        if (!tryConsume(authBuckets, request, RateLimitConfig::createLouveAuthBucket)) {
+            return tooManyRequests("Too many Louve Invest connection attempts. Please wait before retrying.");
         }
         return ResponseEntity.ok(service.completeConnection(
             userContext.currentMemberId(), body.code(), body.state(), body.iss()));
@@ -91,8 +93,8 @@ public class LouveController {
 
     @PostMapping("/sync")
     public ResponseEntity<?> sync(HttpServletRequest request) {
-        if (!consume(syncBuckets, request, RateLimitConfig::createSyncBucket)) {
-            return rateLimited("Too many Louve Invest synchronization requests. Please wait before retrying.");
+        if (!tryConsume(syncBuckets, request, RateLimitConfig::createSyncBucket)) {
+            return tooManyRequests("Too many Louve Invest synchronization requests. Please wait before retrying.");
         }
         return ResponseEntity.ok(service.sync(userContext.currentMemberId()));
     }
@@ -150,17 +152,6 @@ public class LouveController {
         ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, message);
         detail.setProperty("code", code);
         return ResponseEntity.badRequest().body(detail);
-    }
-
-    private static boolean consume(Map<String, Bucket> buckets, HttpServletRequest request,
-                                   java.util.function.Supplier<Bucket> factory) {
-        return buckets.computeIfAbsent(ClientIp.resolve(request), key -> factory.get()).tryConsume(1);
-    }
-
-    private static ResponseEntity<ProblemDetail> rateLimited(String message) {
-        ProblemDetail detail = ProblemDetail.forStatus(HttpStatus.TOO_MANY_REQUESTS);
-        detail.setDetail(message);
-        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(detail);
     }
 
     /** {@code iss} is required: Louve advertises RFC 9207, so a callback without it is refused. */

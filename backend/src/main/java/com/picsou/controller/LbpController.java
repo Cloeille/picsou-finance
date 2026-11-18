@@ -1,7 +1,6 @@
 package com.picsou.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.picsou.config.ClientIp;
 import com.picsou.config.RateLimitConfig;
 import com.picsou.service.LbpSyncService;
 import com.picsou.service.UserContext;
@@ -10,7 +9,6 @@ import io.github.bucket4j.ConsumptionProbe;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -20,13 +18,16 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+
+import static com.picsou.config.PerIpRateLimit.consumeProbe;
+import static com.picsou.config.PerIpRateLimit.tooManyRequests;
+import static com.picsou.config.PerIpRateLimit.tryConsume;
 
 /**
  * La Banque Postale endpoints. Login is three calls ({@code /auth/initiate},
@@ -89,7 +90,7 @@ public class LbpController {
             throw invalidBody();
         }
         boolean rememberIdentifier = bool(body, "rememberIdentifier");
-        ConsumptionProbe probe = consumeToken(authBuckets, RateLimitConfig::createLbpAuthBucket, request);
+        ConsumptionProbe probe = consumeProbe(authBuckets, request, RateLimitConfig::createLbpAuthBucket);
         if (!probe.isConsumed()) {
             return authRateLimited(probe);
         }
@@ -110,7 +111,7 @@ public class LbpController {
             throw invalidBody();
         }
         List<Integer> positions = positions(body.get("positions"));
-        ConsumptionProbe probe = consumeToken(stepBuckets, RateLimitConfig::createLbpKeypadBucket, request);
+        ConsumptionProbe probe = consumeProbe(stepBuckets, request, RateLimitConfig::createLbpKeypadBucket);
         if (!probe.isConsumed()) {
             return keypadRateLimited(probe);
         }
@@ -145,10 +146,8 @@ public class LbpController {
      */
     @PostMapping("/sync")
     public ResponseEntity<?> sync(HttpServletRequest request) {
-        if (!consumeSyncToken(request)) {
-            ProblemDetail detail = ProblemDetail.forStatus(HttpStatus.TOO_MANY_REQUESTS);
-            detail.setDetail("Too many La Banque Postale synchronization requests. Please wait before retrying.");
-            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(detail);
+        if (!tryConsume(syncBuckets, request, RateLimitConfig::createSyncBucket)) {
+            return tooManyRequests("Too many La Banque Postale synchronization requests. Please wait before retrying.");
         }
         return ResponseEntity.accepted().body(service.queueSync(userContext.currentMemberId()));
     }
@@ -228,35 +227,12 @@ public class LbpController {
 
     // --- rate limiting ----------------------------------------------------------
 
-    private ConsumptionProbe consumeToken(
-        Map<String, Bucket> buckets,
-        java.util.function.Supplier<Bucket> factory,
-        HttpServletRequest request
-    ) {
-        return buckets.computeIfAbsent(ClientIp.resolve(request), key -> factory.get())
-            .tryConsumeAndReturnRemaining(1);
-    }
-
     private ResponseEntity<ProblemDetail> authRateLimited(ConsumptionProbe probe) {
-        return tooMany(probe, "Too many La Banque Postale sign-in attempts. Please wait before retrying.");
+        return tooManyRequests(probe, "Too many La Banque Postale sign-in attempts. Please wait before retrying.");
     }
 
     private ResponseEntity<ProblemDetail> keypadRateLimited(ConsumptionProbe probe) {
-        return tooMany(probe, "Too many La Banque Postale keypad requests. Please wait before retrying.");
-    }
-
-    private ResponseEntity<ProblemDetail> tooMany(ConsumptionProbe probe, String message) {
-        long seconds = Math.max(1, Duration.ofNanos(probe.getNanosToWaitForRefill()).plusMillis(999).toSeconds());
-        ProblemDetail detail = ProblemDetail.forStatus(HttpStatus.TOO_MANY_REQUESTS);
-        detail.setDetail(message);
-        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-            .header(HttpHeaders.RETRY_AFTER, Long.toString(seconds))
-            .body(detail);
-    }
-
-    private boolean consumeSyncToken(HttpServletRequest request) {
-        return syncBuckets.computeIfAbsent(ClientIp.resolve(request), key -> RateLimitConfig.createSyncBucket())
-            .tryConsume(1);
+        return tooManyRequests(probe, "Too many La Banque Postale keypad requests. Please wait before retrying.");
     }
 
     // --- contract ---------------------------------------------------------------
