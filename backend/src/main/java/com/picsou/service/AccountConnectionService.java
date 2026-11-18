@@ -164,16 +164,16 @@ public class AccountConnectionService {
         ScpiLinks scpiLinks = scpiLinks(memberId);
         Optional<ConnectionRef> connection = resolve(account, scpiLinks);
 
-        if (connection.filter(ref -> ref.kind() == Kind.CORUM || ref.kind() == Kind.LOUVE).isPresent()) {
-            // The CORUM and Louve syncs take the member lock, then write the accounts; taking it
-            // here before the account write keeps the same order, so the two cannot deadlock.
-            if (connection.get().kind() == Kind.CORUM) {
-                corumSyncService.lockMemberForAccountDeletion(memberId);
-            } else {
-                louveSyncService.lockMemberForAccountDeletion(memberId);
-            }
-            // Re-read under the lock: a sync that committed in between may have linked
-            // another SCPI account, which must keep the connection.
+        // The CORUM and Louve syncs take the member lock, then write the accounts; taking it here
+        // before the account write keeps the same order, so the two cannot deadlock. Re-read under
+        // the lock: a sync that committed in between may have linked another SCPI account, which
+        // must keep the connection.
+        Kind kind = connection.map(ConnectionRef::kind).orElse(null);
+        if (kind == Kind.CORUM) {
+            corumSyncService.lockMemberForAccountDeletion(memberId);
+            scpiLinks = scpiLinks(memberId);
+        } else if (kind == Kind.LOUVE) {
+            louveSyncService.lockMemberForAccountDeletion(memberId);
             scpiLinks = scpiLinks(memberId);
         }
         accountService.delete(accountId, memberId);
