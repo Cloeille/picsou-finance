@@ -1,62 +1,51 @@
 package com.picsou.service;
 
 import com.picsou.adapter.LouveOAuthClient;
-import com.picsou.model.LouveOAuthClientRegistration;
-import com.picsou.repository.LouveOAuthClientRepository;
+import com.picsou.model.AppSetting;
+import com.picsou.repository.AppSettingRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.Clock;
-import java.time.Instant;
-import java.time.ZoneOffset;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
-import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/** The registry's rules on an in-memory app_setting; the SQL itself is covered by the Postgres test. */
 @SuppressWarnings("unchecked")
 class LouveClientRegistryTest {
 
     private static final String PROD = "https://picsou.example/sync/louve/callback";
     private static final String OTHER = "https://other.example/sync/louve/callback";
 
-    private final List<LouveOAuthClientRegistration> rows = new ArrayList<>();
+    private final Map<String, String> rows = new LinkedHashMap<>();
     private LouveOAuthClient oauth;
     private LouveClientRegistry registry;
 
     @BeforeEach
     void setUp() {
         oauth = mock(LouveOAuthClient.class);
-        LouveOAuthClientRepository repository = mock(LouveOAuthClientRepository.class);
-        when(repository.findByRedirectUri(anyString())).thenAnswer(inv -> rows.stream()
-            .filter(r -> r.getRedirectUri().equals(inv.getArgument(0))).findFirst());
-        when(repository.saveAndFlush(any())).thenAnswer(inv -> {
-            rows.add(inv.getArgument(0));
-            return inv.getArgument(0);
-        });
-        when(repository.deleteRegistration(anyString(), anyString()))
-            .thenAnswer(inv -> rows.removeIf(r -> r.getRedirectUri().equals(inv.getArgument(0))
-                && r.getClientId().equals(inv.getArgument(1))) ? 1 : 0);
+        AppSettingRepository settings = mock(AppSettingRepository.class);
+        when(settings.findByKey(anyString())).thenAnswer(inv -> Optional.ofNullable(rows.get(inv.<String>getArgument(0)))
+            .map(value -> AppSetting.builder().key(inv.getArgument(0)).value(value).build()));
+        when(settings.insertIfAbsent(anyString(), anyString()))
+            .thenAnswer(inv -> rows.putIfAbsent(inv.getArgument(0), inv.getArgument(1)) == null ? 1 : 0);
+        when(settings.deleteIfValue(anyString(), anyString()))
+            .thenAnswer(inv -> rows.remove(inv.<String>getArgument(0), inv.<String>getArgument(1)) ? 1 : 0);
         TransactionTemplate tx = mock(TransactionTemplate.class);
-        doAnswer(inv -> {
-            ((Consumer<TransactionStatus>) inv.getArgument(0)).accept(mock(TransactionStatus.class));
-            return null;
-        }).when(tx).executeWithoutResult(any());
+        when(tx.execute(any())).thenAnswer(inv -> ((TransactionCallback<Object>) inv.getArgument(0)).doInTransaction(null));
         when(oauth.register(PROD)).thenReturn("client-prod", "client-prod-2");
         when(oauth.register(OTHER)).thenReturn("client-other");
-        registry = new LouveClientRegistry(repository, oauth, tx,
-            Clock.fixed(Instant.parse("2026-11-17T08:00:00Z"), ZoneOffset.UTC));
+        registry = new LouveClientRegistry(settings, oauth, tx);
     }
 
     @Test
@@ -66,8 +55,17 @@ class LouveClientRegistryTest {
         assertThat(registry.clientIdFor(OTHER)).isEqualTo("client-other");
 
         verify(oauth, times(1)).register(PROD);
-        assertThat(rows).extracting(LouveOAuthClientRegistration::getRedirectUri).containsExactly(PROD, OTHER);
-        assertThat(Optional.of(rows.get(0).getRegisteredAt())).contains(Instant.parse("2026-11-17T08:00:00Z"));
+        assertThat(rows).containsExactly(
+            Map.entry(LouveClientRegistry.key(PROD), "client-prod"),
+            Map.entry(LouveClientRegistry.key(OTHER), "client-other"));
+    }
+
+    @Test
+    void theKeyFitsTheSettingKeyColumnWhateverTheRedirectUri() {
+        String longUri = "https://" + "a".repeat(240) + ".example/sync/louve/callback";
+
+        assertThat(LouveClientRegistry.key(longUri)).startsWith(LouveClientRegistry.KEY_PREFIX).hasSize(80)
+            .isNotEqualTo(LouveClientRegistry.key(PROD));
     }
 
     @Test
@@ -90,5 +88,16 @@ class LouveClientRegistryTest {
 
         assertThat(registry.clientIdFor(PROD)).isEqualTo("client-prod-2");
         verify(oauth, times(2)).register(PROD);
+    }
+
+    @Test
+    void aRegistrationStoredMeanwhileWins() {
+        when(oauth.register(OTHER)).thenAnswer(inv -> {
+            rows.put(LouveClientRegistry.key(OTHER), "client-first"); // another instance stored its own
+            return "client-late";
+        });
+
+        assertThat(registry.clientIdFor(OTHER)).isEqualTo("client-first");
+        assertThat(rows).containsEntry(LouveClientRegistry.key(OTHER), "client-first");
     }
 }

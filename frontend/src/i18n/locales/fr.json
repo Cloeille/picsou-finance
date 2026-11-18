@@ -2107,7 +2107,9 @@
         "portfolioIncomplete": "Louve Invest a renvoyé un portefeuille incomplet. Vos données existantes ont été conservées.",
         "formatChanged": "Le format des données Louve Invest a changé. Vos données existantes ont été conservées.",
         "invalidData": "Louve Invest a renvoyé des données incohérentes. Vos données existantes ont été conservées.",
-        "serverError": "Impossible de joindre Louve Invest. Réessayez."
+        "serverError": "Impossible de joindre Louve Invest. Réessayez.",
+        "originNotAllowed": "Ajoutez cette adresse de Picsou aux origines autorisées dans Administration > Sécurité, puis reconnectez-vous. Louve Invest vous renvoie vers cette adresse.",
+        "originNotSecure": "Louve Invest exige que Picsou soit ouvert en HTTPS. Ouvrez Picsou par son adresse HTTPS et reconnectez-vous."
       }
     },
     "amex": {

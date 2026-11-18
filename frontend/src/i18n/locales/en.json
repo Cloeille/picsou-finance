@@ -2107,7 +2107,9 @@
         "portfolioIncomplete": "Louve Invest returned an incomplete portfolio. Your existing data was kept.",
         "formatChanged": "The Louve Invest data format changed. Your existing data was kept.",
         "invalidData": "Louve Invest returned inconsistent data. Your existing data was kept.",
-        "serverError": "Could not reach Louve Invest. Please try again."
+        "serverError": "Could not reach Louve Invest. Please try again.",
+        "originNotAllowed": "Add this Picsou address to the allowed origins in Administration > Security, then connect again. Louve Invest sends you back to that address.",
+        "originNotSecure": "Louve Invest needs Picsou to be reached over HTTPS. Open Picsou through its HTTPS address and connect again."
       }
     },
     "amex": {

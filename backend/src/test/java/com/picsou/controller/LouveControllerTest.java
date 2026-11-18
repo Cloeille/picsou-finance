@@ -1,86 +1,104 @@
 package com.picsou.controller;
 
+import com.picsou.config.DynamicCorsConfigurationSource;
+import com.picsou.model.AppSetting;
+import com.picsou.repository.AppSettingRepository;
 import com.picsou.service.LouveSyncService;
+import com.picsou.service.SetupService;
 import com.picsou.service.UserContext;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
 
-import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
-/** The redirect URI Picsou registers with Louve is built from an origin it can trust. */
+/** The redirect URI Picsou registers with Louve is one of the instance's configured origins. */
 class LouveControllerTest {
 
-    private static LouveController controller(String... allowedOrigins) {
-        CorsConfigurationSource cors = request -> {
-            if (allowedOrigins.length == 0) return null;
-            CorsConfiguration config = new CorsConfiguration();
-            config.setAllowedOrigins(List.of(allowedOrigins));
-            return config;
-        };
-        return new LouveController(mock(LouveSyncService.class), mock(UserContext.class), cors,
+    private final LouveSyncService service = mock(LouveSyncService.class);
+
+    /** {@code saved} is the Administration > Security list (null: never saved), {@code env} ALLOWED_ORIGINS. */
+    private LouveController controller(String saved, String env) {
+        AppSettingRepository settings = mock(AppSettingRepository.class);
+        when(settings.findByKey(SetupService.KEY_CORS_ALLOWED_ORIGINS)).thenReturn(Optional.ofNullable(saved)
+            .map(value -> AppSetting.builder().key(SetupService.KEY_CORS_ALLOWED_ORIGINS).value(value).build()));
+        UserContext user = mock(UserContext.class);
+        when(user.currentMemberId()).thenReturn(7L);
+        return new LouveController(service, user, new DynamicCorsConfigurationSource(settings, env),
             new ConcurrentHashMap<>(), new ConcurrentHashMap<>());
     }
 
-    private static MockHttpServletRequest request(String scheme, String host, int port) {
+    private static MockHttpServletRequest start(String origin) {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/louve/auth/start");
-        request.setScheme(scheme);
-        request.setServerName(host);
-        request.setServerPort(port);
+        if (origin != null) request.addHeader("Origin", origin);
         return request;
     }
 
     @Test
-    void aSameOriginBrowserCallUsesItsOrigin() {
-        MockHttpServletRequest request = request("http", "app", 8080);
-        request.addHeader("Origin", "https://picsou.example");
-        request.addHeader("Sec-Fetch-Site", "same-origin");
+    void theRedirectUriIsTheConfiguredOriginTheBrowserIsOn() {
+        LouveController controller = controller("https://picsou.example, https://money.example:8443", "");
 
-        assertThat(controller().redirectUri(request)).isEqualTo("https://picsou.example/sync/louve/callback");
+        controller.start(start("https://money.example:8443"));
+
+        verify(service).startConnection(7L, "https://money.example:8443/sync/louve/callback");
+        assertThat(controller.allowedOrigin("https://picsou.example")).isEqualTo("https://picsou.example");
     }
 
     @Test
-    void anOriginMatchingTheRequestOrTheAllowListIsAccepted() {
-        MockHttpServletRequest same = request("https", "picsou.example", 8443);
-        same.addHeader("Origin", "https://picsou.example:8443");
-        assertThat(controller().redirectUri(same)).isEqualTo("https://picsou.example:8443/sync/louve/callback");
-
-        MockHttpServletRequest listed = request("http", "app", 8080);
-        listed.addHeader("Origin", "https://money.example");
-        assertThat(controller("https://money.example").redirectUri(listed))
-            .isEqualTo("https://money.example/sync/louve/callback");
+    void theEnvironmentOriginsApplyUntilTheListIsSaved() {
+        assertThat(controller(null, "https://picsou.example").allowedOrigin("https://picsou.example"))
+            .isEqualTo("https://picsou.example");
+        assertThat(controller("https://money.example", "https://picsou.example").allowedOrigin("https://picsou.example"))
+            .isNull();
     }
 
     @Test
-    void anUntrustedOriginIsRefused() {
-        MockHttpServletRequest request = request("http", "app", 8080);
-        request.addHeader("Origin", "https://evil.example");
-        request.addHeader("Sec-Fetch-Site", "cross-site");
+    void anOriginOutsideTheListIsRefusedWithACode() {
+        LouveController controller = controller("https://picsou.example", "");
 
-        assertThatThrownBy(() -> controller("https://money.example").redirectUri(request))
-            .isInstanceOf(IllegalArgumentException.class);
+        for (String origin : new String[] {"https://evil.example", null, " "}) {
+            ResponseEntity<?> response = controller.start(start(origin));
+
+            assertThat(response.getStatusCode().value()).isEqualTo(400);
+            assertThat(((ProblemDetail) response.getBody()).getProperties())
+                .containsEntry("code", LouveController.ORIGIN_NOT_ALLOWED);
+        }
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void withNoOriginConfiguredEveryOriginIsRefused() {
+        assertThat(controller(null, "").allowedOrigin("https://picsou.example")).isNull();
+        assertThat(controller(null, "*").allowedOrigin("https://picsou.example")).isNull();
     }
 
     @Test
     void plainHttpIsOnlyAcceptedOnLoopback() {
-        MockHttpServletRequest loopback = request("http", "127.0.0.1", 5173);
-        loopback.addHeader("Origin", "http://127.0.0.1:5173");
-        assertThat(controller().redirectUri(loopback)).isEqualTo("http://127.0.0.1:5173/sync/louve/callback");
-
-        MockHttpServletRequest lan = request("http", "192.168.1.10", 8080);
-        lan.addHeader("Origin", "http://192.168.1.10:8080");
-        assertThatThrownBy(() -> controller().redirectUri(lan)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(LouveController.redirectUri("http://127.0.0.1:5173")).isEqualTo("http://127.0.0.1:5173/sync/louve/callback");
+        assertThat(LouveController.redirectUri("http://localhost:5173")).isEqualTo("http://localhost:5173/sync/louve/callback");
+        assertThat(LouveController.redirectUri("http://192.168.1.10:8080")).isNull();
+        assertThat(LouveController.redirectUri("https://Picsou.Example")).isEqualTo("https://picsou.example/sync/louve/callback");
+        assertThat(LouveController.redirectUri("https://picsou.example/path")).isNull();
+        assertThat(LouveController.redirectUri("https://user@picsou.example")).isNull();
     }
 
     @Test
-    void withoutAnOriginTheRequestItselfIsUsed() {
-        assertThat(controller().redirectUri(request("https", "picsou.example", 443)))
-            .isEqualTo("https://picsou.example/sync/louve/callback");
+    void aConfiguredPlainHttpOriginIsRefusedWithItsOwnCode() {
+        ResponseEntity<?> response = controller("http://192.168.1.10:8080", "").start(start("http://192.168.1.10:8080"));
+
+        assertThat(response.getStatusCode().value()).isEqualTo(400);
+        assertThat(((ProblemDetail) response.getBody()).getProperties())
+            .containsEntry("code", LouveController.ORIGIN_NOT_SECURE);
+        verify(service, org.mockito.Mockito.never()).startConnection(anyLong(), anyString());
     }
 }

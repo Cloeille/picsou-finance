@@ -1866,7 +1866,9 @@
         "portfolioIncomplete": "Louve Invest devolvió una cartera incompleta. Se conservaron tus datos existentes.",
         "formatChanged": "El formato de los datos de Louve Invest cambió. Se conservaron tus datos existentes.",
         "invalidData": "Louve Invest devolvió datos incoherentes. Se conservaron tus datos existentes.",
-        "serverError": "No se pudo contactar con Louve Invest. Inténtalo de nuevo."
+        "serverError": "No se pudo contactar con Louve Invest. Inténtalo de nuevo.",
+        "originNotAllowed": "Añade esta dirección de Picsou a los orígenes permitidos en Administración > Seguridad y vuelve a conectar. Louve Invest te devuelve a esa dirección.",
+        "originNotSecure": "Louve Invest necesita que Picsou se abra por HTTPS. Abre Picsou desde su dirección HTTPS y vuelve a conectar."
       }
     },
     "fortuneo": {

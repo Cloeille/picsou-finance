@@ -98,6 +98,17 @@ describe('LouvePanel', () => {
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
   })
 
+  it('an address missing from the allowed origins says where to add it', async () => {
+    status(IDLE)
+    apiPost.mockRejectedValue({ response: { status: 400, data: { code: 'ORIGIN_NOT_ALLOWED' } } })
+
+    renderAt('/sync?tab=louve')
+    fireEvent.click(await screen.findByRole('button', { name: 'sync.louve.connect' }))
+
+    expect(await screen.findByText('sync.louve.errors.originNotAllowed')).toBeInTheDocument()
+    expect(assign).not.toHaveBeenCalled()
+  })
+
   it('posts the callback once, then leaves the callback URL', async () => {
     status(IDLE)
     apiPost.mockResolvedValue({ data: CONNECTED })

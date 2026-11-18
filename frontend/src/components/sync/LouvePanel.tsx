@@ -32,6 +32,8 @@ const ERROR_KEYS: Record<string, string> = {
   INVALID_DATA: 'sync.louve.errors.invalidData',
   UPSTREAM_UNAVAILABLE: 'sync.louve.errors.serverError',
   INTERNAL_ERROR: 'sync.louve.errors.serverError',
+  ORIGIN_NOT_ALLOWED: 'sync.louve.errors.originNotAllowed',
+  ORIGIN_NOT_SECURE: 'sync.louve.errors.originNotSecure',
 }
 
 interface LouvePanelProps {

@@ -1866,7 +1866,9 @@
         "portfolioIncomplete": "Louve Invest hat ein unvollständiges Portfolio geliefert. Ihre bestehenden Daten wurden beibehalten.",
         "formatChanged": "Das Datenformat von Louve Invest hat sich geändert. Ihre bestehenden Daten wurden beibehalten.",
         "invalidData": "Louve Invest hat widersprüchliche Daten geliefert. Ihre bestehenden Daten wurden beibehalten.",
-        "serverError": "Louve Invest ist nicht erreichbar. Bitte erneut versuchen."
+        "serverError": "Louve Invest ist nicht erreichbar. Bitte erneut versuchen.",
+        "originNotAllowed": "Fügen Sie diese Picsou-Adresse unter Administration > Sicherheit zu den erlaubten Ursprüngen hinzu und verbinden Sie sich erneut. Louve Invest leitet Sie zu dieser Adresse zurück.",
+        "originNotSecure": "Louve Invest setzt voraus, dass Picsou über HTTPS erreichbar ist. Öffnen Sie Picsou über seine HTTPS-Adresse und verbinden Sie sich erneut."
       }
     },
     "fortuneo": {
