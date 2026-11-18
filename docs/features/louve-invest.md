@@ -125,7 +125,7 @@ full-ownership lines for one fund are `INVALID_DATA`.
 **Dismembered ownership.** A line whose `ownership` array is not exactly `["Pleine propriété"]`
 (nue-propriété, usufruit, several entries, or an empty array) is not valued: Louve quotes the
 full-ownership price, which a bare-ownership or usufruct right is not worth. The fund is
-recorded with the outcome `UNSUPPORTED_OWNERSHIP` (V152); no account is created or linked, and an
+recorded with the outcome `UNSUPPORTED_OWNERSHIP` (V153); no account is created or linked, and an
 account already linked keeps its last balance untouched. A fund held both ways syncs only its
 full-ownership line.
 
@@ -232,7 +232,7 @@ Sync ─▶ [row lock] refresh if needed, commit the rotated set ─▶ initiali
   run, statuses after each failure, the daily entry, revocation whatever the status, a stale
   callback or a sync on the old grant never overwriting a newer connection, a rotation keeping the
   generation, a busy lock leaving the connection alone
-- `LouveConnectionPostgresTest` — the V152 schema against the entity; two concurrent runs on an
+- `LouveConnectionPostgresTest` — the V153 schema against the entity; two concurrent runs on an
   expiring token refreshing it once; a lock held too long ending as a contention within the bound;
   a disconnect rolled back by its caller revoking nothing (real PostgreSQL)
 - `AccountConnectionServiceTest#*Louve*` — the last linked SCPI account removes the connection

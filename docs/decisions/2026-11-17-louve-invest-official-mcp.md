@@ -24,14 +24,14 @@ documents:read simulations:read simulations:write external-transactions:write`.
    protocol `2025-06-18`). No container, Compose profile or Helm value is added.
 2. **Least privilege.** Only `portfolio:read` is requested, whatever the registration echoes.
    Only `get_portfolio` and `get_scpi` are called.
-3. **One registration per redirect URI, instance-wide** (`louve_oauth_client`, V152), made on
+3. **One registration per redirect URI, instance-wide** (`louve_oauth_client`, V153), made on
    first use. The redirect URI is the browser's origin plus `/sync/louve/callback`, accepted only
    when same-origin, matching the request, or on the setup wizard's CORS allow-list, and HTTPS
    except on loopback. A changed origin registers again; `invalid_client` (on the code exchange
    or on a refresh) drops the row with one compare-and-delete statement on redirect URI and
    client id.
 4. **A connection table of its own, like the other API connectors** (see
-   [Precedent](#precedent-container-less-api-connectors)): `louve_connection` (V152), one row per
+   [Precedent](#precedent-container-less-api-connectors)): `louve_connection` (V153), one row per
    member, the token set encrypted with `CryptoEncryption` in a TEXT column, a status
    (`PENDING`, `CONNECTED`, `ERROR`, `REAUTH_REQUIRED`) and the last sync time. The pending OAuth
    attempt sits on the same row (state nonce, encrypted verifier, redirect URI, client id, start
@@ -145,7 +145,7 @@ the sidecar plumbing for sidecars, and gives a reader one shape to expect for an
 
 ## Consequences
 
-- V152: `louve_connection`, `scpi_position.louve_fund_code` with its
+- V153: `louve_connection`, `scpi_position.louve_fund_code` with its
   per-member unique index, `LOUVE` and `UNSUPPORTED_OWNERSHIP` in `scpi_provider_fund`,
   `louve_oauth_client`.
 - `/api/louve/*`, the `louve` source of the daily sync, the Louve tab and the Add Account entry.

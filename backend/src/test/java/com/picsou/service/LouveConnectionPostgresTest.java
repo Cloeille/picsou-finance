@@ -38,7 +38,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 /**
- * The louve_connection schema (V152) against the entity, and the property the row lock exists
+ * The louve_connection schema (V153) against the entity, and the property the row lock exists
  * for: two runs that both find an expiring token refresh it once. Louve rotates refresh tokens, so
  * a second refresh with the same one would end the member's connection.
  */

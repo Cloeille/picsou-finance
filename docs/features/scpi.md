@@ -248,7 +248,7 @@ same `ScpiPositionService.save` and never sends a CORUM or Sofidy fund code. See
   and `V106` (`sofidy_session`), both folded into `sidecar_session` by `V142`, above the base branch's `V103`. `V115`
   (`scpi_provider_fund`) follows V114 (`account_holding_provider_price_date`) on the base branch.
   `V127` adds `corum_session.encrypted_credentials`, which `V142` copies into `sidecar_session`.
-  `V152` adds `louve_fund_code`, the `LOUVE` provider and the `UNSUPPORTED_OWNERSHIP` outcome.
+  `V153` adds `louve_fund_code`, the `LOUVE` provider and the `UNSUPPORTED_OWNERSHIP` outcome.
 - Deleting a SCPI account tombstones its funds. Without that, the next sync would
   recreate it, since a sync now creates the account of any fund it has not linked.
 - Adoption is unique-match only and never fuzzy. An account renamed away from the

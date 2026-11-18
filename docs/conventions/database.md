@@ -77,7 +77,7 @@ V{n}__description.sql
 | `V148__banque_populaire_stored_identifier.sql` | `sidecar_session.encrypted_credentials` is also allowed for `BANQUE_POPULAIRE`: the encrypted Banque Populaire identifier of the last successful login (never the password) |
 | `V149__trade_republic_sidecar_session.sql` | Trade Republic joins `sidecar_session` (bank and error-code CHECKs widened, Banque Populaire kept); `trade_republic_session` dropped, members reconnect once |
 | `V150__bnp_sidecar_session.sql` | BNP Paribas / Hello bank! joins `sidecar_session` (bank and error-code CHECKs rebuilt from V149 with `BNP` added); no table of its own, so nothing to copy |
-| `V152__louve_invest_sync.sql` | `louve_connection` (one row per member: encrypted token set, status, grant generation, last sync, pending OAuth attempt), like `wise_connection`; `scpi_position.louve_fund_code` + per-member unique index; `LOUVE` provider and `UNSUPPORTED_OWNERSHIP` outcome on `scpi_provider_fund`; instance-wide `louve_oauth_client` (one dynamic registration per redirect URI) |
+| `V153__louve_invest_sync.sql` | `louve_connection` (one row per member: encrypted token set, status, grant generation, last sync, pending OAuth attempt), like `wise_connection`; `scpi_position.louve_fund_code` + per-member unique index; `LOUVE` provider and `UNSUPPORTED_OWNERSHIP` outcome on `scpi_provider_fund`; instance-wide `louve_oauth_client` (one dynamic registration per redirect URI) |
 
 Note: V8 is absent by design (skipped — never rolled into another migration). Numbering after V32 is not contiguous (V33–V36 unused).
 

@@ -1,4 +1,4 @@
--- V152: Louve Invest SCPI sync (official MCP server, OAuth 2.1). No sidecar container.
+-- V153: Louve Invest SCPI sync (official MCP server, OAuth 2.1). No sidecar container.
 --
 -- Shaped like the other container-less API connectors (simplefin_connection V113,
 -- wise_connection V131, ibkr_connection V59): one connection row per member, its secret
