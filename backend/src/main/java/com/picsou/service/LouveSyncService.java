@@ -18,6 +18,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.dao.PessimisticLockingFailureException;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -350,8 +352,10 @@ public class LouveSyncService {
 
     /**
      * Takes the member lock before an account deletion writes, the order {@link #commit} uses, so a
-     * deletion and a running sync cannot deadlock. Called inside the deletion's transaction.
+     * deletion and a running sync cannot deadlock. Joins the deletion's transaction; the lock is
+     * held until it ends.
      */
+    @Transactional(propagation = Propagation.MANDATORY)
     public void lockMemberForAccountDeletion(Long memberId) {
         lockMember(memberId);
     }

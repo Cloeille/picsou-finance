@@ -144,6 +144,22 @@ class LouveMcpClientTest {
     }
 
     @Test
+    void anInterruptDuringThePauseStopsWithoutRetrying() {
+        LouveMcpClient interruptible = new LouveMcpClient(request -> {
+            sent.add(request);
+            return json(503, "backend read error");
+        }, LouveMcpClient::sleepUnlessInterrupted);
+        Thread.currentThread().interrupt();
+        try {
+            assertCode(() -> interruptible.open("a"), SidecarErrorCode.UPSTREAM_UNAVAILABLE);
+            assertThat(Thread.currentThread().isInterrupted()).as("the interrupt flag is restored").isTrue();
+        } finally {
+            Thread.interrupted();
+        }
+        assertThat(sent).hasSize(1);
+    }
+
+    @Test
     void anUnreachableHostTwiceIsUpstreamUnavailable() {
         answers.add(new LouveTransport.Unreachable("down", null));
         answers.add(new LouveTransport.Unreachable("down", null));

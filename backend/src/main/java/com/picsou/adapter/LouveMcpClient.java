@@ -27,7 +27,7 @@ import java.util.Map;
  * characters (U+2028, U+0085...) that a "universal newline" split would cut through.
  *
  * <p>A 502/503/504 or an unreachable host is retried once after a short pause, then reported as
- * {@code UPSTREAM_UNAVAILABLE}. A 401 is {@link Unauthorized}, so the caller can refresh the
+ * {@code UPSTREAM_UNAVAILABLE}; so is an interrupt during the pause, without the retry. A 401 is {@link Unauthorized}, so the caller can refresh the
  * access token once and try again.
  */
 @Component
@@ -52,13 +52,21 @@ public class LouveMcpClient {
     private final Pause pause;
 
     public LouveMcpClient() {
-        this(new LouveTransport.Http(), duration -> {
-            try {
-                Thread.sleep(duration.toMillis());
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-            }
-        });
+        this(new LouveTransport.Http(), LouveMcpClient::sleepUnlessInterrupted);
+    }
+
+    /**
+     * The default pause. An interrupt (shutdown) restores the flag and ends the call as
+     * {@code UPSTREAM_UNAVAILABLE} instead of retrying.
+     */
+    static void sleepUnlessInterrupted(Duration duration) {
+        try {
+            Thread.sleep(duration.toMillis());
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new SyncException("Louve Invest is temporarily unavailable", ex,
+                SidecarErrorCode.UPSTREAM_UNAVAILABLE.name());
+        }
     }
 
     /** Visible for tests. */

@@ -17,6 +17,7 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +36,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
@@ -170,5 +172,15 @@ class LouveConnectionPostgresTest {
 
         org.mockito.Mockito.verify(adapter, org.mockito.Mockito.times(1)).revoke("tokens");
         assertThat(connections.findByMemberId(member.getId())).isEmpty();
+    }
+
+    @Test
+    void theAccountDeletionLockRefusesToRunOutsideATransaction() {
+        FamilyMember member = members.saveAndFlush(FamilyMember.builder().displayName("Louve lock").build());
+
+        // Without one, the lock would be released at once instead of guarding the deletion.
+        assertThatThrownBy(() -> service.lockMemberForAccountDeletion(member.getId()))
+            .isInstanceOf(IllegalTransactionStateException.class);
+        transactions.executeWithoutResult(status -> service.lockMemberForAccountDeletion(member.getId()));
     }
 }
