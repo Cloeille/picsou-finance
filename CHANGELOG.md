@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Account list display order and collapse (Tout tab).** A "Réorganiser" mode on
+  `/accounts` > Tout adds per-card up/down arrows and a collapse eye, persisted per
+  viewer — owned or shared (`PUT /api/accounts/display-order`, `PUT /api/accounts/{id}/display`, `V152`).
+  Order applies within each section (wallet groups, then standalone accounts); collapsing
+  hides the card behind a recap row with its total.
+  Unlike `hidden`, collapsed accounts stay in every total, budget and chart — see
+  `docs/features/account-list-display.md`.
 - **Louve Invest SCPI sync (verified against one real account).** Connect Louve Invest from the
   Sync page or Add Account: Picsou sends you to Louve's own consent page and asks only for
   read-only access to your portfolio (`portfolio:read`); no Louve password is typed into or stored

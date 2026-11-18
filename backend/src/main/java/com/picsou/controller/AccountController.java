@@ -1,5 +1,7 @@
 package com.picsou.controller;
 
+import com.picsou.dto.AccountDisplayOrderRequest;
+import com.picsou.dto.AccountDisplayRequest;
 import com.picsou.dto.AccountRequest;
 import com.picsou.dto.AccountResponse;
 import com.picsou.dto.AccountVisibilityRequest;
@@ -104,6 +106,16 @@ public class AccountController {
     @PutMapping("/{id}/visibility")
     public AccountResponse updateVisibility(@PathVariable Long id, @Valid @RequestBody AccountVisibilityRequest req) {
         return accountService.setHidden(id, userContext.currentMemberId(), req.hidden());
+    }
+
+    @PutMapping("/{id}/display")
+    public AccountResponse updateDisplay(@PathVariable Long id, @Valid @RequestBody AccountDisplayRequest req) {
+        return accountService.setListCollapsed(id, userContext.currentMemberId(), req.collapsed());
+    }
+
+    @PutMapping("/display-order")
+    public List<AccountResponse> updateDisplayOrder(@Valid @RequestBody AccountDisplayOrderRequest req) {
+        return accountService.setDisplayOrder(userContext.currentMemberId(), req.accountIds());
     }
 
     /**

@@ -39,6 +39,8 @@ function account(overrides: Partial<Account> = {}): Account {
     createdAt: '2026-10-01T00:00:00Z',
     openedAt: '2020-03-12',
     hidden: false,
+    listPosition: null,
+    listCollapsed: false,
     contract: CONTRACT,
     ...overrides,
   }

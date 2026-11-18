@@ -32,7 +32,8 @@ const { CorumPanel } = await import('./CorumPanel')
 const life = (extra: Partial<Account> = {}): Account => ({
   id: 1, name: 'CORUM Life', type: 'ASSURANCE_VIE', provider: 'CORUM', currency: 'EUR',
   currentBalance: 1000, currentBalanceEur: 1000, lastSyncedAt: RUN, isManual: false,
-  color: '#8b5cf6', ticker: null, logoUrl: null, logoKey: null, createdAt: RUN, hidden: false, ...extra,
+  color: '#8b5cf6', ticker: null, logoUrl: null, logoKey: null, createdAt: RUN, hidden: false,
+  listPosition: null, listCollapsed: false, ...extra,
 })
 
 describe('CorumPanel', () => {
