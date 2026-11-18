@@ -63,6 +63,18 @@ class LouveControllerTest {
     }
 
     @Test
+    void aDefaultPortOnEitherSideStillMatches() {
+        assertThat(controller("https://picsou.example:443", "").allowedOrigin("https://picsou.example"))
+            .isEqualTo("https://picsou.example");
+        assertThat(controller("http://localhost:80", "").allowedOrigin("http://localhost"))
+            .isEqualTo("http://localhost");
+        assertThat(controller("https://picsou.example/", "").allowedOrigin("https://PICSOU.example:443"))
+            .isEqualTo("https://picsou.example");
+        assertThat(controller("https://picsou.example:8443", "").allowedOrigin("https://picsou.example"))
+            .isNull();
+    }
+
+    @Test
     void anOriginOutsideTheListIsRefusedWithACode() {
         LouveController controller = controller("https://picsou.example", "");
 
@@ -86,7 +98,7 @@ class LouveControllerTest {
     void plainHttpIsOnlyAcceptedOnLoopback() {
         assertThat(LouveController.redirectUri("http://127.0.0.1:5173")).isEqualTo("http://127.0.0.1:5173/sync/louve/callback");
         assertThat(LouveController.redirectUri("http://localhost:5173")).isEqualTo("http://localhost:5173/sync/louve/callback");
-        assertThat(LouveController.redirectUri("http://192.168.1.10:8080")).isNull();
+        assertThat(LouveController.redirectUri("http://192.0.2.10:8080")).isNull();
         assertThat(LouveController.redirectUri("https://Picsou.Example")).isEqualTo("https://picsou.example/sync/louve/callback");
         assertThat(LouveController.redirectUri("https://picsou.example/path")).isNull();
         assertThat(LouveController.redirectUri("https://user@picsou.example")).isNull();
@@ -94,7 +106,7 @@ class LouveControllerTest {
 
     @Test
     void aConfiguredPlainHttpOriginIsRefusedWithItsOwnCode() {
-        ResponseEntity<?> response = controller("http://192.168.1.10:8080", "").start(start("http://192.168.1.10:8080"));
+        ResponseEntity<?> response = controller("http://192.0.2.10:8080", "").start(start("http://192.0.2.10:8080"));
 
         assertThat(response.getStatusCode().value()).isEqualTo(400);
         assertThat(((ProblemDetail) response.getBody()).getProperties())

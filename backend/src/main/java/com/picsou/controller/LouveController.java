@@ -115,19 +115,60 @@ public class LouveController {
      * The browser's {@code Origin} when it is one of the instance's public origins: the list the
      * operator keeps in Administration > Security, or {@code ALLOWED_ORIGINS} before one is saved
      * (the same policy as CORS). Null otherwise, or when the request carries no origin.
+     *
+     * <p>Both sides are compared in their {@linkplain #normalize normal form}: a browser never
+     * writes a default port, so {@code https://picsou.example:443} in the list must still match
+     * the {@code https://picsou.example} it sends.
      */
     String allowedOrigin(String origin) {
-        if (origin == null || origin.isBlank()) {
+        String wanted = normalize(origin);
+        CorsConfiguration policy = origins.originPolicy();
+        if (wanted == null || policy == null || policy.getAllowedOrigins() == null) {
             return null;
         }
-        CorsConfiguration policy = origins.originPolicy();
-        return policy == null ? null : policy.checkOrigin(origin.trim());
+        for (String allowed : policy.getAllowedOrigins()) {
+            if (wanted.equals(normalize(allowed))) {
+                return wanted;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * An origin with its scheme and host lower-cased, its default port (443 for HTTPS, 80 for
+     * HTTP) and any trailing slash dropped. Null for a blank value, a wildcard or anything that
+     * is not a {@code scheme://host[:port]} origin.
+     */
+    static String normalize(String origin) {
+        if (origin == null || origin.isBlank() || origin.contains("*")) {
+            return null;
+        }
+        URI parsed;
+        try {
+            parsed = URI.create(origin.trim());
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+        if (parsed.getScheme() == null || parsed.getHost() == null) {
+            return null;
+        }
+        String scheme = parsed.getScheme().toLowerCase(Locale.ROOT);
+        int port = parsed.getPort();
+        boolean defaultPort = port == -1
+            || (scheme.equals("https") && port == 443) || (scheme.equals("http") && port == 80);
+        String path = parsed.getRawPath() == null || parsed.getRawPath().equals("/") ? "" : parsed.getRawPath();
+        String rest = path
+            + (parsed.getRawQuery() == null ? "" : "?" + parsed.getRawQuery())
+            + (parsed.getRawFragment() == null ? "" : "#" + parsed.getRawFragment());
+        String userInfo = parsed.getRawUserInfo() == null ? "" : parsed.getRawUserInfo() + "@";
+        return scheme + "://" + userInfo + parsed.getHost().toLowerCase(Locale.ROOT)
+            + (defaultPort ? "" : ":" + port) + rest;
     }
 
     /**
      * {@code origin} plus the callback path, when the origin is HTTPS, or plain HTTP on a loopback
-     * host for development. Null otherwise. A browser never writes the default port in an origin,
-     * so the port is kept as given.
+     * host for development. Null otherwise. The origin comes from {@link #allowedOrigin}, already
+     * in normal form, so the redirect URI never carries a default port.
      */
     static String redirectUri(String origin) {
         URI parsed;
