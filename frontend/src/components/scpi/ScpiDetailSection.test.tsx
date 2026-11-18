@@ -21,7 +21,7 @@ const account: Account = {
   id: 42, name: 'Example SCPI', type: 'SCPI', provider: null, currency: 'EUR',
   currentBalance: 8800, currentBalanceEur: 8800, lastSyncedAt: null, isManual: true,
   color: '#000000', ticker: null, logoUrl: null, logoKey: null, createdAt: '2026-01-01',
-  isOwner: true, hidden: false,
+  isOwner: true, hidden: false, listPosition: null, listCollapsed: false,
   scpi: {
     isin: 'FR0012345678', managementCompany: 'Example', shareCount: 10,
     subscriptionPriceEur: 1000, withdrawalPriceEur: 880, withdrawalValueEur: 8800,

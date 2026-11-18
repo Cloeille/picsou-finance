@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
-import { useAccounts, useAccountTree, useAccountDeletionImpact, useUpdateAccount, useDeleteAccount, useUpdateDebtMetadata } from '@/features/accounts/hooks'
+import { useAccounts, useAccountTree, useAccountDeletionImpact, useUpdateAccount, useDeleteAccount, useUpdateDebtMetadata, useSetDisplayOrder, useSetListCollapsed } from '@/features/accounts/hooks'
+import { orderAccountsForList, splitCollapsed } from '@/features/accounts/display'
 import { useHistory } from '@/features/history/hooks'
 import { useSavingsSuggestions } from '@/features/savings/hooks'
 import { usePeerLoansOverview } from '@/features/peer-loans/hooks'
@@ -21,7 +22,7 @@ import { ScrollStrip } from '@/components/shared/ScrollStrip'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Plus, Wallet, Pencil, Trash2, TrendingUp, TrendingDown, Download, Eye, EyeOff } from 'lucide-react'
+import { Plus, Wallet, Pencil, Trash2, TrendingUp, TrendingDown, Download, Eye, EyeOff, ChevronUp, ChevronDown, ArrowUpDown } from 'lucide-react'
 import { cn, formatPercent } from '@/lib/utils'
 import { HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES } from '@/lib/constants'
 import { accountInvestedAt, accountPnlAt, hasMeasurableGain } from '@/features/accounts/pnl'
@@ -159,6 +160,10 @@ export function AccountsPage() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [filter, setFilter] = useState<AssetFilter>('ALL')
+  const [reorderMode, setReorderMode] = useState(false)
+  const reorderActive = reorderMode && filter === 'ALL'
+  const setDisplayOrder = useSetDisplayOrder()
+  const setListCollapsed = useSetListCollapsed()
   const [showClosed, setShowClosed] = useState(false)
 
   // A closed peer loan is a 0 EUR receivable. It stays reachable under the Receivables
@@ -225,6 +230,66 @@ export function AccountsPage() {
     if (!types) return allStandaloneAccounts
     return allStandaloneAccounts.filter((a) => types.includes(a.type))
   }, [allStandaloneAccounts, filter])
+
+  // Manual display order + collapse apply to the Tout tab only. Totals, PnL and the chart above
+  // keep using filteredNonPockets/walletGroups, so collapsed accounts stay counted everywhere.
+  const orderedStandalone = useMemo(
+    () => (filter === 'ALL' ? orderAccountsForList(standaloneAccounts) : standaloneAccounts),
+    [standaloneAccounts, filter]
+  )
+  const orderedWalletGroups = useMemo(
+    () => (filter === 'ALL' ? orderAccountsForList(walletGroups, (g) => g.wallet) : walletGroups),
+    [walletGroups, filter]
+  )
+  const { shown: shownStandalone, collapsed: collapsedStandalone } = useMemo(
+    () =>
+      filter === 'ALL'
+        ? splitCollapsed(orderedStandalone)
+        : { shown: orderedStandalone, collapsed: [] as Account[] },
+    [orderedStandalone, filter]
+  )
+  const { shown: shownWalletGroups, collapsed: collapsedWalletGroups } = useMemo(
+    () =>
+      filter === 'ALL'
+        ? splitCollapsed(orderedWalletGroups, (g) => g.wallet)
+        : { shown: orderedWalletGroups, collapsed: [] as typeof orderedWalletGroups },
+    [orderedWalletGroups, filter]
+  )
+  // Reorder mode shows everything (to un-collapse too); normal view hides collapsed behind the recap.
+  const displayStandalone = reorderActive ? orderedStandalone : shownStandalone
+  const displayWalletGroups = reorderActive ? orderedWalletGroups : shownWalletGroups
+  const collapsedCount = collapsedStandalone.length + collapsedWalletGroups.length
+  const collapsedTotal = useMemo(() => {
+    const signed = (a: Account) =>
+      a.type === 'LOAN' ? -(a.currentBalanceEur ?? 0) : (a.currentBalanceEur ?? 0)
+    return (
+      collapsedStandalone.reduce((sum, a) => sum + signed(a), 0) +
+      collapsedWalletGroups.reduce((sum, g) => sum + signed(g.wallet), 0)
+    )
+  }, [collapsedStandalone, collapsedWalletGroups])
+
+  // Display prefs are per (member, account): every viewer arranges their own view,
+  // owned or shared — nothing leaks from one viewer to another.
+  const persistOrder = (standalone: Account[], groups: typeof orderedWalletGroups) => {
+    setDisplayOrder.mutate([
+      ...groups.map((g) => g.wallet.id),
+      ...standalone.map((a) => a.id),
+    ])
+  }
+  const moveStandalone = (index: number, dir: -1 | 1) => {
+    const next = [...orderedStandalone]
+    const target = index + dir
+    if (target < 0 || target >= next.length) return
+    ;[next[index], next[target]] = [next[target], next[index]]
+    persistOrder(next, orderedWalletGroups)
+  }
+  const moveWalletGroup = (index: number, dir: -1 | 1) => {
+    const next = [...orderedWalletGroups]
+    const target = index + dir
+    if (target < 0 || target >= next.length) return
+    ;[next[index], next[target]] = [next[target], next[index]]
+    persistOrder(orderedStandalone, next)
+  }
 
   // Whether the current filter has a gain/loss worth showing: an investment account, whose
   // basis comes from its holdings, or a property, whose basis is its purchase price plus fees.
@@ -296,6 +361,8 @@ export function AccountsPage() {
       logoKey: null,
       createdAt: '',
       hidden: false,
+      listPosition: null,
+      listCollapsed: false,
     }))
   }, [accounts, nonPocketAccounts, filter, t])
 
@@ -487,6 +554,17 @@ export function AccountsPage() {
               <Plus className="size-4" />
               {addingProperty ? t('property.add.action') : t('accounts.addAccount')}
             </Button>
+            {filter === 'ALL' && (
+              <Button
+                onClick={() => setReorderMode((v) => !v)}
+                size="sm"
+                variant={reorderActive ? 'default' : 'outline'}
+                aria-pressed={reorderActive}
+              >
+                <ArrowUpDown className="size-4" />
+                {t(reorderActive ? 'accounts.doneReordering' : 'accounts.reorder')}
+              </Button>
+            )}
             {filter === 'RECEIVABLES' && (
               <Button
                 onClick={() => handleOpenCreate('PEER_LOAN')}
@@ -624,8 +702,8 @@ export function AccountsPage() {
       ) : (
         <div className="space-y-4">
           {/* Wallet groups: parent account + nested pocket sub-accounts */}
-          {walletGroups.map(({ wallet, pockets: walletPockets }) => (
-            <div key={wallet.id} className="space-y-2">
+          {displayWalletGroups.map(({ wallet, pockets: walletPockets }, wIndex) => (
+            <div key={wallet.id} className={cn('space-y-2', reorderActive && wallet.listCollapsed && 'opacity-60')}>
               {/* Parent wallet card */}
               <div className="relative group">
                 <AccountCard
@@ -634,6 +712,51 @@ export function AccountsPage() {
                   onClick={() => navigate(`/accounts/${wallet.id}`)}
                 />
                 <div className={CARD_ACTIONS_CLASS}>
+                  {reorderActive ? (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        aria-label={t('accounts.moveUp')}
+                        disabled={wIndex === 0 || setDisplayOrder.isPending}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          moveWalletGroup(wIndex, -1)
+                        }}
+                      >
+                        <ChevronUp className="size-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        aria-label={t('accounts.moveDown')}
+                        disabled={wIndex === displayWalletGroups.length - 1 || setDisplayOrder.isPending}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          moveWalletGroup(wIndex, 1)
+                        }}
+                      >
+                        <ChevronDown className="size-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        aria-label={t(wallet.listCollapsed ? 'accounts.expandAccount' : 'accounts.collapseAccount')}
+                        aria-pressed={wallet.listCollapsed}
+                        disabled={setListCollapsed.isPending}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setListCollapsed.mutate({ id: wallet.id, collapsed: !wallet.listCollapsed })
+                        }}
+                      >
+                        {wallet.listCollapsed ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                      </Button>
+                    </>
+                  ) : (
+                    <>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -658,6 +781,8 @@ export function AccountsPage() {
                   >
                     <Trash2 className="size-3.5" />
                   </Button>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -695,16 +820,61 @@ export function AccountsPage() {
           ))}
 
           {/* Standalone accounts — normal responsive grid */}
-          {standaloneAccounts.length > 0 && (
+          {displayStandalone.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {standaloneAccounts.map((account) => (
-                <div key={account.id} className="relative group">
+              {displayStandalone.map((account, sIndex) => (
+                <div key={account.id} className={cn('relative group', reorderActive && account.listCollapsed && 'opacity-60')}>
                   <AccountCard
                     account={account}
                     closed={closedPeerLoanIds.has(account.id)}
                     onClick={() => navigate(`/accounts/${account.id}`)}
                   />
                   <div className={CARD_ACTIONS_CLASS}>
+                    {reorderActive ? (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          aria-label={t('accounts.moveUp')}
+                          disabled={sIndex === 0 || setDisplayOrder.isPending}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            moveStandalone(sIndex, -1)
+                          }}
+                        >
+                          <ChevronUp className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          aria-label={t('accounts.moveDown')}
+                          disabled={sIndex === displayStandalone.length - 1 || setDisplayOrder.isPending}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            moveStandalone(sIndex, 1)
+                          }}
+                        >
+                          <ChevronDown className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          aria-label={t(account.listCollapsed ? 'accounts.expandAccount' : 'accounts.collapseAccount')}
+                          aria-pressed={account.listCollapsed}
+                          disabled={setListCollapsed.isPending}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setListCollapsed.mutate({ id: account.id, collapsed: !account.listCollapsed })
+                          }}
+                        >
+                          {account.listCollapsed ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                        </Button>
+                      </>
+                    ) : (
+                      <>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -729,10 +899,34 @@ export function AccountsPage() {
                     >
                       <Trash2 className="size-3.5" />
                     </Button>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
+          )}
+
+          {/* Collapsed recap: hidden cards stay counted in every total and chart */}
+          {filter === 'ALL' && !reorderActive && collapsedCount > 0 && (
+            <Card>
+              <CardContent className="flex flex-wrap items-center gap-x-3 gap-y-1 py-3 text-sm">
+                <EyeOff className="size-4 text-muted-foreground" />
+                <span className="font-medium">
+                  {t('accounts.collapsedRecap', { count: collapsedCount })}
+                </span>
+                <CurrencyDisplay value={collapsedTotal} className="font-semibold" />
+                <span className="text-muted-foreground">{t('accounts.collapsedHint')}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto"
+                  onClick={() => setReorderMode(true)}
+                >
+                  {t('accounts.manageCollapsed')}
+                </Button>
+              </CardContent>
+            </Card>
           )}
         </div>
       )}

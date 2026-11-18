@@ -7,6 +7,8 @@ import type { NetWorthPoint } from '@/features/history/api'
 const useAccounts = vi.fn()
 const useHistory = vi.fn()
 const usePeerLoansOverview = vi.fn<() => { data: PeerLoansOverview | undefined }>(() => ({ data: undefined }))
+const orderMutate = vi.fn()
+const collapseMutate = vi.fn()
 
 vi.mock('@/features/accounts/hooks', async (importActual) => ({
   // useAccountTree is a pure useMemo over the accounts handed in -- it groups Revolut pockets
@@ -20,6 +22,8 @@ vi.mock('@/features/accounts/hooks', async (importActual) => ({
   useUpdateAccount: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteAccount: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateDebtMetadata: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetDisplayOrder: () => ({ mutate: orderMutate, isPending: false }),
+  useSetListCollapsed: () => ({ mutate: collapseMutate, isPending: false }),
 }))
 
 // The savings-suggestion banner is a query of its own and has nothing to say about gain/loss.
@@ -267,6 +271,8 @@ describe('AccountsPage - closed peer loans', () => {
       logoKey: null,
       createdAt: '2026-01-01T00:00:00Z',
       hidden: false,
+      listPosition: null,
+      listCollapsed: false,
     }
     useAccounts.mockReturnValue({ data: [closedLoan], isLoading: false })
     useHistory.mockReturnValue({ data: history([closedLoan]), isLoading: false })
@@ -332,5 +338,56 @@ describe('AccountsPage — Métaux and Autre filters', () => {
 
     expect(screen.getByText('Compte 2')).toBeInTheDocument()
     expect(screen.queryByText('Compte 1')).not.toBeInTheDocument()
+  })
+})
+
+describe('AccountsPage - reorder covers co-owned accounts', () => {
+  beforeEach(() => {
+    useAccounts.mockReset()
+    useHistory.mockReset()
+    orderMutate.mockReset()
+    collapseMutate.mockReset()
+  })
+
+  function checking(id: number, extra: Partial<Account> = {}): Account {
+    return {
+      id,
+      name: `Compte ${id}`,
+      type: 'CHECKING',
+      provider: 'Example',
+      currency: 'EUR',
+      currentBalance: 100,
+      currentBalanceEur: 100,
+      lastSyncedAt: null,
+      isManual: true,
+      color: '#6366f1',
+      ticker: null,
+      logoUrl: null,
+      logoKey: null,
+      createdAt: '2026-01-01T00:00:00Z',
+      hidden: false,
+      listPosition: null,
+      listCollapsed: false,
+      ...extra,
+    } as Account
+  }
+
+  it('shows arrange controls on shared cards and sends every visible id', () => {
+    const accounts = [checking(1, { isOwner: true }), checking(2, { isOwner: false })]
+    useAccounts.mockReturnValue({ data: accounts, isLoading: false })
+    useHistory.mockReturnValue({ data: [], isLoading: false })
+
+    render(<AccountsPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'accounts.reorder' }))
+
+    // Both cards can be arranged: prefs are per viewer, owned or shared.
+    expect(screen.getAllByRole('button', { name: 'accounts.moveUp' })).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: 'accounts.moveDown' })).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: 'accounts.collapseAccount' })).toHaveLength(2)
+
+    // Moving the owned card down keeps the shared one in the saved order.
+    fireEvent.click(screen.getAllByRole('button', { name: 'accounts.moveDown' })[0])
+    expect(orderMutate).toHaveBeenCalledWith([2, 1])
+    expect(collapseMutate).not.toHaveBeenCalled()
   })
 })

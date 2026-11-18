@@ -513,6 +513,41 @@ a decade between the two, and the five-year tax clock runs from the former.
 
 ---
 
+#### `PUT /api/accounts/{id}/display`
+
+Collapse one account in the account list (Tout tab). Display-only: the
+account stays in every total, budget and chart. Any readable account
+(owned or shared) can be collapsed — it only ever changes the caller's
+own view, never anyone else's. Unlike `PUT .../visibility` (`hidden`),
+which excludes the account from totals.
+
+- **Auth:** Required
+- **Body:** `{ "collapsed": true }`
+
+**Response `200` — `AccountResponse`** with `listCollapsed` overlaid.
+
+**Errors:** 400, 404
+
+---
+
+#### `PUT /api/accounts/display-order`
+
+Replace the caller's whole manual order: listed accounts take positions
+`0..n`. Rows of accounts absent from a non-empty payload are left untouched
+(a hidden account keeps its position); only an explicit empty list clears
+all positions. A null list is rejected. Any readable account (owned or
+shared) can be ordered; preferences never leak from one viewer to another.
+
+- **Auth:** Required
+- **Body:** `{ "accountIds": [3, 1] }`
+
+**Response `200` — `AccountResponse[]`** in the requested order, with
+`listPosition` overlaid.
+
+**Errors:** 400 (null list, duplicate ids), 404 (unknown or unreadable id)
+
+---
+
 #### `GET /api/accounts/{id}/holdings`
 
 - **Auth:** Required
