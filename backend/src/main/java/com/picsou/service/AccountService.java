@@ -345,9 +345,9 @@ public class AccountService {
     @Transactional
     public AccountResponse setListCollapsed(Long id, Long memberId, boolean collapsed) {
         Account account = accessResolver.requireReadable(id, memberId);
+        prefRepository.upsertDisplayPref(id, memberId, null, collapsed);
         Integer position = prefRepository.findByMemberIdAndAccountId(memberId, id)
             .map(AccountDisplayPref::getListPosition).orElse(null);
-        prefRepository.upsertDisplayPref(id, memberId, position, collapsed);
         return overlayDisplayPrefs(
             toResponse(account, accessResolver.shareFor(account, memberId), memberId),
             position, collapsed);
@@ -389,7 +389,7 @@ public class AccountService {
         for (Long id : ids) {
             AccountDisplayPref existing = prefs.get(id);
             boolean collapsed = existing != null && existing.isListCollapsed();
-            prefRepository.upsertDisplayPref(id, memberId, position, collapsed);
+            prefRepository.upsertDisplayPref(id, memberId, position, null);
             response.add(overlayDisplayPrefs(
                 toResponse(readable.get(id), shares.get(id), memberId), position, collapsed));
             position++;

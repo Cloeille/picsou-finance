@@ -533,13 +533,17 @@ export function useSetListCollapsed() {
     mutationFn: ({ id, collapsed }: { id: number; collapsed: boolean }) =>
       accountsApi.setListCollapsed(id, collapsed),
     invalidates: (_data, variables) => [['accounts'], ['accounts', variables.id]],
+    awaitRefresh: true,
   })
 }
 
+// awaitRefresh keeps isPending true until the list has refetched: the arrows stay
+// disabled until the next move can start from the order the server saved.
 export function useSetDisplayOrder() {
   return useInvalidatingMutation({
     mutationFn: (accountIds: number[]) => accountsApi.setDisplayOrder(accountIds),
     invalidates: [['accounts']],
+    awaitRefresh: true,
   })
 }
 

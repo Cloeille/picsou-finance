@@ -19,17 +19,17 @@ public interface AccountDisplayPrefRepository extends JpaRepository<AccountDispl
      * Atomic insert-or-update. Closes the check-then-insert race when two
      * requests create the row at once (double click, two tabs): a single
      * statement either inserts or merges, so the second writer never hits
-     * the unique constraint. NULL means "leave the stored value" — callers
-     * pass the merged values, so a concurrent collapse and move cannot wipe
-     * each other out; last write wins per column.
+     * the unique constraint. A NULL argument leaves that column as stored
+     * (defaults on insert): each caller passes only the column it changes, so
+     * a concurrent collapse and move never overwrite each other.
      */
     @Modifying
     @Query(value =
         "INSERT INTO account_display_pref (account_id, member_id, list_position, list_collapsed, created_at, updated_at) " +
-        "VALUES (:accountId, :memberId, :position, COALESCE(:collapsed, FALSE), NOW(), NOW()) " +
+        "VALUES (:accountId, :memberId, CAST(:position AS INTEGER), COALESCE(CAST(:collapsed AS BOOLEAN), FALSE), NOW(), NOW()) " +
         "ON CONFLICT (account_id, member_id) DO UPDATE SET " +
-        "list_position = COALESCE(EXCLUDED.list_position, account_display_pref.list_position), " +
-        "list_collapsed = COALESCE(EXCLUDED.list_collapsed, account_display_pref.list_collapsed), " +
+        "list_position = COALESCE(CAST(:position AS INTEGER), account_display_pref.list_position), " +
+        "list_collapsed = COALESCE(CAST(:collapsed AS BOOLEAN), account_display_pref.list_collapsed), " +
         "updated_at = NOW()",
         nativeQuery = true)
     void upsertDisplayPref(@Param("accountId") Long accountId, @Param("memberId") Long memberId,

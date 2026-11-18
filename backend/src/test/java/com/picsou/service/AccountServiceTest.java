@@ -728,7 +728,7 @@ class AccountServiceTest {
     }
 
     @Test
-    void setListCollapsed_upsertsMergedValues_forReadableAccount() {
+    void setListCollapsed_writesOnlyCollapse_andReturnsStoredPosition() {
         Account account = ownedAccount();
         AccountDisplayPref pref = AccountDisplayPref.builder()
             .account(account).listPosition(2).listCollapsed(false).build();
@@ -738,7 +738,7 @@ class AccountServiceTest {
 
         AccountResponse response = accountService.setListCollapsed(1L, 1L, true);
 
-        verify(prefRepository).upsertDisplayPref(1L, 1L, 2, true);
+        verify(prefRepository).upsertDisplayPref(1L, 1L, null, true);
         assertThat(response.listCollapsed()).isTrue();
         assertThat(response.listPosition()).isEqualTo(2);
     }
@@ -780,7 +780,7 @@ class AccountServiceTest {
 
         AccountResponse response = accountService.setListCollapsed(1L, 1L, true);
 
-        verify(prefRepository).upsertDisplayPref(1L, 1L, 0, true);
+        verify(prefRepository).upsertDisplayPref(1L, 1L, null, true);
         assertThat(response.isOwner()).isFalse();
         assertThat(response.sharePercent()).isEqualByComparingTo("50");
         assertThat(response.listCollapsed()).isTrue();
@@ -788,7 +788,7 @@ class AccountServiceTest {
     }
 
     @Test
-    void setDisplayOrder_assignsPositionsByIndex_andKeepsUnlisted() {
+    void setDisplayOrder_writesOnlyPositions_andKeepsUnlisted() {
         Account first = ownedAccount();
         Account second = Account.builder()
             .id(2L).name("B").type(AccountType.CHECKING).currency("EUR").build();
@@ -806,8 +806,8 @@ class AccountServiceTest {
 
         java.util.List<AccountResponse> response = accountService.setDisplayOrder(1L, java.util.List.of(3L, 1L));
 
-        verify(prefRepository).upsertDisplayPref(3L, 1L, 0, false);
-        verify(prefRepository).upsertDisplayPref(1L, 1L, 1, false);
+        verify(prefRepository).upsertDisplayPref(3L, 1L, 0, null);
+        verify(prefRepository).upsertDisplayPref(1L, 1L, 1, null);
         verify(prefRepository, never()).upsertDisplayPref(eq(2L), any(), any(), any());
         verify(prefRepository, never()).clearPositionsByMemberId(any());
         assertThat(response.stream().map(AccountResponse::id).toList())
