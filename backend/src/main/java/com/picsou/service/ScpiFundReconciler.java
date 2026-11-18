@@ -97,17 +97,7 @@ public class ScpiFundReconciler {
         String isin,
         BigDecimal annualDistributionPerShare,
         DistributionFrequency distributionFrequency
-    ) {
-        public SyncedFund(
-            String fundCode,
-            String label,
-            BigDecimal quantity,
-            BigDecimal subscriptionPrice,
-            BigDecimal withdrawalPrice
-        ) {
-            this(fundCode, label, quantity, subscriptionPrice, withdrawalPrice, null, null, null, null);
-        }
-    }
+    ) {}
 
     /**
      * A fund line the provider lists but that must not be valued: a dismembered share

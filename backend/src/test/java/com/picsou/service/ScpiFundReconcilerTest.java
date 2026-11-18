@@ -118,7 +118,8 @@ class ScpiFundReconcilerTest {
 
     private static ScpiFundReconciler.SyncedFund fund(String code, String label, String shares, String withdrawal) {
         return new ScpiFundReconciler.SyncedFund(
-            code, label, new BigDecimal(shares), null, withdrawal == null ? null : new BigDecimal(withdrawal));
+            code, label, new BigDecimal(shares), null, withdrawal == null ? null : new BigDecimal(withdrawal),
+            null, null, null, null);
     }
 
     private Account manualScpi(String name) {
