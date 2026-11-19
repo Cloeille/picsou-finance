@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The About section points to the canonical GitHub repository.** The
+  repository link and its visible URL now consistently use
+  `Cloeille/picsou-finance`.
 - **La Banque Postale accounts show the bank's logo.** The connector writes
   `La Banque Postale` as the account provider but the frontend had no
   bundled mark for it, so the accounts fell back to the color circle. The
