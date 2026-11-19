@@ -15,6 +15,7 @@ import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
 import httpx
@@ -74,15 +75,28 @@ class FakePage:
         self.gotos.append(url)
 
 
+class FakeFrame:
+    def __init__(self, parent=None):
+        self.parent_frame = parent
+
+
+MAIN_FRAME = FakeFrame(parent=None)
+
+
+def subframe():
+    return FakeFrame(parent=object())
+
+
 class FakeBrowserRequest:
-    def __init__(self, url, resource_type="document"):
+    def __init__(self, url, resource_type="document", frame=None):
         self.url = url
         self.resource_type = resource_type
+        self.frame = frame
 
 
 class FakeRoute:
-    def __init__(self, url, resource_type="document"):
-        self.request = FakeBrowserRequest(url, resource_type)
+    def __init__(self, url, resource_type="document", frame=None):
+        self.request = FakeBrowserRequest(url, resource_type, frame)
         self.action = None
 
     async def continue_(self):
@@ -425,8 +439,14 @@ class RouteGuardTest(unittest.IsolatedAsyncioTestCase):
         attacker_script = FakeRoute(
             "https://attacker.cloudfront.net/steal.js", resource_type="script"
         )
+        # Rotations forced the tradeoff: a shape-valid distribution the bank
+        # page itself requests is auto-admitted (it may be the bank's new
+        # host) — for scripts and subframes, never for a top-level document
+        # navigation. The pure allow-list, the retour/navigation guards and
+        # the httpx hook still refuse it — see
+        # test_an_attacker_cloudfront_distribution_is_refused_everywhere.
         await guard(attacker_script)
-        self.assertEqual(attacker_script.action, "abort")
+        self.assertEqual(attacker_script.action, "continue")
         attacker_document = FakeRoute(
             "https://attacker.cloudfront.net/steal", resource_type="document"
         )
@@ -577,10 +597,10 @@ class BrowserRedirectHopTest(unittest.IsolatedAsyncioTestCase):
                 return True
             return real_is_bank_document(url)
 
-        def fake_is_allowed(url):
+        def fake_is_allowed(url, extra=None):
             if isinstance(url, str) and url.startswith(origin + "/"):
                 return True
-            return real_is_allowed(url)
+            return real_is_allowed(url, extra)
 
         self.document_patch = patch.object(
             bank, "_is_bank_document_url", fake_is_bank_document
@@ -609,6 +629,333 @@ class BrowserRedirectHopTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("BLOCKED_BY_CLIENT", str(raised.exception))
         self.assertIn(("GET", "/redirect"), self.bank_hits)
         self.assertEqual(self.meta_hits, [])
+
+
+class CdnEnvAllowlistTest(unittest.TestCase):
+    def test_parse_cdn_hosts_keeps_only_shape_valid_hosts(self):
+        self.assertEqual(
+            bank._parse_cdn_hosts("d21j9nkdg2p3wo.cloudfront.net, DQNJN206BWVK2.cloudfront.net "),
+            {"d21j9nkdg2p3wo.cloudfront.net", "dqnjn206bwvk2.cloudfront.net"},
+        )
+        self.assertEqual(
+            bank._parse_cdn_hosts(
+                "attacker.example, https://d1.cloudfront.net/x.js,"
+                " a..cloudfront.net, , not a host, https://.cloudfront.net/"
+            ),
+            set(),
+        )
+        self.assertEqual(bank._parse_cdn_hosts(""), set())
+        self.assertEqual(bank._parse_cdn_hosts(None), set())
+
+    def test_env_hosts_are_subresources_only(self):
+        with patch.dict(
+            os.environ, {bank.LBP_EXTRA_CDN_HOSTS_ENV: "d21j9nkdg2p3wo.cloudfront.net"}
+        ):
+            self.assertEqual(
+                bank._env_cdn_hosts(), {"d21j9nkdg2p3wo.cloudfront.net"}
+            )
+            target = "https://d21j9nkdg2p3wo.cloudfront.net/app.js"
+            self.assertTrue(bank._is_allowed_url(target))
+            self.assertFalse(bank._is_bank_document_url(target))
+        self.assertEqual(bank._env_cdn_hosts(), set())
+
+    def test_an_attacker_distribution_is_still_refused_with_env_set(self):
+        with patch.dict(
+            os.environ, {bank.LBP_EXTRA_CDN_HOSTS_ENV: "d21j9nkdg2p3wo.cloudfront.net"}
+        ):
+            target = "https://attacker.cloudfront.net/steal.js"
+            self.assertFalse(bank._is_allowed_url(target))
+            with self.assertRaises(HTTPException):
+                bank._require_allowed_url(target)
+
+
+class LearnedHostGuardTest(unittest.IsolatedAsyncioTestCase):
+    async def test_an_admitted_host_is_subresource_only(self):
+        admitted = {"d21j9nkdg2p3wo.cloudfront.net"}
+        guard = bank._route_guard(admitted)
+        script = FakeRoute(
+            "https://d21j9nkdg2p3wo.cloudfront.net/app.js", resource_type="script"
+        )
+        await guard(script)
+        self.assertEqual(script.action, "continue")
+        document = FakeRoute(
+            "https://d21j9nkdg2p3wo.cloudfront.net/app.js", resource_type="document"
+        )
+        await guard(document)
+        self.assertEqual(document.action, "abort")
+        unknown = FakeRoute("https://unknown.example/a.js", resource_type="script")
+        await guard(unknown)
+        self.assertEqual(unknown.action, "abort")
+
+    async def test_blocked_requests_log_the_resource_type(self):
+        guard = bank._route_guard()
+        route = FakeRoute("https://attacker.example/steal.js", resource_type="script")
+        with self.assertLogs("lbp-auth", level="INFO") as logs:
+            await guard(route)
+        self.assertEqual(route.action, "abort")
+        self.assertTrue(any("resource=script" in line for line in logs.output))
+
+
+class AutoAdmitGuardTest(unittest.IsolatedAsyncioTestCase):
+    async def test_first_unknown_distribution_is_admitted_then_left_through(self):
+        admitted: set[str] = set()
+        guard = bank._route_guard(admitted)
+        first = FakeRoute(
+            "https://d21j9nkdg2p3wo.cloudfront.net/app.js", resource_type="script"
+        )
+        with self.assertLogs("lbp-auth", level="INFO") as logs:
+            await guard(first)
+        self.assertEqual(first.action, "continue")
+        self.assertEqual(admitted, {"d21j9nkdg2p3wo.cloudfront.net"})
+        self.assertTrue(any("auto-admitted" in line for line in logs.output))
+        # The next request to the same host passes without a new admission.
+        second = FakeRoute(
+            "https://d21j9nkdg2p3wo.cloudfront.net/other.js", resource_type="script"
+        )
+        with self.assertNoLogs("lbp-auth", level="INFO"):
+            await guard(second)
+        self.assertEqual(second.action, "continue")
+
+    async def test_fraud_beacon_xhr_auto_admits(self):
+        # Production evidence: the bank's anti-fraud posts its fingerprint
+        # to the live distribution; blocking data egress to unknown hosts
+        # would block the login itself, so shape-validated attempt-scoped
+        # XHR/fetch is admitted and the residual risk lives in the README.
+        admitted: set[str] = set()
+        guard = bank._route_guard(admitted)
+        beacon = FakeRoute(
+            "https://d21j9nkdg2p3wo.cloudfront.net/321226/1ytb//", resource_type="xhr"
+        )
+        await guard(beacon)
+        self.assertEqual(beacon.action, "continue")
+        self.assertEqual(admitted, {"d21j9nkdg2p3wo.cloudfront.net"})
+
+    async def test_cdp_fraud_beacon_xhr_continues(self):
+        admitted: set[str] = set()
+        context = FakeGuardedContext()
+        await bank._new_guarded_page(context, admitted)
+        event = {
+            "requestId": "3",
+            "frameId": "MAIN",
+            "request": {"url": "https://d21j9nkdg2p3wo.cloudfront.net/321226/1ytb//"},
+            "resourceType": "XHR",
+        }
+        await context.session.handlers["Fetch.requestPaused"](event)
+        methods = [method for method, _ in context.session.sent if method not in ("Fetch.enable", "Page.getFrameTree")]
+        self.assertEqual(methods, ["Fetch.continueRequest"])
+        self.assertEqual(admitted, {"d21j9nkdg2p3wo.cloudfront.net"})
+
+    async def test_beacon_and_image_auto_admit_like_scripts(self):
+        # Locks the admitted surface: subresource kinds beyond scripts pass
+        # on first sight; only the top-level Document is special-cased.
+        for resource_type in ("ping", "image", "fetch", "stylesheet", "font"):
+            with self.subTest(resource_type=resource_type):
+                admitted: set[str] = set()
+                guard = bank._route_guard(admitted)
+                route = FakeRoute(
+                    "https://d21j9nkdg2p3wo.cloudfront.net/pixel.gif",
+                    resource_type=resource_type,
+                )
+                with self.assertLogs("lbp-auth", level="INFO"):
+                    await guard(route)
+                self.assertEqual(route.action, "continue")
+                self.assertEqual(admitted, {"d21j9nkdg2p3wo.cloudfront.net"})
+
+    async def test_documents_never_auto_admit(self):
+        admitted: set[str] = set()
+        guard = bank._route_guard(admitted)
+        document = FakeRoute(
+            "https://d21j9nkdg2p3wo.cloudfront.net/app.js", resource_type="document"
+        )
+        await guard(document)
+        self.assertEqual(document.action, "abort")
+        self.assertEqual(admitted, set())
+
+    async def test_non_cloudfront_hosts_never_auto_admit(self):
+        admitted: set[str] = set()
+        guard = bank._route_guard(admitted)
+        for target in (
+            "https://attacker.example/steal.js",
+            "https://attacker.cloudfront.net.evil.example/steal.js",
+            "https://a..cloudfront.net/steal.js",
+            "http://d21j9nkdg2p3wo.cloudfront.net/steal.js",
+        ):
+            with self.subTest(target=target):
+                route = FakeRoute(target, resource_type="script")
+                await guard(route)
+                self.assertEqual(route.action, "abort")
+        self.assertEqual(admitted, set())
+
+    async def test_admissions_are_capped(self):
+        admitted = {f"host{i:04d}.cloudfront.net" for i in range(bank.MAX_ADMITTED_CDN_HOSTS)}
+        guard = bank._route_guard(admitted)
+        route = FakeRoute("https://d21j9nkdg2p3wo.cloudfront.net/a.js", resource_type="script")
+        await guard(route)
+        self.assertEqual(route.action, "abort")
+        self.assertNotIn("d21j9nkdg2p3wo.cloudfront.net", admitted)
+
+    async def test_subframe_document_to_an_admitted_host_continues(self):
+        admitted = {"d21j9nkdg2p3wo.cloudfront.net"}
+        guard = bank._route_guard(admitted)
+        route = FakeRoute(
+            "https://d21j9nkdg2p3wo.cloudfront.net/fraud.html",
+            resource_type="document",
+            frame=subframe(),
+        )
+        await guard(route)
+        self.assertEqual(route.action, "continue")
+
+    async def test_top_document_to_an_admitted_host_aborts(self):
+        admitted = {"d21j9nkdg2p3wo.cloudfront.net"}
+        guard = bank._route_guard(admitted)
+        route = FakeRoute(
+            "https://d21j9nkdg2p3wo.cloudfront.net/fraud.html",
+            resource_type="document",
+            frame=MAIN_FRAME,
+        )
+        await guard(route)
+        self.assertEqual(route.action, "abort")
+
+    async def test_subframe_document_to_a_new_distribution_auto_admits(self):
+        admitted: set[str] = set()
+        guard = bank._route_guard(admitted)
+        route = FakeRoute(
+            "https://d21j9nkdg2p3wo.cloudfront.net/fraud.html",
+            resource_type="document",
+            frame=subframe(),
+        )
+        await guard(route)
+        self.assertEqual(route.action, "continue")
+        self.assertEqual(admitted, {"d21j9nkdg2p3wo.cloudfront.net"})
+
+    async def test_subframe_document_off_cloudfront_aborts(self):
+        admitted: set[str] = set()
+        guard = bank._route_guard(admitted)
+        route = FakeRoute(
+            "https://attacker.example/fraud.html",
+            resource_type="document",
+            frame=subframe(),
+        )
+        await guard(route)
+        self.assertEqual(route.action, "abort")
+        self.assertEqual(admitted, set())
+
+    async def test_cdp_hop_to_a_new_distribution_continues(self):
+        admitted: set[str] = set()
+        context = FakeGuardedContext()
+        await bank._new_guarded_page(context, admitted)
+        event = {
+            "requestId": "1",
+            "frameId": "MAIN",
+            "request": {"url": "https://d21j9nkdg2p3wo.cloudfront.net/app.js"},
+            "resourceType": "Script",
+        }
+        await context.session.handlers["Fetch.requestPaused"](event)
+        methods = [method for method, _ in context.session.sent if method not in ("Fetch.enable", "Page.getFrameTree")]
+        self.assertEqual(methods, ["Fetch.continueRequest"])
+        self.assertEqual(admitted, {"d21j9nkdg2p3wo.cloudfront.net"})
+
+    async def test_cdp_document_hop_to_a_new_distribution_fails(self):
+        admitted: set[str] = set()
+        context = FakeGuardedContext()
+        await bank._new_guarded_page(context, admitted)
+        event = {
+            "requestId": "1",
+            "frameId": "MAIN",
+            "request": {"url": "https://d21j9nkdg2p3wo.cloudfront.net/app"},
+            "resourceType": "Document",
+        }
+        await context.session.handlers["Fetch.requestPaused"](event)
+        methods = [method for method, _ in context.session.sent if method not in ("Fetch.enable", "Page.getFrameTree")]
+        self.assertEqual(methods, ["Fetch.failRequest"])
+        self.assertEqual(admitted, set())
+
+    async def test_cdp_subframe_document_to_a_new_distribution_continues(self):
+        admitted: set[str] = set()
+        context = FakeGuardedContext()
+        await bank._new_guarded_page(context, admitted)
+        event = {
+            "requestId": "7",
+            "frameId": "SUBFRAME",
+            "request": {"url": "https://d21j9nkdg2p3wo.cloudfront.net/fraud.html"},
+            "resourceType": "Document",
+        }
+        await context.session.handlers["Fetch.requestPaused"](event)
+        methods = [method for method, _ in context.session.sent if method not in ("Fetch.enable", "Page.getFrameTree")]
+        self.assertEqual(methods, ["Fetch.continueRequest"])
+        self.assertEqual(admitted, {"d21j9nkdg2p3wo.cloudfront.net"})
+
+    async def test_cdp_subframe_document_off_cloudfront_fails(self):
+        admitted: set[str] = set()
+        context = FakeGuardedContext()
+        await bank._new_guarded_page(context, admitted)
+        event = {
+            "requestId": "7",
+            "frameId": "SUBFRAME",
+            "request": {"url": "https://attacker.example/fraud.html"},
+            "resourceType": "Document",
+        }
+        await context.session.handlers["Fetch.requestPaused"](event)
+        methods = [method for method, _ in context.session.sent if method not in ("Fetch.enable", "Page.getFrameTree")]
+        self.assertEqual(methods, ["Fetch.failRequest"])
+        self.assertEqual(admitted, set())
+
+
+class AutoAdmitPolicyTest(unittest.TestCase):
+    def test_top_level_documents_never_auto_admit(self):
+        for resource in ("document", "Document"):
+            with self.subTest(resource=resource):
+                admitted: set[str] = set()
+                self.assertFalse(
+                    bank._auto_admit_cdn_host(
+                        admitted, "https://d21j9nkdg2p3wo.cloudfront.net/a", resource, True
+                    )
+                )
+                self.assertEqual(admitted, set())
+
+    def test_main_frame_scripts_auto_admit(self):
+        admitted: set[str] = set()
+        self.assertTrue(
+            bank._auto_admit_cdn_host(
+                admitted, "https://d21j9nkdg2p3wo.cloudfront.net/a.js", "Script", True
+            )
+        )
+        self.assertEqual(admitted, {"d21j9nkdg2p3wo.cloudfront.net"})
+
+    def test_subframe_documents_auto_admit(self):
+        admitted: set[str] = set()
+        self.assertTrue(
+            bank._auto_admit_cdn_host(
+                admitted, "https://d21j9nkdg2p3wo.cloudfront.net/a", "Document", False
+            )
+        )
+        self.assertEqual(admitted, {"d21j9nkdg2p3wo.cloudfront.net"})
+
+
+class FakeCDPSession:
+    def __init__(self):
+        self.handlers: dict[str, Any] = {}
+        self.sent: list[tuple[str, dict[str, Any]]] = []
+
+    def on(self, event, handler):
+        self.handlers[event] = handler
+
+    async def send(self, method, params):
+        self.sent.append((method, params))
+        if method == "Page.getFrameTree":
+            return {"frameTree": {"frame": {"id": "MAIN"}}}
+        return {}
+
+
+class FakeGuardedContext:
+    def __init__(self):
+        self.session = FakeCDPSession()
+
+    async def new_page(self):
+        return object()
+
+    async def new_cdp_session(self, page):
+        return self.session
 
 
 if __name__ == "__main__":

@@ -126,6 +126,13 @@ describe('providerLogoUrl', () => {
     expect(providerLogoUrl('BoursoBank')).toBe('/providers/boursobank.png')
   })
 
+  // Copied verbatim from LbpSyncService.PROVIDER. Every La Banque Postale
+  // account — current account, livrets and LEP alike — carries it, so a
+  // rename on either side would drop the logo from all of them at once.
+  it('resolves the provider string the La Banque Postale connector writes', () => {
+    expect(providerLogoUrl('La Banque Postale')).toBe('/providers/la-banque-postale.svg')
+  })
+
   // Copied verbatim from the literal TradeRepublicSyncService.upsertAccount() writes.
   it('resolves the provider string the Trade Republic connector writes', () => {
     expect(providerLogoUrl('Trade Republic')).toBe('/providers/trade-republic.svg')

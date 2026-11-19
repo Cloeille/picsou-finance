@@ -33,7 +33,7 @@ export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [
         'Comptes et tableau de bord : barre de catégories dynamique avec menu « Plus », édition déplacée dans la fiche du compte et sélecteurs de période harmonisés (24H, 7J, 1M, 3M, YTD, 1A, Tout).',
         'Budget et objectifs : refonte complète des vues À catégoriser et Gérer (libellés bancaires clarifiés, cycle budgétaire instantané) et répartition équitable en un clic dans les objectifs.',
         'Paramètres et administration : pages Apparence, Espace et système et configuration du fournisseur repensées, taux marginal d’imposition libre multi-pays et vérification des mises à jour.',
-        'Fiabilité générale : défilement propre sur toutes les modales, états vides encadrés et mode confidentialité étendu à l’ensemble des montants.',
+        'Fiabilité générale : défilement propre sur toutes les modales, états vides encadrés, mode confidentialité renforcé, logo et connexion La Banque Postale fiabilisés et exclusion des prêts entre particuliers du patrimoine financier.',
       ],
       en: [
         'Refreshed visual identity: unified Plus Jakarta Sans typography, wider desktop layout, and custom dropdown menus and collapsible sections everywhere.',
@@ -41,7 +41,7 @@ export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [
         'Accounts & dashboard: dynamic category bar with a More menu, account editing moved to the detail page, and standardized time-range selectors.',
         'Budget & goals: redesigned Categorize and Manage views with cleaner transaction labels, instant cycle-start picker, and one-click equal allocation splitting.',
         'Settings & admin: redesigned Appearance, Space & system, and provider configuration cards, country-neutral marginal tax rate input, and live update checks.',
-        'Interface reliability: smooth scrolling and overflow protection across every modal, framed empty states, and complete privacy-mode masking.',
+        'Reliability & connectors: smooth scrolling and overflow protection across every modal, framed empty states, complete privacy-mode masking, bundled La Banque Postale mark with resilient login, and peer loans excluded from financial assets.',
       ],
       de: [
         'Überarbeitetes Design: einheitliche Plus-Jakarta-Sans-Typografie, großzügigeres Desktop-Layout sowie vollständig eigene Auswahlmenüs und Klappbereiche.',
@@ -49,7 +49,7 @@ export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [
         'Konten & Dashboard: dynamische Kategorieleiste mit Mehr-Menü, Kontobearbeitung direkt in der Detailansicht und einheitliche Zeitraum-Auswahl.',
         'Budget & Ziele: neu gestaltete Ansichten Kategorisieren und Verwalten mit klareren Buchungstiteln, sofortiger Zykluswahl und gleichmäßiger Zielaufteilung per Klick.',
         'Einstellungen & Administration: überarbeitete Karten für Darstellung, Bereich & System sowie Anbieterkonfiguration, länderunabhängiger Steuersatz und Update-Prüfung.',
-        'Zuverlässigkeit: sauberes Scrollen und Überlaufschutz in allen Dialogen, einheitliche Leerzustände und lückenloser Privatsphäre-Modus.',
+        'Zuverlässigkeit & Banken: sauberes Scrollen in allen Dialogen, einheitliche Leerzustände, lückenloser Privatsphäre-Modus, La-Banque-Postale-Logo und stabilerer Login sowie korrekte Finanzvermögens-Berechnung.',
       ],
       es: [
         'Identidad visual renovada: tipografía Plus Jakarta Sans, diseño más amplio en escritorio y menús desplegables y secciones plegables a medida.',
@@ -57,7 +57,7 @@ export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [
         'Cuentas y panel principal: barra dinámica de categorías con menú «Más», edición trasladada a la ficha de la cuenta y selectores de periodo unificados.',
         'Presupuesto y objetivos: vistas Por categorizar y Gestionar rediseñadas con conceptos bancarios claros, selector instantáneo de ciclo y reparto equitativo en un clic.',
         'Ajustes y administración: tarjetas rediseñadas en Apariencia, Espacio y sistema y configuración de proveedor, tipo marginal libre para cualquier país y comprobación de actualizaciones.',
-        'Fiabilidad general: desplazamiento correcto en todos los modales, estados vacíos enmarcados y ocultación completa de importes en modo privacidad.',
+        'Fiabilidad y bancos: desplazamiento correcto en todos los modales, estados vacíos enmarcados, modo privacidad completo, logo y acceso mejorado de La Banque Postale y préstamos entre particulares excluidos del patrimonio financiero.',
       ],
     },
   },
