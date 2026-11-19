@@ -56,7 +56,7 @@ export function TelemetryConsentDialog() {
               {NEVER.map((k) => <li key={k}>{t(`telemetry.consent.${k}`)}</li>)}
             </ul>
           </section>
-          <p className="text-xs text-muted-foreground">{t('telemetry.consent.tunnel')}</p>
+          <p className="text-sm text-muted-foreground">{t('telemetry.consent.tunnel')}</p>
         </div>
 
         <DialogFooter>

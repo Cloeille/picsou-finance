@@ -80,7 +80,7 @@ function MemberManagement() {
                       <span className="text-xs text-muted-foreground">({t('family.settings.you')})</span>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     {isIndependent
                       ? t('family.settings.memberIndependent')
                       : member.managed
@@ -101,7 +101,7 @@ function MemberManagement() {
                         })
                       }}
                     >
-                      <Link className="mr-1 size-3" />
+                      <Link className="size-3" />
                       {t('family.settings.createLogin')}
                     </Button>
                   )}
@@ -115,7 +115,7 @@ function MemberManagement() {
                         })
                       }}
                     >
-                      <Link className="mr-1 size-3" />
+                      <Link className="size-3" />
                       {t('family.settings.regenerateLink')}
                     </Button>
                   )}
@@ -170,7 +170,7 @@ function MemberManagement() {
             }}
             disabled={!newName.trim()}
           >
-            <Plus className="mr-1 size-4" />
+            <Plus className="size-4" />
             {t('common.add')}
           </Button>
         </div>

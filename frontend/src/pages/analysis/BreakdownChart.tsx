@@ -1,7 +1,7 @@
-import { Cell, Pie, PieChart } from 'recharts'
+import { Cell, Pie, PieChart, Tooltip } from 'recharts'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { squarify } from '@/lib/treemap'
-import { cn } from '@/lib/utils'
+import { cn, formatPercent } from '@/lib/utils'
 
 /** The three ways a breakdown can be drawn. */
 export type BreakdownView = 'bar' | 'donut' | 'treemap'
@@ -14,18 +14,7 @@ export interface ChartItem {
   color: string
 }
 
-/**
- * Donut and treemap renderings of a breakdown.
- *
- * <p>The bar stays in `DiversificationSection` because it doubles as the legend. These two are
- * pure pictures: selection, colours and the contributor panel all live with the caller, so all
- * three views share one selection model rather than each inventing its own.
- *
- * <p>Recharts is not used for the treemap. Its `Treemap` cannot express the hover behaviour the
- * account distribution already established — an oversized hit area to stop the tooltip
- * flickering on the seams — and this repo already had a working layout to lift.
- */
-const CHART_CONFIG = { value: { label: 'Share' } } satisfies ChartConfig
+const CHART_CONFIG = { value: { label: 'Part' } } satisfies ChartConfig
 
 export function BreakdownDonut({
   items,
@@ -39,7 +28,7 @@ export function BreakdownDonut({
   const data = items.map((i) => ({ ...i, value: i.percent }))
 
   return (
-    <ChartContainer config={CHART_CONFIG} className="mx-auto h-[220px] w-full">
+    <ChartContainer config={CHART_CONFIG} className="mx-auto aspect-auto h-[220px] w-full">
       <PieChart>
         <Pie
           data={data}
@@ -47,27 +36,46 @@ export function BreakdownDonut({
           nameKey="label"
           cx="50%"
           cy="50%"
-          innerRadius={55}
-          outerRadius={85}
+          innerRadius={56}
+          outerRadius={88}
           paddingAngle={2}
           strokeWidth={0}
           isAnimationActive={false}
           onClick={(slice: unknown) => {
             const key = (slice as { key?: string | null })?.key ?? null
-            onSelect(key)
+            onSelect(selected === key ? null : key)
           }}
         >
           {data.map((item) => (
             <Cell
               key={item.label}
               fill={item.color}
-              // Dim the rest rather than highlight the one: a selected slice keeps its own colour,
-              // which is what ties it to the legend and the panel below.
               opacity={selected === null || selected === item.key ? 1 : 0.35}
               className={item.key === null ? undefined : 'cursor-pointer'}
             />
           ))}
         </Pie>
+        <Tooltip
+          content={({ active, payload }) => {
+            if (!active || !payload?.length) return null
+            const entry = payload[0]?.payload as ChartItem | undefined
+            if (!entry) return null
+            return (
+              <div className="rounded-lg border border-border/60 bg-background px-2.5 py-1.5 text-xs shadow-sm">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: entry.color }}
+                  />
+                  <span className="font-medium text-foreground">{entry.label}</span>
+                  <span className="tabular-nums text-muted-foreground">
+                    {formatPercent(entry.percent)}
+                  </span>
+                </div>
+              </div>
+            )
+          }}
+        />
       </PieChart>
     </ChartContainer>
   )
@@ -85,7 +93,7 @@ export function BreakdownTreemap({
   const rects = squarify(items, (i) => i.percent)
 
   return (
-    <div className="relative h-[220px] w-full overflow-hidden rounded-lg">
+    <div className="relative h-[220px] w-full overflow-hidden rounded-xl">
       {rects.map(({ x, y, w, h, item }) => (
         <button
           type="button"
@@ -104,15 +112,17 @@ export function BreakdownTreemap({
             height: `${h}%`,
             backgroundColor: item.color,
             opacity: selected === null || selected === item.key ? 1 : 0.35,
-            // Hairline gaps rather than borders, so the rectangles keep their exact proportions.
-            outline: '1px solid var(--color-background)',
+            outline: '1.5px solid var(--color-background)',
           }}
         >
-          {/* Below this a label is unreadable and only adds noise — the same threshold the
-              account distribution treemap settled on. */}
-          {w > 12 && h > 14 && (
-            <span className="pointer-events-none absolute left-1.5 top-1 text-[10px] font-medium text-white/90 drop-shadow">
+          {w > 12 && h > 16 && (
+            <span className="pointer-events-none absolute inset-x-2 top-1.5 truncate text-xs font-medium text-white/95 drop-shadow-xs">
               {item.label}
+              {w > 22 && h > 26 && (
+                <span className="block text-xs font-normal text-white/80 tabular-nums">
+                  {formatPercent(item.percent)}
+                </span>
+              )}
             </span>
           )}
         </button>

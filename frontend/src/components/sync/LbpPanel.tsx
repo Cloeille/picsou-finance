@@ -4,7 +4,6 @@ import {
   Landmark,
   LogOut,
   RefreshCw,
-  ShieldAlert,
   Smartphone,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -502,7 +501,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
               ? t("sync.lbp.sessionActive")
               : t("sync.lbp.noSession")}
           </Badge>
-          <p className="mt-2 text-xs text-muted-foreground">{t("sync.lbp.scope")}</p>
+          <p className="mt-2 text-sm text-muted-foreground">{t("sync.lbp.scope")}</p>
           {isSyncing && (
             <p className="mt-2 text-sm text-muted-foreground">
               {syncStatus === "QUEUED"
@@ -598,7 +597,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
             <Card size="sm">
               <CardContent className="space-y-2 py-4">
                 <p className="text-sm font-medium">{t("sync.lbp.unsupportedTitle")}</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   {t("sync.lbp.unsupportedHint")}
                 </p>
                 {/* Family code only: the contract id is never shown. */}
@@ -625,16 +624,6 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
             void submit()
           }}
         >
-          <Card size="sm" className="border-amber-500/30">
-            <CardContent className="flex items-start gap-3 py-4">
-              <ShieldAlert className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400" />
-              <ul className="space-y-1 text-xs text-muted-foreground">
-                <li>{t("sync.lbp.notice.neverStored")}</li>
-                <li>{t("sync.lbp.notice.noRetry")}</li>
-                <li>{t("sync.lbp.notice.lockRisk")}</li>
-              </ul>
-            </CardContent>
-          </Card>
           <Card size="sm">
             <CardContent className="space-y-4 py-4">
               <div className="space-y-2">
@@ -665,7 +654,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
                   <Label htmlFor="lbp-remember-identifier" className="text-sm font-normal">
                     {t("sync.lbp.rememberIdentifier")}
                   </Label>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     {t("sync.lbp.rememberIdentifierHint")}
                   </p>
                 </div>
@@ -685,12 +674,12 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
             <Smartphone className="size-5 shrink-0 text-muted-foreground" />
             <div className="flex-1 space-y-1">
               <p className="text-sm">{t("sync.lbp.securPassPrompt")}</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 {t("sync.lbp.securPassHint")}
               </p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 {t("sync.lbp.countdownLabel")}{" "}
-                <span data-testid="lbp-countdown" className="font-mono">
+                <span data-testid="lbp-countdown" className="tabular-nums font-medium">
                   {formatCountdown(secondsLeft)}
                 </span>
               </p>
@@ -746,9 +735,9 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
                     <span key={index} data-dot className="size-2.5 rounded-full bg-foreground" />
                   ))}
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   {t("sync.lbp.keypad.countdownLabel")}{" "}
-                  <span data-testid="lbp-keypad-countdown" className="font-mono">
+                  <span data-testid="lbp-keypad-countdown" className="tabular-nums font-medium">
                     {formatCountdown(keypadSecondsLeft)}
                   </span>
                 </p>

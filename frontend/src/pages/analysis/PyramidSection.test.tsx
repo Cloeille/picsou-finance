@@ -72,8 +72,8 @@ describe('PyramidSection', () => {
 
     expect(screen.getByText('analysis.score.notRated')).toBeInTheDocument()
     expect(screen.getByText('analysis.safetyNet.unknown')).toBeInTheDocument()
-    // The prompt to fill in the figure is the point of the unknown state.
-    expect(screen.getByText('analysis.score.safetyNetUnknownHint')).toBeInTheDocument()
+    // The prompt and CTA to fill in the figure sit once in the safety net card.
+    expect(screen.getByText('analysis.safetyNet.configureCta')).toBeInTheDocument()
   })
 
   it('survives the payload the API really sends, which omits nulls rather than sending them', () => {

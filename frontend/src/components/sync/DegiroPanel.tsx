@@ -79,7 +79,7 @@ export function DegiroPanel({ onConnected }: DegiroPanelProps = {}) {
                 {t("sync.degiro.sessionActive")}
               </Badge>
             ) : needsReauth ? (
-              <Badge variant="outline" className="border-amber-500/50 text-amber-600 dark:text-amber-400">
+              <Badge variant="secondary">
                 {t("sync.degiro.reauthRequired")}
               </Badge>
             ) : (

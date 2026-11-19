@@ -221,25 +221,22 @@ describe('AccountsPage - Immobilier gain / loss', () => {
   })
 })
 
-describe('AccountsPage - card actions on touch screens', () => {
+describe('AccountsPage - clean account cards without floating edit/delete overlays', () => {
   beforeEach(() => {
     useAccounts.mockReset()
     useHistory.mockReset()
     usePeerLoansOverview.mockReturnValue({ data: undefined })
   })
 
-  it('keeps the edit and delete buttons visible without hover', () => {
-    // A touch screen has no hover: the buttons must not depend on it alone.
+  it('keeps account cards uncluttered by omitting floating edit and delete buttons', () => {
     const accounts = [investmentAccount(1, 'PEA', 1000)]
     useAccounts.mockReturnValue({ data: accounts, isLoading: false })
     useHistory.mockReturnValue({ data: history(accounts), isLoading: false })
 
     render(<AccountsPage />)
 
-    for (const name of ['common.edit', 'common.delete']) {
-      const actions = screen.getByRole('button', { name }).parentElement
-      expect(actions).toHaveClass('pointer-coarse:opacity-100', 'group-focus-within:opacity-100')
-    }
+    expect(screen.queryByRole('button', { name: 'common.edit' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'common.delete' })).not.toBeInTheDocument()
   })
 })
 
@@ -332,5 +329,27 @@ describe('AccountsPage — Métaux and Autre filters', () => {
 
     expect(screen.getByText('Compte 2')).toBeInTheDocument()
     expect(screen.queryByText('Compte 1')).not.toBeInTheDocument()
+  })
+
+  it('shows only populated categories directly and moves empty ones into the More menu', () => {
+    render(<AccountsPage />)
+
+    // Populated categories + ALL appear directly in the main bar
+    expect(screen.getByRole('button', { name: 'accounts.filters.ALL' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'accounts.filters.METALS' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'accounts.filters.OTHER' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'accounts.filters.more' })).toBeInTheDocument()
+
+    // Empty categories are tucked away until the More menu is opened
+    expect(screen.queryByRole('button', { name: 'accounts.filters.CRYPTO' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'accounts.filters.REAL_ESTATE' })).not.toBeInTheDocument()
+
+    // Open the More menu via pointerDown (Radix DropdownMenu trigger) and pick an empty category
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'accounts.filters.more' }))
+    const cryptoItem = screen.getByRole('menuitem', { name: 'accounts.filters.CRYPTO' })
+    fireEvent.click(cryptoItem)
+
+    // The trigger now displays the selected overflow category in active state
+    expect(screen.getByRole('button', { name: 'accounts.filters.CRYPTO' })).toHaveAttribute('aria-pressed', 'true')
   })
 })

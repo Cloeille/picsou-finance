@@ -58,7 +58,7 @@ export function EBSubstepShell({ current, total, children, onSkip }: EBSubstepSh
           variant="ghost"
           size="sm"
           onClick={handleSkip}
-          className="w-full text-muted-foreground"
+          className="rounded-lg w-full text-muted-foreground"
         >
           {t('setup.enablebanking.skip')}
         </Button>

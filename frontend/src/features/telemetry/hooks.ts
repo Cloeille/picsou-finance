@@ -27,13 +27,11 @@ export function useTelemetryConfig(enabled = true) {
 export function useTelemetryConsentPrompt() {
   const isAdmin = useAuthStore((s) => s.user?.role === 'ADMIN')
   const demoMode = useAppStore((s) => s.demoMode)
-  const sidebarPromptSeen = useAppStore((s) => s.hasSeenSidebarStylePrompt)
   const dismissed = useAppStore((s) => s.telemetryConsentDismissed)
   const config = useTelemetryConfig(isAdmin && !demoMode)
   const open =
     isAdmin &&
     !demoMode &&
-    sidebarPromptSeen &&
     !dismissed &&
     config.data?.available === true &&
     config.data.consent === 'UNSET'

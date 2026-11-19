@@ -152,7 +152,7 @@ function AccountRow({
         />
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{account.name}</p>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             {t('sync.revolut.selection.transactions', { count: account.transactionCount })}
             {account.alreadyImported && <> · {t('sync.revolut.selection.alreadyImported')}</>}
           </p>

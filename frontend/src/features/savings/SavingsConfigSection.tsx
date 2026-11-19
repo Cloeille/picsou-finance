@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { NativeSelect } from '@/components/shared/NativeSelect'
 import { useTranslation } from 'react-i18next'
 import { useSetSavingsConfig, useDeleteSavingsConfig, useSavingsInterest } from './hooks'
 import type { SavingsProduct, RateBasis, SavingsConfig } from '@/types/api'
@@ -99,7 +100,7 @@ export function SavingsConfigSection({
           {/* Product */}
           <div className="space-y-1.5">
             <Label>{t('savings.product')}</Label>
-            <select
+            <NativeSelect
               value={product}
               onChange={(e) => handleProductChange(e.target.value as SavingsProduct)}
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring sm:w-64"
@@ -109,7 +110,7 @@ export function SavingsConfigSection({
                   {t(`savings.products.${p}`)}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
 
           {/* Annual rate */}
@@ -170,7 +171,7 @@ export function SavingsConfigSection({
 
           {/* Regulated net note */}
           {isRegulated && (
-            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
               <Info size={12} />
               {t('savings.regulatedNet')}
             </p>
@@ -199,7 +200,7 @@ export function SavingsConfigSection({
               onClick={handleSave}
               disabled={setConfig.isPending}
             >
-              {setConfig.isPending && <Loader2 size={14} className="mr-1.5 animate-spin" />}
+              {setConfig.isPending && <Loader2 size={14} className=".5 animate-spin" />}
               {t('savings.saveConfig')}
             </Button>
             {hasSavedConfig && (
@@ -209,7 +210,7 @@ export function SavingsConfigSection({
                 onClick={handleDelete}
                 disabled={deleteConfig.isPending}
               >
-                {deleteConfig.isPending && <Loader2 size={14} className="mr-1.5 animate-spin" />}
+                {deleteConfig.isPending && <Loader2 size={14} className=".5 animate-spin" />}
                 {confirmDelete ? t('savings.deleteConfigConfirm') : t('savings.deleteConfig')}
               </Button>
             )}
@@ -248,10 +249,6 @@ export function SavingsConfigSection({
                     <p className="text-lg font-semibold">{formatLocalDate(interest.nextCapitalizationDate)}</p>
                   </div>
                 </div>
-                <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
-                  <Info size={12} className="mt-0.5 shrink-0" />
-                  {t('savings.projectionDisclaimer')}
-                </p>
               </div>
             ) : null}
           </CardContent>

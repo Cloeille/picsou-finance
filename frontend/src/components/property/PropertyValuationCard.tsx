@@ -19,7 +19,7 @@ interface PropertyValuationCardProps {
 
 const CONFIDENCE_STYLES: Record<ValuationConfidence, string> = {
   HIGH: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  MEDIUM: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  MEDIUM: 'bg-muted text-foreground',
   LOW: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
 }
 
@@ -65,7 +65,7 @@ export function PropertyValuationCard({ accountId, metadata, currentValue }: Pro
             <div>
               <p>{t(`property.valuation.status.${result.status}`)}</p>
               {result.status === 'UNSUPPORTED_AREA' && (
-                <p className="mt-1 text-xs text-muted-foreground">
+                <p className="mt-1 text-sm text-muted-foreground">
                   {t('property.valuation.status.UNSUPPORTED_AREA_hint')}
                 </p>
               )}
@@ -113,7 +113,7 @@ export function PropertyValuationCard({ accountId, metadata, currentValue }: Pro
             </dl>
 
             {isManual && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 {t('property.valuation.manualNotApplied')}
               </p>
             )}
@@ -134,7 +134,7 @@ export function PropertyValuationCard({ accountId, metadata, currentValue }: Pro
                   <div className="mt-2 space-y-2 rounded-md border p-3">
                     {/* Stated plainly: these coefficients encode market intuition, not a
                         model fitted on the open data, which records none of these features. */}
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-sm text-muted-foreground">
                       {t('property.valuation.methodDisclaimer')}
                     </p>
                     <ul className="space-y-1 text-sm">

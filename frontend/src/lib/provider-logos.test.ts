@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   HOLDING_PREFIX_LOGOS,
+  HOLDING_TICKER_LOGOS,
   LOGO_KEYS,
   PROVIDER_LOGOS,
   WALLET_LOGO_CHOICES,
@@ -38,6 +39,13 @@ describe('HOLDING_PREFIX_LOGOS', () => {
   })
 })
 
+describe('HOLDING_TICKER_LOGOS', () => {
+  it.each(Object.entries(HOLDING_TICKER_LOGOS))('ships the asset mapped for %s', (ticker, path) => {
+    expect(path.startsWith('/'), `${ticker}: path must be root-relative`).toBe(true)
+    expect(bundledAssets, `missing frontend/public${path}`).toContain(path)
+  })
+})
+
 describe('bundledHoldingLogoUrl', () => {
   // CorumLifeWriter.TICKER_PREFIX: every CORUM Life fund line's ticker starts with it.
   it('resolves a CORUM Life fund line by its ticker prefix', () => {
@@ -45,8 +53,17 @@ describe('bundledHoldingLogoUrl', () => {
     expect(bundledHoldingLogoUrl('corum-life-ccp')).toBe('/providers/corum.svg')
   })
 
-  it('returns null for a ticker no prefix matches', () => {
-    expect(bundledHoldingLogoUrl('IWDA')).toBeNull()
+  it('resolves known crypto, currencies, and major European ETF tickers', () => {
+    expect(bundledHoldingLogoUrl('BTC')).toBe('/holdings/btc.svg')
+    expect(bundledHoldingLogoUrl('EUR')).toBe('/holdings/eur.svg')
+    expect(bundledHoldingLogoUrl('WPEA.PA')).toBe('/holdings/ishares.svg')
+    expect(bundledHoldingLogoUrl('ESE.PA')).toBe('/holdings/bnp.svg')
+    expect(bundledHoldingLogoUrl('CW8.PA')).toBe('/holdings/amundi.svg')
+    expect(bundledHoldingLogoUrl('VWCE.DE')).toBe('/holdings/vanguard.svg')
+  })
+
+  it('returns null for an unknown ticker', () => {
+    expect(bundledHoldingLogoUrl('ACME')).toBeNull()
     expect(bundledHoldingLogoUrl('CORUM')).toBeNull()
     expect(bundledHoldingLogoUrl(null)).toBeNull()
     expect(bundledHoldingLogoUrl('')).toBeNull()

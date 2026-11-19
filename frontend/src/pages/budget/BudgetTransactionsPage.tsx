@@ -18,6 +18,7 @@ import { useMerchantLogoUrl } from '@/features/budget/hooks'
 import { useTransactions } from '@/features/budget/hooks'
 import { useCategories, useCategorize } from '@/features/budget/hooks'
 import { useAccounts } from '@/features/accounts/hooks'
+import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { DateInput } from '@/components/shared/DateInput'
@@ -112,7 +113,15 @@ export function BudgetTransactionsPage() {
       )}
 
       {!isLoading && !isError && transactions && transactions.length === 0 && (
-        <EmptyState icon={<Receipt className="size-10" />} title={t('transactions.empty')} />
+        <Card>
+          <CardContent>
+            <EmptyState
+              className="py-8"
+              icon={<Receipt className="size-10" />}
+              title={t('transactions.empty')}
+            />
+          </CardContent>
+        </Card>
       )}
 
       {!isLoading && !isError && transactions && transactions.length > 0 && (

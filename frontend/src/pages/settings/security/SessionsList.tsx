@@ -53,7 +53,7 @@ export function SessionsList() {
             onClick={() => revokeOthers.mutate()}
             disabled={revokeOthers.isPending}
           >
-            {revokeOthers.isPending && <Loader2 size={14} className="mr-1.5 animate-spin" />}
+            {revokeOthers.isPending && <Loader2 size={14} className=".5 animate-spin" />}
             {t('settings.sessionsRevokeAllOthers')}
           </Button>
         </div>
@@ -86,18 +86,18 @@ function SessionRow({
             {prettyUserAgent(session.userAgent, t('settings.sessionsBrowser')) || t('settings.sessionsUnknownDevice')}
           </span>
           {session.current && (
-            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+            <span className="inline-flex items-center rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
               {t('settings.sessionsCurrent')}
             </span>
           )}
           {session.trustedFor2fa && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+            <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
               <ShieldCheck className="size-3" />
               {t('settings.sessionsTrusted')}
             </span>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           {session.ipPrefix && <span className="font-mono">{session.ipPrefix}*</span>}
           {session.ipPrefix && ' · '}
           {t('common.labelColon', { label: t('settings.sessionsLastUsed') })} {formatDate(session.lastUsedAt, locale)}
@@ -112,9 +112,9 @@ function SessionRow({
           className="self-end sm:self-auto"
         >
           {disabled ? (
-            <Loader2 size={14} className="mr-1.5 animate-spin" />
+            <Loader2 size={14} className=".5 animate-spin" />
           ) : (
-            <Trash2 size={14} className="mr-1.5" />
+            <Trash2 size={14} className=".5" />
           )}
           {t('settings.sessionsRevoke')}
         </Button>

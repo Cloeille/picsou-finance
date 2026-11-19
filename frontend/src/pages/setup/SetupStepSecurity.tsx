@@ -75,11 +75,12 @@ export function SetupStepSecurity() {
 
               return (
                 <div key={field.id} className="space-y-1.5">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
                     <Input
                       placeholder="https://example.com"
                       aria-invalid={showOriginError}
                       aria-describedby={showOriginError ? `origin-error-${idx}` : undefined}
+                      className="rounded-lg"
                       {...register(`allowedOrigins.${idx}` as const)}
                     />
                     {fields.length > 1 && (
@@ -89,14 +90,14 @@ export function SetupStepSecurity() {
                         size="icon"
                         onClick={() => remove(idx)}
                         aria-label={t('setup.security.originRemove')}
-                        className="h-10 w-10 rounded-xl"
+                        className="size-10 rounded-lg"
                       >
                         <X className="size-4" />
                       </Button>
                     )}
                   </div>
                   {showOriginError && (
-                    <p id={`origin-error-${idx}`} className="text-xs text-destructive">
+                    <p id={`origin-error-${idx}`} className="text-sm text-destructive">
                       {t(originMessage)}
                     </p>
                   )}
@@ -105,7 +106,7 @@ export function SetupStepSecurity() {
             })}
           </div>
           {typeof formState.errors.allowedOrigins?.message === 'string' && formState.submitCount > 0 && (
-            <p className="text-xs text-destructive">
+            <p className="text-sm text-destructive">
               {t(formState.errors.allowedOrigins.message)}
             </p>
           )}
@@ -114,15 +115,15 @@ export function SetupStepSecurity() {
               type="button"
               variant="outline"
               onClick={() => append('')}
-              className="rounded-xl px-4"
+              className="rounded-lg px-4"
             >
-              <PlusCircle className="mr-2 size-4" />
+              <PlusCircle className="size-4" />
               {t('setup.security.originAdd')}
             </Button>
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-4 rounded-xl border border-border/60 p-5">
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-border/60 p-4">
           <div className="space-y-1">
             <Label htmlFor="setup-secure-cookies" className="text-sm font-semibold">
               {t('setup.security.secureCookiesLabel')}
@@ -139,7 +140,6 @@ export function SetupStepSecurity() {
                 id="setup-secure-cookies"
                 checked={field.value}
                 onCheckedChange={field.onChange}
-                className="origin-right scale-125"
               />
             )}
           />
@@ -155,7 +155,7 @@ export function SetupStepSecurity() {
           <Button
             type="submit"
             disabled={submit.isPending}
-            className="w-full rounded-full"
+            className="w-full rounded-lg"
           >
             {submit.isPending ? t('setup.security.saving') : t('setup.security.cta')}
           </Button>

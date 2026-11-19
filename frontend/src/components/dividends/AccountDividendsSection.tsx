@@ -115,7 +115,7 @@ export function AccountDividendsSection({ accountId, holdings }: AccountDividend
         ) : rows.length === 0 ? (
           <>
             <p className="text-sm">{t('accounts.dividends.empty')}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{t('accounts.dividends.refreshWeekly')}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{t('accounts.dividends.refreshWeekly')}</p>
           </>
         ) : (
           <div
@@ -168,7 +168,7 @@ function DividendCard({
         )}
         <div className="min-w-0">
           <p className="truncate font-medium">{row.name}</p>
-          {row.ticker && <p className="truncate text-xs text-muted-foreground">{row.ticker}</p>}
+          {row.ticker && <p className="truncate text-sm text-muted-foreground">{row.ticker}</p>}
         </div>
       </div>
       <div className="mt-2 flex flex-wrap gap-1">
@@ -205,7 +205,7 @@ function DividendCard({
           <span className="ml-1 text-xs text-muted-foreground">{t('accounts.dividends.estimated')}</span>
         )}
       </p>
-      <p className="mt-3 text-xs text-muted-foreground">
+      <p className="mt-3 text-sm text-muted-foreground">
         <CurrencyDisplay value={row.amountPerShareEur} />
         {' '}
         {t('accounts.dividends.perShare')}

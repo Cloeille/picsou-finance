@@ -29,19 +29,19 @@ colors:
   focus-ring: "oklch(0.708 0 0)"
 typography:
   display:
-    fontFamily: "'Geist Variable', sans-serif"
+    fontFamily: "'Plus Jakarta Sans Variable', sans-serif"
     fontWeight: 700
   body:
-    fontFamily: "'Geist Variable', sans-serif"
+    fontFamily: "'Plus Jakarta Sans Variable', sans-serif"
     fontSize: "0.875rem"
     fontWeight: 400
     lineHeight: 1.6
   label:
-    fontFamily: "'Geist Variable', sans-serif"
+    fontFamily: "'Plus Jakarta Sans Variable', sans-serif"
     fontSize: "0.875rem"
     fontWeight: 500
   card-title:
-    fontFamily: "'Geist Variable', sans-serif"
+    fontFamily: "'Plus Jakarta Sans Variable', sans-serif"
     fontSize: "0.875rem"
     fontWeight: 700
 rounded:
@@ -102,11 +102,11 @@ One confident blue, honest neutrals, and a reserved green family for growth. The
 
 ## 3. Typography
 
-**Display Font:** Geist Variable (`'Geist Variable', sans-serif`)
-**Body Font:** Geist Variable (`'Geist Variable', sans-serif`)
-**Label/Mono Font:** Geist Variable — no second family is used.
+**Display Font:** Plus Jakarta Sans Variable (`'Plus Jakarta Sans Variable', sans-serif`)
+**Body Font:** Plus Jakarta Sans Variable (`'Plus Jakarta Sans Variable', sans-serif`)
+**Label/Mono Font:** Plus Jakarta Sans Variable — no second family is used for UI copy.
 
-**Character:** A single geometric-grotesque variable face carries the entire hierarchy. Geist's even color and open counters keep dense financial tables legible at small sizes, while its tighter terminals read as deliberate at heading scale. The system does not pair fonts; it pairs weights. The discipline of one family reinforces the "calm instrument" register — nothing competes for attention.
+**Character:** A single geometric-humanist variable face carries the entire hierarchy. Plus Jakarta Sans keeps dense financial tables and labels crisp and approachable at `text-sm` (`0.875rem`), while its bold weights anchor page titles and figures cleanly. The system does not pair fonts; it pairs weights. The discipline of one family reinforces the "calm instrument" register — nothing competes for attention.
 
 ### Hierarchy
 - **Display** (700, page scale via clamp, 1.1): reserved for the single most prominent figure on a screen — a net-worth headline, a dashboard total. Never more than one per view.
@@ -155,12 +155,18 @@ In dark mode the same logic holds: the card surface lifts one tonal step (`oklch
 ### Inputs
 - **Shape:** rounded-md (0.5rem), height 2.5rem (h-10), Hairline Border, background `bg-input/20` (a faint tint of the border color).
 - **Focus:** border and box-shadow transition together; invalid state rings Alert Red at 20% (40% in dark).
-- **Placeholder:** `placeholder:text-muted-foreground/80` — slightly faded, but Quiet Slate is already tuned for contrast, so even at 80% it stays legible.
+- **Placeholder:** `placeholder:text-muted-foreground/45` — softly faded so placeholders never masquerade as prefilled values.
+
+### Modals, Popovers & Controls
+- **Modals (`DialogContent`):** single-column grid (`grid-cols-1 *:min-w-0`), viewport-bounded (`max-h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-3rem)]`), scrolling vertically inside (`overflow-y-auto overflow-x-hidden overscroll-contain`).
+- **Selects & Disclosures:** always Radix `Select` / `NativeSelect` and custom Lucide `ChevronDown` disclosure buttons — never OS-native `<select>` or `<details>` elements.
+- **Empty states:** framed inside a `Card` with compact `py-8` padding and no duplicate primary CTA when the page header already provides one.
+- **Z-index tiers:** `MobileBottomNav` (`z-40`) < `Dialog`/`Sheet` (`z-50`) < `DropdownMenu`/`Select` (`z-[60]`, `collisionPadding={16}`) < `Tooltip` (`z-[70]`).
 
 ### Navigation
-- **Sidebar (desktop):** Muted-dark surface (`oklch(0.985)` light / `oklch(0.16)` dark), 1px border-right. Active item: Coffre Blue text or tinted background. Inactive items use Quiet Slate, settling to Ledger Ink on hover.
-- **Mobile bottom nav:** the same items compressed to the bottom bar on small screens; icons primary, labels in Label style.
-- **Account menu:** dropdown (Radix), floating with the soft shadow reserved for popovers.
+- **Sidebar (desktop):** single full-height sidebar (`w-64`), compact navigation items, "What's new" + GitHub star card above one unified bottom account menu (Settings, Sync, Hide/show amounts, Admin, Logout).
+- **Mobile bottom nav:** fixed `z-40` bottom bar on small screens.
+- **Tab bars:** unified bordered segmented bar (`rounded-lg border border-border/60 bg-background/80 p-1`) with solid `bg-primary text-primary-foreground` active pill. When categories exceed 5 active items, overflow and empty categories collapse into a right-aligned custom "More" dropdown.
 
 ### Charts
 - **Series colors:** the Growth Green family, lightened for fills, deepened for primary lines.
@@ -175,7 +181,7 @@ In dark mode the same logic holds: the card surface lifts one tonal step (`oklch
 - **Do** use the Growth Green family *only* in charts and for positive financial movement.
 - **Do** keep cards flat at rest — a hairline ring (`ring-1 ring-foreground/10`) defines the edge, no shadow.
 - **Do** reserve shadows for elements that physically float (dialogs, sheets, popovers, tooltips), and keep them soft and diffuse.
-- **Do** use a single typeface (Geist Variable) and build hierarchy from weight and size alone.
+- **Do** use a single typeface (Plus Jakarta Sans Variable) and build hierarchy from weight and size alone.
 - **Do** respect `prefers-reduced-motion` — it is enforced globally in the base stylesheet, and feature motion must work inside that net.
 - **Do** make charts distinguishable beyond hue: the Growth Green ramp steps lightness, never relying on hue alone.
 
@@ -187,6 +193,8 @@ In dark mode the same logic holds: the card surface lifts one tonal step (`oklch
 - **Don't** use colored drop shadows or glows as decoration. A shadow that does not say "this floats" does not exist.
 - **Don't** use `border-left` or `border-right` greater than 1px as a colored stripe accent. Full borders or background tints only.
 - **Don't** apply `background-clip: text` with a gradient. Emphasis comes from weight or size, never from gradient text.
-- **Don't** pair Geist with a similar geometric sans to "add variety." One family, weights and sizes — that is the hierarchy.
+- **Don't** pair Plus Jakarta Sans with another sans or display face to "add variety." One family, weights and sizes — that is the hierarchy.
+- **Don't** use yellow or amber UI chrome (banners, badges, alerts, cards, buttons) or bare `variant="link"` buttons.
+- **Don't** ship OS-native `<select>` popups, native `<details>` triangles, unframed full-height `EmptyState` voids, or permanent validation hints when a form is already valid.
 - **Don't** enlarge card titles past 0.875rem. The grid of confident small labels is what makes the dashboard scannable.
 - **Don't** put Quiet Slate on critical figures. It is for supporting prose only.

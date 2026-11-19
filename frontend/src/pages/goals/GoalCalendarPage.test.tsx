@@ -89,17 +89,17 @@ describe('GoalCalendarPage year grid', () => {
   it('writes every ring amount and objective in whole euros, never mixing in thousands', () => {
     renderPage()
 
-    const september = monthButton('sept.')
+    const september = monthButton('Sept.')
     expect(september).toHaveTextContent(/985\s/)
     expect(september).toHaveTextContent(/72\s%/)
     expect(september).toHaveTextContent(/obj.\s1\s373\s/)
 
-    const october = monthButton('oct.')
+    const october = monthButton('Oct.')
     expect(october).toHaveTextContent(/1\s490\s/)
     expect(october).toHaveTextContent(/\+8\s%/)
     expect(october).toHaveTextContent(/obj.\s1\s373\s/)
 
-    for (const label of ['août', 'sept.', 'oct.']) {
+    for (const label of ['Août', 'Sept.', 'Oct.']) {
       expect(monthButton(label).textContent).not.toMatch(/\bk\b|,\d/)
     }
   })
@@ -107,7 +107,7 @@ describe('GoalCalendarPage year grid', () => {
   it('scrolls the current month into view', () => {
     renderPage()
 
-    const october = monthButton('oct.')
+    const october = monthButton('Oct.')
     expect(october).toHaveAttribute('aria-current', 'date')
     expect(scrolledIntoView).toContain(october)
   })

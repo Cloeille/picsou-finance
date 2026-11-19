@@ -82,8 +82,9 @@ describe('TransactionDetailSheet date', () => {
       language = appLanguage
       view.rerender(detail(date))
 
-      const expected = new Intl.DateTimeFormat(locale, dateOptions)
+      const raw = new Intl.DateTimeFormat(locale, dateOptions)
         .format(new Date(`${date}T00:00:00`))
+      const expected = raw.charAt(0).toLocaleUpperCase(locale) + raw.slice(1)
       expect(screen.getByText(expected)).toBeInTheDocument()
     }
   })
@@ -94,8 +95,9 @@ describe('TransactionDetailSheet date', () => {
 
     render(detail(date))
 
-    const expected = new Intl.DateTimeFormat('fr-FR', dateOptions)
+    const raw = new Intl.DateTimeFormat('fr-FR', dateOptions)
       .format(new Date(`${date}T00:00:00`))
+    const expected = raw.charAt(0).toLocaleUpperCase('fr-FR') + raw.slice(1)
     expect(screen.getByText(expected)).toBeInTheDocument()
   })
 })

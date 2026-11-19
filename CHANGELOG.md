@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Sidebar "What's new" card and release changelog dialog.** A compact card above the sidebar account menu previews the latest release highlights, tracks whether the current version has been read, opens a localized changelog modal, and links directly to starring Picsou on GitHub.
+- **Live version and update check in Settings (Space & system).** The About section now displays the running backend release version, shows whether an update is available, provides one-click update verification and copyable Docker Compose upgrade commands for admins, and opens the What's new dialog.
+- **Custom profile photo upload.** Users can click their avatar in Settings (Profile & account) to upload a locally resized profile photo shown across the sidebar account switcher and settings.
+- **Automated UI design guardrails in CI (`design-guardrails.test.ts`) and contributor design standards.** `CONTRIBUTING.md`, `DESIGN.md`, and the pull request template now document the exact typography, layout widths, tab bars, modal safeguards, empty states, icon/disclosure rules, and copy rules, enforced automatically during `make test-frontend`.
+
+### Changed
+
+- **Unified typography and readable body copy.** Standardized the entire interface on Plus Jakarta Sans (`@fontsource-variable/plus-jakarta-sans`), upgraded dense `text-xs` body/helper paragraphs to `text-sm`, softened input placeholders, and replaced telegraphic French labels and all "IA" abbreviations with full, natural French ("intelligence artificielle").
+- **Redesigned sidebar and privacy mode.** Consolidated the sidebar footer into a single account menu (Settings, Sync, Hide/show amounts, Administration, Logout) and fixed privacy mode (`hideAmounts`) leaks in Budget overview and Holding details.
+- **Dynamic Accounts category bar and detail-page account actions.** The Accounts filter bar now displays only populated categories (up to 5 plus "All") and tucks empty or overflow categories into a custom "More" dropdown; edit and delete controls moved from card hover overlays into the Account detail page header.
+- **Redesigned Budget (Categorize & Manage), Settings (Appearance & Space), Admin AI provider, and Dashboard widgets.** Simplified Budget > Categorize with a single "Automate" menu and readable transaction labels; rebuilt Budget > Manage into three full-width cards with an instant cycle-start-day selector; replaced the permanently open Admin AI form with a collapsible provider summary card; added a title and balanced layout to the Dashboard distribution donut; standardized time-range selectors (`24H`, `7J`, `1M`, `3M`, `YTD`, `1A`, `Tout`) with full tooltips; harmonized all tab bars and framed empty states site-wide; replaced all OS-native `<select>` and `<details>` elements with custom Radix/Lucide components.
+
+### Fixed
+
+- **Modal vertical and horizontal overflow across all 42 dialogs.** Constrained `DialogContent` to `max-h-[calc(100dvh-2rem)]` with internal vertical scrolling and `grid-cols-1 *:min-w-0 overflow-x-hidden`, fixing tall forms and preventing long unbroken strings (such as IBANs in the rule-creation modal) from clipping dates, amounts, or action buttons off-screen.
+- **Strict popover/modal z-index hierarchy and viewport collision padding.** Ensured dropdowns, selects, tooltips, and dialogs never overlap in the wrong order or clip against screen edges.
+- **Goals recurring allocation picker.** Replaced misleading numeric placeholders, added an equal-split helper, and prevented checked allocations with missing amounts from being silently dropped on save.
+
 ## [1.2.0] — 2026-11-12
 
 ### Added

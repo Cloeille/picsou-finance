@@ -157,7 +157,9 @@ function TargetsForm({
               />
             </div>
           ))}
-          <p className="text-sm text-muted-foreground">{t('analysis.targets.allocationHint')}</p>
+          {!balanced && (
+            <p role="alert" className="text-sm text-destructive">{t('analysis.targets.allocationHint')}</p>
+          )}
         </div>
       </div>
 

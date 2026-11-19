@@ -56,7 +56,7 @@ describe('CorumLifeSyncSummary', () => {
     accounts.data = [account(1)]
     render(<CorumLifeSyncSummary completedAt={RUN} ambiguous={2} />)
     expect(screen.getByText('sync.corum.life.synced:1')).toBeInTheDocument()
-    expect(screen.getByText('sync.corum.life.ambiguous:2')).toHaveClass('text-amber-600')
+    expect(screen.getByText('sync.corum.life.ambiguous:2')).toHaveClass('text-muted-foreground')
   })
 
   it('warns even when the run wrote no life-insurance account', () => {
