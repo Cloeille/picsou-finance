@@ -359,7 +359,7 @@ class BanquePopulaireControllerAuthTest {
     void completeStoresTheSessionForTheCurrentMemberAndAnswersConnected() throws Exception {
         when(service.completeAuth("proc-1", MEMBER_ID)).thenReturn(
             new BanquePopulaireSyncService.SessionStatusResponse(
-                true, SidecarSyncStatus.IDLE, null, null, null, List.of(), false));
+                null, true, SidecarSyncStatus.IDLE, null, null, null, List.of(), false, null));
 
         mockMvc.perform(post("/api/banque-populaire/auth/complete")
                 .contentType(MediaType.APPLICATION_JSON).content("{\"processId\":\"proc-1\"}").with(from("127.0.0.1")))
@@ -399,7 +399,7 @@ class BanquePopulaireControllerAuthTest {
     void completeDoesNotSpendAnInitiateAttempt() throws Exception {
         when(service.completeAuth(anyString(), anyLong())).thenReturn(
             new BanquePopulaireSyncService.SessionStatusResponse(
-                true, SidecarSyncStatus.IDLE, null, null, null, List.of(), false));
+                null, true, SidecarSyncStatus.IDLE, null, null, null, List.of(), false, null));
 
         for (int i = 0; i < 5; i++) {
             mockMvc.perform(post("/api/banque-populaire/auth/complete")

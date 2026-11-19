@@ -1170,5 +1170,45 @@ describe('CaisseEpargneTab', () => {
       expect(apiDelete).not.toHaveBeenCalled()
       expect(screen.queryByText('sync.caisseEpargne.disconnectConfirm')).not.toBeInTheDocument()
     })
+
+    describe('several connections', () => {
+      const rows = [
+        { ...CONNECTED, id: 1, identifierHint: '123' },
+        { ...CONNECTED, id: 2, identifierHint: '456' },
+      ]
+      beforeEach(() => {
+        apiGet.mockImplementation((url: string) =>
+          Promise.resolve({ data: url.endsWith('/sessions') ? rows : { ...CONNECTED, remembered: false } }),
+        )
+      })
+
+      it('lists one line per connection with its hint', async () => {
+        renderTab()
+
+        expect(await screen.findByText(/sync\.caisseEpargne\.connectionLabel.*123/)).toBeInTheDocument()
+        expect(screen.getByText(/sync\.caisseEpargne\.connectionLabel.*456/)).toBeInTheDocument()
+      })
+
+      it('shows the identifier field to add another connection while connected', async () => {
+        renderTab()
+
+        expect(screen.queryByLabelText('sync.caisseEpargne.customerId')).not.toBeInTheDocument()
+        fireEvent.click(await screen.findByText('sync.caisseEpargne.addConnection'))
+
+        expect(screen.getByLabelText('sync.caisseEpargne.customerId')).toBeInTheDocument()
+      })
+
+      it('disconnects one connection by id', async () => {
+        apiDelete.mockResolvedValue({ data: { removed: true, bankSessionRevoked: false, message: 'm' } })
+        renderTab()
+
+        await screen.findByText(/connectionLabel.*456/)
+        fireEvent.click(screen.getAllByLabelText('sync.caisseEpargne.clearSession')[1])
+
+        await waitFor(() =>
+          expect(apiDelete).toHaveBeenCalledWith('/caisse-epargne/session', { params: { sessionId: 2 } }),
+        )
+      })
+    })
   })
 })

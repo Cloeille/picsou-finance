@@ -58,9 +58,9 @@ class BanquePopulaireControllerTest {
 
     private static BanquePopulaireSyncService.SessionStatusResponse statusOf(SidecarSyncStatus syncStatus) {
         return new BanquePopulaireSyncService.SessionStatusResponse(
-            true, syncStatus, null, null, null,
+            null, true, syncStatus, null, null, null,
             List.of(new BpceSyncEngine.UnsupportedContract("9001", "7", "02")),
-            false);
+            false, null);
     }
 
     @Test
@@ -140,7 +140,7 @@ class BanquePopulaireControllerTest {
 
     @Test
     void deletingTheSessionDoesNotClaimTheBankSessionWasRevoked() throws Exception {
-        when(service.clearSession(MEMBER_ID)).thenReturn(true);
+        when(service.clearSession(MEMBER_ID, null)).thenReturn(true);
 
         String body = mockMvc.perform(delete("/api/banque-populaire/session"))
             .andExpect(status().isOk())
@@ -151,12 +151,12 @@ class BanquePopulaireControllerTest {
 
         assertThat(body.toLowerCase()).doesNotContain("\"bankSessionRevoked\":true".toLowerCase());
         assertThat(body.toLowerCase()).doesNotContain("logged out").doesNotContain("disconnected from");
-        verify(service).clearSession(MEMBER_ID);
+        verify(service).clearSession(MEMBER_ID, null);
     }
 
     @Test
     void deletingWhenNothingIsStoredIsStillAnAnswerNotAnError() throws Exception {
-        when(service.clearSession(MEMBER_ID)).thenReturn(false);
+        when(service.clearSession(MEMBER_ID, null)).thenReturn(false);
 
         mockMvc.perform(delete("/api/banque-populaire/session"))
             .andExpect(status().isOk())
@@ -181,6 +181,30 @@ class BanquePopulaireControllerTest {
                 names.add(method.getName());
             }
         }
-        assertThat(names).containsExactly("clear", "complete", "initiate", "keypad", "status", "sync");
+        assertThat(names).containsExactly("clear", "complete", "initiate", "keypad", "sessions", "status", "sync");
+    }
+
+    @Test
+    void sessionsListsEveryConnectionWithItsIdAndIdentifierHint() throws Exception {
+        when(service.listStatuses(MEMBER_ID)).thenReturn(List.of(
+            new BanquePopulaireSyncService.SessionStatusResponse(3L, true, SidecarSyncStatus.IDLE, null, null, null, List.of(), true, "123"),
+            new BanquePopulaireSyncService.SessionStatusResponse(4L, true, SidecarSyncStatus.IDLE, null, null, null, List.of(), true, "456")));
+
+        mockMvc.perform(get("/api/banque-populaire/sessions"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(2))
+            .andExpect(jsonPath("$[0].id").value(3))
+            .andExpect(jsonPath("$[0].identifierHint").value("123"))
+            .andExpect(jsonPath("$[1].id").value(4));
+    }
+
+    @Test
+    void deletingWithASessionIdForgetsOnlyThatConnection() throws Exception {
+        when(service.clearSession(MEMBER_ID, 2L)).thenReturn(true);
+
+        mockMvc.perform(delete("/api/banque-populaire/session").param("sessionId", "2"))
+            .andExpect(status().isOk());
+
+        verify(service).clearSession(MEMBER_ID, 2L);
     }
 }

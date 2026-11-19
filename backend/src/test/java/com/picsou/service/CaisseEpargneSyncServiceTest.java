@@ -1001,10 +1001,10 @@ class CaisseEpargneSyncServiceTest {
     @Test
     void queueSync_discardsAResultWhoseSessionDisappearedMidFlight() {
         SidecarSession session = activeSession(owner());
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
-        when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findAllByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(List.of(session));
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
         when(sessionRepository.findByIdAndMemberIdForUpdate(3L, 7L))
+            .thenReturn(Optional.of(session))   // queueSync locks the row
             .thenReturn(Optional.of(session))   // markRunning
             .thenReturn(Optional.empty());      // commit: gone
         when(port.fetchAccounts("plain-state")).thenReturn(
@@ -1020,11 +1020,13 @@ class CaisseEpargneSyncServiceTest {
         FamilyMember member = owner();
         SidecarSession old = activeSession(member);
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(old));
+        when(sessionRepository.findByIdAndMemberIdForUpdate(old.getId(), 7L)).thenReturn(Optional.of(old));
         when(encryption.encrypt("cookies")).thenReturn("encrypted-cookies");
         when(sessionRepository.saveAndFlush(any(SidecarSession.class)))
             .thenAnswer(invocation -> invocation.getArgument(0));
-        when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findAllByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L))
+            .thenReturn(List.of(old))   // the member's only row: replaced
+            .thenReturn(List.of());
 
         service.storeSession("cookies", 7L);
 
@@ -1049,9 +1051,10 @@ class CaisseEpargneSyncServiceTest {
     @Test
     void clearSessionReportsTheSessionItDeleted() {
         SidecarSession session = activeSession(owner());
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findAllByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(List.of(session));
+        when(sessionRepository.findByIdAndMemberIdForUpdate(session.getId(), 7L)).thenReturn(Optional.of(session));
 
-        assertThat(service.clearSession(7L)).isTrue();
+        assertThat(service.clearSession(7L, null)).isTrue();
         verify(sessionRepository).delete(session);
         // best-effort bank logout is NOT attempted: the port has no such call
         verify(port, never()).checkSession(any());
@@ -1059,9 +1062,9 @@ class CaisseEpargneSyncServiceTest {
 
     @Test
     void clearSessionReportsNothingToDeleteWhenThereIsNoSession() {
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findAllByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(List.of());
 
-        assertThat(service.clearSession(7L)).isFalse();
+        assertThat(service.clearSession(7L, null)).isFalse();
         verify(sessionRepository, never()).delete(any());
     }
 
@@ -1069,7 +1072,7 @@ class CaisseEpargneSyncServiceTest {
     void getStatus_readsAnUnsupportedListStoredBeforeTheSubFamilyCode() {
         SidecarSession session = activeSession(owner());
         session.recordUnsupportedContracts("[{\"externalId\":\"9001\",\"familyCode\":\"7\"}]");
-        when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findAllByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(List.of(session));
 
         CaisseEpargneSyncService.SessionStatusResponse status = service.getStatus(7L);
 
@@ -1082,7 +1085,7 @@ class CaisseEpargneSyncServiceTest {
         SidecarSession session = activeSession(owner());
         session.recordUnsupportedContracts("[{\"externalId\":\"" + "x".repeat(300)
             + "\",\"familyCode\":\"<script>alert(1)</script>\",\"subFamilyCode\":\"0123456789\"}]");
-        when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findAllByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(List.of(session));
 
         List<BpceSyncEngine.UnsupportedContract> unsupported = service.getStatus(7L).unsupported();
 
@@ -1099,7 +1102,7 @@ class CaisseEpargneSyncServiceTest {
         SidecarSession session = activeSession(owner());
         session.recordUnsupportedContracts(
             "[{\"externalId\":\"9001\",\"familyCode\":\"3\",\"subFamilyCode\":\"04\",\"later\":1}]");
-        when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findAllByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(List.of(session));
 
         assertThat(service.getStatus(7L).unsupported()).containsExactly(
             new BpceSyncEngine.UnsupportedContract("9001", "3", "04"));
@@ -1110,7 +1113,7 @@ class CaisseEpargneSyncServiceTest {
         for (String stored : List.of("{not json", "null", "[null]", "{}", "\"text\"", "[1]", "[{}]", "[{\"foo\":1}]")) {
             SidecarSession session = activeSession(owner());
             session.recordUnsupportedContracts(stored);
-            when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
+            when(sessionRepository.findAllByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(List.of(session));
 
             assertThat(service.getStatus(7L).unsupported()).as(stored).isEmpty();
         }
@@ -1118,7 +1121,7 @@ class CaisseEpargneSyncServiceTest {
 
     @Test
     void getStatusIsInactiveWithoutASession() {
-        when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findAllByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(List.of());
 
         CaisseEpargneSyncService.SessionStatusResponse status = service.getStatus(7L);
 
@@ -1948,10 +1951,10 @@ class CaisseEpargneSyncServiceTest {
     }
 
     private void arrangeQueuedSession(SidecarSession session) {
-        lenient().when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
+        lenient().when(sessionRepository.findByIdAndMemberIdForUpdate(session.getId(), 7L)).thenReturn(Optional.of(session));
         lenient().when(sessionRepository.findByIdAndMemberIdForUpdate(session.getId(), 7L))
             .thenReturn(Optional.of(session));
-        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
+        lenient().when(sessionRepository.findAllByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(List.of(session));
         lenient().when(encryption.decrypt("encrypted")).thenReturn("plain-state");
     }
 

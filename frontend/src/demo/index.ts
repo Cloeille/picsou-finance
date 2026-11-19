@@ -1429,6 +1429,8 @@ handlers.set(key('DELETE', '/bourso/session'), () => null)
 // Caisse d'Epargne — Sécur'Pass is a human step, so the demo skips it: initiate
 // answers a pending process and complete answers connected straight away.
 const demoCaisseEpargneStatus = {
+  id: null as number | null,
+  identifierHint: null as string | null,
   isActive: false,
   syncStatus: 'IDLE',
   lastSyncStartedAt: null,
@@ -1437,7 +1439,13 @@ const demoCaisseEpargneStatus = {
   unsupported: [],
   unsupportedCount: 0,
 }
+// One connection, as the real list answers: the id and the hint tell connections apart.
+// Like the backend, an inactive demo has no connection row at all (the panel then shows the login form).
+const demoConnection = <T extends object>(status: T) => ({ ...status, id: 1, identifierHint: '123' })
+const demoConnections = <T extends { isActive: boolean }>(status: T) =>
+  status.isActive ? [demoConnection(status)] : []
 handlers.set(key('GET', '/caisse-epargne/status'), () => demoCaisseEpargneStatus)
+handlers.set(key('GET', '/caisse-epargne/sessions'), () => demoConnections(demoCaisseEpargneStatus))
 const DEMO_PAD_PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
 handlers.set(key('POST', '/caisse-epargne/auth/initiate'), () => ({
@@ -1550,6 +1558,7 @@ const demoBanquePopulaireStatus = () => {
   }
 }
 handlers.set(key('GET', '/banque-populaire/status'), () => demoBanquePopulaireStatus())
+handlers.set(key('GET', '/banque-populaire/sessions'), () => demoConnections(demoBanquePopulaireStatus()))
 handlers.set(key('POST', '/banque-populaire/auth/initiate'), () => ({
   processId: 'demo',
   keypad: { images: Array.from({ length: 10 }, () => DEMO_PAD_PNG), columns: 5 },

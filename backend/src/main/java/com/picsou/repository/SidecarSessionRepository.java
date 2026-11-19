@@ -13,12 +13,23 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 public interface SidecarSessionRepository extends JpaRepository<SidecarSession, Long> {
 
     @Query("select s from SidecarSession s where s.bank = :bank and s.member.id = :memberId")
     Optional<SidecarSession> findByBankAndMemberId(
+        @Param("bank") SidecarBank bank,
+        @Param("memberId") Long memberId
+    );
+
+    /** Every connection of the member to one bank, oldest first. */
+    @Query("""
+        select s from SidecarSession s where s.bank = :bank and s.member.id = :memberId
+        order by s.createdAt, s.id
+        """)
+    List<SidecarSession> findAllByBankAndMemberId(
         @Param("bank") SidecarBank bank,
         @Param("memberId") Long memberId
     );

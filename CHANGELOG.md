@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Several Caisse d'Epargne and Banque Populaire connections per member** (`V154`). A login with a
+  known identifier replaces its connection, another adds one; `GET /sessions` lists them,
+  `DELETE /session?sessionId=` removes one, `/sync` syncs all. Other sidecar banks stay single.
 - **Account list display order and collapse (Tout tab).** A "Réorganiser" mode on
   `/accounts` > Tout adds per-card up/down arrows and a collapse eye, persisted per
   viewer — owned or shared (`PUT /api/accounts/display-order`, `PUT /api/accounts/{id}/display`, `V152`).

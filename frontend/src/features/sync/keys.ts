@@ -9,6 +9,9 @@ export const syncKeys = {
   bourso: () => [...syncKeys.all, 'bourso'] as const,
   caisseEpargne: () => [...syncKeys.all, 'caisse-epargne'] as const,
   banquePopulaire: () => [...syncKeys.all, 'banque-populaire'] as const,
+  // Nested under the status key: invalidating the status also refreshes the connection list.
+  caisseEpargneSessions: () => [...syncKeys.caisseEpargne(), 'sessions'] as const,
+  banquePopulaireSessions: () => [...syncKeys.banquePopulaire(), 'sessions'] as const,
   lbp: () => [...syncKeys.all, 'lbp'] as const,
   bnp: () => [...syncKeys.all, 'bnp'] as const,
   revolut: () => [...syncKeys.all, 'revolut'] as const,

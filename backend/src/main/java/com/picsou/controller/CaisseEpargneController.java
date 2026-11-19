@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Duration;
@@ -149,10 +150,16 @@ public class CaisseEpargneController {
         return service.getStatus(userContext.currentMemberId());
     }
 
+    /** One status per connection, oldest first, each with its id and the last three characters of its identifier. */
+    @GetMapping("/sessions")
+    public List<CaisseEpargneSyncService.SessionStatusResponse> sessions() {
+        return service.listStatuses(userContext.currentMemberId());
+    }
+
     /** Forgets the stored session in Picsou only; the answer never claims the bank session ended. */
     @DeleteMapping("/session")
-    public ResponseEntity<DeleteResponse> clear() {
-        boolean removed = service.clearSession(userContext.currentMemberId());
+    public ResponseEntity<DeleteResponse> clear(@RequestParam(required = false) Long sessionId) {
+        boolean removed = service.clearSession(userContext.currentMemberId(), sessionId);
         return ResponseEntity.ok(new DeleteResponse(removed, false, DELETE_MESSAGE));
     }
 

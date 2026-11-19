@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   AlertTriangle,
   Landmark,
   LogOut,
+  Plus,
   RefreshCw,
   Smartphone,
 } from "lucide-react"
@@ -27,8 +29,9 @@ import {
   useProviderStatus,
   useProviderSync,
 } from "@/features/sync/hooks"
+import { ACCOUNT_VIEWS, syncKeys } from "@/features/sync/keys"
 import { getErrorCode, getErrorDetail, getErrorStatus } from "@/lib/errors"
-import type { BpceAuthInitResponse, BpceSessionStatus } from "@/types/api"
+import type { BpceAuthInitResponse, BpceSessionStatus, CaisseEpargneSessionStatus } from "@/types/api"
 
 /**
  * `KEYPAD` is a pop-up showing the bank's virtual keypad: the user reads the
@@ -142,6 +145,8 @@ export interface BpceLoginApi {
   initiateAuth: (customerId: string, region: string) => Promise<BpceAuthInitResponse>
   sendKeypad: (processId: string, positions: number[]) => Promise<unknown>
   getStatusWithin: (timeoutMs: number) => Promise<BpceSessionStatus>
+  listSessions: () => Promise<CaisseEpargneSessionStatus[]>
+  clearSession: (sessionId?: number) => Promise<unknown>
 }
 
 /** One choice of the region step: the code sent to the backend and its display name. */
@@ -194,6 +199,8 @@ export function BpceSessionPanel({
   const [keypadSecondsLeft, setKeypadSecondsLeft] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [secondsLeft, setSecondsLeft] = useState(0)
+  // Shows the login form while a connection already exists, to add another one.
+  const [adding, setAdding] = useState(false)
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false)
   // When the completion request was lost: the waiting card stays and the session is polled.
   const [lostCompletionAt, setLostCompletionAt] = useState<number | null>(null)
@@ -213,6 +220,7 @@ export function BpceSessionPanel({
   const { mutate: completeMutate } = complete
   const { mutate: syncMutate } = sync
   const { refetch: refetchStatus } = status
+  const queryClient = useQueryClient()
 
   const messageForCode = useCallback((value: string | null | undefined) => {
     switch (value) {
@@ -265,6 +273,7 @@ export function BpceSessionPanel({
     setAuthState("IDLE")
     setCustomerId("")
     setTypingIdentifier(false)
+    setAdding(false)
     void refetchStatus()
     // A fresh session holds no accounts yet. Both completion paths queue one
     // first sync, and the caller is told only once its accounts exist.
@@ -312,9 +321,23 @@ export function BpceSessionPanel({
   }, [api, key, lostCompletionAt, startFirstSync, t])
 
   const connected = status.data?.isActive === true
-  const useRememberedIdentifier = status.data?.remembered === true && !typingIdentifier
+  const useRememberedIdentifier = status.data?.remembered === true && !typingIdentifier && !adding
   const syncStatus = status.data?.syncStatus ?? "IDLE"
   const isSyncing = syncStatus === "QUEUED" || syncStatus === "RUNNING"
+  // Nested under the status key (invalidated with it); the sync state in the key refreshes it as a sync moves.
+  const sessions = useQuery({
+    queryKey: [...syncKeys[`${provider}Sessions`](), syncStatus],
+    queryFn: () => api.listSessions(),
+    enabled: connected,
+    placeholderData: keepPreviousData,
+  })
+  const disconnectOne = useMutation({
+    mutationFn: (sessionId: number) => api.clearSession(sessionId),
+    onSuccess: () => {
+      for (const queryKey of [syncKeys[provider](), ...ACCOUNT_VIEWS]) void queryClient.invalidateQueries({ queryKey })
+    },
+    onError: (value) => setError(formatError(value)),
+  })
   const requestingSync = sync.isPending || isSyncing
   const backgroundError =
     syncStatus === "FAILED"
@@ -456,7 +479,7 @@ export function BpceSessionPanel({
   if (status.isLoading)
     return <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
 
-  const showForm = !connected && authState !== "AWAITING_APP"
+  const showForm = (!connected || adding) && authState !== "AWAITING_APP"
   const pending =
     authState === "SUBMITTING" || authState === "KEYPAD" || authState === "SENDING_KEYPAD"
   // With a region step, nothing goes out before both choices are made.
@@ -521,6 +544,12 @@ export function BpceSessionPanel({
               <RefreshCw className={requestingSync ? "animate-spin" : undefined} />
               {requestingSync ? t(key("syncing")) : t(key("sync"))}
             </Button>
+            {!adding && (
+              <Button variant="outline" onClick={() => setAdding(true)}>
+                <Plus />
+                {t(key("addConnection"))}
+              </Button>
+            )}
             {!confirmingDisconnect && (
               <Button
                 variant="destructive"
@@ -532,6 +561,36 @@ export function BpceSessionPanel({
               </Button>
             )}
           </div>
+
+          {sessions.data && sessions.data.length > 0 && (
+            <ul className="space-y-2">
+              {sessions.data.map((row) => (
+                <li key={row.id} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="font-mono">{t(key("connectionLabel"), { hint: row.identifierHint ?? "" })}</span>
+                  {row.syncStatus !== "IDLE" && (
+                    <Badge variant="outline">
+                      {row.syncStatus === "QUEUED"
+                        ? t(key("queued"))
+                        : row.syncStatus === "RUNNING"
+                          ? t(key("syncing"))
+                          : row.syncStatus === "SUCCESS"
+                            ? t(key("syncSuccess"))
+                            : (messageForCode(row.lastSyncError) ?? t(key("errors.serverError")))}
+                    </Badge>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={t(key("clearSession"))}
+                    disabled={disconnectOne.isPending || row.id === null}
+                    onClick={() => row.id !== null && disconnectOne.mutate(row.id)}
+                  >
+                    <LogOut />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
 
           {confirmingDisconnect && (
             <Card size="sm" className="border-destructive/30">
@@ -659,7 +718,7 @@ export function BpceSessionPanel({
                   }
                   required
                 />
-                {status.data?.remembered === true && (
+                {status.data?.remembered === true && !adding && (
                   <Button
                     type="button"
                     variant="outline"
@@ -681,7 +740,7 @@ export function BpceSessionPanel({
         </form>
       )}
 
-      {!connected && authState === "AWAITING_APP" && (
+      {(!connected || adding) && authState === "AWAITING_APP" && (
         <Card size="sm">
           <CardContent className="flex items-center gap-3 py-4">
             <Smartphone className="size-5 shrink-0 text-muted-foreground" />

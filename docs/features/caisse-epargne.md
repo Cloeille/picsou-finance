@@ -152,6 +152,15 @@ completion response is lost, it restarts at 180 seconds to show the recovery win
 
 The login codes are in `SidecarBank.CAISSE_EPARGNE` and in the `last_sync_error` CHECK (`V109`, extended by `V110` for `KEYPAD_EXPIRED` and `INVALID_POSITIONS`).
 
+## Several connections
+
+A member can hold several Caisse d'Epargne connections, one `sidecar_session` row each (`V154` relaxes the unique constraint for CE and BP only; other sidecar banks stay single).
+
+- A login with an identifier that a connection already holds replaces it; any other login adds one. A blank identifier reuses the member's only connection; with several it is refused (`INVALID_CREDENTIALS`, no sidecar call).
+- `POST /sync` queues every active connection. `DELETE /session?sessionId=<id>` removes one connection, without it all.
+- `GET /sessions` lists the connections with their `id` and `identifierHint` (last 3 characters). `GET /status` is the aggregate: with several connections `id` and `identifierHint` are null and `remembered` is false.
+- Known limits: external ids stay `ce_<pfmId>` (a joint account converges; a cross-caisse id collision was not observed, to verify live). Disconnecting one connection cancels any login in flight for that bank.
+
 ## Not in this slice
 
 - A live end-to-end login: everything above is tested offline only (the sidecar README lists the selectors not yet observed live).

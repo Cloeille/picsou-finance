@@ -67,6 +67,15 @@ Loans read their detail through separate OAuth clients on Caisse d'Epargne. Thei
 
 The bank answers a wrong identifier or password with a modal titled "Identifiant ou mot de passe erroné" over the keypad page (observed live 2026-11-05). The sidecar reads it as `INVALID_CREDENTIALS` (`ERROR_SELECTOR` matches that wording), so the UI says the credentials were refused and warns about the lock risk instead of reporting a format change.
 
+## Several connections
+
+A member can hold several Banque Populaire connections, one `sidecar_session` row each (`V154` relaxes the unique constraint for CE and BP only; other sidecar banks stay single).
+
+- A login with an identifier and regional bank that a connection already holds replaces it; any other login adds one. A blank identifier reuses the member's only connection; with several it is refused (`INVALID_CREDENTIALS`, no sidecar call).
+- `POST /sync` queues every active connection. `DELETE /session?sessionId=<id>` removes one connection, without it all.
+- `GET /sessions` lists the connections with their `id` and `identifierHint` (last 3 characters). `GET /status` is the aggregate: with several connections `id` and `identifierHint` are null and `remembered` is false.
+- Known limits: external ids stay `bp_<pfmId>` (a joint account converges; a cross-caisse id collision was not observed, to verify live). Disconnecting one connection cancels any login in flight for that bank.
+
 ## Technical choices
 
 | Choice | Why | Rejected alternative |

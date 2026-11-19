@@ -535,10 +535,10 @@ class SyncServiceCurrencyMatchTest {
             .id(1L).member(member).sessionState("synthetic-encrypted-state").active(true)
             .syncStatus(SidecarSyncStatus.IDLE).build();
         SidecarSessionRepository sessions = mock(SidecarSessionRepository.class);
-        when(sessions.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, member.getId())).thenReturn(Optional.of(session));
+        when(sessions.findByIdAndMemberIdForUpdate(session.getId(), member.getId())).thenReturn(Optional.of(session));
         when(sessions.findByIdAndMemberIdForUpdate(session.getId(), member.getId()))
             .thenReturn(Optional.of(session));
-        when(sessions.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, member.getId())).thenReturn(Optional.of(session));
+        when(sessions.findAllByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, member.getId())).thenReturn(List.of(session));
         CryptoEncryption encryption = mock(CryptoEncryption.class);
         when(encryption.decrypt(session.getSessionState())).thenReturn("synthetic-state");
         CaisseEpargneSyncService caisseEpargne = new CaisseEpargneSyncService(
