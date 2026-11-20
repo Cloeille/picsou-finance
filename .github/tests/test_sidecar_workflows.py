@@ -625,6 +625,11 @@ class CiJobSelectionTest(unittest.TestCase):
             "CHANGELOG.md": set(),
             "frontend/src/App.tsx": {"frontend", "e2e", "release-deployment"},
             "backend/src/main/java/com/picsou/App.java": {"backend", "release-deployment"},
+            # DesktopManifestTest reads the Java pin and the Testcontainers PostgreSQL images.
+            "backend/pom.xml": {"backend", "release-deployment", "workflow-inventory"},
+            "backend/src/test/java/com/picsou/support/PostgresContainers.java": {
+                "backend", "release-deployment", "workflow-inventory",
+            },
             "docker/deploy.sh": {"docker-compose", "release-deployment"},
             ".env.example": {"workflow-inventory"},
             "docker/Dockerfile": {"docker-compose", "release-deployment", "workflow-inventory"},
