@@ -1972,7 +1972,7 @@
         "unverified": "Aún no verificado con una cuenta real: se revisó la página de inicio de sesión, pero el segundo factor y la importación siguen el módulo de código abierto woob."
       },
       "approvalPrompt": "Aprueba el inicio de sesión en la aplicación móvil de tu banco.",
-      "approvalHint": "Esta página espera tu aprobación y luego importa tus cuentas.",
+      "approvalHint": "Esta página espera tu aprobación y luego importa tus cuentas. Si no aparece ninguna notificación, comprueba qué dispositivo está vinculado a Clé Digitale o abre la aplicación en Vous, Clé Digitale, Opérations en attente.",
       "countdownLabel": "Tiempo restante:",
       "codePrompt": "Introduce el código que el banco te envió por SMS.",
       "codeHint": "El código se envía una sola vez al banco y nunca se guarda.",
@@ -1994,7 +1994,7 @@
         "rateLimitedRetryAfter": "Demasiados intentos. Inténtalo de nuevo en unos {{minutes}} min.",
         "tooManySyncs": "Demasiadas sincronizaciones. Espera antes de volver a intentarlo.",
         "tooManySyncsRetryAfter": "Demasiadas sincronizaciones. Inténtalo de nuevo en unos {{minutes}} min.",
-        "appValidationTimeout": "La aprobación no llegó a tiempo. Empieza de nuevo.",
+        "appValidationTimeout": "La aprobación no llegó a tiempo. Comprueba que Clé Digitale esté activa en tu teléfono o revisa las operaciones pendientes en la aplicación de BNP Paribas y vuelve a intentarlo.",
         "authAttemptExpired": "Este intento de inicio de sesión caducó. Empieza de nuevo.",
         "sessionExpired": "La sesión caducó. Inicia sesión de nuevo.",
         "formatChanged": "El sitio del banco ya no tiene el aspecto esperado. No se importó nada.",

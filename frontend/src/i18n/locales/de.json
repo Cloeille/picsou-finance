@@ -1972,7 +1972,7 @@
         "unverified": "Noch nicht an einem echten Konto geprüft: Die Anmeldeseite wurde geprüft, die Zwei-Faktor-Anmeldung und der Import folgen dem Open-Source-Modul woob."
       },
       "approvalPrompt": "Bestätige die Anmeldung in der mobilen App Deiner Bank.",
-      "approvalHint": "Diese Seite wartet auf Deine Bestätigung und importiert dann Deine Konten.",
+      "approvalHint": "Diese Seite wartet auf Deine Bestätigung und importiert dann Deine Konten. Wenn keine Benachrichtigung erscheint, prüfe das mit Clé Digitale verknüpfte Gerät oder öffne die Banking-App unter Vous, Clé Digitale, Opérations en attente.",
       "countdownLabel": "Verbleibende Zeit:",
       "codePrompt": "Gib den Code ein, den die Bank Dir per SMS geschickt hat.",
       "codeHint": "Der Code wird einmal an die Bank gesendet und nie gespeichert.",
@@ -1994,7 +1994,7 @@
         "rateLimitedRetryAfter": "Zu viele Versuche. Versuche es in etwa {{minutes}} Min. erneut.",
         "tooManySyncs": "Zu viele Synchronisierungen. Warte, bevor Du es erneut versuchst.",
         "tooManySyncsRetryAfter": "Zu viele Synchronisierungen. Versuche es in etwa {{minutes}} Min. erneut.",
-        "appValidationTimeout": "Die Bestätigung kam nicht rechtzeitig an. Beginne neu.",
+        "appValidationTimeout": "Die Bestätigung kam nicht rechtzeitig an. Prüfe, ob Clé Digitale auf Deinem Smartphone aktiv ist oder schau in der BNP Paribas App unter den ausstehenden Freigaben nach, und beginne dann neu.",
         "authAttemptExpired": "Dieser Anmeldeversuch ist abgelaufen. Beginne neu.",
         "sessionExpired": "Die Sitzung ist abgelaufen. Melde Dich erneut an.",
         "formatChanged": "Die Website der Bank sieht nicht mehr wie erwartet aus. Es wurde nichts importiert.",

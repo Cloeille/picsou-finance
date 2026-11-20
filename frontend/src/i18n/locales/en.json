@@ -2274,7 +2274,7 @@
         "unverified": "Not yet verified against a real account: the login page was checked, but the second factor and the data import follow the open-source woob module."
       },
       "approvalPrompt": "Approve the sign-in in your bank's mobile app.",
-      "approvalHint": "This page waits for your approval, then imports your accounts.",
+      "approvalHint": "This page waits for your approval, then imports your accounts. If no notification appears, check which device is paired with Clé Digitale or open the bank app under Vous, Clé Digitale, Opérations en attente.",
       "countdownLabel": "Time left:",
       "codePrompt": "Enter the code the bank sent you by SMS.",
       "codeHint": "The code is sent once to the bank and never stored.",
@@ -2296,7 +2296,7 @@
         "rateLimitedRetryAfter": "Too many attempts. Try again in about {{minutes}} min.",
         "tooManySyncs": "Too many syncs. Wait before trying again.",
         "tooManySyncsRetryAfter": "Too many syncs. Try again in about {{minutes}} min.",
-        "appValidationTimeout": "The approval did not arrive in time. Start again.",
+        "appValidationTimeout": "The approval did not arrive in time. Check that Clé Digitale is active on your phone or look under pending approvals in your BNP Paribas app, then start again.",
         "authAttemptExpired": "This sign-in attempt expired. Start again.",
         "sessionExpired": "The session expired. Sign in again.",
         "formatChanged": "The bank's site no longer looks as expected. Nothing was imported.",

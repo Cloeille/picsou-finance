@@ -17,11 +17,12 @@ never guessed.
 1. The member picks the brand and types the customer number (7 to 10 digits).
 2. Picsou shows the bank's shuffled keypad (ten keys, the digit written on each) and the member clicks the
    six digits of the password. Only the **positions** (0..9) go back to Picsou, never the digits.
-3. Second factor, when the bank asks for one (both paths unverified, see below; the live run needed none and
-   went straight to the session):
-   - **Cle Digitale approval** in the bank's mobile app: Picsou waits (`/complete` without a code, up to
-     three minutes) and imports as soon as the member approves;
-   - **SMS code**: the member types it in Picsou, it is sent once to the bank and dropped.
+3. Second factor, when the bank asks for one:
+   - **Cle Digitale approval** in the bank's mobile app (verified live on 2026-11-20 in the Docker Camoufox
+     sidecar): Picsou waits (`/complete` without a code, up to three minutes) while the bank's page polls
+     `POST /as/<id>/resume/as/authorization.ping` (`{"code":"IN_PROGRESS",...}`), and imports as soon as
+     the member approves on the paired device;
+   - **SMS code** (unverified): the member types it in Picsou, it is sent once to the bank and dropped.
 4. Only the resulting cookie jar is kept, encrypted (`CryptoEncryption`), in the shared `sidecar_session`
    table (bank `BNP`, `brand` carried in the jar). No password, key position, SMS code or customer number is
    stored. A session that expires is renewed by a new login; there is no unattended re-login.
@@ -195,15 +196,24 @@ Compose: profile `bnp` (or `all-connectors`), service `bnp-auth` on the `sidecar
 
 ## Verification boundary
 
-One owner-assisted run on 2026-11-09 exercised the connector against a real BNP Paribas account, on
-`mabanqueprivee.bnpparibas`, for product families 1 and 2. The sidecar ran outside Docker (macOS, the
-pinned Camoufox release, not a datacenter network). Everything else is either checked on the **public**
-pages with a real browser (nothing typed), or **unverified**.
+Two owner-assisted runs exercised the connector against a real BNP Paribas account on
+`mabanqueprivee.bnpparibas`, for product families 1 and 2: on 2026-11-09 outside Docker (macOS, pinned
+Camoufox release) and on 2026-11-20 inside the shipped Docker `bnp-auth` image (Linux Camoufox under
+Xvfb, residential network). Everything else is either checked on the **public** pages with a real browser
+(nothing typed), or **unverified**.
 
-**Verified in the owner-assisted run:**
+**Verified in the owner-assisted runs:**
 
 - The whole login as the sidecar drives it: customer number, the ten key labels, six clicks by position,
   one form post, the redirect chain described in "After the login submit", the session.
+- **Cle Digitale second factor (2026-11-20, Docker Linux Camoufox under Xvfb, residential network):**
+  after the keypad submit, PingFederate served the *Vérification de votre identité* page on
+  `connexion.mabanque.bnpparibas/as/<id>/resume/as/authorization.ping` with a 5-minute countdown, the
+  paired device label and `dialog#noNotificationDialog` (pointing to *Vous*, *Clé Digitale*, *Opérations
+  en attente* in the mobile app and offering an SMS fallback button). The sidecar classified it as
+  `APPROVAL_PENDING`, the page polled `POST /as/<id>/resume/as/authorization.ping` with `nextAdapter`
+  (`{"code":"IN_PROGRESS",...}`), and approving on the paired phone redirected cleanly into
+  `mabanqueprivee.bnpparibas/fr/secure/comptes-et-contrats` and imported 3 accounts with 0 unsupported.
 - `InfosClient` answers `codeRetour: "0"` (a string) once signed in; `getlstcpt`, `rib-wspl/rpc/comptes` and
   `rop2-wspl/rest/releveOp` answer on the landing host with the page's own cookies and no extra header.
 - Families 1 (current account) and 2 (savings, kinds told apart by label), balances and operations, once
@@ -213,7 +223,8 @@ pages with a real browser (nothing typed), or **unverified**.
 - The end of the session: over after 24 idle minutes, reported as `SESSION_EXPIRED` (stage `snapshot_info_dead`),
   and not renewed by the stored cookies (see "Session checks").
 - The OneTrust calls of rule 4 (also seen on the public page of the private-banking site).
-- Camoufox reached the login and the signed-in site from that network.
+- Camoufox reached the login and the signed-in site both on macOS and inside the Linux Docker image under
+  Xvfb from a residential network.
 
 **Verified on the public login pages** (live recon, 2026-11-09, `recon-live` notes in the PR):
 
@@ -231,20 +242,18 @@ pages with a real browser (nothing typed), or **unverified**.
 
 **Unverified** - shipped on the open-source woob `bnp` module and on the public recon only:
 
-- **The second factor.** The run above was not asked for one. Both a Cle Digitale approval (app push,
-  `APPROVAL_PENDING`) and an SMS code (`CODE_REQUIRED`) are implemented, because it is not known which one a
-  given customer gets, nor which page and host it lives on: a navigation to a host outside the allow-list
-  stops the login (`UPSTREAM_FORMAT_CHANGED`, the host name and the stage are logged, never the URL) rather
-  than being followed. A second factor the sidecar cannot classify stops with `MFA_TYPE_UNSUPPORTED`.
+- **SMS code second factor (`CODE_REQUIRED`) and the in-dialog SMS fallback.** Only Cle Digitale approval
+  was exercised live. An SMS page or fallback flow outside the allow-list still fails closed
+  (`UPSTREAM_FORMAT_CHANGED` or `MFA_TYPE_UNSUPPORTED`).
 - **Hello bank!** and a retail customer who stays on `mabanque.bnpparibas`: no such account was used.
 - Securities accounts and their positions (`pe-war` endpoints), life insurance, PER, loans, the other
   account families and product labels (`parsers.py`), a real IBAN in `rib-wspl`.
 - The exact idle limit (between 12 and 24 minutes) and whether a session has an absolute limit, `codeRetour`
   `-30` as a second "session expired" value, the lock-out counter and the behaviour of
   `ClientNotFoundException201` / `TechnicalException917`.
-- The sidecar's Docker image (Linux Camoufox under Xvfb) against the bank, and whether Camoufox gets past
-  Akamai from a datacenter network. From the build VPS the BNP and Hello bank! hosts answered 403 to headless
-  Chromium; nothing was done to evade that.
+- Whether the Docker image (Linux Camoufox under Xvfb) gets past Akamai from a **datacenter** network.
+  From the build VPS the BNP and Hello bank! hosts answered 403 to headless Chromium; nothing was done to
+  evade that.
 
 Fail-closed rules cover the gap: an unknown account family or kind is listed as unsupported and never
 guessed; an incomplete account is marked `snapshotComplete: false` and never replaces what was imported;
