@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { NativeSelect } from '@/components/shared/NativeSelect'
 import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { ArrowDownLeft, Coins, Pencil, Trash2 } from 'lucide-react'
@@ -142,7 +143,7 @@ export function TransactionDetailSheet({
       {canCategorize ? (
         <div className="space-y-2">
           <p className="text-sm text-muted-foreground">{t('accounts.changeCategory')}</p>
-          <select
+          <NativeSelect
             value={pendingCategoryId}
             onChange={(e) => setPendingCategoryId(e.target.value === '' ? '' : Number(e.target.value))}
             className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus:border-ring"
@@ -153,7 +154,7 @@ export function TransactionDetailSheet({
               .map(c => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
-          </select>
+          </NativeSelect>
           <div className="flex justify-end gap-2">
             <Button variant="outline" size="sm" onClick={onClose}>
               {t('common.cancel')}
@@ -181,7 +182,7 @@ export function TransactionDetailSheet({
             className="w-full"
             onClick={() => { onCreatePeerLoan(tx); onClose() }}
           >
-            <Coins size={14} className="mr-1.5" />
+            <Coins size={14} className=".5" />
             {t('peerLoan.fromTransaction.action')}
           </Button>
         </>
@@ -196,7 +197,7 @@ export function TransactionDetailSheet({
             className="w-full"
             onClick={() => { onAssignRepayment!(tx); onClose() }}
           >
-            <ArrowDownLeft size={14} className="mr-1.5" />
+            <ArrowDownLeft size={14} className=".5" />
             {t('peerLoan.fromTransaction.assignAction')}
           </Button>
         </>
@@ -213,7 +214,7 @@ export function TransactionDetailSheet({
             className="w-full"
             onClick={() => { onClose(); navigate(`/accounts/${tx.peerLoanLink!.accountId}`) }}
           >
-            <Coins size={14} className="mr-1.5" />
+            <Coins size={14} className=".5" />
             {t('peerLoan.linkedTransaction', { name: tx.peerLoanLink.accountName })}
           </Button>
         </>
@@ -226,13 +227,13 @@ export function TransactionDetailSheet({
           <div className="flex gap-2">
             {onEdit && (
               <Button variant="outline" size="sm" className="flex-1" onClick={() => { onEdit(tx); onClose() }}>
-                <Pencil size={14} className="mr-1.5" />
+                <Pencil size={14} className=".5" />
                 {t('common.edit')}
               </Button>
             )}
             {onDelete && (
               <Button variant="outline" size="sm" className="flex-1 text-destructive hover:text-destructive" onClick={() => { onDelete(tx.id); onClose() }}>
-                <Trash2 size={14} className="mr-1.5" />
+                <Trash2 size={14} className=".5" />
                 {t('common.delete')}
               </Button>
             )}
@@ -257,7 +258,7 @@ export function TransactionDetailSheet({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="sm:max-w-sm max-h-[90vh] overflow-y-auto overflow-x-hidden">
+      <DialogContent className="sm:max-w-sm max-h-[90vh] overflow-y-auto overflow-x-hidden" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{t('transactions.detail')}</DialogTitle>
         </DialogHeader>

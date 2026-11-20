@@ -9,6 +9,7 @@ import { PageHeader } from '@/components/shared/PageHeader'
 import { NetWorthChart } from '@/components/shared/NetWorthChart'
 import { DistributionPie } from '@/components/shared/DistributionPie'
 import { LoadingSkeleton } from '@/components/shared/LoadingSkeleton'
+import { ErrorState } from '@/components/shared/ErrorState'
 import { HoldingsCard } from '@/components/shared/HoldingsCard'
 import { LiabilitiesCard } from '@/components/shared/LiabilitiesCard'
 import { RealEstateSummaryCard } from '@/components/property/RealEstateSummaryCard'
@@ -47,9 +48,10 @@ type WealthMode = 'net' | 'gross' | 'financial'
 // Financial wealth = liquid and investable assets only. Checking is the day-to-day
 // cash excluded by design; real estate is tangible property; physical precious
 // metals are tangible movables; OTHER has an unknown nature and must not inflate
-// the figure by default. SCPI stays in: a share of a real-estate fund is an
-// intangible, exchangeable security.
-const EXCLUDED_FINANCIAL = new Set(['CHECKING', 'LOAN', 'REAL_ESTATE', 'PRECIOUS_METALS', 'OTHER'])
+// the figure by default. A peer loan is a real asset but neither liquid nor
+// invested, so it counts in net and gross wealth only. SCPI stays in: a share
+// of a real-estate fund is an intangible, exchangeable security.
+const EXCLUDED_FINANCIAL = new Set(['CHECKING', 'LOAN', 'REAL_ESTATE', 'PRECIOUS_METALS', 'PEER_LOAN', 'OTHER'])
 
 export function DashboardPage() {
   const { t } = useTranslation()
@@ -58,7 +60,7 @@ export function DashboardPage() {
   const [wealthMode, setWealthMode] = useState<WealthMode>('net')
   const [detailGoalId, setDetailGoalId] = useState<number | null>(null)
 
-  const { data, isLoading } = useDashboard(range)
+  const { data, isLoading, isError, refetch } = useDashboard(range)
   const { data: bankConnections } = useBankSyncStatus()
   const failedBanks = bankConnections?.filter(b => b.status === 'FAILED') ?? []
 
@@ -72,7 +74,7 @@ export function DashboardPage() {
         return data.assets.map(d => d.accountId)
       case 'financial':
         // Financial assets: drop everything in EXCLUDED_FINANCIAL (checking,
-        // loans, real estate, physical metals, OTHER)
+        // loans, real estate, physical metals, peer loans, OTHER)
         return data.assets
           .filter(d => !EXCLUDED_FINANCIAL.has(d.accountType))
           .map(d => d.accountId)
@@ -157,6 +159,15 @@ export function DashboardPage() {
     : (pnlData?.rangePnlPercent ?? null)
   const pnlPositive = pnl != null && pnl >= 0
 
+  if (isError) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title={t('dashboard.title')} />
+        <ErrorState title={t('common.error')} onRetry={() => void refetch()} />
+      </div>
+    )
+  }
+
   if (isLoading || !data) {
     return <LoadingSkeleton />
   }
@@ -178,7 +189,7 @@ export function DashboardPage() {
             className="h-10 min-w-44 px-6 text-sm"
             onClick={() => setShowSyncModal(true)}
           >
-            <RefreshCw className="mr-2 size-4" />
+            <RefreshCw className="size-4" />
             {t('dashboard.syncAccounts')}
           </Button>
         }
@@ -299,7 +310,6 @@ export function DashboardPage() {
       <Card>
         <CardHeader>
           <CardTitle>{t('dashboard.goals')}</CardTitle>
-          <CardDescription>{t('dashboard.goalsDescription')}</CardDescription>
           {data.goalSummaries.length > 0 && (
             <CardAction>
               <Button variant="outline" size="sm" asChild>
@@ -326,7 +336,7 @@ export function DashboardPage() {
                 <Item
                   key={goal.id}
                   variant="muted"
-                  className="flex-col items-stretch rounded-4xl px-4 py-3 gap-4 cursor-pointer"
+                  className="flex-col items-stretch rounded-xl px-4 py-3 gap-4 cursor-pointer"
                   onClick={() => setDetailGoalId(goal.id)}
                 >
                   <ItemContent className="gap-3">

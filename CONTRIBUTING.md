@@ -69,6 +69,135 @@ accept the browser warning once.
   [Before you open a pull request](#before-you-open-a-pull-request)).
 - **i18n**: user-visible strings go through `useTranslation()`; add every new
   key to all four locale files (`fr`, `en`, `de`, `es`).
+- **UI & design guardrails**: read [UI, design & copy standards](#ui-design--copy-standards-blocking-in-ci-and-review)
+  and [`DESIGN.md`](DESIGN.md) before touching any screen. Core rules are enforced
+  automatically by `frontend/src/design-guardrails.test.ts` during `make test-frontend`.
+
+## UI, design & copy standards (blocking in CI and review)
+
+Pull requests that change the frontend **must** follow the rules below. Violating them breaks
+visual consistency across Picsou and **blocks merge** (both in automated CI via
+`frontend/src/design-guardrails.test.ts` and in maintainer review). When a rule is violated, the PR
+is rejected with the matching rule and expected pattern.
+
+### 1. Typography & readable text sizes
+- **Single font family (`Plus Jakarta Sans`)**: Picsou uses `'Plus Jakarta Sans Variable', sans-serif`
+  globally (`frontend/src/index.css`). Never swap it back to Geist, never pair a second display/serif
+  font, and never load external CDN fonts. *(Enforced in CI.)*
+- **Body & description paragraphs**: always use `text-sm` (`0.875rem`), never `text-xs`, for
+  descriptions, hints, scopes, banners, and form help text. Reserve `text-xs` strictly for compact
+  metadata (dates, counters, badges, table column headers).
+- **Placeholders**: keep placeholders muted (`placeholder:text-muted-foreground/45`, configured
+  globally in `Input`). Never use misleading example numbers (such as `placeholder="100"`) that
+  look like prefilled values; use explicit unit labels (e.g., `Montant (€)`).
+
+### 2. Palette & restraint
+- **No yellow or amber UI chrome**: never use `bg-amber-*`, `text-amber-*`, `border-amber-*`,
+  `bg-yellow-*`, `text-yellow-*`, or `border-yellow-*` for banners, cards, badges, warnings, or
+  buttons. Use neutral muted surfaces, Coffre Blue (`primary`) for primary interactive state, or
+  `destructive` red for real errors and destructive actions. *(Enforced in CI; only the 3 tiny
+  semantic status dots in `PriceFreshnessDot`, `LoanMonthlyBreakdownCard`, and `SetupStepAdmin` are
+  exempt.)*
+- **No blue-on-blue icon boxes**: icons inside neutral containers use `bg-muted text-foreground` or
+  `text-muted-foreground`, never saturated blue boxes inside blue cards.
+- **No bare `variant="link"` buttons**: use `variant="outline"` or `variant="ghost"` buttons for
+  actions, never unstyled blue text link-buttons. *(Enforced in CI.)*
+
+### 3. Layout widths, spacing & grids
+- **Main workspace width**: pages sit inside `AppLayout` (`mx-auto w-full max-w-7xl` with
+  `p-4 md:px-6 md:py-2 lg:px-8`), keeping wide monitors centered and airy. Do not break out of this
+  container with arbitrary full-bleed wrappers or cramped `px-1` padding.
+- **Sidebar**: Picsou uses one single full-height desktop sidebar (`w-64`, `AppSidebar.tsx`) with
+  the navigation items, the compact `SidebarWhatsNewCard` ("Nouveautés" + GitHub star), and one
+  unified account dropdown menu at the bottom (Settings, Sync, Privacy toggle, Admin, Logout). Do
+  not add floating corner buttons or extra sidebars.
+- **Custom CSS grids**: whenever writing arbitrary `grid-cols-[...]` tracks (for example
+  `lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]`), always wrap `fr` tracks in `minmax(0, ...)` and put
+  `min-w-0` on flexing text containers so long strings (IBANs, URLs, rule patterns) truncate cleanly
+  instead of blowing out column widths.
+- **Tables**: every data `<table>` must sit inside an `overflow-x-auto` (or `overflow-auto`) wrapper
+  so narrow viewports scroll the table internally without causing page-level horizontal overflow.
+- **Settings & management rows**: prefer clean full-width cards with horizontal rows (label on the
+  left, compact control on the right) over mismatched uneven two-column card grids. For single-field
+  preferences (such as cycle start day or toggles), save immediately on selection instead of adding
+  a floating "Save" button.
+
+### 4. Tab bars & category filters
+- **Unified segmented tab bar**: all page-level tab bars (`BudgetLayout`, `AccountsPage`,
+  `AnalysisPage`, `SettingsPage`, `SyncPage`, `AccountDetailPage`, `HoldingsCard`, `TabsList`) use
+  the same full-width bordered container (`rounded-lg border border-border/60 bg-background/80 p-1`)
+  with `bg-primary text-primary-foreground` on the active tab and `text-muted-foreground
+  hover:text-foreground` on inactive tabs.
+- **Avoid overcrowded tab bars**: never cram 8–10 tabs onto one bar when most are empty. Follow the
+  `AccountsPage` pattern: display "All" plus up to 5 populated categories in the primary bar, and
+  tuck empty or overflow categories into a discreet custom `DropdownMenu` ("Plus" / "More") on the
+  right (showing the active overflow label on the trigger when selected).
+- **Time-range selectors**: charts use `TimeRangeSelector` with compact standard platform labels
+  (`24H`, `7J`, `1M`, `3M`, `YTD`, `1A`, `Tout` in French) paired with full hover tooltips
+  (`dashboard.rangeTitles.*`).
+
+### 5. Modals, popovers, z-index & scrolling
+- **Tall modals & horizontal safety**: `DialogContent` (`components/ui/dialog.tsx`) must always
+  retain `grid-cols-1 *:min-w-0 max-h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-3rem)]
+  overflow-x-hidden overflow-y-auto overscroll-contain`. Never remove these classes: without
+  `grid-cols-1 *:min-w-0 overflow-x-hidden`, long unbroken tokens (such as IBANs) expand the grid
+  track past `max-w-*` and push amounts and Save/Cancel buttons off-screen. *(Enforced in CI.)*
+- **Strict z-index stacking order** *(enforced in CI)*:
+  - `MobileBottomNav`: `z-40`
+  - `Dialog` / `Sheet`: `z-50`
+  - `DropdownMenu` / `Select` / autocomplete popovers (`[data-radix-popper-content-wrapper]`): `z-[60]`
+  - `Tooltip`: `z-[70]`
+- **Popover collision padding & surface**: all Radix popovers (`DropdownMenuContent`,
+  `SelectContent`, `TooltipContent`) keep `collisionPadding={16}` (`12` for tooltips) and crisp
+  opaque `bg-popover border border-border/60 shadow-lg` surfaces so menus never clip off viewport
+  edges or bleed text through behind them.
+
+### 6. Standard components (no native OS widgets)
+- **Selects**: never use raw `<select>` tags; always use Radix `Select` (`@/components/ui/select`)
+  or `NativeSelect` (`@/components/shared/NativeSelect`, which renders Radix Select under the hood).
+  *(Enforced in CI.)*
+- **Collapsible / advanced sections**: never use raw HTML `<details>`/`<summary>` or raw Unicode
+  triangle glyphs (`▶`, `▼`). Build collapsible blocks with a button (`aria-expanded`), Lucide
+  `ChevronDown` with `rotate-180`, and a clean bordered container. *(Enforced in CI.)*
+- **Icons**: always use icons from `lucide-react`, sized consistently (`size-4` in buttons and
+  headers, `size-3.5` in compact controls, `size-5` in nav items, `size-10` in empty states).
+
+### 7. Empty states & card actions
+- **Framed, compact empty states**: wrap page-level empty states in
+  `<Card><CardContent><EmptyState className="py-8" icon={<Icon className="size-10" />} ... /></CardContent></Card>`
+  (matching `FamilyDashboardPage`). Never render naked `min-h-[calc(100vh-14rem)]` floating empty
+  states. *(Enforced in CI.)*
+- **No duplicate primary CTAs**: when a page header or toolbar already shows a primary create button
+  (e.g. `+ Ajouter un bien`, `+ Nouvel objectif`, `+ Nouvelle enveloppe`), do not repeat the same
+  button inside the `EmptyState` below it.
+- **Clean overview cards**: keep edit and delete actions inside the detail page header (e.g.
+  `AccountDetailPage`), not as floating hover icon overlays on summary cards.
+- **Collapsible configuration panels**: when a feature holds an optional single provider or external
+  configuration (e.g. Admin AI provider), show an empty state with an explicit "Add" button when
+  unconfigured, and a compact summary card ("Active", model, Test / Edit / Delete) with a closable
+  form when configured.
+
+### 8. Privacy mode (`hideAmounts`)
+- **Every monetary amount on screen** must go through `CurrencyDisplay` or `useMoney()` (`money.amount`
+  / `money.compact`), never raw `Intl.NumberFormat` or literal `€` suffixes in locale strings, so
+  enabling "Masquer les montants" masks 100% of values consistently.
+
+### 9. Copy, UI text & French localization rules
+- **No useless clutter text**: do not add obvious subtitles that repeat the card/dialog title,
+  permanent validation reminders when the form is already valid (show validation errors only when
+  invalid, e.g. allocation sum != 100%), or filler disclaimers at the bottom of cards.
+- **French copy standards (`fr.json`, enforced in CI)**:
+  - **No em dashes (`—`)**: use a colon (`:`), comma, or natural phrasing.
+  - **No navigation arrows (`→`)** in prose.
+  - **Never abbreviate to "IA"**: always write **intelligence artificielle** in full across every
+    French surface (Budget, Admin, Settings, onboarding, What's new).
+  - **Proper French sentence case**: capitalize only sentence/label starts and proper nouns; write
+    `et` instead of `&`; keep labels natural and complete (no telegraphic keyword chains).
+  - **GitHub stars**: keep the word **star** across all locales (`Laisser une star sur GitHub`,
+    `Star on GitHub`, `Star auf GitHub geben`, `Dar una star en GitHub`).
+- **Release highlights (`frontend/src/lib/whats-new.ts`)**: when cutting a new release, add the
+  version summary and highlights at the top of `WHATS_NEW_RELEASES` in all 4 locales (`fr`, `en`,
+  `de`, `es`) alongside `CHANGELOG.md` so the sidebar "Nouveautés" card updates automatically.
 
 ## Documentation
 

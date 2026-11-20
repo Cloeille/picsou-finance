@@ -26,29 +26,30 @@ export function SetupStepIntro() {
               type="button"
               onClick={() => setPhase('content')}
               aria-label={t('setup.intro.skipAria')}
-              className="rounded-full px-3 py-1 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
             >
               {t('setup.intro.skip')}
             </button>
           </div>
         </>
       ) : (
-        <div className="text-center space-y-8 animate-hello-in">
-          <h1 className="text-4xl sm:text-5xl font-semibold tracking-tight leading-[1.05]">
-            {t('setup.intro.title')}
-          </h1>
-          <p className="mx-auto max-w-md text-base sm:text-lg text-muted-foreground">
-            {t('setup.intro.subtitle')}
-          </p>
+        <div className="text-center space-y-6 animate-hello-in">
+          <div className="space-y-3">
+            <h1 className="text-4xl sm:text-5xl font-semibold tracking-tight leading-[1.08]">
+              {t('setup.intro.title')}
+            </h1>
+            <p className="mx-auto max-w-lg text-base sm:text-lg leading-relaxed text-muted-foreground">
+              {t('setup.intro.subtitle')}
+            </p>
+          </div>
           <div className="pt-2">
             <Button
-              size="lg"
               onClick={() =>
                 navigate(
                   setupStatus?.state === 'IN_PROGRESS' ? '/setup/security' : '/setup/admin'
                 )
               }
-              className="h-10 min-w-44 px-8 text-sm"
+              className="h-10 min-w-44 rounded-lg px-6 text-sm font-medium"
             >
               {t('setup.intro.cta')}
             </Button>

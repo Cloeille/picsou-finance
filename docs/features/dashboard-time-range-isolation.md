@@ -1,6 +1,6 @@
 # Feature: Dashboard Time Range Isolation
 
-> Last updated: 2026-04-13
+> Last updated: 2026-11-12
 
 ## Context
 
@@ -42,8 +42,11 @@ Both hero trend AND chart update to reflect 3M period
   ↓
 Distribution and goals: unaffected by range (no range dependency).
 In financial wealth mode the distribution donut additionally mirrors the
-hero filter (checking, loans, real estate, physical precious metals and
-OTHER excluded), so the donut never shows a category the figure excludes.
+hero filter (checking, loans, real estate, physical precious metals, peer
+loans and OTHER excluded), so the donut never shows a category the figure
+excludes. A peer loan never reaches the donut (the backend keeps it out of
+`distribution`); the hero and the curve read `assets`, where the same filter
+drops it.
 ```
 
 ## Trend calculation

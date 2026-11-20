@@ -31,7 +31,6 @@ export function InstanceStatusDialog() {
   const { t } = useTranslation()
   const isAdmin = useAuthStore((s) => s.user?.role === 'ADMIN')
   const demoMode = useAppStore((s) => s.demoMode)
-  const sidebarPromptSeen = useAppStore((s) => s.hasSeenSidebarStylePrompt)
   const dismissedFingerprint = useAppStore((s) => s.dismissedInstanceStatusFingerprint)
   const dismiss = useAppStore((s) => s.setDismissedInstanceStatusFingerprint)
   const enabled = isAdmin && !demoMode
@@ -42,7 +41,6 @@ export function InstanceStatusDialog() {
   const hasAlert = (status?.issues.length ?? 0) > 0 || status?.update != null
   const open =
     enabled &&
-    sidebarPromptSeen &&
     !telemetryConsent.isLoading &&
     !telemetryConsent.open &&
     hasAlert &&

@@ -17,10 +17,10 @@ export function IntegrationsSection({ integrations }: { integrations: Record<str
   const toggle = useToggleIntegration()
 
   return (
-    <Card className="rounded-4xl bg-card">
+    <Card className="rounded-xl bg-card">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <Plug className="size-5 text-muted-foreground" />
+        <CardTitle className="flex items-center gap-2 text-base font-semibold">
+          <Plug className="size-4 shrink-0 text-muted-foreground" />
           {t('admin.integrations.title')}
         </CardTitle>
         <CardDescription>{t('admin.integrations.description')}</CardDescription>

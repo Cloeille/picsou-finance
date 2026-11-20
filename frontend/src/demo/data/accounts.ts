@@ -20,6 +20,8 @@ export const mockAccounts: Account[] = [
     logoKey: null,
     createdAt: '2024-01-15T08:00:00Z',
     hidden: false,
+    listPosition: null,
+    listCollapsed: false,
   },
   {
     id: 2,
@@ -40,6 +42,8 @@ export const mockAccounts: Account[] = [
     // five-year clock runs from here, not from createdAt.
     openedAt: '2014-03-12',
     hidden: false,
+    listPosition: null,
+    listCollapsed: false,
   },
   {
     id: 3,
@@ -57,6 +61,8 @@ export const mockAccounts: Account[] = [
     logoKey: null,
     createdAt: '2024-03-10T08:00:00Z',
     hidden: false,
+    listPosition: null,
+    listCollapsed: false,
   },
   {
     id: 4,
@@ -74,6 +80,8 @@ export const mockAccounts: Account[] = [
     logoKey: null,
     createdAt: '2024-01-01T08:00:00Z',
     hidden: false,
+    listPosition: null,
+    listCollapsed: false,
   },
   {
     id: 5,
@@ -91,6 +99,8 @@ export const mockAccounts: Account[] = [
     logoKey: null,
     createdAt: '2024-06-15T08:00:00Z',
     hidden: false,
+    listPosition: null,
+    listCollapsed: false,
   },
   {
     id: 6,
@@ -108,6 +118,8 @@ export const mockAccounts: Account[] = [
     logoKey: 'ledger',
     createdAt: '2024-04-01T08:00:00Z',
     hidden: false,
+    listPosition: null,
+    listCollapsed: false,
   },
   {
     id: 7,
@@ -125,6 +137,8 @@ export const mockAccounts: Account[] = [
     logoKey: null,
     createdAt: '2024-01-01T08:00:00Z',
     hidden: false,
+    listPosition: null,
+    listCollapsed: false,
     savingsConfig: {
       product: 'LIVRET_A' as const,
       annualRate: 2.40,
@@ -150,6 +164,8 @@ export const mockAccounts: Account[] = [
     logoKey: null,
     createdAt: '2024-01-01T08:00:00Z',
     hidden: false,
+    listPosition: null,
+    listCollapsed: false,
   },
   {
     id: 9,
@@ -167,6 +183,8 @@ export const mockAccounts: Account[] = [
     logoKey: null,
     createdAt: '2024-01-15T08:00:00Z',
     hidden: false,
+    listPosition: null,
+    listCollapsed: false,
     parentAccountId: 8,
     externalAccountId: '76fe0dd0-c245-4d73-9df4-d4fcda89abfe',
   },
@@ -186,6 +204,8 @@ export const mockAccounts: Account[] = [
     logoKey: null,
     createdAt: '2024-02-01T08:00:00Z',
     hidden: false,
+    listPosition: null,
+    listCollapsed: false,
     parentAccountId: 8,
     externalAccountId: '3874abbf-a1b2-c3d4-e5f6-a7b8c9d0e1f2',
   },
@@ -207,6 +227,8 @@ export const mockAccounts: Account[] = [
     logoKey: null,
     createdAt: '2023-06-01T08:00:00Z',
     hidden: false,
+    listPosition: null,
+    listCollapsed: false,
     realEstate: {
       purchasePrice: 320000,
       purchaseDate: '2023-06-01',
@@ -264,6 +286,8 @@ export const mockAccounts: Account[] = [
     logoKey: null,
     createdAt: '2024-09-01T08:00:00Z',
     hidden: false,
+    listPosition: null,
+    listCollapsed: false,
     paymentDueAmount: 912.4,
     paymentDueDate: daysFromToday(12),
     rewardPoints: 48250,
@@ -273,6 +297,8 @@ export const mockAccounts: Account[] = [
     // Invented paper-property line. Not a real fund, and not priced from a market bulletin.
     id: 13,
     hidden: false,
+    listPosition: null,
+    listCollapsed: false,
     name: 'Pierre-papier exemple',
     type: 'SCPI',
     provider: 'Société exemple',
@@ -320,6 +346,8 @@ export const mockAccounts: Account[] = [
     logoKey: null,
     createdAt: '2024-05-01T08:00:00Z',
     hidden: false,
+    listPosition: null,
+    listCollapsed: false,
     debt: {
       linkedAccountId: 4,
       linkedAccountName: 'Compte Courant BNP',
@@ -352,6 +380,8 @@ export const mockAccounts: Account[] = [
     logoKey: null,
     createdAt: '2023-06-01T08:00:00Z',
     hidden: false,
+    listPosition: null,
+    listCollapsed: false,
     debt: {
       linkedAccountId: 4,
       linkedAccountName: 'Compte Courant BNP',
@@ -383,6 +413,8 @@ export const mockAccounts: Account[] = [
     logoKey: null,
     createdAt: `${monthStartFromToday(-10)}T08:00:00Z`,
     hidden: false,
+    listPosition: null,
+    listCollapsed: false,
   },
   {
     // A second receivable, behind schedule: the global overview needs a late case to show.
@@ -401,6 +433,8 @@ export const mockAccounts: Account[] = [
     logoKey: null,
     createdAt: `${monthStartFromToday(-8)}T08:00:00Z`,
     hidden: false,
+    listPosition: null,
+    listCollapsed: false,
   },
 ]
 
@@ -423,6 +457,8 @@ export const mockBanquePopulaireAccounts: Omit<Account, 'createdAt' | 'lastSynce
     logoUrl: null,
     logoKey: null,
     hidden: false,
+    listPosition: null,
+    listCollapsed: false,
   },
   {
     id: 19,
@@ -438,5 +474,7 @@ export const mockBanquePopulaireAccounts: Omit<Account, 'createdAt' | 'lastSynce
     logoUrl: null,
     logoKey: null,
     hidden: false,
+    listPosition: null,
+    listCollapsed: false,
   },
 ]

@@ -89,8 +89,7 @@ describe('TelemetryConsentDialog and InstanceStatusDialog together', () => {
     useAuthStore.setState({ user: ADMIN, isAuthenticated: true })
     useAppStore.setState({
       demoMode: false,
-      hasSeenSidebarStylePrompt: true,
-      dismissedInstanceStatusFingerprint: null,
+        dismissedInstanceStatusFingerprint: null,
       telemetryConsentDismissed: false,
     })
   })

@@ -18,7 +18,7 @@ import { TrendingUp, TrendingDown, Loader2, Tags } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { HoldingClassificationModal } from '@/pages/analysis/HoldingClassificationModal'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
-import { formatDate, formatDecimal, formatPercent, formatQuantity } from '@/lib/utils'
+import { formatDate, formatPercent, formatQuantity } from '@/lib/utils'
 import { accountTypeLabelKey } from '@/lib/constants'
 
 type ChartMode = 'holding' | 'price'
@@ -92,7 +92,7 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
   return (
     <>
       <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
-      <DialogContent className="sm:max-w-[95vw] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[95vw] max-h-[90vh] overflow-y-auto" aria-describedby={undefined}>
         {isLoading || !line ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -153,7 +153,7 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
 
               {/* Chart with mode toggle */}
               <div className="space-y-3">
-                <div className="inline-flex items-center rounded-2xl bg-muted p-1">
+                <div className="inline-flex items-center rounded-lg bg-muted p-1">
                   {([
                     { value: 'price' as ChartMode, label: t('holdings.assetPrice') },
                     { value: 'holding' as ChartMode, label: t('holdings.myPosition') },
@@ -197,8 +197,8 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
                     <>
                       <CurrencyDisplay value={line.costBasisEur} className="text-sm font-semibold tabular-nums" />
                       {line.averageBuyIn != null && (
-                        <p className="text-[10px] text-muted-foreground tabular-nums mt-0.5">
-                          {formatDecimal(line.averageBuyIn, 2)} {t('holdings.perShare')}
+                        <p className="text-xs text-muted-foreground tabular-nums mt-0.5">
+                          {money.amount(line.averageBuyIn, line.quoteCurrency ?? undefined)} {t('holdings.perShare')}
                         </p>
                       )}
                     </>

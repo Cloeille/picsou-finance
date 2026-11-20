@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Line, LineChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/chart'
 import { TimeRangeSelector, type TimeRange } from '@/components/shared/TimeRangeSelector'
-import { localeFromLanguage } from '@/lib/utils'
+import { localeFromLanguage, capitalizeFirst } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
 import { yAxisWidth, AXIS_PROPS } from '@/lib/chart-axis'
 import type { Account } from '@/types/api'
@@ -124,7 +124,7 @@ export function AccountsStackedChart({ accounts, data }: AccountsStackedChartPro
           <XAxis
             dataKey="date"
             {...AXIS_PROPS}
-            tickFormatter={(value) => new Date(value).toLocaleDateString(locale, { month: 'short' })}
+            tickFormatter={(value) => capitalizeFirst(new Date(value).toLocaleDateString(locale, { month: 'short' }), locale)}
           />
           <YAxis
             {...AXIS_PROPS}

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { NativeSelect } from '@/components/shared/NativeSelect'
 import { useTranslation } from 'react-i18next'
 import { Plus, Pencil, Trash2, Wallet } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
@@ -14,7 +15,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -69,17 +69,16 @@ function EnvelopeForm({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>
             {editing ? t('budget.envelope.edit') : t('budget.envelope.add')}
           </DialogTitle>
-          <DialogDescription>{t('budget.envelope.formHint')}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="env-cat">{t('budget.envelope.category')}</Label>
-            <select
+            <NativeSelect
               id="env-cat"
               value={categoryId}
               disabled={editing != null}
@@ -90,7 +89,7 @@ function EnvelopeForm({
               {options.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
           <div className="space-y-2">
             <Label htmlFor="env-limit">{t('budget.envelope.monthlyLimit')}</Label>
@@ -122,7 +121,7 @@ function EnvelopeRow({ budget, onEdit, onDelete }: {
   const percent = formatPercent(budget.percent, { fractionDigits: 0 })
   const barTone = budget.overBudget
     ? 'bg-destructive'
-    : budget.percent >= 80 ? 'bg-amber-500' : 'bg-primary'
+    : budget.percent >= 80 ? 'bg-foreground/75' : 'bg-primary'
 
   return (
     <Card>
@@ -193,8 +192,7 @@ export function EnvelopesTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{t('budget.envelope.subtitle')}</p>
+      <div className="flex justify-end">
         <Button size="sm" onClick={openAdd}>
           <Plus className="size-4" /> {t('budget.envelope.add')}
         </Button>
@@ -210,10 +208,16 @@ export function EnvelopesTab() {
       )}
 
       {budgets && budgets.length === 0 && (
-        <EmptyState icon={<Wallet className="size-10" />}
-          title={t('budget.envelope.empty')}
-          description={t('budget.envelope.emptyHint')}
-          action={{ label: t('budget.envelope.add'), onClick: openAdd }} />
+        <Card>
+          <CardContent>
+            <EmptyState
+              className="py-8"
+              icon={<Wallet className="size-10" />}
+              title={t('budget.envelope.empty')}
+              description={t('budget.envelope.emptyHint')}
+            />
+          </CardContent>
+        </Card>
       )}
 
       {budgets && budgets.length > 0 && (

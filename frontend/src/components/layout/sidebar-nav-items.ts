@@ -15,10 +15,7 @@ export const FAMILY_NAV_ITEM = {
   descKey: 'nav.family.desc',
 } as const
 
-// The "classic" sidebar style predates the /budget and /family additions and
-// used to carry Settings as its own nav item (moved into the profile menu
-// post-PR29) — restore that position when the classic style is selected.
-export const CLASSIC_SETTINGS_NAV_ITEM = {
+export const SETTINGS_NAV_ITEM = {
   path: '/settings',
   icon: Settings,
   labelKey: 'nav.settings',

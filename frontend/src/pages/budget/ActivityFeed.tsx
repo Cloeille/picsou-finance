@@ -36,7 +36,7 @@ function ActivityRow({ entry }: { entry: RecurringActivity }) {
       <div className="min-w-0 flex-1 basis-40">
         <div className="flex items-center gap-1.5">
           {isPriceChange
-            ? <TrendingUp className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+            ? <TrendingUp className="size-3.5 shrink-0 text-rose-600 dark:text-rose-400" />
             : <Sparkles className="size-3.5 shrink-0 text-violet-600 dark:text-violet-400" />}
           <p className="truncate font-medium">{entry.label}</p>
         </div>

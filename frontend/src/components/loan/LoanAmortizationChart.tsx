@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Area, AreaChart, CartesianGrid, ReferenceLine, XAxis, YAxis } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/chart'
-import { localeFromLanguage } from '@/lib/utils'
+import { localeFromLanguage, capitalizeFirst } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
 import { MONEY_AXIS_WIDTH } from '@/lib/money'
 import type { LoanInstallment } from '@/types/api'
@@ -42,9 +42,7 @@ function AmortizationTooltip({ active, payload, labels }: {
   const money = useMoney()
   if (!active || !payload?.length) return null
   const item = payload[0]
-  const dateStr = new Date(item.payload.date).toLocaleDateString(labels.locale, {
-    month: 'long', year: 'numeric',
-  })
+  const dateStr = capitalizeFirst(new Date(item.payload.date).toLocaleDateString(labels.locale, { month: 'long', year: 'numeric' }), labels.locale)
   return (
     <div className="rounded-xl bg-popover px-3 py-2.5 text-xs text-popover-foreground shadow-lg ring-1 ring-foreground/5 dark:ring-foreground/10">
       <div className="mb-1.5 font-medium capitalize">{dateStr}</div>
@@ -86,7 +84,7 @@ export function LoanAmortizationChart({ schedule }: LoanAmortizationChartProps) 
   }), [t, i18n.resolvedLanguage, i18n.language])
 
   const xAxisFormatter = (value: string) =>
-    new Date(value).toLocaleDateString(labels.locale, { month: 'short', year: '2-digit' })
+    capitalizeFirst(new Date(value).toLocaleDateString(labels.locale, { month: 'short', year: '2-digit' }), labels.locale)
 
   if (points.length === 0) return null
 

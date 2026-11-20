@@ -99,7 +99,6 @@ describe('AppSidebar profile switcher', () => {
     listMembers.mockResolvedValue([])
     useAuthStore.getState().logout()
     useAppStore.getState().setDemoMode(false)
-    useAppStore.getState().setSidebarStyle('current')
     useAppStore.getState().setHideAmounts(false)
     useProfileStore.getState().reset()
   })
@@ -110,10 +109,10 @@ describe('AppSidebar profile switcher', () => {
     renderSidebar()
 
     await screen.findByText('Robin')
-    expect(screen.getByRole('link', { name: 'nav.settings' })).toHaveAttribute('href', '/settings')
 
     openAccountMenu()
-    expect(await screen.findByRole('menuitem', { name: 'settings.logout' })).toBeInTheDocument()
+    expect(await screen.findByRole('menuitem', { name: 'nav.settings' })).toHaveAttribute('href', '/settings')
+    expect(screen.getByRole('menuitem', { name: 'settings.logout' })).toBeInTheDocument()
     expect(screen.queryByRole('menuitemradio')).not.toBeInTheDocument()
     expect(listMembers).not.toHaveBeenCalled()
   })
@@ -148,56 +147,14 @@ describe('AppSidebar profile switcher', () => {
   })
 })
 
-describe('AppSidebar classic style', () => {
+
+describe('AppSidebar account menu sync entry', () => {
+  const side = 'top'
   beforeEach(() => {
     listMembers.mockReset()
     listMembers.mockResolvedValue([])
     useAuthStore.getState().logout()
     useAppStore.getState().setDemoMode(false)
-    useAppStore.getState().setSidebarStyle('classic')
-    useAppStore.getState().setHideAmounts(false)
-    useProfileStore.getState().reset()
-  })
-
-  it('labels the account trigger as the account (not profile switcher) for a non-admin, and hides profile switching', async () => {
-    useAuthStore.getState().login({ username: 'robin', role: 'MEMBER', memberId: 7, displayName: 'Robin' })
-
-    renderSidebar()
-
-    await screen.findByText('Robin')
-    expect(screen.getByRole('button', { name: 'nav.account' })).toBeInTheDocument()
-
-    openAccountMenu('nav.account')
-    expect(await screen.findByRole('menuitem', { name: 'settings.logout' })).toBeInTheDocument()
-    expect(screen.queryByRole('menuitemradio')).not.toBeInTheDocument()
-    expect(listMembers).not.toHaveBeenCalled()
-  })
-
-  it('labels the account trigger as the profile switcher for an admin, and exposes profile choices as radio items', async () => {
-    listMembers.mockResolvedValue([
-      member({ id: 2, displayName: 'Lou', managed: true, activated: false }),
-    ])
-    useAuthStore.getState().login({ username: 'chloe', role: 'ADMIN', memberId: 1, displayName: 'Chloe' })
-    renderSidebar()
-
-    await screen.findByText('Chloe')
-    expect(screen.getByRole('button', { name: 'nav.switchProfile' })).toBeInTheDocument()
-
-    openAccountMenu('nav.switchProfile')
-    expect(await screen.findByRole('menuitemradio', { name: /Lou/ })).toBeInTheDocument()
-  })
-})
-
-describe.each([
-  { style: 'current' as const, side: 'top' },
-  { style: 'classic' as const, side: 'bottom' },
-])('AppSidebar account menu sync entry ($style style)', ({ style, side }) => {
-  beforeEach(() => {
-    listMembers.mockReset()
-    listMembers.mockResolvedValue([])
-    useAuthStore.getState().logout()
-    useAppStore.getState().setDemoMode(false)
-    useAppStore.getState().setSidebarStyle(style)
     useAppStore.getState().setHideAmounts(false)
     useProfileStore.getState().reset()
     useAuthStore.getState().login({ username: 'robin', role: 'MEMBER', memberId: 7, displayName: 'Robin' })
@@ -236,31 +193,27 @@ describe('AppSidebar privacy toggle', () => {
     listMembers.mockResolvedValue([])
     useAuthStore.getState().logout()
     useAppStore.getState().setDemoMode(false)
-    useAppStore.getState().setSidebarStyle('current')
     useAppStore.getState().setHideAmounts(false)
     useProfileStore.getState().reset()
   })
 
-  it('hides and reveals every amount in the app, and says which action it offers', () => {
+  it('hides and reveals every amount in the app from the account menu', async () => {
     renderSidebar()
 
-    // The label names the action, not the state -- the icon already carries the state.
-    const button = screen.getByRole('button', { name: 'nav.hideAmounts' })
-    expect(button).toHaveAttribute('aria-pressed', 'false')
-
-    fireEvent.click(button)
+    openAccountMenu()
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'nav.hideAmounts' }))
 
     expect(useAppStore.getState().hideAmounts).toBe(true)
-    const pressed = screen.getByRole('button', { name: 'nav.showAmounts' })
-    expect(pressed).toHaveAttribute('aria-pressed', 'true')
 
-    fireEvent.click(pressed)
+    openAccountMenu()
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'nav.showAmounts' }))
     expect(useAppStore.getState().hideAmounts).toBe(false)
   })
 
-  it('persists the choice, because a refresh mid-demo must not reveal anything', () => {
+  it('persists the choice, because a refresh mid-demo must not reveal anything', async () => {
     renderSidebar()
-    fireEvent.click(screen.getByRole('button', { name: 'nav.hideAmounts' }))
+    openAccountMenu()
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'nav.hideAmounts' }))
 
     // Written deliberately: `partialize` in app-store is an allowlist, so leaving the field out
     // fails silently -- no type error, no runtime error, the setting simply does not survive a

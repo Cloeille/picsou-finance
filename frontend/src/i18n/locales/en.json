@@ -31,7 +31,8 @@
     "currency": "EUR",
     "category": "Category",
     "done": "Done",
-    "labelColon": "{{label}}:"
+    "labelColon": "{{label}}:",
+    "notFound": "Item not found."
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -152,7 +153,18 @@
       "net": "Net worth evolution",
       "gross": "Gross assets evolution",
       "financial": "Financial assets evolution"
-    }
+    },
+    "viewAllHistory": "View all-time",
+    "rangeTitles": {
+      "24H": "Last 24 hours",
+      "7D": "Last 7 days",
+      "1M": "Last month",
+      "3M": "Last 3 months",
+      "YTD": "Year to date",
+      "1Y": "Last 12 months",
+      "ALL": "All history"
+    },
+    "distributionTitle": "Account breakdown"
   },
   "transactions": {
     "detail": "Transaction detail",
@@ -304,10 +316,21 @@
       "REAL_ESTATE": "Real estate",
       "RECEIVABLES": "Receivables",
       "DEBTS": "Debts",
-      "OTHER": "Other"
+      "OTHER": "Other",
+      "more": "More"
     },
     "showClosedLoans": "Show closed loans",
     "hideClosedLoans": "Hide closed loans",
+    "reorder": "Reorder",
+    "doneReordering": "Done",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "collapseAccount": "Collapse account",
+    "expandAccount": "Expand account",
+    "collapsedRecap": "{{count}} collapsed account",
+    "collapsedRecap_other": "{{count}} collapsed accounts",
+    "collapsedHint": "Still counted in every total and chart.",
+    "manageCollapsed": "Manage",
     "fees": "Fees",
     "export": {
       "button": "Export data",
@@ -365,7 +388,10 @@
       "unknown": "Set your compulsory monthly expenses to define your emergency fund target.",
       "dailyCash": "Your current accounts hold",
       "dailyCashHint": "counted neither in the cushion nor in the allocation.",
-      "inPassbooks": "in savings passbooks."
+      "inPassbooks": "in savings passbooks.",
+      "cardTitle": "Safety net",
+      "configureCta": "Set monthly expenses",
+      "dailyCashNote": "in checking accounts (excluded from the safety net)."
     },
     "targets": {
       "title": "My allocation targets",
@@ -396,7 +422,8 @@
         "bar": "Bars",
         "donut": "Donut",
         "treemap": "Treemap"
-      }
+      },
+      "pendingProfiles": "Sector and country breakdowns will appear once your holdings' profiles have been analyzed. Click Refresh profiles below or classify them manually."
     },
     "projection": {
       "title": "Wealth projection",
@@ -421,7 +448,8 @@
       "tier": "Tier",
       "today": "Today",
       "atHorizon": "In {{count}} years",
-      "atAge": "age {{age}}"
+      "atAge": "age {{age}}",
+      "referenceAt": "Projected at {{count}} years (reference)"
     },
     "classification": {
       "title": "Classify this security",
@@ -452,7 +480,14 @@
       "SINGLE_ASSET_CONCENTRATION": "{{label}} is {{percent}} of your wealth — a single asset carries most of the risk.",
       "EMPTY_TIER": "Nothing at all in {{label}}: this tier is empty, not merely under target.",
       "CUSHION_OVERFUNDED": "{{value}} beyond your cushion target — money available to put elsewhere."
-    }
+    },
+    "tabs": {
+      "pyramid": "Pyramid",
+      "diversification": "Diversification",
+      "projection": "Projection"
+    },
+    "alertsTitle": "Key observations",
+    "allocationCardTitle": "Allocation by asset class"
   },
   "accountTypes": {
     "checking": "Checking",
@@ -902,7 +937,10 @@
       "remaining": "remaining",
       "over": "over by",
       "unallocated": "Unallocated",
-      "toggle": "Show the position breakdown"
+      "toggle": "Show the position breakdown",
+      "amountPlaceholder": "Amount (€)",
+      "missingAmount": "Enter an amount for each selected holding.",
+      "splitEqually": "Split equally"
     },
     "savingsRate": {
       "title": "Savings rate",
@@ -911,7 +949,8 @@
       "benchmark": "The average savings rate of French households sits at around {{rate}} of their gross disposable income",
       "needsIncome": "Add your monthly net before tax and your withholding rate to see your savings rate.",
       "goToSettings": "Go to settings"
-    }
+    },
+    "objectiveShort": "Target"
   },
   "budget": {
     "surtitle": "FINANCES",
@@ -959,7 +998,7 @@
     },
     "overview": {
       "netThisCycle": "Net this cycle",
-      "incomeVsExpense": "{{income}} € in · {{expense}} € out",
+      "incomeVsExpense": "{{income}} in · {{expense}} out",
       "envelopes": "Envelopes",
       "onTrack": "Everything on track",
       "overBudget": "{{count}} envelope over budget",
@@ -968,7 +1007,7 @@
       "upcomingCount": "{{count}} payment due",
       "upcomingCount_other": "{{count}} payments due",
       "investable": "Savings & invest.",
-      "contributedThisCycle": "{{amount}} € contributed this cycle",
+      "contributedThisCycle": "{{amount}} contributed this cycle",
       "toCategorize": "{{count}} transaction to categorize",
       "toCategorize_other": "{{count}} transactions to categorize",
       "topEnvelopes": "Most-used envelopes",
@@ -1103,7 +1142,15 @@
       "aiProgress": "AI categorizing… {{processed}}/{{total}}",
       "aiDone": "AI done: {{applied}} applied, {{suggested}} suggested",
       "createRule": "Create rule",
-      "editRule": "Edit rule"
+      "editRule": "Edit rule",
+      "configureAi": "Configure AI",
+      "aiSettings": "AI settings",
+      "searchPlaceholder": "Search transactions...",
+      "incoming": "Incoming",
+      "outgoing": "Outgoing",
+      "incomeGroup": "Income",
+      "expenseGroup": "Expenses",
+      "automate": "Automate"
     },
     "category": {
       "title": "Categories",
@@ -1209,6 +1256,13 @@
       "banquePopulaire": "Current account, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, term deposit, cooperative shares and PER at Banque Populaire",
       "lbp": "Current account, Livret A and LEP at La Banque Postale",
       "bnp": "Current accounts, savings, securities and life insurance at BNP Paribas or Hello bank!"
+    },
+    "categories": {
+      "all": "All",
+      "banks": "Banks",
+      "investing": "Brokerage & Savings",
+      "crypto": "Crypto",
+      "manual": "Wealth & Manual"
     }
   },
   "sync": {
@@ -2195,6 +2249,15 @@
         "clear": "Clear",
         "validate": "Validate"
       }
+    },
+    "searchPlaceholder": "Search a bank, broker, or import...",
+    "categoriesLabel": "Sync categories",
+    "categories": {
+      "all": "All",
+      "banks": "Banks",
+      "investing": "Brokerage & Savings",
+      "cryptoAndWealth": "Crypto & Wealth",
+      "imports": "Imports & Visibility"
     }
   },
   "settings": {
@@ -2212,9 +2275,6 @@
     "dateFormat": "Date format",
     "dateFormatLocale": "Localized",
     "dateFormatIso": "DD-MM-YYYY",
-    "sidebarStyle": "Sidebar style",
-    "sidebarStyleCurrent": "Current",
-    "sidebarStyleClassic": "Classic",
     "account": "Account",
     "accountDescription": "Manage your account",
     "username": "Username",
@@ -2291,7 +2351,7 @@
       "birthDate": "Date of birth",
       "currentAge": "{{age}} years old",
       "retirementAge": "Target retirement age",
-      "marginalTaxRate": "Marginal tax rate",
+      "marginalTaxRate": "Marginal tax rate (%)",
       "householdStatus": "Household",
       "household": {
         "SINGLE": "Single",
@@ -2314,7 +2374,12 @@
         "DYNAMIC": "Dynamic",
         "AGGRESSIVE": "Aggressive"
       },
-      "saved": "Profile saved"
+      "saved": "Profile saved",
+      "groups": {
+        "personal": "Personal & household",
+        "taxAndIncome": "Income & taxes",
+        "investing": "Savings & investing"
+      }
     },
     "signInMethods": {
       "title": "Sign-in methods",
@@ -2341,7 +2406,22 @@
       "linkTitle": "Link a {{provider}} account",
       "linkDesc": "Confirm your identity, then sign in with the {{provider}} account to link.",
       "linkMfaNote": "When you sign in with {{provider}}, Picsou doesn't ask for your authenticator code: a second factor is then the sign-in provider's job. Password sign-ins still ask for the code, except on a trusted device."
-    }
+    },
+    "tabs": {
+      "appearance": "Appearance",
+      "profile": "Profile & Account",
+      "security": "Security",
+      "api": "API & Apps",
+      "system": "Workspace & System"
+    },
+    "profilePhoto": "Profile photo",
+    "profilePhotoUpload": "Choose a photo",
+    "profilePhotoChange": "Change photo",
+    "profilePhotoRemove": "Remove",
+    "profilePhotoInvalid": "Please select a valid image (PNG, JPG, or WebP).",
+    "usernameTooShort": "Username must be at least 3 characters.",
+    "usernameInvalidChars": "Use only letters, numbers, hyphens, or underscores.",
+    "usernameTaken": "This username is already taken."
   },
   "accessKeys": {
     "sectionTitle": "Access keys & MCP",
@@ -2560,7 +2640,18 @@
       "saving": "Saving…",
       "saved": "Saved",
       "maxConcurrency": "Parallel requests",
-      "maxConcurrencyHint": "How many AI calls to run at once (1–16). Lower for local Ollama."
+      "maxConcurrencyHint": "How many AI calls to run at once (1–16). Lower for local Ollama.",
+      "addProvider": "Add provider",
+      "configureProvider": "Configure provider",
+      "editProvider": "Edit provider",
+      "removeProvider": "Remove provider",
+      "removeProviderConfirm": "AI categorization will be disabled and the saved API key will be removed.",
+      "statusActive": "Active",
+      "apiKeySaved": "API key saved",
+      "apiKeyMissing": "No API key",
+      "apiKeyPlaceholderKeep": "•••••••••••• (leave blank to keep)",
+      "parallelRequests": "{{count}} parallel requests",
+      "empty": "No AI provider configured yet."
     },
     "security": {
       "title": "Security",
@@ -2611,6 +2702,11 @@
         "copy": "Copy public key",
         "copied": "Copied!",
         "download": "Download public.pem"
+      },
+      "missing": {
+        "applicationId": "the application ID",
+        "redirectUri": "the redirect URI",
+        "privateKey": "the private key"
       }
     },
     "integrations": {
@@ -2692,6 +2788,12 @@
       "updateTitle": "Update available",
       "releaseNotes": "Release notes",
       "later": "Later"
+    },
+    "tabs": {
+      "members": "Members & Security",
+      "integrations": "Banks & Integrations",
+      "ai": "AI & Categorization",
+      "system": "Diagnostics & System"
     }
   },
   "error": {
@@ -2770,7 +2872,7 @@
     ],
     "intro": {
       "title": "Welcome to Picsou.",
-      "subtitle": "Let's set you up in about 2 minutes.",
+      "subtitle": "Your personal dashboard to track bank accounts, investments, crypto, and net worth, self-hosted privately on your own machine.",
       "cta": "Get started",
       "language": "Language",
       "skip": "Skip the animation",
@@ -2778,7 +2880,7 @@
     },
     "admin": {
       "title": "Create your admin account",
-      "subtitle": "This is the first — and only required — account on Picsou. You can invite others from Settings later.",
+      "subtitle": "This is the first and only required account on Picsou. You can invite others from Settings later.",
       "username": "Username",
       "usernameHint": "Choose a username with at least 3 characters.",
       "password": "Password",
@@ -2819,16 +2921,16 @@
     },
     "integrations": {
       "title": "Pick your integrations",
-      "subtitle": "Choose what to enable now. You can always change this later from Settings → Integrations.",
+      "subtitle": "Choose what to enable now. You can always change this later in the Integrations section of Settings.",
       "continue": "Continue",
-      "skipAll": "Skip all — I'll configure later",
+      "skipAll": "Skip all and configure later",
       "cards": {
         "enablebanking": {
           "title": "Enable Banking",
-          "description": "Connect Revolut, BoursoBank, Trade Republic and 2000+ European banks via PSD2. Takes about 5 minutes — we'll guide you."
+          "description": "Connect Revolut, BoursoBank, Trade Republic and 2000+ European banks via PSD2. Takes about 5 minutes, we'll guide you."
         },
         "boursobank": {
-          "title": "BoursoBank (sidecar)",
+          "title": "BoursoBank",
           "description": "Direct sync via the bundled bourso-auth container. No external account needed."
         },
         "traderepublic": {
@@ -2858,20 +2960,35 @@
         "crypto": {
           "title": "Crypto exchanges",
           "description": "Track Binance and friends via read-only API keys, encrypted at rest."
+        },
+        "bnp": {
+          "title": "BNP Paribas / Hello bank!",
+          "description": "Sync your checking accounts, savings, PEA, brokerage, life insurance, and loans with your BNP or Hello bank! login."
         }
       },
       "hint": {
-        "none": "Nothing to enable now? That's fine — you can skip and configure everything later.",
+        "none": "Nothing to enable now? That's fine, you can skip and configure everything later.",
         "some": "{{count}} integration selected. We'll walk you through each one.",
         "some_other": "{{count}} integrations selected. We'll walk you through each one."
+      },
+      "searchPlaceholder": "Search a bank, broker, or platform...",
+      "clearSearch": "Clear search",
+      "categoriesLabel": "Integration categories",
+      "empty": "No integration matches your search.",
+      "resetFilter": "Show all integrations",
+      "categories": {
+        "all": "All",
+        "banks": "Banks",
+        "brokerage": "Brokerage",
+        "wealth": "Wealth & Crypto"
       }
     },
     "enablebanking": {
-      "substep": "Step {{current}} of {{total}} — Enable Banking",
+      "substep": "Step {{current}} of {{total}} · Enable Banking",
       "skip": "Skip this integration",
       "back": "Back",
       "continue": "Continue",
-      "appIdFormat": "The Application ID doesn't look right — it should be a 32–36 character UUID.",
+      "appIdFormat": "The Application ID doesn't look right: it should be a 32 to 36 character UUID.",
       "redirectFormat": "Must look like http(s)://host[:port]/path",
       "explain": {
         "title": "What is Enable Banking?",
@@ -2883,7 +3000,7 @@
         "psd2Popover": "What is PSD2?",
         "psd2Body": "PSD2 is the EU regulation that lets licensed aggregators read your bank account with your consent. Your credentials never leave your bank.",
         "prodWarningTitle": "Create a PRODUCTION application",
-        "prodWarningBody": "In your Enable Banking dashboard, make sure to choose \"Production\" when creating the application — the SANDBOX only gives you access to fake test banks, not your real ones.",
+        "prodWarningBody": "In your Enable Banking dashboard, make sure to choose \"Production\" when creating the application: SANDBOX only gives you access to fake test banks, not your real ones.",
         "psd2ScopeNote": "Enable Banking only syncs current accounts (PSD2 limitation). For PEA, life insurance, savings accounts, etc.: use the dedicated integrations (Trade Republic, Boursobank, Finary) or add them manually.",
         "magicLinkHint": "Enter your email on the sign-in page. Enable Banking creates your account on first sign-in and sends you a one-time sign-in link."
       },
@@ -2975,32 +3092,32 @@
     },
     "tr": {
       "title": "Trade Republic is ready to go.",
-      "body": "There's nothing to configure here — you'll sign in with your Trade Republic credentials when you add the account from Picsou.",
-      "tip": "Head to Accounts → Add account → Trade Republic once setup is done.",
+      "body": "There's nothing to configure here: you'll sign in with your Trade Republic credentials when you add the account from Picsou.",
+      "tip": "Once setup is done, open Accounts, click Add account, and choose Trade Republic.",
       "cta": "Got it",
       "skip": "Don't enable Trade Republic"
     },
     "revolut": {
       "surtitle": "REVOLUT",
       "title": "Revolut is ready to go.",
-      "body": "Nothing to configure here — you'll connect Revolut with your phone number and passcode, then an approval from your mobile app, when you add the account.",
-      "tip": "Head to Accounts → Add account → Revolut once setup is done.",
+      "body": "Nothing to configure here: you'll connect Revolut with your phone number, passcode, and mobile app approval when you add the account.",
+      "tip": "Once setup is done, open Accounts, click Add account, and choose Revolut.",
       "cta": "Got it",
       "skip": "Don't enable Revolut"
     },
     "finary": {
       "title": "Finary is ready to go.",
-      "body": "Nothing to configure now — you'll sign in with your Finary account when you add it from Picsou. TOTP codes are handled at add-time if your account requires them.",
-      "tip": "Head to Accounts → Add account → Finary once setup is done.",
+      "body": "Nothing to configure now: you'll sign in with your Finary account when you add it from Picsou. TOTP codes are handled at add-time if your account requires them.",
+      "tip": "Once setup is done, open Accounts, click Add account, and choose Finary.",
       "cta": "Got it",
       "skip": "Don't enable Finary"
     },
     "crypto": {
       "title": "Encrypt your exchange API keys",
-      "body": "Your exchange API keys (Binance, Meria...) are encrypted at rest. Picsou can generate the encryption key for you — it stays on your disk and is never transmitted.",
+      "body": "Your exchange API keys (Binance, Meria...) are encrypted at rest. Picsou can generate the encryption key for you: it stays on your disk and is never transmitted.",
       "generateCta": "Generate a key for me",
       "generating": "Generating...",
-      "existed": "Your encryption key is already configured — nothing to do.",
+      "existed": "Your encryption key is already configured, nothing to do.",
       "created": "Encryption key generated.",
       "pathLabel": "Source",
       "continue": "Continue",
@@ -3011,7 +3128,7 @@
       "title": "Picsou is ready.",
       "subtitle": "Welcome, {{name}}.",
       "summaryTitle": "What's enabled",
-      "noIntegrations": "You didn't enable any integrations yet — that's fine, you can do that anytime from Settings → Integrations.",
+      "noIntegrations": "You didn't enable any integrations yet. That's fine, you can add them anytime from the Integrations section of Settings.",
       "completing": "Wrapping up...",
       "cta": "Open my dashboard",
       "loginFallback": "Go to login",
@@ -3026,10 +3143,17 @@
     },
     "lbp": {
       "title": "La Banque Postale is ready.",
-      "body": "Connect your account after setup from Accounts → Add an account. You will enter your identifier, then your six digits on the bank's keypad.",
+      "body": "Connect your account after setup by opening Accounts and clicking Add an account. You will enter your identifier, then your six digits on the bank's keypad.",
       "tip": "Picsou only stores an encrypted session and, if you ask, your identifier. The password and keypad positions are never stored.",
       "cta": "Enable La Banque Postale",
       "skip": "Don't enable La Banque Postale"
+    },
+    "bnp": {
+      "title": "BNP Paribas & Hello bank! are ready.",
+      "body": "Connect your account after setup by opening Accounts and clicking Add an account. You will sign in directly on your bank's portal.",
+      "tip": "Picsou only stores an encrypted session. Your password is never saved.",
+      "cta": "Enable BNP Paribas",
+      "skip": "Skip BNP Paribas"
     }
   },
   "pockets": {
@@ -3105,11 +3229,6 @@
     "proceeds": "Proceeds",
     "avgCost": "Avg cost",
     "qtySold": "Qty sold"
-  },
-  "sidebarStylePrompt": {
-    "title": "Pick your sidebar style",
-    "description": "Two layouts to choose from — you can switch anytime.",
-    "hint": "Changeable anytime in Settings > Appearance."
   },
   "property": {
     "kind": {
@@ -3476,5 +3595,20 @@
     "SSO_DISABLED": "Single sign-on is not enabled on this instance.",
     "SELF_UNLINK_FORBIDDEN": "To unlink your own SSO identities, use Sign-in methods in Settings.",
     "generic": "Single sign-on failed. Please try again."
+  },
+  "whatsNew": {
+    "title": "What's new",
+    "subtitle": "Highlights from the latest Picsou releases.",
+    "starGithub": "Star on GitHub",
+    "starShort": "Star on GitHub",
+    "viewReleaseNotes": "View release notes",
+    "fullChangelog": "All releases",
+    "updateAvailable": "Update available: {{version}}",
+    "upToDate": "Up to date",
+    "checkUpdates": "Check for updates",
+    "howToUpdate": "How to update",
+    "updateInstructions": "To update your Docker instance, run:",
+    "copied": "Copied",
+    "copy": "Copy"
   }
 }

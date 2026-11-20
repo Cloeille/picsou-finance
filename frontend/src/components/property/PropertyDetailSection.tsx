@@ -85,7 +85,7 @@ export function PropertyDetailSection({ account }: PropertyDetailSectionProps) {
           <CardTitle className="text-base">{t('property.details.title')}</CardTitle>
           {isOwner && (
             <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-              <Pencil className="mr-2 size-4" />
+              <Pencil className="size-4" />
               {t('common.edit')}
             </Button>
           )}
@@ -136,7 +136,7 @@ export function PropertyDetailSection({ account }: PropertyDetailSectionProps) {
           </div>
 
           {isCoOwned && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               {t('property.details.coOwnedNote', { percent: formatPercent(Number(account.sharePercent)) })}
             </p>
           )}

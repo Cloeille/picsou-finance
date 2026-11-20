@@ -195,7 +195,7 @@ export function formatQuantity(value: number, locale = getLocale()): string {
   return withDrawableSpaces(new Intl.NumberFormat(normalizeIntlLocale(locale), { maximumFractionDigits: 8 }).format(value))
 }
 
-function capitalizeFirstCharacter(value: string, locale = getLocale()): string {
+export function capitalizeFirst(value: string, locale = getLocale()): string {
   const [first = '', ...rest] = Array.from(value)
   return first.toLocaleUpperCase(normalizeIntlLocale(locale)) + rest.join('')
 }
@@ -203,7 +203,7 @@ function capitalizeFirstCharacter(value: string, locale = getLocale()): string {
 export function todayLabel(locale = getLocale(), date = new Date()): string {
   const safeLocale = normalizeIntlLocale(locale)
   const label = new Intl.DateTimeFormat(safeLocale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(date)
-  return capitalizeFirstCharacter(label, safeLocale)
+  return capitalizeFirst(label, safeLocale)
 }
 
 const graphemeSegmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null
@@ -246,7 +246,8 @@ export function formatLocalDate(
   }).formatToParts(d)
   // French writes the first of the month as an ordinal ("1er octobre"); Intl has no option for it.
   const firstOrdinal = d.getDate() === 1 && locale.toLowerCase().startsWith('fr')
-  return parts.map((p) => (p.type === 'day' && firstOrdinal ? '1er' : p.value)).join('')
+  const formatted = parts.map((p) => (p.type === 'day' && firstOrdinal ? '1er' : p.value)).join('')
+  return options.weekday ? capitalizeFirst(formatted, locale) : formatted
 }
 
 /**

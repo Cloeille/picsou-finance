@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
+import { chooseSelectOption, getSelectOptions } from '@/test/radix-select'
 
 const { apiGet, apiPost, apiDelete } = vi.hoisted(() => ({
   apiGet: vi.fn(),
@@ -59,7 +60,7 @@ const regionSelect = () => screen.findByLabelText('sync.banquePopulaire.region')
 const connectButton = () => screen.getByText('sync.banquePopulaire.connect').closest('button')!
 
 async function fillForm({ region = 'RIVES_DE_PARIS', customerId = '12345678' } = {}) {
-  fireEvent.change(await regionSelect(), { target: { value: region } })
+  chooseSelectOption(await regionSelect(), region)
   fireEvent.change(screen.getByLabelText('sync.banquePopulaire.customerId'), {
     target: { value: customerId },
   })
@@ -97,19 +98,18 @@ describe('BanquePopulaireTab', () => {
       const select = await regionSelect()
       const identifier = screen.getByLabelText('sync.banquePopulaire.customerId')
 
-      expect(select.tagName).toBe('SELECT')
-      expect(select).toBeRequired()
-      expect(select).toHaveValue('')
+      expect(select).toHaveAttribute('role', 'combobox')
+      expect(select).toHaveAttribute('data-value', '')
       expect(select.compareDocumentPosition(identifier) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-      const options = within(select).getAllByRole('option')
+      const options = getSelectOptions(select)
       expect(options[0]).toHaveTextContent('sync.banquePopulaire.regionPlaceholder')
-      expect(options[0]).toBeDisabled()
-      expect(options.slice(1).map(o => (o as HTMLOptionElement).value)).toEqual([
+      expect(options[0]).toHaveAttribute('data-disabled')
+      expect(options.slice(1).map(o => o.getAttribute('data-option-value'))).toEqual([
         'ALSACE_LORRAINE_CHAMPAGNE', 'AQUITAINE_CENTRE_ATLANTIQUE', 'AUVERGNE_RHONE_ALPES',
         'BOURGOGNE_FRANCHE_COMTE', 'BRED', 'GRAND_OUEST', 'MEDITERRANEE', 'NORD', 'OCCITANE',
         'RIVES_DE_PARIS', 'SUD', 'VAL_DE_FRANCE',
       ])
-      expect(within(select).getByRole('option', { name: 'Auvergne Rhône-Alpes' })).toBeInTheDocument()
+      expect(options.map(o => o.textContent)).toContain('Auvergne Rhône-Alpes')
       expect(document.querySelector('input[type="password"]')).toBeNull()
     })
 
@@ -123,7 +123,7 @@ describe('BanquePopulaireTab', () => {
       })
       expect(connectButton()).toBeDisabled()
 
-      fireEvent.change(await regionSelect(), { target: { value: 'BRED' } })
+      chooseSelectOption(await regionSelect(), 'BRED')
       expect(connectButton()).toBeEnabled()
 
       fireEvent.change(screen.getByLabelText('sync.banquePopulaire.customerId'), {
@@ -309,7 +309,7 @@ describe('BanquePopulaireTab', () => {
       await signIn({ region: 'NORD' })
 
       expect(await screen.findByText('sync.banquePopulaire.errors.rateLimited')).toBeInTheDocument()
-      expect(await regionSelect()).toHaveValue('NORD')
+      expect(await regionSelect()).toHaveAttribute('data-value', 'NORD')
       expect(apiPost).toHaveBeenCalledTimes(1)
     })
 

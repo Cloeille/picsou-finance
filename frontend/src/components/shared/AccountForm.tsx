@@ -8,12 +8,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { NumericInput } from '@/components/shared/NumericInput'
 import { DateInput } from '@/components/shared/DateInput'
+import { NativeSelect } from '@/components/shared/NativeSelect'
 import { Label } from '@/components/ui/label'
 import { ColorPicker } from '@/components/shared/ColorPicker'
 import { LogoPicker } from '@/components/shared/LogoPicker'
 import { BankPicker } from '@/components/shared/BankPicker'
 import { parseAmount, getLocale } from '@/lib/utils'
-import { ACCOUNT_TYPES, SELECT_CONTROL_CLASS, SUPPORTED_CURRENCIES } from '@/lib/constants'
+import { ACCOUNT_TYPES, SUPPORTED_CURRENCIES } from '@/lib/constants'
 
 /** RHF setValueAs: empty → undefined (optional), else comma-tolerant number. */
 const toOptionalNumber = (v: unknown): number | undefined =>
@@ -70,7 +71,7 @@ const accountSchema = z.object({
  */
 const OPENING_DATE_TYPES: AccountType[] = ['PEA', 'ASSURANCE_VIE', 'PER']
 
-type AccountFormData = z.infer<typeof accountSchema>
+export type AccountFormData = z.infer<typeof accountSchema>
 
 interface AccountFormProps {
   open: boolean
@@ -210,35 +211,47 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
 
           <div className="space-y-2">
             <Label htmlFor="type">{t('accounts.accountType')}</Label>
-            <select
-              id="type"
-              {...register('type')}
-              className={SELECT_CONTROL_CLASS}
-            >
-              {ACCOUNT_TYPES.map((at) => (
-                <option key={at.value} value={at.value}>
-                  {t(at.labelKey)}
-                </option>
-              ))}
-            </select>
+            <Controller
+              name="type"
+              control={control}
+              render={({ field }) => (
+                <NativeSelect
+                  id="type"
+                  value={field.value}
+                  onChange={(e) => field.onChange(e.target.value)}
+                >
+                  {ACCOUNT_TYPES.map((at) => (
+                    <option key={at.value} value={at.value}>
+                      {t(at.labelKey)}
+                    </option>
+                  ))}
+                </NativeSelect>
+              )}
+            />
           </div>
 
           {selectedType !== 'PEER_LOAN' && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid items-end grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="currency">{t('common.currency')}</Label>
-                <select
-                  id="currency"
-                  {...register('currency')}
-                  className={SELECT_CONTROL_CLASS}
-                  disabled={selectedType === 'SCPI'}
-                >
-                  {currencyOptions.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.label}
-                    </option>
-                  ))}
-                </select>
+                <Controller
+                  name="currency"
+                  control={control}
+                  render={({ field }) => (
+                    <NativeSelect
+                      id="currency"
+                      value={field.value}
+                      onChange={(e) => field.onChange(e.target.value)}
+                      disabled={selectedType === 'SCPI'}
+                    >
+                      {currencyOptions.map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.label}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  )}
+                />
               </div>
               {selectedType !== 'SCPI' && (
                 <div className="space-y-2">
@@ -273,8 +286,8 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
 
           {selectedType !== 'REAL_ESTATE' && selectedType !== 'LOAN' && selectedType !== 'SCPI'
             && selectedType !== 'PEER_LOAN' && (
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
+            <div className="grid items-end grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="min-w-0 space-y-2">
                 <Label htmlFor="provider">{t('accounts.provider')}</Label>
                 <BankPicker
                   id="provider"
@@ -283,7 +296,7 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
                   onChange={handleBankChange}
                 />
               </div>
-              <div className="space-y-2">
+              <div className="min-w-0 space-y-2">
                 <Label htmlFor="ticker">{t('accounts.ticker')}</Label>
                 <Input id="ticker" {...register('ticker')} placeholder="BTC" />
               </div>
@@ -304,22 +317,28 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
               {propertyAccounts.length > 0 && (
                 <div className="space-y-2">
                   <Label htmlFor="linkedAccountId">{t('debt.linkedAccount')}</Label>
-                  <select
-                    id="linkedAccountId"
-                    className={SELECT_CONTROL_CLASS}
-                    {...register('linkedAccountId', {
-                      setValueAs: v => (v === '' || v == null ? undefined : Number(v)),
-                    })}
-                  >
-                    <option value="">{t('debt.noLinkedAsset')}</option>
-                    {propertyAccounts.map(property => (
-                      <option key={property.id} value={property.id}>{property.name}</option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-muted-foreground">{t('debt.linkedAssetHint')}</p>
+                  <Controller
+                    name="linkedAccountId"
+                    control={control}
+                    render={({ field }) => (
+                      <NativeSelect
+                        id="linkedAccountId"
+                        value={field.value != null ? String(field.value) : ''}
+                        onChange={(e) =>
+                          field.onChange(e.target.value === '' ? undefined : Number(e.target.value))
+                        }
+                      >
+                        <option value="">{t('debt.noLinkedAsset')}</option>
+                        {propertyAccounts.map(property => (
+                          <option key={property.id} value={property.id}>{property.name}</option>
+                        ))}
+                      </NativeSelect>
+                    )}
+                  />
+                  <p className="text-sm text-muted-foreground">{t('debt.linkedAssetHint')}</p>
                 </div>
               )}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid items-end grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="borrowedAmount">{t('debt.borrowedAmount')}</Label>
                   <NumericInput
@@ -337,7 +356,7 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid items-end grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="monthlyPayment">{t('debt.monthlyPayment')}</Label>
                   <NumericInput
@@ -355,7 +374,7 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid items-end grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="fileFees">{t('debt.fileFees')}</Label>
                   <NumericInput
@@ -368,7 +387,7 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
                   {/* spacer to keep grid aligned */}
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid items-end grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="startDate">{t('debt.startDate')}</Label>
                   <Controller

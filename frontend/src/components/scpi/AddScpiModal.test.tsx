@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { chooseSelectOption, getSelectOptions } from '@/test/radix-select'
 import { AddScpiModal } from './AddScpiModal'
 
 const { createAccount, updatePosition } = vi.hoisted(() => ({
@@ -47,9 +48,11 @@ describe('AddScpiModal', () => {
     render(<AddScpiModal open onOpenChange={() => {}} />)
 
     const picker = screen.getByLabelText('scpi.seenFund')
-    expect(screen.queryByRole('option', { name: /SOFIDYNAMIC/ })).toBeNull()
-    expect(screen.getByRole('option', { name: /CORUM USA.*scpi.seenFundIgnored/ })).toBeInTheDocument()
-    fireEvent.change(picker, { target: { value: 'CORUM:XL' } })
+    const options = getSelectOptions(picker)
+    expect(options.some(o => /SOFIDYNAMIC/.test(o.textContent ?? ''))).toBe(false)
+    expect(options.some(o => /CORUM USA.*scpi\.seenFundIgnored/.test(o.textContent ?? ''))).toBe(true)
+    fireEvent.keyDown(options[0] ?? picker, { key: 'Escape' })
+    chooseSelectOption(picker, 'CORUM:XL')
     expect(screen.getByLabelText('scpi.name')).toHaveValue('CORUM XL')
     expect(screen.getByLabelText('scpi.corumFundCode')).toHaveValue('XL')
     expect(screen.queryByLabelText(/surface/i)).toBeNull()
@@ -75,7 +78,7 @@ describe('AddScpiModal', () => {
     fireEvent.change(screen.getByLabelText('scpi.name'), { target: { value: 'Example SCPI' } })
     fireEvent.change(screen.getByLabelText('scpi.shareCount'), { target: { value: '10' } })
     fireEvent.change(screen.getByLabelText('scpi.annualDistribution'), { target: { value: '12.5' } })
-    fireEvent.change(screen.getByLabelText('scpi.distributionFrequency'), { target: { value: 'QUARTERLY' } })
+    chooseSelectOption(screen.getByLabelText('scpi.distributionFrequency'), 'QUARTERLY')
     fireEvent.click(screen.getByRole('button', { name: 'scpi.save' }))
 
     await waitFor(() => expect(updatePosition).toHaveBeenCalledWith({

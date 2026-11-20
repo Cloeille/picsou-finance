@@ -970,11 +970,11 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                               </Tooltip>
                             )}
                           </div>
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-sm text-muted-foreground">
                             {t('common.labelColon', { label: t('sync.all.lastSync') })} {formatTimeAgo(connection.lastSyncedAt)}
                           </p>
                           {rowErrors[connection.id] && (
-                            <p className="flex items-center gap-1.5 text-xs text-destructive">
+                            <p className="flex items-center gap-1.5 text-sm text-destructive">
                               <AlertTriangle className="size-3 shrink-0" />
                               {rowErrors[connection.id]}
                             </p>
@@ -1030,11 +1030,11 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                     {/* TR inline auth form */}
                     {isTr && trAuthStep !== 'idle' && !trStatus?.isActive && (
                       <div className="mt-3 border-t pt-3">
-                        <p className="mb-3 text-xs text-muted-foreground">
+                        <p className="mb-3 text-sm text-muted-foreground">
                           {t('sync.all.trSlowWarning')}
                         </p>
                         {trAuthError && (
-                          <p className="mb-3 flex items-center gap-2 text-xs text-destructive">
+                          <p className="mb-3 flex items-center gap-2 text-sm text-destructive">
                             <AlertTriangle className="size-3.5 shrink-0" />
                             {trAuthError}
                           </p>
@@ -1043,7 +1043,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                           <form onSubmit={handleTrInitiate} className="space-y-3">
                             {trReconnecting ? (
                               <div className="space-y-1">
-                                <p className="text-xs text-muted-foreground">
+                                <p className="text-sm text-muted-foreground">
                                   <Smartphone className="size-3 inline-block mr-1" />
                                   {t('sync.tr.reconnectPhone')}
                                 </p>
@@ -1102,7 +1102,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                                 {trAuthenticator ? t('sync.tr.authenticatorCode') : t('sync.tr.tan')}
                               </Label>
                               {trAuthenticator && (
-                                <p className="text-xs text-muted-foreground">{t('sync.tr.authenticatorPrompt')}</p>
+                                <p className="text-sm text-muted-foreground">{t('sync.tr.authenticatorPrompt')}</p>
                               )}
                               <Input
                                 id="tr-modal-tan"
@@ -1144,12 +1144,12 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
             >
               {isSyncAll ? (
                 <>
-                  <Loader2 className="mr-2 size-4 animate-spin" />
+                  <Loader2 className="size-4 animate-spin" />
                   {t('sync.all.syncing')}
                 </>
               ) : (
                 <>
-                  <RefreshCw className="mr-2 size-4" />
+                  <RefreshCw className="size-4" />
                   {t('sync.all.syncAll')}
                 </>
               )}

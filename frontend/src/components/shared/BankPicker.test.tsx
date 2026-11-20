@@ -3,13 +3,14 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 /** Mutable so each test can seed what the institution catalog answers. */
-const { institutionSearch } = vi.hoisted(() => ({
+const { institutionSearch, bankCountries } = vi.hoisted(() => ({
   institutionSearch: { current: { data: undefined as unknown } },
+  bankCountries: { current: { data: ['FR'] as string[] | undefined, isError: false, isSuccess: true } },
 }))
 
 vi.mock('@/features/sync/hooks', () => ({
   useSearchInstitutions: () => institutionSearch.current,
-  useBankCountries: () => ({ data: ['FR'] }),
+  useBankCountries: () => bankCountries.current,
 }))
 
 vi.mock('react-i18next', () => ({
@@ -72,5 +73,15 @@ describe('BankPicker', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Crédit Agricole/ }))
     expect(screen.queryByRole('list')).not.toBeInTheDocument()
+  })
+
+  it('hides the country picker and shows no error when Enable Banking countries fail to load', () => {
+    bankCountries.current = { data: undefined, isError: true, isSuccess: false }
+    institutionSearch.current = { data: undefined }
+    render(<BankPicker value="Trade Republic" onChange={vi.fn()} />)
+
+    expect(screen.getByRole('textbox')).toHaveValue('Trade Republic')
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+    expect(screen.queryByText('sync.banks.countriesLoadError')).not.toBeInTheDocument()
   })
 })

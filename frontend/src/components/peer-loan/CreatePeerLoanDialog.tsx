@@ -87,7 +87,6 @@ export function CreatePeerLoanDialog({
               onChange={(e) => setBeneficiary(e.target.value)}
               maxLength={100}
             />
-            <p className="text-xs text-muted-foreground">{t('peerLoan.fromTransaction.beneficiaryHint')}</p>
           </div>
 
           {error && <p className="text-sm text-destructive" role="alert">{error}</p>}

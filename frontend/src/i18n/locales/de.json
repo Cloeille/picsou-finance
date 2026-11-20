@@ -31,7 +31,8 @@
     "labelColon": "{{label}}:",
     "errorTitle": "Error",
     "skipToContent": "Skip to main content",
-    "category": "Category"
+    "category": "Category",
+    "notFound": "Eintrag nicht gefunden."
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -152,7 +153,18 @@
     "perMonthSuffix": "/Monat",
     "loanParamsUnconfigured": "Parameter nicht konfiguriert",
     "amountDue": "Fälliger Betrag",
-    "dueOn": "Fällig am {{date}}"
+    "dueOn": "Fällig am {{date}}",
+    "viewAllHistory": "Gesamten Zeitraum anzeigen",
+    "rangeTitles": {
+      "24H": "Letzte 24 Stunden",
+      "7D": "Letzte 7 Tage",
+      "1M": "Letzter Monat",
+      "3M": "Letzte 3 Monate",
+      "YTD": "Seit 1. Januar",
+      "1Y": "Letzte 12 Monate",
+      "ALL": "Gesamter Verlauf"
+    },
+    "distributionTitle": "Kontoverteilung"
   },
   "accounts": {
     "corumLifeOperation": {
@@ -284,10 +296,21 @@
       "REAL_ESTATE": "Immobilien",
       "RECEIVABLES": "Forderungen",
       "DEBTS": "Schulden",
-      "OTHER": "Sonstiges"
+      "OTHER": "Sonstiges",
+      "more": "Mehr"
     },
     "showClosedLoans": "Geschlossene Darlehen anzeigen",
     "hideClosedLoans": "Geschlossene Darlehen ausblenden",
+    "reorder": "Neu anordnen",
+    "doneReordering": "Fertig",
+    "moveUp": "Nach oben",
+    "moveDown": "Nach unten",
+    "collapseAccount": "Konto einklappen",
+    "expandAccount": "Konto ausklappen",
+    "collapsedRecap": "{{count}} eingeklapptes Konto",
+    "collapsedRecap_other": "{{count}} eingeklappte Konten",
+    "collapsedHint": "Weiterhin in allen Summen und Diagrammen enthalten.",
+    "manageCollapsed": "Verwalten",
     "fees": "Gebühren",
     "export": {
       "button": "Daten exportieren",
@@ -354,7 +377,10 @@
       "unknown": "Trage deine monatlichen Fixkosten ein, um das Ziel für deinen Notgroschen festzulegen.",
       "dailyCash": "Auf deinen Girokonten liegen",
       "dailyCashHint": "weder im Notgroschen noch in der Aufteilung gezählt.",
-      "inPassbooks": "auf Sparkonten."
+      "inPassbooks": "auf Sparkonten.",
+      "cardTitle": "Sicherheitsrücklage",
+      "configureCta": "Ausgaben festlegen",
+      "dailyCashNote": "auf Girokonten (nicht in der Sicherheitsrücklage enthalten)."
     },
     "targets": {
       "title": "Meine Zielaufteilung",
@@ -385,7 +411,8 @@
         "bar": "Balken",
         "donut": "Ring",
         "treemap": "Kacheln"
-      }
+      },
+      "pendingProfiles": "Branchen- und Länderaufteilungen erscheinen, sobald die Wertpapierprofile analysiert wurden. Klicken Sie unten auf Profile aktualisieren oder klassifizieren Sie sie manuell."
     },
     "projection": {
       "title": "Vermögensprojektion",
@@ -410,7 +437,8 @@
       "tier": "Stufe",
       "today": "Heute",
       "atHorizon": "In {{count}} Jahren",
-      "atAge": "{{age}} Jahre"
+      "atAge": "{{age}} Jahre",
+      "referenceAt": "Prognose in {{count}} Jahren (Referenz)"
     },
     "classification": {
       "title": "Wertpapier einordnen",
@@ -441,7 +469,14 @@
       "SINGLE_ASSET_CONCENTRATION": "{{label}} macht {{percent}} Ihres Vermögens aus — ein einzelner Wert trägt das meiste Risiko.",
       "EMPTY_TIER": "Nichts in {{label}}: diese Stufe ist leer, nicht bloß unter dem Ziel.",
       "CUSHION_OVERFUNDED": "{{value}} über Ihrem Polsterziel — Geld, das anderswo arbeiten könnte."
-    }
+    },
+    "tabs": {
+      "pyramid": "Pyramide",
+      "diversification": "Diversifikation",
+      "projection": "Projektion"
+    },
+    "alertsTitle": "Wichtige Hinweise",
+    "allocationCardTitle": "Aufteilung nach Anlageklasse"
   },
   "accountTypes": {
     "checking": "Girokonto",
@@ -891,7 +926,10 @@
       "remaining": "Rest",
       "over": "überschritten um",
       "unallocated": "Nicht zugeteilt",
-      "toggle": "Aufteilung der Positionen anzeigen"
+      "toggle": "Aufteilung der Positionen anzeigen",
+      "amountPlaceholder": "Betrag (€)",
+      "missingAmount": "Geben Sie für jede ausgewählte Position einen Betrag ein.",
+      "splitEqually": "Gleichmäßig aufteilen"
     },
     "savingsRate": {
       "title": "Sparquote",
@@ -900,7 +938,8 @@
       "benchmark": "Die durchschnittliche Sparquote der Haushalte in Frankreich liegt bei rund {{rate}} ihres verfügbaren Bruttoeinkommens",
       "needsIncome": "Trage dein monatliches Netto vor Steuern und deinen Quellensteuersatz ein, um deine Sparquote zu sehen.",
       "goToSettings": "Zu den Einstellungen"
-    }
+    },
+    "objectiveShort": "Ziel"
   },
   "addAccount": {
     "title": "Konto hinzufügen",
@@ -933,6 +972,13 @@
       "banquePopulaire": "Girokonto, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, Festgeld, Genossenschaftsanteile und PER bei der Banque Populaire",
       "lbp": "Girokonto, Livret A und LEP bei La Banque Postale",
       "bnp": "Girokonten, Sparprodukte, Wertpapiere und Lebensversicherung bei BNP Paribas oder Hello bank!"
+    },
+    "categories": {
+      "all": "Alle",
+      "banks": "Banken",
+      "investing": "Broker & Sparen",
+      "crypto": "Krypto",
+      "manual": "Vermögen & Manuell"
     }
   },
   "sync": {
@@ -1919,6 +1965,15 @@
         "clear": "Löschen",
         "validate": "Bestätigen"
       }
+    },
+    "searchPlaceholder": "Bank, Broker oder Import suchen...",
+    "categoriesLabel": "Synchronisierungskategorien",
+    "categories": {
+      "all": "Alle",
+      "banks": "Banken",
+      "investing": "Broker & Sparen",
+      "cryptoAndWealth": "Krypto & Vermögen",
+      "imports": "Importe & Sichtbarkeit"
     }
   },
   "settings": {
@@ -1936,9 +1991,6 @@
     "dateFormat": "Datumsformat",
     "dateFormatLocale": "Lokalisiert",
     "dateFormatIso": "TT-MM-JJJJ",
-    "sidebarStyle": "Seitenleisten-Stil",
-    "sidebarStyleCurrent": "Aktuell",
-    "sidebarStyleClassic": "Klassisch",
     "account": "Konto",
     "accountDescription": "Verwalte dein Konto",
     "username": "Benutzername",
@@ -2015,7 +2067,7 @@
       "birthDate": "Geburtsdatum",
       "currentAge": "{{age}} Jahre",
       "retirementAge": "Angestrebtes Rentenalter",
-      "marginalTaxRate": "Grenzsteuersatz",
+      "marginalTaxRate": "Grenzsteuersatz (%)",
       "householdStatus": "Haushalt",
       "household": {
         "SINGLE": "Alleinstehend",
@@ -2038,7 +2090,12 @@
         "DYNAMIC": "Dynamisch",
         "AGGRESSIVE": "Offensiv"
       },
-      "saved": "Profil gespeichert"
+      "saved": "Profil gespeichert",
+      "groups": {
+        "personal": "Persönliches & Haushalt",
+        "taxAndIncome": "Einkommen & Steuern",
+        "investing": "Sparen & Investieren"
+      }
     },
     "signInMethods": {
       "title": "Anmeldemethoden",
@@ -2065,7 +2122,22 @@
       "linkTitle": "{{provider}}-Konto verknüpfen",
       "linkDesc": "Bestätige deine Identität und melde dich dann mit dem {{provider}}-Konto an, das du verknüpfen möchtest.",
       "linkMfaNote": "Wenn du dich mit {{provider}} anmeldest, fragt Picsou nicht nach deinem Authenticator-Code: Für den zweiten Faktor ist dann der Anmeldeanbieter zuständig. Die Passwort-Anmeldung fragt weiterhin nach dem Code, außer auf einem vertrauenswürdigen Gerät."
-    }
+    },
+    "tabs": {
+      "appearance": "Darstellung",
+      "profile": "Profil & Konto",
+      "security": "Sicherheit",
+      "api": "API & Apps",
+      "system": "Bereich & System"
+    },
+    "profilePhoto": "Profilbild",
+    "profilePhotoUpload": "Foto auswählen",
+    "profilePhotoChange": "Foto ändern",
+    "profilePhotoRemove": "Entfernen",
+    "profilePhotoInvalid": "Bitte wählen Sie ein gültiges Bild (PNG, JPG oder WebP).",
+    "usernameTooShort": "Der Benutzername muss mindestens 3 Zeichen enthalten.",
+    "usernameInvalidChars": "Verwende nur Buchstaben, Zahlen, Bindestriche oder Unterstriche.",
+    "usernameTaken": "Dieser Benutzername ist bereits vergeben."
   },
   "accessKeys": {
     "sectionTitle": "Zugriffsschlüssel & MCP",
@@ -2291,6 +2363,11 @@
         "copy": "Öffentlichen Schlüssel kopieren",
         "copied": "Kopiert!",
         "download": "public.pem herunterladen"
+      },
+      "missing": {
+        "applicationId": "die Anwendungs-ID",
+        "redirectUri": "die Weiterleitungs-URI",
+        "privateKey": "der private Schlüssel"
       }
     },
     "integrations": {
@@ -2360,7 +2437,18 @@
       "saving": "Saving…",
       "saved": "Saved",
       "maxConcurrency": "Parallel requests",
-      "maxConcurrencyHint": "How many AI calls to run at once (1–16). Lower for local Ollama."
+      "maxConcurrencyHint": "How many AI calls to run at once (1–16). Lower for local Ollama.",
+      "addProvider": "Anbieter hinzufügen",
+      "configureProvider": "Anbieter konfigurieren",
+      "editProvider": "Anbieter bearbeiten",
+      "removeProvider": "Anbieter entfernen",
+      "removeProviderConfirm": "Die KI-Kategorisierung wird deaktiviert und der gespeicherte API-Schlüssel wird entfernt.",
+      "statusActive": "Aktiv",
+      "apiKeySaved": "API-Schlüssel gespeichert",
+      "apiKeyMissing": "Kein API-Schlüssel",
+      "apiKeyPlaceholderKeep": "•••••••••••• (leer lassen zum Beibehalten)",
+      "parallelRequests": "{{count}} parallele Anfragen",
+      "empty": "Noch kein KI-Anbieter konfiguriert."
     },
     "aiActivity": {
       "title": "AI activity",
@@ -2392,6 +2480,12 @@
       "updateTitle": "Update verfügbar",
       "releaseNotes": "Versionshinweise",
       "later": "Später"
+    },
+    "tabs": {
+      "members": "Mitglieder & Sicherheit",
+      "integrations": "Banken & Integrationen",
+      "ai": "KI & Kategorisierung",
+      "system": "Diagnose & System"
     }
   },
   "error": {
@@ -2470,7 +2564,7 @@
     ],
     "intro": {
       "title": "Willkommen bei Picsou.",
-      "subtitle": "Wir richten dich in etwa 2 Minuten ein.",
+      "subtitle": "Ihr persönliches Dashboard für Bankkonten, Geldanlagen, Krypto und Vermögen, lokal bei Ihnen gehostet und vollständig privat.",
       "cta": "Los geht's",
       "language": "Sprache",
       "skip": "Animation überspringen",
@@ -2478,7 +2572,7 @@
     },
     "admin": {
       "title": "Erstelle dein Admin-Konto",
-      "subtitle": "Das ist das erste — und einzige erforderliche — Konto bei Picsou. Weitere Mitglieder kannst du später über die Einstellungen einladen.",
+      "subtitle": "Das ist das erste und einzige erforderliche Konto bei Picsou. Weitere Mitglieder kannst du später über die Einstellungen einladen.",
       "username": "Benutzername",
       "usernameHint": "Buchstaben, Zahlen, Punkt, Unterstrich, Bindestrich.",
       "password": "Passwort",
@@ -2519,16 +2613,16 @@
     },
     "integrations": {
       "title": "Wähle deine Integrationen",
-      "subtitle": "Wähle aus, was du jetzt aktivieren möchtest. Du kannst das später jederzeit unter Einstellungen → Integrationen ändern.",
+      "subtitle": "Wähle aus, was du jetzt aktivieren möchtest. Du kannst das später jederzeit im Bereich Integrationen der Einstellungen ändern.",
       "continue": "Weiter",
-      "skipAll": "Alle überspringen — ich konfiguriere später",
+      "skipAll": "Alle überspringen und später konfigurieren",
       "cards": {
         "enablebanking": {
           "title": "Enable Banking",
-          "description": "Verbinde Revolut, BoursoBank, Trade Republic und über 2000 europäische Banken via PSD2. Dauert etwa 5 Minuten — wir führen dich durch."
+          "description": "Verbinde Revolut, BoursoBank, Trade Republic und über 2000 europäische Banken via PSD2. Dauert etwa 5 Minuten, wir führen dich durch."
         },
         "boursobank": {
-          "title": "BoursoBank (Sidecar)",
+          "title": "BoursoBank",
           "description": "Direkte Synchronisierung über den mitgelieferten bourso-auth-Container. Kein externes Konto nötig."
         },
         "boursedirect": {
@@ -2558,20 +2652,35 @@
         "revolut": {
           "title": "Revolut",
           "description": "Sync all your Revolut assets (accounts, pockets, vaults) with your phone number + passcode and an approval on your mobile."
+        },
+        "bnp": {
+          "title": "BNP Paribas / Hello bank!",
+          "description": "Synchronisiere Girokonten, Sparkonten, Wertpapiere, Lebensversicherungen und Kredite mit deinem BNP- oder Hello-bank!-Zugang."
         }
       },
       "hint": {
-        "none": "Gerade nichts zu aktivieren? Kein Problem — du kannst überspringen und alles später konfigurieren.",
+        "none": "Gerade nichts zu aktivieren? Kein Problem, du kannst überspringen und alles später konfigurieren.",
         "some": "{{count}} Integration ausgewählt. Wir führen dich durch jede einzelne.",
         "some_other": "{{count}} Integrationen ausgewählt. Wir führen dich durch jede einzelne."
+      },
+      "searchPlaceholder": "Bank, Broker oder Plattform suchen...",
+      "clearSearch": "Suche leeren",
+      "categoriesLabel": "Integrationskategorien",
+      "empty": "Keine Integration passt zu deiner Suche.",
+      "resetFilter": "Alle Integrationen anzeigen",
+      "categories": {
+        "all": "Alle",
+        "banks": "Banken",
+        "brokerage": "Broker",
+        "wealth": "Vermögen & Krypto"
       }
     },
     "enablebanking": {
-      "substep": "Schritt {{current}} von {{total}} — Enable Banking",
+      "substep": "Schritt {{current}} von {{total}} · Enable Banking",
       "skip": "Diese Integration überspringen",
       "back": "Zurück",
       "continue": "Weiter",
-      "appIdFormat": "Die Application ID sieht nicht richtig aus — sie sollte eine UUID mit 32–36 Zeichen sein.",
+      "appIdFormat": "Die Application ID sieht nicht richtig aus: Sie sollte eine UUID mit 32 bis 36 Zeichen sein.",
       "redirectFormat": "Muss wie http(s)://host[:port]/pfad aussehen",
       "explain": {
         "title": "Was ist Enable Banking?",
@@ -2583,7 +2692,7 @@
         "psd2Popover": "Was ist PSD2?",
         "psd2Body": "PSD2 ist die EU-Verordnung, die lizenzierten Aggregatoren erlaubt, mit deiner Zustimmung dein Bankkonto auszulesen. Deine Zugangsdaten verlassen deine Bank nie.",
         "prodWarningTitle": "Erstelle eine PRODUCTION-Anwendung",
-        "prodWarningBody": "Achte darauf, in deinem Enable-Banking-Dashboard beim Erstellen der Anwendung „Production“ zu wählen — die SANDBOX gibt dir nur Zugriff auf fiktive Testbanken, nicht auf deine echten.",
+        "prodWarningBody": "Achte darauf, in deinem Enable-Banking-Dashboard beim Erstellen der Anwendung „Production“ zu wählen: Die SANDBOX gibt dir nur Zugriff auf fiktive Testbanken, nicht auf deine echten.",
         "psd2ScopeNote": "Enable Banking synchronisiert nur Girokonten (PSD2-Einschränkung). Für PEA, Lebensversicherung, Sparkonten usw.: nutze die dedizierten Integrationen (Trade Republic, Boursobank, Finary) oder füge sie manuell hinzu.",
         "magicLinkHint": "Gib deine E-Mail-Adresse auf der Anmeldeseite ein. Enable Banking erstellt dein Konto bei der ersten Anmeldung und sendet dir einen einmaligen Anmeldelink."
       },
@@ -2675,24 +2784,24 @@
     },
     "tr": {
       "title": "Trade Republic ist startklar.",
-      "body": "Hier gibt es nichts zu konfigurieren — du meldest dich mit deinen Trade-Republic-Zugangsdaten an, wenn du das Konto in Picsou hinzufügst.",
-      "tip": "Geh nach der Einrichtung zu Konten → Konto hinzufügen → Trade Republic.",
+      "body": "Hier gibt es nichts zu konfigurieren: Du meldest dich mit deinen Trade-Republic-Zugangsdaten an, wenn du das Konto in Picsou hinzufügst.",
+      "tip": "Öffne nach der Einrichtung Konten, klicke auf Konto hinzufügen und wähle Trade Republic.",
       "cta": "Verstanden",
       "skip": "Trade Republic nicht aktivieren"
     },
     "finary": {
       "title": "Finary ist startklar.",
-      "body": "Jetzt gibt es nichts zu konfigurieren — du meldest dich mit deinem Finary-Konto an, wenn du es in Picsou hinzufügst. TOTP-Codes werden beim Hinzufügen abgefragt, falls dein Konto sie erfordert.",
-      "tip": "Geh nach der Einrichtung zu Konten → Konto hinzufügen → Finary.",
+      "body": "Jetzt gibt es nichts zu konfigurieren: Du meldest dich mit deinem Finary-Konto an, wenn du es in Picsou hinzufügst. TOTP-Codes werden beim Hinzufügen abgefragt, falls dein Konto sie erfordert.",
+      "tip": "Öffne nach der Einrichtung Konten, klicke auf Konto hinzufügen und wähle Finary.",
       "cta": "Verstanden",
       "skip": "Finary nicht aktivieren"
     },
     "crypto": {
       "title": "Verschlüssele deine Exchange-API-Keys",
-      "body": "Deine Exchange-API-Keys (Binance, Meria...) werden verschlüsselt gespeichert. Picsou kann den Verschlüsselungsschlüssel für dich generieren — er bleibt auf deiner Festplatte und wird nie übertragen.",
+      "body": "Deine Exchange-API-Keys (Binance, Meria...) werden verschlüsselt gespeichert. Picsou kann den Verschlüsselungsschlüssel für dich generieren: Er bleibt auf deiner Festplatte und wird nie übertragen.",
       "generateCta": "Schlüssel für mich generieren",
       "generating": "Wird generiert...",
-      "existed": "Dein Verschlüsselungsschlüssel existiert bereits auf der Festplatte — nichts zu tun.",
+      "existed": "Dein Verschlüsselungsschlüssel existiert bereits auf der Festplatte, nichts zu tun.",
       "created": "Verschlüsselungsschlüssel generiert.",
       "pathLabel": "Gespeichert unter",
       "continue": "Weiter",
@@ -2703,7 +2812,7 @@
       "title": "Picsou ist bereit.",
       "subtitle": "Willkommen, {{name}}.",
       "summaryTitle": "Was aktiviert ist",
-      "noIntegrations": "Du hast noch keine Integrationen aktiviert — kein Problem, das kannst du jederzeit unter Einstellungen → Integrationen nachholen.",
+      "noIntegrations": "Du hast noch keine Integrationen aktiviert. Kein Problem, du kannst sie jederzeit im Bereich Integrationen der Einstellungen hinzufügen.",
       "completing": "Wird abgeschlossen...",
       "cta": "Mein Dashboard öffnen",
       "loginFallback": "Zur Anmeldung",
@@ -2712,8 +2821,8 @@
     "revolut": {
       "surtitle": "REVOLUT",
       "title": "Revolut is ready to go.",
-      "body": "Nothing to configure here — you'll connect Revolut with your phone number and passcode, then an approval from your mobile app, when you add the account.",
-      "tip": "Head to Accounts → Add account → Revolut once setup is done.",
+      "body": "Hier gibt es nichts zu konfigurieren: Du verbindest Revolut mit deiner Telefonnummer, deinem Passcode und der Freigabe in der App, sobald du das Konto hinzufügst.",
+      "tip": "Öffne nach der Einrichtung Konten, klicke auf Konto hinzufügen und wähle Revolut.",
       "cta": "Got it",
       "skip": "Don't enable Revolut"
     },
@@ -2726,10 +2835,17 @@
     },
     "lbp": {
       "title": "La Banque Postale ist bereit.",
-      "body": "Verbinde dein Konto nach der Einrichtung über Konten → Konto hinzufügen. Du gibst deine Kennung ein und dann deine sechs Ziffern auf der Tastatur der Bank.",
+      "body": "Verbinde dein Konto nach der Einrichtung, indem du Konten öffnest und auf Konto hinzufügen klickst. Du gibst deine Kennung ein und dann deine sechs Ziffern auf der Tastatur der Bank.",
       "tip": "Picsou speichert nur eine verschlüsselte Sitzung und, wenn du es möchtest, deine Kennung. Passwort und Tastenpositionen werden nie gespeichert.",
       "cta": "La Banque Postale aktivieren",
       "skip": "La Banque Postale nicht aktivieren"
+    },
+    "bnp": {
+      "title": "BNP Paribas & Hello bank! sind bereit.",
+      "body": "Verbinde dein Konto nach der Einrichtung über Konten und Konto hinzufügen. Du meldest dich direkt bei deiner Bank an.",
+      "tip": "Picsou speichert nur eine verschlüsselte Sitzung. Dein Passwort wird niemals gespeichert.",
+      "cta": "BNP Paribas aktivieren",
+      "skip": "BNP Paribas überspringen"
     }
   },
   "import": {
@@ -2771,11 +2887,6 @@
     "proceeds": "Erlös",
     "avgCost": "Ø-Kosten",
     "qtySold": "Verk. Menge"
-  },
-  "sidebarStylePrompt": {
-    "title": "Wähle deinen Sidebar-Stil",
-    "description": "Zwei Layouts zur Auswahl — du kannst jederzeit wechseln.",
-    "hint": "Jederzeit änderbar unter Einstellungen > Erscheinungsbild."
   },
   "property": {
     "kind": {
@@ -3145,7 +3256,7 @@
     },
     "overview": {
       "netThisCycle": "Net this cycle",
-      "incomeVsExpense": "{{income}} € in · {{expense}} € out",
+      "incomeVsExpense": "{{income}} ein · {{expense}} aus",
       "envelopes": "Envelopes",
       "onTrack": "Everything on track",
       "overBudget": "{{count}} envelope over budget",
@@ -3154,7 +3265,7 @@
       "upcomingCount": "{{count}} payment due",
       "upcomingCount_other": "{{count}} payments due",
       "investable": "Savings & invest.",
-      "contributedThisCycle": "{{amount}} € contributed this cycle",
+      "contributedThisCycle": "{{amount}} in diesem Zyklus eingezahlt",
       "toCategorize": "{{count}} transaction to categorize",
       "toCategorize_other": "{{count}} transactions to categorize",
       "topEnvelopes": "Most-used envelopes",
@@ -3289,7 +3400,15 @@
       "aiProgress": "AI categorizing… {{processed}}/{{total}}",
       "aiDone": "AI done: {{applied}} applied, {{suggested}} suggested",
       "createRule": "Create rule",
-      "editRule": "Edit rule"
+      "editRule": "Edit rule",
+      "configureAi": "KI konfigurieren",
+      "aiSettings": "KI-Einstellungen",
+      "searchPlaceholder": "Transaktionen suchen...",
+      "incoming": "Eingang",
+      "outgoing": "Ausgang",
+      "incomeGroup": "Einnahmen",
+      "expenseGroup": "Ausgaben",
+      "automate": "Automatisieren"
     },
     "category": {
       "title": "Categories",
@@ -3476,5 +3595,20 @@
     "SSO_DISABLED": "Single Sign-on ist auf dieser Instanz nicht aktiviert.",
     "SELF_UNLINK_FORBIDDEN": "Um deine eigenen SSO-Identitäten zu trennen, nutze Anmeldemethoden in den Einstellungen.",
     "generic": "Die Single-Sign-on-Anmeldung ist fehlgeschlagen. Bitte versuche es erneut."
+  },
+  "whatsNew": {
+    "title": "Neuigkeiten",
+    "subtitle": "Überblick über die neuesten Verbesserungen in Picsou.",
+    "starGithub": "Star auf GitHub",
+    "starShort": "Star auf GitHub",
+    "viewReleaseNotes": "Versionshinweise ansehen",
+    "fullChangelog": "Alle Releases",
+    "updateAvailable": "Update verfügbar: {{version}}",
+    "upToDate": "Aktuell",
+    "checkUpdates": "Nach Updates suchen",
+    "howToUpdate": "Aktualisieren",
+    "updateInstructions": "Um deine Docker-Instanz zu aktualisieren, führe aus:",
+    "copied": "Kopiert",
+    "copy": "Kopieren"
   }
 }

@@ -68,20 +68,22 @@ export function MfaChallengePage() {
   const codeInputMode = isRecoveryCode ? 'text' : 'numeric'
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
-        <Card className="py-8 sm:py-10">
-          <CardHeader className="items-center gap-2 px-6 text-center sm:px-10">
-            <CardTitle className="text-3xl font-semibold sm:text-4xl">{t('auth.mfaTitle')}</CardTitle>
-            <CardDescription className="mt-1 max-w-lg text-base leading-6">
+    <div className="flex min-h-dvh items-center justify-center bg-background px-4 py-10">
+      <div className="mx-auto flex w-full max-w-md flex-col gap-4">
+        <Card className="rounded-xl border border-border/60 py-7 ring-0 sm:py-8">
+          <CardHeader className="items-center gap-1.5 px-6 text-center sm:px-8">
+            <CardTitle className="text-2xl font-semibold tracking-tight sm:text-3xl">
+              {t('auth.mfaTitle')}
+            </CardTitle>
+            <CardDescription className="text-sm leading-relaxed">
               {isRecoveryCode ? t('auth.mfaRecoveryLabel') : t('auth.mfaDesc')}
             </CardDescription>
           </CardHeader>
 
-          <CardContent className="px-6 sm:px-10">
-            <form onSubmit={handleSubmit} className="space-y-5">
+          <CardContent className="px-6 sm:px-8">
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor={codeInputId} className="text-base font-semibold">
+                <Label htmlFor={codeInputId} className="text-sm font-semibold">
                   {isRecoveryCode ? t('auth.mfaRecoveryLabel') : t('auth.mfaCodeLabel')}
                 </Label>
                 <Input
@@ -96,7 +98,7 @@ export function MfaChallengePage() {
                   autoFocus
                   required
                   placeholder={isRecoveryCode ? '12345678' : '123456'}
-                  className="h-12 rounded-xl px-4 text-center font-mono text-lg md:text-lg"
+                  className="h-10 rounded-lg px-3.5 text-center font-mono text-base"
                 />
               </div>
 
@@ -107,21 +109,21 @@ export function MfaChallengePage() {
                   setCode('')
                   setError(null)
                 }}
-                className="text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                className="text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
               >
                 {isRecoveryCode ? t('auth.mfaUseTotp') : t('auth.mfaUseRecovery')}
               </button>
 
-              <div className="flex items-start gap-3 rounded-xl py-1">
+              <div className="flex items-start gap-2.5 pt-0.5">
                 <input
                   id="trustDevice"
                   type="checkbox"
                   checked={trustDevice}
                   onChange={e => setTrustDevice(e.target.checked)}
-                  className="mt-1 h-5 w-5 shrink-0 rounded-md accent-primary"
+                  className="mt-0.5 size-4 shrink-0 rounded accent-primary"
                 />
-                <div className="flex flex-col">
-                  <Label htmlFor="trustDevice" className="cursor-pointer text-base font-semibold">
+                <div className="flex flex-col gap-0.5">
+                  <Label htmlFor="trustDevice" className="cursor-pointer text-sm font-medium leading-snug">
                     {t('auth.mfaTrustDevice')}
                   </Label>
                   <p className="text-sm text-muted-foreground">{t('auth.mfaTrustDeviceDesc')}</p>
@@ -135,9 +137,9 @@ export function MfaChallengePage() {
               <Button
                 type="submit"
                 disabled={verify.isPending || code.length === 0}
-                className="mt-2 h-12 w-full rounded-full px-8 text-base transition-transform active:scale-[0.96]"
+                className="mt-1 h-10 w-full rounded-lg text-sm font-medium"
               >
-                {verify.isPending && <Loader2 className="size-5 animate-spin" />}
+                {verify.isPending && <Loader2 className="size-4 animate-spin" />}
                 {verify.isPending ? t('auth.mfaVerifying') : t('auth.mfaVerifyButton')}
               </Button>
             </form>

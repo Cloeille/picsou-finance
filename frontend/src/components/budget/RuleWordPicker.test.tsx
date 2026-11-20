@@ -3,13 +3,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { RuleWordPicker } from './RuleWordPicker'
 
+const usePreviewRule = vi.fn()
+
 // Mock the hook
 vi.mock('@/features/budget/hooks', () => ({
-  usePreviewRule: () => ({
-    mutate: vi.fn(),
-    isPending: false,
-    data: null,
-  }),
+  usePreviewRule: () => usePreviewRule(),
 }))
 
 // Mock i18n
@@ -39,6 +37,11 @@ const noop = () => {}
 describe('RuleWordPicker', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    usePreviewRule.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      data: null,
+    })
   })
 
   it('tokenizes a simple label and shows tokens', () => {
@@ -112,5 +115,46 @@ describe('RuleWordPicker', () => {
     expect(confirmBtn).toBeDisabled()
     fireEvent.click(confirmBtn)
     expect(onConfirm).not.toHaveBeenCalled()
+  })
+
+  it('constrains long IBAN tokens, pattern preview, and matching rows to prevent horizontal overflow', () => {
+    const longIban = 'FR7630004025100000012345678'
+    const fullLabel = `Incoming Transfer From De Bailliencourt (${longIban})`
+    usePreviewRule.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      data: {
+        matchCount: 2,
+        transactions: [
+          { id: 1, label: fullLabel, date: '2026-11-02', amount: 200 },
+          { id: 2, label: fullLabel, date: '2026-10-02', amount: 200 },
+        ],
+      },
+    })
+
+    const { container } = render(
+      <RuleWordPicker label={fullLabel} onConfirm={noop} onClose={noop} />
+    )
+
+    // Root wrapper shrinks inside CSS grid/flex dialogs
+    expect(container.firstElementChild?.className).toContain('min-w-0')
+
+    // Long IBAN word chip wraps instead of overflowing horizontally
+    const ibanBtn = screen.getByRole('button', { name: longIban })
+    expect(ibanBtn.className).toContain('max-w-full')
+    expect(ibanBtn.className).toContain('break-all')
+
+    // Pattern code preview wraps long unbroken strings
+    const patternCode = container.querySelector('code')
+    expect(patternCode).not.toBeNull()
+    expect(patternCode?.className).toContain('break-all')
+
+    // Preview list rows truncate long labels while keeping date and amount visible
+    const previewLabels = screen.getAllByText(fullLabel)
+    expect(previewLabels).toHaveLength(2)
+    expect(previewLabels[0].className).toContain('min-w-0')
+    expect(previewLabels[0].className).toContain('truncate')
+    expect(screen.getByRole('button', { name: 'common.cancel' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'budget.rule.createRule' })).toBeInTheDocument()
   })
 })
