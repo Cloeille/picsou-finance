@@ -1724,6 +1724,7 @@ rate limiting returns `429`.
 | `apiKey` | `string` | Exchange API key (required, max 200 chars) |
 | `apiSecret` | `string?` | Exchange API secret (max 300 chars). **Required** for `BINANCE` and `KRAKEN`; must be **omitted** for `MERIA`, which authenticates with a single read-only API key |
 | `apiPassphrase` | `string?` | Exchange API passphrase (max 200 characters and 347 UTF-8 bytes). Required only when the adapter uses one. Omit it for all current exchanges. |
+| `region` | `string?` | Region code (max 20 characters). Required when the adapter declares regions. The service trims and upper-cases the code. Omit it for all current exchanges. |
 
 **Response `200` — `AccountResponse`.**
 
@@ -1731,7 +1732,7 @@ rate limiting returns `429`.
 
 | Status | When |
 |--------|------|
-| `400` | Blank API key, missing required secret or passphrase, unexpected secret or passphrase, or a passphrase beyond the UTF-8 byte limit |
+| `400` | Blank API key, missing required secret or passphrase, unexpected secret or passphrase, a passphrase beyond the UTF-8 byte limit, or a missing, unknown or unexpected region. When the adapter declares regions, region errors list the allowed codes. |
 | `422` | Bean-validation failure (`errors` map), the credentials were refused by the exchange, or the immediate sync failed |
 
 ---
@@ -1782,6 +1783,8 @@ quantity`. The per-line figures therefore still add up to the holding's own cost
 #### `GET /api/crypto/exchange/status`
 
 - **Auth:** Required
+
+Each item includes `region` when a region is stored for the connection.
 
 **Response `200` — `ExchangeStatusResponse[]`:**
 ```json

@@ -18,9 +18,13 @@ Picsou tracks cryptocurrency holdings from two sources: centralized exchanges (B
 
 ### Exchange credentials
 
-The form and service follow the adapter's `requiresApiSecret()` and `requiresApiPassphrase()` flags. The service normalises blank inputs to null, preserves nonblank passphrases verbatim, and returns `400` for missing required or unexpected credentials before any network call. Both adapter methods receive plaintext in an `ExchangeCredentials` record that redacts its string representation.
+The form and service follow the adapter's `requiresApiSecret()`, `requiresApiPassphrase()` and `regions()` capabilities.
+When the adapter lists regions, the user must choose one. The service trims and upper-cases region codes,
+normalises blank fields to null, and preserves nonblank passphrases verbatim. It returns `400` for missing
+required fields, unexpected fields or unknown regions before any network call. Both adapter methods
+receive an `ExchangeCredentials` record with a redacted string representation.
 
-`CryptoEncryption` encrypts each supplied credential separately with AES-256-GCM. V73 made `api_secret` nullable, and V154 adds the nullable `api_passphrase` column. Unused credentials are stored as `NULL`. See [encryption at rest](./encryption-at-rest.md).
+`CryptoEncryption` encrypts each supplied key, secret and passphrase separately with AES-256-GCM. V73 made `api_secret` nullable, and V154 adds the nullable `api_passphrase` and `region` columns. The region is stored in plaintext per connection and appears in the exchange status. Unused fields are stored as `NULL`. See [encryption at rest](./encryption-at-rest.md).
 
 ### Binance adapter
 
@@ -129,25 +133,25 @@ The on-chain adapters (EVM, Solana) validate the JSON-RPC envelope through `Json
 
 ```
 Add Exchange:
-User submits API key and any required secret or passphrase
+User submits API key and any required secret, passphrase or region
         |
         v
 CryptoExchangeSyncService.addExchange()
         |
         v
-Validate the adapter's secret and passphrase requirements (400 before any network call)
+Validate the adapter's credential and region requirements (400 before any network call)
         |
         v
 CryptoExchangePort.testConnection(credentials)
         |
         v
-Encrypt each supplied credential with CryptoEncryption
+Encrypt the key and any secret or passphrase with CryptoEncryption
         |
         v
-Save CryptoExchangeSession (unused credentials are NULL)
+Save CryptoExchangeSession with the chosen region, if any
         |
         v
-Decrypt on sync, then call CryptoExchangePort.fetchPositions(credentials)
+Decrypt on sync, then pass the credentials and stored region to CryptoExchangePort.fetchPositions()
         |
         v
 PriceService.refreshCryptoQuotes() -- convert to EUR, crypto-only
@@ -231,8 +235,11 @@ Upsert Account (type=CRYPTO, no ticker)
 
 > BIP32 derivation has no dedicated `BitcoinKeyUtilsTest`.
 
-- `CryptoExchangeSyncServiceTest` covers credential validation before `testConnection`, blank optional fields stored as `NULL`, rejection of passphrases that exceed the encrypted column's capacity, encryption on add, and adapter input on connect and sync. It also covers sync failures, unsupported exchanges, unpriced holdings and deleted accounts.
-- `CryptoExchangeTab.test.tsx` uses a test-only capability flag to verify password masking, required input, and submission of the passphrase only for an exchange that uses one.
+- `CryptoExchangeSyncServiceTest` covers credential and region validation before `testConnection`, including
+  the passphrase byte limit. It verifies passphrase encryption and replacement on reconnect and use of
+  the stored region on sync and status reads. It also covers sync failures, unsupported exchanges,
+  unpriced holdings and deleted accounts.
+- `CryptoExchangeTab.test.tsx` uses test-only exchange capabilities to verify passphrase masking, explicit region selection, conditional submission, and display of the stored region.
 - `CryptoExchangeControllerTest` checks that validation redacts rejected passphrases.
 - `CryptoExchangePositionRepositoryTest` -- the delete-then-reinsert rewrite against the real `uq_crypto_exchange_position`, the exact quantities it leaves behind, a product no longer held disappearing, and — with a second seeded account — that the bulk delete filters by account rather than emptying the table
 - `MeriaAdapterTest` -- aggregation across wallets/stakings/lendings per currency, staking counted as `amount` with accrued interest **not** added on top, a contract with no reward fields at all, a reward above the quantity or below zero reported with no decomposition at all (and a merge with one such contract staying undecomposed), symbols upper-cased under a forced Turkish locale, zero/blank entries dropped; and the all-or-nothing contract: every endpoint × {401, 403, 404, 429, 500} throws, as do `success:false` on HTTP 200, a reactor-wrapped timeout and a non-JSON (Cloudflare) body — while `data: []` **and an empty body on a 2xx** both yield an empty list without throwing. Also pins that only an `API-KEY` header is sent (no `Authorization`, no `X-MBX-APIKEY`, no `signature` query), that the secret argument is ignored, and that no message or log line contains the API key
@@ -249,7 +256,7 @@ Upsert Account (type=CRYPTO, no ticker)
 
 - Related ADR: [EVM multichain wallets](../decisions/2026-07-17-evm-multichain-wallets.md)
 - Related ADR: [AES-256-GCM for crypto secrets](../decisions/2026-03-01-aes-gcm-crypto-secrets.md)
-- Related ADR: [Exchange credentials carry an optional API passphrase](../decisions/2026-11-20-exchange-api-passphrase.md)
+- Related ADR: [Exchange credentials carry an API passphrase and region when required](../decisions/2026-11-20-exchange-api-passphrase.md)
 - Related ADR: [Ports and adapters](../decisions/2026-01-01-ports-and-adapters.md)
 - Related feature: [Logos on account cards](./bank-logos.md) — Meria's mark ships in `frontend/public/exchanges/`, mapped on `Account.provider`; a wallet's account instead carries a `logoKey` (`blockchain` by default, `ledger` if the user picks it)
 - Related feature: [Encryption at rest](./encryption-at-rest.md)

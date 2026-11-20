@@ -19,8 +19,10 @@ import com.picsou.repository.FamilyMemberRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -63,8 +65,8 @@ class CryptoExchangeSyncServiceTest {
     private static final String KEY = "api-key";
     private static final String SECRET = "api-secret";
     private static final String PASSPHRASE = " test-passphrase ";
-    private static final ExchangeCredentials KEY_ONLY = new ExchangeCredentials(KEY, null, null);
-    private static final ExchangeCredentials KEY_AND_SECRET = new ExchangeCredentials(KEY, SECRET, null);
+    private static final ExchangeCredentials KEY_ONLY = new ExchangeCredentials(KEY, null, null, null);
+    private static final ExchangeCredentials KEY_AND_SECRET = new ExchangeCredentials(KEY, SECRET, null, null);
 
     @Mock CryptoExchangeSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
@@ -130,7 +132,7 @@ class CryptoExchangeSyncServiceTest {
     void addExchange_rejectsABlankApiKey() {
         CryptoExchangePort adapter = singleKeyAdapter();
 
-        assertThatThrownBy(() -> serviceWith(adapter).addExchange(ExchangeType.MERIA, new ExchangeCredentials("   ", null, null), MEMBER_ID))
+        assertThatThrownBy(() -> serviceWith(adapter).addExchange(ExchangeType.MERIA, new ExchangeCredentials("   ", null, null, null), MEMBER_ID))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("API key");
 
@@ -142,7 +144,7 @@ class CryptoExchangeSyncServiceTest {
     void addExchange_rejectsAMissingSecretForAnExchangeThatNeedsOne() {
         CryptoExchangePort adapter = twoCredentialAdapter();
 
-        assertThatThrownBy(() -> serviceWith(adapter).addExchange(ExchangeType.BINANCE, new ExchangeCredentials(KEY, "", null), MEMBER_ID))
+        assertThatThrownBy(() -> serviceWith(adapter).addExchange(ExchangeType.BINANCE, new ExchangeCredentials(KEY, "", null, null), MEMBER_ID))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("API secret");
 
@@ -170,7 +172,7 @@ class CryptoExchangeSyncServiceTest {
         CryptoExchangePort adapter = singleKeyAdapter();
         when(adapter.testConnection(KEY_ONLY)).thenReturn(false);
 
-        assertThatThrownBy(() -> serviceWith(adapter).addExchange(ExchangeType.MERIA, new ExchangeCredentials(KEY, "  ", null), MEMBER_ID))
+        assertThatThrownBy(() -> serviceWith(adapter).addExchange(ExchangeType.MERIA, new ExchangeCredentials(KEY, "  ", null, null), MEMBER_ID))
             .isInstanceOf(SyncException.class)
             .hasMessageContaining("Could not connect");
     }
@@ -183,12 +185,13 @@ class CryptoExchangeSyncServiceTest {
         arrangeSuccessfulSync(ExchangeType.MERIA);
 
         serviceWith(adapter).addExchange(ExchangeType.MERIA,
-            new ExchangeCredentials("  " + KEY + " ", "", "\u2003"), MEMBER_ID);
+            new ExchangeCredentials("  " + KEY + " ", "", "\u2003", " \u2003 "), MEMBER_ID);
 
         ArgumentCaptor<CryptoExchangeSession> session = ArgumentCaptor.forClass(CryptoExchangeSession.class);
         verify(sessionRepository, org.mockito.Mockito.atLeastOnce()).save(session.capture());
         assertThat(session.getValue().getApiSecret()).isNull();
         assertThat(session.getValue().getApiPassphrase()).isNull();
+        assertThat(session.getValue().getRegion()).isNull();
         assertThat(session.getValue().getApiKey()).isEqualTo("enc:" + KEY);   // trimmed, then encrypted
     }
 
@@ -201,7 +204,7 @@ class CryptoExchangeSyncServiceTest {
         arrangeSuccessfulSync(ExchangeType.BINANCE);
 
         serviceWith(adapter).addExchange(ExchangeType.BINANCE,
-            new ExchangeCredentials(KEY, SECRET, ""), MEMBER_ID);
+            new ExchangeCredentials(KEY, SECRET, "", null), MEMBER_ID);
 
         ArgumentCaptor<CryptoExchangeSession> session = ArgumentCaptor.forClass(CryptoExchangeSession.class);
         verify(sessionRepository, org.mockito.Mockito.atLeastOnce()).save(session.capture());
@@ -217,7 +220,7 @@ class CryptoExchangeSyncServiceTest {
         when(adapter.requiresApiPassphrase()).thenReturn(true);
 
         assertThatThrownBy(() -> serviceWith(adapter).addExchange(ExchangeType.BINANCE,
-            new ExchangeCredentials(KEY, SECRET, passphrase), MEMBER_ID))
+            new ExchangeCredentials(KEY, SECRET, passphrase, null), MEMBER_ID))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("requires an API passphrase");
         verify(adapter, never()).testConnection(any());
@@ -231,7 +234,7 @@ class CryptoExchangeSyncServiceTest {
         CryptoExchangePort adapter = binance ? twoCredentialAdapter() : singleKeyAdapter();
 
         assertThatThrownBy(() -> serviceWith(adapter).addExchange(type,
-            new ExchangeCredentials(KEY, binance ? SECRET : null, PASSPHRASE), MEMBER_ID))
+            new ExchangeCredentials(KEY, binance ? SECRET : null, PASSPHRASE, null), MEMBER_ID))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("does not use an API passphrase")
             .hasMessageNotContaining(PASSPHRASE.strip());
@@ -246,7 +249,7 @@ class CryptoExchangeSyncServiceTest {
         String passphrase = "\u20ac".repeat(116);
 
         assertThatThrownBy(() -> serviceWith(adapter).addExchange(ExchangeType.BINANCE,
-            new ExchangeCredentials(KEY, SECRET, passphrase), MEMBER_ID))
+            new ExchangeCredentials(KEY, SECRET, passphrase, null), MEMBER_ID))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("exceeds 347 UTF-8 bytes")
             .hasMessageNotContaining(passphrase);
@@ -254,15 +257,23 @@ class CryptoExchangeSyncServiceTest {
         verifyNoInteractions(sessionRepository);
     }
 
-    @Test
-    void addExchange_encryptsThePassphraseAndSuppliesItOnConnectAndSync() {
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = "old-passphrase")
+    void addExchange_encryptsTheNewPassphraseAndSuppliesItOnConnectAndSync(String oldPassphrase) {
         CryptoEncryption realEncryption = new CryptoEncryption(Base64.getEncoder().encodeToString(new byte[32]));
         CryptoExchangePort adapter = twoCredentialAdapter();
         when(adapter.requiresApiPassphrase()).thenReturn(true);
-        ExchangeCredentials credentials = new ExchangeCredentials(KEY, SECRET, PASSPHRASE);
+        ExchangeCredentials credentials = new ExchangeCredentials(KEY, SECRET, PASSPHRASE, null);
         when(adapter.testConnection(credentials)).thenReturn(true);
         when(adapter.fetchPositions(credentials)).thenReturn(List.of());
         arrangeAddExchange(ExchangeType.BINANCE);
+        CryptoExchangeSession existing = session(ExchangeType.BINANCE, null, null);
+        if (oldPassphrase != null) {
+            existing.setApiPassphrase(realEncryption.encrypt(oldPassphrase));
+            when(sessionRepository.findByExchangeTypeAndMemberId(ExchangeType.BINANCE, MEMBER_ID))
+                .thenReturn(Optional.of(existing));
+        }
 
         CryptoExchangeSyncService service = serviceWith(realEncryption, adapter);
         service.addExchange(ExchangeType.BINANCE, credentials, MEMBER_ID);
@@ -270,9 +281,65 @@ class CryptoExchangeSyncServiceTest {
 
         verify(adapter).testConnection(credentials);
         verify(adapter, times(2)).fetchPositions(credentials);
+        if (oldPassphrase != null) {
+            assertThat(saved[0]).isSameAs(existing);
+        }
         assertThat(saved[0].getApiPassphrase()).isNotEqualTo(PASSPHRASE);
         assertThat(realEncryption.decrypt(saved[0].getApiPassphrase())).isEqualTo(PASSPHRASE);
         assertThat(credentials.toString()).doesNotContain(KEY, SECRET, PASSPHRASE.strip());
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        ", requires a region",
+        "'', requires a region",
+        "' \u2003 ', requires a region",
+        "APAC, does not support the selected region"
+    })
+    void addExchange_rejectsMissingOrUnknownRegionsBeforeTestingTheConnection(String region, String message) {
+        CryptoExchangePort adapter = twoCredentialAdapter();
+        when(adapter.regions()).thenReturn(List.of("GLOBAL", "EEA", "US"));
+
+        assertThatThrownBy(() -> serviceWith(adapter).addExchange(ExchangeType.BINANCE,
+            new ExchangeCredentials(KEY, SECRET, null, region), MEMBER_ID))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining(message)
+            .hasMessageContaining("GLOBAL, EEA, US");
+        verify(adapter, never()).testConnection(any());
+        verifyNoInteractions(sessionRepository);
+    }
+
+    @Test
+    void addExchange_rejectsARegionForAnExchangeWithoutRegions() {
+        CryptoExchangePort adapter = twoCredentialAdapter();
+
+        assertThatThrownBy(() -> serviceWith(adapter).addExchange(ExchangeType.BINANCE,
+            new ExchangeCredentials(KEY, SECRET, null, "EEA"), MEMBER_ID))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("does not use a region");
+        verify(adapter, never()).testConnection(any());
+        verifyNoInteractions(sessionRepository);
+    }
+
+    @Test
+    void addExchange_normalisesAndStoresRegionForSyncAndStatus() {
+        CryptoExchangePort adapter = twoCredentialAdapter();
+        ExchangeCredentials normalised = new ExchangeCredentials(KEY, SECRET, null, "EEA");
+        when(adapter.regions()).thenReturn(List.of("GLOBAL", "EEA", "US"));
+        when(adapter.testConnection(normalised)).thenReturn(true);
+        when(adapter.fetchPositions(normalised)).thenReturn(List.of());
+        arrangeSuccessfulSync(ExchangeType.BINANCE);
+        CryptoExchangeSyncService service = serviceWith(adapter);
+
+        service.addExchange(ExchangeType.BINANCE, new ExchangeCredentials(KEY, SECRET, null, " eea "), MEMBER_ID);
+        service.sync(7L, MEMBER_ID);
+
+        verify(adapter).testConnection(normalised);
+        verify(adapter, times(2)).fetchPositions(normalised);
+        assertThat(saved[0].getRegion()).isEqualTo("EEA");
+        when(sessionRepository.findAllByMemberId(MEMBER_ID)).thenReturn(List.of(saved[0]));
+        assertThat(service.getStatus(MEMBER_ID)).extracting(CryptoExchangeSyncService.ExchangeStatusResponse::region)
+            .containsExactly("EEA");
     }
 
     // ── Sync ──────────────────────────────────────────────────────────────────

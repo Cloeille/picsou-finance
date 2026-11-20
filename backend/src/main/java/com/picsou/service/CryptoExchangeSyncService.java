@@ -121,7 +121,8 @@ public class CryptoExchangeSyncService {
         if (passphrase != null && passphrase.getBytes(StandardCharsets.UTF_8).length > API_PASSPHRASE_MAX_BYTES) {
             throw new IllegalArgumentException("The API passphrase exceeds " + API_PASSPHRASE_MAX_BYTES + " UTF-8 bytes.");
         }
-        if (!adapter.testConnection(new ExchangeCredentials(key, secret, passphrase))) {
+        String region = validateRegion(type, supplied.region(), adapter.regions());
+        if (!adapter.testConnection(new ExchangeCredentials(key, secret, passphrase, region))) {
             throw new SyncException("Could not connect to " + type + ". Please check your API keys.");
         }
 
@@ -136,6 +137,7 @@ public class CryptoExchangeSyncService {
         session.setApiKey(encryption.encrypt(key));
         session.setApiSecret(encryption.encrypt(secret));
         session.setApiPassphrase(encryption.encrypt(passphrase));
+        session.setRegion(region);
         session.setStatus("CONNECTED");
         sessionRepository.save(session);
 
@@ -149,7 +151,7 @@ public class CryptoExchangeSyncService {
         CryptoExchangePort adapter = findAdapter(session.getExchangeType());
         ExchangeCredentials credentials = new ExchangeCredentials(
             encryption.decrypt(session.getApiKey()), encryption.decrypt(session.getApiSecret()),
-            encryption.decrypt(session.getApiPassphrase()));
+            encryption.decrypt(session.getApiPassphrase()), session.getRegion());
 
         try {
             List<ExchangePosition> positions = adapter.fetchPositions(credentials);
@@ -430,7 +432,7 @@ public class CryptoExchangeSyncService {
     public List<ExchangeStatusResponse> getStatus(Long memberId) {
         return sessionRepository.findAllByMemberId(memberId).stream()
             .map(s -> new ExchangeStatusResponse(
-                s.getId(), s.getExchangeType(), s.getStatus(), s.getLastSyncedAt()))
+                s.getId(), s.getExchangeType(), s.getStatus(), s.getLastSyncedAt(), s.getRegion()))
             .toList();
     }
 
@@ -466,6 +468,21 @@ public class CryptoExchangeSyncService {
         if (value == null) return null;
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String validateRegion(ExchangeType type, String supplied, List<String> regions) {
+        String region = supplied == null ? "" : supplied.strip().toUpperCase(Locale.ROOT);
+        if (regions.isEmpty()) {
+            if (!region.isEmpty()) {
+                throw new IllegalArgumentException(type + " does not use a region.");
+            }
+            return null;
+        }
+        if (!regions.contains(region)) {
+            String requirement = region.isEmpty() ? " requires a region." : " does not support the selected region.";
+            throw new IllegalArgumentException(type + requirement + " Allowed regions: " + String.join(", ", regions));
+        }
+        return region;
     }
 
     /**
@@ -551,5 +568,5 @@ public class CryptoExchangeSyncService {
     }
 
     public record ExchangeStatusResponse(
-        Long id, ExchangeType exchangeType, String status, java.time.Instant lastSyncedAt) {}
+        Long id, ExchangeType exchangeType, String status, Instant lastSyncedAt, String region) {}
 }

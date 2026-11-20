@@ -87,9 +87,9 @@ class CryptoExchangeSyncTransactionIsolationTest {
         when(adapter.requiresApiSecret()).thenReturn(false);
         when(meriaAdapter.exchangeName()).thenReturn(ExchangeType.MERIA.name());
         when(meriaAdapter.requiresApiSecret()).thenReturn(false);
-        when(adapter.fetchPositions(new ExchangeCredentials("bad", null, null))).thenReturn(List.of(
+        when(adapter.fetchPositions(new ExchangeCredentials("bad", null, null, null))).thenReturn(List.of(
             new CryptoExchangePort.ExchangePosition(null, "BTC", BigDecimal.ONE, null, null)));
-        when(meriaAdapter.fetchPositions(new ExchangeCredentials("good", null, null))).thenReturn(List.of(
+        when(meriaAdapter.fetchPositions(new ExchangeCredentials("good", null, null, null))).thenReturn(List.of(
             CryptoExchangePort.ExchangePosition.spot("ETH", BigDecimal.ONE)));
         when(priceService.refreshCryptoQuotes(anySet())).thenReturn(Map.of(
             "BTC", new PriceService.Quote(BigDecimal.TEN, null, true),

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { AlertBanner } from '@/components/shared/AlertBanner'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import type { ExchangeType } from '@/types/api'
 import { SUPPORTED_EXCHANGES, exchangeRequiresApiPassphrase, exchangeRequiresApiSecret } from '@/types/api'
@@ -26,24 +27,30 @@ export function CryptoExchangeForm({ onSuccess, onCancel, variant }: CryptoExcha
   const [apiKey, setApiKey] = useState('')
   const [apiSecret, setApiSecret] = useState('')
   const [apiPassphrase, setApiPassphrase] = useState('')
+  const [region, setRegion] = useState('')
   const [showSecret, setShowSecret] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const addMutation = useAddCryptoExchange()
   const requiresSecret = exchangeRequiresApiSecret(exchangeType)
   const requiresPassphrase = exchangeRequiresApiPassphrase(exchangeType)
+  const regions = SUPPORTED_EXCHANGES.find(exchange => exchange.type === exchangeType)?.regions ?? []
+  const requiresRegion = regions.length > 0
+  const needsRegion = requiresRegion && !regions.includes(region)
 
   function selectExchange(type: ExchangeType) {
     setExchangeType(type)
-    // Clear optional credentials when switching exchanges.
+    // Clear exchange-specific fields when switching exchanges.
     setApiSecret('')
     setApiPassphrase('')
+    setRegion('')
     setShowSecret(false)
     if (!modal) setError(null)
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (needsRegion) return
     setError(null)
     addMutation.mutate(
       {
@@ -51,6 +58,7 @@ export function CryptoExchangeForm({ onSuccess, onCancel, variant }: CryptoExcha
         apiKey,
         ...(requiresSecret && { apiSecret }),
         ...(requiresPassphrase && { apiPassphrase }),
+        ...(requiresRegion && { region }),
       },
       {
         onSuccess,
@@ -99,6 +107,25 @@ export function CryptoExchangeForm({ onSuccess, onCancel, variant }: CryptoExcha
             ))}
           </div>
         </div>
+
+        {requiresRegion && (
+          <div className="space-y-2">
+            <Label htmlFor="exchange-region">{t('sync.exchanges.region')}</Label>
+            <Select value={region} onValueChange={setRegion} required>
+              <SelectTrigger id="exchange-region" aria-describedby="exchange-region-help">
+                <SelectValue placeholder={t('sync.exchanges.regionPlaceholder')} />
+              </SelectTrigger>
+              <SelectContent>
+                {regions.map(code => (
+                  <SelectItem key={code} value={code}>
+                    {t(`sync.exchanges.regions.${code}`, { defaultValue: code })}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p id="exchange-region-help" className="text-sm text-muted-foreground">{t('sync.exchanges.regionHelp')}</p>
+          </div>
+        )}
 
         <div className="space-y-2">
           <Label htmlFor="exchange-api-key">{t('sync.exchanges.apiKey')}</Label>
@@ -158,7 +185,7 @@ export function CryptoExchangeForm({ onSuccess, onCancel, variant }: CryptoExcha
 
         {!modal ? (
           <div className="flex gap-2">
-            <Button type="submit" disabled={addMutation.isPending}>
+            <Button type="submit" disabled={addMutation.isPending || needsRegion}>
               {t('sync.exchanges.connect')}
             </Button>
             <Button type="button" variant="outline" onClick={onCancel}>
@@ -166,7 +193,7 @@ export function CryptoExchangeForm({ onSuccess, onCancel, variant }: CryptoExcha
             </Button>
           </div>
         ) : (
-          <Button type="submit" disabled={addMutation.isPending} className="w-full">
+          <Button type="submit" disabled={addMutation.isPending || needsRegion} className="w-full">
             {addMutation.isPending && <Loader2 className="size-4 animate-spin" />}
             {t('sync.exchanges.connect')}
           </Button>

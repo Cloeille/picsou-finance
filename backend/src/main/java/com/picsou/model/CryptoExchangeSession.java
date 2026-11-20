@@ -41,6 +41,9 @@ public class CryptoExchangeSession extends AuditableEntity {
     @Column(name = "api_passphrase", length = 500)
     private String apiPassphrase;
 
+    @Column(length = 20)
+    private String region;
+
     @Column(nullable = false, length = 20)
     @Builder.Default
     private String status = "CONNECTED";

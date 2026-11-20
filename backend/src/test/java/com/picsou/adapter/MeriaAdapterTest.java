@@ -50,7 +50,7 @@ class MeriaAdapterTest {
 
     private static final String BASE_URL = "https://api.meria.test/v1";
     private static final String API_KEY = "meria-read-only-key";
-    private static final ExchangeCredentials CREDENTIALS = new ExchangeCredentials(API_KEY, null, null);
+    private static final ExchangeCredentials CREDENTIALS = new ExchangeCredentials(API_KEY, null, null, null);
     private static final String EMPTY = "{\"success\":true,\"data\":[]}";
 
     private final List<ClientRequest> requests = new ArrayList<>();
@@ -415,7 +415,7 @@ class MeriaAdapterTest {
 
     @Test
     void fetchPositions_ignoresTheApiSecretArgument() {
-        adapterWith(EMPTY, EMPTY, EMPTY).fetchPositions(new ExchangeCredentials(API_KEY, "leaked-secret", null));
+        adapterWith(EMPTY, EMPTY, EMPTY).fetchPositions(new ExchangeCredentials(API_KEY, "leaked-secret", null, null));
 
         assertThat(requests).allSatisfy(request ->
             assertThat(request.headers().toSingleValueMap().values())
@@ -436,7 +436,7 @@ class MeriaAdapterTest {
         MeriaAdapter adapter = adapterRouting(path -> response(HttpStatus.FORBIDDEN,
             "{\"success\":false,\"error\":{\"code\":403,\"message\":\"UNAUTHORIZED\"}}"));
 
-        assertThat(adapter.testConnection(new ExchangeCredentials("wrong-key", null, null))).isFalse();
+        assertThat(adapter.testConnection(new ExchangeCredentials("wrong-key", null, null, null))).isFalse();
     }
 
     @Test

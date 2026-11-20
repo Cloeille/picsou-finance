@@ -45,7 +45,8 @@ public class CryptoExchangeController {
     @PostMapping
     public AccountResponse addExchange(@Valid @RequestBody AddExchangeRequest req) {
         return exchangeService.addExchange(req.type(),
-            new ExchangeCredentials(req.apiKey(), req.apiSecret(), req.apiPassphrase()), userContext.currentMemberId());
+            new ExchangeCredentials(req.apiKey(), req.apiSecret(), req.apiPassphrase(), req.region()),
+            userContext.currentMemberId());
     }
 
     @PostMapping("/{id}/sync")
@@ -65,7 +66,7 @@ public class CryptoExchangeController {
     }
 
     /**
-     * The exchange adapter declares whether a secret or passphrase is required.
+     * The exchange adapter declares whether a secret, passphrase or region is required.
      * {@code CryptoExchangeSyncService.addExchange} enforces those rules with a 400.
      *
      * <p>Deliberately no {@code @NotBlank} on {@code apiKey}: bean validation failures map to a
@@ -73,7 +74,7 @@ public class CryptoExchangeController {
      * frontend only reads {@code detail} — so a blank key would surface as an unexplained error
      * instead of the service's "An API key is required." 400.
      *
-     * <p>The {@code @Size} bounds are on the <em>plaintext</em>, while the columns hold the
+     * <p>The credential {@code @Size} bounds are on the <em>plaintext</em>, while the columns hold the
      * AES-GCM ciphertext: Base64 encodes n UTF-8 bytes as {@code 4 * ceil((n + 28) / 3)} characters.
      * For ASCII, 200 and 300 characters become 304 and 440, respectively. A {@code varchar(500)}
      * holds up to 347 plaintext bytes, so the service also checks the passphrase's byte length.
@@ -82,7 +83,8 @@ public class CryptoExchangeController {
         @NotNull ExchangeType type,
         @Size(max = 200) String apiKey,
         @Size(max = 300) String apiSecret,
-        @Size(max = 200) String apiPassphrase
+        @Size(max = 200) String apiPassphrase,
+        @Size(max = 20) String region
     ) {
         @Override
         public String toString() {

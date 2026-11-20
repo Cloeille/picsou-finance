@@ -40,10 +40,19 @@ public interface CryptoExchangePort {
     }
 
     /**
-     * An API key with the credentials required by the adapter. The secret and passphrase are
-     * {@code null} exactly when their respective requirements are false.
+     * Upper-case ASCII region codes the user must choose from, in display order.
+     * An empty list means this exchange has no region choice.
      */
-    record ExchangeCredentials(String apiKey, String apiSecret, String apiPassphrase) {
+    default List<String> regions() {
+        return List.of();
+    }
+
+    /**
+     * An API key with the credentials required by the adapter. The secret and passphrase are
+     * {@code null} exactly when their respective requirements are false. The region is
+     * {@code null} exactly when {@link CryptoExchangePort#regions()} is empty.
+     */
+    record ExchangeCredentials(String apiKey, String apiSecret, String apiPassphrase, String region) {
         @Override
         public String toString() {
             return "ExchangeCredentials[redacted]";

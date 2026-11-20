@@ -95,7 +95,7 @@
 | 2026-11-06 | [Natixis Interépargne through a browserless sidecar that keeps only the refresh token](./decisions/2026-11-06-natixis-interepargne-httpx-sidecar.md) | Active |
 | 2026-11-07 | [Contract kinds seen in few live runs are enabled per bank and demoted, not fatal](./decisions/2026-11-07-provisional-kinds-per-bank.md) | Active |
 | 2026-11-06 | [Parallel CI legs that prove their own completeness](./decisions/2026-11-06-parallel-ci-legs.md) | Active |
-| 2026-11-20 | [Exchange credentials carry an optional API passphrase](./decisions/2026-11-20-exchange-api-passphrase.md) | Active |
+| 2026-11-20 | [Exchange credentials carry an API passphrase and region when required](./decisions/2026-11-20-exchange-api-passphrase.md) | Active |
 
 ## Feature notes
 

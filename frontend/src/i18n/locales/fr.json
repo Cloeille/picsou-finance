@@ -1460,6 +1460,14 @@
       "apiKey": "Clé API",
       "apiSecret": "Secret API",
       "apiPassphrase": "Phrase secrète de l’API",
+      "region": "Région",
+      "regionPlaceholder": "Choisir une région",
+      "regionHelp": "Choisissez la région à laquelle votre compte sur la plateforme est rattaché.",
+      "regions": {
+        "GLOBAL": "Monde",
+        "EEA": "Espace économique européen",
+        "US": "États-Unis"
+      },
       "apiKeyOnly": "Meria se connecte avec une seule clé API en lecture seule, sans secret supplémentaire.",
       "showSecret": "Afficher le secret API",
       "hideSecret": "Masquer le secret API",
