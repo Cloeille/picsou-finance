@@ -176,6 +176,7 @@ In dark mode the same logic holds: the card surface lifts one tonal step (`oklch
 
 ### Charts
 - **Series colors:** the Growth Green family, lightened for fills, deepened for primary lines.
+- **Curves:** smooth, dot-free curves at rest (`dot={false}` required on every Recharts `<Area>` and `<Line>` series; use `activeDot` on hover only). Enforced in CI via `design-guardrails.test.ts`.
 - **Grid:** hairline, low-contrast — the data owns the chart, the grid only orients.
 - **Tooltips:** popover surface, Card Light, hairline ring, no decorative shadow.
 

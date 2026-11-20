@@ -282,4 +282,21 @@ describe('UI & design system guardrails (see CONTRIBUTING.md & DESIGN.md)', () =
       'Keep CardTitle, DialogTitle, and TabsTrigger text-only (see DESIGN.md "Icons").',
     ).toEqual([])
   })
+
+  it('keeps all Recharts Area and Line curves dot-free at rest (dot={false})', () => {
+    const violations: string[] = []
+    for (const [file, content] of tsxEntries) {
+      if (!/from\s+['"]recharts['"]/.test(content)) continue
+      for (const match of content.matchAll(/<(Area|Line)\b([\s\S]*?)\/>/g)) {
+        const [, tag, props] = match
+        if (!/\bdot=\{false\}/.test(props)) {
+          violations.push(`${file} <${tag}>: missing dot={false}`)
+        }
+      }
+    }
+    expect(
+      violations,
+      'Every Recharts <Area> and <Line> series must set dot={false} so curves stay smooth without static dots (see DESIGN.md "Charts").',
+    ).toEqual([])
+  })
 })
