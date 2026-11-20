@@ -9,7 +9,7 @@ import { AlertBanner } from '@/components/shared/AlertBanner'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Loader2 } from 'lucide-react'
+import { CircleNotch } from '@phosphor-icons/react'
 
 /**
  * Second step of the MFA login flow. Reached only after `/auth/login`
@@ -139,7 +139,7 @@ export function MfaChallengePage() {
                 disabled={verify.isPending || code.length === 0}
                 className="mt-1 h-10 w-full rounded-lg text-sm font-medium"
               >
-                {verify.isPending && <Loader2 className="size-4 animate-spin" />}
+                {verify.isPending && <CircleNotch className="size-4 animate-spin" />}
                 {verify.isPending ? t('auth.mfaVerifying') : t('auth.mfaVerifyButton')}
               </Button>
             </form>

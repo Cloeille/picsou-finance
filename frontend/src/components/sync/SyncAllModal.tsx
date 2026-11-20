@@ -19,22 +19,22 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
-  AlertTriangle,
-  Loader2,
-  RefreshCw,
-  ExternalLink,
-  Landmark,
+  Warning,
+  CircleNotch,
+  ArrowsClockwise,
+  ArrowSquareOut,
+  Bank,
   Coins,
   Wallet,
-  Building2,
-  LineChart,
+  Buildings,
+  ChartLineUp,
   CreditCard,
   Info,
-  Smartphone,
+  DeviceMobile,
   Lock,
   PiggyBank,
   ShieldCheck,
-} from 'lucide-react'
+} from '@phosphor-icons/react'
 import {
   useBankSyncStatus,
   useProviderStatus,
@@ -116,28 +116,28 @@ type SyncConnection = {
 
 
 const ProviderIcon: Record<SyncConnection['providerType'], React.ComponentType<{ className?: string }>> = {
-  bank: Landmark,
+  bank: Bank,
   exchange: Coins,
   wallet: Wallet,
-  tr: Building2,
-  finary: LineChart,
-  bourso: Building2,
+  tr: Buildings,
+  finary: ChartLineUp,
+  bourso: Buildings,
   revolut: CreditCard,
   amundi: PiggyBank,
   fortuneo: PiggyBank,
-  'bourse-direct': LineChart,
-  degiro: LineChart,
-  ibkr: LineChart,
-  simplefin: Landmark,
+  'bourse-direct': ChartLineUp,
+  degiro: ChartLineUp,
+  ibkr: ChartLineUp,
+  simplefin: Bank,
   wise: PiggyBank,
   amex: CreditCard,
-  corum: Building2,
-  sofidy: Building2,
-  louve: Building2,
-  'caisse-epargne': Landmark,
-  'banque-populaire': Landmark,
-  lbp: Landmark,
-  bnp: Landmark,
+  corum: Buildings,
+  sofidy: Buildings,
+  louve: Buildings,
+  'caisse-epargne': Bank,
+  'banque-populaire': Bank,
+  lbp: Bank,
+  bnp: Bank,
   cmes: PiggyBank,
   natixis: PiggyBank,
   cic: PiggyBank,
@@ -931,7 +931,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
         ) : connections.length === 0 ? (
           <EmptyState
             title={t('sync.all.noConnections')}
-            icon={<RefreshCw className="size-12" />}
+            icon={<ArrowsClockwise className="size-12" />}
           />
         ) : (
           <div className="-mx-1 min-h-0 flex-1 space-y-2 overflow-y-auto px-1">
@@ -993,7 +993,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                           </p>
                           {rowErrors[connection.id] && (
                             <p className="flex items-center gap-1.5 text-sm text-destructive">
-                              <AlertTriangle className="size-3 shrink-0" />
+                              <Warning className="size-3 shrink-0" />
                               {rowErrors[connection.id]}
                             </p>
                           )}
@@ -1022,8 +1022,8 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                               })}
                             >
                               {isReconnecting
-                                ? <Loader2 className="size-4 animate-spin" />
-                                : <ExternalLink className="size-4" />}
+                                ? <CircleNotch className="size-4 animate-spin" />
+                                : <ArrowSquareOut className="size-4" />}
                             </Button>
                           )
                         })()}
@@ -1035,11 +1035,11 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                           title={actionTitle}
                         >
                           {isSyncing ? (
-                            <Loader2 className="size-4 animate-spin" />
+                            <CircleNotch className="size-4 animate-spin" />
                           ) : tab ? (
-                            <ExternalLink className="size-4" />
+                            <ArrowSquareOut className="size-4" />
                           ) : (
-                            <RefreshCw className="size-4" />
+                            <ArrowsClockwise className="size-4" />
                           )}
                         </Button>
                       </div>
@@ -1053,7 +1053,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                         </p>
                         {trAuthError && (
                           <p className="mb-3 flex items-center gap-2 text-sm text-destructive">
-                            <AlertTriangle className="size-3.5 shrink-0" />
+                            <Warning className="size-3.5 shrink-0" />
                             {trAuthError}
                           </p>
                         )}
@@ -1062,7 +1062,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                             {trReconnecting ? (
                               <div className="space-y-1">
                                 <p className="text-sm text-muted-foreground">
-                                  <Smartphone className="size-3 inline-block mr-1" />
+                                  <DeviceMobile className="size-3 inline-block mr-1" />
                                   {t('sync.tr.reconnectPhone')}
                                 </p>
                                 <p className="font-mono text-sm" data-testid="tr-modal-masked-phone">{trMaskedPhone}</p>
@@ -1070,7 +1070,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                             ) : (
                               <div className="space-y-1">
                                 <Label htmlFor="tr-modal-phone">
-                                  <Smartphone className="size-3 inline-block mr-1" />
+                                  <DeviceMobile className="size-3 inline-block mr-1" />
                                   {t('sync.tr.phone')}
                                 </Label>
                                 <Input
@@ -1100,7 +1100,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                             </div>
                             <div className="flex gap-2">
                               <Button type="submit" size="sm" disabled={initiateTrMutation.isPending || reconnectTrMutation.isPending}>
-                                {(initiateTrMutation.isPending || reconnectTrMutation.isPending) && <Loader2 className="size-3 animate-spin" />}
+                                {(initiateTrMutation.isPending || reconnectTrMutation.isPending) && <CircleNotch className="size-3 animate-spin" />}
                                 {t('sync.tr.connect')}
                               </Button>
                               <Button type="button" size="sm" variant="outline" onClick={resetTrAuth}>
@@ -1135,7 +1135,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                             </div>
                             <div className="flex gap-2">
                               <Button type="submit" size="sm" disabled={completeTrMutation.isPending || trTan.length !== trCodeLength}>
-                                {completeTrMutation.isPending && <Loader2 className="size-3 animate-spin" />}
+                                {completeTrMutation.isPending && <CircleNotch className="size-3 animate-spin" />}
                                 {t('sync.tr.connect')}
                               </Button>
                               <Button type="button" size="sm" variant="outline" onClick={resetTrAuth}>
@@ -1162,12 +1162,12 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
             >
               {isSyncAll ? (
                 <>
-                  <Loader2 className="size-4 animate-spin" />
+                  <CircleNotch className="size-4 animate-spin" />
                   {t('sync.all.syncing')}
                 </>
               ) : (
                 <>
-                  <RefreshCw className="size-4" />
+                  <ArrowsClockwise className="size-4" />
                   {t('sync.all.syncAll')}
                 </>
               )}

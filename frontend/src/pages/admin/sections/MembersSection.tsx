@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link as LinkIcon, KeyRound, Trash2, Copy, Check, ShieldOff, Unlink, UserPlus } from 'lucide-react'
+import { Link as LinkIcon, Key, Trash, Copy, Check, ShieldSlash, LinkBreak, UserPlus } from '@phosphor-icons/react'
 import {
   Card,
   CardContent,
@@ -163,7 +163,7 @@ export function MembersSection() {
                           })
                         }}
                       >
-                        <KeyRound className="size-3.5" />
+                        <Key className="size-3.5" />
                         {t('admin.members.resetPassword')}
                       </Button>
                     )}
@@ -176,7 +176,7 @@ export function MembersSection() {
                         className="text-destructive hover:text-destructive"
                         onClick={() => setResetMfaId(m.id)}
                       >
-                        <ShieldOff className="size-3.5" />
+                        <ShieldSlash className="size-3.5" />
                         {t('admin.members.resetMfa')}
                       </Button>
                     )}
@@ -188,7 +188,7 @@ export function MembersSection() {
                         className="text-destructive hover:text-destructive"
                         onClick={() => setUnlinkSsoMember(m)}
                       >
-                        <Unlink className="size-3.5" />
+                        <LinkBreak className="size-3.5" />
                         {t('admin.members.unlinkSso')}
                       </Button>
                     )}
@@ -201,7 +201,7 @@ export function MembersSection() {
                         className="text-destructive hover:text-destructive"
                         onClick={() => setDeletingId(m.id)}
                       >
-                        <Trash2 className="size-3.5" />
+                        <Trash className="size-3.5" />
                         {t('admin.members.delete')}
                       </Button>
                     )}

@@ -28,10 +28,10 @@ for (const locale of LOCALES) {
       const rows = await dialog.evaluate((dlg) => {
         const dialogBox = dlg.getBoundingClientRect()
         return [...dlg.querySelectorAll<HTMLElement>('button')]
-          .filter((row) => row.querySelector('svg.lucide-arrow-right'))
+          .filter((row) => row.querySelector('svg[data-slot="source-arrow"]'))
           .map((row) => {
             const box = row.getBoundingClientRect()
-            const arrow = row.querySelector('svg.lucide-arrow-right')!.getBoundingClientRect()
+            const arrow = row.querySelector('svg[data-slot="source-arrow"]')!.getBoundingClientRect()
             const description = [...row.querySelectorAll('p')].at(-1)!
             const text = description.getBoundingClientRect()
             return {

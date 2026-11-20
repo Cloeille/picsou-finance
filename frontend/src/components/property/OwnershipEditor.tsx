@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle } from 'lucide-react'
+import { Warning } from '@phosphor-icons/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -144,14 +144,14 @@ function OwnershipForm({ accountId, ownership, rows, canEdit }: {
 
         {overAllocated && (
           <p role="alert" className="flex items-center gap-2 text-sm text-destructive">
-            <AlertTriangle className="size-4 shrink-0" />
+            <Warning className="size-4 shrink-0" />
             {t('property.ownership.overAllocated')}
           </p>
         )}
 
         {!overAllocated && unassigned > 0.01 && (
           <p className="flex items-start gap-2 rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">
-            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            <Warning className="mt-0.5 size-4 shrink-0" />
             {t('property.ownership.unassigned', { percent: formatPercent(unassigned) })}
           </p>
         )}

@@ -25,18 +25,18 @@ import { getErrorStatus } from '@/lib/errors'
 import { cn, formatDate, getLocale } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
 import {
-  LogOut,
+  SignOut,
   Users,
-  ChevronRight,
+  CaretRight,
   Check,
   X,
-  Pencil,
+  PencilSimple,
   Shield,
-  ExternalLink,
+  ArrowSquareOut,
   Camera,
-  Trash2,
-  RefreshCw,
-} from 'lucide-react'
+  Trash,
+  ArrowsClockwise,
+} from '@phosphor-icons/react'
 import { api } from '@/lib/api-client'
 import { APP_VERSION } from '@/lib/app-version'
 import { PICSOU_GITHUB_URL } from '@/lib/whats-new'
@@ -400,7 +400,7 @@ export function SettingsPage() {
                         setProfilePhoto(photoKey, null)
                       }}
                     >
-                      <Trash2 className="size-4" aria-hidden="true" />
+                      <Trash className="size-4" aria-hidden="true" />
                     </Button>
                   )}
                   <button
@@ -453,14 +453,14 @@ export function SettingsPage() {
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-foreground">{user?.username}</span>
                     <Button size="icon" variant="outline" onClick={startEditUsername}>
-                      <Pencil className="size-4" />
+                      <PencilSimple className="size-4" />
                     </Button>
                   </div>
                 )}
               </div>
               <div className="flex justify-end border-t border-border/60 pt-4">
                 <Button variant="destructive" onClick={handleLogout} disabled={logoutMutation.isPending}>
-                  <LogOut className="size-4" />
+                  <SignOut className="size-4" />
                   {t('settings.logout')}
                 </Button>
               </div>
@@ -518,7 +518,7 @@ export function SettingsPage() {
                 <p className="text-base font-semibold text-foreground">{t('settings.family')}</p>
                 <p className="mt-0.5 text-sm text-muted-foreground">{t('settings.familyDescription')}</p>
               </div>
-              <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+              <CaretRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
             </button>
 
             {user?.role === 'ADMIN' && (
@@ -534,7 +534,7 @@ export function SettingsPage() {
                   <p className="text-base font-semibold text-foreground">{t('settings.adminSection')}</p>
                   <p className="mt-0.5 text-sm text-muted-foreground">{t('settings.adminDescription')}</p>
                 </div>
-                <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                <CaretRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
               </button>
             )}
           </div>
@@ -580,7 +580,7 @@ export function SettingsPage() {
                   <p className="text-xs text-muted-foreground">GitHub</p>
                   <span className="mt-1 inline-flex items-center gap-1.5 font-semibold text-foreground">
                     <span className="truncate">Cloeille/picsou-finance</span>
-                    <ExternalLink className="size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" aria-hidden="true" />
+                    <ArrowSquareOut className="size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" aria-hidden="true" />
                   </span>
                 </a>
               </div>
@@ -602,7 +602,7 @@ export function SettingsPage() {
                     disabled={instanceStatusQuery.isFetching}
                     onClick={() => void instanceStatusQuery.refetch()}
                   >
-                    <RefreshCw
+                    <ArrowsClockwise
                       className={cn('size-3.5', instanceStatusQuery.isFetching && 'animate-spin')}
                       aria-hidden="true"
                     />
@@ -612,7 +612,7 @@ export function SettingsPage() {
                 <Button size="sm" variant="outline" asChild>
                   <a href={PICSOU_GITHUB_URL} target="_blank" rel="noreferrer">
                     {t('whatsNew.starGithub')}
-                    <ExternalLink className="size-3.5" aria-hidden="true" />
+                    <ArrowSquareOut className="size-3.5" aria-hidden="true" />
                   </a>
                 </Button>
               </div>

@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { Info, Loader2 } from 'lucide-react'
+import { Info, CircleNotch } from '@phosphor-icons/react'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { formatLocalDate } from '@/lib/utils'
 
@@ -200,7 +200,7 @@ export function SavingsConfigSection({
               onClick={handleSave}
               disabled={setConfig.isPending}
             >
-              {setConfig.isPending && <Loader2 size={14} className=".5 animate-spin" />}
+              {setConfig.isPending && <CircleNotch size={14} className=".5 animate-spin" />}
               {t('savings.saveConfig')}
             </Button>
             {hasSavedConfig && (
@@ -210,7 +210,7 @@ export function SavingsConfigSection({
                 onClick={handleDelete}
                 disabled={deleteConfig.isPending}
               >
-                {deleteConfig.isPending && <Loader2 size={14} className=".5 animate-spin" />}
+                {deleteConfig.isPending && <CircleNotch size={14} className=".5 animate-spin" />}
                 {confirmDelete ? t('savings.deleteConfigConfirm') : t('savings.deleteConfig')}
               </Button>
             )}
@@ -228,7 +228,7 @@ export function SavingsConfigSection({
           </CardHeader>
           <CardContent>
             {isInterestLoading ? (
-              <Loader2 className="animate-spin text-muted-foreground" size={20} />
+              <CircleNotch className="animate-spin text-muted-foreground" size={20} />
             ) : interest ? (
               <div className="space-y-3">
                 {/* Mobile-responsive grid */}

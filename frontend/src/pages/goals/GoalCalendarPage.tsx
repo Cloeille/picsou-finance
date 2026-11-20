@@ -14,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { Separator } from '@/components/ui/separator'
-import { ArrowLeft, Loader2, Plus } from 'lucide-react'
+import { ArrowLeft, CircleNotch, Plus } from '@phosphor-icons/react'
 import { cn, formatPercent, localeFromLanguage, parseAmount } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
 import type { GoalMonthEntry } from '@/types/api'
@@ -163,7 +163,7 @@ function YearGridView({ months, selectedYm, onSelect, onAddPreviousMonth, isAddi
                   className="flex flex-col items-center justify-center gap-[9px] rounded-xl border border-dashed border-border px-2 py-3 transition-colors cursor-pointer text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isAddingMonth
-                    ? <Loader2 className="size-5 animate-spin" />
+                    ? <CircleNotch className="size-5 animate-spin" />
                     : <Plus className="size-5" />}
                   <span className="text-xs font-semibold uppercase tracking-[0.1em] leading-tight text-center">
                     {t('goals.addPreviousMonth')}
@@ -439,7 +439,7 @@ function MonthDetailPanel({ goalId, entry, onClose, className }: {
                   setOverride.mutate({ id: goalId, ym: entry.yearMonth, amount })
                 }}
               >
-                {setOverride.isPending && <Loader2 className="size-3 animate-spin" />}
+                {setOverride.isPending && <CircleNotch className="size-3 animate-spin" />}
                 {t('goals.saveOverride')}
               </Button>
               {entry.override != null && (
@@ -489,7 +489,7 @@ function MonthDetailPanel({ goalId, entry, onClose, className }: {
                   setManual.mutate({ id: goalId, ym: entry.yearMonth, amount })
                 }}
               >
-                {setManual.isPending && <Loader2 className="size-3 animate-spin" />}
+                {setManual.isPending && <CircleNotch className="size-3 animate-spin" />}
                 {t('goals.saveManual')}
               </Button>
               {entry.manualActual != null && (
@@ -634,7 +634,7 @@ export function GoalCalendarPage() {
           disabled={extendHistory.isPending}
           onClick={() => extendHistory.mutate(goalId)}
         >
-          {extendHistory.isPending && <Loader2 className="size-3 animate-spin" />}
+          {extendHistory.isPending && <CircleNotch className="size-3 animate-spin" />}
           {t('goals.addYear', { year: yearToAdd })}
         </Button>
       </Card>

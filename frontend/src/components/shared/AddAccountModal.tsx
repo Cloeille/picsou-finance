@@ -58,13 +58,13 @@ import { SimplefinPanel } from '@/components/sync/SimplefinPanel'
 import { WisePanel } from '@/components/sync/WisePanel'
 import { useCreateAccount, useUpdateDebtMetadata } from '@/features/accounts/hooks'
 import {
-  Building2,
-  HousePlus,
-  PenLine,
+  Buildings,
+  HouseLine,
+  PencilSimpleLine,
   ArrowRight,
-  Search,
+  MagnifyingGlass,
   X,
-} from 'lucide-react'
+} from '@phosphor-icons/react'
 import type { Account, AccountRequest, AccountType } from '@/types/api'
 
 // ---------------------------------------------------------------------------
@@ -119,12 +119,12 @@ const SOURCES: Array<{
   { key: 'natixis', category: 'investing', icon: NatixisLogo, labelKey: 'sync.natixis.title', descKey: 'addAccount.desc.natixis' },
   { key: 'corum', category: 'investing', icon: CorumLogo, labelKey: 'sync.corum.title', descKey: 'addAccount.desc.corum' },
   { key: 'sofidy', category: 'investing', icon: SofidyLogo, labelKey: 'sync.sofidy.title', descKey: 'addAccount.desc.sofidy' },
-  { key: 'louve', category: 'investing', icon: Building2, labelKey: 'sync.louve.title', descKey: 'addAccount.desc.louve' },
+  { key: 'louve', category: 'investing', icon: Buildings, labelKey: 'sync.louve.title', descKey: 'addAccount.desc.louve' },
   { key: 'exchanges', category: 'crypto', icon: BitcoinLogo, labelKey: 'sync.exchanges.title', descKey: 'addAccount.desc.exchanges' },
   { key: 'wallets', category: 'crypto', icon: EthereumLogo, labelKey: 'sync.wallets.title', descKey: 'addAccount.desc.wallets' },
   { key: 'finary', category: 'manual', icon: FinaryLogo, labelKey: 'sync.finary.title', descKey: 'addAccount.desc.finary' },
-  { key: 'property', category: 'manual', icon: HousePlus, labelKey: 'property.add.source', descKey: 'addAccount.desc.property' },
-  { key: 'manual', category: 'manual', icon: PenLine, labelKey: 'addAccount.manual', descKey: 'addAccount.desc.manual' },
+  { key: 'property', category: 'manual', icon: HouseLine, labelKey: 'property.add.source', descKey: 'addAccount.desc.property' },
+  { key: 'manual', category: 'manual', icon: PencilSimpleLine, labelKey: 'addAccount.manual', descKey: 'addAccount.desc.manual' },
 ]
 
 function normalizeQuery(v: string): string {
@@ -295,7 +295,7 @@ export function AddAccountModal({ open, onOpenChange, defaultType, onCreated }: 
               {step === 'selector' && (
                 <div className="flex min-h-0 flex-1 flex-col gap-3">
                   <div className="relative shrink-0">
-                    <Search
+                    <MagnifyingGlass
                       className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
                       aria-hidden="true"
                     />
@@ -365,7 +365,10 @@ export function AddAccountModal({ open, onOpenChange, defaultType, onCreated }: 
                                 {t(descKey)}
                               </p>
                             </div>
-                            <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
+                            <ArrowRight
+                              data-slot="source-arrow"
+                              className="size-4 shrink-0 text-muted-foreground"
+                            />
                           </Button>
                         ))}
                       </div>

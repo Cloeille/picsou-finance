@@ -498,7 +498,7 @@ describe('AddAccountModal source rows', () => {
     expect(column).toHaveClass('min-w-0', 'flex-1', 'whitespace-normal')
 
     const row = column.parentElement!
-    expect(row.querySelector('svg.lucide-arrow-right')).toHaveClass('shrink-0')
+    expect(row.querySelector('svg[data-slot="source-arrow"]')).toHaveClass('shrink-0')
   })
 })
 

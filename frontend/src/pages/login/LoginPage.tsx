@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Eye, EyeOff, KeyRound, Loader2 } from 'lucide-react'
+import { Eye, EyeSlash, Key, CircleNotch } from '@phosphor-icons/react'
 import { SsoProgressScreen } from './SsoProgressScreen'
 
 export function LoginPage() {
@@ -147,7 +147,7 @@ export function LoginPage() {
                   onClick={handleSsoClick}
                   className="h-auto min-h-10 w-full whitespace-normal rounded-lg px-4 py-2.5 text-sm font-medium"
                 >
-                  <KeyRound className="size-4" aria-hidden="true" />
+                  <Key className="size-4" aria-hidden="true" />
                   {t('auth.sso.button', { provider: sso.providerName })}
                 </Button>
                 <div className="my-5 flex items-center gap-3">
@@ -198,7 +198,7 @@ export function LoginPage() {
                     aria-pressed={showPw}
                   >
                     {showPw ? (
-                      <EyeOff className="size-4" aria-hidden="true" />
+                      <EyeSlash className="size-4" aria-hidden="true" />
                     ) : (
                       <Eye className="size-4" aria-hidden="true" />
                     )}
@@ -232,7 +232,7 @@ export function LoginPage() {
                 className="mt-1 h-10 w-full rounded-lg text-sm font-medium"
               >
                 {loginMutation.isPending && (
-                  <Loader2 className="size-4 animate-spin" />
+                  <CircleNotch className="size-4 animate-spin" />
                 )}
                 {loginMutation.isPending ? t('auth.loggingIn') : t('auth.loginButton')}
               </Button>

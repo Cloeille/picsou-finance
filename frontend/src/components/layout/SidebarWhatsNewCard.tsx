@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronRight, ExternalLink, Megaphone } from 'lucide-react'
+import { CaretRight, ArrowSquareOut, MegaphoneSimple } from '@phosphor-icons/react'
 import { WhatsNewDialog } from '@/components/shared/WhatsNewDialog'
 import { useAppStore } from '@/stores/app-store'
 import {
@@ -33,7 +33,7 @@ export function SidebarWhatsNewCard() {
       >
         <div className="flex w-full items-center justify-between gap-2">
           <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
-            <Megaphone className="size-3.5 shrink-0 text-foreground" aria-hidden="true" />
+            <MegaphoneSimple className="size-3.5 shrink-0 text-foreground" aria-hidden="true" />
             <span>{t('whatsNew.title')}</span>
             <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
               v{latest.version}
@@ -45,7 +45,7 @@ export function SidebarWhatsNewCard() {
               />
             )}
           </span>
-          <ChevronRight
+          <CaretRight
             className="size-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground"
             aria-hidden="true"
           />
@@ -62,7 +62,7 @@ export function SidebarWhatsNewCard() {
         className="group flex w-full items-center justify-between gap-2 border-t border-border/60 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
       >
         <span>{t('whatsNew.starGithub')}</span>
-        <ExternalLink
+        <ArrowSquareOut
           className="size-3.5 shrink-0 text-foreground"
           aria-hidden="true"
         />

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMoney } from '@/hooks/use-money'
-import { RefreshCw, ChevronDown, Info } from 'lucide-react'
+import { ArrowsClockwise, CaretDown, Info } from '@phosphor-icons/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -42,7 +42,7 @@ export function PropertyValuationCard({ accountId, metadata, currentValue }: Pro
       <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
         <CardTitle className="text-base">{t('property.valuation.title')}</CardTitle>
         <Button size="sm" variant="outline" onClick={onRefresh} disabled={refresh.isPending}>
-          <RefreshCw className={`mr-2 size-4 ${refresh.isPending ? 'animate-spin' : ''}`} />
+          <ArrowsClockwise className={`mr-2 size-4 ${refresh.isPending ? 'animate-spin' : ''}`} />
           {t('property.valuation.refresh')}
         </Button>
       </CardHeader>
@@ -126,7 +126,7 @@ export function PropertyValuationCard({ accountId, metadata, currentValue }: Pro
                   className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
                   aria-expanded={showMethod}
                 >
-                  <ChevronDown className={`size-4 transition-transform ${showMethod ? 'rotate-180' : ''}`} />
+                  <CaretDown className={`size-4 transition-transform ${showMethod ? 'rotate-180' : ''}`} />
                   {t('property.valuation.method')}
                 </button>
 

@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
-import { Check, Loader2 } from 'lucide-react'
+import { Check, CircleNotch } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { AlertBanner } from '@/components/shared/AlertBanner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -129,7 +129,7 @@ export function ConsentPage() {
             <AlertBanner variant="bordered" role="alert">{t('oauthConsent.missingParams')}</AlertBanner>
           ) : isLoading ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
+              <CircleNotch className="size-4 animate-spin" />
               {t('oauthConsent.loading')}
             </div>
           ) : isError ? (

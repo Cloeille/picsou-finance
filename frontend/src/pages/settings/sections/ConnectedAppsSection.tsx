@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Trash2 } from 'lucide-react'
+import { Trash } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -56,7 +56,7 @@ export function ConnectedAppsSection() {
                 className="shrink-0 text-destructive hover:text-destructive"
                 onClick={() => setRevokingId(a.id)}
               >
-                <Trash2 className="size-3.5" />
+                <Trash className="size-3.5" />
                 {t('connectedApps.revoke')}
               </Button>
             </li>

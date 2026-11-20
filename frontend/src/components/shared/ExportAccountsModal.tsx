@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Download, Loader2 } from 'lucide-react'
+import { DownloadSimple, CircleNotch } from '@phosphor-icons/react'
 import {
   Dialog,
   DialogContent,
@@ -84,7 +84,7 @@ function ExportPicker({ accounts, onDone }: { accounts: Account[]; onDone: () =>
   }
 
   if (accounts.length === 0) {
-    return <EmptyState icon={<Download className="size-12" />} title={t('accounts.export.empty')} />
+    return <EmptyState icon={<DownloadSimple className="size-12" />} title={t('accounts.export.empty')} />
   }
 
   return (
@@ -122,8 +122,8 @@ function ExportPicker({ accounts, onDone }: { accounts: Account[]; onDone: () =>
       <DialogFooter>
         <Button onClick={submit} disabled={selected.size === 0 || exportAccounts.isPending}>
           {exportAccounts.isPending
-            ? <Loader2 className="size-4 animate-spin" />
-            : <Download className="size-4" />}
+            ? <CircleNotch className="size-4 animate-spin" />
+            : <DownloadSimple className="size-4" />}
           {t('accounts.export.submit')}
         </Button>
       </DialogFooter>

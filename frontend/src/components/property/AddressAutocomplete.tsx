@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { MapPin, Loader2 } from 'lucide-react'
+import { MapPin, CircleNotch } from '@phosphor-icons/react'
 import { Input } from '@/components/ui/input'
 import { useAddressSearch } from '@/features/geocoding/hooks'
 import type { GeocodeSuggestion } from '@/types/api'
@@ -52,7 +52,7 @@ export function AddressAutocomplete({
           onFocus={() => value.trim().length >= 3 && setOpen(true)}
         />
         {isFetching && (
-          <Loader2 className="absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+          <CircleNotch className="absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />
         )}
       </div>
 

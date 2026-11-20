@@ -233,11 +233,15 @@ describe('UI & design system guardrails (see CONTRIBUTING.md & DESIGN.md)', () =
     ).toEqual([])
   })
 
-  it('forbids decorative Lucide icons inside CardTitle, DialogTitle, and TabsTrigger', () => {
+  it('uses Phosphor Icons exclusively and forbids decorative icons inside CardTitle, DialogTitle, and TabsTrigger', () => {
+    const lucideViolations: string[] = []
     const violations: string[] = []
-    const lucideImportRx = /import\s*\{([^}]+)\}\s*from\s*['"]lucide-react['"]/
+    const phosphorImportRx = /import\s*\{([^}]+)\}\s*from\s*['"]@phosphor-icons\/react['"]/
     for (const [file, content] of tsxEntries) {
-      const m = lucideImportRx.exec(content)
+      if (content.includes("from 'lucide-react'") || content.includes('from "lucide-react"')) {
+        lucideViolations.push(file)
+      }
+      const m = phosphorImportRx.exec(content)
       if (!m) continue
       const icons = m[1]
         .split(',')
@@ -262,6 +266,10 @@ describe('UI & design system guardrails (see CONTRIBUTING.md & DESIGN.md)', () =
         }
       }
     }
+    expect(
+      lucideViolations,
+      'Picsou uses @phosphor-icons/react exclusively (see DESIGN.md "Icons").',
+    ).toEqual([])
     expect(
       violations,
       'Keep CardTitle, DialogTitle, and TabsTrigger text-only (see DESIGN.md "Icons").',

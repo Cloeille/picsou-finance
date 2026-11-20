@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
-import { RefreshCw, LogOut, KeyRound, Hash, AlertTriangle, Loader2 } from 'lucide-react'
+import { ArrowsClockwise, SignOut, Key, Hash, Warning, CircleNotch } from '@phosphor-icons/react'
 import { useIbkrStatus, useConnectIbkr, useSyncIbkr, useDisconnectIbkr } from '@/features/sync/hooks'
 import { extractErrorMessage } from '@/lib/errors'
 import { formatDateTime } from '@/lib/utils'
@@ -87,7 +87,7 @@ export function IbkrPanel({ onConnected }: IbkrPanelProps = {}) {
       {error && (
         <Card size="sm" className="border-destructive/30">
           <CardContent className="flex items-center gap-3 py-4">
-            <AlertTriangle className="size-5 shrink-0 text-destructive" />
+            <Warning className="size-5 shrink-0 text-destructive" />
             <p className="flex-1 text-sm text-destructive">{error}</p>
           </CardContent>
         </Card>
@@ -108,12 +108,12 @@ export function IbkrPanel({ onConnected }: IbkrPanelProps = {}) {
           >
             {syncMutation.isPending ? (
               <>
-                <Loader2 className="size-4 animate-spin" />
+                <CircleNotch className="size-4 animate-spin" />
                 {t('sync.ibkr.syncing')}
               </>
             ) : (
               <>
-                <RefreshCw className="size-4" />
+                <ArrowsClockwise className="size-4" />
                 {t('sync.ibkr.sync')}
               </>
             )}
@@ -123,7 +123,7 @@ export function IbkrPanel({ onConnected }: IbkrPanelProps = {}) {
             onClick={() => setShowDisconnectConfirm(true)}
             disabled={disconnectMutation.isPending}
           >
-            <LogOut className="size-4" />
+            <SignOut className="size-4" />
             {t('sync.ibkr.disconnect')}
           </Button>
         </div>
@@ -135,7 +135,7 @@ export function IbkrPanel({ onConnected }: IbkrPanelProps = {}) {
             <CardContent className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label htmlFor="ibkr-token">
-                  <KeyRound className="mr-1 inline-block size-4" />
+                  <Key className="mr-1 inline-block size-4" />
                   {t('sync.ibkr.token')}
                 </Label>
                 <Input
@@ -166,7 +166,7 @@ export function IbkrPanel({ onConnected }: IbkrPanelProps = {}) {
                 disabled={connectMutation.isPending || !token.trim() || !queryId.trim()}
                 className="w-full"
               >
-                {connectMutation.isPending && <Loader2 className="size-4 animate-spin" />}
+                {connectMutation.isPending && <CircleNotch className="size-4 animate-spin" />}
                 {t('sync.ibkr.connect')}
               </Button>
             </CardContent>

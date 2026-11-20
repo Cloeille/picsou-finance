@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Pyramid, SlidersHorizontal } from 'lucide-react'
+import { Triangle, SlidersHorizontal } from '@phosphor-icons/react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ErrorState } from '@/components/shared/ErrorState'
@@ -63,7 +63,7 @@ export function AnalysisPage() {
           <CardContent>
             <EmptyState
               className="py-8"
-              icon={<Pyramid className="size-10" />}
+              icon={<Triangle className="size-10" />}
               title={t('analysis.empty.title')}
               description={t('analysis.empty.description')}
             />

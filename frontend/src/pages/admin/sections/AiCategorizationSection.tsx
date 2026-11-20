@@ -5,7 +5,7 @@ import { NativeSelect } from '@/components/shared/NativeSelect'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Check, KeyRound, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { Check, Key as KeyRound, PencilSimple, Plus, Trash, X } from '@phosphor-icons/react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -240,7 +240,7 @@ export function AiCategorizationSection({ settings }: { settings: AdminAiSetting
                   size="sm"
                   onClick={openEditForm}
                 >
-                  <Pencil className="size-3.5" aria-hidden="true" />
+                  <PencilSimple className="size-3.5" aria-hidden="true" />
                   {t('common.edit')}
                 </Button>
                 <Button
@@ -252,7 +252,7 @@ export function AiCategorizationSection({ settings }: { settings: AdminAiSetting
                   title={t('admin.ai.removeProvider')}
                   onClick={() => setConfirmRemove(true)}
                 >
-                  <Trash2 className="size-4" aria-hidden="true" />
+                  <Trash className="size-4" aria-hidden="true" />
                 </Button>
               </div>
             </div>

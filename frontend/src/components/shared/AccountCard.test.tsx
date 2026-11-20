@@ -220,19 +220,32 @@ describe('AccountCard', () => {
     it('marks the property with its kind glyph instead of a color circle', () => {
       const { container } = render(<AccountCard account={realEstateAccount()} />)
 
-      expect(container.querySelector('.lucide-house')).toBeInTheDocument()
+      expect(container.querySelector('svg[data-property-icon="HOUSE"]')).toBeInTheDocument()
       expect(container.querySelector('[style*="background-color"]')).not.toBeInTheDocument()
     })
 
     it.each([
-      ['APARTMENT', 'lucide-building-2'],
-      ['BUILDING', 'lucide-building'],
-      ['LAND', 'lucide-land-plot'],
-      ['PARKING', 'lucide-square-parking'],
-      ['COMMERCIAL', 'lucide-store'],
-    ] as const)('gives %s its own glyph', (propertyKind, iconClass) => {
+      'HOUSE',
+      'APARTMENT',
+      'BUILDING',
+      'LAND',
+      'PARKING',
+      'COMMERCIAL',
+    ] as const)('gives %s its own glyph', (propertyKind) => {
       const { container } = render(<AccountCard account={realEstateAccount({}, { propertyKind })} />)
-      expect(container.querySelector(`.${iconClass}`)).toBeInTheDocument()
+      expect(container.querySelector(`svg[data-property-icon="${propertyKind}"]`)).toBeInTheDocument()
+    })
+
+    it('uses a distinct SVG glyph for every property kind', () => {
+      const kinds = ['HOUSE', 'APARTMENT', 'BUILDING', 'LAND', 'PARKING', 'COMMERCIAL'] as const
+      const glyphs = kinds.map((propertyKind) => {
+        const { container, unmount } = render(<AccountCard account={realEstateAccount({}, { propertyKind })} />)
+        const svg = container.querySelector(`svg[data-property-icon="${propertyKind}"]`)
+        const markup = svg?.innerHTML ?? ''
+        unmount()
+        return markup
+      })
+      expect(new Set(glyphs).size).toBe(kinds.length)
     })
 
     it('falls back to the color circle when the kind is unknown', () => {

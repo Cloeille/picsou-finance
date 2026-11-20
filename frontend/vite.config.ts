@@ -72,7 +72,7 @@ export default defineConfig(({ command }) => {
         'zod',
         'zustand',
         'recharts',
-        'lucide-react',
+        '@phosphor-icons/react',
         'sonner',
         'class-variance-authority',
         'clsx',

@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { ArrowRight, Inbox } from 'lucide-react'
+import { ArrowRight, Tray } from '@phosphor-icons/react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -243,7 +243,7 @@ export function OverviewTab() {
           <Card className="border-border/80 bg-card transition-colors hover:bg-muted/40">
             <CardContent className="flex items-center gap-3 py-4">
               <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
-                <Inbox className="size-4" />
+                <Tray className="size-4" />
               </span>
               <span className="text-sm font-medium">
                 {t('budget.overview.toCategorize', { count: uncategorized!.length })}

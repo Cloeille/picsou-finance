@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, Trash2 } from 'lucide-react'
+import { DownloadSimple, Trash } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -78,7 +78,7 @@ function EbCallLogDialog() {
           </Button>
           {data && data.length > 0 && (
             <Button variant="outline" size="sm" onClick={() => exportTxt(data)}>
-              <Download className=".5 size-3.5" />
+              <DownloadSimple className=".5 size-3.5" />
               Export .txt
             </Button>
           )}
@@ -88,7 +88,7 @@ function EbCallLogDialog() {
             disabled={clear.isPending || !data?.length}
             onClick={() => { clear.mutate(); setExpandedIdx(null) }}
           >
-            <Trash2 className=".5 size-3.5" />
+            <Trash className=".5 size-3.5" />
             Vider
           </Button>
         </div>

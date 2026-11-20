@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Check, Repeat, TrendingUp, Undo2 } from 'lucide-react'
+import { Check, Repeat, TrendUp, ArrowUUpLeft } from '@phosphor-icons/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useRecurringActivity, useUndoRecurring } from '@/features/budget/hooks'
@@ -31,7 +31,7 @@ function ActivityRow({ entry }: { entry: RecurringActivity }) {
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3 first:pt-0 last:pb-0">
       <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/60 text-foreground">
         {isPriceChange
-          ? <TrendingUp className="size-4 text-rose-600 dark:text-rose-400" aria-hidden="true" />
+          ? <TrendUp className="size-4 text-rose-600 dark:text-rose-400" aria-hidden="true" />
           : <Repeat className="size-4 text-muted-foreground" aria-hidden="true" />}
       </div>
 
@@ -56,7 +56,7 @@ function ActivityRow({ entry }: { entry: RecurringActivity }) {
           disabled={undo.isPending}
           onClick={() => undo.mutate(entry.seriesId)}
         >
-          {isPriceChange ? <Check className="size-3.5" /> : <Undo2 className="size-3.5" />}
+          {isPriceChange ? <Check className="size-3.5" /> : <ArrowUUpLeft className="size-3.5" />}
           {isPriceChange ? t('budget.recurring.activity.acknowledge') : t('budget.recurring.undo')}
         </Button>
       </div>

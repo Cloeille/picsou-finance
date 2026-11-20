@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { NativeSelect } from '@/components/shared/NativeSelect'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, Wallet } from 'lucide-react'
+import { Plus, Trash, Wallet } from '@phosphor-icons/react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -112,7 +112,7 @@ function EnvelopeForm({
               onClick={onDelete}
               disabled={pending}
             >
-              <Trash2 className="size-4" aria-hidden="true" />
+              <Trash className="size-4" aria-hidden="true" />
               {t('common.delete')}
             </Button>
           ) : (

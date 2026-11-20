@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { ArrowRight, Check, Info, TrendingUp } from 'lucide-react'
+import { ArrowRight, Check, Info, TrendUp } from '@phosphor-icons/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -227,7 +227,7 @@ export function PyramidSection({ pyramid }: { pyramid: WealthPyramid }) {
                   )}
                   {safetyNet.excessEur > 0 && (
                     <Badge variant="secondary">
-                      <TrendingUp className="size-3" aria-hidden="true" />
+                      <TrendUp className="size-3" aria-hidden="true" />
                       {t('analysis.safetyNet.excess')}
                     </Badge>
                   )}

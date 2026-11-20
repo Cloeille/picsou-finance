@@ -39,14 +39,14 @@ import {
 import {
   Target,
   Plus,
-  Pencil,
-  Trash2,
-  MoreHorizontal,
-  ChevronDown,
-  Loader2,
-  TrendingUp,
-  TrendingDown,
-} from 'lucide-react'
+  PencilSimple,
+  Trash,
+  DotsThree,
+  CaretDown,
+  CircleNotch,
+  TrendUp,
+  TrendDown,
+} from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import type { GoalProgress, GoalType } from '@/types/api'
 
@@ -450,7 +450,7 @@ export function GoalsPage() {
                 }
               >
                 {(createGoal.isPending || updateGoal.isPending) && (
-                  <Loader2
+                  <CircleNotch
                     className="size-4 animate-spin" />
                 )}
                 {t('common.save')}
@@ -512,7 +512,7 @@ function RecurringPlanCard({
                 aria-expanded={open}
                 aria-label={t('goals.allocation.toggle')}
               >
-                <ChevronDown
+                <CaretDown
                   className={cn('size-4 transition-transform', open && 'rotate-180')}
                 />
               </Button>
@@ -548,19 +548,19 @@ function RecurringPlanCard({
                   className="size-8 text-muted-foreground hover:text-foreground"
                   aria-label={t('common.edit')}
                 >
-                  <MoreHorizontal className="size-4" />
+                  <DotsThree className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={onEdit}>
-                  <Pencil className="size-4" aria-hidden="true" />
+                  <PencilSimple className="size-4" aria-hidden="true" />
                   {t('common.edit')}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
                   onSelect={onDelete}
                 >
-                  <Trash2 className="size-4" aria-hidden="true" />
+                  <Trash className="size-4" aria-hidden="true" />
                   {t('common.delete')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -612,7 +612,7 @@ function GoalCard({ goal, onOpenDetail }: GoalCardProps) {
     if ((goal.monthlyNeeded ?? 0) <= 0) {
       return (
         <Badge className="gap-1">
-          <TrendingUp className="size-3" />
+          <TrendUp className="size-3" />
           {t('goals.achieved')}
         </Badge>
       )
@@ -627,14 +627,14 @@ function GoalCard({ goal, onOpenDetail }: GoalCardProps) {
     if (goal.isOnTrack) {
       return (
         <Badge className="gap-1">
-          <TrendingUp className="size-3" />
+          <TrendUp className="size-3" />
           {t('goals.onTrack')}
         </Badge>
       )
     }
     return (
       <Badge variant="destructive" className="gap-1">
-        <TrendingDown className="size-3" />
+        <TrendDown className="size-3" />
         {t('goals.behind')}
       </Badge>
     )

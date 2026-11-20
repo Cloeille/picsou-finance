@@ -6,7 +6,7 @@ import { ErrorState } from '@/components/shared/ErrorState'
 import { LoadingSkeleton } from '@/components/shared/LoadingSkeleton'
 import { useFamilyDashboard } from '@/features/family/hooks'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Wallet, Target, Users } from 'lucide-react'
+import { Wallet, Target, Users } from '@phosphor-icons/react'
 
 export function FamilyDashboardPage() {
   const money = useMoney()
