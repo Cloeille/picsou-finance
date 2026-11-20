@@ -29,7 +29,7 @@ export function EditHoldingModal({ open, onOpenChange, holding, onSubmit, isLoad
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{t('holdings.editTitle', { ticker: holding?.ticker ?? '' })}</DialogTitle>
         </DialogHeader>
@@ -140,10 +140,10 @@ function HoldingForm({ holding, onOpenChange, onSubmit, isLoading, quantityReadO
           required={!quantityReadOnly}
         />
         {quantityReadOnly && (
-          <p className="text-muted-foreground text-xs">{t('holdings.quantitySyncedHint')}</p>
+          <p className="text-muted-foreground text-sm">{t('holdings.quantitySyncedHint')}</p>
         )}
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid items-end gap-4 sm:grid-cols-2">
         <div className="space-y-1">
           <Label>{t('holdings.avgBuyIn')} <span className="text-muted-foreground text-xs">({t('common.optional')})</span></Label>
           <NumericInput
@@ -161,12 +161,12 @@ function HoldingForm({ holding, onOpenChange, onSubmit, isLoading, quantityReadO
           />
         </div>
       </div>
-      <p className="text-muted-foreground text-xs">{t('holdings.costBasisHint')}</p>
+      <p className="text-muted-foreground text-sm">{t('holdings.costBasisHint')}</p>
       {error && <p className="text-sm text-destructive">{error}</p>}
       <DialogFooter>
         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
         <Button type="submit" disabled={isLoading}>
-          {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
           {t('common.save')}
         </Button>
       </DialogFooter>

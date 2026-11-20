@@ -50,7 +50,7 @@ it('stays on the error page when a query of the real app shell fails there', asy
     return Promise.reject({ config, response: { status: 500, data: null } })
   }
   api.defaults.adapter = failingBackend
-  useAppStore.setState({ demoMode: false, hasSeenSidebarStylePrompt: true })
+  useAppStore.setState({ demoMode: false })
   useAuthStore.getState().login(USER)
 
   await act(() => router.navigate('/error/500'))

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { NativeSelect } from '@/components/shared/NativeSelect'
 import { useTranslation } from 'react-i18next'
 import {
   Dialog,
@@ -11,7 +12,6 @@ import {
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
-import { SELECT_CONTROL_CLASS } from '@/lib/constants'
 import { useMoney } from '@/hooks/use-money'
 import type { PeerLoanOpen, PeerLoanRepaymentFromTransactionRequest, Transaction } from '@/types/api'
 
@@ -84,9 +84,9 @@ export function AssignRepaymentDialog({
 
           <div className="space-y-2">
             <Label htmlFor="assign-loan">{t('peerLoan.assignRepayment.loan')}</Label>
-            <select
+            <NativeSelect
               id="assign-loan"
-              className={SELECT_CONTROL_CLASS}
+              
               value={loanId}
               onChange={(e) => setLoanId(e.target.value)}
               disabled={loans.length === 0}
@@ -97,13 +97,13 @@ export function AssignRepaymentDialog({
                   {loan.name} — {money.amount(loan.remaining)}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
             {loans.length === 0 && (
-              <p className="text-xs text-muted-foreground">{t('peerLoan.assignRepayment.noLoans')}</p>
+              <p className="text-sm text-muted-foreground">{t('peerLoan.assignRepayment.noLoans')}</p>
             )}
           </div>
 
-          <p className="text-xs text-muted-foreground">{t('peerLoan.repaymentHint.single')}</p>
+          <p className="text-sm text-muted-foreground">{t('peerLoan.repaymentHint.single')}</p>
 
           {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
         </div>

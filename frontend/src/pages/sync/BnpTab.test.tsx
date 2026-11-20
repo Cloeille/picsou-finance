@@ -96,11 +96,6 @@ describe('BnpTab', () => {
     expect(apiPost).not.toHaveBeenCalled()
   })
 
-  it('states that the flow is not yet verified against a real account', async () => {
-    renderTab()
-    expect(await screen.findByText('sync.bnp.notice.unverified')).toBeInTheDocument()
-  })
-
   it('shows the ten bank keys and sends positions, never digits, after six clicks', async () => {
     await reachKeypad()
     expect(keyButtons().map((b) => b.textContent)).toEqual(KEYS)

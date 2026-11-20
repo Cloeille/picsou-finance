@@ -170,14 +170,9 @@ export function ExportDataDialog({
                 checked={includeBalanceSnapshots}
                 onCheckedChange={setIncludeBalanceSnapshots}
               />
-              <div className="flex flex-col gap-0.5">
-                <Label htmlFor="export-snapshots" className="text-sm font-medium cursor-pointer">
-                  {t('settings.exportIncludeSnapshots')}
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  {t('settings.exportIncludeSnapshotsHint')}
-                </p>
-              </div>
+              <Label htmlFor="export-snapshots" className="text-sm font-medium cursor-pointer">
+                {t('settings.exportIncludeSnapshots')}
+              </Label>
             </div>
 
             {error && <p className="text-sm text-destructive">{error}</p>}
@@ -188,9 +183,9 @@ export function ExportDataDialog({
               </Button>
               <Button type="submit" disabled={exportMutation.isPending}>
                 {exportMutation.isPending ? (
-                  <Loader2 size={14} className="mr-1.5 animate-spin" />
+                  <Loader2 size={14} className=".5 animate-spin" />
                 ) : (
-                  <Download size={14} className="mr-1.5" />
+                  <Download size={14} className=".5" />
                 )}
                 {t('settings.exportDownload')}
               </Button>

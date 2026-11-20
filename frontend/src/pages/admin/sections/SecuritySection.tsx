@@ -48,10 +48,10 @@ export function SecuritySection({ settings }: { settings: AdminSecuritySettings 
   })
 
   return (
-    <Card className="rounded-4xl bg-card">
+    <Card className="rounded-xl bg-card">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <ShieldCheck className="size-5 text-muted-foreground" />
+        <CardTitle className="flex items-center gap-2 text-base font-semibold">
+          <ShieldCheck className="size-4 shrink-0 text-muted-foreground" />
           {t('admin.security.title')}
         </CardTitle>
         <CardDescription>{t('admin.security.description')}</CardDescription>
@@ -79,7 +79,7 @@ export function SecuritySection({ settings }: { settings: AdminSecuritySettings 
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => append('')} className="mt-1">
-                <PlusCircle className="mr-2 h-4 w-4" />
+                <PlusCircle className="h-4 w-4" />
                 {t('admin.security.originAdd')}
               </Button>
               <Button
@@ -91,7 +91,7 @@ export function SecuritySection({ settings }: { settings: AdminSecuritySettings 
                 disabled={reloadCors.isPending}
                 title={t('admin.security.reloadFromEnvHint')}
               >
-                <RotateCw className="mr-2 h-4 w-4" />
+                <RotateCw className="h-4 w-4" />
                 {reloadCors.isPending
                   ? t('admin.security.reloadFromEnvLoading')
                   : t('admin.security.reloadFromEnv')}
@@ -107,7 +107,7 @@ export function SecuritySection({ settings }: { settings: AdminSecuritySettings 
             )}
           </div>
 
-          <div className="flex items-start justify-between gap-4 rounded-2xl border border-border/60 p-4">
+          <div className="flex items-start justify-between gap-4 rounded-xl border border-border/60 p-4">
             <div className="space-y-1">
               <Label htmlFor="admin-secure-cookies" className="text-sm font-medium">
                 {t('admin.security.secureCookiesLabel')}

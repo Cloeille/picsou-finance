@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, Copy, Check, Server, ShieldAlert } from 'lucide-react'
+import { Plus, Trash2, Copy, Check, Server } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { AlertBanner } from '@/components/shared/AlertBanner'
 import { Input } from '@/components/ui/input'
+import { DateInput } from '@/components/shared/DateInput'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -64,7 +65,7 @@ function ScopeToggle({
           {checked && <Check className="size-3" />}
         </span>
         {t(`accessKeys.scopes.${k}.label`)}
-        <code className="text-[10px] font-normal text-muted-foreground">{scope}</code>
+        <code className="text-xs font-normal text-muted-foreground">{scope}</code>
       </span>
       <span className="pl-6 text-xs text-muted-foreground">{t(`accessKeys.scopes.${k}.desc`)}</span>
     </button>
@@ -191,12 +192,12 @@ export function AccessKeysSection() {
                   </div>
                   <div className="flex flex-wrap gap-1">
                     {k.scopes.map((s) => (
-                      <Badge key={s} variant="secondary" className="font-mono text-[10px]">
+                      <Badge key={s} variant="secondary" className="text-xs">
                         {s}
                       </Badge>
                     ))}
                   </div>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     {k.lastUsedAt
                       ? t('accessKeys.lastUsed', { value: formatTimeAgo(k.lastUsedAt) })
                       : t('accessKeys.lastUsedNever')}
@@ -224,7 +225,7 @@ export function AccessKeysSection() {
       )}
 
       {/* Connect your MCP client -------------------------------------------- */}
-      <div className="space-y-4 rounded-2xl border bg-muted/40 p-4">
+      <div className="space-y-4 rounded-xl border bg-muted/40 p-4">
         <div className="flex items-center gap-2 text-base font-medium">
           <Server className="size-4 text-muted-foreground" />
           {t('accessKeys.connectTitle')}
@@ -265,10 +266,6 @@ export function AccessKeysSection() {
           </div>
         </div>
 
-        <p className="flex items-start gap-2 text-sm text-amber-700 dark:text-amber-400">
-          <ShieldAlert className="mt-0.5 size-3.5 shrink-0" />
-          {t('accessKeys.connectHttpsWarning')}
-        </p>
       </div>
 
       {/* Create / secret dialog --------------------------------------------- */}
@@ -281,7 +278,7 @@ export function AccessKeysSection() {
                 <DialogDescription>{t('accessKeys.secretWarning')}</DialogDescription>
               </DialogHeader>
               <div className="min-h-0 overflow-y-auto px-5 py-4">
-                <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-50 p-3 dark:bg-amber-950/30">
+                <div className="space-y-2 rounded-xl border border-border bg-muted/40 p-3">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                     <code className="flex min-h-10 flex-1 items-center break-all rounded-xl bg-background px-4 py-2 font-mono text-sm">
                       {created.secret}
@@ -323,7 +320,7 @@ export function AccessKeysSection() {
 
                   <div className="space-y-2">
                     <Label>{t('accessKeys.permissionsLabel')}</Label>
-                    <p className="text-xs font-medium text-muted-foreground">{t('accessKeys.groupRead')}</p>
+                    <p className="text-sm font-medium text-muted-foreground">{t('accessKeys.groupRead')}</p>
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       {READ_SCOPES.map((s) => (
                         <ScopeToggle
@@ -334,7 +331,7 @@ export function AccessKeysSection() {
                         />
                       ))}
                     </div>
-                    <p className="pt-1 text-xs font-medium text-muted-foreground">{t('accessKeys.groupWrite')}</p>
+                    <p className="pt-1 text-sm font-medium text-muted-foreground">{t('accessKeys.groupWrite')}</p>
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       {WRITE_SCOPES.map((s) => (
                         <ScopeToggle
@@ -346,21 +343,20 @@ export function AccessKeysSection() {
                       ))}
                     </div>
                     {selectedScopes.length === 0 && (
-                      <p className="text-xs text-muted-foreground">{t('accessKeys.selectScopeHint')}</p>
+                      <p className="text-sm text-muted-foreground">{t('accessKeys.selectScopeHint')}</p>
                     )}
                   </div>
 
                   <div className="space-y-1.5">
                     <Label htmlFor="ak-expiry">{t('accessKeys.expiryLabel')}</Label>
-                    <Input
+                    <DateInput
                       id="ak-expiry"
-                      type="date"
                       min={minExpiry}
                       value={expiresAt}
-                      onChange={(e) => setExpiresAt(e.target.value)}
+                      onChange={setExpiresAt}
                       className="w-full sm:w-48"
                     />
-                    <p className="text-xs text-muted-foreground">{t('accessKeys.expiryHint')}</p>
+                    <p className="text-sm text-muted-foreground">{t('accessKeys.expiryHint')}</p>
                   </div>
 
                   {createKey.isError && (

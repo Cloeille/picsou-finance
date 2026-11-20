@@ -145,9 +145,10 @@ function AdminPasswordForm() {
           autoComplete="username"
           autoFocus
           aria-invalid={showUsernameError}
+          className="rounded-lg"
           {...register('username')}
         />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           {showUsernameError
             ? t(usernameErrorKey ?? 'setup.admin.usernameHint')
             : t('setup.admin.usernameHint')}
@@ -164,7 +165,7 @@ function AdminPasswordForm() {
             type={showPassword ? 'text' : 'password'}
             autoComplete="new-password"
             aria-invalid={showPasswordError}
-            className="pr-14"
+            className="rounded-lg pr-11"
             {...register('password')}
           />
           <button
@@ -173,8 +174,8 @@ function AdminPasswordForm() {
             aria-pressed={showPassword}
             onClick={() => setShowPassword((value) => !value)}
             className={cn(
-              'absolute right-2 top-1/2 inline-flex h-10 w-10 -translate-y-1/2',
-              'items-center justify-center rounded-full text-muted-foreground',
+              'absolute right-1 top-1/2 inline-flex size-8 -translate-y-1/2',
+              'items-center justify-center rounded-md text-muted-foreground',
               'transition-colors hover:bg-muted hover:text-foreground'
             )}
           >
@@ -198,7 +199,7 @@ function AdminPasswordForm() {
             ))}
           </div>
         ) : null}
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           {passwordHasInput
             ? showPasswordError
               ? t(passwordErrorKey ?? 'setup.admin.passwordHint')
@@ -214,9 +215,10 @@ function AdminPasswordForm() {
         <Input
           id="setup-display-name"
           autoComplete="name"
+          className="rounded-lg"
           {...register('displayName')}
         />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           {t('setup.admin.displayNameHint')}
         </p>
       </div>
@@ -254,7 +256,7 @@ function AdminPasswordForm() {
         <Button
           type="submit"
           disabled={submitAdmin.isPending || !formState.isValid}
-          className="w-full rounded-full"
+          className="w-full rounded-lg"
         >
           {submitAdmin.isPending ? t('setup.admin.creating') : t('setup.admin.cta')}
         </Button>

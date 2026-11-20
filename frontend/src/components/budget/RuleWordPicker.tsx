@@ -132,7 +132,7 @@ export function RuleWordPicker({
   const isPending = previewMutation.isPending
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       {/* Token picker */}
       <div>
         <p className="mb-2 text-sm font-medium">{t('budget.rule.wordPickerTitle')}</p>
@@ -143,7 +143,7 @@ export function RuleWordPicker({
               return (
                 <span
                   key={i}
-                  className="rounded px-2 py-0.5 text-xs bg-muted text-muted-foreground font-mono"
+                  className="max-w-full rounded px-2 py-0.5 text-xs bg-muted text-muted-foreground font-mono"
                 >
                   {tok.slice(0, 8)}…
                 </span>
@@ -155,7 +155,7 @@ export function RuleWordPicker({
                 key={i}
                 type="button"
                 onClick={() => toggleToken(i)}
-                className={`rounded px-2 py-0.5 text-sm font-medium transition-colors ${
+                className={`max-w-full break-all rounded px-2 py-0.5 text-left text-sm font-medium transition-colors ${
                   isSel
                     ? 'bg-primary text-primary-foreground'
                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
@@ -199,15 +199,15 @@ export function RuleWordPicker({
 
       {/* Pattern preview */}
       {pattern && (
-        <p className="text-xs text-muted-foreground">
+        <p className="break-words text-sm text-muted-foreground">
           {t('common.labelColon', { label: t('budget.rule.pattern') })}{' '}
-          <code className="font-mono">{pattern}</code>
+          <code className="break-all font-mono">{pattern}</code>
         </p>
       )}
 
       {/* Preview list */}
       {pattern && (
-        <div>
+        <div className="min-w-0">
           <div className="flex items-center gap-2 mb-2">
             <p className="text-sm font-medium">
               {isPending
@@ -217,18 +217,21 @@ export function RuleWordPicker({
             {isPending && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
           </div>
           {!isPending && previewMutation.data && previewMutation.data.transactions.length > 0 && (
-            <div className="max-h-48 overflow-y-auto rounded-md border divide-y text-sm">
+            <div className="max-h-48 overflow-x-hidden overflow-y-auto rounded-md border divide-y text-sm">
               {previewMutation.data.transactions.map((tx) => (
                 <label
                   key={tx.id}
-                  className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/50"
+                  className="flex min-w-0 items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/50"
                 >
                   <Checkbox
+                    className="shrink-0"
                     checked={checkedPreviewIds.has(tx.id)}
                     onCheckedChange={() => togglePreviewRow(tx.id)}
                   />
-                  <span className="flex-1 min-w-0 truncate text-foreground">{tx.label}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground">
+                  <span className="flex-1 min-w-0 truncate text-foreground" title={tx.label}>
+                    {tx.label}
+                  </span>
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                     {formatDate(tx.date, getLocale())}
                   </span>
                   <span
@@ -243,7 +246,7 @@ export function RuleWordPicker({
             </div>
           )}
           {totalCount > 200 && (
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-sm text-muted-foreground">
               {t('budget.rule.previewCapped', { count: totalCount })}
             </p>
           )}

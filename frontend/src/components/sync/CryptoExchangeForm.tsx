@@ -102,7 +102,7 @@ export function CryptoExchangeForm({ onSuccess, onCancel, variant }: CryptoExcha
             maxLength={EXCHANGE_API_KEY_MAX_LENGTH}
           />
           {!requiresSecret && (
-            <p className="text-xs text-muted-foreground">{t('sync.exchanges.apiKeyOnly')}</p>
+            <p className="text-sm text-muted-foreground">{t('sync.exchanges.apiKeyOnly')}</p>
           )}
         </div>
 

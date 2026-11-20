@@ -1,10 +1,28 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
-import { Inbox, RefreshCw, Sparkles } from 'lucide-react'
+import { useNavigate } from 'react-router'
+import { Check, ChevronDown, Inbox, RefreshCw, Search, Settings, SlidersHorizontal, Sparkles, X } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Dialog,
   DialogContent,
@@ -18,7 +36,6 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
-import { NativeSelect } from '@/components/shared/NativeSelect'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { MerchantAvatar } from '@/components/shared/MerchantAvatar'
@@ -34,13 +51,71 @@ import {
   useStartCategorizeAi,
   useUncategorized,
 } from '@/features/budget/hooks'
-import { formatDate, formatPercent, getLocale } from '@/lib/utils'
+import { useAdminSettings } from '@/features/admin/hooks'
+import { useAuthStore } from '@/stores/auth-store'
+import { cn, formatDate, getLocale } from '@/lib/utils'
 import type { Category, RuleMatchType, UncategorizedTransaction } from '@/types/api'
 
 type RulePayload = {
   pattern: string
   matchType: RuleMatchType
   applyToIds: number[]
+}
+
+const EMPTY_CATEGORY = '__EMPTY__'
+
+/**
+ * Turn raw bank/broker descriptions (which often carry UUIDs, full IBANs, or English Trade Republic
+ * boilerplate) into a clean human-readable title while preserving the original string as detail.
+ */
+function formatTransactionDisplay(raw: string, lang: string): { title: string; detail: string | null } {
+  const trimmed = raw.trim()
+  if (!trimmed) return { title: raw, detail: null }
+
+  // Strip embedded UUIDs (e.g. "01a194ae-aa5e-7a34-8fcb-d5d7b6c1a451") and parenthesized IBANs.
+  let cleaned = trimmed
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '')
+    .replace(/\(\s*[a-z]{2}\d{2}[a-z0-9]{10,30}\s*\)/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+
+  if (lang.toLowerCase().startsWith('fr')) {
+    const incoming = cleaned.match(/^Incoming\s+Transfer\s+From\s+(.+)$/i)
+    const outgoing = cleaned.match(/^Outgoing\s+Transfer\s+(?:To|For)\s+(.+)$/i)
+    const dividendIsin = cleaned.match(/^Cash\s+Dividend\s+For\s+Isin\s+([A-Z0-9]+)$/i)
+    if (incoming) {
+      cleaned = `Virement entrant de ${incoming[1].trim()}`
+    } else if (outgoing) {
+      cleaned = `Virement sortant vers ${outgoing[1].trim()}`
+    } else if (/^Interest\s+Payment(\s+For\s+Payout\s+Collection)?$/i.test(cleaned)) {
+      cleaned = "Versement d'intérêts"
+    } else if (dividendIsin) {
+      cleaned = `Dividende (${dividendIsin[1].toUpperCase()})`
+    } else if (/^Dividend$/i.test(cleaned)) {
+      cleaned = 'Dividende'
+    } else if (/^Savings\s+Plan\s+Execution/i.test(cleaned)) {
+      cleaned = cleaned.replace(/^Savings\s+Plan\s+Execution/i, "Plan d'épargne").trim()
+    } else if (/^Card\s+Payment/i.test(cleaned)) {
+      cleaned = cleaned.replace(/^Card\s+Payment/i, 'Paiement par carte').trim()
+    } else if (/^Direct\s+Debit/i.test(cleaned)) {
+      cleaned = cleaned.replace(/^Direct\s+Debit/i, 'Prélèvement').trim()
+    }
+  }
+
+  const isPureUuid = cleaned === '' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed)
+  const finalTitle = cleaned || (isPureUuid
+    ? (lang.toLowerCase().startsWith('fr') ? 'Opération sans libellé' : 'Untitled transaction')
+    : trimmed)
+  const ibanMatch = trimmed.match(/\(([a-z]{2}\d{2}[a-z0-9]{10,30})\)/i)
+  const detail = ibanMatch
+    ? `IBAN …${ibanMatch[1].slice(-4).toUpperCase()}`
+    : isPureUuid
+      ? null
+      : finalTitle !== trimmed
+        ? trimmed
+        : null
+
+  return { title: finalTitle, detail }
 }
 
 function useIsMobile() {
@@ -61,23 +136,31 @@ function InboxRow({ tx, categories }: {
   tx: UncategorizedTransaction
   categories: Category[]
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const categorize = useCategorize()
   const qc = useQueryClient()
   const logoUrlFor = useMerchantLogoUrl()
   const isMobile = useIsMobile()
 
-  // Preselect the AI suggestion (if any) so accepting it is a single click on "Assign".
-  const [categoryId, setCategoryId] = useState<number | ''>(tx.aiSuggestedCategoryId ?? '')
+  const [categoryId, setCategoryId] = useState<string>('')
   const [rulePickerOpen, setRulePickerOpen] = useState(false)
   const [rulePayload, setRulePayload] = useState<RulePayload | null>(null)
 
-  const txLabel = tx.merchantLabel || tx.counterparty || tx.description
+  const rawLabel = tx.merchantLabel || tx.counterparty || tx.description
+  const { title, detail } = formatTransactionDisplay(rawLabel, i18n?.resolvedLanguage ?? i18n?.language ?? 'fr')
 
-  const suggested =
-    tx.aiSuggestedCategoryId != null
-      ? categories.find((c) => c.id === tx.aiSuggestedCategoryId) ?? null
-      : null
+  const activeCategories = useMemo(
+    () => categories.filter((c) => !c.archived),
+    [categories],
+  )
+  const incomeCategories = useMemo(
+    () => activeCategories.filter((c) => c.kind === 'INCOME'),
+    [activeCategories],
+  )
+  const expenseCategories = useMemo(
+    () => activeCategories.filter((c) => c.kind !== 'INCOME'),
+    [activeCategories],
+  )
 
   function assign() {
     if (categoryId === '') return
@@ -109,184 +192,295 @@ function InboxRow({ tx, categories }: {
 
   const pickerContent = (
     <RuleWordPicker
-      label={txLabel}
+      label={rawLabel}
       onConfirm={handlePickerConfirm}
       onClose={() => setRulePickerOpen(false)}
     />
   )
 
-  return (
-    <Card>
-      <CardContent className="py-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <MerchantAvatar
-              label={txLabel}
-              logoUrl={logoUrlFor(tx.merchantBrandId)}
-            />
-            <div className="min-w-0">
-              <p className="truncate font-medium">{txLabel}</p>
-              <p className="text-xs text-muted-foreground">{formatDate(tx.date, getLocale())}</p>
-            </div>
-          </div>
-          <span className={`shrink-0 font-semibold tabular-nums ${
-            tx.amount >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground'}`}>
-            <CurrencyDisplay value={tx.amount} showSign />
-          </span>
-        </div>
-
-        {suggested && (
-          <div className="mt-2">
-            <Badge variant="outline" className="gap-1 border-primary/30 bg-primary/10 px-2 py-0.5 text-[0.8rem] font-medium text-primary">
-              <Sparkles className="size-3.5 shrink-0" />
-              {t('budget.categorize.aiSuggested', {
-                name: suggested.name,
-                confidence: formatPercent(tx.aiConfidence ?? 0, { fractionDigits: 0 }),
-              })}
-            </Badge>
-          </div>
+  const renderCategoryItem = (c: Category) => (
+    <SelectItem key={c.id} value={String(c.id)}>
+      <span className="inline-flex items-center gap-2">
+        {c.color && (
+          <span
+            className="size-2 shrink-0 rounded-full"
+            style={{ backgroundColor: c.color }}
+            aria-hidden="true"
+          />
         )}
+        <span>{c.name}</span>
+      </span>
+    </SelectItem>
+  )
 
-        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
-          <NativeSelect
-            value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value === '' ? '' : Number(e.target.value))}
-            className="sm:max-w-56"
-          >
-            <option value="">{t('budget.categorize.selectCategory')}</option>
-            {categories.filter((c) => !c.archived).map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </NativeSelect>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="w-full sm:w-auto"
-              onClick={() => setRulePickerOpen(true)}
-            >
-              {rulePayload != null
-                ? t('budget.categorize.editRule')
-                : t('budget.categorize.createRule')}
-            </Button>
-            {rulePayload != null && (
-              <span className="text-xs text-muted-foreground">
-                {t('budget.rule.ruleActive', { pattern: rulePayload.pattern })}
-                {rulePayload.applyToIds.length > 0 && (
-                  <> · {rulePayload.applyToIds.length}</>
-                )}
+  return (
+    <div className="flex flex-col gap-3 px-4 py-3.5 transition-colors hover:bg-muted/25 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+      {/* Left: avatar + readable title + date/type/detail */}
+      <div className="flex min-w-0 flex-1 items-start gap-3">
+        <MerchantAvatar
+          label={title}
+          logoUrl={logoUrlFor(tx.merchantBrandId)}
+        />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-foreground" title={rawLabel}>
+            {title}
+          </p>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+            <span className="tabular-nums">{formatDate(tx.date, getLocale())}</span>
+            <span>{tx.amount >= 0 ? t('budget.categorize.incoming') : t('budget.categorize.outgoing')}</span>
+            {detail && (
+              <span className="max-w-xs truncate opacity-80" title={rawLabel}>
+                {detail}
               </span>
             )}
+            {rulePayload != null && (
+              <Badge variant="outline" className="h-5 px-1.5 text-xs">
+                {t('budget.rule.ruleActive', { pattern: rulePayload.pattern })}
+                {rulePayload.applyToIds.length > 0 && ` (+${rulePayload.applyToIds.length})`}
+              </Badge>
+            )}
           </div>
+        </div>
+        {/* Mobile amount sits on top right */}
+        <span
+          className={cn(
+            'shrink-0 text-sm font-semibold tabular-nums lg:hidden',
+            tx.amount >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground',
+          )}
+        >
+          <CurrencyDisplay value={tx.amount} showSign />
+        </span>
+      </div>
 
-          <Button
-            size="sm"
-            className="sm:ml-auto"
-            onClick={assign}
-            disabled={categoryId === '' || categorize.isPending}
+      {/* Right: desktop amount + custom category dropdown + rule + validate */}
+      <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
+        <span
+          className={cn(
+            'mr-2 hidden min-w-24 text-right text-sm font-semibold tabular-nums lg:inline-block',
+            tx.amount >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground',
+          )}
+        >
+          <CurrencyDisplay value={tx.amount} showSign />
+        </span>
+
+        <div className="min-w-48 flex-1 sm:w-52 sm:flex-none">
+          <Select
+            value={categoryId === '' ? EMPTY_CATEGORY : categoryId}
+            onValueChange={(next) => setCategoryId(next === EMPTY_CATEGORY ? '' : next)}
           >
-            {t('budget.categorize.assign')}
-          </Button>
+            <SelectTrigger
+              aria-label={t('budget.categorize.selectCategory')}
+              data-value={categoryId}
+              className="h-9"
+            >
+              <SelectValue placeholder={t('budget.categorize.selectCategory')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={EMPTY_CATEGORY}>
+                <span className="text-muted-foreground">{t('budget.categorize.selectCategory')}</span>
+              </SelectItem>
+              {incomeCategories.length > 0 && expenseCategories.length > 0 ? (
+                <>
+                  <SelectGroup>
+                    <SelectLabel>{t('budget.categorize.incomeGroup')}</SelectLabel>
+                    {incomeCategories.map(renderCategoryItem)}
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel>{t('budget.categorize.expenseGroup')}</SelectLabel>
+                    {expenseCategories.map(renderCategoryItem)}
+                  </SelectGroup>
+                </>
+              ) : (
+                activeCategories.map(renderCategoryItem)
+              )}
+            </SelectContent>
+          </Select>
         </div>
 
-        {/* Rule picker — Sheet (bottom) on mobile, Dialog on desktop */}
-        {isMobile ? (
-          <Sheet open={rulePickerOpen} onOpenChange={setRulePickerOpen}>
-            <SheetContent side="bottom" className="px-4 pb-6 pt-4 max-h-[90dvh] overflow-y-auto">
-              <SheetHeader className="mb-4 p-0">
-                <SheetTitle>{t('budget.categorize.createRule')}</SheetTitle>
-              </SheetHeader>
-              {pickerContent}
-            </SheetContent>
-          </Sheet>
-        ) : (
-          <Dialog open={rulePickerOpen} onOpenChange={setRulePickerOpen}>
-            <DialogContent className="sm:max-w-lg">
-              <DialogHeader>
-                <DialogTitle>{t('budget.categorize.createRule')}</DialogTitle>
-              </DialogHeader>
-              {pickerContent}
-            </DialogContent>
-          </Dialog>
-        )}
-      </CardContent>
-    </Card>
+        <Button
+          type="button"
+          size="sm"
+          variant={rulePayload != null ? 'secondary' : 'outline'}
+          onClick={() => setRulePickerOpen(true)}
+          title={rulePayload != null ? t('budget.categorize.editRule') : t('budget.categorize.createRule')}
+        >
+          <SlidersHorizontal className="size-3.5" aria-hidden="true" />
+          <span className="hidden sm:inline">
+            {rulePayload != null ? t('budget.categorize.editRule') : t('budget.categorize.createRule')}
+          </span>
+        </Button>
+
+        <Button
+          type="button"
+          size="sm"
+          onClick={assign}
+          disabled={categoryId === '' || categorize.isPending}
+        >
+          <Check className="size-3.5" aria-hidden="true" />
+          {t('budget.categorize.assign')}
+        </Button>
+      </div>
+
+      {/* Rule picker */}
+      {isMobile ? (
+        <Sheet open={rulePickerOpen} onOpenChange={setRulePickerOpen}>
+          <SheetContent side="bottom" className="max-h-[90dvh] overflow-x-hidden overflow-y-auto px-4 pt-4 pb-6">
+            <SheetHeader className="mb-4 p-0">
+              <SheetTitle>{t('budget.categorize.createRule')}</SheetTitle>
+            </SheetHeader>
+            {pickerContent}
+          </SheetContent>
+        </Sheet>
+      ) : (
+        <Dialog open={rulePickerOpen} onOpenChange={setRulePickerOpen}>
+          <DialogContent className="sm:max-w-xl" aria-describedby={undefined}>
+            <DialogHeader>
+              <DialogTitle>{t('budget.categorize.createRule')}</DialogTitle>
+            </DialogHeader>
+            {pickerContent}
+          </DialogContent>
+        </Dialog>
+      )}
+    </div>
   )
 }
 
 export function CategorizeTab() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const navigate = useNavigate()
+  const isAdmin = useAuthStore((s) => s.user?.role === 'ADMIN')
   const { data: txs, isLoading, isError, refetch } = useUncategorized()
   const { data: categories } = useCategories()
   const { data: settings } = useBudgetSettings()
+  const { data: adminSettings } = useAdminSettings(isAdmin)
   const recategorize = useRecategorize()
   const aiEnabled = !!settings?.aiCategorizationEnabled
-  const aiStatus = useCategorizeAiStatus(aiEnabled)
+  const aiProvider = adminSettings?.ai?.provider
+  const aiConfigured = !isAdmin || (aiProvider != null && aiProvider !== 'none')
+  const canRunAi = aiEnabled && aiConfigured
+  const aiStatus = useCategorizeAiStatus(canRunAi)
   const startAi = useStartCategorizeAi()
   const qc = useQueryClient()
 
-  // Track the previous running value so we can detect the running → done transition.
+  const [query, setQuery] = useState('')
   const prevRunningRef = useRef<boolean | undefined>(undefined)
-  const [doneInfo, setDoneInfo] = useState<{ applied: number; suggested: number } | null>(null)
 
   useEffect(() => {
     const running = aiStatus.data?.running
     if (prevRunningRef.current === true && running === false) {
       void qc.invalidateQueries({ queryKey: ['budget'] })
       void qc.invalidateQueries({ queryKey: ['dashboard'] })
-      if (aiStatus.data) {
-        // Reacting to the running → done transition detected above, not deriving render state.
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setDoneInfo({ applied: aiStatus.data.applied, suggested: aiStatus.data.suggested })
-      }
     }
     prevRunningRef.current = running
-  // qc is stable (QueryClient never changes); aiStatus.data is captured via the running dep.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aiStatus.data?.running])
 
+  const filteredTxs = useMemo(() => {
+    if (!txs) return []
+    const q = query.trim().toLowerCase()
+    if (!q) return txs
+    const lang = i18n?.resolvedLanguage ?? i18n?.language ?? 'fr'
+    return txs.filter((tx) => {
+      const raw = tx.merchantLabel || tx.counterparty || tx.description
+      const { title } = formatTransactionDisplay(raw, lang)
+      return raw.toLowerCase().includes(q) || title.toLowerCase().includes(q)
+    })
+  }, [txs, query, i18n?.resolvedLanguage, i18n?.language])
+
+  const showSearch = !isLoading && !isError && (txs?.length ?? 0) > 3
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">{t('budget.categorize.subtitle')}</p>
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-          {aiEnabled && (
-            <Button
-              size="sm"
-              className="flex-1 sm:flex-none"
-              onClick={() => { setDoneInfo(null); startAi.mutate() }}
-              disabled={aiStatus.data?.running || startAi.isPending}
-            >
-              <Sparkles className="size-4" />
-              {aiStatus.data?.running
-                ? t('budget.categorize.aiProgress', {
-                    processed: aiStatus.data.processed,
-                    total: aiStatus.data.total,
-                  })
-                : t('budget.categorize.categorizeAi')}
-            </Button>
-          )}
-          {doneInfo && (
-            <span className="text-xs text-muted-foreground">
-              {t('budget.categorize.aiDone', {
-                applied: doneInfo.applied,
-                suggested: doneInfo.suggested,
+      {/* Header toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {showSearch ? (
+          <div className="relative w-full max-w-sm">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t('budget.categorize.searchPlaceholder')}
+              className="pl-10 pr-9"
+            />
+            {query && (
+              <button
+                type="button"
+                aria-label={t('setup.integrations.clearSearch')}
+                onClick={() => setQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-4" />
+              </button>
+            )}
+          </div>
+        ) : (
+          <div />
+        )}
+
+        <div className="flex items-center gap-2">
+          {aiStatus.data?.running ? (
+            <Button size="sm" variant="outline" disabled>
+              <Sparkles className="size-4 animate-pulse" aria-hidden="true" />
+              {t('budget.categorize.aiProgress', {
+                processed: aiStatus.data.processed,
+                total: aiStatus.data.total,
               })}
-            </span>
+            </Button>
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" size="sm" variant="outline">
+                  <Sparkles className="size-4 text-muted-foreground" aria-hidden="true" />
+                  <span>{t('budget.categorize.automate')}</span>
+                  <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-64">
+                {canRunAi && (
+                  <DropdownMenuItem
+                    disabled={startAi.isPending}
+                    onSelect={() => startAi.mutate()}
+                  >
+                    <Sparkles className="size-4" aria-hidden="true" />
+                    <span>{t('budget.categorize.categorizeAi')}</span>
+                  </DropdownMenuItem>
+                )}
+
+                <DropdownMenuItem
+                  disabled={recategorize.isPending}
+                  onSelect={() => recategorize.mutate()}
+                >
+                  <RefreshCw className={cn('size-4', recategorize.isPending && 'animate-spin')} aria-hidden="true" />
+                  <span>{t('budget.categorize.recategorize')}</span>
+                </DropdownMenuItem>
+
+                {isAdmin && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={() => navigate('/admin?tab=ai')}>
+                      <Settings className="size-4" aria-hidden="true" />
+                      <span>{canRunAi ? t('budget.categorize.aiSettings') : t('budget.categorize.configureAi')}</span>
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
-          <Button size="sm" variant="outline" className="flex-1 sm:flex-none" onClick={() => recategorize.mutate()}
-            disabled={recategorize.isPending}>
-            <RefreshCw className="size-4" /> {t('budget.categorize.recategorize')}
-          </Button>
         </div>
       </div>
 
+      {aiStatus.data?.error && (
+        <p role="alert" className="text-sm text-destructive">
+          {aiStatus.data.error}
+        </p>
+      )}
+
       {isLoading && (
         <div className="space-y-3">
-          <Skeleton className="h-28 w-full rounded-xl" />
-          <Skeleton className="h-28 w-full rounded-xl" />
+          <Skeleton className="h-20 w-full rounded-xl" />
+          <Skeleton className="h-20 w-full rounded-xl" />
+          <Skeleton className="h-20 w-full rounded-xl" />
         </div>
       )}
 
@@ -295,17 +489,38 @@ export function CategorizeTab() {
       )}
 
       {!isLoading && !isError && (txs?.length ?? 0) === 0 && (
-        <EmptyState icon={<Inbox className="size-10" />}
-          title={t('budget.categorize.empty')}
-          description={t('budget.categorize.emptyHint')} />
+        <Card>
+          <CardContent>
+            <EmptyState
+              className="py-8"
+              icon={<Inbox className="size-10" />}
+              title={t('budget.categorize.empty')}
+              description={t('budget.categorize.emptyHint')}
+            />
+          </CardContent>
+        </Card>
       )}
 
       {!isLoading && !isError && (txs?.length ?? 0) > 0 && (
-        <div className="space-y-3">
-          {txs!.map((tx) => (
-            <InboxRow key={tx.id} tx={tx} categories={categories ?? []} />
-          ))}
-        </div>
+        filteredTxs.length > 0 ? (
+          <Card className="overflow-hidden py-0">
+            <div className="divide-y divide-border/60">
+              {filteredTxs.map((tx) => (
+                <InboxRow key={tx.id} tx={tx} categories={categories ?? []} />
+              ))}
+            </div>
+          </Card>
+        ) : (
+          <Card>
+            <CardContent>
+              <EmptyState
+                className="py-8"
+                icon={<Search className="size-8" />}
+                title={t('common.noResults')}
+              />
+            </CardContent>
+          </Card>
+        )
       )}
     </div>
   )

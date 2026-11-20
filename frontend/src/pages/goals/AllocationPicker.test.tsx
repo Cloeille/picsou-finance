@@ -122,4 +122,37 @@ describe('AllocationPicker', () => {
 
     expect(screen.getByText('goals.allocation.noHoldings')).toBeInTheDocument()
   })
+
+  it('flags checked holdings that still have no amount instead of letting them be silently dropped', () => {
+    render(
+      <AllocationPicker
+        accountId={2}
+        monthlyAmount={200}
+        allocations={[{ ticker: 'CW8', amount: '' }]}
+        onChange={() => {}}
+      />,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent('goals.allocation.missingAmount')
+    expect(screen.getByRole('textbox')).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByRole('textbox')).toHaveAttribute('placeholder', 'goals.allocation.amountPlaceholder')
+  })
+
+  it('splits the monthly amount equally across checked holdings in one click', () => {
+    const onChange = vi.fn()
+    render(
+      <AllocationPicker
+        accountId={2}
+        monthlyAmount={200}
+        allocations={[{ ticker: 'CW8', amount: '' }, { ticker: 'ESE', amount: '' }]}
+        onChange={onChange}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'goals.allocation.splitEqually' }))
+    expect(onChange).toHaveBeenCalledWith([
+      { ticker: 'CW8', amount: '100' },
+      { ticker: 'ESE', amount: '100' },
+    ])
+  })
 })

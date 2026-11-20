@@ -66,7 +66,7 @@ export function SubscriptionCard({ series }: { series: RecurringSeries }) {
               </span>
             )}
             {showPriceChange && (
-              <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+              <span className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400">
                 <TrendingUp className="size-3 shrink-0" />
                 {t('budget.recurring.priceFromTo', {
                   from: money.amount(Math.abs(series.previousAmount!)),

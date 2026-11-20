@@ -57,7 +57,7 @@ export function AddressAutocomplete({
       </div>
 
       {open && suggestions.length > 0 && (
-        <ul className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-lg border bg-popover p-1 shadow-md">
+        <ul className="absolute z-[60] mt-1 max-h-60 w-full overflow-auto rounded-xl border border-border/60 bg-popover p-1 shadow-lg">
           {suggestions.map(suggestion => (
             <li key={`${suggestion.label}-${suggestion.inseeCode}`}>
               <button
@@ -75,7 +75,7 @@ export function AddressAutocomplete({
       )}
 
       {open && !isFetching && value.trim().length >= 3 && suggestions.length === 0 && (
-        <p className="mt-1 text-xs text-muted-foreground">{t('property.address.noMatch')}</p>
+        <p className="mt-1 text-sm text-muted-foreground">{t('property.address.noMatch')}</p>
       )}
     </div>
   )

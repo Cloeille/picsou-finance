@@ -107,6 +107,7 @@
 | German and Spanish strings awaiting translation | 2026-11-03 | [i18n-untranslated.md](./features/i18n-untranslated.md) |
 | Frontend utilities (lib/utils.ts) | 2026-11-01 | [frontend-utils.md](./features/frontend-utils.md) |
 | Demo mode | 2026-10-31 | [demo-mode.md](./features/demo-mode.md) |
+| Account list display order and collapse (Tout tab) | 2026-11-18 | [account-list-display.md](./features/account-list-display.md) |
 | Theme (dark / light / system) + theme-adaptive rendering | 2026-10-31 | [theme-persistence.md](./features/theme-persistence.md) |
 | Dashboard — Time range isolation | 2026-04-13 | [dashboard-time-range-isolation.md](./features/dashboard-time-range-isolation.md) |
 | Bank sync | 2026-10-31 | [bank-sync.md](./features/bank-sync.md) |

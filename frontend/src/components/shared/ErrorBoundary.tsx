@@ -24,7 +24,7 @@ function CrashFallback() {
         <h1 className="text-lg font-semibold">{t('error.crashTitle')}</h1>
         <p className="text-sm text-muted-foreground">{t('error.crashDesc')}</p>
         <Button onClick={() => window.location.reload()}>
-          <RefreshCw className="size-4 mr-2" />
+          <RefreshCw className="size-4" />
           {t('error.reload')}
         </Button>
       </div>

@@ -43,6 +43,8 @@ const baseAccount: Account = {
   logoKey: null,
   createdAt: '2024-01-01T00:00:00Z',
   hidden: false,
+  listPosition: null,
+  listCollapsed: false,
 }
 
 /** A described, valued property -- the shape every real-estate assertion below varies from. */

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlignJustify, Info, LayoutGrid, Pencil, PieChart, RefreshCw } from 'lucide-react'
+import { AlignJustify, LayoutGrid, Pencil, PieChart, RefreshCw } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -29,11 +29,6 @@ const VIEWS: { value: BreakdownView; icon: LucideIcon; labelKey: string }[] = [
   { value: 'treemap', icon: LayoutGrid, labelKey: 'analysis.diversification.views.treemap' },
 ]
 
-/**
- * Remembered locally: how someone likes to look at a chart is not worth a round trip, and a
- * server-side preference would have to be migrated, synced and shared across members who may
- * well disagree.
- */
 const VIEW_STORAGE_KEY = 'picsou.diversification.view'
 
 function storedView(): BreakdownView {
@@ -46,16 +41,11 @@ function storedView(): BreakdownView {
 const MIN_VISIBLE_PERCENT = 0.5
 
 function scoreTone(score: number): string {
-  if (score >= 75) return 'text-green-600 dark:text-green-500'
-  if (score >= 50) return 'text-amber-600 dark:text-amber-500'
-  return 'text-red-600 dark:text-red-500'
+  if (score >= 75) return 'text-emerald-600 dark:text-emerald-400'
+  if (score >= 50) return 'text-foreground'
+  return 'text-rose-600 dark:text-rose-400'
 }
 
-/**
- * A colour-only proportional bar over a wrapping legend — the same "line" rendering the holding
- * modal uses, from the same palette, so one ETF's sectors and the whole portfolio's read as the
- * same chart at two scales.
- */
 function BreakdownBar({
   breakdown,
   labelNs,
@@ -70,7 +60,6 @@ function BreakdownBar({
   view: BreakdownView
 }) {
   const { t } = useTranslation()
-  // Which slice is opened. Kept per bar, so opening a sector does not close a country.
   const [selected, setSelected] = useState<string | null>(null)
 
   const visible = breakdown.slices.filter((s) => s.percent >= MIN_VISIBLE_PERCENT)
@@ -78,13 +67,9 @@ function BreakdownBar({
     .filter((s) => s.percent < MIN_VISIBLE_PERCENT)
     .reduce((acc, s) => acc + s.percent, 0)
 
-  // `key` is the backend's stable label and identifies the slice; `label` is what the user
-  // reads. The remainder has no key because there is no single slice behind it.
   const items: { key: string | null; label: string; percent: number; color: string }[] =
     visible.map((slice, i) => ({
       key: slice.label,
-      // The backend sends stable keys for sectors and countries; an unmapped label falls through
-      // verbatim, so the raw value is the fallback rather than the key.
       label: t(`${labelNs}.${slice.label}`, slice.label),
       percent: slice.percent,
       color: SLICE_PALETTE[i % SLICE_PALETTE.length],
@@ -103,10 +88,10 @@ function BreakdownBar({
 
   return (
     <div>
-      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-        <span className="text-sm text-foreground">{title}</span>
-        <div className="flex items-baseline gap-2">
-          <span className={cn('text-sm', scoreTone(breakdown.score))}>
+      <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-2">
+        <span className="text-sm font-medium text-foreground">{title}</span>
+        <div className="flex items-baseline gap-2.5 tabular-nums">
+          <span className={cn('text-sm font-semibold', scoreTone(breakdown.score))}>
             {breakdown.score} / 100
           </span>
           <span className="text-xs text-muted-foreground">
@@ -123,7 +108,7 @@ function BreakdownBar({
       ) : (
         <>
           {view === 'bar' && (
-            <div className="flex h-2 w-full overflow-hidden rounded-full">
+            <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
               {items.map((item, i) => (
                 <div
                   key={`${item.label}-${i}`}
@@ -139,20 +124,18 @@ function BreakdownBar({
           {view === 'treemap' && (
             <BreakdownTreemap items={items} selected={selected} onSelect={setSelected} />
           )}
-          <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+          <ul className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5">
             {items.map((item, i) => (
               <li key={`${item.label}-${i}`}>
                 <button
                   type="button"
-                  // The remainder is an aggregate of slices too small to name, so there is
-                  // nothing behind it to open.
                   disabled={item.key === null}
                   onClick={() => setSelected(selected === item.key ? null : item.key)}
                   aria-pressed={selected === item.key}
                   className={cn(
-                    'flex items-center gap-1.5 rounded-md px-1 py-0.5 text-xs transition-colors',
+                    'flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs transition-colors',
                     item.key !== null && 'hover:bg-muted',
-                    selected === item.key && 'bg-muted',
+                    selected === item.key && 'bg-muted font-medium',
                   )}
                 >
                   <span
@@ -161,7 +144,7 @@ function BreakdownBar({
                     aria-hidden="true"
                   />
                   <span className="text-foreground">{item.label}</span>
-                  <span className="text-muted-foreground">{formatPercent(item.percent)}</span>
+                  <span className="tabular-nums text-muted-foreground">{formatPercent(item.percent)}</span>
                 </button>
               </li>
             ))}
@@ -183,14 +166,6 @@ function BreakdownBar({
   )
 }
 
-/**
- * The lines the breakdown could not place, each openable in the editor.
- *
- * <p>Listing them is the point. A bare "40 978 € unclassified" tells someone their score is
- * wrong without telling them what to do about it, and the securities that land here are exactly
- * the ones no provider will ever resolve — employee-savings FCPEs, unlisted funds — so waiting
- * does not help.
- */
 function UnclassifiedList({
   lines,
   onEdit,
@@ -203,15 +178,12 @@ function UnclassifiedList({
 
   const shown = lines.slice(0, MAX_UNCLASSIFIED_SHOWN)
   const hidden = lines.length - shown.length
-  // Never looked up is a different problem from looked up and unknown: the first is fixed by a
-  // refresh, the second only by hand. Offering the button when nothing is pending would promise
-  // a fix that cannot come.
   const anyPending = lines.some((line) => !line.profileLooked)
 
   return (
-    <div className="space-y-3 border-t border-border pt-4">
+    <div className="space-y-3 border-t border-border/60 pt-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-sm text-foreground">
+        <span className="text-sm font-medium text-foreground">
           {t('analysis.classification.listTitle')}
         </span>
         {anyPending && (
@@ -242,14 +214,14 @@ function UnclassifiedList({
         )}
       </div>
 
-      <ul className="space-y-1">
+      <ul className="space-y-1.5">
         {shown.map((line) => (
           <li
             key={line.ticker}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted px-3 py-2"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/50 px-3 py-2.5"
           >
             <div className="min-w-0">
-              <span className="text-sm text-foreground">{line.name ?? line.ticker}</span>
+              <span className="text-sm font-medium text-foreground">{line.name ?? line.ticker}</span>
               <span className="ml-2 text-xs text-muted-foreground">{line.ticker}</span>
             </div>
             <div className="flex items-center gap-3">
@@ -265,8 +237,7 @@ function UnclassifiedList({
                     })
                   : t('analysis.classification.notLookedUp')}
               </span>
-              <CurrencyDisplay value={line.valueEur} className="text-sm text-foreground" />
-              {/* accountId is what authorises the write; without one there is nothing to open. */}
+              <CurrencyDisplay value={line.valueEur} className="text-sm font-medium text-foreground" />
               {line.accountId != null && (
                 <Button
                   type="button"
@@ -295,8 +266,6 @@ function UnclassifiedList({
 export function DiversificationSection({ data }: { data: Diversification }) {
   const { t } = useTranslation()
   const [editing, setEditing] = useState<UnclassifiedLine | null>(null)
-  // Lazy initializer rather than an effect: reading localStorage during render is fine, and
-  // seeding state from an effect is what docs/conventions/frontend.md forbids.
   const [view, setView] = useState<BreakdownView>(storedView)
 
   function chooseView(next: BreakdownView) {
@@ -305,26 +274,34 @@ export function DiversificationSection({ data }: { data: Diversification }) {
   }
 
   const hasHoldings = data.totalValueEur > 0
+  const hasBreakdowns =
+    data.sectors.slices.some((s) => s.percent >= MIN_VISIBLE_PERCENT) ||
+    data.countries.slices.some((s) => s.percent >= MIN_VISIBLE_PERCENT)
 
   return (
     <Card>
-      <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-x-4 gap-y-2">
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <CardTitle>{t('analysis.diversification.title')}</CardTitle>
-        {hasHoldings && (
-          <div className="flex gap-1">
+        {hasHoldings && hasBreakdowns && (
+          <div className="inline-flex items-center gap-1 rounded-lg bg-muted p-1">
             {VIEWS.map(({ value, icon: Icon, labelKey }) => (
-              <Button
+              <button
                 key={value}
                 type="button"
-                variant={view === value ? 'default' : 'outline'}
-                size="sm"
                 aria-pressed={view === value}
                 title={t(labelKey)}
                 aria-label={t(labelKey)}
                 onClick={() => chooseView(value)}
+                className={cn(
+                  'inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
+                  view === value
+                    ? 'bg-background text-foreground shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
               >
-                <Icon className="size-4" aria-hidden="true" />
-              </Button>
+                <Icon className="size-3.5" aria-hidden="true" />
+                <span className="hidden sm:inline">{t(labelKey)}</span>
+              </button>
             ))}
           </div>
         )}
@@ -336,24 +313,30 @@ export function DiversificationSection({ data }: { data: Diversification }) {
           </p>
         ) : (
           <div className="space-y-6">
-            <BreakdownBar
-              breakdown={data.sectors}
-              labelNs="holdings.insight.sectorNames"
-              title={t('analysis.diversification.sectors')}
-              securities={data.securities}
-              view={view}
-            />
-            <BreakdownBar
-              breakdown={data.countries}
-              labelNs="holdings.insight.countryNames"
-              title={t('analysis.diversification.countries')}
-              securities={data.securities}
-              view={view}
-            />
+            {hasBreakdowns ? (
+              <>
+                <BreakdownBar
+                  breakdown={data.sectors}
+                  labelNs="holdings.insight.sectorNames"
+                  title={t('analysis.diversification.sectors')}
+                  securities={data.securities}
+                  view={view}
+                />
+                <BreakdownBar
+                  breakdown={data.countries}
+                  labelNs="holdings.insight.countryNames"
+                  title={t('analysis.diversification.countries')}
+                  securities={data.securities}
+                  view={view}
+                />
+              </>
+            ) : (
+              <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 p-5 text-sm text-muted-foreground">
+                {t('analysis.diversification.pendingProfiles')}
+              </div>
+            )}
 
-            {/* Coverage is stated, never renormalised away: a bar computed over 60% of the
-                portfolio must not look like one computed over all of it. */}
-            <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4 text-xs text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-4 text-xs text-muted-foreground">
               <span>
                 {t('analysis.diversification.coverage', {
                   value: formatPercent(data.coveragePercent, { fractionDigits: 0 }),
@@ -369,13 +352,6 @@ export function DiversificationSection({ data }: { data: Diversification }) {
 
             {data.unclassified.length > 0 && (
               <UnclassifiedList lines={data.unclassified} onEdit={setEditing} />
-            )}
-
-            {data.countries.basis === 'MIXED' && (
-              <p className="flex gap-2 rounded-lg bg-muted p-3 text-xs text-muted-foreground">
-                <Info className="mt-px size-4 shrink-0" aria-hidden="true" />
-                {t('analysis.diversification.basisNote')}
-              </p>
             )}
           </div>
         )}

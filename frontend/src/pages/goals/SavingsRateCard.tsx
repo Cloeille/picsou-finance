@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { Info } from 'lucide-react'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { FRENCH_HOUSEHOLD_SAVINGS_RATE } from '@/lib/constants'
 import { formatPercent } from '@/lib/utils'
@@ -54,13 +55,9 @@ export function SavingsRateCard({
       <Card>
         <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
           <p className="text-sm text-muted-foreground">{t('goals.savingsRate.needsIncome')}</p>
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            className="text-sm font-medium text-primary underline-offset-4 hover:underline"
-          >
+          <Button type="button" variant="outline" size="sm" onClick={onOpenSettings}>
             {t('goals.savingsRate.goToSettings')}
-          </button>
+          </Button>
         </CardContent>
       </Card>
     )

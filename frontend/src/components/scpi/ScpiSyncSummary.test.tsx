@@ -31,7 +31,7 @@ describe('ScpiSyncSummary', () => {
   it('never reports a run that applied nothing as a success', () => {
     funds.data = [fund('XL', 'AMBIGUOUS', { accountId: null }), fund('US', 'IGNORED', { accountId: null })]
     render(<ScpiSyncSummary provider="CORUM" completedAt={RUN} />)
-    expect(screen.getByText('scpi.sync.noneApplied:2')).toHaveClass('text-amber-600')
+    expect(screen.getByText('scpi.sync.noneApplied:2')).toHaveClass('text-muted-foreground')
     expect(screen.getByText(/scpi.sync.detail.AMBIGUOUS/)).toBeInTheDocument()
     expect(screen.queryByText(/scpi.sync.found/)).toBeNull()
   })

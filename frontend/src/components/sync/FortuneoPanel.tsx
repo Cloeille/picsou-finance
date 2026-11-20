@@ -88,7 +88,7 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
               ? t("sync.fortuneo.sessionActive")
               : t("sync.fortuneo.noSession")}
           </Badge>
-          <p className="mt-2 text-xs text-muted-foreground">
+          <p className="mt-2 text-sm text-muted-foreground">
             {t("sync.fortuneo.scope")}
           </p>
           {isSyncing && (

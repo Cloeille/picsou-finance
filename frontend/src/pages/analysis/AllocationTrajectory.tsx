@@ -99,7 +99,8 @@ export function AllocationTrajectory({ allocation }: { allocation: AllocationPoi
 
       {/* The numbers the chart is too coarse to read: where each tier lands, and how far that is
           from the target. A share on a stacked area is legible to within a few points at best. */}
-      <table className="mt-4 w-full text-sm">
+      <div className="mt-4 overflow-x-auto">
+      <table className="w-full text-sm">
         <thead>
           <tr className="text-xs text-muted-foreground">
             <th className="pb-1 text-left font-normal">{t('analysis.projection.tier')}</th>
@@ -152,6 +153,7 @@ export function AllocationTrajectory({ allocation }: { allocation: AllocationPoi
           })}
         </tbody>
       </table>
+      </div>
     </>
   )
 }

@@ -41,7 +41,7 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>
 
 export function EnableBankingSection({ settings }: { settings: AdminEnableBankingSettings }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const update = useUpdateEnableBanking()
 
   const { register, handleSubmit, reset, formState } = useForm<FormValues>({
@@ -64,15 +64,18 @@ export function EnableBankingSection({ settings }: { settings: AdminEnableBankin
   // settings, not the dirty form, so the banner reflects the server's truth.
   // The Key ID isn't listed: it's derived from the Application ID server-side.
   const missing: string[] = []
-  if (!settings.applicationId) missing.push(t('admin.enableBanking.applicationId'))
-  if (!settings.redirectUri) missing.push(t('admin.enableBanking.redirectUri'))
-  if (!settings.privateKeyPresent) missing.push(t('admin.enableBanking.privateKey'))
+  if (!settings.applicationId) missing.push(t('admin.enableBanking.missing.applicationId'))
+  if (!settings.redirectUri) missing.push(t('admin.enableBanking.missing.redirectUri'))
+  if (!settings.privateKeyPresent) missing.push(t('admin.enableBanking.missing.privateKey'))
+  const missingFormatted = missing.length > 0
+    ? new Intl.ListFormat(i18n.resolvedLanguage ?? i18n.language, { style: 'long', type: 'conjunction' }).format(missing)
+    : ''
 
   return (
-    <Card className="rounded-4xl bg-card">
+    <Card className="rounded-xl bg-card">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <Landmark className="size-5 text-muted-foreground" />
+        <CardTitle className="flex items-center gap-2 text-base font-semibold">
+          <Landmark className="size-4 shrink-0 text-muted-foreground" />
           {t('admin.enableBanking.title')}
         </CardTitle>
         <CardDescription>{t('admin.enableBanking.description')}</CardDescription>
@@ -85,9 +88,9 @@ export function EnableBankingSection({ settings }: { settings: AdminEnableBankin
             <span>{t('admin.enableBanking.ready')}</span>
           </div>
         ) : (
-          <div role="alert" className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-400">
+          <div role="alert" className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/40 p-3.5 text-sm text-foreground">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-            <span>{t('admin.enableBanking.incomplete', { fields: missing.join(', ') })}</span>
+            <span>{t('admin.enableBanking.incomplete', { fields: missingFormatted })}</span>
           </div>
         )}
 
@@ -220,7 +223,7 @@ function KeypairPanel({ privateKeyPresent }: { privateKeyPresent: boolean }) {
       </div>
 
       {/* Mode toggle */}
-      <div className="flex gap-1 rounded-2xl bg-muted p-1">
+      <div className="flex gap-1 rounded-lg bg-muted p-1">
         {(['generate', 'import'] as Mode[]).map((m) => (
           <button
             key={m}
@@ -248,9 +251,9 @@ function KeypairPanel({ privateKeyPresent }: { privateKeyPresent: boolean }) {
           {!publicPem && (
             <Button type="button" onClick={handleGenerate} disabled={generate.isPending} className="w-full sm:w-auto">
               {generate.isPending ? (
-                <><Loader2 className="mr-2 size-4 animate-spin" />{t('admin.enableBanking.keypair.generating')}</>
+                <><Loader2 className="size-4 animate-spin" />{t('admin.enableBanking.keypair.generating')}</>
               ) : (
-                <><KeyRound className="mr-2 size-4" />{
+                <><KeyRound className="size-4" />{
                   privateKeyPresent
                     ? t('admin.enableBanking.keypair.regenerate')
                     : t('admin.enableBanking.keypair.generate')
@@ -272,7 +275,7 @@ function KeypairPanel({ privateKeyPresent }: { privateKeyPresent: boolean }) {
             onChange={handleFileChange}
           />
           <Button type="button" variant="outline" className="w-full" onClick={() => fileInputRef.current?.click()}>
-            <Upload className="mr-2 size-4" />
+            <Upload className="size-4" />
             {t('admin.enableBanking.keypair.chooseFile')}
           </Button>
           <p className="text-center text-sm text-muted-foreground">{t('admin.enableBanking.keypair.orPaste')}</p>
@@ -289,7 +292,7 @@ function KeypairPanel({ privateKeyPresent }: { privateKeyPresent: boolean }) {
             onClick={handleImport}
           >
             {importKey.isPending ? (
-              <><Loader2 className="mr-2 size-4 animate-spin" />{t('admin.enableBanking.keypair.importing')}</>
+              <><Loader2 className="size-4 animate-spin" />{t('admin.enableBanking.keypair.importing')}</>
             ) : (
               t('admin.enableBanking.keypair.importCta')
             )}
@@ -301,19 +304,19 @@ function KeypairPanel({ privateKeyPresent }: { privateKeyPresent: boolean }) {
       {publicPem && (
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">{t('admin.enableBanking.keypair.uploadInstruction')}</p>
-          <pre className="max-h-64 overflow-auto rounded-xl border border-border/60 bg-muted/40 p-4 font-mono text-[11px] leading-snug whitespace-pre-wrap break-all">
+          <pre className="max-h-64 overflow-auto rounded-xl border border-border/60 bg-muted/40 p-4 text-xs leading-relaxed whitespace-pre-wrap break-all">
             {publicPem}
           </pre>
           <div className="flex flex-col gap-2 sm:flex-row">
             <Button type="button" variant="outline" size="sm" onClick={handleCopy} className="w-full sm:w-auto">
               {copied ? (
-                <><Check className="mr-2 size-4" />{t('admin.enableBanking.keypair.copied')}</>
+                <><Check className="size-4" />{t('admin.enableBanking.keypair.copied')}</>
               ) : (
-                <><Copy className="mr-2 size-4" />{t('admin.enableBanking.keypair.copy')}</>
+                <><Copy className="size-4" />{t('admin.enableBanking.keypair.copy')}</>
               )}
             </Button>
             <Button type="button" variant="outline" size="sm" onClick={handleDownload} className="w-full sm:w-auto">
-              <Download className="mr-2 size-4" />
+              <Download className="size-4" />
               {t('admin.enableBanking.keypair.download')}
             </Button>
           </div>

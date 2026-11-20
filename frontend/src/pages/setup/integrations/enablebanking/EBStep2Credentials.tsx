@@ -108,13 +108,13 @@ export function EBStep2Credentials({ onNext, onBack }: Props) {
             aria-invalid={!!formState.errors.applicationId}
             onPaste={handlePasteApplicationId}
             {...register('applicationId')}
-          />
+           className="rounded-lg" />
           {formState.errors.applicationId ? (
-            <p className="text-xs text-destructive">
+            <p className="text-sm text-destructive">
               {t(formState.errors.applicationId.message ?? 'setup.enablebanking.appIdFormat')}
             </p>
           ) : (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               {t('setup.enablebanking.creds.applicationIdHint')}
             </p>
           )}
@@ -148,14 +148,14 @@ export function EBStep2Credentials({ onNext, onBack }: Props) {
             type="button"
             variant="ghost"
             onClick={onBack}
-            className="w-full sm:w-auto"
+            className="rounded-lg w-full sm:w-auto"
           >
             {t('setup.enablebanking.back')}
           </Button>
           <Button
             type="submit"
             disabled={writeConfig.isPending || !formState.isValid || !prodAcknowledged}
-            className="w-full rounded-full sm:w-auto"
+            className="w-full rounded-lg sm:w-auto"
           >
             {t('setup.enablebanking.continue')}
           </Button>

@@ -56,11 +56,11 @@ export function RecoveryCodesView({
 
       <div className="flex flex-col sm:flex-row gap-2">
         <Button type="button" variant="outline" size="sm" onClick={handleCopy} className="flex-1">
-          {copied ? <Check size={14} className="mr-1.5" /> : <Copy size={14} className="mr-1.5" />}
+          {copied ? <Check size={14} className=".5" /> : <Copy size={14} className=".5" />}
           {copied ? t('settings.mfaCopied') : t('settings.mfaCopy')}
         </Button>
         <Button type="button" variant="outline" size="sm" onClick={handleDownload} className="flex-1">
-          <Download size={14} className="mr-1.5" />
+          <Download size={14} className=".5" />
           {t('settings.mfaDownload')}
         </Button>
       </div>

@@ -61,7 +61,7 @@ function WiseJarsHint({ onOpenWiseJars }: { onOpenWiseJars?: () => void }) {
 
   if (wiseStatus?.connected && wiseStatus.status === 'CONNECTED') {
     return (
-      <p className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+      <p className="flex items-center gap-2 px-1 text-sm text-muted-foreground">
         <PiggyBank className="size-4 shrink-0" />
         {t('sync.banks.wiseJarsConnected')}
       </p>
@@ -73,7 +73,7 @@ function WiseJarsHint({ onOpenWiseJars }: { onOpenWiseJars?: () => void }) {
       <PiggyBank className="size-4 shrink-0" />
       <span>{t(failed ? 'sync.banks.wiseJarsFailed' : 'sync.banks.wiseJarsMissing')}</span>
       {onOpenWiseJars && (
-        <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={onOpenWiseJars}>
+        <Button variant="outline" size="xs" onClick={onOpenWiseJars}>
           {t(failed ? 'sync.banks.wiseJarsOpen' : 'sync.banks.wiseJarsConnect')}
         </Button>
       )}
@@ -194,16 +194,16 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
       {/* OAuth callback status */}
       {callbackStatus && (
         <Card className={
-          callbackStatus === 'done' ? 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950' :
+          callbackStatus === 'done' ? 'border-emerald-500/30 bg-emerald-500/5' :
           callbackStatus === 'error' ? 'border-destructive/30 bg-destructive/5' :
-          'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950'
+          'border-border/60 bg-muted/40'
         }>
           <CardContent className="flex items-center gap-3 py-3">
             {callbackStatus === 'completing' && (
-              <Loader2 className="size-4 animate-spin text-blue-600 dark:text-blue-400" />
+              <Loader2 className="size-4 animate-spin text-primary" />
             )}
             {callbackStatus === 'done' && (
-              <CheckCircle className="size-4 text-green-600 dark:text-green-400" />
+              <CheckCircle className="size-4 text-emerald-600 dark:text-emerald-400" />
             )}
             {callbackStatus === 'error' && (
               <AlertTriangle className="size-4 text-destructive" />
@@ -256,15 +256,20 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
         {connectionsLoading && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>}
 
         {!connectionsLoading && (!connections || connections.length === 0) && (
-          <EmptyState
-            title={t('sync.banks.noConnections')}
-            icon={<Landmark className="size-12" />}
-          />
+          <Card>
+            <CardContent>
+              <EmptyState
+                className="py-8"
+                title={t('sync.banks.noConnections')}
+                icon={<Landmark className="size-10" />}
+              />
+            </CardContent>
+          </Card>
         )}
 
         {!connectionsLoading && connections && connections.length > 0 && (
           <div className="space-y-3">
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               {t('sync.banks.psd2ScopeNote')}
             </p>
             {connections.map(conn => {

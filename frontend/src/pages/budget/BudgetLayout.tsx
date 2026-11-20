@@ -1,7 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { NavLink, Outlet, useLocation } from 'react-router'
 import { PageHeader } from '@/components/shared/PageHeader'
-import { ScrollStrip } from '@/components/shared/ScrollStrip'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { useUncategorized } from '@/features/budget/hooks'
@@ -9,13 +8,8 @@ import { BUDGET_NAV } from './budget-nav'
 import { BudgetPeriodProvider } from './BudgetPeriodContext'
 
 /**
- * Shell for the whole Budget section. Replaces the former single-page / in-page-tabs
- * design with proper nested routes (`/budget`, `/budget/spending`, …) so each surface
- * is deep-linkable, lazily code-split and back-button friendly.
- *
- * The sub-nav is a horizontally-scrollable segmented control — it reads as a pill row
- * on desktop and stays fully reachable by swipe on narrow phones (no second bottom bar
- * competing with the global MobileBottomNav), with the current section scrolled into view.
+ * Shell for the whole Budget section. Uses nested routes (`/budget`, `/budget/spending`, …)
+ * so each surface is deep-linkable, lazily code-split and back-button friendly.
  */
 export function BudgetLayout() {
   const { t } = useTranslation()
@@ -24,40 +18,53 @@ export function BudgetLayout() {
   const toReview = uncategorized?.length ?? 0
 
   return (
-    <div>
-      <PageHeader surtitle={t('budget.surtitle')} title={t('budget.title')} />
+    <div className="space-y-6">
+      <PageHeader title={t('budget.title')} />
 
-      <ScrollStrip activeKey={location.pathname}>
-        <nav className="flex w-max gap-1 rounded-lg bg-muted p-1 text-muted-foreground">
-          {BUDGET_NAV.map(({ section, to, end, labelKey, icon: Icon, badge }) => (
-            <NavLink
-              key={section}
-              to={to}
-              end={end}
-              className={({ isActive }) =>
-                cn(
-                  'inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-                  isActive
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'hover:text-foreground',
-                )
-              }
-            >
-              <Icon className="size-4" />
-              <span>{t(labelKey)}</span>
-              {badge && toReview > 0 && (
-                <Badge variant="outline" className="tabular-nums">{toReview}</Badge>
-              )}
-            </NavLink>
-          ))}
-        </nav>
-      </ScrollStrip>
+      <nav
+        aria-label={t('budget.title')}
+        className="flex w-full flex-wrap items-center gap-1 rounded-lg border border-border/60 bg-background/80 p-1"
+      >
+        {BUDGET_NAV.map(({ section, to, end, labelKey, icon: Icon, badge }) => (
+          <NavLink
+            key={section}
+            to={to}
+            end={end}
+            className={({ isActive }) =>
+              cn(
+                'inline-flex h-8 flex-auto items-center justify-center gap-2 rounded-md px-3.5 text-sm font-medium whitespace-nowrap transition-[background-color,color]',
+                isActive
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )
+            }
+          >
+            {({ isActive }) => (
+              <>
+                <Icon className="size-4 shrink-0" aria-hidden="true" />
+                <span>{t(labelKey)}</span>
+                {badge && toReview > 0 && (
+                  <Badge
+                    variant={isActive ? 'secondary' : 'outline'}
+                    className={cn(
+                      'h-5 px-1.5 text-xs tabular-nums',
+                      isActive && 'border-transparent bg-primary-foreground/20 text-primary-foreground',
+                    )}
+                  >
+                    {toReview}
+                  </Badge>
+                )}
+              </>
+            )}
+          </NavLink>
+        ))}
+      </nav>
 
       {/* Provider mounts outside the keyed div so the anchor survives tab switches.
           The keyed div still remounts per path (entrance animation, local page state reset)
           but BudgetPeriodProvider stays alive for the whole /budget section. */}
       <BudgetPeriodProvider>
-        <div key={location.pathname} className="mt-4 animate-in fade-in-0 slide-in-from-bottom-1 duration-300">
+        <div key={location.pathname} className="animate-in fade-in-0 slide-in-from-bottom-1 duration-300">
           <Outlet />
         </div>
       </BudgetPeriodProvider>

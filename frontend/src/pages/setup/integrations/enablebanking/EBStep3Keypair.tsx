@@ -113,7 +113,7 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
     <EBSubstepShell current={4} total={5}>
       <div className="space-y-6">
         <div className="flex justify-center">
-          <span className="rounded-xl bg-primary/10 p-3 text-primary">
+          <span className="inline-flex size-10 items-center justify-center text-foreground">
             <KeyRound className="h-6 w-6" />
           </span>
         </div>
@@ -166,7 +166,7 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
             )}
 
             {!pem && !generate.isPending && (
-              <Button className="w-full" onClick={handleGenerate}>
+              <Button className="rounded-lg w-full" onClick={handleGenerate}>
                 {t('setup.enablebanking.keypair.generateCta')}
               </Button>
             )}
@@ -183,24 +183,24 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
               <>
                 <pre
                   id="eb-public-pem"
-                  className="max-h-64 overflow-auto rounded-xl border border-border/60 bg-muted/40 p-4 text-[11px] leading-snug font-mono whitespace-pre-wrap break-all"
+                  className="max-h-64 overflow-auto rounded-xl border border-border/60 bg-muted/40 p-4 text-xs leading-relaxed whitespace-pre-wrap break-all"
                 >
                   {pem}
                 </pre>
                 <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
-                  <Button type="button" variant="outline" size="sm" onClick={handleCopy} className="w-full sm:w-auto">
+                  <Button type="button" variant="outline" size="sm" onClick={handleCopy} className="rounded-lg w-full sm:w-auto">
                     {copied ? (
-                      <><Check className="mr-2 h-4 w-4" />{t('setup.enablebanking.keypair.copied')}</>
+                      <><Check className="h-4 w-4" />{t('setup.enablebanking.keypair.copied')}</>
                     ) : (
-                      <><Copy className="mr-2 h-4 w-4" />{t('setup.enablebanking.keypair.copy')}</>
+                      <><Copy className="h-4 w-4" />{t('setup.enablebanking.keypair.copy')}</>
                     )}
                   </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={handleDownload} className="w-full sm:w-auto">
-                    <Download className="mr-2 h-4 w-4" />
+                  <Button type="button" variant="outline" size="sm" onClick={handleDownload} className="rounded-lg w-full sm:w-auto">
+                    <Download className="h-4 w-4" />
                     {t('setup.enablebanking.keypair.download')}
                   </Button>
                 </div>
-                <p className="text-center text-xs text-muted-foreground">
+                <p className="text-center text-sm text-muted-foreground">
                   {t('setup.enablebanking.keypair.uploadInstruction')}
                 </p>
               </>
@@ -233,15 +233,15 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
                 <Button
                   type="button"
                   variant="outline"
-                  className="w-full"
+                  className="rounded-lg w-full"
                   disabled={pending}
                   onClick={() => fileInputRef.current?.click()}
                 >
-                  <Upload className="mr-2 h-4 w-4" />
+                  <Upload className="h-4 w-4" />
                   {t('setup.enablebanking.keypair.chooseFile')}
                 </Button>
 
-                <p className="text-center text-xs text-muted-foreground">
+                <p className="text-center text-sm text-muted-foreground">
                   {t('setup.enablebanking.keypair.orPaste')}
                 </p>
                 <Label htmlFor="eb-private-pem">{t('setup.enablebanking.keypair.privateKeyLabel')}</Label>
@@ -251,7 +251,7 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
                   disabled={pending}
                   onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setPrivatePem(e.target.value)}
                   placeholder={"-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"}
-                  className="w-full rounded-xl border border-border/60 bg-muted/40 p-3 font-mono text-[11px] leading-snug min-h-[140px] resize-none"
+                  className="w-full rounded-xl border border-border/60 bg-muted/40 p-3 text-xs leading-relaxed min-h-[140px] resize-none"
                 />
 
                 {importError && (
@@ -259,12 +259,12 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
                 )}
 
                 <Button
-                  className="w-full rounded-full"
+                  className="w-full rounded-lg"
                   disabled={!privatePem.trim() || importKey.isPending}
                   onClick={handleImport}
                 >
                   {importKey.isPending ? (
-                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{t('setup.enablebanking.keypair.importing')}</>
+                    <><Loader2 className="h-4 w-4 animate-spin" />{t('setup.enablebanking.keypair.importing')}</>
                   ) : (
                     t('setup.enablebanking.keypair.importCta')
                   )}
@@ -279,7 +279,7 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
                 </p>
                 <pre
                   id="eb-public-pem"
-                  className="max-h-64 overflow-auto rounded-xl border border-border/60 bg-muted/40 p-4 text-[11px] leading-snug font-mono whitespace-pre-wrap break-all"
+                  className="max-h-64 overflow-auto rounded-xl border border-border/60 bg-muted/40 p-4 text-xs leading-relaxed whitespace-pre-wrap break-all"
                 >
                   {pem}
                 </pre>
@@ -289,13 +289,13 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
         )}
 
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-between">
-          <Button type="button" variant="ghost" disabled={pending} onClick={onBack} className="w-full sm:w-auto">
+          <Button type="button" variant="ghost" disabled={pending} onClick={onBack} className="rounded-lg w-full sm:w-auto">
             {t('setup.enablebanking.back')}
           </Button>
           <Button
             onClick={onNext}
             disabled={!pem || pending}
-            className="w-full rounded-full sm:w-auto"
+            className="w-full rounded-lg sm:w-auto"
           >
             {t(mode === 'import' ? 'setup.enablebanking.continue' : 'setup.enablebanking.keypair.uploadedCta')}
           </Button>

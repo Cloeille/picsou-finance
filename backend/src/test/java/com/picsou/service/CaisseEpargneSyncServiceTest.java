@@ -19,6 +19,7 @@ import com.picsou.model.Transaction;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.picsou.repository.AccountRepository;
+import com.picsou.repository.AccountDisplayPrefRepository;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.SidecarSessionRepository;
@@ -272,7 +273,8 @@ class CaisseEpargneSyncServiceTest {
             mock(AccountAccessResolver.class), mock(BankLogoResolver.class), mock(CryptoLogoService.class),
             mock(InstrumentLogoService.class), mock(ScpiPositionRepository.class), mock(ScpiFundService.class),
             mock(PeerLoanTermsRepository.class), mock(PeerLoanRepaymentRepository.class),
-            mock(PeerLoanTransactionLinks.class), mock(FinaryPersistenceHelper.class));
+            mock(PeerLoanTransactionLinks.class), mock(FinaryPersistenceHelper.class),
+            mock(AccountDisplayPrefRepository.class));
         when(perService.prepare(detail, "EUR")).thenReturn(prepared);
         CaisseEpargneSyncService sync = serviceWith(txTemplate, Runnable::run, actualAccountService);
         arrangeCommittableSync(withPer);

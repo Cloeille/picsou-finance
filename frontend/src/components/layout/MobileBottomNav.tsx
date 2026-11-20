@@ -2,7 +2,7 @@ import { NavLink, useLocation } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { CLASSIC_SETTINGS_NAV_ITEM, FAMILY_NAV_ITEM, NAV_ITEMS } from './sidebar-nav-items'
+import { SETTINGS_NAV_ITEM, FAMILY_NAV_ITEM, NAV_ITEMS } from './sidebar-nav-items'
 
 /**
  * The bar carries the same routes as the sidebar, plus Settings — which on mobile has no other
@@ -15,7 +15,7 @@ import { CLASSIC_SETTINGS_NAV_ITEM, FAMILY_NAV_ITEM, NAV_ITEMS } from './sidebar
  * toggle went when Family joined: seven 40px items fill a 390px screen, and Settings already
  * offers every supported language.
  */
-const MOBILE_NAV_ITEMS = [...NAV_ITEMS, FAMILY_NAV_ITEM, CLASSIC_SETTINGS_NAV_ITEM] as const
+const MOBILE_NAV_ITEMS = [...NAV_ITEMS, FAMILY_NAV_ITEM, SETTINGS_NAV_ITEM] as const
 
 function MobileNavItem({
   to,
@@ -52,7 +52,7 @@ export function MobileBottomNav() {
   const { t } = useTranslation()
 
   return (
-    <nav className="fixed bottom-4 inset-x-4 z-50 md:hidden">
+    <nav className="fixed bottom-4 inset-x-4 z-40 md:hidden">
       <div className="flex items-center justify-between rounded-xl bg-background px-3 py-3 ring-1 ring-border">
         {MOBILE_NAV_ITEMS.map((item) => (
           <MobileNavItem

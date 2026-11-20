@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { NativeSelect } from '@/components/shared/NativeSelect'
 import type { ReactNode } from "react"
 import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query"
 import {
@@ -352,11 +353,11 @@ export function SidecarSessionPanel({
           >
             {connected ? t(key("sessionActive")) : t(key("noSession"))}
           </Badge>
-          <p className="mt-2 text-xs text-muted-foreground">
+          <p className="mt-2 text-sm text-muted-foreground">
             {t(key("scope"))}
           </p>
           {connected && rememberCredentials && status.data?.credentialsRemembered === true && (
-            <p className="mt-2 text-xs text-muted-foreground">
+            <p className="mt-2 text-sm text-muted-foreground">
               {t(key("credentialsRemembered"))}
             </p>
           )}
@@ -400,7 +401,7 @@ export function SidecarSessionPanel({
       {connected && recoveryAction && (
         <Card size="sm" className="border-border/60">
           <CardContent className="flex flex-col gap-2 py-4 sm:flex-row sm:items-center">
-            <p className="flex-1 text-xs text-muted-foreground">{recoveryAction.description}</p>
+            <p className="flex-1 text-sm text-muted-foreground">{recoveryAction.description}</p>
             <Button variant="outline" size="sm" disabled={recoveryAction.busy || requestingSync} onClick={recoveryAction.onRun}>
               {recoveryAction.busy ? recoveryAction.busyLabel : recoveryAction.label}
             </Button>
@@ -513,9 +514,9 @@ export function SidecarSessionPanel({
                   <Label htmlFor={`${fieldIdPrefix}-${extraField.id}`}>
                     {extraField.label}
                   </Label>
-                  <select
+                  <NativeSelect
                     id={`${fieldIdPrefix}-${extraField.id}`}
-                    className="border-input flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:ring-2"
+                    className="border-input flex h-10 w-full rounded-lg border bg-input/20 px-3.5 py-2 text-sm shadow-xs outline-none focus-visible:ring-2"
                     value={extraValue}
                     onChange={(event) => setExtraValue(event.target.value)}
                   >
@@ -524,7 +525,7 @@ export function SidecarSessionPanel({
                         {option.label}
                       </option>
                     ))}
-                  </select>
+                  </NativeSelect>
                 </div>
               )}
               {rememberCredentials && (
@@ -555,7 +556,7 @@ export function SidecarSessionPanel({
             <Smartphone className="size-5 shrink-0 text-muted-foreground" />
             <div className="flex-1 space-y-1">
               <p className="text-sm">{t(key("appValidationPrompt"))}</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 {t(key("appValidationHint"))}
               </p>
             </div>

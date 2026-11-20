@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { NativeSelect } from '@/components/shared/NativeSelect'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
@@ -41,7 +42,7 @@ export function AddTransactionModal({ open, onOpenChange, initialValues, ...rest
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{initialValues ? t('accounts.editTransaction') : t('accounts.addTransaction')}</DialogTitle>
         </DialogHeader>
@@ -220,7 +221,7 @@ function TransactionForm({ onOpenChange, accountId, accountType, onSubmit, isLoa
           {isPreciousMetals ? (
             <div className="space-y-1">
               <Label>{t('accounts.preciousMetalProduct')}</Label>
-              <select
+              <NativeSelect
                 aria-label={t('accounts.preciousMetalProduct')}
                 value={productValue}
                 onChange={e => handleProductChange(e.target.value)}
@@ -234,7 +235,7 @@ function TransactionForm({ onOpenChange, accountId, accountType, onSubmit, isLoa
                   <option key={p.ticker} value={p.ticker}>{p.name}</option>
                 ))}
                 {ticker.trim() !== '' && !selectedProduct && <option value={ticker}>{ticker}</option>}
-              </select>
+              </NativeSelect>
               {catalogueFailed && (
                 <div className="flex items-center gap-2">
                   <p className="text-sm text-destructive">{t('accounts.preciousMetalCatalogueError')}</p>
@@ -306,16 +307,16 @@ function TransactionForm({ onOpenChange, accountId, accountType, onSubmit, isLoa
           </div>
           <div className="space-y-1">
             <Label>Catégorie <span className="text-muted-foreground text-xs">(optionnelle)</span></Label>
-            <select
+            <NativeSelect
               value={categoryId}
               onChange={e => setCategoryId(e.target.value === '' ? '' : Number(e.target.value))}
               className={SELECT_CLS}
             >
-              <option value="">— Sans catégorie —</option>
+              <option value="">Sans catégorie</option>
               {(categories ?? []).filter(c => !c.archived).map(c => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
         </>
       )}
@@ -325,7 +326,7 @@ function TransactionForm({ onOpenChange, accountId, accountType, onSubmit, isLoa
       <DialogFooter>
         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
         <Button type="submit" disabled={isLoading}>
-          {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
           {initialValues ? t('common.save') : t('common.create')}
         </Button>
       </DialogFooter>

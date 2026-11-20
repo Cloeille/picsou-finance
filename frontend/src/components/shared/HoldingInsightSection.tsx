@@ -67,7 +67,7 @@ export function HoldingInsightSection({ ticker, name, open }: HoldingInsightSect
           <CompositionBar view={view} title={t('holdings.insight.countries')} slices={composition.countries} t={t} labelNs="holdings.insight.countryNames" />
           <CompositionBar view={view} title={t('holdings.insight.sectors')} slices={composition.sectors} t={t} labelNs="holdings.insight.sectorNames" />
           {(composition.source || composition.asOf) && (
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {composition.source && t('holdings.insight.source', { source: composition.source })}
               {composition.source && composition.asOf && ' · '}
               {composition.asOf && t('holdings.insight.asOf', { date: formatDate(composition.asOf) })}
@@ -94,7 +94,7 @@ function CompositionViewToggle({ view, onChange, t }: CompositionViewToggleProps
     { value: 'line' as const, label: t('holdings.insight.viewLine'), Icon: AlignJustify },
   ]
   return (
-    <div className="inline-flex items-center rounded-2xl bg-muted p-1">
+    <div className="inline-flex items-center rounded-lg bg-muted p-1">
       {options.map(({ value, label, Icon }) => (
         <button
           key={value}
