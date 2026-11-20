@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hides the card behind a recap row with its total.
   Unlike `hidden`, collapsed accounts stay in every total, budget and chart — see
   `docs/features/account-list-display.md`.
+- **Banque Populaire: import personal and home loans (6/12, 6/13).** Both loan kinds are now imported with
+  their borrowed amount, rate, installment and dates, as on Caisse d'Epargne. The two bank apps' sign-in
+  settings come from the bank's public web app configuration and are not yet verified against a real account:
+  if a loan app refuses them, the loan is still imported from its balance with no details and the session
+  stays connected. Sync logs name the field that could not be read (never a value) so a report can be
+  precise. (#567)
 
 ### Fixed
 
