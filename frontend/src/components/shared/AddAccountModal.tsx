@@ -365,7 +365,10 @@ export function AddAccountModal({ open, onOpenChange, defaultType, onCreated }: 
                                 {t(descKey)}
                               </p>
                             </div>
-                            <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
+                            <ArrowRight
+                              data-slot="source-arrow"
+                              className="size-4 shrink-0 text-muted-foreground"
+                            />
                           </Button>
                         ))}
                       </div>

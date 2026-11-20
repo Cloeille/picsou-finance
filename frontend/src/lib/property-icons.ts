@@ -17,7 +17,7 @@ import type { PropertyKind } from '@/types/api'
  * account (see `docs/features/bank-logos.md`). What a property *does* have is a kind the
  * user already picked in the metadata form, so that is what identifies it on the card.
  *
- * These are lucide components rather than files under `public/`: they inherit `currentColor`,
+ * These are Phosphor icon components rather than files under `public/`: they inherit `currentColor`,
  * so a single map serves both themes and the account color, where an SVG asset would need a
  * light and a dark variant per kind.
  *

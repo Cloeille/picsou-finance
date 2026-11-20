@@ -77,7 +77,7 @@ function PropertyAvatar({ kind, color }: { kind: PropertyKind; color: string }) 
         style={{ '--account-color': color } as CSSProperties}
         className="bg-[color-mix(in_oklch,var(--account-color)_16%,var(--card))] text-[color:oklch(from_var(--account-color)_calc(l_-_0.18)_c_h)] dark:text-[color:oklch(from_var(--account-color)_calc(l_+_0.12)_c_h)]"
       >
-        <Icon className="size-5" aria-hidden />
+        <Icon className="size-5" data-property-icon={kind} aria-hidden />
       </AvatarFallback>
     </Avatar>
   )
