@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   if a loan app refuses them, the loan is still imported from its balance with no details and the session
   stays connected. Sync logs name the field that could not be read (never a value) so a report can be
   precise. (#567)
+- **Transfers between your own accounts are recognised.** After each sync, a debit on one of your
+  accounts and the matching credit on another (same amount and currency, at most three days apart)
+  are both categorised *Virement interne*, so cash flow and the flow diagram stop counting them as
+  spending and income. A category you chose by hand is never changed, and when two legs could
+  match, Picsou leaves them alone rather than guess. See `docs/features/budget.md`. Closes #450.
 
 ### Fixed
 
