@@ -130,6 +130,13 @@ function formatCountdown(totalSeconds: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`
 }
 
+/** Contracts Picsou does not import but can name, by "family/sub-family" code. */
+const KNOWN_UNSUPPORTED_CONTRACTS = new Map([
+  ["6/12", "sync.bpceContracts.personalLoan"],
+  ["6/13", "sync.bpceContracts.homeLoan"],
+  ["2/11", "sync.bpceContracts.revolvingCredit"],
+])
+
 /** The banks of the BPCE platform: same login, keypad, Sécur'Pass and payloads. */
 export type BpceProviderId = "caisseEpargne" | "banquePopulaire"
 
@@ -321,6 +328,7 @@ export function BpceSessionPanel({
       ? (messageForCode(status.data?.lastSyncError) ??
         t(key("errors.serverError")))
       : null
+  const unsupportedCount = status.data?.unsupported.length ?? 0
   const statusError = status.isError ? formatError(status.error) : null
   const visibleError = error ?? backgroundError ?? statusError
 
@@ -487,6 +495,13 @@ export function BpceSessionPanel({
           {syncStatus === "SUCCESS" && status.data?.lastSyncCompletedAt && (
             <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-400">
               {t(key("syncSuccess"))}
+              {/* The list it points to is only rendered for a live session. */}
+              {connected && unsupportedCount > 0 && (
+                <span className="text-muted-foreground">
+                  {" "}
+                  {t("sync.bpceContracts.notImported", { count: unsupportedCount })}
+                </span>
+              )}
             </p>
           )}
         </CardContent>
@@ -566,7 +581,7 @@ export function BpceSessionPanel({
             </Card>
           )}
 
-          {(status.data?.unsupported.length ?? 0) > 0 && (
+          {unsupportedCount > 0 && (
             <Card size="sm">
               <CardContent className="space-y-2 py-4">
                 <p className="text-sm font-medium">{t(key("unsupportedTitle"))}</p>
@@ -575,17 +590,19 @@ export function BpceSessionPanel({
                 </p>
                 {/* Family and sub-family codes only: the contract id is never shown. */}
                 <ul className="flex flex-wrap gap-2">
-                  {status.data?.unsupported.map((contract, index) => (
-                    <li key={`${contract.familyCode}-${index}`}>
-                      <Badge variant="outline">
-                        <span>
-                          {contract.subFamilyCode
-                            ? `${contract.familyCode}/${contract.subFamilyCode}`
-                            : contract.familyCode}
-                        </span>
-                      </Badge>
-                    </li>
-                  ))}
+                  {status.data?.unsupported.map((contract, index) => {
+                    const code = contract.subFamilyCode
+                      ? `${contract.familyCode}/${contract.subFamilyCode}`
+                      : contract.familyCode
+                    const nameKey = KNOWN_UNSUPPORTED_CONTRACTS.get(code)
+                    return (
+                      <li key={`${contract.familyCode}-${index}`}>
+                        <Badge variant="outline">
+                          <span>{nameKey ? `${t(nameKey)} (${code})` : code}</span>
+                        </Badge>
+                      </li>
+                    )
+                  })}
                 </ul>
               </CardContent>
             </Card>

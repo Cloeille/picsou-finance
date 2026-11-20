@@ -63,6 +63,8 @@ Banque Populaire accounts look like the ones Enable Banking creates for the same
 | `6/13` home loan | `LOAN`, balance from the synthesis, detail from the home-loan app (provisional) | no |
 | `2/11` revolving credit, anything else | listed in `unsupported`, never fetched, never fatal | revolving credit `2/11` seen (none with `contractPfmId`) |
 
+The Sync tab lists each `unsupported` contract as `family/sub`, never its id; `6/12` (personal loan), `6/13` (home loan) and `2/11` (revolving credit) are named before the code, e.g. "Home loan (6/13)", and while the session is active the success line adds how many contracts were not imported (the panel is shared with Caisse d'Epargne). A loan appears there only when its synthesis entry cannot be read.
+
 Loans read their detail through separate OAuth clients, as on Caisse d'Epargne. The Banque Populaire clients were not observed in a live sync: they come from the bank's public web app configuration (the JavaScript bundles served without a login, read 2026-11-14), the same method that reproduces exactly the Caisse d'Epargne client ids observed live.
 
 - Personal loans (`6/12`, app `espace-gestion/pret-personnel`): client `4107d671-…`, scope `managePersonalLoanPrd readPersonalLoanPrd readUser`, that app's redirect, no `claims`, on the main authorization server and data host (`SITE.personal_loan`). Same detail path as Caisse d'Epargne.

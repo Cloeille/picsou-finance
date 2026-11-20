@@ -1371,6 +1371,13 @@
         "serverError": "No se puede contactar con BoursoBank. Inténtelo de nuevo."
       }
     },
+    "bpceContracts": {
+      "personalLoan": "Préstamo personal",
+      "homeLoan": "Préstamo hipotecario",
+      "revolvingCredit": "Crédito renovable",
+      "notImported_one": "{{count}} contrato no importado, detalle abajo.",
+      "notImported_other": "{{count}} contratos no importados, detalle abajo."
+    },
     "caisseEpargne": {
       "title": "Caisse d'Epargne",
       "customerId": "Identificador",
