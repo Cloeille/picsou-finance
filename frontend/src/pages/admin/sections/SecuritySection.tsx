@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { PlusCircle, X, RotateCw } from 'lucide-react'
+import { PlusCircle, X, ArrowClockwise } from '@phosphor-icons/react'
 import {
   Card,
   CardContent,
@@ -90,7 +90,7 @@ export function SecuritySection({ settings }: { settings: AdminSecuritySettings 
                 disabled={reloadCors.isPending}
                 title={t('admin.security.reloadFromEnvHint')}
               >
-                <RotateCw className="h-4 w-4" />
+                <ArrowClockwise className="h-4 w-4" />
                 {reloadCors.isPending
                   ? t('admin.security.reloadFromEnvLoading')
                   : t('admin.security.reloadFromEnv')}

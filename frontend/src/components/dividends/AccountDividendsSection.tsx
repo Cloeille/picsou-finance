@@ -1,6 +1,6 @@
 import { useRef, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { CaretLeft, CaretRight } from '@phosphor-icons/react'
 import { useUpcomingDividends } from '@/features/dividends/hooks'
 import { HoldingLogo } from '@/components/shared/HoldingLogo'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
@@ -92,7 +92,7 @@ export function AccountDividendsSection({ accountId, holdings }: AccountDividend
               aria-controls="account-dividends-carousel"
               onClick={() => scroll(-1)}
             >
-              <ChevronLeft />
+              <CaretLeft />
             </Button>
             <Button
               type="button"
@@ -102,7 +102,7 @@ export function AccountDividendsSection({ accountId, holdings }: AccountDividend
               aria-controls="account-dividends-carousel"
               onClick={() => scroll(1)}
             >
-              <ChevronRight />
+              <CaretRight />
             </Button>
           </div>
         )}

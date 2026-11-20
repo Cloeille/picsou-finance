@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, Info } from 'lucide-react'
+import { Warning, Info } from '@phosphor-icons/react'
 import { EnableBankingLogo } from '../../components/IntegrationLogos'
 import { Button } from '@/components/ui/button'
 import { EBSubstepShell } from './EBSubstepShell'
@@ -56,7 +56,7 @@ export function EBStep1Explain({ onNext }: Props) {
         )}
 
         <div className="flex items-start gap-3 rounded-xl border border-border bg-muted/40 p-4 text-left">
-          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
+          <Warning className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
           <div className="space-y-1 text-xs sm:text-sm">
             <p className="font-medium text-foreground">
               {t('setup.enablebanking.explain.prodWarningTitle')}

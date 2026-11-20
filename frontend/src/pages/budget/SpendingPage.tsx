@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
-import { ChevronRight } from 'lucide-react'
+import { CaretRight } from '@phosphor-icons/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CashflowSankey } from '@/components/shared/CashflowSankey'
@@ -97,7 +97,7 @@ function BreakdownRow({ row, total }: { row: CategorySpend; total: number }) {
       className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted/60"
     >
       {content}
-      <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+      <CaretRight className="size-4 shrink-0 text-muted-foreground" />
     </Link>
   )
 }

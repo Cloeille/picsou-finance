@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
-import { Loader2, ShieldCheck, ShieldOff, KeyRound, Download } from 'lucide-react'
+import { CircleNotch, ShieldCheck, ShieldSlash, Key, DownloadSimple } from '@phosphor-icons/react'
 import { useMfaStatus } from '@/features/mfa/hooks'
 import { ssoErrorMessage } from '@/features/sso/errors'
 import { useSignInMethods } from '@/features/sso/hooks'
@@ -120,7 +120,7 @@ export function SecuritySection() {
               {status?.enabled ? (
                 <ShieldCheck className="size-5 text-emerald-600 dark:text-emerald-400" />
               ) : (
-                <ShieldOff className="size-5 text-muted-foreground" />
+                <ShieldSlash className="size-5 text-muted-foreground" />
               )}
               <div>
                 <p className="text-sm font-medium">{t('settings.mfaStatus')}</p>
@@ -143,7 +143,7 @@ export function SecuritySection() {
             </div>
 
             {isLoading ? (
-              <Loader2 size={16} className="animate-spin text-muted-foreground" />
+              <CircleNotch size={16} className="animate-spin text-muted-foreground" />
             ) : status?.enabled ? (
               <Button variant="destructive" size="sm" onClick={() => setDisableOpen(true)}>
                 {t('settings.mfaDisable')}
@@ -162,7 +162,7 @@ export function SecuritySection() {
               onClick={() => setRegenerateOpen(true)}
               className="w-full @xl:w-auto"
             >
-              <KeyRound size={14} className=".5" />
+              <Key size={14} className=".5" />
               {t('settings.mfaRegenerate')}
             </Button>
           )}
@@ -182,7 +182,7 @@ export function SecuritySection() {
           size="sm"
           onClick={() => openDialog('export')}
         >
-          <Download className="size-4" aria-hidden="true" />
+          <DownloadSimple className="size-4" aria-hidden="true" />
           {t('settings.exportButton')}
         </Button>
       </div>

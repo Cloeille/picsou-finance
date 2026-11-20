@@ -4,15 +4,15 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import {
-  AlertTriangle,
+  Warning,
   Check,
-  CheckCircle2,
+  CheckCircle,
   Copy,
-  Download,
-  KeyRound,
-  Loader2,
-  Upload,
-} from 'lucide-react'
+  DownloadSimple,
+  Key as KeyRound,
+  CircleNotch,
+  UploadSimple,
+} from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -82,12 +82,12 @@ export function EnableBankingSection({ settings }: { settings: AdminEnableBankin
         {/* Readiness banner — names every missing piece, not just the key. */}
         {missing.length === 0 ? (
           <div className="flex items-start gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-3 text-sm text-emerald-700 dark:text-emerald-400">
-            <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+            <CheckCircle className="mt-0.5 size-4 shrink-0" />
             <span>{t('admin.enableBanking.ready')}</span>
           </div>
         ) : (
           <div role="alert" className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/40 p-3.5 text-sm text-foreground">
-            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            <Warning className="mt-0.5 size-4 shrink-0" />
             <span>{t('admin.enableBanking.incomplete', { fields: missingFormatted })}</span>
           </div>
         )}
@@ -248,7 +248,7 @@ function KeypairPanel({ privateKeyPresent }: { privateKeyPresent: boolean }) {
           {!publicPem && (
             <Button type="button" onClick={handleGenerate} disabled={generate.isPending} className="w-full sm:w-auto">
               {generate.isPending ? (
-                <><Loader2 className="size-4 animate-spin" />{t('admin.enableBanking.keypair.generating')}</>
+                <><CircleNotch className="size-4 animate-spin" />{t('admin.enableBanking.keypair.generating')}</>
               ) : (
                 <><KeyRound className="size-4" />{
                   privateKeyPresent
@@ -272,7 +272,7 @@ function KeypairPanel({ privateKeyPresent }: { privateKeyPresent: boolean }) {
             onChange={handleFileChange}
           />
           <Button type="button" variant="outline" className="w-full" onClick={() => fileInputRef.current?.click()}>
-            <Upload className="size-4" />
+            <UploadSimple className="size-4" />
             {t('admin.enableBanking.keypair.chooseFile')}
           </Button>
           <p className="text-center text-sm text-muted-foreground">{t('admin.enableBanking.keypair.orPaste')}</p>
@@ -289,7 +289,7 @@ function KeypairPanel({ privateKeyPresent }: { privateKeyPresent: boolean }) {
             onClick={handleImport}
           >
             {importKey.isPending ? (
-              <><Loader2 className="size-4 animate-spin" />{t('admin.enableBanking.keypair.importing')}</>
+              <><CircleNotch className="size-4 animate-spin" />{t('admin.enableBanking.keypair.importing')}</>
             ) : (
               t('admin.enableBanking.keypair.importCta')
             )}
@@ -313,7 +313,7 @@ function KeypairPanel({ privateKeyPresent }: { privateKeyPresent: boolean }) {
               )}
             </Button>
             <Button type="button" variant="outline" size="sm" onClick={handleDownload} className="w-full sm:w-auto">
-              <Download className="size-4" />
+              <DownloadSimple className="size-4" />
               {t('admin.enableBanking.keypair.download')}
             </Button>
           </div>

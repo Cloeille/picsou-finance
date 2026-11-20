@@ -1,12 +1,12 @@
 import {
   Building,
-  Building2,
+  Buildings,
   House,
-  LandPlot,
-  SquareParking,
-  Store,
-  type LucideIcon,
-} from 'lucide-react'
+  MapTrifold,
+  LetterCircleP,
+  Storefront,
+  type Icon,
+} from '@phosphor-icons/react'
 import type { PropertyKind } from '@/types/api'
 
 /**
@@ -26,11 +26,11 @@ import type { PropertyKind } from '@/types/api'
  * and old rows may hold French labels or Finary's own vocabulary; parsing it here would mean
  * keeping a second alias table in step with the Java one.
  */
-export const PROPERTY_KIND_ICONS: Record<PropertyKind, LucideIcon> = {
+export const PROPERTY_KIND_ICONS: Record<PropertyKind, Icon> = {
   HOUSE: House,
-  APARTMENT: Building2,
+  APARTMENT: Buildings,
   BUILDING: Building,
-  LAND: LandPlot,
-  PARKING: SquareParking,
-  COMMERCIAL: Store,
+  LAND: MapTrifold,
+  PARKING: LetterCircleP,
+  COMMERCIAL: Storefront,
 }

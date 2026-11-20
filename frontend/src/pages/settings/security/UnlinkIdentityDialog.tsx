@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, Unlink } from 'lucide-react'
+import { CircleNotch, LinkBreak } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -91,7 +91,7 @@ function UnlinkSteps({ identityId, resumed, onDone }: { identityId: number; resu
           {t('common.cancel')}
         </Button>
         <Button type="button" variant="destructive" onClick={() => void handleConfirm()} disabled={unlink.isPending}>
-          {unlink.isPending ? <Loader2 className="animate-spin" /> : <Unlink />}
+          {unlink.isPending ? <CircleNotch className="animate-spin" /> : <LinkBreak />}
           {t('settings.signInMethods.unlink')}
         </Button>
       </DialogFooter>

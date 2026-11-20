@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Info } from 'lucide-react'
+import { Info } from '@phosphor-icons/react'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'

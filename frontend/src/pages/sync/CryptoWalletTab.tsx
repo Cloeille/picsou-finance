@@ -16,9 +16,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
   Plus,
-  RefreshCw,
-  Trash2,
-} from 'lucide-react'
+  ArrowsClockwise,
+  Trash,
+} from '@phosphor-icons/react'
 import type { ChainType } from '@/types/api'
 import { extractErrorMessage, formatApiError } from '@/lib/errors'
 
@@ -143,14 +143,14 @@ export function CryptoWalletTab() {
                       // B. Scoping this per-row reads tidier and reintroduces that bug.
                       disabled={syncMutation.isPending}
                     >
-                      <RefreshCw />
+                      <ArrowsClockwise />
                     </Button>
                     <Button
                       variant="ghost"
                       size="icon-sm"
                       onClick={() => setRemovingId(wallet.id)}
                     >
-                      <Trash2 />
+                      <Trash />
                     </Button>
                   </div>
                 </div>

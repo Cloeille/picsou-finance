@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { formatApiError } from '@/lib/errors'
-import { Plus, Trash2, Link } from 'lucide-react'
+import { Plus, Trash, Link } from '@phosphor-icons/react'
 
 export function FamilySettingsPage() {
   const { t } = useTranslation()
@@ -130,7 +130,7 @@ function MemberManagement() {
                         })
                       }
                     >
-                      <Trash2 className="size-4 text-destructive" />
+                      <Trash className="size-4 text-destructive" />
                     </Button>
                   )}
                 </div>

@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Calendar, Pencil, Trash2, TrendingUp, TrendingDown, Loader2 } from 'lucide-react'
+import { CalendarBlank, PencilSimple, Trash, TrendUp, TrendDown, CircleNotch } from '@phosphor-icons/react'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
 import { formatPercent } from '@/lib/utils'
 
@@ -84,7 +84,7 @@ export function GoalDetailModal({
         if ((goal.monthlyNeeded ?? 0) <= 0) {
           return (
             <Badge className="gap-1">
-              <TrendingUp className="size-3" />
+              <TrendUp className="size-3" />
               {t('goals.achieved')}
             </Badge>
           )
@@ -92,14 +92,14 @@ export function GoalDetailModal({
         if (goal.isOnTrack) {
           return (
             <Badge className="gap-1">
-              <TrendingUp className="size-3" />
+              <TrendUp className="size-3" />
               {t('goals.onTrack')}
             </Badge>
           )
         }
         return (
           <Badge variant="destructive" className="gap-1">
-            <TrendingDown className="size-3" />
+            <TrendDown className="size-3" />
             {t('goals.behind')}
           </Badge>
         )
@@ -111,7 +111,7 @@ export function GoalDetailModal({
       <DialogContent className="sm:max-w-[95vw] max-h-[90vh] overflow-y-auto" aria-describedby={undefined}>
         {isLoading || !goal ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="size-6 animate-spin text-muted-foreground" />
+            <CircleNotch className="size-6 animate-spin text-muted-foreground" />
           </div>
         ) : (
           <>
@@ -226,7 +226,7 @@ export function GoalDetailModal({
                     className="text-destructive hover:text-destructive sm:mr-auto"
                     onClick={onDelete}
                   >
-                    <Trash2 className="size-4" aria-hidden="true" />
+                    <Trash className="size-4" aria-hidden="true" />
                     {t('common.delete')}
                   </Button>
                 ) : (
@@ -235,13 +235,13 @@ export function GoalDetailModal({
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   {onCalendar && (
                     <Button type="button" variant="outline" onClick={onCalendar}>
-                      <Calendar className="size-4" aria-hidden="true" />
+                      <CalendarBlank className="size-4" aria-hidden="true" />
                       {t('goals.viewCalendar')}
                     </Button>
                   )}
                   {onEdit && (
                     <Button type="button" variant="outline" onClick={onEdit}>
-                      <Pencil className="size-4" aria-hidden="true" />
+                      <PencilSimple className="size-4" aria-hidden="true" />
                       {t('common.edit')}
                     </Button>
                   )}

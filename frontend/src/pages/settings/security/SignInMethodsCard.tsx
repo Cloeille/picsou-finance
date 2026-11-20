@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link2, Loader2, Unlink } from 'lucide-react'
+import { LinkSimple, CircleNotch, LinkBreak } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { authApi } from '@/features/auth/api'
@@ -25,7 +25,7 @@ export function SignInMethodsCard({ onAction }: { onAction: (action: ReauthActio
   if (isPending) {
     return (
       <div className="flex justify-center py-4">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        <CircleNotch className="size-5 animate-spin text-muted-foreground" />
       </div>
     )
   }
@@ -104,7 +104,7 @@ export function SignInMethodsCard({ onAction }: { onAction: (action: ReauthActio
                 aria-describedby={locked ? lockedHintId : undefined}
                 onClick={() => onAction(`unlink-${identity.id}`)}
               >
-                <Unlink />
+                <LinkBreak />
                 {t('settings.signInMethods.unlink')}
               </Button>
             </li>
@@ -125,7 +125,7 @@ export function SignInMethodsCard({ onAction }: { onAction: (action: ReauthActio
               className={`${ROW_ACTION} @xl:ml-auto`}
               onClick={() => onAction('link')}
             >
-              <Link2 />
+              <LinkSimple />
               {t('settings.signInMethods.link', { provider })}
             </Button>
           )}
@@ -213,7 +213,7 @@ function LinkSteps({ resumed }: { resumed: boolean }) {
   if (redirecting) {
     return (
       <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
+        <CircleNotch className="size-4 animate-spin" />
         {t('auth.sso.redirecting')}
       </p>
     )

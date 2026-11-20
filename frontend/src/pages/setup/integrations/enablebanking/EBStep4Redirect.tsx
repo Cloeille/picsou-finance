@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Copy } from 'lucide-react'
+import { Check, Copy } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { EBSubstepShell } from './EBSubstepShell'
 import { useSetupFlowStore } from '@/stores/setup-flow-store'

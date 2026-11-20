@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlignJustify, LayoutGrid, Pencil, PieChart, RefreshCw } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+import { List, SquaresFour, PencilSimple, ChartPieSlice, ArrowsClockwise } from '@phosphor-icons/react'
+import type { Icon as LucideIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -24,9 +24,9 @@ import type {
 const MAX_UNCLASSIFIED_SHOWN = 8
 
 const VIEWS: { value: BreakdownView; icon: LucideIcon; labelKey: string }[] = [
-  { value: 'bar', icon: AlignJustify, labelKey: 'analysis.diversification.views.bar' },
-  { value: 'donut', icon: PieChart, labelKey: 'analysis.diversification.views.donut' },
-  { value: 'treemap', icon: LayoutGrid, labelKey: 'analysis.diversification.views.treemap' },
+  { value: 'bar', icon: List, labelKey: 'analysis.diversification.views.bar' },
+  { value: 'donut', icon: ChartPieSlice, labelKey: 'analysis.diversification.views.donut' },
+  { value: 'treemap', icon: SquaresFour, labelKey: 'analysis.diversification.views.treemap' },
 ]
 
 const VIEW_STORAGE_KEY = 'picsou.diversification.view'
@@ -205,7 +205,7 @@ function UnclassifiedList({
               })
             }
           >
-            <RefreshCw
+            <ArrowsClockwise
               className={cn('size-4', refresh.isPending && 'animate-spin')}
               aria-hidden="true"
             />
@@ -246,7 +246,7 @@ function UnclassifiedList({
                   onClick={() => onEdit(line)}
                   aria-label={t('analysis.classification.editAria', { ticker: line.ticker })}
                 >
-                  <Pencil className="size-4" aria-hidden="true" />
+                  <PencilSimple className="size-4" aria-hidden="true" />
                 </Button>
               )}
             </div>

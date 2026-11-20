@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { NativeSelect } from '@/components/shared/NativeSelect'
 import { useTranslation } from 'react-i18next'
-import { CalendarClock, Plus, RefreshCw, Repeat } from 'lucide-react'
+import { CalendarCheck, Plus, ArrowsClockwise, Repeat } from '@phosphor-icons/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -228,7 +228,7 @@ export function RecurringTab() {
               onClick={() => detect.mutate()}
               disabled={detect.isPending}
             >
-              <RefreshCw className={`size-4 ${detect.isPending ? 'animate-spin' : ''}`} />
+              <ArrowsClockwise className={`size-4 ${detect.isPending ? 'animate-spin' : ''}`} />
               {t('budget.recurring.detect')}
             </Button>
             <Button size="sm" onClick={() => setFormOpen(true)}>
@@ -271,7 +271,7 @@ export function RecurringTab() {
           {!calLoading && !calError && total === 0 && (
             <EmptyState
               className="py-8"
-              icon={<CalendarClock className="size-8" />}
+              icon={<CalendarCheck className="size-8" />}
               title={t('budget.recurring.noUpcoming')}
               description={t('budget.recurring.noUpcomingHint')}
             />

@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { TrendingUp, TrendingDown, Loader2, Tags } from 'lucide-react'
+import { TrendUp, TrendDown, CircleNotch, Tag } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { HoldingClassificationModal } from '@/pages/analysis/HoldingClassificationModal'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
@@ -95,7 +95,7 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
       <DialogContent className="sm:max-w-[95vw] max-h-[90vh] overflow-y-auto" aria-describedby={undefined}>
         {isLoading || !line ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="size-6 animate-spin text-muted-foreground" />
+            <CircleNotch className="size-6 animate-spin text-muted-foreground" />
           </div>
         ) : (
           <>
@@ -115,7 +115,7 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
                   <Badge
                     className={line.pnlPercent >= 0 ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 gap-1' : 'bg-red-500/10 text-red-600 dark:text-red-400 gap-1'}
                   >
-                    {line.pnlPercent >= 0 ? <TrendingUp className="size-3" /> : <TrendingDown className="size-3" />}
+                    {line.pnlPercent >= 0 ? <TrendUp className="size-3" /> : <TrendDown className="size-3" />}
                     {formatPercent(line.pnlPercent, { signed: true })}
                   </Badge>
                 )}
@@ -237,7 +237,7 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
                     size="sm"
                     onClick={() => setClassifying(true)}
                   >
-                    <Tags className="size-4" aria-hidden="true" />
+                    <Tag className="size-4" aria-hidden="true" />
                     {t('analysis.classification.action')}
                   </Button>
                 </div>

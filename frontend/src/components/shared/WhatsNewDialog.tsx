@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Copy, ExternalLink } from 'lucide-react'
+import { Check, Copy, ArrowSquareOut } from '@phosphor-icons/react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -65,7 +65,7 @@ export function WhatsNewDialog({ open, onOpenChange }: WhatsNewDialogProps) {
                   className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                 >
                   <span>{t('whatsNew.viewReleaseNotes')}</span>
-                  <ExternalLink className="size-3" aria-hidden="true" />
+                  <ArrowSquareOut className="size-3" aria-hidden="true" />
                 </a>
               </div>
               <p className="text-sm text-muted-foreground">{t('whatsNew.updateInstructions')}</p>

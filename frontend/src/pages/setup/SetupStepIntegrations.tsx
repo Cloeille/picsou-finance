@@ -1,7 +1,7 @@
 import { useMemo, useState, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { Search, X } from 'lucide-react'
+import { MagnifyingGlass, X } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -193,7 +193,7 @@ export function SetupStepIntegrations() {
 
       <div className="space-y-3">
         <div className="relative">
-          <Search
+          <MagnifyingGlass
             className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
             aria-hidden="true"
           />

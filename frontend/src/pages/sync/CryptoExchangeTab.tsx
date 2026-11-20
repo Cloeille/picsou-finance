@@ -11,9 +11,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
   Plus,
-  RefreshCw,
-  Trash2,
-} from 'lucide-react'
+  ArrowsClockwise,
+  Trash,
+} from '@phosphor-icons/react'
 import {
   useCryptoExchangeStatuses,
   useSyncCryptoExchange,
@@ -123,14 +123,14 @@ export function CryptoExchangeTab() {
                     onClick={() => syncMutation.mutate(exchange.id)}
                     disabled={syncMutation.isPending}
                   >
-                    <RefreshCw />
+                    <ArrowsClockwise />
                   </Button>
                   <Button
                     variant="ghost"
                     size="icon-sm"
                     onClick={() => setRemovingId(exchange.id)}
                   >
-                    <Trash2 />
+                    <Trash />
                   </Button>
                 </div>
               </CardContent>

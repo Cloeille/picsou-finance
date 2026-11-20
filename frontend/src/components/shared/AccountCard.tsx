@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMoney } from '@/hooks/use-money'
-import { TriangleAlert } from 'lucide-react'
+import { Warning } from '@phosphor-icons/react'
 import type { CSSProperties } from 'react'
 import type { Account, PropertyKind } from '@/types/api'
 import { Card, CardContent } from '@/components/ui/card'
@@ -180,7 +180,7 @@ export function AccountCard({ account, closed = false, onClick }: AccountCardPro
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <p className={`mt-1 flex items-center gap-1 text-xs ${FRESHNESS_TEXT_CLASS[level]}`}>
-                      <TriangleAlert className="size-3 shrink-0" />
+                      <Warning className="size-3 shrink-0" />
                       {t('accounts.syncStale', { time: formatTimeAgo(freshness.date) })}
                     </p>
                   </TooltipTrigger>

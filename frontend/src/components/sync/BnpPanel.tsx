@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
-  AlertTriangle,
-  Landmark,
-  LogOut,
-  RefreshCw,
-  Smartphone,
-} from "lucide-react"
+  Warning,
+  Bank,
+  SignOut,
+  ArrowsClockwise,
+  DeviceMobile,
+} from '@phosphor-icons/react'
 import { useTranslation } from "react-i18next"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -546,7 +546,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
           <CardContent className="flex items-center gap-3 py-4">
-            <AlertTriangle className="size-5 shrink-0 text-destructive" />
+            <Warning className="size-5 shrink-0 text-destructive" />
             <p role="alert" className="flex-1 text-sm text-destructive">{visibleError}</p>
             {statusError && !error && (
               <Button variant="outline" size="sm" onClick={() => void status.refetch()}>
@@ -567,7 +567,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
               }}
               disabled={requestingSync}
             >
-              <RefreshCw className={requestingSync ? "animate-spin" : undefined} />
+              <ArrowsClockwise className={requestingSync ? "animate-spin" : undefined} />
               {requestingSync ? t("sync.bnp.syncing") : t("sync.bnp.sync")}
             </Button>
             {!confirmingDisconnect && (
@@ -576,7 +576,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
                 onClick={() => setConfirmingDisconnect(true)}
                 disabled={logout.isPending}
               >
-                <LogOut />
+                <SignOut />
                 {t("sync.bnp.clearSession")}
               </Button>
             )}
@@ -604,7 +604,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
                       })
                     }}
                   >
-                    <LogOut />
+                    <SignOut />
                     {t("sync.bnp.disconnectConfirmAction")}
                   </Button>
                   <Button variant="outline" onClick={() => setConfirmingDisconnect(false)}>
@@ -666,7 +666,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
               </fieldset>
               <div className="space-y-2">
                 <Label htmlFor="bnp-customer-id">
-                  <Landmark className="mr-1 inline-block size-4" />
+                  <Bank className="mr-1 inline-block size-4" />
                   {t("sync.bnp.customerId")}
                 </Label>
                 <Input
@@ -681,7 +681,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
                 />
               </div>
               <Button type="submit" disabled={pending}>
-                {pending && <RefreshCw className="animate-spin" />}
+                {pending && <ArrowsClockwise className="animate-spin" />}
                 {pending ? t("sync.bnp.connecting") : t("sync.bnp.connect")}
               </Button>
             </CardContent>
@@ -692,7 +692,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
       {!connected && authState === "AWAITING_APP" && (
         <Card size="sm">
           <CardContent className="flex items-center gap-3 py-4">
-            <Smartphone className="size-5 shrink-0 text-muted-foreground" />
+            <DeviceMobile className="size-5 shrink-0 text-muted-foreground" />
             <div className="flex-1 space-y-1">
               <p className="text-sm">{t("sync.bnp.approvalPrompt")}</p>
               <p className="text-sm text-muted-foreground">{t("sync.bnp.approvalHint")}</p>
@@ -703,7 +703,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
                 </span>
               </p>
             </div>
-            <RefreshCw className="size-4 shrink-0 animate-spin text-muted-foreground" />
+            <ArrowsClockwise className="size-4 shrink-0 animate-spin text-muted-foreground" />
           </CardContent>
         </Card>
       )}
@@ -732,7 +732,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
                 />
               </div>
               <Button type="submit" disabled={authState === "SENDING_CODE" || !CODE_PATTERN.test(code)}>
-                {authState === "SENDING_CODE" && <RefreshCw className="animate-spin" />}
+                {authState === "SENDING_CODE" && <ArrowsClockwise className="animate-spin" />}
                 {authState === "SENDING_CODE" ? t("sync.bnp.sendingCode") : t("sync.bnp.sendCode")}
               </Button>
             </CardContent>

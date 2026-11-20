@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { ShieldCheck } from 'lucide-react'
+import { ShieldCheck } from '@phosphor-icons/react'
 import { Badge } from '@/components/ui/badge'
 import type { FamilyMemberItem } from '@/features/family/api'
 
