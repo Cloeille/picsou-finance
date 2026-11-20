@@ -39,8 +39,9 @@ public class InternalTransferPairingService {
     static final String CATEGORY_SLUG = "virement-interne";
     /**
      * Matches the bank sync lookback: older rows were paired by an earlier sync. Rows up to
-     * {@value #MAX_DAY_GAP} days past either end are loaded too, so a partner just outside the
-     * window (a future-dated deferred debit, say) still makes its group ambiguous.
+     * {@value #MAX_DAY_GAP} days past either end are loaded too, but only as rivals that make a
+     * group ambiguous: a pair is taken only when both legs sit inside the window, so every
+     * possible partner of each leg was loaded.
      */
     static final int LOOKBACK_DAYS = 90;
     static final int MAX_DAY_GAP = 3;
@@ -75,13 +76,16 @@ public class InternalTransferPairingService {
         if (accountIds.size() < 2) {
             return 0;
         }
+        LocalDate from = today.minusDays(LOOKBACK_DAYS);
         List<Transaction> legs = transactions
             .findByAccountIdInAndDateBetweenOrderByDateAsc(accountIds,
-                today.minusDays(LOOKBACK_DAYS + MAX_DAY_GAP), today.plusDays(MAX_DAY_GAP))
+                from.minusDays(MAX_DAY_GAP), today.plusDays(MAX_DAY_GAP))
             .stream()
             .filter(InternalTransferPairingService::isCandidate)
             .toList();
-        List<Transaction[]> pairs = uniquePairs(legs);
+        List<Transaction[]> pairs = uniquePairs(legs).stream()
+            .filter(pair -> inWindow(pair[0], from, today) && inWindow(pair[1], from, today))
+            .toList();
         if (pairs.isEmpty()) {
             return 0;
         }
@@ -142,6 +146,10 @@ public class InternalTransferPairingService {
             }
         });
         return pairs;
+    }
+
+    private static boolean inWindow(Transaction leg, LocalDate from, LocalDate to) {
+        return !leg.getDate().isBefore(from) && !leg.getDate().isAfter(to);
     }
 
     /** Currency and absolute amount, scale-insensitive: {@code -100.00} and {@code 100} share a key. */

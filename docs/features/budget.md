@@ -201,8 +201,8 @@ through `ReceivedDividendClassifier` once an import has committed, right after d
 after every member sync (`MemberSyncService`) and at the end of each Fortuneo and BoursoBank job.
 
 - **Window**: the last 90 days of the member's owned, visible accounts (the bank sync lookback),
-  widened by the 3-day gap on both sides, so a partner just outside it (a future-dated deferred
-  debit, say) still makes its group ambiguous.
+  loaded 3 days wider on both sides. A row outside the window is never paired, but it still makes
+  its group ambiguous, so a leg at the edge is not taken for unique because its rival was not read.
   Hidden accounts (often a second connector's copy) and loan and peer-loan accounts are left out:
   a repayment stays a `credit` expense.
 - **Legs**: a debit and a credit on two different accounts, same currency, exactly opposite

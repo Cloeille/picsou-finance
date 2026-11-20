@@ -127,6 +127,25 @@ class InternalTransferPairingServiceTest {
     }
 
     @Test
+    void legsOutsideTheWindowOnlyMakeAGroupAmbiguous() {
+        Transaction edgeOut = tx(10L, checking, "2026-08-17", "-300");
+        Transaction edgeIn = tx(11L, livret, "2026-08-18", "300");
+        Transaction rivalBeforeWindow = tx(12L, pea, "2026-08-14", "300");
+        Transaction oldOut = tx(13L, checking, "2026-08-14", "-75");
+        Transaction oldIn = tx(14L, livret, "2026-08-15", "75");
+        Transaction todayOut = tx(15L, checking, "2026-11-14", "-60");
+        Transaction futureIn = tx(16L, livret, "2026-11-16", "60");
+        stage(List.of(checking, livret, pea),
+            rivalBeforeWindow, oldOut, oldIn, edgeOut, edgeIn, todayOut, futureIn);
+
+        assertThat(service.pairRecent(MEMBER, TODAY)).isZero();
+
+        assertThat(List.of(edgeOut, edgeIn, rivalBeforeWindow, oldOut, oldIn, todayOut, futureIn))
+            .allSatisfy(leg -> assertThat(leg.getCategoryRef()).isNull());
+        verify(transactions, never()).saveAll(any());
+    }
+
+    @Test
     void twoCandidateCreditsLeaveTheDebitAlone() {
         Transaction out = tx(10L, checking, "2026-11-02", "-500");
         Transaction inLivret = tx(11L, livret, "2026-11-02", "500");
