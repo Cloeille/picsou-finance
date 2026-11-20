@@ -49,6 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (Homunity) have an ISIN but no ticker, and one such line failed the whole sync
   with `UPSTREAM_FORMAT_CHANGED`, so no account was imported. The line now syncs
   under its ISIN; a line with neither ticker nor valid ISIN is still refused.
+- **An account or transaction name containing `$t(` no longer freezes the page.** i18next before
+  26.4.4 backtracked exponentially on such a value inside a translated sentence: a name of about
+  35 characters blocked the browser tab for minutes. i18next is now 26.7.2.
 
 ### Changed
 
@@ -58,6 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   upgrade only records the time and waits for the next slot. See
   [Scheduler catch-up](docs/features/scheduler-catch-up.md). (#585, part of #235)
 - **Caisse d'Epargne and Banque Populaire: the Sync tab names the contracts it does not import and counts them.** A personal loan (`6/12`), a home loan (`6/13`) and a revolving credit (`2/11`) show their name next to the code, and the success line adds how many contracts were not imported, so a missing loan is no longer silent. The revolving credit is never imported; a loan lands in this list only when Picsou cannot read its entry. Contracts of any other family keep the bare code. (#567, #486)
+- **Savings configuration banner and direct tab link.** Replaced the legacy emerald banner on `/accounts` with a neutral card matching the 1.2.1 design system, and clicking "Configurer" now opens the account detail page directly on the **Configuration livret** tab (`?tab=config`).
 - **Budget recurring payments redesign.** Rebuilt `/budget/subscriptions` (`RecurringTab`, `SubscriptionCard`, `ActivityFeed`) to match the 1.2.1 visual language: added a compact top-aligned 3-card KPI strip (monthly recurring expenses, monthly recurring income, upcoming 30-day total), moved **Detect** and **Add** actions into the primary recurring list header, removed purple/AI sparkle icons and rainbow avatars in favor of monochrome directional tiles, stripped raw SEPA/bank mandate noise from recurring labels, and refined all four locales into natural, concise phrasing.
 
 ## [1.2.1] — 2026-11-20
