@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
 import { useDesktopUnavailable } from '@/features/desktop/hooks'
 import {
   ActualBudgetLogo,
@@ -143,7 +144,13 @@ export function SyncPage() {
   }, [category, query, t])
 
   // A bank the desktop app does not ship: its panel says so instead of offering a login that cannot work.
-  const unavailableOnDesktop = <p className="text-sm text-muted-foreground">{t('desktop.unavailableDetail')}</p>
+  const unavailableOnDesktop = (
+    <Card size="sm">
+      <CardContent className="py-4">
+        <p className="text-sm text-muted-foreground">{t('desktop.unavailableDetail')}</p>
+      </CardContent>
+    </Card>
+  )
 
   const renderPanel = () => {
     switch (tab) {
