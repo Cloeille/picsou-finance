@@ -3350,9 +3350,9 @@
       "detect": "Detect",
       "add": "Add",
       "subtitle": "Subscriptions and recurring payments.",
-      "series": "Recurring series",
+      "series": "Suscripciones y recurrentes",
       "upcoming": "Upcoming payments",
-      "noSeries": "No recurring series detected yet.",
+      "noSeries": "Aún no hay pagos recurrentes registrados.",
       "noUpcoming": "No upcoming payments",
       "noUpcomingHint": "Upcoming charges will appear here once detected.",
       "error": "Couldn't load recurring items.",
@@ -3376,15 +3376,28 @@
       "runtime": {
         "stale": "Inactive",
         "late": "Late",
-        "dueSoon": "Due soon"
+        "dueSoon": "Próximo vencimiento"
       },
       "activity": {
-        "title": "What changed",
+        "title": "Cambios recientes",
         "autoConfirmed": "Confirmado automáticamente",
         "priceChange": "Price change",
-        "autoConfirmedDesc": "Detected and confirmed automatically",
-        "priceChangeDesc": "Price went from {{from}} to {{to}}",
-        "acknowledge": "Got it"
+        "autoConfirmedDesc": "Añadido automáticamente a tus pagos recurrentes.",
+        "priceChangeDesc": "Importe cambiado de {{from}} a {{to}}.",
+        "acknowledge": "Entendido"
+      },
+      "nextDueShort": "Próximo el {{date}}",
+      "kpi": {
+        "expenses": "Gastos recurrentes",
+        "income": "Ingresos recurrentes",
+        "upcoming30d": "Próximos (30 días)",
+        "perMonth": "al mes",
+        "activeCount_one": "{{count}} activo",
+        "activeCount_other": "{{count}} activos",
+        "activeCount": "{{count}} activo(s)",
+        "dueCount_one": "{{count}} vencimiento",
+        "dueCount_other": "{{count}} vencimientos",
+        "dueCount": "{{count}} vencimiento(s)"
       }
     },
     "categorize": {

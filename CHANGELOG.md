@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Unlike `hidden`, collapsed accounts stay in every total, budget and chart — see
   `docs/features/account-list-display.md`.
 
+### Changed
+
+- **Budget recurring payments redesign.** Rebuilt `/budget/subscriptions` (`RecurringTab`, `SubscriptionCard`, `ActivityFeed`) to match the 1.2.1 visual language: added a compact top-aligned 3-card KPI strip (monthly recurring expenses, monthly recurring income, upcoming 30-day total), moved **Detect** and **Add** actions into the primary recurring list header, removed purple/AI sparkle icons and rainbow avatars in favor of monochrome directional tiles, stripped raw SEPA/bank mandate noise from recurring labels, and refined all four locales into natural, concise phrasing.
+
 ## [1.2.1] — 2026-11-20
 
 ### Added

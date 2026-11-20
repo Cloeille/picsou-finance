@@ -1092,9 +1092,9 @@
       "detect": "Détecter",
       "add": "Ajouter",
       "subtitle": "Abonnements et prélèvements récurrents.",
-      "series": "Séries récurrentes",
+      "series": "Abonnements et récurrents",
       "upcoming": "Prochaines échéances",
-      "noSeries": "Aucune série récurrente détectée.",
+      "noSeries": "Aucun paiement récurrent enregistré pour le moment.",
       "noUpcoming": "Aucune échéance à venir",
       "noUpcomingHint": "Les prochains prélèvements apparaîtront ici une fois détectés.",
       "error": "Impossible de charger les récurrents.",
@@ -1118,15 +1118,28 @@
       "runtime": {
         "stale": "Inactif",
         "late": "En retard",
-        "dueSoon": "Bientôt dû"
+        "dueSoon": "Échéance proche"
       },
       "activity": {
-        "title": "Ce qui a changé",
-        "autoConfirmed": "Auto-confirmé",
+        "title": "Derniers changements",
+        "autoConfirmed": "Détecté automatiquement",
         "priceChange": "Variation de prix",
-        "autoConfirmedDesc": "Détecté et confirmé automatiquement",
-        "priceChangeDesc": "Prix passé de {{from}} à {{to}}",
-        "acknowledge": "OK"
+        "autoConfirmedDesc": "Ajouté automatiquement à vos paiements récurrents.",
+        "priceChangeDesc": "Montant passé de {{from}} à {{to}}.",
+        "acknowledge": "Compris"
+      },
+      "nextDueShort": "Prochaine le {{date}}",
+      "kpi": {
+        "expenses": "Dépenses récurrentes",
+        "income": "Revenus récurrents",
+        "upcoming30d": "À venir sur 30 jours",
+        "perMonth": "par mois",
+        "activeCount_one": "{{count}} actif",
+        "activeCount_other": "{{count}} actifs",
+        "activeCount": "{{count}} actif(s)",
+        "dueCount_one": "{{count}} échéance",
+        "dueCount_other": "{{count}} échéances",
+        "dueCount": "{{count}} échéance(s)"
       }
     },
     "categorize": {
