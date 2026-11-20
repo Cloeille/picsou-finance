@@ -50,6 +50,9 @@ Every minute (first tick one minute after startup), for each job in that order:
 - **A failed save keeps the run in memory**, so the job is not run again at every tick; it is
   stored again at its next run.
 - The ticks share Spring's single scheduler thread with `refreshPrices`, as the cron jobs did.
+- **A catch-up can be followed by the regular run the same day.** The stored time is when the job
+  finished, so a catch-up that ends before that day's slot (a wake at 07:58, or at 00:10 after
+  missing the previous 08:00) is followed by the 08:00 run: two unattended bank logins that day.
 - **One instance only.** The last run is cached in memory and never re-read, so two replicas would
   both run the jobs. The Helm chart already refuses `replicaCount > 1`.
 
