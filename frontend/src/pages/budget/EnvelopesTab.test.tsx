@@ -31,11 +31,11 @@ vi.mock('react-i18next', () => ({
 }))
 
 vi.mock('@/hooks/use-money', () => ({
-  useMoney: () => ({ amount: (v: number) => `${v} €` }),
+  useMoney: () => ({ amount: (v: number) => `${v} EUR` }),
 }))
 
 vi.mock('@/components/shared/CurrencyDisplay', () => ({
-  CurrencyDisplay: ({ value }: { value: number }) => <span>{value} €</span>,
+  CurrencyDisplay: ({ value }: { value: number }) => <span>{value} EUR</span>,
 }))
 
 vi.mock('@/features/budget/hooks', () => ({
