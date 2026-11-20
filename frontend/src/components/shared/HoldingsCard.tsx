@@ -7,7 +7,6 @@ import { PriceFreshnessDot } from '@/components/shared/PriceFreshnessDot'
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
@@ -187,7 +186,6 @@ export function HoldingsCard() {
     <Card>
       <CardHeader>
         <CardTitle>{t('dashboard.holdings')}</CardTitle>
-        <CardDescription>{t('dashboard.holdingsDescription')}</CardDescription>
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative max-w-sm flex-1">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -198,16 +196,22 @@ export function HoldingsCard() {
               className="pl-9"
             />
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div
+            role="group"
+            aria-label={t('dashboard.holdings')}
+            className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-border/60 bg-background/80 p-1"
+          >
             {FILTER_TABS.map(tab => (
               <button
                 key={tab.value}
+                type="button"
+                aria-pressed={filter === tab.value}
                 onClick={() => setFilter(tab.value)}
                 className={cn(
-                  'inline-flex h-10 min-w-32 items-center justify-center whitespace-nowrap rounded-md border px-6 text-sm font-medium transition-[background-color,color,border-color]',
+                  'inline-flex h-8 items-center justify-center whitespace-nowrap rounded-md px-3.5 text-sm font-medium transition-[background-color,color]',
                   filter === tab.value
                     ? 'bg-primary text-primary-foreground'
-                    : 'bg-background hover:bg-muted',
+                    : 'text-muted-foreground hover:text-foreground',
                 )}
               >
                 {t(tab.labelKey)}

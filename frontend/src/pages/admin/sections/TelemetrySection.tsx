@@ -26,10 +26,10 @@ export function TelemetrySection({ settings }: { settings: TelemetrySettings }) 
   }
 
   return (
-    <Card className="rounded-4xl bg-card">
+    <Card className="rounded-xl bg-card">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <Activity className="size-5 text-muted-foreground" />
+        <CardTitle className="flex items-center gap-2 text-base font-semibold">
+          <Activity className="size-4 shrink-0 text-muted-foreground" />
           {t('telemetry.section.title')}
         </CardTitle>
         <CardDescription>{t('telemetry.section.description')}</CardDescription>
@@ -47,7 +47,7 @@ export function TelemetrySection({ settings }: { settings: TelemetrySettings }) 
         {!settings.available && (
           <p className="text-sm text-muted-foreground">{t('telemetry.section.unavailable')}</p>
         )}
-        <p className="text-xs text-muted-foreground">{t('telemetry.section.privacy')}</p>
+        <p className="text-sm text-muted-foreground">{t('telemetry.section.privacy')}</p>
       </CardContent>
     </Card>
   )

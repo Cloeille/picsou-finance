@@ -34,9 +34,9 @@ export function TrAppConfirmation({ countdownInSeconds, className }: TrAppConfir
       <Smartphone className="size-5 shrink-0 text-muted-foreground" />
       <div className="flex-1 space-y-1">
         <p className="text-sm">{t('sync.tr.appConfirmPrompt')}</p>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           {t('sync.tr.appConfirmHint')} {t('sync.tr.countdownLabel')}{' '}
-          <span data-testid="tr-countdown" className="font-mono">
+          <span data-testid="tr-countdown" className="tabular-nums font-medium">
             {formatCountdown(remaining)}
           </span>
         </p>

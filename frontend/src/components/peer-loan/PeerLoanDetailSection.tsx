@@ -81,7 +81,7 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
   if (isLoading) {
     return (
       <Card>
-        <CardContent className="pt-6">
+        <CardContent>
           <Skeleton className="h-32 w-full" />
         </CardContent>
       </Card>
@@ -188,16 +188,16 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
                 <Progress value={pct} className="h-2" />
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                   <span className="text-emerald-500">
-                    {t('peerLoan.summary.principalRepaid')} <CurrencyDisplay value={data.principalRepaid} />
+                    {t('common.labelColon', { label: t('peerLoan.summary.principalRepaid') })} <CurrencyDisplay value={data.principalRepaid} />
                   </span>
                   {!data.closedAt && data.interestAccrued > 0 && (
                     <span className="text-foreground">
-                      {t('peerLoan.summary.interestDue')} <CurrencyDisplay value={data.interestAccrued} />
+                      {t('common.labelColon', { label: t('peerLoan.summary.interestDue') })} <CurrencyDisplay value={data.interestAccrued} />
                     </span>
                   )}
                   {data.writtenOff > 0 && (
                     <span className="text-red-500">
-                      {t('peerLoan.summary.writtenOff')} <CurrencyDisplay value={data.writtenOff} />
+                      {t('common.labelColon', { label: t('peerLoan.summary.writtenOff') })} <CurrencyDisplay value={data.writtenOff} />
                     </span>
                   )}
                   {data.annualRate != null && data.annualRate > 0 && (
@@ -216,7 +216,7 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
               </div>
 
               {!data.linkedAccountId && (
-                <p className="rounded-md border border-dashed p-2 text-xs text-muted-foreground">
+                <p className="rounded-md border border-dashed p-2 text-sm text-muted-foreground">
                   {t('peerLoan.cashflowHint')}
                 </p>
               )}
@@ -236,7 +236,7 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
                   </>
                 )}
                 {data.closedAt && (
-                  <p className="text-xs text-muted-foreground">{t('peerLoan.closedHint')}</p>
+                  <p className="text-sm text-muted-foreground">{t('peerLoan.closedHint')}</p>
                 )}
               </div>
             </>
@@ -278,14 +278,12 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
                     value={<CurrencyDisplay value={data.interestAccrued + data.interestReceived} />}
                   />
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   {data.installmentsBehind == null || data.installmentsBehind === 0
                     ? t('peerLoan.forecast.onTrack')
                     : data.installmentsBehind > 0
                       ? t('peerLoan.forecast.behind', { count: data.installmentsBehind })
                       : t('peerLoan.forecast.ahead', { count: Math.abs(data.installmentsBehind) })}
-                  {' · '}
-                  {t('peerLoan.forecast.disclaimer')}
                 </p>
               </>
             ) : (

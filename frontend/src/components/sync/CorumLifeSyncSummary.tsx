@@ -35,7 +35,7 @@ export function CorumLifeSyncSummary({ completedAt, ambiguous = 0 }: {
         </>
       )}
       {ambiguous > 0 && (
-        <p className="text-amber-600 dark:text-amber-400">{t('sync.corum.life.ambiguous', { count: ambiguous })}</p>
+        <p className="text-muted-foreground">{t('sync.corum.life.ambiguous', { count: ambiguous })}</p>
       )}
     </div>
   )

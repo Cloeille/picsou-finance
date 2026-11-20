@@ -12,10 +12,10 @@ export function ErrorScreen({ icon, code, message }: { icon: React.ReactNode; co
         <h1 className="text-2xl font-bold">{code}</h1>
         <p className="text-balance text-muted-foreground">{message}</p>
         <div className="flex flex-wrap justify-center gap-2">
-          <Button variant="outline" onClick={() => navigate(-1)}>
+          <Button variant="outline" onClick={() => navigate(-1)} className="rounded-lg">
             {t('common.back')}
           </Button>
-          <Button asChild>
+          <Button asChild className="rounded-lg">
             <Link to="/">{t('error.backToDashboard')}</Link>
           </Button>
         </div>

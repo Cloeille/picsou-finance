@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { ErrorState } from '@/components/shared/ErrorState'
+import { useMoney } from '@/hooks/use-money'
 import {
   useAllocation,
   useBudgets,
@@ -35,14 +36,13 @@ function RecapCard({ icon: Icon, label, children, onClick, index = 0 }: {
       className="group text-left animate-in fade-in-0 zoom-in-95 duration-300 fill-mode-both"
       style={{ animationDelay: `${index * 75}ms` }}
     >
-      <Card className="h-full transition-colors hover:bg-muted/50">
-        <CardContent className="pt-6">
+      <Card className="h-full py-3.5 transition-colors hover:bg-muted/50">
+        <CardContent className="flex h-full flex-col justify-start">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Icon className="size-4" />
-            <span>{label}</span>
-            <ArrowRight className="ml-auto size-4 opacity-0 transition-opacity group-hover:opacity-100" />
+            <Icon className="size-4 shrink-0" aria-hidden="true" />
+            <span className="truncate">{label}</span>
           </div>
-          <div className="mt-2">{children}</div>
+          <div className="mt-1.5">{children}</div>
         </CardContent>
       </Card>
     </button>
@@ -70,7 +70,7 @@ function CapitalIncomeAhead() {
 
   return (
     <Card role="region" aria-labelledby="capital-income-heading">
-      <CardContent className="pt-6">
+      <CardContent>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Coins className="size-4" />
           <span id="capital-income-heading">{t('budget.overview.capitalIncome')}</span>
@@ -133,6 +133,7 @@ export function OverviewTab() {
   const { t } = useTranslation()
   // Recap cards deep-link into the nested budget routes (relative to `/budget`).
   const navigate = useNavigate()
+  const money = useMoney()
   const { anchor, setAnchor } = useBudgetPeriod()
   const cashflowQ = useCashflow('CYCLE', anchor)
   const budgetsQ = useBudgets()
@@ -176,7 +177,7 @@ export function OverviewTab() {
         />
       </div>
       {viewingPast && (
-        <p className="text-xs text-muted-foreground">{t('budget.overview.pastPeriodNote')}</p>
+        <p className="text-sm text-muted-foreground">{t('budget.overview.pastPeriodNote')}</p>
       )}
       {isError ? (
         <ErrorState message={t('budget.overview.error')} onRetry={refetchAll} />
@@ -194,8 +195,8 @@ export function OverviewTab() {
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
             {t('budget.overview.incomeVsExpense', {
-              income: cashflow ? Math.round(cashflow.income) : 0,
-              expense: cashflow ? Math.round(cashflow.expense) : 0,
+              income: money.amount(cashflow ? Math.round(cashflow.income) : 0, 'EUR', { maximumFractionDigits: 0 }),
+              expense: money.amount(cashflow ? Math.round(cashflow.expense) : 0, 'EUR', { maximumFractionDigits: 0 }),
             })}
           </p>
         </RecapCard>
@@ -233,7 +234,7 @@ export function OverviewTab() {
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
             {t('budget.overview.contributedThisCycle', {
-              amount: allocation ? Math.round(allocation.totalContributions) : 0,
+              amount: money.amount(allocation ? Math.round(allocation.totalContributions) : 0, 'EUR', { maximumFractionDigits: 0 }),
             })}
           </p>
         </RecapCard>
@@ -245,9 +246,11 @@ export function OverviewTab() {
       {/* To-categorize nudge */}
       {(uncategorized?.length ?? 0) > 0 && (
         <button type="button" onClick={() => navigate('review')} className="block w-full text-left">
-          <Card className="border-amber-500/40 bg-amber-500/5 transition-colors hover:bg-amber-500/10">
+          <Card className="border-border/80 bg-card transition-colors hover:bg-muted/40">
             <CardContent className="flex items-center gap-3 py-4">
-              <Inbox className="size-5 text-amber-600 dark:text-amber-400" />
+              <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
+                <Inbox className="size-4" />
+              </span>
               <span className="text-sm font-medium">
                 {t('budget.overview.toCategorize', { count: uncategorized!.length })}
               </span>
@@ -260,7 +263,7 @@ export function OverviewTab() {
       {/* Top envelopes preview — envelope-budget data, current cycle only (see viewingPast). */}
       {!viewingPast && topEnvelopes.length > 0 && (
         <Card>
-          <CardContent className="pt-6">
+          <CardContent>
             <p className="mb-3 text-sm font-medium">{t('budget.overview.topEnvelopes')}</p>
             <div className="space-y-3">
               {topEnvelopes.map((b) => (
@@ -275,7 +278,7 @@ export function OverviewTab() {
                     aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(b.percent, 100)}
                     aria-valuetext={formatPercent(b.percent, { fractionDigits: 0 })}>
                     <div className={`h-full rounded-md ${
-                      b.overBudget ? 'bg-destructive' : b.percent >= 80 ? 'bg-amber-500' : 'bg-primary'}`}
+                      b.overBudget ? 'bg-destructive' : b.percent >= 80 ? 'bg-foreground/75' : 'bg-primary'}`}
                       style={{ width: `${Math.min(b.percent, 100)}%` }} />
                   </div>
                 </div>

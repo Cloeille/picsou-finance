@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { NativeSelect } from '@/components/shared/NativeSelect'
 import { useTranslation } from 'react-i18next'
 import { CheckCircle2, Loader2, Upload, X } from 'lucide-react'
 import { useMoney } from '@/hooks/use-money'
@@ -233,7 +234,7 @@ export function ActualBudgetTab() {
       {!preview && !result && (
         <div className="mx-auto max-w-xl space-y-4">
           <div
-            className={`flex flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed p-10 text-center ${dragOver ? 'border-primary bg-primary/5' : 'border-muted-foreground/25'}`}
+            className={`flex flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed p-10 text-center ${dragOver ? 'border-primary bg-primary/5' : 'border-muted-foreground/25'}`}
             onDragOver={(event) => { event.preventDefault(); setDragOver(true) }}
             onDragLeave={() => setDragOver(false)}
             onDrop={(event) => { event.preventDefault(); setDragOver(false); selectFile(event.dataTransfer.files[0]) }}
@@ -298,10 +299,10 @@ export function ActualBudgetTab() {
           ) : (
             <div className="max-w-xs space-y-1">
               <Label htmlFor="actual-currency">{t('sync.actual.currency')}</Label>
-              <select id="actual-currency" className={SELECT_CLASS} value={currency} onChange={(event) => changeCurrency(event.target.value)}>
+              <NativeSelect id="actual-currency" className={SELECT_CLASS} value={currency} onChange={(event) => changeCurrency(event.target.value)}>
                 {SUPPORTED_CURRENCIES.map((code) => <option key={code} value={code}>{code}</option>)}
-              </select>
-              <p className="text-xs text-muted-foreground">{t('sync.actual.currencyHint')}</p>
+              </NativeSelect>
+              <p className="text-sm text-muted-foreground">{t('sync.actual.currencyHint')}</p>
             </div>
           )}
 
@@ -337,7 +338,7 @@ export function ActualBudgetTab() {
                       ))}
                     </div>
                     {mapping.action === 'MAP_EXISTING' && (
-                      <select
+                      <NativeSelect
                         aria-label={t('sync.actual.targetAccount', { name: account.name })}
                         className={SELECT_CLASS}
                         value={mapping.targetAccountId ?? ''}
@@ -345,11 +346,11 @@ export function ActualBudgetTab() {
                       >
                         <option value="">{t('sync.actual.chooseAccount')}</option>
                         {compatible.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.currency})</option>)}
-                      </select>
+                      </NativeSelect>
                     )}
                     {mapping.action === 'MAP_EXISTING' && account.importedAccountId != null
                       && mapping.targetAccountId === account.importedAccountId && (
-                      <p className="text-xs text-muted-foreground">{t('sync.actual.previouslyImported')}</p>
+                      <p className="text-sm text-muted-foreground">{t('sync.actual.previouslyImported')}</p>
                     )}
                     {mapping.action === 'CREATE_NEW' && mapping.newAccount && (
                       <div className="grid gap-3 sm:grid-cols-2">
@@ -364,14 +365,14 @@ export function ActualBudgetTab() {
                         </div>
                         <div className="space-y-1">
                           <Label htmlFor={`actual-account-type-${index}`}>{t('sync.actual.accountType')}</Label>
-                          <select
+                          <NativeSelect
                             id={`actual-account-type-${index}`}
                             className={SELECT_CLASS}
                             value={mapping.newAccount.type}
                             onChange={(event) => updateAccount(index, { newAccount: { ...mapping.newAccount!, type: event.target.value as AccountType } })}
                           >
                             {LEDGER_ACCOUNT_TYPES.map((type) => <option key={type.value} value={type.value}>{t(type.labelKey)}</option>)}
-                          </select>
+                          </NativeSelect>
                         </div>
                       </div>
                     )}
@@ -397,7 +398,7 @@ export function ActualBudgetTab() {
                       </p>
                     </div>
                     <div className="grid gap-2 sm:grid-cols-2">
-                      <select
+                      <NativeSelect
                         aria-label={t('sync.actual.categoryAction', { name: category.name })}
                         className={SELECT_CLASS}
                         value={mapping.action}
@@ -409,7 +410,7 @@ export function ActualBudgetTab() {
                         <option value="CREATE_NEW">{t('sync.actual.createCategory')}</option>
                         <option value="MAP_EXISTING">{t('sync.actual.mapExistingCategory')}</option>
                         <option value="UNCATEGORIZED">{t('sync.actual.uncategorized')}</option>
-                      </select>
+                      </NativeSelect>
                       {mapping.action === 'CREATE_NEW' && (
                         <Input
                           aria-label={t('sync.actual.categoryName', { name: category.name })}
@@ -419,7 +420,7 @@ export function ActualBudgetTab() {
                         />
                       )}
                       {mapping.action === 'MAP_EXISTING' && (
-                        <select
+                        <NativeSelect
                           aria-label={t('sync.actual.targetCategory', { name: category.name })}
                           className={SELECT_CLASS}
                           value={mapping.targetCategoryId ?? ''}
@@ -429,7 +430,7 @@ export function ActualBudgetTab() {
                           {preview.existingCategories
                             .filter((item) => item.kind === kind && !item.archived)
                             .map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                        </select>
+                        </NativeSelect>
                       )}
                     </div>
                   </CardContent>
@@ -442,7 +443,7 @@ export function ActualBudgetTab() {
             <h3 className="font-semibold">{t('sync.actual.sampleTransactions')}</h3>
             {preview.sampleTransactions.map((transaction) => (
               <Card key={transaction.sourceId} size="sm">
-                <CardContent className="grid gap-1 pt-0 sm:grid-cols-[1fr_auto]">
+                <CardContent className="grid gap-1 pt-0 sm:grid-cols-[minmax(0,1fr)_auto]">
                   <div>
                     <p className="font-medium">
                       {transaction.payee || t('sync.actual.noPayee')}
@@ -450,7 +451,7 @@ export function ActualBudgetTab() {
                       {transaction.kind === 'STARTING_BALANCE' && <Badge variant="secondary" className="ml-2">{t('sync.actual.startingBalance')}</Badge>}
                     </p>
                     {transaction.notes && <p className="text-sm text-muted-foreground">{transaction.notes}</p>}
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-sm text-muted-foreground">
                       {formatDate(transaction.date)} · {accountNames.get(transaction.accountSourceId)}
                     </p>
                   </div>

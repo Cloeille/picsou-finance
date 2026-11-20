@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { NativeSelect } from '@/components/shared/NativeSelect'
 import { useTranslation } from 'react-i18next'
 import {
   Dialog,
@@ -11,7 +12,6 @@ import {
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
-import { SELECT_CONTROL_CLASS } from '@/lib/constants'
 import { useClassifyHolding, useHoldingClassification } from '@/features/analysis/hooks'
 import type {
   HoldingClassificationRequest,
@@ -69,15 +69,11 @@ const TIER_KEYS: WealthTier[] = [
  * React Compiler's `set-state-in-effect` rule requires, and what the sibling modals already do.
  */
 function ClassificationForm({
-  ticker,
-  name,
   current,
   saving,
   onSubmit,
   onClose,
 }: {
-  ticker: string
-  name: string | null
   current: HoldingClassificationView
   saving: boolean
   onSubmit: (body: HoldingClassificationRequest) => void
@@ -109,9 +105,9 @@ function ClassificationForm({
           <Label htmlFor="classification-sector">
             {t('analysis.classification.sector')}
           </Label>
-          <select
+          <NativeSelect
             id="classification-sector"
-            className={SELECT_CONTROL_CLASS}
+            
             value={sector}
             onChange={(e) => setSector(e.target.value)}
           >
@@ -125,7 +121,7 @@ function ClassificationForm({
             <option value={UNLISTED_SECTOR}>
               {t(`holdings.insight.sectorNames.${UNLISTED_SECTOR}`)}
             </option>
-          </select>
+          </NativeSelect>
           {/* Shown, never pre-selected: adopting a guess by default would turn it into a permanent
               hand-made override that stops tracking the provider. */}
           {inferredSector && (
@@ -141,9 +137,9 @@ function ClassificationForm({
           <Label htmlFor="classification-country">
             {t('analysis.classification.country')}
           </Label>
-          <select
+          <NativeSelect
             id="classification-country"
-            className={SELECT_CONTROL_CLASS}
+            
             value={country}
             onChange={(e) => setCountry(e.target.value)}
           >
@@ -157,7 +153,7 @@ function ClassificationForm({
             <option value={UNLISTED_COUNTRY}>
               {t(`holdings.insight.countryNames.${UNLISTED_COUNTRY}`)}
             </option>
-          </select>
+          </NativeSelect>
           {inferredCountry && (
             <p className="text-sm text-muted-foreground">
               {t('analysis.classification.inferred', {
@@ -169,9 +165,9 @@ function ClassificationForm({
 
         <div className="space-y-2">
           <Label htmlFor="classification-tier">{t('analysis.classification.tier')}</Label>
-          <select
+          <NativeSelect
             id="classification-tier"
-            className={SELECT_CONTROL_CLASS}
+            
             value={tier}
             onChange={(e) => setTier(e.target.value)}
           >
@@ -181,15 +177,11 @@ function ClassificationForm({
                 {t(`analysis.tiers.${key}`, key)}
               </option>
             ))}
-          </select>
+          </NativeSelect>
           <p className="text-sm text-muted-foreground">
             {t('analysis.classification.tierHint')}
           </p>
         </div>
-
-        <p className="text-sm text-muted-foreground">
-          {t('analysis.classification.scopeHint', { ticker, name: name ?? ticker })}
-        </p>
       </div>
 
       <DialogFooter>
@@ -252,8 +244,6 @@ export function HoldingClassificationModal({
           <ClassificationForm
             // Remounts when the loaded classification changes, so the lazy initializers re-seed.
             key={`${current.data.ticker}-${current.data.sectorKey}-${current.data.countryKey}-${current.data.wealthTier}`}
-            ticker={ticker}
-            name={name ?? null}
             current={current.data}
             saving={classify.isPending}
             onSubmit={(body) =>

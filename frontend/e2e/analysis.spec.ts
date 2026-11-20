@@ -19,9 +19,9 @@ test.describe('Analysis', () => {
     // its card because the sector breakdown further down has its own "Immobilier".
     const allocation = page
       .locator('[data-slot="card"]')
-      .filter({ hasText: 'Matelas de sécurité et répartition' })
+      .filter({ hasText: "Répartition par classe d'actifs" })
     await expect(allocation).toBeVisible()
-    for (const tier of ['Immobilier', 'Actions & ETF', 'Crypto', 'Actifs alternatifs']) {
+    for (const tier of ['Immobilier', 'Actions et ETF', 'Crypto', 'Actifs alternatifs']) {
       await expect(allocation.getByText(tier, { exact: true })).toBeVisible()
     }
   })
@@ -44,7 +44,7 @@ test.describe('Analysis', () => {
 
   test('should show the sector and geographic breakdowns', async ({ page }) => {
     await page.goto('/analysis')
-    await expect(page.getByText('Diversification')).toBeVisible()
+    await page.getByRole('tab', { name: 'Diversification' }).click()
     await expect(page.getByText('Secteurs')).toBeVisible()
     await expect(page.getByText('Zones géographiques')).toBeVisible()
     // Keys resolved through the labels the holding modal already ships.
@@ -54,9 +54,10 @@ test.describe('Analysis', () => {
 
   test('should state what the breakdown could not classify', async ({ page }) => {
     await page.goto('/analysis')
+    await page.getByRole('tab', { name: 'Diversification' }).click()
     // Coverage is stated rather than renormalised away — a bar over part of the portfolio must
     // not read as one over all of it.
-    await expect(page.getByText(/Calculé sur \d+\s% du portefeuille/)).toBeVisible()
+    await expect(page.getByText(/Cette répartition couvre \d+\s% de votre portefeuille/)).toBeVisible()
     await expect(page.getByText(/non classé/)).toBeVisible()
   })
 })

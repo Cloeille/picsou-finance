@@ -12,7 +12,7 @@ import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { MoneyChartTooltip } from '@/components/shared/MoneyChartTooltip'
 import { AXIS_PROPS, yAxisWidth } from '@/lib/chart-axis'
 import { useMoney } from '@/hooks/use-money'
-import { formatLocalDate, formatPercent, localeFromLanguage, toDate } from '@/lib/utils'
+import { formatLocalDate, formatPercent, localeFromLanguage, toDate, capitalizeFirst } from '@/lib/utils'
 import type { PeerLoanOverviewEntry, PeerLoansOverview } from '@/types/api'
 
 function Stat({ label, value }: { label: string; value: ReactNode }) {
@@ -90,10 +90,7 @@ export function PeerLoansOverviewCard({ data }: { data: PeerLoansOverview }) {
                 <XAxis
                   dataKey="date"
                   {...AXIS_PROPS}
-                  tickFormatter={(value: string) => toDate(value).toLocaleDateString(locale, {
-                    month: 'short',
-                    year: '2-digit',
-                  })}
+                  tickFormatter={(value: string) => capitalizeFirst(toDate(value).toLocaleDateString(locale, { month: 'short', year: '2-digit' }), locale)}
                 />
                 <YAxis
                   {...AXIS_PROPS}
@@ -104,10 +101,7 @@ export function PeerLoansOverviewCard({ data }: { data: PeerLoansOverview }) {
                   content={
                     <MoneyChartTooltip
                       config={chartConfig}
-                      labelFormatter={(value) => toDate(String(value)).toLocaleDateString(locale, {
-                        month: 'long',
-                        year: 'numeric',
-                      })}
+                      labelFormatter={(value) => capitalizeFirst(toDate(String(value)).toLocaleDateString(locale, { month: 'long', year: 'numeric' }), locale)}
                     />
                   }
                 />

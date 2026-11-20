@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
+import { chooseSelectOption, getSelectOptionValues, getSelectOptions } from '@/test/radix-select'
 
 const { apiPost } = vi.hoisted(() => ({ apiPost: vi.fn() }))
 
@@ -79,8 +80,12 @@ describe('HomeBankTab', () => {
     expect(screen.getByText('-3.25 EUR')).toBeInTheDocument()
     expect(screen.getByText(/2025/)).toBeInTheDocument()
     expect(screen.getByText('sync.homebank.forecastsSkipped 2')).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'sync.homebank.createCategory' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'sync.homebank.mapExistingCategory' })).toBeInTheDocument()
+    const categoryAction = screen.getByLabelText('sync.homebank.categoryAction')
+    const categoryActionOptions = getSelectOptions(categoryAction)
+    expect(categoryActionOptions.map(option => option.textContent)).toEqual(
+      expect.arrayContaining(['sync.homebank.createCategory', 'sync.homebank.mapExistingCategory']),
+    )
+    fireEvent.keyDown(categoryActionOptions[0] ?? categoryAction, { key: 'Escape' })
     expect(screen.queryByLabelText('sync.homebank.password')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'sync.homebank.import' }))
@@ -188,8 +193,8 @@ describe('HomeBankTab', () => {
     renderTab()
     await uploadPreview()
     const accountType = screen.getAllByRole('combobox')[0]
-    expect(accountType.querySelector('option[value="LOAN"]')).toBeInTheDocument()
-    expect(accountType).toHaveValue('LOAN')
+    expect(accountType).toHaveAttribute('data-value', 'LOAN')
+    expect(getSelectOptionValues(accountType)).toContain('LOAN')
     apiPost.mockResolvedValueOnce({ data: {
       accountsCreated: 1, accountsMapped: 0, accountsSkipped: 0, categoriesCreated: 1,
       transactionsImported: 1, transactionsSkipped: 0,
@@ -251,11 +256,10 @@ describe('HomeBankTab', () => {
     renderTab()
     await uploadPreview()
 
-    expect(screen.getByLabelText('sync.homebank.targetAccount')).toHaveValue('31')
-    expect(screen.getByLabelText('sync.homebank.targetCategory')).toHaveValue('41')
-    fireEvent.change(screen.getByLabelText('sync.homebank.categoryAction'), { target: { value: 'MAP_EXISTING' } })
-    const categoryOptions = screen.getByLabelText('sync.homebank.targetCategory').querySelectorAll('option')
-    expect(Array.from(categoryOptions).map(option => option.value)).toEqual(['', '41'])
+    expect(screen.getByLabelText('sync.homebank.targetAccount')).toHaveAttribute('data-value', '31')
+    expect(screen.getByLabelText('sync.homebank.targetCategory')).toHaveAttribute('data-value', '41')
+    chooseSelectOption(screen.getByLabelText('sync.homebank.categoryAction'), 'MAP_EXISTING')
+    expect(getSelectOptionValues(screen.getByLabelText('sync.homebank.targetCategory'))).toEqual(['', '41'])
   })
 
   it('warns on a parent kind mismatch and requires an explicit compatible category mapping', async () => {
@@ -277,15 +281,15 @@ describe('HomeBankTab', () => {
     const importButton = screen.getByRole('button', { name: 'sync.homebank.import' })
     expect(importButton).toBeDisabled()
     const action = screen.getAllByLabelText('sync.homebank.categoryAction')[1]
-    expect(action.querySelector('option[value="UNCATEGORIZED"]')).toBeInTheDocument()
+    expect(getSelectOptionValues(action)).toContain('UNCATEGORIZED')
 
-    fireEvent.change(action, { target: { value: 'UNCATEGORIZED' } })
+    chooseSelectOption(action, 'UNCATEGORIZED')
     expect(importButton).toBeEnabled()
-    fireEvent.change(action, { target: { value: 'MAP_EXISTING' } })
+    chooseSelectOption(action, 'MAP_EXISTING')
     expect(importButton).toBeDisabled()
     const target = screen.getByLabelText('sync.homebank.targetCategory')
-    expect(Array.from(target.querySelectorAll('option')).map(option => option.value)).toEqual(['', '51'])
-    fireEvent.change(target, { target: { value: '51' } })
+    expect(getSelectOptionValues(target)).toEqual(['', '51'])
+    chooseSelectOption(target, '51')
     expect(importButton).toBeEnabled()
 
     apiPost.mockResolvedValueOnce({ data: {
@@ -318,9 +322,8 @@ describe('HomeBankTab', () => {
     await uploadPreview()
 
     expect(screen.queryByText('sync.homebank.categoryParentKindMismatch')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('sync.homebank.targetCategory')).toHaveValue('52')
-    const options = screen.getByLabelText('sync.homebank.targetCategory').querySelectorAll('option')
-    expect(Array.from(options).map(option => option.value)).toEqual(['', '51', '52'])
+    expect(screen.getByLabelText('sync.homebank.targetCategory')).toHaveAttribute('data-value', '52')
+    expect(getSelectOptionValues(screen.getByLabelText('sync.homebank.targetCategory'))).toEqual(['', '51', '52'])
     expect(screen.getByRole('button', { name: 'sync.homebank.import' })).toBeEnabled()
   })
 })

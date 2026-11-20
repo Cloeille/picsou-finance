@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 
 export type IntegrationKey =
   | 'enablebanking'
+  | 'bnp'
   | 'boursobank'
   | 'boursedirect'
   | 'fortuneo'

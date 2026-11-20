@@ -15,7 +15,7 @@ test.describe('Accounts page', () => {
 
   test('should filter accounts by type', async ({ page }) => {
     // Type filters are plain buttons now (no tablist)
-    await page.getByRole('button', { name: 'Actions & Fonds' }).click()
+    await page.getByRole('button', { name: 'Actions et fonds' }).click()
     // The total row should still be visible
     await expect(page.getByText('Total').first()).toBeVisible()
 

@@ -48,13 +48,13 @@ export function SignInMethodsCard({ onAction }: { onAction: (action: ReauthActio
         <li className={ROW}>
           <div className="min-w-0 space-y-0.5">
             <p className="text-sm font-medium">{t('settings.signInMethods.password')}</p>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               {methods.hasPassword
                 ? t('settings.signInMethods.passwordOn')
                 : t('settings.signInMethods.passwordOff', { provider })}
             </p>
             {methods.hasPassword && !canTurnOff && (
-              <p id={passwordHintId} className="text-xs text-muted-foreground">
+              <p id={passwordHintId} className="text-sm text-muted-foreground">
                 {t('settings.signInMethods.turnOffHint', { provider })}
               </p>
             )}
@@ -85,13 +85,13 @@ export function SignInMethodsCard({ onAction }: { onAction: (action: ReauthActio
                 <p className="break-words text-sm font-medium">
                   <IdentityLabel identity={identity} providerName={provider} />
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   {identity.lastLoginAt
                     ? `${t('common.labelColon', { label: t('settings.signInMethods.lastSignIn') })} ${formatDateTime(identity.lastLoginAt)}`
                     : t('settings.signInMethods.neverUsed')}
                 </p>
                 {locked && (
-                  <p id={lockedHintId} className="text-xs text-muted-foreground">
+                  <p id={lockedHintId} className="text-sm text-muted-foreground">
                     {t('settings.signInMethods.unlinkHint')}
                   </p>
                 )}
@@ -114,7 +114,7 @@ export function SignInMethodsCard({ onAction }: { onAction: (action: ReauthActio
       {(methods.adminGroupManaged || methods.ssoEnabled) && (
         <div className="flex flex-col gap-3 @xl:flex-row @xl:items-center @xl:justify-between">
           {methods.adminGroupManaged && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               {t('settings.signInMethods.adminGroupNote', { provider })}
             </p>
           )}

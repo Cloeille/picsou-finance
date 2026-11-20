@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { Account } from '@/types/api'
+import { chooseSelectOption } from '@/test/radix-select'
 import { ScpiDetailSection } from './ScpiDetailSection'
 
 const { mutateAsync, ignoreMutate } = vi.hoisted(() => ({ mutateAsync: vi.fn(), ignoreMutate: vi.fn() }))
@@ -143,7 +144,7 @@ describe('ScpiDetailSection fund links', () => {
     fireEvent.click(save)
     expect(mutateAsync).not.toHaveBeenCalled()
 
-    fireEvent.change(screen.getByLabelText('scpi.distributionFrequency'), { target: { value: '' } })
+    chooseSelectOption(screen.getByLabelText('scpi.distributionFrequency'), '')
     expect(save).toBeEnabled()
     fireEvent.click(save)
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({

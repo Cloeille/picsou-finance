@@ -112,24 +112,26 @@ export function LoginPage() {
   if (ssoRedirecting) return <SsoProgressScreen message={t('auth.sso.redirecting')} />
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
-        <Card className="py-8 sm:py-10">
-          <CardHeader className="items-center gap-2 px-6 text-center sm:px-10">
-            <CardTitle className="text-3xl font-semibold sm:text-4xl">{t('auth.login')}</CardTitle>
-            <CardDescription className="mt-1 text-base leading-6">
+    <div className="flex min-h-dvh items-center justify-center bg-background px-4 py-10">
+      <div className="mx-auto flex w-full max-w-md flex-col gap-4">
+        <Card className="rounded-xl border border-border/60 py-7 ring-0 sm:py-8">
+          <CardHeader className="items-center gap-1.5 px-6 text-center sm:px-8">
+            <CardTitle className="text-2xl font-semibold tracking-tight sm:text-3xl">
+              {t('auth.login')}
+            </CardTitle>
+            <CardDescription className="text-sm leading-relaxed">
               {t('auth.loginTagline')}
             </CardDescription>
           </CardHeader>
 
-          <CardContent className="px-6 sm:px-10">
+          <CardContent className="px-6 sm:px-8">
             {!demoMode && ssoInfo.isError && (
               <AlertBanner
                 variant="roomy"
                 role="alert"
-                className="mb-6"
+                className="mb-5"
                 action={
-                  <Button type="button" variant="outline" size="sm" onClick={() => void ssoInfo.refetch()}>
+                  <Button type="button" variant="outline" size="sm" onClick={() => void ssoInfo.refetch()} className="rounded-lg">
                     {t('common.retry')}
                   </Button>
                 }
@@ -143,22 +145,22 @@ export function LoginPage() {
                   type="button"
                   variant="outline"
                   onClick={handleSsoClick}
-                  className="h-auto min-h-12 w-full whitespace-normal rounded-full px-8 py-3 text-base"
+                  className="h-auto min-h-10 w-full whitespace-normal rounded-lg px-4 py-2.5 text-sm font-medium"
                 >
-                  <KeyRound className="size-5" aria-hidden="true" />
+                  <KeyRound className="size-4" aria-hidden="true" />
                   {t('auth.sso.button', { provider: sso.providerName })}
                 </Button>
-                <div className="my-6 flex items-center gap-3">
+                <div className="my-5 flex items-center gap-3">
                   <Separator className="h-px flex-1" />
-                  <span className="text-sm text-muted-foreground">{t('auth.sso.or')}</span>
+                  <span className="text-xs text-muted-foreground">{t('auth.sso.or')}</span>
                   <Separator className="h-px flex-1" />
                 </div>
               </>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="username" className="text-base font-semibold">
+                <Label htmlFor="username" className="text-sm font-semibold">
                   {t('auth.username')}
                 </Label>
                 <Input
@@ -169,12 +171,12 @@ export function LoginPage() {
                   autoComplete="username"
                   required
                   placeholder="admin"
-                  className="h-12 rounded-xl px-4 text-base md:text-base"
+                  className="h-10 rounded-lg px-3.5 text-sm"
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-base font-semibold">
+                <Label htmlFor="password" className="text-sm font-semibold">
                   {t('auth.password')}
                 </Label>
                 <div className="relative">
@@ -186,34 +188,34 @@ export function LoginPage() {
                     autoComplete="current-password"
                     required
                     placeholder="••••••••"
-                    className="h-12 rounded-xl px-4 pr-14 text-base md:text-base"
+                    className="h-10 rounded-lg px-3.5 pr-11 text-sm"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPw(v => !v)}
-                    className="absolute right-2 top-1/2 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    className="absolute right-1 top-1/2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                     aria-label={showPw ? t('auth.hidePassword') : t('auth.showPassword')}
                     aria-pressed={showPw}
                   >
                     {showPw ? (
-                      <EyeOff className="size-5" aria-hidden="true" />
+                      <EyeOff className="size-4" aria-hidden="true" />
                     ) : (
-                      <Eye className="size-5" aria-hidden="true" />
+                      <Eye className="size-4" aria-hidden="true" />
                     )}
                   </button>
                 </div>
               </div>
 
-              <div className="flex items-start gap-3 rounded-xl py-1">
+              <div className="flex items-start gap-2.5 pt-0.5">
                 <input
                   id="rememberMe"
                   type="checkbox"
                   checked={rememberMe}
                   onChange={e => setRememberMe(e.target.checked)}
-                  className="mt-1 h-5 w-5 shrink-0 rounded-md accent-primary"
+                  className="mt-0.5 size-4 shrink-0 rounded accent-primary"
                 />
-                <div className="flex flex-col">
-                  <Label htmlFor="rememberMe" className="cursor-pointer text-base font-semibold">
+                <div className="flex flex-col gap-0.5">
+                  <Label htmlFor="rememberMe" className="cursor-pointer text-sm font-medium leading-snug">
                     {t('auth.rememberMe')}
                   </Label>
                   <p className="text-sm text-muted-foreground">{t('auth.rememberMeDesc')}</p>
@@ -227,10 +229,10 @@ export function LoginPage() {
               <Button
                 type="submit"
                 disabled={loginMutation.isPending}
-                className="mt-2 h-12 w-full rounded-full px-8 text-base transition-transform active:scale-[0.96]"
+                className="mt-1 h-10 w-full rounded-lg text-sm font-medium"
               >
                 {loginMutation.isPending && (
-                  <Loader2 className="size-5 animate-spin" />
+                  <Loader2 className="size-4 animate-spin" />
                 )}
                 {loginMutation.isPending ? t('auth.loggingIn') : t('auth.loginButton')}
               </Button>
@@ -239,10 +241,10 @@ export function LoginPage() {
         </Card>
 
         {demoMode && (
-          <Card className="border-muted bg-muted/40">
-            <CardContent className="px-6 py-5 sm:px-10">
-              <p className="text-base font-semibold text-foreground">{t('auth.demoMode')}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{t('auth.demoModeDesc')}</p>
+          <Card className="rounded-xl border border-border/60 bg-muted/40 py-0 ring-0">
+            <CardContent className="px-6 py-4 sm:px-8">
+              <p className="text-sm font-semibold text-foreground">{t('auth.demoMode')}</p>
+              <p className="mt-0.5 text-sm text-muted-foreground">{t('auth.demoModeDesc')}</p>
             </CardContent>
           </Card>
         )}

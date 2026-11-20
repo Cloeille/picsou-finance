@@ -48,7 +48,7 @@ export function HoldingLogo({
   className?: string
 }) {
   const dark = useDarkTheme()
-  const url = (dark && logoUrlDark) || logoUrl || bundledHoldingLogoUrl(ticker)
+  const url = (dark && logoUrlDark) || logoUrl || bundledHoldingLogoUrl(ticker, name)
   // Keyed on the URL: changing it remounts the image, so a previously failed one is retried.
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const src = url && url !== failedUrl ? url : null

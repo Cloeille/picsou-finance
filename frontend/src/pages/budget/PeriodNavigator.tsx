@@ -8,7 +8,7 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
 import { useBudgetSettings } from '@/features/budget/hooks'
-import { getLocale } from '@/lib/utils'
+import { capitalizeFirst, getLocale } from '@/lib/utils'
 import type { CashflowPeriod } from '@/types/api'
 import { pad2, addDays, yearOf, yearAnchor, cycleAnchor } from './period-navigator-helpers'
 
@@ -44,11 +44,14 @@ export function PeriodNavigator({
   const label: string = (() => {
     if (period === 'CYCLE') {
       const [ey, em, ed] = effective.split('-').map(Number)
-      return new Intl.DateTimeFormat(locale, {
-        month: 'long',
-        year: 'numeric',
-        timeZone: 'UTC',
-      }).format(new Date(Date.UTC(ey, em - 1, ed)))
+      return capitalizeFirst(
+        new Intl.DateTimeFormat(locale, {
+          month: 'long',
+          year: 'numeric',
+          timeZone: 'UTC',
+        }).format(new Date(Date.UTC(ey, em - 1, ed))),
+        locale,
+      )
     }
     return effective.slice(0, 4)
   })()
@@ -84,11 +87,14 @@ export function PeriodNavigator({
           const totalMonths = todayYear * 12 + (todayMonth - 1) - i
           const y = Math.floor(totalMonths / 12)
           const m = (totalMonths % 12) + 1
-          const itemLabel = new Intl.DateTimeFormat(locale, {
-            month: 'long',
-            year: 'numeric',
-            timeZone: 'UTC',
-          }).format(new Date(Date.UTC(y, m - 1, 1)))
+          const itemLabel = capitalizeFirst(
+            new Intl.DateTimeFormat(locale, {
+              month: 'long',
+              year: 'numeric',
+              timeZone: 'UTC',
+            }).format(new Date(Date.UTC(y, m - 1, 1))),
+            locale,
+          )
           return { key: `${y}-${pad2(m)}`, label: itemLabel, anchor: cycleAnchor(y, m, cycleStartDay) }
         })
         .filter(({ anchor }) => anchor <= todayIso)
@@ -117,7 +123,7 @@ export function PeriodNavigator({
             <ChevronDown className="size-3.5" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="max-h-72 overflow-y-auto">
+        <DropdownMenuContent align="end" className="min-w-44 max-h-72 overflow-y-auto">
           {jumpItems.map((item) => (
             <DropdownMenuItem key={item.key} onSelect={() => onAnchorChange(item.anchor)}>
               {item.label}
