@@ -89,12 +89,14 @@ export function SubscriptionCard({ series }: { series: RecurringSeries }) {
         )}
 
         {showPriceChange && (
-          <p className="mt-1 inline-flex items-center gap-1.5 text-sm text-rose-600 dark:text-rose-400">
+          <p className="mt-1 inline-flex items-center gap-1.5 text-sm text-rose-600 dark:text-rose-400 [word-spacing:normal]">
             <TrendingUp className="size-3.5 shrink-0" aria-hidden="true" />
-            {t('budget.recurring.priceFromTo', {
-              from: money.amount(Math.abs(series.previousAmount!)),
-              to: money.amount(Math.abs(series.expectedAmount)),
-            })}
+            <span>
+              {t('budget.recurring.priceFromTo', {
+                from: money.amount(Math.abs(series.previousAmount!)),
+                to: money.amount(Math.abs(series.expectedAmount)),
+              })}
+            </span>
           </p>
         )}
       </div>

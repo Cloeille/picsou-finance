@@ -46,7 +46,7 @@ export const RUNTIME_STATUS_META: Record<
 > = {
   STALE: {
     labelKey: 'budget.recurring.runtime.stale',
-    className: 'border-transparent bg-slate-500/15 text-slate-500 dark:text-slate-400',
+    className: 'border-transparent bg-muted text-muted-foreground',
   },
   LATE: {
     labelKey: 'budget.recurring.runtime.late',
@@ -54,7 +54,7 @@ export const RUNTIME_STATUS_META: Record<
   },
   DUE_SOON: {
     labelKey: 'budget.recurring.runtime.dueSoon',
-    className: 'border-transparent bg-amber-500/15 text-amber-600 dark:text-amber-400',
+    className: 'border-transparent bg-secondary text-secondary-foreground',
   },
 }
 

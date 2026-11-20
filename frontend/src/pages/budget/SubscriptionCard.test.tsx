@@ -42,4 +42,11 @@ describe('SubscriptionCard', () => {
     render(<SubscriptionCard series={series({ autoConfirmed: false })} />)
     expect(screen.queryByText(/autoConfirmed/)).not.toBeInTheDocument()
   })
+
+  it('uses a neutral gray badge for DUE_SOON instead of amber', () => {
+    render(<SubscriptionCard series={series({ runtimeStatus: 'DUE_SOON' })} />)
+    const badge = screen.getByText('budget.recurring.runtime.dueSoon')
+    expect(badge.className).toContain('bg-secondary')
+    expect(badge.className).not.toContain('amber')
+  })
 })
