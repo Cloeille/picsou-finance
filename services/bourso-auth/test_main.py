@@ -16,7 +16,7 @@ import httpx
 from fastapi import HTTPException
 
 from accounts_parser import AccountsFormatError
-from fixtures import DASHBOARD_HTML, MOVEMENTS_HTML, RIB_HTML
+from fixtures import DASHBOARD_HTML, MOVEMENTS_HTML, PER_HTML, PER_ID, RIB_HTML, dashboard_with_per
 from main import (
     BASE_URL,
     AccountsRequest,
@@ -498,6 +498,77 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(AccountsFormatError) as raised:
                 await _collect_accounts(client)
         self.assertEqual(raised.exception.code, "PORTFOLIO_INCOMPLETE")
+
+
+def per_handler(*, page=PER_HTML, status=200):
+    """The default dashboard plus one PER, whose positions page answers `status`."""
+    fallback = default_handler(dashboard=dashboard_with_per())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == f"/compte/per/{PER_ID}/positions":
+            return httpx.Response(status, text=page if status == 200 else "upstream error")
+        if PER_ID in path:
+            # Neither the trading board (it 404s on a PER) nor a history page.
+            raise AssertionError(f"unexpected request for the PER: {request.url}")
+        return fallback(request)
+
+    return handler
+
+
+class PerCollectTest(unittest.IsolatedAsyncioTestCase):
+    async def test_a_per_is_read_from_its_positions_page(self):
+        async with build_client(per_handler()) as client:
+            accounts = await _collect_accounts(client)
+
+        plan = next(account for account in accounts if account.type == "PER")
+        self.assertEqual(plan.externalId, f"bourso_{PER_ID}")
+        self.assertEqual(plan.balanceEur, Decimal("2230.00"))
+        self.assertEqual(plan.cashBalance, Decimal("30.00"))
+        self.assertEqual(len(plan.positions), 2)
+        self.assertEqual(plan.valuationLineCount, 4)
+        self.assertEqual(plan.transactions, [])
+
+    async def test_an_unreadable_per_is_skipped_and_the_other_accounts_still_sync(self):
+        page = PER_HTML.replace("2 230,00 €", "9 999,99 €")
+        with self.assertLogs("bourso-auth", level="WARNING") as logs:
+            async with build_client(per_handler(page=page)) as client:
+                accounts = await _collect_accounts(client)
+
+        self.assertNotIn("PER", [account.type for account in accounts])
+        self.assertEqual({"CHECKING", "LDDS", "PEA"}, {account.type for account in accounts})
+        self.assertTrue(any("PER" in line and "skipped" in line for line in logs.output))
+        # The log names the failure, never an amount.
+        self.assertFalse(any("9 999" in line or "2 230" in line for line in logs.output))
+
+    async def test_an_amount_out_of_range_skips_the_per_rather_than_the_sync(self):
+        with mock.patch("main.parse_per", side_effect=ArithmeticError):
+            async with build_client(per_handler()) as client:
+                accounts = await _collect_accounts(client)
+
+        self.assertNotIn("PER", [account.type for account in accounts])
+        self.assertIn("PEA", [account.type for account in accounts])
+
+    async def test_a_per_page_that_is_gone_is_skipped(self):
+        async with build_client(per_handler(status=404)) as client:
+            accounts = await _collect_accounts(client)
+
+        self.assertNotIn("PER", [account.type for account in accounts])
+        self.assertIn("PEA", [account.type for account in accounts])
+
+    async def test_a_per_page_outage_fails_the_whole_sync(self):
+        # An outage is "try again later", not "this page cannot be read": skipping
+        # it would hide a BoursoBank outage behind stale values.
+        async with build_client(per_handler(status=503)) as client:
+            with self.assertRaises(HTTPException) as raised:
+                await _collect_accounts(client)
+        self.assertEqual(raised.exception.detail, "UPSTREAM_UNAVAILABLE")
+
+    async def test_a_per_page_401_expires_the_session(self):
+        async with build_client(per_handler(status=401)) as client:
+            with self.assertRaises(HTTPException) as raised:
+                await _collect_accounts(client)
+        self.assertEqual(raised.exception.detail, "SESSION_EXPIRED")
 
 
 def multi_identity_handler(selector, requested, *, switch_sticks=True):
