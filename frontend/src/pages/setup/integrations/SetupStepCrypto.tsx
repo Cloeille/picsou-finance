@@ -72,10 +72,10 @@ export function SetupStepCrypto() {
         : ''
 
   return (
-    <div className="space-y-8">
+    <div className="mx-auto w-full max-w-lg space-y-6">
       <div className="text-center space-y-2">
         <div className="flex justify-center">
-          <span className="rounded-xl bg-primary/10 p-3 text-primary">
+          <span className="inline-flex size-12 items-center justify-center text-foreground">
             <Bitcoin className="h-6 w-6" />
           </span>
         </div>
@@ -95,11 +95,11 @@ export function SetupStepCrypto() {
       )}
 
       {(phase === 'existed' || phase === 'created') && (
-        <div className="space-y-3 rounded-2xl border border-emerald-500/40 bg-emerald-500/5 p-6 text-center">
+        <div className="space-y-3 rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-6 text-center">
           <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-500" />
           <p className="text-lg font-medium">{successCopy}</p>
           {keyPath && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               {t('setup.crypto.pathLabel')}{' '}
               <span className="font-mono">{keyPath}</span>
             </p>
@@ -110,7 +110,7 @@ export function SetupStepCrypto() {
       {phase === 'error' && (
         <div
           role="alert"
-          className="flex items-start gap-3 rounded-2xl border border-destructive/40 bg-destructive/5 p-6"
+          className="flex items-start gap-3 rounded-xl border border-destructive/40 bg-destructive/5 p-6"
         >
           <CircleAlert className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
           <p className="text-sm text-destructive">{t('setup.crypto.error')}</p>
@@ -122,7 +122,7 @@ export function SetupStepCrypto() {
           type="button"
           variant="outline"
           onClick={skip}
-          className="w-full rounded-full"
+          className="w-full rounded-lg"
         >
           {t('setup.crypto.skip')}
         </Button>
@@ -130,7 +130,7 @@ export function SetupStepCrypto() {
           <Button
             onClick={run}
             disabled={gen.isPending}
-            className="w-full rounded-full"
+            className="w-full rounded-lg"
           >
             {t('setup.crypto.generateCta')}
           </Button>
@@ -138,7 +138,7 @@ export function SetupStepCrypto() {
           <Button
             onClick={proceed}
             disabled={phase === 'running'}
-            className="w-full rounded-full"
+            className="w-full rounded-lg"
           >
             {t('setup.crypto.continue')}
           </Button>

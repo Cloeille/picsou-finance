@@ -115,4 +115,52 @@ describe('DateInput', () => {
     expect(input.value).toBe('')
     expect(screen.getByTestId('iso')).toBeEmptyDOMElement()
   })
+
+  it('auto-inserts slashes while typing pure digits', () => {
+    render(<Controlled />)
+    const input = field()
+
+    fireEvent.change(input, { target: { value: '1' } })
+    expect(input.value).toBe('1')
+
+    fireEvent.change(input, { target: { value: '19' } })
+    expect(input.value).toBe('19/')
+
+    // Typing a slash manually right after the auto-inserted one never doubles it.
+    fireEvent.change(input, { target: { value: '19//' } })
+    expect(input.value).toBe('19/')
+
+    fireEvent.change(input, { target: { value: '19/1' } })
+    expect(input.value).toBe('19/1')
+
+    fireEvent.change(input, { target: { value: '19/11' } })
+    expect(input.value).toBe('19/11/')
+
+    fireEvent.change(input, { target: { value: '19/11/2026' } })
+    expect(input.value).toBe('19/11/2026')
+    expect(screen.getByTestId('iso')).toHaveTextContent('2026-11-19')
+  })
+
+  it('formats pasted 8-digit dates immediately', () => {
+    render(<Controlled />)
+    const input = field()
+
+    fireEvent.change(input, { target: { value: '19112026' } })
+    expect(input.value).toBe('19/11/2026')
+    expect(screen.getByTestId('iso')).toHaveTextContent('2026-11-19')
+  })
+
+  it('allows backspacing past an auto-inserted slash cleanly', () => {
+    render(<Controlled />)
+    const input = field()
+
+    fireEvent.change(input, { target: { value: '19' } })
+    expect(input.value).toBe('19/')
+
+    fireEvent.change(input, { target: { value: '19' } })
+    expect(input.value).toBe('19')
+
+    fireEvent.change(input, { target: { value: '1' } })
+    expect(input.value).toBe('1')
+  })
 })

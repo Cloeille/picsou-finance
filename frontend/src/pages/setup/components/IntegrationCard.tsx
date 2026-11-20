@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react'
+import { Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface IntegrationCardProps {
@@ -36,42 +37,41 @@ export function IntegrationCard({
       disabled={disabled}
       onClick={onToggle}
       className={cn(
-        'w-full rounded-2xl border-2 p-4 text-left transition-[border-color,background-color,color,opacity] sm:p-5',
-        'flex items-start gap-4',
+        'flex h-full w-full flex-col rounded-xl border p-3.5 text-left transition-[border-color,background-color,box-shadow,opacity]',
         checked
-          ? 'border-primary bg-primary/5'
-          : 'border-border bg-card hover:border-primary/40',
-        disabled && 'opacity-60 cursor-not-allowed'
+          ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
+          : 'border-border/70 bg-card hover:border-primary/40 hover:bg-muted/20',
+        disabled && 'cursor-not-allowed opacity-60'
       )}
     >
-      <span
-        className={cn(
-          'shrink-0 rounded-xl p-2 transition-colors',
-          checked ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
-        )}
-        aria-hidden="true"
-      >
-        <Icon className="h-6 w-6" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="font-medium text-sm sm:text-base leading-tight">{title}</p>
-        <p className="mt-1 text-xs sm:text-sm text-muted-foreground">{description}</p>
+      <div className="flex w-full items-center gap-3">
+        <span
+          className={cn(
+            'inline-flex size-9 shrink-0 items-center justify-center rounded-lg transition-colors',
+            checked ? 'text-foreground' : 'text-foreground/75'
+          )}
+          aria-hidden="true"
+        >
+          <Icon className="size-5" />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold leading-tight text-foreground">
+          {title}
+        </span>
+        <span
+          className={cn(
+            'inline-flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors',
+            checked
+              ? 'border-primary bg-primary text-primary-foreground'
+              : 'border-muted-foreground/35 bg-background'
+          )}
+          aria-hidden="true"
+        >
+          {checked && <Check className="size-3.5 stroke-[2.5]" />}
+        </span>
       </div>
-      <span
-        className={cn(
-          'mt-0.5 h-5 w-5 shrink-0 rounded-md border-2 flex items-center justify-center transition-colors',
-          checked
-            ? 'bg-primary border-primary text-primary-foreground'
-            : 'border-muted-foreground/40'
-        )}
-        aria-hidden="true"
-      >
-        {checked && (
-          <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M2 6l3 3 5-6" />
-          </svg>
-        )}
-      </span>
+      <p className="mt-2.5 text-sm leading-relaxed text-muted-foreground">
+        {description}
+      </p>
     </button>
   )
 }

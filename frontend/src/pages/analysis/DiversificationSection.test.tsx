@@ -122,18 +122,15 @@ describe('DiversificationSection', () => {
     expect(screen.getByText('analysis.classification.refresh')).toBeInTheDocument()
   })
 
-  it('notes the mixed basis only when a directly held share contributed', () => {
-    const { rerender } = render(<DiversificationSection data={data()} />)
-    expect(screen.queryByText('analysis.diversification.basisNote')).not.toBeInTheDocument()
-
-    rerender(
+  it('omits verbose mixed-basis footnotes to keep the breakdown uncluttered', () => {
+    render(
       <DiversificationSection
         data={data({
           countries: { score: 70, effectiveCount: 2.1, targetCount: 3, basis: 'MIXED', classifiedValueEur: 10000, coveragePercent: 100, slices: [{ label: 'US', percent: 100, valueEur: 10000, contributorCount: 1, contributors: [{ ticker: 'IWDA', valueEur: 10000, sharePercent: 100 }] }] },
         })}
       />,
     )
-    expect(screen.getByText('analysis.diversification.basisNote')).toBeInTheDocument()
+    expect(screen.queryByText('analysis.diversification.basisNote')).not.toBeInTheDocument()
   })
 
   // Two 0.4% slices are each below the hairline threshold but add up above it, so they become a

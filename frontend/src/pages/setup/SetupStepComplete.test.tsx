@@ -41,7 +41,6 @@ vi.mock('@/features/auth/api', () => ({ authApi: auth }))
 
 const { SetupStepComplete } = await import('./SetupStepComplete')
 const { useAuthStore } = await import('@/stores/auth-store')
-const { useAppStore } = await import('@/stores/app-store')
 const { consumeSetupCredentials, stashSetupCredentials } = await import('@/stores/setup-credentials')
 
 const USER = { username: 'alice', role: 'ADMIN' as const, memberId: 1, displayName: 'Alice' }
@@ -74,8 +73,7 @@ describe('SetupStepComplete', () => {
     sessionStorage.clear()
     useAuthStore.setState({ user: null, isAuthenticated: false })
     // The one-time sidebar prompt is a modal: open, it would hide the page from role queries.
-    useAppStore.setState({ hasSeenSidebarStylePrompt: true })
-  })
+    })
 
   it('probes the SSO session only once /complete has resolved, then signs in', async () => {
     const completion = deferred()

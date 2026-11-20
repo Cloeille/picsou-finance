@@ -37,12 +37,12 @@ export function ConnectedAppsSection() {
                 <span className="font-medium truncate">{a.clientName}</span>
                 <div className="flex flex-wrap gap-1">
                   {a.scopes.map((s) => (
-                    <Badge key={s} variant="secondary" className="font-mono text-[10px]">
+                    <Badge key={s} variant="secondary" className="text-xs">
                       {s}
                     </Badge>
                   ))}
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   {t('connectedApps.issued', { value: formatDate(a.issuedAt) })}
                   <span className="mx-2">·</span>
                   {a.lastUsedAt

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Input } from '@/components/ui/input'
 import { useIsTouchDevice } from '@/hooks/use-touch-device'
 import { formatDate, parseDate, getLocale } from '@/lib/utils'
-import { useAppStore } from '@/stores/app-store'
+import { useAppStore, type DateFormat } from '@/stores/app-store'
 
 interface DateInputProps {
   /** ISO `yyyy-MM-dd` (or empty string when unset). */
@@ -11,9 +11,47 @@ interface DateInputProps {
   /** Emits an ISO `yyyy-MM-dd` string, or `''` when cleared. */
   onChange: (iso: string) => void
   id?: string
+  min?: string
   required?: boolean
   disabled?: boolean
   className?: string
+}
+
+function dateSeparator(locale: string, format: DateFormat): string {
+  if (format === 'iso') return '-'
+  const sample = new Intl.DateTimeFormat(locale, {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(new Date(2000, 0, 2))
+  const match = sample.match(/[^0-9]/)
+  return match ? match[0] : '/'
+}
+
+function formatDateTyping(raw: string, prev: string, sep: string): string {
+  if (raw === '') return ''
+  const escaped = sep.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  if (!new RegExp(`^[0-9${escaped}]*$`).test(raw)) return raw
+
+  const collapsed = raw.replace(new RegExp(`${escaped}{2,}`, 'g'), sep)
+  const isDeleting = collapsed.length < prev.length
+
+  const parts = collapsed.split(sep)
+  if (parts.length > 1 && parts[0].length === 1) return collapsed
+  if (parts.length > 2 && parts[1].length === 1) return collapsed
+
+  const digits = collapsed.replace(/\D/g, '').slice(0, 8)
+  if (digits.length === 0) return ''
+
+  if (digits.length < 2) return digits
+  if (digits.length === 2) return isDeleting ? digits : `${digits}${sep}`
+  if (digits.length < 4) return `${digits.slice(0, 2)}${sep}${digits.slice(2)}`
+  if (digits.length === 4) {
+    return isDeleting
+      ? `${digits.slice(0, 2)}${sep}${digits.slice(2)}`
+      : `${digits.slice(0, 2)}${sep}${digits.slice(2)}${sep}`
+  }
+  return `${digits.slice(0, 2)}${sep}${digits.slice(2, 4)}${sep}${digits.slice(4)}`
 }
 
 /**
@@ -31,7 +69,7 @@ interface DateInputProps {
  * always follows the OS/browser locale), which is exactly why desktop needs the
  * text variant to honor the in-app `dd/mm/yyyy` vs `dd-mm-yyyy` setting.
  */
-export function DateInput({ value, onChange, id, required, disabled, className }: DateInputProps) {
+export function DateInput({ value, onChange, id, min, required, disabled, className }: DateInputProps) {
   const { t } = useTranslation()
   const isTouch = useIsTouchDevice()
   const dateFormat = useAppStore((s) => s.dateFormat)
@@ -47,15 +85,6 @@ export function DateInput({ value, onChange, id, required, disabled, className }
   // external change. See the resync below.
   const [lastEmitted, setLastEmitted] = useState<string | null>(null)
 
-  // Resync the visible text when the external ISO value or the format changes —
-  // derived during render (no effect) to avoid a cascading re-render.
-  //
-  // But *not* when the incoming value is simply the one we just emitted. Every keystroke that
-  // happens to parse propagates upstream and comes straight back as a new `value`, and
-  // rewriting the text from it overwrote what the user was still typing: entering a birth year
-  // meant typing "19", watching the field turn into "…/2019" (parseDate expands a two-digit
-  // year to the 2000s) and then fighting the caret for the remaining digits. While the text is
-  // the user's own, the text is the source of truth.
   if (value !== lastValue || dateFormat !== lastFormat) {
     const isOwnEcho = value === lastEmitted && dateFormat === lastFormat
     setLastValue(value)
@@ -68,6 +97,7 @@ export function DateInput({ value, onChange, id, required, disabled, className }
       <Input
         id={id}
         type="date"
+        min={min}
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value)}
         required={required}
@@ -78,13 +108,15 @@ export function DateInput({ value, onChange, id, required, disabled, className }
   }
 
   const handleChange = (raw: string) => {
-    setText(raw)
-    if (raw.trim() === '') {
+    const sep = dateSeparator(getLocale(), dateFormat)
+    const next = formatDateTyping(raw, text, sep)
+    setText(next)
+    if (next.trim() === '') {
       setLastEmitted('')
       onChange('')
       return
     }
-    const iso = parseDate(raw, getLocale(), dateFormat)
+    const iso = parseDate(next, getLocale(), dateFormat)
     if (iso) {
       setLastEmitted(iso)
       onChange(iso)

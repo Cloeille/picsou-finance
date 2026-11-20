@@ -16,6 +16,11 @@ const idle = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }
 
 vi.mock('@/features/accounts/hooks', () => ({
   useAccount: () => ({ data: account(), isLoading: false }),
+  useAccounts: () => ({ data: [] }),
+  useAccountDeletionImpact: () => ({ data: undefined }),
+  useUpdateAccount: () => idle,
+  useDeleteAccount: () => idle,
+  useUpdateDebtMetadata: () => idle,
   useAccountHistory: () => ({ data: [] }),
   useHoldingsWithLivePrices: () => ({ data: [HOLDING] }),
   useAccountPositions: () => ({ data: positions() }),
@@ -60,6 +65,8 @@ vi.mock('@/components/shared/RealizedPnlSection', () => ({
 }))
 vi.mock('@/components/shared/ImportTransactionsModal', () => ({ ImportTransactionsModal: () => null }))
 vi.mock('@/components/shared/AddTransactionModal', () => ({ AddTransactionModal: () => null }))
+vi.mock('@/components/shared/AccountForm', () => ({ AccountForm: () => null }))
+vi.mock('@/components/shared/ConfirmDialog', () => ({ ConfirmDialog: () => null }))
 vi.mock('@/components/shared/EditHoldingModal', () => ({ EditHoldingModal: () => null }))
 vi.mock('@/components/shared/MonthEndBalanceModal', () => ({ MonthEndBalanceModal: () => null }))
 vi.mock('@/components/dividends/AccountDividendsSection', () => ({

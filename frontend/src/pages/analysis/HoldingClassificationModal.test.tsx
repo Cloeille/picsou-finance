@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom'
+import { chooseSelectOption } from '@/test/radix-select'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -83,9 +84,7 @@ describe('HoldingClassificationModal', () => {
     renderModal(onClose)
 
     await screen.findByText('common.save')
-    fireEvent.change(screen.getByLabelText('analysis.classification.sector'), {
-      target: { value: 'healthcare' },
-    })
+    chooseSelectOption(screen.getByLabelText('analysis.classification.sector'), 'healthcare')
     fireEvent.click(screen.getByText('common.save'))
 
     await waitFor(() => expect(classifyHolding).toHaveBeenCalled())
@@ -99,9 +98,7 @@ describe('HoldingClassificationModal', () => {
     renderModal(vi.fn())
 
     await screen.findByText('common.save')
-    fireEvent.change(screen.getByLabelText('analysis.classification.sector'), {
-      target: { value: 'healthcare' },
-    })
+    chooseSelectOption(screen.getByLabelText('analysis.classification.sector'), 'healthcare')
     fireEvent.click(screen.getByText('common.save'))
 
     // The inferred sector is shown but never pre-selected, so leaving country alone must send

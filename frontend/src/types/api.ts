@@ -395,6 +395,10 @@ export interface Account {
   institution?: { name: string; hasLogo: boolean } | null
   /** Display-only visibility flag; hidden account still syncs normally. */
   hidden: boolean
+  /** Member-defined position in the account list; null keeps natural order. Display-only. */
+  listPosition: number | null
+  /** Collapsed in the account list only; still counted in every total, budget and chart. */
+  listCollapsed: boolean
   /** Set only when the member owns less than all of it — the co-ownership badge signal. */
   sharePercent?: number | null
   /** Whether the viewer administers the account. Holding a share does not grant write access. */

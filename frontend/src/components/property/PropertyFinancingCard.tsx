@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
-import { formatPercent, localeFromLanguage } from '@/lib/utils'
+import { formatPercent, localeFromLanguage, capitalizeFirst } from '@/lib/utils'
 import type { RealEstatePropertyLine } from '@/types/api'
 
 interface PropertyFinancingCardProps {
@@ -68,8 +68,7 @@ export function PropertyFinancingCard({ line }: PropertyFinancingCardProps) {
                   <CurrencyDisplay value={loan.outstandingBalance} className="text-sm tabular-nums" />
                   {loan.endDate && (
                     <span className="block text-xs text-muted-foreground">
-                      {new Intl.DateTimeFormat(locale, { month: 'short', year: 'numeric' })
-                        .format(new Date(loan.endDate))}
+                      {capitalizeFirst(new Intl.DateTimeFormat(locale, { month: 'short', year: 'numeric' }).format(new Date(loan.endDate)), locale)}
                     </span>
                   )}
                 </span>

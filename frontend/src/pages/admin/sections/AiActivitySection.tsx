@@ -24,20 +24,20 @@ const LIMIT = 50
 function StatusBadge({ status }: { status: string }) {
   if (status === 'ERROR') {
     return (
-      <span className="inline-flex items-center rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive">
+      <span className="inline-flex items-center rounded-md bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
         {status}
       </span>
     )
   }
   if (status === 'EMPTY') {
     return (
-      <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+      <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
         {status}
       </span>
     )
   }
   return (
-    <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+    <span className="inline-flex items-center rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
       {status}
     </span>
   )
@@ -137,26 +137,26 @@ function AiCallsDialog() {
                       <tr key={`${call.id}-detail`} className="border-b last:border-0 bg-muted/10">
                         <td colSpan={5} className="px-2 pb-3 pt-1">
                           {call.error && (
-                            <p className="mb-2 text-xs text-destructive">
+                            <p className="mb-2 text-sm text-destructive">
                               <strong>Error:</strong> {call.error}
                             </p>
                           )}
                           {call.prompt && (
                             <div className="mb-2">
-                              <p className="mb-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+                              <p className="mb-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
                                 {t('admin.aiActivity.prompt')}
                               </p>
-                              <pre className="whitespace-pre-wrap break-all text-[11px] max-h-64 overflow-auto rounded bg-muted/40 p-2">
+                              <pre className="whitespace-pre-wrap break-all text-xs max-h-64 overflow-auto rounded bg-muted/40 p-2">
                                 {call.prompt}
                               </pre>
                             </div>
                           )}
                           {call.response && (
                             <div>
-                              <p className="mb-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+                              <p className="mb-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
                                 {t('admin.aiActivity.response')}
                               </p>
-                              <pre className="whitespace-pre-wrap break-all text-[11px] max-h-64 overflow-auto rounded bg-muted/40 p-2">
+                              <pre className="whitespace-pre-wrap break-all text-xs max-h-64 overflow-auto rounded bg-muted/40 p-2">
                                 {call.response}
                               </pre>
                             </div>
@@ -213,10 +213,10 @@ export function AiActivitySection() {
   const [open, setOpen] = useState(false)
 
   return (
-    <Card className="rounded-4xl bg-card shadow-md">
+    <Card className="rounded-xl bg-card">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <ScrollText className="size-5 text-muted-foreground" />
+        <CardTitle className="flex items-center gap-2 text-base font-semibold">
+          <ScrollText className="size-4 shrink-0 text-muted-foreground" />
           {t('admin.aiActivity.title')}
         </CardTitle>
         <CardDescription>{t('admin.aiActivity.description')}</CardDescription>
@@ -226,7 +226,7 @@ export function AiActivitySection() {
           <DialogTrigger asChild>
             <Button variant="outline">{t('admin.aiActivity.view')}</Button>
           </DialogTrigger>
-          <DialogContent className="w-[95vw] sm:max-w-3xl">
+          <DialogContent className="w-[95vw] sm:max-w-3xl" aria-describedby={undefined}>
             <DialogHeader>
               <DialogTitle>{t('admin.aiActivity.title')}</DialogTitle>
             </DialogHeader>

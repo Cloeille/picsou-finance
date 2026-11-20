@@ -155,7 +155,7 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
               ? t("sync.bourso.sessionActive")
               : t("sync.bourso.noSession")}
           </Badge>
-          <p className="mt-2 text-xs text-muted-foreground">
+          <p className="mt-2 text-sm text-muted-foreground">
             {t("sync.bourso.scope")}
           </p>
           {isSyncing && (
@@ -325,7 +325,7 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
             <Smartphone className="size-5 shrink-0 text-muted-foreground" />
             <div className="flex-1 space-y-1">
               <p className="text-sm">{t("sync.bourso.appValidationPrompt")}</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 {t("sync.bourso.appValidationHint")}
               </p>
             </div>

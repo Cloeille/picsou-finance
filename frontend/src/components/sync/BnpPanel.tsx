@@ -4,7 +4,6 @@ import {
   Landmark,
   LogOut,
   RefreshCw,
-  ShieldAlert,
   Smartphone,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -530,7 +529,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
           >
             {connected ? t("sync.bnp.sessionActive") : t("sync.bnp.noSession")}
           </Badge>
-          <p className="mt-2 text-xs text-muted-foreground">{t("sync.bnp.scope")}</p>
+          <p className="mt-2 text-sm text-muted-foreground">{t("sync.bnp.scope")}</p>
           {isSyncing && (
             <p className="mt-2 text-sm text-muted-foreground">
               {syncStatus === "QUEUED" ? t("sync.bnp.queued") : t("sync.bnp.syncing")}
@@ -620,7 +619,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
             <Card size="sm">
               <CardContent className="space-y-2 py-4">
                 <p className="text-sm font-medium">{t("sync.bnp.unsupportedTitle")}</p>
-                <p className="text-xs text-muted-foreground">{t("sync.bnp.unsupportedHint")}</p>
+                <p className="text-sm text-muted-foreground">{t("sync.bnp.unsupportedHint")}</p>
                 {/* Family code only: the contract id is never shown. */}
                 <ul className="flex flex-wrap gap-2">
                   {status.data?.unsupported.map((product, index) => (
@@ -645,17 +644,6 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
             void submit()
           }}
         >
-          <Card size="sm" className="border-amber-500/30">
-            <CardContent className="flex items-start gap-3 py-4">
-              <ShieldAlert className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400" />
-              <ul className="space-y-1 text-xs text-muted-foreground">
-                <li>{t("sync.bnp.notice.neverStored")}</li>
-                <li>{t("sync.bnp.notice.noRetry")}</li>
-                <li>{t("sync.bnp.notice.lockRisk")}</li>
-                <li>{t("sync.bnp.notice.unverified")}</li>
-              </ul>
-            </CardContent>
-          </Card>
           <Card size="sm">
             <CardContent className="space-y-4 py-4">
               <fieldset className="space-y-2">
@@ -707,10 +695,10 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
             <Smartphone className="size-5 shrink-0 text-muted-foreground" />
             <div className="flex-1 space-y-1">
               <p className="text-sm">{t("sync.bnp.approvalPrompt")}</p>
-              <p className="text-xs text-muted-foreground">{t("sync.bnp.approvalHint")}</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">{t("sync.bnp.approvalHint")}</p>
+              <p className="text-sm text-muted-foreground">
                 {t("sync.bnp.countdownLabel")}{" "}
-                <span data-testid="bnp-countdown" className="font-mono">
+                <span data-testid="bnp-countdown" className="tabular-nums font-medium">
                   {formatCountdown(secondsLeft)}
                 </span>
               </p>
@@ -730,7 +718,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
           <Card size="sm">
             <CardContent className="space-y-3 py-4">
               <p className="text-sm">{t("sync.bnp.codePrompt")}</p>
-              <p className="text-xs text-muted-foreground">{t("sync.bnp.codeHint")}</p>
+              <p className="text-sm text-muted-foreground">{t("sync.bnp.codeHint")}</p>
               <div className="space-y-2">
                 <Label htmlFor="bnp-code">{t("sync.bnp.code")}</Label>
                 <Input
@@ -798,9 +786,9 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
                     <span key={index} data-dot className="size-2.5 rounded-full bg-foreground" />
                   ))}
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   {t("sync.bnp.keypad.countdownLabel")}{" "}
-                  <span data-testid="bnp-keypad-countdown" className="font-mono">
+                  <span data-testid="bnp-keypad-countdown" className="tabular-nums font-medium">
                     {formatCountdown(keypadSecondsLeft)}
                   </span>
                 </p>

@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom'
+import { getSelectOptionValues } from '@/test/radix-select'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeMoneyFormatter } from '@/lib/money'
@@ -413,9 +414,9 @@ describe('AddAccountModal Finary wizard', () => {
 
     fireEvent.click(screen.getAllByRole('button', { name: 'sync.finary.mapExisting' })[1])
 
-    const [ledgerPicker, courantPicker] = screen.getAllByRole('combobox') as HTMLSelectElement[]
-    const offered = (select: HTMLSelectElement) =>
-      Array.from(select.options).map((o) => o.value).filter(Boolean)
+    const [ledgerPicker, courantPicker] = screen.getAllByRole('combobox')
+    const offered = (select: HTMLElement) =>
+      getSelectOptionValues(select).filter(Boolean)
     expect(offered(ledgerPicker)).toEqual(['10', '20'])
     expect(offered(courantPicker)).toEqual(['20'])
   })

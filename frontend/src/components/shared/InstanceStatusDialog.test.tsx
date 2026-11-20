@@ -109,7 +109,6 @@ describe('InstanceStatusDialog', () => {
     useAuthStore.setState({ user: ADMIN, isAuthenticated: true })
     useAppStore.setState({
       demoMode: false,
-      hasSeenSidebarStylePrompt: true,
       dismissedInstanceStatusFingerprint: null,
     })
   })
@@ -197,14 +196,6 @@ describe('InstanceStatusDialog', () => {
     instanceStatus({ update: null, issues: [ISSUE] })
     renderDialog()
     await waitFor(() => expect(api.getInstanceStatus).toHaveBeenCalled())
-    await new Promise((r) => setTimeout(r, 20))
-    expect(screen.queryByText('admin.instanceStatus.title')).not.toBeInTheDocument()
-  })
-
-  it('waits for the sidebar prompt so two modals never stack', async () => {
-    useAppStore.setState({ hasSeenSidebarStylePrompt: false })
-    instanceStatus({ update: null, issues: [ISSUE] })
-    renderDialog()
     await new Promise((r) => setTimeout(r, 20))
     expect(screen.queryByText('admin.instanceStatus.title')).not.toBeInTheDocument()
   })

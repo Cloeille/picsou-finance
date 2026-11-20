@@ -52,7 +52,7 @@ describe('TelemetryConsentDialog', () => {
     vi.clearAllMocks()
     api.updateTelemetry.mockResolvedValue(undefined)
     useAuthStore.setState({ user: ADMIN, isAuthenticated: true })
-    useAppStore.setState({ demoMode: false, hasSeenSidebarStylePrompt: true, telemetryConsentDismissed: false })
+    useAppStore.setState({ demoMode: false, telemetryConsentDismissed: false })
   })
 
   it('shows for an admin when telemetry is available and consent is UNSET', async () => {
@@ -80,14 +80,6 @@ describe('TelemetryConsentDialog', () => {
     renderDialog()
     await new Promise((r) => setTimeout(r, 20))
     expect(api.getConfig).not.toHaveBeenCalled()
-    expect(screen.queryByText('telemetry.consent.title')).not.toBeInTheDocument()
-  })
-
-  it('waits for the sidebar prompt so two modals never stack', async () => {
-    useAppStore.setState({ hasSeenSidebarStylePrompt: false })
-    settings(true, 'UNSET')
-    renderDialog()
-    await new Promise((r) => setTimeout(r, 20))
     expect(screen.queryByText('telemetry.consent.title')).not.toBeInTheDocument()
   })
 

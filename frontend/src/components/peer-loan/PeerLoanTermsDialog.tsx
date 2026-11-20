@@ -1,9 +1,9 @@
 import { useState } from 'react'
+import { NativeSelect } from '@/components/shared/NativeSelect'
 import { useTranslation } from 'react-i18next'
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -14,7 +14,6 @@ import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { NumericInput } from '@/components/shared/NumericInput'
 import { DateInput } from '@/components/shared/DateInput'
-import { SELECT_CONTROL_CLASS } from '@/lib/constants'
 import { parseAmount } from '@/lib/utils'
 import { extractErrorMessage } from '@/lib/errors'
 import { useMoney } from '@/hooks/use-money'
@@ -224,16 +223,13 @@ export function PeerLoanTermsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{initial?.configured ? t('peerLoan.editTerms') : t('peerLoan.configure')}</DialogTitle>
-          <DialogDescription>{t('peerLoan.termsDescription')}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">{t('peerLoan.borrowerHint')}</p>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid items-end grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="peer-principal">{t('peerLoan.fields.principal')}</Label>
               <NumericInput id="peer-principal" value={principal} onChange={(e) => setPrincipal(e.target.value)} />
@@ -250,15 +246,15 @@ export function PeerLoanTermsDialog({
                 {/* SELECT_CONTROL_CLASS carries w-full, so the wrapper — not the
                     select — is what holds the 7rem width. */}
                 <div className="w-28 shrink-0">
-                  <select
+                  <NativeSelect
                     aria-label={t('peerLoan.fields.ratePeriod')}
-                    className={SELECT_CONTROL_CLASS}
+                    
                     value={ratePeriod}
                     onChange={(e) => handlePeriodChange(e.target.value as PeerLoanRatePeriod)}
                   >
                     <option value="ANNUAL">{t('peerLoan.ratePeriod.ANNUAL')}</option>
                     <option value="MONTHLY">{t('peerLoan.ratePeriod.MONTHLY')}</option>
-                  </select>
+                  </NativeSelect>
                 </div>
               </div>
             </div>
@@ -274,7 +270,7 @@ export function PeerLoanTermsDialog({
 
           <div className="rounded-lg border p-3 space-y-3">
             <p className="text-sm font-medium">{t('peerLoan.forecast.planTitle')}</p>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="grid items-end grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="peer-months">{t('peerLoan.fields.plannedMonths')}</Label>
                 <NumericInput id="peer-months" value={months} onChange={(e) => {
@@ -308,9 +304,9 @@ export function PeerLoanTermsDialog({
 
           <div className="space-y-2">
             <Label htmlFor="peer-linked">{t('peerLoan.fields.linkedAccount')}</Label>
-            <select
+            <NativeSelect
               id="peer-linked"
-              className={SELECT_CONTROL_CLASS}
+              
               value={linkedAccountId}
               onChange={(e) => setLinkedAccountId(e.target.value)}
             >
@@ -318,8 +314,7 @@ export function PeerLoanTermsDialog({
               {cashAccounts.map(account => (
                 <option key={account.id} value={account.id}>{account.name}</option>
               ))}
-            </select>
-            <p className="text-xs text-muted-foreground">{t('peerLoan.linkedAccountHint')}</p>
+            </NativeSelect>
           </div>
 
           {/* A first configuration on a manual account can double-count the outflow:
@@ -336,9 +331,9 @@ export function PeerLoanTermsDialog({
                 {t('peerLoan.fields.outflowAlreadyBooked')}
               </label>
               {selectedCashAccount?.isManual === false ? (
-                <p className="text-xs text-muted-foreground">{t('peerLoan.termsHint.syncedAccount')}</p>
+                <p className="text-sm text-muted-foreground">{t('peerLoan.termsHint.syncedAccount')}</p>
               ) : alreadyBooked ? (
-                <p className="text-xs text-muted-foreground">{t('peerLoan.termsHint.noCashLeg')}</p>
+                <p className="text-sm text-muted-foreground">{t('peerLoan.termsHint.noCashLeg')}</p>
               ) : null}
             </div>
           )}

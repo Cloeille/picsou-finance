@@ -79,9 +79,24 @@ describe.each([
     render(<ProfileSection />)
 
     expect(screen.getByLabelText('settings.profile.taxHouseholdParts')).toHaveValue(parts)
+    expect(screen.getByLabelText('settings.profile.marginalTaxRate')).toHaveValue('30')
     expect(screen.getByLabelText('settings.profile.monthlyNetBeforeTax')).toHaveValue(net)
     expect(screen.getByLabelText('settings.profile.withholdingTaxRate')).toHaveValue(withholding)
     expect(screen.getByLabelText('settings.profile.annualGrossIncome')).toHaveValue('48000')
+    expect(screen.getByLabelText('settings.profile.savingsCapacity')).toHaveValue('500')
+  })
+
+  it('allows entering any country-neutral marginal tax rate manually', () => {
+    document.documentElement.lang = lang
+    state.profile = empty
+    render(<ProfileSection />)
+
+    const rateInput = screen.getByLabelText('settings.profile.marginalTaxRate')
+    fireEvent.change(rateInput, { target: { value: lang === 'en' ? '24.5' : '24,5' } })
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }))
+
+    expect(state.mutate).toHaveBeenCalledTimes(1)
+    expect(state.mutate.mock.calls[0][0]).toEqual(expect.objectContaining({ marginalTaxRate: 24.5 }))
   })
 
   it('saves the numbers it was given, unchanged', () => {

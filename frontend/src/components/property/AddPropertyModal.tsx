@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { NativeSelect } from '@/components/shared/NativeSelect'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { ArrowLeft } from 'lucide-react'
@@ -213,13 +214,13 @@ export function AddPropertyModal({ open, onOpenChange }: AddPropertyModalProps) 
                 })}
               </div>
               {kind !== '' && !canEstimate && (
-                <p className="text-xs text-muted-foreground">{t('property.add.notEstimable')}</p>
+                <p className="text-sm text-muted-foreground">{t('property.add.notEstimable')}</p>
               )}
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="prop-category">{t('property.form.category')}</Label>
-              <select
+              <NativeSelect
                 id="prop-category"
                 className={selectControlClassName}
                 value={category}
@@ -229,7 +230,7 @@ export function AddPropertyModal({ open, onOpenChange }: AddPropertyModalProps) 
                 {CATEGORIES.map(c => (
                   <option key={c} value={c}>{t(`property.category.${c}`)}</option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
 
             <div className="space-y-2">
@@ -259,10 +260,10 @@ export function AddPropertyModal({ open, onOpenChange }: AddPropertyModalProps) 
                   if (s.city) setCity(s.city)
                 }}
               />
-              <p className="text-xs text-muted-foreground">{t('property.add.addressHint')}</p>
+              <p className="text-sm text-muted-foreground">{t('property.add.addressHint')}</p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid items-end grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label htmlFor="prop-postal">{t('property.form.postalCode')}</Label>
                 <Input id="prop-postal" value={postalCode} onChange={e => setPostalCode(e.target.value)} />
@@ -318,7 +319,7 @@ export function AddPropertyModal({ open, onOpenChange }: AddPropertyModalProps) 
 
         {step === 3 && (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid items-end grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label htmlFor="prop-price">{t('property.form.purchasePrice')}</Label>
                 <NumericInput id="prop-price" value={purchasePrice}
@@ -344,7 +345,7 @@ export function AddPropertyModal({ open, onOpenChange }: AddPropertyModalProps) 
                   onChange={e => setWorksCost(e.target.value)} />
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">{t('property.add.feesHint')}</p>
+            <p className="text-sm text-muted-foreground">{t('property.add.feesHint')}</p>
           </div>
         )}
 
@@ -361,7 +362,7 @@ export function AddPropertyModal({ open, onOpenChange }: AddPropertyModalProps) 
             onClick={() => (step === 1 ? close(false) : setStep(step - 1))}
             disabled={pending}
           >
-            {step > 1 && <ArrowLeft className="mr-2 size-4" />}
+            {step > 1 && <ArrowLeft className="size-4" />}
             {step === 1 ? t('common.cancel') : t('common.back')}
           </Button>
 

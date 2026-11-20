@@ -47,7 +47,7 @@ import {
 export function BackButton({ onClick }: { onClick: () => void }) {
   const { t } = useTranslation()
   return (
-    <Button variant="ghost" size="sm" className="mb-2" onClick={onClick}>
+    <Button variant="ghost" size="sm" className="-ml-2 justify-self-start text-muted-foreground hover:text-foreground" onClick={onClick}>
       <ArrowLeft className="size-4" />
       {t('common.back')}
     </Button>
@@ -370,7 +370,7 @@ export function FinaryWizard({ onDone, onBack }: { onDone: () => void; onBack: (
             /* Connected: Sync + TOTP */
             <div className="space-y-3">
               {connectionStatus?.maskedEmail && (
-                <p className="text-xs text-muted-foreground text-center">
+                <p className="text-sm text-muted-foreground text-center">
                   {connectionStatus.maskedEmail}
                 </p>
               )}

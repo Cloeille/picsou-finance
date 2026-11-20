@@ -103,7 +103,7 @@ export function RecoveryCodesDialog({
                 {t('settings.mfaCancel')}
               </Button>
               <Button type="submit" disabled={regenerate.isPending || code.length !== 6}>
-                {regenerate.isPending && <Loader2 size={14} className="mr-1.5 animate-spin" />}
+                {regenerate.isPending && <Loader2 size={14} className=".5 animate-spin" />}
                 {t('settings.mfaRegenerate')}
               </Button>
             </DialogFooter>

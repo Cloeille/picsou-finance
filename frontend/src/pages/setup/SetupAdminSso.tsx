@@ -10,7 +10,7 @@ export function SetupAdminSso({ sso }: { sso: SetupSsoInfo }) {
 
   if (!sso.enabled) {
     return (
-      <p role="alert" className="mx-auto max-w-md rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+      <p role="alert" className="mx-auto max-w-md rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">
         {t('setup.admin.ssoMisconfigured')}
       </p>
     )
@@ -20,11 +20,11 @@ export function SetupAdminSso({ sso }: { sso: SetupSsoInfo }) {
       <p className="text-center text-sm text-muted-foreground">
         {t('setup.admin.ssoHint', { provider: sso.providerName })}
       </p>
-      {/* rounded-full like every other wizard CTA */}
+      {/* rounded-lg like every other wizard CTA */}
       <Button
         type="button"
         onClick={() => submitSsoStart({ intent: 'setup' })}
-        className="h-auto min-h-10 w-full whitespace-normal rounded-full py-2"
+        className="h-auto min-h-10 w-full whitespace-normal rounded-lg py-2"
       >
         <KeyRound aria-hidden="true" />
         {t('setup.admin.ssoContinue', { provider: sso.providerName })}

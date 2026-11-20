@@ -98,7 +98,7 @@ export function PeerLoanRepaymentDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid items-end grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="peer-paid-on">{t('peerLoan.fields.paidOn')}</Label>
               <DateInput id="peer-paid-on" value={paidOn} onChange={setPaidOn} />
@@ -110,11 +110,11 @@ export function PeerLoanRepaymentDialog({
           </div>
 
           {accruedInterest > 0 && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               {t('peerLoan.forecast.accruedHint')} <CurrencyDisplay value={accruedInterest} />
             </p>
           )}
-          <p className="text-xs text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             {t('peerLoan.forecast.remainingHint')} <CurrencyDisplay value={remainingDue} />
           </p>
 
@@ -137,7 +137,7 @@ export function PeerLoanRepaymentDialog({
               {t('peerLoan.withCashLeg')}
             </label>
             {!withCashLeg && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 {t('peerLoan.repaymentHint.noCashLeg')}
               </p>
             )}
