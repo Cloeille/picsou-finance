@@ -28,24 +28,13 @@ import {
 } from '@/features/budget/hooks'
 import { cn, formatNumber, getLocale, parseAmount, capitalizeFirst } from '@/lib/utils'
 import { formatBankLabel } from '@/lib/bank-label'
-import type { RecurringCadence, RecurringSeries } from '@/types/api'
+import type { RecurringCadence } from '@/types/api'
 import { CADENCE_LABEL_KEY } from './budget-meta'
 import { SubscriptionCard } from './SubscriptionCard'
 import { ActivityFeed } from './ActivityFeed'
+import { recurringSummary } from './recurring-summary'
 
 const CADENCES: RecurringCadence[] = ['WEEKLY', 'BIWEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY']
-
-const MONTHLY_FACTOR: Record<RecurringCadence, number> = {
-  WEEKLY: 52 / 12,
-  BIWEEKLY: 26 / 12,
-  MONTHLY: 1,
-  QUARTERLY: 1 / 3,
-  YEARLY: 1 / 12,
-}
-
-function toMonthlyAmount(series: RecurringSeries): number {
-  return series.expectedAmount * (MONTHLY_FACTOR[series.cadence] ?? 1)
-}
 
 function RecurringForm({ open, onOpenChange }: {
   open: boolean
@@ -169,29 +158,10 @@ export function RecurringTab() {
   } = useGroupedCalendar(90)
   const [formOpen, setFormOpen] = useState(false)
 
-  const summary = useMemo(() => {
-    const confirmed = (series ?? []).filter((s) => s.status === 'CONFIRMED')
-    const expenses = confirmed.filter((s) => s.expectedAmount < 0)
-    const income = confirmed.filter((s) => s.expectedAmount > 0)
-    const monthlyExpenses = expenses.reduce((sum, s) => sum + Math.abs(toMonthlyAmount(s)), 0)
-    const monthlyIncome = income.reduce((sum, s) => sum + toMonthlyAmount(s), 0)
-
-    const cutoff = new Date()
-    cutoff.setDate(cutoff.getDate() + 30)
-    const cutoffIso = cutoff.toISOString().slice(0, 10)
-    const next30 = calendarItems.filter((item) => item.dueDate <= cutoffIso)
-    const next30Net = next30.reduce((sum, item) => sum + item.expectedAmount, 0)
-
-    return {
-      hasSummary: confirmed.length > 0 || next30.length > 0,
-      monthlyExpenses,
-      expenseCount: expenses.length,
-      monthlyIncome,
-      incomeCount: income.length,
-      next30Net,
-      next30Count: next30.length,
-    }
-  }, [series, calendarItems])
+  const summary = useMemo(
+    () => recurringSummary(series ?? [], calendarItems, new Date()),
+    [series, calendarItems],
+  )
 
   return (
     <div className="space-y-4">
