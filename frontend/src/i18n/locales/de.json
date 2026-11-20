@@ -3396,9 +3396,9 @@
       "detect": "Detect",
       "add": "Add",
       "subtitle": "Subscriptions and recurring payments.",
-      "series": "Recurring series",
+      "series": "Abos und wiederkehrende Zahlungen",
       "upcoming": "Upcoming payments",
-      "noSeries": "No recurring series detected yet.",
+      "noSeries": "Noch keine wiederkehrenden Zahlungen erfasst.",
       "noUpcoming": "No upcoming payments",
       "noUpcomingHint": "Upcoming charges will appear here once detected.",
       "error": "Couldn't load recurring items.",
@@ -3422,15 +3422,33 @@
       "runtime": {
         "stale": "Inactive",
         "late": "Late",
-        "dueSoon": "Due soon"
+        "dueSoon": "Bald fällig"
       },
       "activity": {
-        "title": "What changed",
+        "title": "Letzte Änderungen",
         "autoConfirmed": "Automatisch bestätigt",
         "priceChange": "Price change",
-        "autoConfirmedDesc": "Detected and confirmed automatically",
-        "priceChangeDesc": "Price went from {{from}} to {{to}}",
-        "acknowledge": "Got it"
+        "autoConfirmedDesc": "Automatisch zu den wiederkehrenden Zahlungen hinzugefügt.",
+        "priceChangeDesc": "Betrag geändert von {{from}} auf {{to}}.",
+        "acknowledge": "Verstanden"
+      },
+      "nextDueShort": "Nächste am {{date}}",
+      "kpi": {
+        "expenses": "Wiederkehrende Ausgaben",
+        "income": "Wiederkehrende Einnahmen",
+        "upcoming30d": "Anstehend (30 Tage)",
+        "perMonth": "pro Monat",
+        "activeCount_one": "{{count}} aktiv",
+        "activeCount_other": "{{count}} aktiv",
+        "activeCount": "{{count}} aktiv",
+        "dueCount_one": "{{count}} fällig",
+        "dueCount_other": "{{count}} fällig",
+        "dueCount": "{{count}} fällig"
+      },
+      "labels": {
+        "transferFrom": "Überweisung von {{name}}",
+        "transferIncoming": "Eingehende Überweisung von {{name}}",
+        "transferOutgoing": "Ausgehende Überweisung an {{name}}"
       }
     },
     "categorize": {

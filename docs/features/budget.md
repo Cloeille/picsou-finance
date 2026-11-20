@@ -1,6 +1,6 @@
 # Feature: Budget & Cashflow
 
-> Last updated: 2026-06-27
+> Last updated: 2026-11-20
 
 ## Context
 
@@ -49,7 +49,7 @@ A single `BudgetLayout` (segmented sub-nav on desktop, bottom bar on mobile — 
 | `/budget` (index) | `BudgetOverviewPage` | Hero "left to spend", mini-flow, Review banner (only if items), upcoming subscriptions, top categories |
 | `/budget/spending` | `SpendingPage` | Cashflow **flow diagram**: Sankey in a card ≥ 640px, Flow Bars below |
 | `/budget/spending/:categoryId` | `CategoryDetailPage` | Per-category drill: transactions with `MerchantAvatar` |
-| `/budget/subscriptions` | `SubscriptionsPage` | Recurring series **v2**: auto-confirm + runtime/price badges (`SubscriptionCard`), "what changed" feed + undo (`ActivityFeed`), upcoming agenda |
+| `/budget/subscriptions` | `SubscriptionsPage` | KPI strip (monthly recurring expenses / income, net of the next 30 days), recurring series **v2** with Detect / Add in the list header: auto-confirm note + runtime/price badges (`SubscriptionCard`), upcoming agenda, then the "recent changes" feed + undo (`ActivityFeed`) |
 | `/budget/envelopes` | `EnvelopesPage` | Envelopes + allocation; a parent envelope rolls up its whole subtree (M4) |
 | `/budget/review` | `ReviewPage` | Uncategorized inbox — **contextual, not a permanent destination** |
 | `/budget/settings` | `BudgetSettingsPage` | Category management, pay cycle, logo opt-in |
@@ -348,6 +348,15 @@ silently**, with a safety net so silent ≠ unexplained.
   (Apple principle — no permanent review chore). Both are mobile-responsive via `flex-wrap`. New
   TanStack hooks `useRecurringActivity` / `useUndoRecurring` invalidate `['budget','activity']`
   (also swept by `useDetectRecurring`).
+- **Recurring page layout (1.2.2 redesign)**: a three-card KPI strip on top, computed client-side
+  by `pages/budget/recurring-summary.ts` — monthly totals normalise each cadence to a month and
+  count only `CONFIRMED` series that are not `STALE` (the same set the upcoming calendar projects);
+  the third card nets the calendar occurrences up to the 30th local day. Rows show a neutral
+  directional tile instead of the category-coloured `MerchantAvatar`, and a status badge only when it
+  is not `CONFIRMED`. Labels go through `lib/bank-label.ts` (`formatBankLabel`), which hides SEPA
+  creditor / mandate / reference noise and rewords French transfer labels for display only; the raw
+  label stays in the `title` attribute, and any synthesized wording comes from
+  `budget.recurring.labels.*`, so it follows the interface language.
 
 ### Opt-in brand logos (M5)
 
@@ -419,7 +428,8 @@ overlap guard added in M4): `model/Budget.java` + `BudgetService` + `BudgetContr
 **Frontend:** `pages/budget/BudgetLayout.tsx` (mounts `BudgetPeriodProvider`) +
 `pages/budget/BudgetPeriodContext.tsx` (`BudgetPeriodProvider` / `useBudgetPeriod()`,
 `sessionStorage`-backed anchor, key `picsou_budget_anchor`) + `budget-nav.ts` + the nested pages above;
-`pages/budget/{SubscriptionCard,ActivityFeed}.tsx` + `budget-meta.ts` (runtime/activity lookups);
+`pages/budget/{RecurringTab,SubscriptionCard,ActivityFeed}.tsx` + `recurring-summary.ts` (KPI strip) +
+`budget-meta.ts` (runtime/activity lookups); `lib/bank-label.ts` (display-only label cleanup);
 `features/budget/{api,hooks}.ts` (TanStack Query, cascade invalidations rooted at `['budget']`);
 `components/shared/{MerchantAvatar,CashflowSankey,FlowBars,flow-utils}.ts(x)`;
 `types/api.ts`; demo mocks in `demo/data/budget.ts` + `demo/index.ts`.

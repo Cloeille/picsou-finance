@@ -1095,9 +1095,9 @@
       "detect": "Detect",
       "add": "Add",
       "subtitle": "Subscriptions and recurring payments.",
-      "series": "Recurring series",
+      "series": "Subscriptions and recurring",
       "upcoming": "Upcoming payments",
-      "noSeries": "No recurring series detected yet.",
+      "noSeries": "No recurring payments recorded yet.",
       "noUpcoming": "No upcoming payments",
       "noUpcomingHint": "Upcoming charges will appear here once detected.",
       "error": "Couldn't load recurring items.",
@@ -1124,12 +1124,30 @@
         "dueSoon": "Due soon"
       },
       "activity": {
-        "title": "What changed",
-        "autoConfirmed": "Auto-confirmed",
+        "title": "Recent changes",
+        "autoConfirmed": "Detected automatically",
         "priceChange": "Price change",
-        "autoConfirmedDesc": "Detected and confirmed automatically",
-        "priceChangeDesc": "Price went from {{from}} to {{to}}",
+        "autoConfirmedDesc": "Added automatically to your recurring payments.",
+        "priceChangeDesc": "Amount changed from {{from}} to {{to}}.",
         "acknowledge": "Got it"
+      },
+      "nextDueShort": "Next on {{date}}",
+      "kpi": {
+        "expenses": "Recurring expenses",
+        "income": "Recurring income",
+        "upcoming30d": "Upcoming (30 days)",
+        "perMonth": "per month",
+        "activeCount_one": "{{count}} active",
+        "activeCount_other": "{{count}} active",
+        "activeCount": "{{count}} active",
+        "dueCount_one": "{{count}} due",
+        "dueCount_other": "{{count}} due",
+        "dueCount": "{{count}} due"
+      },
+      "labels": {
+        "transferFrom": "Transfer from {{name}}",
+        "transferIncoming": "Incoming transfer from {{name}}",
+        "transferOutgoing": "Outgoing transfer to {{name}}"
       }
     },
     "categorize": {
