@@ -3679,6 +3679,7 @@
     "howToUpdate": "Aktualisieren",
     "updateInstructions": "Um deine Docker-Instanz zu aktualisieren, führe aus:",
     "copied": "Kopiert",
-    "copy": "Kopieren"
+    "copy": "Kopieren",
+    "cardTitle": "Entdecke Picsou {{version}}"
   }
 }

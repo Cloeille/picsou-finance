@@ -3679,6 +3679,7 @@
     "howToUpdate": "How to update",
     "updateInstructions": "To update your Docker instance, run:",
     "copied": "Copied",
-    "copy": "Copy"
+    "copy": "Copy",
+    "cardTitle": "Discover Picsou {{version}}"
   }
 }
