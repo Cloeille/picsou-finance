@@ -151,7 +151,7 @@ function YearGridView({ months, selectedYm, onSelect, onAddPreviousMonth, isAddi
           <CardHeader className="pb-2">
             <CardTitle className="text-xs font-bold tracking-wider uppercase text-muted-foreground">{year}</CardTitle>
           </CardHeader>
-          <CardContent className="pb-4 pt-3 px-4">
+          <CardContent className="px-4">
             <div className="grid grid-cols-[repeat(auto-fill,minmax(6rem,1fr))] gap-3">
               {year === earliestYear && (
                 <button
@@ -263,7 +263,7 @@ function TimelineView({ months, selectedYm, onSelect }: {
 
   return (
     <Card>
-      <CardContent className="p-4 space-y-1">
+      <CardContent className="space-y-1">
         {sorted.map(entry => {
           const isSelected = selectedYm === entry.yearMonth
           const obj = entry.objective ?? 0
@@ -405,7 +405,7 @@ function MonthDetailPanel({ goalId, entry, onClose, className }: {
         </div>
       </CardHeader>
       <Separator />
-      <CardContent className="pt-4">
+      <CardContent>
         <div className="grid grid-cols-1 gap-6">
           {/* Objective override */}
           <div className="space-y-3">
@@ -554,7 +554,7 @@ export function GoalCalendarPage() {
         <PageHeader title={t('goals.calendar')} />
         <Skeleton className="h-9 w-72" />
         <Card>
-          <CardContent className="pb-4 pt-3 px-4">
+          <CardContent className="px-4">
             <div className="grid grid-cols-[repeat(auto-fill,minmax(6rem,1fr))] gap-3">
               {Array.from({ length: 12 }).map((_, i) => (
                 <div key={i} className="flex flex-col items-center gap-[9px] rounded-xl border border-border px-2 py-3">

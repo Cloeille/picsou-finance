@@ -132,14 +132,21 @@ describe('UI & design system guardrails (see CONTRIBUTING.md & DESIGN.md)', () =
     ).toEqual([])
   })
 
-  it('forbids double top padding (pt-6) on CardContent (Card already provides symmetric py-4)', () => {
+  it('forbids double vertical padding on CardContent (Card already provides symmetric py-4 / py-3)', () => {
     const violations: string[] = []
     for (const [file, content] of tsxEntries) {
-      if (/<CardContent\b[^>]*\bpt-6\b/.test(content)) violations.push(file)
+      // LoginPage explicitly sets py-0 on its outer Card.
+      if (file.endsWith('pages/login/LoginPage.tsx')) continue
+      for (const match of content.matchAll(/<CardContent\b[^>]*className="([^"]*)"/g)) {
+        const cls = match[1]
+        if (/\b(?:py|p)-(?:[1-9]\d*(?:\.\d)?)\b/.test(cls) || /\bpt-6\b/.test(cls)) {
+          violations.push(`${file}: ${cls}`)
+        }
+      }
     }
     expect(
       violations,
-      'Card already sets py-4; adding pt-6 on CardContent creates an uneven top gap.',
+      'Card already sets py-4 (or py-3 with size="sm"); adding py-* or p-* on CardContent doubles vertical padding.',
     ).toEqual([])
   })
 

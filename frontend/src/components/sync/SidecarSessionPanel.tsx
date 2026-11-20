@@ -342,7 +342,7 @@ export function SidecarSessionPanel({
   return (
     <div className="space-y-6">
       <Card size="sm">
-        <CardContent className="py-4">
+        <CardContent>
           <Badge
             className={
               connected
@@ -378,7 +378,7 @@ export function SidecarSessionPanel({
 
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3 py-4">
+          <CardContent className="flex items-center gap-3">
             <Warning className="size-5 shrink-0 text-destructive" />
             <p className="flex-1 text-sm text-destructive">{visibleError}</p>
             {(error || statusError) && (
@@ -400,7 +400,7 @@ export function SidecarSessionPanel({
 
       {connected && recoveryAction && (
         <Card size="sm" className="border-border/60">
-          <CardContent className="flex flex-col gap-2 py-4 sm:flex-row sm:items-center">
+          <CardContent className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <p className="flex-1 text-sm text-muted-foreground">{recoveryAction.description}</p>
             <Button variant="outline" size="sm" disabled={recoveryAction.busy || requestingSync} onClick={recoveryAction.onRun}>
               {recoveryAction.busy ? recoveryAction.busyLabel : recoveryAction.label}
@@ -447,7 +447,7 @@ export function SidecarSessionPanel({
 
       {!connected && authState === "IDLE" && canReconnect && (
         <Card size="sm">
-          <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center">
+          <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <p className="flex-1 text-sm text-muted-foreground">{t(key("reconnectHint"))}</p>
             <Button
               disabled={reconnect.isPending}
@@ -481,7 +481,7 @@ export function SidecarSessionPanel({
           }}
         >
           <Card size="sm">
-            <CardContent className="space-y-4 py-4">
+            <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor={`${fieldIdPrefix}-login`}>
                   <LoginIcon className="mr-1 inline-block size-4" />
@@ -552,7 +552,7 @@ export function SidecarSessionPanel({
 
       {!connected && authState === "AWAITING_APP" && (
         <Card size="sm">
-          <CardContent className="flex items-center gap-3 py-4">
+          <CardContent className="flex items-center gap-3">
             <DeviceMobile className="size-5 shrink-0 text-muted-foreground" />
             <div className="flex-1 space-y-1">
               <p className="text-sm">{t(key("appValidationPrompt"))}</p>
@@ -574,7 +574,7 @@ export function SidecarSessionPanel({
           }}
         >
           <Card size="sm">
-            <CardContent className="space-y-4 py-4">
+            <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 {t(key("otpPrompt"))}
               </p>

@@ -72,7 +72,7 @@ export function DegiroPanel({ onConnected }: DegiroPanelProps = {}) {
   return (
     <div className="space-y-6">
       <Card size="sm">
-        <CardContent className="py-4">
+        <CardContent>
           <div className="flex flex-wrap items-center gap-3">
             {connected ? (
               <Badge className="bg-green-500/10 text-green-600 dark:text-green-400">
@@ -96,7 +96,7 @@ export function DegiroPanel({ onConnected }: DegiroPanelProps = {}) {
 
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3 py-4">
+          <CardContent className="flex items-center gap-3">
             <Warning className="size-5 shrink-0 text-destructive" />
             <p className="flex-1 text-sm text-destructive">{visibleError}</p>
             <Button
@@ -188,7 +188,7 @@ export function DegiroPanel({ onConnected }: DegiroPanelProps = {}) {
           }}
         >
           <Card size="sm">
-            <CardContent className="space-y-4 py-4">
+            <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="degiro-panel-username">
                   <User className="mr-1 inline-block size-4" />
@@ -253,7 +253,7 @@ export function DegiroPanel({ onConnected }: DegiroPanelProps = {}) {
           }}
         >
           <Card size="sm">
-            <CardContent className="space-y-4 py-4">
+            <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">{t("sync.degiro.totpPrompt")}</p>
               <div className="space-y-2">
                 <Label htmlFor="degiro-panel-totp">

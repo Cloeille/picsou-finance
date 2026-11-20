@@ -42,7 +42,7 @@ export function CryptoExchangeTab() {
       <div className="space-y-4">
         {Array.from({ length: 2 }).map((_, i) => (
           <Card key={i} size="sm">
-            <CardContent className="flex items-center justify-between p-4">
+            <CardContent className="flex items-center justify-between">
               <div className="space-y-2">
                 <Skeleton className="h-4 w-28" />
                 <Skeleton className="h-3 w-40" />
@@ -74,7 +74,7 @@ export function CryptoExchangeTab() {
         </Button>
       ) : (
         <Card size="sm">
-          <CardContent className="space-y-4 p-4">
+          <CardContent className="space-y-4">
             <CryptoExchangeForm
               variant="page"
               onSuccess={() => setShowAddForm(false)}
@@ -98,7 +98,7 @@ export function CryptoExchangeTab() {
         <div className="space-y-3">
           {exchanges.map(exchange => (
             <Card key={exchange.id} size="sm">
-              <CardContent className="flex items-center justify-between p-4">
+              <CardContent className="flex items-center justify-between">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{exchange.exchangeType}</span>

@@ -918,7 +918,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
           <div className="-mx-1 min-h-0 flex-1 space-y-3 overflow-y-auto px-1">
             {Array.from({ length: 3 }).map((_, i) => (
               <Card key={i} size="sm">
-                <CardContent className="flex items-center justify-between py-3">
+                <CardContent className="flex items-center justify-between">
                   <div className="space-y-2">
                     <Skeleton className="h-4 w-32" />
                     <Skeleton className="h-3 w-24" />
@@ -951,7 +951,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                 : undefined
               return (
                 <Card key={connection.id} size="sm">
-                  <CardContent className="flex flex-col gap-0 py-3">
+                  <CardContent className="flex flex-col gap-0">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <Icon className="size-5 text-muted-foreground" />

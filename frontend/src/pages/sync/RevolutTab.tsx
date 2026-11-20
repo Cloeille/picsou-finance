@@ -78,7 +78,7 @@ export function RevolutTab() {
     <div className="space-y-6">
       {/* Session status card */}
       <Card size="sm">
-        <CardContent className="py-4">
+        <CardContent>
           <div className="flex flex-wrap items-center gap-3">
             {remembered ? (
               <Badge className="bg-green-500/10 text-green-600 dark:text-green-400">
@@ -99,7 +99,7 @@ export function RevolutTab() {
       {/* Error state */}
       {errorMsg && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="py-4">
+          <CardContent>
             <div className="flex items-center gap-3">
               <Warning className="size-5 text-destructive shrink-0" />
               <p className="text-sm text-destructive flex-1">{errorMsg}</p>
@@ -116,7 +116,7 @@ export function RevolutTab() {
           harvesting accounts) instead of a single static spinner. */}
       {isSyncing && (
         <Card size="sm">
-          <CardContent className="flex items-center gap-3 py-4">
+          <CardContent className="flex items-center gap-3">
             <CircleNotch className="size-5 animate-spin text-muted-foreground shrink-0" />
             <p className="text-sm text-muted-foreground">{revolutPhaseLabel(t, progress.data)}</p>
           </CardContent>
@@ -126,7 +126,7 @@ export function RevolutTab() {
       {/* Discovery done: auto-persisting the refresh + any new pocket, no selection step here. */}
       {confirmSync.isPending && (
         <Card size="sm">
-          <CardContent className="flex items-center gap-3 py-4">
+          <CardContent className="flex items-center gap-3">
             <CircleNotch className="size-5 animate-spin text-muted-foreground shrink-0" />
             <p className="text-sm text-muted-foreground">{t('sync.revolut.selection.importing')}</p>
           </CardContent>
@@ -135,7 +135,7 @@ export function RevolutTab() {
 
       {justSynced && !busy && !errorMsg && (
         <Card size="sm" className="border-green-500/30">
-          <CardContent className="flex items-center gap-3 py-4">
+          <CardContent className="flex items-center gap-3">
             <CheckCircle className="size-5 text-green-500 shrink-0" />
             <p className="text-sm text-muted-foreground">{t('sync.revolut.syncSuccess')}</p>
           </CardContent>

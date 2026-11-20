@@ -76,7 +76,7 @@ export function TradeRepublicTab() {
     <div className="space-y-6">
       {/* Session status card */}
       <Card size="sm">
-        <CardContent className="py-4">
+        <CardContent>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               {isConnected ? (
@@ -105,7 +105,7 @@ export function TradeRepublicTab() {
 
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3 py-4">
+          <CardContent className="flex items-center gap-3">
             <Warning className="size-5 shrink-0 text-destructive" />
             <p className="flex-1 text-sm text-destructive">{visibleError}</p>
             {error && (

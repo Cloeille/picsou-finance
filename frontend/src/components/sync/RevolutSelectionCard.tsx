@@ -83,7 +83,7 @@ export function RevolutSelectionCard({ discovered, onConfirm, confirming = false
 
   return (
     <Card size="sm">
-      <CardContent className="space-y-4 py-4">
+      <CardContent className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-medium">{t('sync.revolut.selection.title')}</p>
           <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">

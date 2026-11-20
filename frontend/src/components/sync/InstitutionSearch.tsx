@@ -80,7 +80,7 @@ export function InstitutionSearch({ onConnect, connecting, layout }: Institution
     }
     return (
       <Card key={inst.id} size="sm">
-        <CardContent className="grid grid-cols-[minmax(0,1fr)_2.5rem_auto] items-center gap-4 py-2">
+        <CardContent className="grid grid-cols-[minmax(0,1fr)_2.5rem_auto] items-center gap-4">
           <div className="flex min-w-0 items-center gap-3">
             <Bank className="size-5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 text-sm font-medium leading-5">{inst.name}</span>

@@ -522,7 +522,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
   return (
     <div className="space-y-6">
       <Card size="sm">
-        <CardContent className="py-4">
+        <CardContent>
           <Badge
             className={connected ? "bg-green-500/10 text-green-600 dark:text-green-400" : undefined}
             variant={connected ? "default" : "outline"}
@@ -545,7 +545,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
 
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3 py-4">
+          <CardContent className="flex items-center gap-3">
             <Warning className="size-5 shrink-0 text-destructive" />
             <p role="alert" className="flex-1 text-sm text-destructive">{visibleError}</p>
             {statusError && !error && (
@@ -584,7 +584,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
 
           {confirmingDisconnect && (
             <Card size="sm" className="border-destructive/30">
-              <CardContent className="space-y-3 py-4">
+              <CardContent className="space-y-3">
                 <p className="text-sm">{t("sync.bnp.disconnectConfirm")}</p>
                 <div className="flex flex-wrap gap-3">
                   <Button
@@ -617,7 +617,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
 
           {(status.data?.unsupported.length ?? 0) > 0 && (
             <Card size="sm">
-              <CardContent className="space-y-2 py-4">
+              <CardContent className="space-y-2">
                 <p className="text-sm font-medium">{t("sync.bnp.unsupportedTitle")}</p>
                 <p className="text-sm text-muted-foreground">{t("sync.bnp.unsupportedHint")}</p>
                 {/* Family code only: the contract id is never shown. */}
@@ -645,7 +645,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
           }}
         >
           <Card size="sm">
-            <CardContent className="space-y-4 py-4">
+            <CardContent className="space-y-4">
               <fieldset className="space-y-2">
                 <legend className="text-sm font-medium">{t("sync.bnp.brand")}</legend>
                 <div className="flex flex-wrap gap-4">
@@ -691,7 +691,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
 
       {!connected && authState === "AWAITING_APP" && (
         <Card size="sm">
-          <CardContent className="flex items-center gap-3 py-4">
+          <CardContent className="flex items-center gap-3">
             <DeviceMobile className="size-5 shrink-0 text-muted-foreground" />
             <div className="flex-1 space-y-1">
               <p className="text-sm">{t("sync.bnp.approvalPrompt")}</p>
@@ -716,7 +716,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
           }}
         >
           <Card size="sm">
-            <CardContent className="space-y-3 py-4">
+            <CardContent className="space-y-3">
               <p className="text-sm">{t("sync.bnp.codePrompt")}</p>
               <p className="text-sm text-muted-foreground">{t("sync.bnp.codeHint")}</p>
               <div className="space-y-2">

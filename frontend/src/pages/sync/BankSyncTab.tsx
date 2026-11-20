@@ -198,7 +198,7 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
           callbackStatus === 'error' ? 'border-destructive/30 bg-destructive/5' :
           'border-border/60 bg-muted/40'
         }>
-          <CardContent className="flex items-center gap-3 py-3">
+          <CardContent className="flex items-center gap-3">
             {callbackStatus === 'completing' && (
               <CircleNotch className="size-4 animate-spin text-primary" />
             )}
@@ -220,7 +220,7 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
       {/* Initiate error */}
       {initiateError && (
         <Card className="border-destructive/30 bg-destructive/5">
-          <CardContent className="flex items-center gap-3 py-3">
+          <CardContent className="flex items-center gap-3">
             <Warning className="size-4 shrink-0 text-destructive" />
             <span className="flex-1 text-sm font-medium text-destructive">{initiateError}</span>
             <Button variant="ghost" size="sm" onClick={() => setInitiateError(null)}>
@@ -233,7 +233,7 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
       {/* Retry error */}
       {retryError && (
         <Card className="border-destructive/30 bg-destructive/5">
-          <CardContent className="flex items-center gap-3 py-3">
+          <CardContent className="flex items-center gap-3">
             <Warning className="size-4 shrink-0 text-destructive" />
             <span className="flex-1 text-sm font-medium text-destructive">{retryError}</span>
             <Button variant="ghost" size="sm" onClick={() => setRetryError(null)}>
@@ -279,7 +279,7 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
 
               return <div key={conn.id} className="space-y-2">
                 <Card size="sm">
-                  <CardContent className="flex items-center justify-between py-2">
+                  <CardContent className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-medium">{conn.institutionName}</span>
                       <Badge

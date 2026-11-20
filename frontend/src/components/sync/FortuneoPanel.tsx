@@ -75,7 +75,7 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
   return (
     <div className="space-y-6">
       <Card size="sm">
-        <CardContent className="py-4">
+        <CardContent>
           <Badge
             className={
               connected
@@ -108,7 +108,7 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
 
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3 py-4">
+          <CardContent className="flex items-center gap-3">
             <Warning className="size-5 shrink-0 text-destructive" />
             <p className="flex-1 text-sm text-destructive">{visibleError}</p>
             {(error || statusError) && (
@@ -206,7 +206,7 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
           }}
         >
           <Card size="sm">
-            <CardContent className="space-y-4 py-4">
+            <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="fortuneo-login">
                   <PiggyBank className="mr-1 inline-block size-4" />
@@ -279,7 +279,7 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
           }}
         >
           <Card size="sm">
-            <CardContent className="space-y-4 py-4">
+            <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 {t("sync.fortuneo.otpPrompt")}
               </p>
