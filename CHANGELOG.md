@@ -16,10 +16,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hides the card behind a recap row with its total.
   Unlike `hidden`, collapsed accounts stay in every total, budget and chart — see
   `docs/features/account-list-display.md`.
+- **Banque Populaire: import personal and home loans (6/12, 6/13).** Both loan kinds are now imported with
+  their borrowed amount, rate, installment and dates, as on Caisse d'Epargne. The two bank apps' sign-in
+  settings come from the bank's public web app configuration and are not yet verified against a real account:
+  if a loan app refuses them, the loan is still imported from its balance with no details and the session
+  stays connected. Sync logs name the field that could not be read (never a value) so a report can be
+  precise. (#567)
+
+### Fixed
+
+- **American Express login no longer stalls behind the cookie banner.** When the consent banner
+  showed up after the login form, it blocked the sign-in click and the connection failed with
+  "Impossible de joindre American Express". It is now declined whenever it appears (#568).
+- **BoursoBank syncs a PEA-PME holding unlisted instruments.** Crowdfunding lines
+  (Homunity) have an ISIN but no ticker, and one such line failed the whole sync
+  with `UPSTREAM_FORMAT_CHANGED`, so no account was imported. The line now syncs
+  under its ISIN; a line with neither ticker nor valid ISIN is still refused.
 
 ### Changed
 
-- **Caisse d'Epargne and Banque Populaire: the Sync tab names the contracts it does not import and counts them.** A personal loan (`6/12`), a home loan (`6/13`) and a revolving credit (`2/11`) show their name next to the code, and the success line adds how many contracts were not imported, so a missing loan is no longer silent. The revolving credit is never imported; a loan lands in this list when Picsou cannot read it yet (no supported loan app on that bank, or an entry it cannot read). Contracts of any other family keep the bare code. (#567, #486)
+- **Caisse d'Epargne and Banque Populaire: the Sync tab names the contracts it does not import and counts them.** A personal loan (`6/12`), a home loan (`6/13`) and a revolving credit (`2/11`) show their name next to the code, and the success line adds how many contracts were not imported, so a missing loan is no longer silent. The revolving credit is never imported; a loan lands in this list only when Picsou cannot read its entry. Contracts of any other family keep the bare code. (#567, #486)
 
 ## [1.2.1] — 2026-11-20
 
