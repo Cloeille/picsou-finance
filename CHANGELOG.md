@@ -128,6 +128,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Administration, a member is asked to contact the administrator. The country-list error no longer
   wraps inside the narrow country selector.
 
+- **OKX exchange sync.** Connect a read-only API key to track trading and funding
+  balances, Simple Earn Flexible, On-chain Earn, and ETH and SOL staking. Choose
+  Global, EEA, or US when adding the connection.
+
 ## [1.2.1] — 2026-11-20
 
 ### Added

@@ -18,16 +18,6 @@ vi.mock('@/lib/api-client', () => ({
   },
 }))
 
-vi.mock('@/types/api', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/types/api')>()
-  // Give Kraken test-only capabilities without adding an exchange.
-  Object.assign(actual.SUPPORTED_EXCHANGES.find(({ type }) => type === 'KRAKEN')!, {
-    requiresApiPassphrase: true,
-    regions: ['GLOBAL', 'EEA', 'US'],
-  })
-  return actual
-})
-
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) => key,
@@ -97,6 +87,7 @@ describe('CryptoExchangeTab credential fields', () => {
     expect(screen.getByRole('button', { name: 'BINANCE' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'KRAKEN' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'MERIA' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'OKX' })).toBeInTheDocument()
   })
 
   it('asks for a secret for Binance and hides it for Meria', async () => {
@@ -166,13 +157,18 @@ describe('CryptoExchangeTab credential fields', () => {
     expect(apiPost.mock.calls[0][1]).toMatchObject({ type: 'BINANCE', apiKey: 'k', apiSecret: 's' })
   })
 
-  it('requires and submits a masked passphrase and an explicit region for the exchange that uses them', async () => {
+  it('shows the OKX setup hint and requires and submits all four connection fields', async () => {
     await openAddForm()
     expect(screen.queryByLabelText('sync.exchanges.apiPassphrase')).not.toBeInTheDocument()
     expect(screen.queryByRole('combobox', { name: 'sync.exchanges.region' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'KRAKEN' }))
-    fireEvent.change(screen.getByLabelText('sync.exchanges.apiKey'), { target: { value: 'test-key' } })
-    fireEvent.change(screen.getByLabelText('sync.exchanges.apiSecret'), { target: { value: 'test-secret' } })
+    fireEvent.click(screen.getByRole('button', { name: 'OKX' }))
+    expect(screen.getByText('sync.exchanges.okxHint')).toBeInTheDocument()
+    const key = screen.getByLabelText('sync.exchanges.apiKey')
+    const secret = screen.getByLabelText('sync.exchanges.apiSecret')
+    expect(key).toBeRequired()
+    expect(secret).toBeRequired()
+    fireEvent.change(key, { target: { value: 'test-key' } })
+    fireEvent.change(secret, { target: { value: 'test-secret' } })
 
     const passphrase = screen.getByLabelText('sync.exchanges.apiPassphrase')
     expect(passphrase).toHaveAttribute('type', 'password')
@@ -197,12 +193,12 @@ describe('CryptoExchangeTab credential fields', () => {
     fireEvent.click(connect)
 
     await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/crypto/exchange', {
-      type: 'KRAKEN', apiKey: 'test-key', apiSecret: 'test-secret', apiPassphrase: 'test-passphrase', region: 'EEA',
+      type: 'OKX', apiKey: 'test-key', apiSecret: 'test-secret', apiPassphrase: 'test-passphrase', region: 'EEA',
     }))
   })
 
   it('shows the stored region on the connection card', async () => {
-    apiGet.mockResolvedValue({ data: [{ id: 1, exchangeType: 'KRAKEN', status: 'CONNECTED', region: 'EEA' }] })
+    apiGet.mockResolvedValue({ data: [{ id: 1, exchangeType: 'OKX', status: 'CONNECTED', region: 'EEA' }] })
     renderTab()
 
     expect(await screen.findByText(/sync\.exchanges\.regions\.EEA/)).toBeInTheDocument()

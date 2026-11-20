@@ -989,6 +989,7 @@ export const SUPPORTED_EXCHANGES = [
   { type: 'BINANCE', requiresApiSecret: true, requiresApiPassphrase: false, regions: [] as readonly string[] },
   { type: 'KRAKEN', requiresApiSecret: true, requiresApiPassphrase: false, regions: [] as readonly string[] },
   { type: 'MERIA', requiresApiSecret: false, requiresApiPassphrase: false, regions: [] as readonly string[] },
+  { type: 'OKX', requiresApiSecret: true, requiresApiPassphrase: true, regions: ['GLOBAL', 'EEA', 'US'] as readonly string[] },
 ] as const
 
 export type ExchangeType = (typeof SUPPORTED_EXCHANGES)[number]['type']

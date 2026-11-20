@@ -1720,11 +1720,11 @@ rate limiting returns `429`.
 **Request body:**
 | Field | Type | Description |
 |-------|------|-------------|
-| `type` | `ExchangeType` | `BINANCE` · `KRAKEN` · `MERIA` |
+| `type` | `ExchangeType` | `BINANCE` · `KRAKEN` · `MERIA` · `OKX` |
 | `apiKey` | `string` | Exchange API key (required, max 200 chars) |
-| `apiSecret` | `string?` | Exchange API secret (max 300 chars). **Required** for `BINANCE` and `KRAKEN`; must be **omitted** for `MERIA`, which authenticates with a single read-only API key |
-| `apiPassphrase` | `string?` | Exchange API passphrase (max 200 characters and 347 UTF-8 bytes). Required only when the adapter uses one. Omit it for all current exchanges. |
-| `region` | `string?` | Region code (max 20 characters). Required when the adapter declares regions. The service trims and upper-cases the code. Omit it for all current exchanges. |
+| `apiSecret` | `string?` | Exchange API secret (max 300 chars). **Required** for `BINANCE`, `KRAKEN` and `OKX`. Omit for `MERIA`, which authenticates with a single read-only API key. |
+| `apiPassphrase` | `string?` | Exchange API passphrase (max 200 characters and 347 UTF-8 bytes). **Required** for `OKX`. Omit for other exchanges. |
+| `region` | `string?` | Region code (max 20 characters), trimmed and upper-cased. **Required** for `OKX`: `GLOBAL`, `EEA` or `US`, the entity where the API key was created. Omit for other exchanges. |
 
 **Response `200` — `AccountResponse`.**
 

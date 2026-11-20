@@ -959,7 +959,7 @@
     "trConnected": "¡Trade Republic conectado!",
     "desc": {
       "banks": "Conecta tus bancos vía OAuth",
-      "exchanges": "Binance, Meria...",
+      "exchanges": "Binance, Meria, OKX",
       "wallets": "Bitcoin, Ethereum, BNB, Solana...",
       "tr": "Trade Republic",
       "bourso": "Cuentas corrientes, ahorro, PEA y cuentas de valores en BoursoBank",
@@ -1167,6 +1167,7 @@
         "US": "Estados Unidos"
       },
       "apiKeyOnly": "Meria se conecta con una única clave API de solo lectura — no hace falta secreto.",
+      "okxHint": "Crea una clave API de solo lectura. Elige la región que corresponda al sitio donde abriste tu cuenta (okx.com → Global, my.okx.com → Espacio Económico Europeo, app.okx.com → Estados Unidos).",
       "showSecret": "Mostrar el secreto API",
       "hideSecret": "Ocultar el secreto API",
       "connect": "Conectar",
@@ -2704,7 +2705,7 @@
         },
         "crypto": {
           "title": "Exchanges de cripto",
-          "description": "Sigue Binance y compañía mediante claves API de solo lectura, cifradas en reposo."
+          "description": "Sigue Binance, Meria y OKX mediante claves API de solo lectura, cifradas en reposo."
         },
         "revolut": {
           "title": "Revolut",
@@ -2863,7 +2864,7 @@
     },
     "crypto": {
       "title": "Cifra tus claves API de exchange",
-      "body": "Tus claves API de exchange (Binance, Meria...) se cifran en reposo. Picsou puede generar la clave de cifrado por ti: se queda en tu disco y nunca se transmite.",
+      "body": "Tus claves API de exchange (Binance, Meria, OKX) se cifran en reposo. Picsou puede generar la clave de cifrado por ti: se queda en tu disco y nunca se transmite.",
       "generateCta": "Generar una clave por mí",
       "generating": "Generando...",
       "existed": "Tu clave de cifrado ya existe en el disco, nada que hacer.",

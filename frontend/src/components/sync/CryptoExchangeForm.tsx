@@ -183,6 +183,10 @@ export function CryptoExchangeForm({ onSuccess, onCancel, variant }: CryptoExcha
           </div>
         )}
 
+        {exchangeType === 'OKX' && (
+          <p className="text-sm text-muted-foreground">{t('sync.exchanges.okxHint')}</p>
+        )}
+
         {!modal ? (
           <div className="flex gap-2">
             <Button type="submit" disabled={addMutation.isPending || needsRegion}>

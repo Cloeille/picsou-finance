@@ -4,7 +4,7 @@
 
 ## Context
 
-Picsou tracks cryptocurrency holdings from two sources: centralized exchanges (Binance, Meria) and on-chain wallets (Bitcoin, EVM, Solana). The `EVM` chain is a **multichain fan-out**: a single `0x` address is tracked across every enabled EVM network (Ethereum, BNB Chain, Polygon, Arbitrum, Optimism, Base, Avalanche C-Chain) — see the [EVM multichain wallets ADR](../decisions/2026-07-17-evm-multichain-wallets.md). Exchange credentials are encrypted at rest with AES-256-GCM. On-chain wallets query public blockchain RPCs (no API key). All crypto balances are converted to EUR via the `PriceService`.
+Picsou tracks cryptocurrency holdings from two sources: centralized exchanges (Binance, Meria, OKX) and on-chain wallets (Bitcoin, EVM, Solana). The `EVM` chain is a **multichain fan-out**: a single `0x` address is tracked across every enabled EVM network (Ethereum, BNB Chain, Polygon, Arbitrum, Optimism, Base, Avalanche C-Chain) — see the [EVM multichain wallets ADR](../decisions/2026-07-17-evm-multichain-wallets.md). Exchange credentials are encrypted at rest with AES-256-GCM. On-chain wallets query public blockchain RPCs (no API key). All crypto balances are converted to EUR via the `PriceService`.
 
 ## How it works
 
@@ -41,6 +41,53 @@ receive an `ExchangeCredentials` record with a redacted string representation.
 - **Three endpoints, one balance.** A Meria position is spread across `GET /wallets` (spot), `GET /stakings` and `GET /lendings`, all shaped as `currencyCode` + amount. The adapter sums them per currency, counting a staking/lending contract as its **`amount` alone** — see the double-counting gotcha below before adding `reward` back. `GET /status` backs `testConnection()`.
 
 Every call must return a `success: true` envelope, or an empty body on a 2xx; anything else fails the whole sync — see the all-or-nothing gotchas below. Note the staking payload is **large** (full reward history per contract), which is why the client raises its in-memory buffer to 16 MB — and why the body is parsed straight from the byte array rather than decoded to a `String` first, which would hold a second full copy of it. `app.meria.base-url` accepts a `MERIA_BASE_URL` override like every other external base URL, and `MeriaAdapter` carries the same value as its `@Value` default, so a stripped config still boots.
+
+### OKX adapter
+
+Create a read-only API key and supply its key, secret and passphrase. Choose the region where you
+opened the account. Global (okx.com) uses `https://www.okx.com`, EEA (my.okx.com) uses
+`https://eea.okx.com`, and US (app.okx.com) uses `https://us.okx.com`. Both the connection probe
+and sync use the region stored on the connection. If OKX returns `50119`, use **Add exchange** to
+submit the OKX credentials with the region where the key was created. This updates the existing
+OKX connection if you have one. [OKX API FAQ](https://www.okx.com/en-eu/help/api-faq)
+
+Each GET sends `User-Agent: Picsou` and four `OK-ACCESS-*` headers. The signature is Base64 of
+HMAC-SHA256 with the secret over timestamp + "GET" + path including any query. The injected clock
+uses UTC milliseconds. Skew over 30 seconds can trigger `50102`. `testConnection()` applies the
+same validation to the trading response as sync. [OKX v5 API reference](https://www.okx.com/docs-v5/en/)
+
+| GET endpoint | Position mapping |
+|---|---|
+| `/api/v5/account/balance` | `SPOT` from `data[0].details[].eq`. Currency equity includes funds used by trading strategies, which `cashBal` omits. |
+| `/api/v5/asset/balances` | `SPOT` from `bal`, summed with trading by currency. The funding row shape comes from OKX's docs only. |
+| `/api/v5/finance/savings/balance` | `LENDING` from `amt` (loaned plus pending) for Simple Earn Flexible only. Cumulative `earnings` does not establish a decomposition of `amt`, so principal and interest are both unset. |
+| `/api/v5/finance/staking-defi/orders-active` | All active On-chain Earn orders are `STAKING`, using `investData[].amt` grouped by investment currency. The order row shape comes from OKX's docs only. |
+| `/api/v5/finance/staking-defi/eth/balance` | `STAKING` from `amt`, with BETH valued as ETH at 1:1. |
+| `/api/v5/finance/staking-defi/sol/balance` | `STAKING` from `amt`, with OKSOL valued as SOL at approximately 1:1. |
+
+Fixed-term Simple Earn is outside the sync. Plain ETH and SOL spot balances are kept alongside
+staking. Spot BETH or OKSOL is valued as `SPOT` ETH or SOL when its dedicated staking amount is zero
+or absent. If a receipt has a non-zero amount in both spot and its dedicated staking endpoint,
+the sync fails because the API cannot establish whether the balances overlap. [OKX v5 Earn reference](https://www.okx.com/docs-v5/en/#financial-product)
+
+The six calls run sequentially without application retries. Each requires HTTP 200, code `"0"`
+and an array in `data`. A trading account row requires a `details` array, and a non-zero `totalEq`
+requires at least one detail row. Each balance row requires a currency and a parseable quantity.
+The ETH and SOL staking endpoints require `BETH` and `OKSOL` respectively, including on zero-quantity
+rows. Each active On-chain Earn order requires a unique, nonblank `ordId` and at least one investment
+row. Duplicate JSON keys, negative quantities, malformed data, timeouts, transport errors and
+non-zero codes fail the sync. For `51024`, check the account's status and region on OKX.
+
+Only the EEA region was checked against a real account. The US/AU API reference omits the Earn
+endpoints listed above. A US connection may pass the trading probe and then fail on an Earn
+request. By design, Picsou reports that failure and aborts the sync to avoid recording a partial
+balance. [OKX US/AU API reference](https://app.okx.com/docs-v5/en/)
+
+As with other exchanges, Picsou sends non-EUR fiat balances, such as USD cash in funding, through
+the crypto pricing path. If that path has no EUR quote, Picsou logs the omission and may leave the
+balance out of the EUR total.
+
+A transfer between trading and funding during a sync can be counted twice or missed entirely until the next sync.
 
 ### Per-product positions
 
@@ -121,6 +168,8 @@ The on-chain adapters (EVM, Solana) validate the JSON-RPC envelope through `Json
 - `backend/src/main/java/com/picsou/config/CryptoEncryption.java` -- AES-256-GCM encrypt/decrypt for API secrets
 - `backend/src/main/java/com/picsou/adapter/BinanceAdapter.java` -- Binance REST API with HMAC-SHA256
 - `backend/src/main/java/com/picsou/adapter/MeriaAdapter.java` -- Meria REST API, single `API-KEY` header, wallets + stakings + lendings
+- `backend/src/main/java/com/picsou/adapter/OkxAdapter.java` — OKX v5 signed reads and position aggregation
+- `frontend/src/components/sync/CryptoExchangeForm.tsx` — shared credential form and OKX setup hint
 - `backend/src/main/java/com/picsou/model/CryptoExchangePosition.java` -- per-product breakdown behind an exchange account's holdings
 - `frontend/src/components/shared/PositionsByProduct.tsx` -- Spot / Staking / Lending sections on the account page
 - `backend/src/main/java/com/picsou/adapter/BitcoinWalletAdapter.java` -- Blockstream Esplora, BIP32 key derivation
@@ -248,6 +297,9 @@ Upsert Account (type=CRYPTO, no ticker)
 - `CryptoExchangePositionRepositoryTest` -- the delete-then-reinsert rewrite against the real `uq_crypto_exchange_position`, the exact quantities it leaves behind, a product no longer held disappearing, and — with a second seeded account — that the bulk delete filters by account rather than emptying the table
 - `MeriaAdapterTest` -- aggregation across wallets/stakings/lendings per currency, staking counted as `amount` with accrued interest **not** added on top, a contract with no reward fields at all, a reward above the quantity or below zero reported with no decomposition at all (and a merge with one such contract staying undecomposed), symbols upper-cased under a forced Turkish locale, zero/blank entries dropped; and the all-or-nothing contract: every endpoint × {401, 403, 404, 429, 500} throws, as do `success:false` on HTTP 200, a reactor-wrapped timeout and a non-JSON (Cloudflare) body — while `data: []` **and an empty body on a 2xx** both yield an empty list without throwing. Also pins that only an `API-KEY` header is sent (no `Authorization`, no `X-MBX-APIKEY`, no `signature` query), that the secret argument is ignored, and that no message or log line contains the API key
 - `MeriaAdapterWiringTest` -- Spring picks the production constructor with and without `app.meria.base-url` set, and the production client reads a staking payload larger than the framework's default buffer (served over a real socket — the `ExchangeFunction` fixtures decode with the stub's strategies and cannot see that configuration)
+- `OkxAdapterTest` — synthetic fixtures in `backend/src/test/resources/okx/` cover six-endpoint aggregation, per-connection routing, signing, receipt overlap, malformed responses and credential redaction.
+- `OkxAdapterWiringTest` — Spring creates the adapter with the three production hosts in region order.
+- `CryptoExchangeTab.test.tsx` — selecting OKX displays the setup hint and submits the three credentials and selected region.
 - `PositionsByProduct.test.tsx` -- positions grouped per product, the same asset kept in both its spot and staking sections, principal/interest columns only where the exchange reports yield, no subtotal at all when a product is fully *or partly* unvalued (an EUR 0 there reads as "worth nothing"), and the recorded-price marker naming its own day under a time zone behind UTC
 - `WalletSyncServiceTest` -- unit tests for wallet sync
 - `JsonRpcResponseTest` -- envelope validation: valid/zero/empty-array results returned; null/error/missing/explicit-null throw

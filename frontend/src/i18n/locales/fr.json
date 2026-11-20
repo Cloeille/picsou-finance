@@ -1261,7 +1261,7 @@
     "trConnected": "Trade Republic connecté !",
     "desc": {
       "banks": "Connectez vos banques européennes en toute sécurité via Open Banking.",
-      "exchanges": "Synchronisez vos plateformes d'échange crypto (Binance, Meria et autres).",
+      "exchanges": "Synchronisez vos plateformes d'échange crypto (Binance, Meria et OKX).",
       "wallets": "Suivez vos portefeuilles crypto sur Bitcoin, Ethereum, BNB et Solana.",
       "tr": "Synchronisez votre portefeuille et vos placements Trade Republic.",
       "revolut": "Synchronisez vos comptes Revolut par téléphone avec validation sur votre mobile.",
@@ -1501,6 +1501,7 @@
         "US": "États-Unis"
       },
       "apiKeyOnly": "Meria se connecte avec une seule clé API en lecture seule, sans secret supplémentaire.",
+      "okxHint": "Créez une clé API en lecture seule, puis choisissez la région du site où vous avez ouvert votre compte : Monde pour okx.com, Espace économique européen pour my.okx.com, États-Unis pour app.okx.com.",
       "showSecret": "Afficher le secret API",
       "hideSecret": "Masquer le secret API",
       "connect": "Connecter",
@@ -3034,7 +3035,7 @@
         },
         "crypto": {
           "title": "Plateformes crypto",
-          "description": "Suivez vos actifs crypto (Binance, Meria et autres) grâce à des clés API chiffrées en lecture seule."
+          "description": "Suivez vos actifs crypto sur Binance, Meria et OKX avec des clés API en lecture seule, chiffrées au repos."
         },
         "fortuneo": {
           "title": "Fortuneo",

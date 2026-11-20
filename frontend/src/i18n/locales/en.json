@@ -1261,7 +1261,7 @@
     "trConnected": "Trade Republic connected!",
     "desc": {
       "banks": "Connect your banks via OAuth",
-      "exchanges": "Binance, Meria...",
+      "exchanges": "Binance, Meria, OKX",
       "wallets": "Bitcoin, Ethereum, BNB, Solana...",
       "tr": "Trade Republic",
       "revolut": "Phone + passcode, on-demand sync",
@@ -1501,6 +1501,7 @@
         "US": "United States"
       },
       "apiKeyOnly": "Meria connects with a single read-only API key — no secret needed.",
+      "okxHint": "Create a read-only API key. Choose the region that matches the site where you opened your account (okx.com → Global, my.okx.com → EEA, app.okx.com → US).",
       "showSecret": "Show API secret",
       "hideSecret": "Hide API secret",
       "connect": "Connect",
@@ -3042,7 +3043,7 @@
         },
         "crypto": {
           "title": "Crypto exchanges",
-          "description": "Track Binance and friends via read-only API keys, encrypted at rest."
+          "description": "Track Binance, Meria and OKX with read-only API keys encrypted at rest."
         },
         "bnp": {
           "title": "BNP Paribas / Hello bank!",
@@ -3197,7 +3198,7 @@
     },
     "crypto": {
       "title": "Encrypt your exchange API keys",
-      "body": "Your exchange API keys (Binance, Meria...) are encrypted at rest. Picsou can generate the encryption key for you: it stays on your disk and is never transmitted.",
+      "body": "Your exchange API keys (Binance, Meria, OKX) are encrypted at rest. Picsou can generate the encryption key for you: it stays on your disk and is never transmitted.",
       "generateCta": "Generate a key for me",
       "generating": "Generating...",
       "existed": "Your encryption key is already configured, nothing to do.",

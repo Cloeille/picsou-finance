@@ -959,7 +959,7 @@
     "trConnected": "Trade Republic verbunden!",
     "desc": {
       "banks": "Verbinde deine Banken per OAuth",
-      "exchanges": "Binance, Meria...",
+      "exchanges": "Binance, Meria, OKX",
       "wallets": "Bitcoin, Ethereum, BNB, Solana...",
       "tr": "Trade Republic",
       "bourso": "Girokonten, Sparkonten, PEA und Wertpapierdepots bei BoursoBank",
@@ -1167,6 +1167,7 @@
         "US": "Vereinigte Staaten"
       },
       "apiKeyOnly": "Meria verbindet sich mit einem einzigen schreibgeschützten API-Key — kein Secret nötig.",
+      "okxHint": "Erstelle einen API-Schlüssel mit reinen Leserechten. Wähle die Region der Website, auf der du dein Konto eröffnet hast (okx.com → Global, my.okx.com → Europäischer Wirtschaftsraum, app.okx.com → Vereinigte Staaten).",
       "showSecret": "API-Secret anzeigen",
       "hideSecret": "API-Secret verbergen",
       "connect": "Verbinden",
@@ -2712,7 +2713,7 @@
         },
         "crypto": {
           "title": "Krypto-Exchanges",
-          "description": "Verfolge Binance & Co. über schreibgeschützte API-Keys, verschlüsselt gespeichert."
+          "description": "Verfolge Binance, Meria und OKX mit API-Schlüsseln, die nur Leserechte haben und verschlüsselt gespeichert werden."
         },
         "revolut": {
           "title": "Revolut",
@@ -2863,7 +2864,7 @@
     },
     "crypto": {
       "title": "Verschlüssele deine Exchange-API-Keys",
-      "body": "Deine Exchange-API-Keys (Binance, Meria...) werden verschlüsselt gespeichert. Picsou kann den Verschlüsselungsschlüssel für dich generieren: Er bleibt auf deiner Festplatte und wird nie übertragen.",
+      "body": "Deine Exchange-API-Keys (Binance, Meria, OKX) werden verschlüsselt gespeichert. Picsou kann den Verschlüsselungsschlüssel für dich generieren: Er bleibt auf deiner Festplatte und wird nie übertragen.",
       "generateCta": "Schlüssel für mich generieren",
       "generating": "Wird generiert...",
       "existed": "Dein Verschlüsselungsschlüssel existiert bereits auf der Festplatte, nichts zu tun.",

@@ -1,0 +1,10 @@
+{
+  "code": "0",
+  "msg": "",
+  "data": [{
+    "details": [
+      {"ccy": "coin", "eq": "10", "cashBal": "6", "stgyEq": "4"},
+      {"ccy": "ZERO", "eq": "0", "cashBal": "0"}
+    ]
+  }]
+}

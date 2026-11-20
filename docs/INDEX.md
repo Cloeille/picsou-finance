@@ -136,7 +136,7 @@
 | Trade Republic — Holdings deduplication | 2026-05-18 | [trade-republic-holding-deduplication.md](./features/trade-republic-holding-deduplication.md) |
 | ISIN → Ticker conversion | 2026-08-10 | [ISIN_TO_TICKER_CONVERSION.md](./features/ISIN_TO_TICKER_CONVERSION.md) |
 | Encryption at rest | 2026-04-08 | [encryption-at-rest.md](./features/encryption-at-rest.md) |
-| Crypto tracking | 2026-08-11 | [crypto-tracking.md](./features/crypto-tracking.md) |
+| Crypto tracking and exchange adapters | 2026-11-20 | [crypto-tracking.md](./features/crypto-tracking.md) |
 | Wealth pyramid (Analysis) | 2026-11-05 | [wealth-pyramid.md](./features/wealth-pyramid.md) |
 | Portfolio diversification (sector + geography) | 2026-11-05 | [portfolio-diversification.md](./features/portfolio-diversification.md) |
 | Recurring investment plans + wealth projection | 2026-08-19 | [goal-recurring-investment.md](./features/goal-recurring-investment.md) |

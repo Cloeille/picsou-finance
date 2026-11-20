@@ -1,0 +1,7 @@
+{
+  "code": "0",
+  "msg": "",
+  "data": [
+    {"ccy": "COIN", "bal": "5", "availBal": "4", "frozenBal": "1"}
+  ]
+}

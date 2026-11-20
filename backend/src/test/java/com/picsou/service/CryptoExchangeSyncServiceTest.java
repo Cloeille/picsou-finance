@@ -110,6 +110,15 @@ class CryptoExchangeSyncServiceTest {
         return adapter;
     }
 
+    private CryptoExchangePort okxAdapter() {
+        CryptoExchangePort adapter = mock(CryptoExchangePort.class);
+        when(adapter.exchangeName()).thenReturn(ExchangeType.OKX.name());
+        when(adapter.requiresApiSecret()).thenReturn(true);
+        when(adapter.requiresApiPassphrase()).thenReturn(true);
+        when(adapter.regions()).thenReturn(List.of("GLOBAL", "EEA", "US"));
+        return adapter;
+    }
+
     /** An adapter that behaves like Meria: a single read-only key. */
     private CryptoExchangePort singleKeyAdapter() {
         CryptoExchangePort adapter = mock(CryptoExchangePort.class);
@@ -178,6 +187,36 @@ class CryptoExchangeSyncServiceTest {
         assertThatThrownBy(() -> serviceWith(adapter).addExchange(ExchangeType.MERIA, new ExchangeCredentials(KEY, "  ", null, null), MEMBER_ID))
             .isInstanceOf(SyncException.class)
             .hasMessageContaining("Could not connect");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void addExchange_preservesTheSafeProbeErrorWithoutWritingASession(boolean alreadyConnected) {
+        CryptoExchangePort adapter = okxAdapter();
+        var credentials = new ExchangeCredentials(KEY, SECRET, PASSPHRASE, "EEA");
+        String safeMessage = "The OKX API key does not exist in the selected region (50119).";
+        when(adapter.testConnection(credentials)).thenThrow(new SyncException(safeMessage));
+        var existing = session(ExchangeType.OKX, "original-key", "original-secret");
+        existing.setApiPassphrase("original-passphrase");
+        existing.setRegion("US");
+        existing.setStatus("ERROR");
+        if (alreadyConnected) {
+            lenient().when(sessionRepository.findByExchangeTypeAndMemberId(ExchangeType.OKX, MEMBER_ID))
+                .thenReturn(Optional.of(existing));
+        }
+
+        assertThatThrownBy(() -> serviceWith(adapter).addExchange(ExchangeType.OKX, credentials, MEMBER_ID))
+            .isInstanceOf(SyncException.class)
+            .hasMessage(safeMessage)
+            .hasMessageNotContainingAny(KEY, SECRET, PASSPHRASE.strip());
+
+        verifyNoInteractions(sessionRepository, encryption, accountRepository, statusWriter);
+        verify(adapter, never()).fetchPositions(any());
+        if (alreadyConnected) {
+            assertThat(existing).extracting(CryptoExchangeSession::getApiKey, CryptoExchangeSession::getApiSecret,
+                CryptoExchangeSession::getApiPassphrase, CryptoExchangeSession::getRegion, CryptoExchangeSession::getStatus)
+                .containsExactly("original-key", "original-secret", "original-passphrase", "US", "ERROR");
+        }
     }
 
     @Test
@@ -263,23 +302,23 @@ class CryptoExchangeSyncServiceTest {
     @ParameterizedTest
     @NullSource
     @ValueSource(strings = "old-passphrase")
-    void addExchange_encryptsTheNewPassphraseAndSuppliesItOnConnectAndSync(String oldPassphrase) {
+    void addExchange_encryptsTheOkxPassphraseAndUpdatesTheExistingSessionWhenPresent(String oldPassphrase) {
         CryptoEncryption realEncryption = new CryptoEncryption(Base64.getEncoder().encodeToString(new byte[32]));
-        CryptoExchangePort adapter = twoCredentialAdapter();
-        when(adapter.requiresApiPassphrase()).thenReturn(true);
-        ExchangeCredentials credentials = new ExchangeCredentials(KEY, SECRET, PASSPHRASE, null);
+        CryptoExchangePort adapter = okxAdapter();
+        ExchangeCredentials credentials = new ExchangeCredentials(KEY, SECRET, PASSPHRASE, "EEA");
         when(adapter.testConnection(credentials)).thenReturn(true);
         when(adapter.fetchPositions(credentials)).thenReturn(List.of());
-        arrangeAddExchange(ExchangeType.BINANCE);
-        CryptoExchangeSession existing = session(ExchangeType.BINANCE, null, null);
+        arrangeAddExchange(ExchangeType.OKX);
+        CryptoExchangeSession existing = session(ExchangeType.OKX, null, null);
         if (oldPassphrase != null) {
             existing.setApiPassphrase(realEncryption.encrypt(oldPassphrase));
-            when(sessionRepository.findByExchangeTypeAndMemberId(ExchangeType.BINANCE, MEMBER_ID))
+            existing.setRegion("US");
+            when(sessionRepository.findByExchangeTypeAndMemberId(ExchangeType.OKX, MEMBER_ID))
                 .thenReturn(Optional.of(existing));
         }
 
         CryptoExchangeSyncService service = serviceWith(realEncryption, adapter);
-        service.addExchange(ExchangeType.BINANCE, credentials, MEMBER_ID);
+        service.addExchange(ExchangeType.OKX, credentials, MEMBER_ID);
         service.sync(7L, MEMBER_ID);
 
         verify(adapter).testConnection(credentials);
@@ -287,6 +326,7 @@ class CryptoExchangeSyncServiceTest {
         if (oldPassphrase != null) {
             assertThat(saved[0]).isSameAs(existing);
         }
+        assertThat(saved[0].getRegion()).isEqualTo("EEA");
         assertThat(saved[0].getApiPassphrase()).isNotEqualTo(PASSPHRASE);
         assertThat(realEncryption.decrypt(saved[0].getApiPassphrase())).isEqualTo(PASSPHRASE);
         assertThat(credentials.toString()).doesNotContain(KEY, SECRET, PASSPHRASE.strip());

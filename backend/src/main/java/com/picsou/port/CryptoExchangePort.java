@@ -76,7 +76,8 @@ public interface CryptoExchangePort {
     List<ExchangePosition> fetchPositions(ExchangeCredentials credentials);
 
     /**
-     * Whether these credentials can read the account. Never throws — a failure is {@code false}.
+     * Whether these credentials can read the account. A failed probe returns {@code false}
+     * or throws a {@link com.picsou.exception.SyncException} with a safe message for the user.
      *
      * <p>Keep credentials out of logs.
      */
