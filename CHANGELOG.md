@@ -33,6 +33,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `UPSTREAM_FORMAT_CHANGED`, so no account was imported. The line now syncs
   under its ISIN; a line with neither ticker nor valid ISIN is still refused.
 
+### Changed
+
+- **A missed daily sync is made up once.** When Picsou was off or the machine asleep at 08:00, the bank
+  sync and the balance snapshot now run within a minute or two of the next start or wake, once, not
+  once per missed day. The weekly and monthly jobs follow the same rule. The first start after the
+  upgrade only records the time and waits for the next slot. See
+  [Scheduler catch-up](docs/features/scheduler-catch-up.md). (#585, part of #235)
+
 ## [1.2.1] — 2026-11-20
 
 ### Added
