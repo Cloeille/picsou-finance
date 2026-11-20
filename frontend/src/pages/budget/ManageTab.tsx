@@ -1,7 +1,19 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Archive, ArchiveRestore, Pencil, Plus, Trash2 } from 'lucide-react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { useNavigate } from 'react-router'
+import {
+  Archive,
+  ArchiveRestore,
+  ChevronRight,
+  CornerDownRight,
+  Pencil,
+  Plus,
+  Settings,
+  SlidersHorizontal,
+  Tags,
+  Trash2,
+} from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -14,7 +26,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -31,6 +42,7 @@ import {
   useUpdateBudgetSettings,
   useUpdateCategory,
 } from '@/features/budget/hooks'
+import { useAuthStore } from '@/stores/auth-store'
 import { formatDate, formatPercent, getLocale } from '@/lib/utils'
 import type { AiCategorizationMode, Category, CategoryKind, RuleMatchType } from '@/types/api'
 import { ColorDot } from './budget-utils'
@@ -39,118 +51,17 @@ import { KIND_META } from './budget-meta'
 const KINDS: CategoryKind[] = ['INCOME', 'EXPENSE', 'TRANSFER']
 const MATCH_TYPES: RuleMatchType[] = ['COUNTERPARTY', 'KEYWORD']
 const AI_MODES: AiCategorizationMode[] = ['SUGGEST', 'AUTO_HIGH_CONFIDENCE', 'AUTO_ALL']
+const CYCLE_DAYS = Array.from({ length: 28 }, (_, i) => i + 1)
 
-// ─── Payday cycle ──────────────────────────────────────────────────────────
+// ─── Unified budget preferences ──────────────────────────────────────────────
 
-function CycleSettingsCard() {
+function BudgetPreferencesCard() {
   const { t } = useTranslation()
-  const { data, isLoading, isError, refetch } = useBudgetSettings()
-  const update = useUpdateBudgetSettings()
-  const [day, setDay] = useState<number | ''>('')
-
-  // Sync local state from the loaded value once, during render (no effect).
-  const [synced, setSynced] = useState(false)
-  if (!synced && data) {
-    setSynced(true)
-    setDay(data.cycleStartDay)
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{t('budget.settings.cycleTitle')}</CardTitle>
-        <CardDescription>{t('budget.settings.cycleHint')}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {isLoading && <Skeleton className="h-9 w-full rounded-md" />}
-        {!isLoading && isError && !data && (
-          <ErrorState message={t('budget.settings.error')} onRetry={() => void refetch()} />
-        )}
-        {data && (
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="space-y-2">
-              <Label htmlFor="cycle-day">{t('budget.settings.cycleStartDay')}</Label>
-              <Input id="cycle-day" type="number" min={1} max={28} className="w-28"
-                value={day}
-                onChange={(e) => setDay(e.target.value === '' ? '' : Number(e.target.value))} />
-            </div>
-            <Button disabled={update.isPending || day === '' || day < 1 || day > 28}
-              onClick={() => day !== '' && update.mutate({
-                cycleStartDay: Number(day),
-                logoFetchEnabled: data.logoFetchEnabled,
-                aiCategorizationEnabled: data.aiCategorizationEnabled,
-                aiMode: data.aiMode,
-                aiConfidenceThreshold: data.aiConfidenceThreshold,
-              })}>
-              {update.isPending ? t('common.loading') : t('common.save')}
-            </Button>
-            <p className="w-full text-xs text-muted-foreground">
-              {t('budget.settings.currentCycle', {
-                start: formatDate(data.currentCycleStart, getLocale()),
-                end: formatDate(data.currentCycleEnd, getLocale()),
-              })}
-            </p>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-// ─── Brand logos (opt-in) ────────────────────────────────────────────────────
-
-function LogoSettingsCard() {
-  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const isAdmin = useAuthStore((s) => s.user?.role === 'ADMIN')
   const { data, isLoading, isError, refetch } = useBudgetSettings()
   const update = useUpdateBudgetSettings()
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{t('budget.settings.logoTitle')}</CardTitle>
-        <CardDescription>{t('budget.settings.logoHint')}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {isLoading && <Skeleton className="h-9 w-full rounded-md" />}
-        {!isLoading && isError && !data && (
-          <ErrorState message={t('budget.settings.error')} onRetry={() => void refetch()} />
-        )}
-        {data && (
-          <div className="flex items-center justify-between gap-4">
-            <Label htmlFor="logo-fetch" className="font-normal text-muted-foreground">
-              {t('budget.settings.logoFetchLabel')}
-            </Label>
-            <Switch
-              id="logo-fetch"
-              className="dark:data-unchecked:bg-muted-foreground/50"
-              checked={data.logoFetchEnabled}
-              disabled={update.isPending}
-              onCheckedChange={(checked) =>
-                update.mutate({
-                  cycleStartDay: data.cycleStartDay,
-                  logoFetchEnabled: checked,
-                  aiCategorizationEnabled: data.aiCategorizationEnabled,
-                  aiMode: data.aiMode,
-                  aiConfidenceThreshold: data.aiConfidenceThreshold,
-                })
-              }
-            />
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-// ─── AI categorization (opt-in) ──────────────────────────────────────────────
-
-function AiCategorizationCard() {
-  const { t } = useTranslation()
-  const { data, isLoading, isError, refetch } = useBudgetSettings()
-  const update = useUpdateBudgetSettings()
-
-  // The threshold slider needs live local feedback while dragging; sync it from the loaded
-  // value once (during render, no effect) like CycleSettingsCard does, then commit on release.
   const [threshold, setThreshold] = useState(75)
   const [synced, setSynced] = useState(false)
   if (!synced && data) {
@@ -158,9 +69,9 @@ function AiCategorizationCard() {
     setThreshold(data.aiConfidenceThreshold)
   }
 
-  // Each control sends the whole settings object (the backend replaces it wholesale), so fold the
-  // single changed field over the current values.
   function save(patch: {
+    cycleStartDay?: number
+    logoFetchEnabled?: boolean
     aiCategorizationEnabled?: boolean
     aiMode?: AiCategorizationMode
     aiConfidenceThreshold?: number
@@ -178,77 +89,140 @@ function AiCategorizationCard() {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{t('budget.settings.aiTitle')}</CardTitle>
-        <CardDescription>{t('budget.settings.aiHint')}</CardDescription>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Settings className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          {t('settings.title')}
+        </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {isLoading && <Skeleton className="h-9 w-full rounded-md" />}
+      <CardContent>
+        {isLoading && <Skeleton className="h-36 w-full rounded-xl" />}
         {!isLoading && isError && !data && (
           <ErrorState message={t('budget.settings.error')} onRetry={() => void refetch()} />
         )}
         {data && (
-          <>
-            <div className="flex items-center justify-between gap-4">
-              <Label htmlFor="ai-enabled" className="font-normal text-muted-foreground">
-                {t('budget.settings.aiEnableLabel')}
+          <div className="divide-y divide-border/60">
+            {/* Cycle start day */}
+            <div className="flex flex-col gap-3 py-4 first:pt-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="cycle-day" className="text-sm font-medium text-foreground">
+                  {t('budget.settings.cycleStartDay')}
+                </Label>
+                <p className="text-sm tabular-nums text-muted-foreground">
+                  {t('budget.settings.currentCycle', {
+                    start: formatDate(data.currentCycleStart, getLocale()),
+                    end: formatDate(data.currentCycleEnd, getLocale()),
+                  })}
+                </p>
+              </div>
+              <div className="w-24 shrink-0">
+                <NativeSelect
+                  id="cycle-day"
+                  value={data.cycleStartDay}
+                  disabled={update.isPending}
+                  onChange={(e) => save({ cycleStartDay: Number(e.target.value) })}
+                >
+                  {CYCLE_DAYS.map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </NativeSelect>
+              </div>
+            </div>
+
+            {/* Brand logos */}
+            <div className="flex items-center justify-between gap-4 py-4">
+              <Label htmlFor="logo-fetch" className="text-sm font-medium text-foreground">
+                {t('budget.settings.logoTitle')}
               </Label>
               <Switch
-                id="ai-enabled"
-                checked={data.aiCategorizationEnabled}
+                id="logo-fetch"
+                className="shrink-0 dark:data-unchecked:bg-muted-foreground/50"
+                checked={data.logoFetchEnabled}
                 disabled={update.isPending}
-                onCheckedChange={(checked) => save({ aiCategorizationEnabled: checked })}
+                onCheckedChange={(checked) => save({ logoFetchEnabled: checked })}
               />
             </div>
 
-            {data.aiCategorizationEnabled && (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="ai-mode">{t('budget.settings.aiModeLabel')}</Label>
-                  <NativeSelect
-                    id="ai-mode"
-                    value={data.aiMode}
+            {/* AI categorization */}
+            <div className="py-4 last:pb-1">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <Label htmlFor="ai-enabled" className="text-sm font-medium text-foreground">
+                  {t('budget.settings.aiTitle')}
+                </Label>
+                <div className="flex shrink-0 items-center gap-3">
+                  {isAdmin && data.aiCategorizationEnabled && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => navigate('/admin?tab=ai')}
+                    >
+                      <Settings className="size-3.5" aria-hidden="true" />
+                      {t('budget.categorize.aiSettings')}
+                    </Button>
+                  )}
+                  <Switch
+                    id="ai-enabled"
+                    aria-label={t('budget.settings.aiEnableLabel')}
+                    className="shrink-0"
+                    checked={data.aiCategorizationEnabled}
                     disabled={update.isPending}
-                    onChange={(e) => save({ aiMode: e.target.value as AiCategorizationMode })}
-                  >
-                    {AI_MODES.map((m) => (
-                      <option key={m} value={m}>{t(`budget.settings.aiModeOption.${m}`)}</option>
-                    ))}
-                  </NativeSelect>
-                  <p className="text-xs text-muted-foreground">
-                    {t(`budget.settings.aiModeHint.${data.aiMode}`)}
-                  </p>
+                    onCheckedChange={(checked) => save({ aiCategorizationEnabled: checked })}
+                  />
                 </div>
+              </div>
 
-                {data.aiMode === 'AUTO_HIGH_CONFIDENCE' && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="ai-threshold">{t('budget.settings.aiThresholdLabel')}</Label>
-                      <span className="text-sm tabular-nums text-muted-foreground">{formatPercent(threshold, { fractionDigits: 0 })}</span>
-                    </div>
-                    <input
-                      id="ai-threshold"
-                      type="range"
-                      min={0}
-                      max={100}
-                      step={5}
-                      value={threshold}
+              {data.aiCategorizationEnabled && (
+                <div
+                  className={
+                    data.aiMode === 'AUTO_HIGH_CONFIDENCE'
+                      ? 'mt-4 grid gap-4 rounded-xl bg-muted/35 p-4 sm:grid-cols-2 sm:items-end'
+                      : 'mt-4 max-w-md rounded-xl bg-muted/35 p-4'
+                  }
+                >
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ai-mode">{t('budget.settings.aiModeLabel')}</Label>
+                    <NativeSelect
+                      id="ai-mode"
+                      value={data.aiMode}
                       disabled={update.isPending}
-                      onChange={(e) => setThreshold(Number(e.target.value))}
-                      onPointerUp={() => save({ aiConfidenceThreshold: threshold })}
-                      onKeyUp={() => save({ aiConfidenceThreshold: threshold })}
-                      onBlur={() => save({ aiConfidenceThreshold: threshold })}
-                      className="range-input w-full"
-                      style={{ '--range-fill': `${threshold}%` } as React.CSSProperties}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {t('budget.settings.aiThresholdHint')}
-                    </p>
+                      onChange={(e) => save({ aiMode: e.target.value as AiCategorizationMode })}
+                    >
+                      {AI_MODES.map((m) => (
+                        <option key={m} value={m}>{t(`budget.settings.aiModeOption.${m}`)}</option>
+                      ))}
+                    </NativeSelect>
                   </div>
-                )}
-              </>
-            )}
-          </>
+
+                  {data.aiMode === 'AUTO_HIGH_CONFIDENCE' && (
+                    <div className="space-y-2.5 pb-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <Label htmlFor="ai-threshold">{t('budget.settings.aiThresholdLabel')}</Label>
+                        <Badge variant="outline" className="bg-background tabular-nums">
+                          {formatPercent(threshold, { fractionDigits: 0 })}
+                        </Badge>
+                      </div>
+                      <input
+                        id="ai-threshold"
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={5}
+                        value={threshold}
+                        disabled={update.isPending}
+                        onChange={(e) => setThreshold(Number(e.target.value))}
+                        onPointerUp={() => save({ aiConfidenceThreshold: threshold })}
+                        onKeyUp={() => save({ aiConfidenceThreshold: threshold })}
+                        onBlur={() => save({ aiConfidenceThreshold: threshold })}
+                        className="range-input w-full"
+                        style={{ '--range-fill': `${threshold}%` } as React.CSSProperties}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </CardContent>
     </Card>
@@ -273,9 +247,6 @@ function CategoryForm({ open, onOpenChange, editing }: {
   const [parentId, setParentId] = useState<number | ''>(editing?.parentId ?? '')
   const pending = createCategory.isPending || updateCategory.isPending
 
-  // A category that already has sub-categories can't itself become one (the backend enforces a
-  // single level of nesting), so its parent selector is locked. Eligible parents are top-level
-  // categories of the same kind, not archived, and not the category being edited.
   const hasChildren = (categories ?? []).some((c) => c.parentId === editing?.id)
   const parentOptions = (categories ?? []).filter(
     (c) => c.parentId == null && c.kind === kind && !c.archived && c.id !== editing?.id,
@@ -291,26 +262,33 @@ function CategoryForm({ open, onOpenChange, editing }: {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>
             {editing ? t('budget.category.edit') : t('budget.category.add')}
           </DialogTitle>
-          <DialogDescription>{t('budget.category.formHint')}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="cat-name">{t('budget.category.name')}</Label>
-            <Input id="cat-name" value={name} onChange={(e) => setName(e.target.value)}
-              placeholder={t('budget.category.namePlaceholder')} />
+            <Input
+              id="cat-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={t('budget.category.namePlaceholder')}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="cat-kind">{t('budget.category.kind')}</Label>
-            <NativeSelect id="cat-kind" value={kind} disabled={editing != null}
+            <NativeSelect
+              id="cat-kind"
+              value={kind}
+              disabled={editing != null}
               onChange={(e) => {
                 setKind(e.target.value as CategoryKind)
-                setParentId('') // a parent must share the child's kind — drop a now-invalid choice
-              }}>
+                setParentId('')
+              }}
+            >
               {KINDS.map((k) => (
                 <option key={k} value={k}>{t(KIND_META[k].labelKey)}</option>
               ))}
@@ -318,16 +296,22 @@ function CategoryForm({ open, onOpenChange, editing }: {
           </div>
           <div className="space-y-2">
             <Label htmlFor="cat-parent">{t('budget.category.parent')}</Label>
-            <NativeSelect id="cat-parent" value={parentId} disabled={hasChildren}
-              onChange={(e) => setParentId(e.target.value === '' ? '' : Number(e.target.value))}>
+            <NativeSelect
+              id="cat-parent"
+              value={parentId}
+              disabled={hasChildren}
+              onChange={(e) => setParentId(e.target.value === '' ? '' : Number(e.target.value))}
+            >
               <option value="">{t('budget.category.parentNone')}</option>
               {parentOptions.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </NativeSelect>
-            <p className="text-xs text-muted-foreground">
-              {hasChildren ? t('budget.category.parentLocked') : t('budget.category.parentHint')}
-            </p>
+            {hasChildren && (
+              <p className="text-sm text-muted-foreground">
+                {t('budget.category.parentLocked')}
+              </p>
+            )}
           </div>
           <div className="space-y-2">
             <Label>{t('budget.category.color')}</Label>
@@ -363,23 +347,23 @@ function CategoriesCard() {
     setFormOpen(true)
   }
 
-  // The backend hands back a flat list; we fold it into a one-level tree for display — roots in
-  // their given order, each immediately followed by its (indented) sub-categories. A single level
-  // of nesting is guaranteed server-side, so there is no deeper recursion to handle.
   const roots = (categories ?? []).filter((c) => c.parentId == null)
   const childrenOf = (parentId: number) => (categories ?? []).filter((c) => c.parentId === parentId)
 
   function row(c: Category, child: boolean) {
     return (
-      <div key={c.id} className={`flex items-center gap-3 py-2.5 ${child ? 'pl-5 sm:pl-7' : ''}`}>
-        {child && <span aria-hidden className="-ml-2 text-muted-foreground/50">↳</span>}
+      <div
+        key={c.id}
+        className={`flex items-center gap-3 py-2.5 transition-colors hover:bg-muted/25 ${child ? 'pl-6 sm:pl-8' : ''}`}
+      >
+        {child && <CornerDownRight className="-ml-2 size-3.5 shrink-0 text-muted-foreground/60" aria-hidden="true" />}
         <ColorDot color={c.color} className="size-3 shrink-0 rounded-full" />
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
-          <span className={`max-w-full truncate ${c.archived ? 'text-muted-foreground line-through' : ''}`}>
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1">
+          <span className={`max-w-full truncate text-sm font-medium ${c.archived ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
             {c.name}
           </span>
           {child ? (
-            <Badge variant="ghost" className="text-muted-foreground">{t('budget.category.subcategory')}</Badge>
+            <Badge variant="secondary" className="text-muted-foreground">{t('budget.category.subcategory')}</Badge>
           ) : (
             <Badge variant="outline" className={KIND_META[c.kind].tone}>
               {t(KIND_META[c.kind].labelKey)}
@@ -392,20 +376,32 @@ function CategoriesCard() {
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <Button size="icon" variant="ghost" onClick={() => open(c)}
-            aria-label={t('budget.a11y.edit', { name: c.name })}>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            onClick={() => open(c)}
+            aria-label={t('budget.a11y.edit', { name: c.name })}
+          >
             <Pencil className="size-4" />
           </Button>
           {c.archived ? (
-            <Button size="icon" variant="ghost"
+            <Button
+              size="icon-sm"
+              variant="ghost"
               aria-label={t('budget.a11y.unarchive', { name: c.name })}
-              disabled={unarchive.isPending} onClick={() => unarchive.mutate(c.id)}>
+              disabled={unarchive.isPending}
+              onClick={() => unarchive.mutate(c.id)}
+            >
               <ArchiveRestore className="size-4" />
             </Button>
           ) : (
-            <Button size="icon" variant="ghost"
+            <Button
+              size="icon-sm"
+              variant="ghost"
               aria-label={t('budget.a11y.archive', { name: c.name })}
-              disabled={archive.isPending} onClick={() => archive.mutate(c.id)}>
+              disabled={archive.isPending}
+              onClick={() => archive.mutate(c.id)}
+            >
               <Archive className="size-4" />
             </Button>
           )}
@@ -417,21 +413,24 @@ function CategoriesCard() {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
-        <div>
-          <CardTitle className="text-base">{t('budget.category.title')}</CardTitle>
-          <CardDescription>{t('budget.category.hint')}</CardDescription>
-        </div>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Tags className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          {t('budget.category.title')}
+          {categories && (
+            <Badge variant="secondary" className="tabular-nums">{categories.length}</Badge>
+          )}
+        </CardTitle>
         <Button size="sm" onClick={() => open(null)}>
           <Plus className="size-4" /> {t('budget.category.add')}
         </Button>
       </CardHeader>
       <CardContent>
-        {isLoading && <Skeleton className="h-24 w-full rounded-xl" />}
+        {isLoading && <Skeleton className="h-32 w-full rounded-xl" />}
         {!isLoading && isError && !categories && (
           <ErrorState message={t('budget.category.error')} onRetry={() => void refetch()} />
         )}
         {categories && (
-          <div className="divide-y divide-border">
+          <div className="divide-y divide-border/60">
             {roots.map((r) => (
               <div key={r.id} className="divide-y divide-border/40">
                 {row(r, false)}
@@ -470,16 +469,18 @@ function RuleForm({ open, onOpenChange }: {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{t('budget.rule.add')}</DialogTitle>
-          <DialogDescription>{t('budget.rule.formHint')}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="rule-match">{t('budget.rule.matchType')}</Label>
-            <NativeSelect id="rule-match" value={matchType}
-              onChange={(e) => setMatchType(e.target.value as RuleMatchType)}>
+            <NativeSelect
+              id="rule-match"
+              value={matchType}
+              onChange={(e) => setMatchType(e.target.value as RuleMatchType)}
+            >
               {MATCH_TYPES.map((m) => (
                 <option key={m} value={m}>{t(`budget.rule.match.${m.toLowerCase()}`)}</option>
               ))}
@@ -487,13 +488,20 @@ function RuleForm({ open, onOpenChange }: {
           </div>
           <div className="space-y-2">
             <Label htmlFor="rule-pattern">{t('budget.rule.pattern')}</Label>
-            <Input id="rule-pattern" value={pattern} onChange={(e) => setPattern(e.target.value)}
-              placeholder="NETFLIX" />
+            <Input
+              id="rule-pattern"
+              value={pattern}
+              onChange={(e) => setPattern(e.target.value)}
+              placeholder="NETFLIX"
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="rule-cat">{t('budget.rule.category')}</Label>
-            <NativeSelect id="rule-cat" value={categoryId}
-              onChange={(e) => setCategoryId(e.target.value === '' ? '' : Number(e.target.value))}>
+            <NativeSelect
+              id="rule-cat"
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value === '' ? '' : Number(e.target.value))}
+            >
               <option value="">{t('budget.categorize.selectCategory')}</option>
               {(categories ?? []).filter((c) => !c.archived).map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
@@ -505,8 +513,10 @@ function RuleForm({ open, onOpenChange }: {
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={createRule.isPending}>
             {t('common.cancel')}
           </Button>
-          <Button onClick={submit}
-            disabled={createRule.isPending || pattern.trim() === '' || categoryId === ''}>
+          <Button
+            onClick={submit}
+            disabled={createRule.isPending || pattern.trim() === '' || categoryId === ''}
+          >
             {createRule.isPending ? t('common.loading') : t('common.save')}
           </Button>
         </DialogFooter>
@@ -524,38 +534,55 @@ function RulesCard() {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
-        <div>
-          <CardTitle className="text-base">{t('budget.rule.title')}</CardTitle>
-          <CardDescription>{t('budget.rule.hint')}</CardDescription>
-        </div>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <SlidersHorizontal className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          {t('budget.rule.title')}
+          {rules && rules.length > 0 && (
+            <Badge variant="secondary" className="tabular-nums">{rules.length}</Badge>
+          )}
+        </CardTitle>
         <Button size="sm" onClick={() => setFormOpen(true)}>
           <Plus className="size-4" /> {t('budget.rule.add')}
         </Button>
       </CardHeader>
       <CardContent>
-        {isLoading && <Skeleton className="h-20 w-full rounded-xl" />}
+        {isLoading && <Skeleton className="h-24 w-full rounded-xl" />}
         {!isLoading && isError && !rules && (
           <ErrorState message={t('budget.rule.error')} onRetry={() => void refetch()} />
         )}
         {!isLoading && !isError && (rules?.length ?? 0) === 0 && (
-          <p className="py-4 text-center text-sm text-muted-foreground">{t('budget.rule.empty')}</p>
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            {t('budget.rule.empty')}
+          </p>
         )}
         {rules && rules.length > 0 && (
-          <div className="divide-y divide-border">
+          <div className="divide-y divide-border/60">
             {rules.map((r) => (
-              <div key={r.id} className="flex items-center gap-3 py-2.5 text-sm">
-                <Badge variant="outline">{t(`budget.rule.match.${r.matchType.toLowerCase()}`)}</Badge>
-                <span className="truncate font-mono text-xs">{r.pattern}</span>
-                <span className="text-muted-foreground">→</span>
-                <span className="truncate">{r.categoryName}</span>
-                {r.source === 'AUTO' && (
-                  <Badge variant="ghost" className="text-muted-foreground">
-                    {t('budget.rule.learned')}
-                  </Badge>
-                )}
-                <Button size="icon" variant="ghost" className="ml-auto"
+              <div key={r.id} className="flex items-center justify-between gap-3 py-3 text-sm">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                  <Badge variant="outline">{t(`budget.rule.match.${r.matchType.toLowerCase()}`)}</Badge>
+                  <span
+                    className="max-w-full truncate rounded-md bg-muted/60 px-2 py-0.5 text-xs font-medium text-foreground"
+                    title={r.pattern}
+                  >
+                    {r.pattern}
+                  </span>
+                  <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <span className="truncate font-medium text-foreground">{r.categoryName}</span>
+                  {r.source === 'AUTO' && (
+                    <Badge variant="secondary" className="h-5 px-1.5 text-xs">
+                      {t('budget.rule.learned')}
+                    </Badge>
+                  )}
+                </div>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  className="shrink-0"
                   aria-label={t('budget.a11y.delete', { name: r.pattern })}
-                  disabled={deleteRule.isPending} onClick={() => deleteRule.mutate(r.id)}>
+                  disabled={deleteRule.isPending}
+                  onClick={() => deleteRule.mutate(r.id)}
+                >
                   <Trash2 className="size-4" />
                 </Button>
               </div>
@@ -570,12 +597,10 @@ function RulesCard() {
 
 export function ManageTab() {
   return (
-    <div className="space-y-4">
-      <CycleSettingsCard />
-      <LogoSettingsCard />
-      <AiCategorizationCard />
-      <CategoriesCard />
+    <div className="space-y-6">
+      <BudgetPreferencesCard />
       <RulesCard />
+      <CategoriesCard />
     </div>
   )
 }

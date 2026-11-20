@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { chooseSelectOption, getSelectOptions } from '@/test/radix-select'
 
 const { institutionSearch } = vi.hoisted(() => ({
   institutionSearch: { current: { data: undefined as unknown } },
@@ -87,7 +88,8 @@ describe('AccountForm bank field', () => {
     institutionSearch.current = { data: undefined }
     render(<AccountForm open onOpenChange={vi.fn()} onSubmit={vi.fn()} />)
 
-    expect(screen.getByRole('option', { name: 'accountTypes.livretA' })).toBeInTheDocument()
+    const options = getSelectOptions(screen.getByLabelText('accounts.accountType'))
+    expect(options.map(o => o.textContent)).toContain('accountTypes.livretA')
   })
 
   it('asks for the amount owed on a credit card, like the remaining capital of a loan', async () => {
@@ -95,7 +97,7 @@ describe('AccountForm bank field', () => {
     const onSubmit = vi.fn()
     render(<AccountForm open onOpenChange={vi.fn()} onSubmit={onSubmit} />)
 
-    fireEvent.change(screen.getByLabelText('accounts.accountType'), { target: { value: 'CREDIT_CARD' } })
+    chooseSelectOption(screen.getByLabelText('accounts.accountType'), 'CREDIT_CARD')
     fireEvent.change(screen.getByLabelText('accounts.accountName'), { target: { value: 'Card' } })
     fireEvent.change(screen.getByLabelText('accounts.currentDebt'), { target: { value: '800' } })
     fireEvent.click(screen.getByRole('button', { name: 'common.save' }))

@@ -28,6 +28,11 @@ const hooks = vi.hoisted(() => ({
 
 vi.mock('@/features/accounts/hooks', () => ({
   useAccount: hooks.useAccount,
+  useAccounts: () => ({ data: [] }),
+  useAccountDeletionImpact: () => ({ data: undefined }),
+  useUpdateAccount: () => mutation(),
+  useDeleteAccount: () => mutation(),
+  useUpdateDebtMetadata: () => mutation(),
   useAccountHistory: hooks.useAccountHistory,
   useHoldingsWithLivePrices: hooks.useHoldingsWithLivePrices,
   useAccountPositions: hooks.useAccountPositions,
@@ -82,6 +87,8 @@ vi.mock('@/components/shared/TransactionsList', () => ({
   },
 }))
 vi.mock('@/components/shared/AddTransactionModal', () => ({ AddTransactionModal: () => null }))
+vi.mock('@/components/shared/AccountForm', () => ({ AccountForm: () => null }))
+vi.mock('@/components/shared/ConfirmDialog', () => ({ ConfirmDialog: () => null }))
 vi.mock('@/components/shared/ImportTransactionsModal', () => ({ ImportTransactionsModal: () => null }))
 vi.mock('@/components/shared/EditHoldingModal', () => ({ EditHoldingModal: () => null }))
 vi.mock('@/components/shared/MonthEndBalanceModal', () => ({ MonthEndBalanceModal: () => null }))

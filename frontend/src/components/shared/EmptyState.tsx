@@ -19,9 +19,9 @@ export function EmptyState({ icon, title, description, className, action }: Empt
       <div className="text-muted-foreground/50 mb-4">
         {icon || <Package className="size-12" />}
       </div>
-      <h3 className="text-lg font-medium">{title}</h3>
+      <h3 className="text-base font-semibold">{title}</h3>
       {description && (
-        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+        <p className="mt-1.5 max-w-md text-sm/relaxed text-muted-foreground">{description}</p>
       )}
       {action && (
         <Button onClick={action.onClick} className="mt-4">

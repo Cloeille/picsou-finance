@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
+import { chooseSelectOption, getSelectOptionValues } from '@/test/radix-select'
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { BankCountrySelect, DEFAULT_BANK_COUNTRY } from './BankCountrySelect'
 import { useBankCountries } from '@/features/sync/hooks'
 
@@ -20,9 +21,8 @@ describe('BankCountrySelect', () => {
 
     render(<BankCountrySelect value={DEFAULT_BANK_COUNTRY} onChange={vi.fn()} />)
 
-    const options = screen.getAllByRole('option')
-    expect(options).toHaveLength(1)
-    expect(options[0]).toHaveValue('FR')
+    const values = getSelectOptionValues(screen.getByRole('combobox'))
+    expect(values).toEqual(['FR'])
     expect(screen.queryByText('sync.banks.countriesLoadError')).not.toBeInTheDocument()
   })
 
@@ -31,8 +31,8 @@ describe('BankCountrySelect', () => {
 
     render(<BankCountrySelect value={DEFAULT_BANK_COUNTRY} onChange={vi.fn()} />)
 
-    const options = screen.getAllByRole('option')
-    expect(options.map((o) => (o as HTMLOptionElement).value)).toEqual(['FR', 'DE', 'EE'])
+    const values = getSelectOptionValues(screen.getByRole('combobox'))
+    expect(values).toEqual(['FR', 'DE', 'EE'])
   })
 
   it('calls onChange when the user picks a different option', () => {
@@ -40,7 +40,7 @@ describe('BankCountrySelect', () => {
     const onChange = vi.fn()
 
     render(<BankCountrySelect value={DEFAULT_BANK_COUNTRY} onChange={onChange} />)
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'EE' } })
+    chooseSelectOption(screen.getByRole('combobox'), 'EE')
 
     expect(onChange).toHaveBeenCalledWith('EE')
   })
@@ -69,7 +69,7 @@ describe('BankCountrySelect', () => {
 
     // The full list is still shown — claiming "showing France only" here would be false.
     expect(screen.queryByText('sync.banks.countriesLoadError')).not.toBeInTheDocument()
-    expect(screen.getAllByRole('option')).toHaveLength(3)
+    expect(getSelectOptionValues(screen.getByRole('combobox'))).toHaveLength(3)
   })
 
   it('snaps to the first available option when the current value is not in the loaded list', () => {

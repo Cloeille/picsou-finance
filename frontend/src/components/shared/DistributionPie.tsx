@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { Cell, Pie, PieChart, Label } from 'recharts'
 import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/chart'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { useTranslation } from 'react-i18next'
 import { MoneyChartTooltip } from '@/components/shared/MoneyChartTooltip'
@@ -128,16 +128,17 @@ export function DistributionPie({ data }: DistributionPieProps) {
   return (
     <Card className="h-[420px]">
       <Tabs defaultValue="distribution" className="h-full w-full gap-0">
-        <CardHeader className="shrink-0">
+        <CardHeader className="shrink-0 space-y-2.5">
+          <CardTitle>{t('dashboard.distributionTitle')}</CardTitle>
           <TabsList>
             <TabsTrigger value="distribution">{t('dashboard.distribution')}</TabsTrigger>
             <TabsTrigger value="allocation">{t('dashboard.allocation')}</TabsTrigger>
           </TabsList>
         </CardHeader>
-        <CardContent className="min-h-0 flex-1 pt-3">
+        <CardContent className="min-h-0 flex-1 pt-2">
           <TabsContent value="distribution" className="h-full">
             <div className="flex h-full min-h-0 flex-col">
-              <ChartContainer config={chartConfig} className="mx-auto h-[250px] w-full shrink-0">
+              <ChartContainer config={chartConfig} className="mx-auto h-[220px] w-full shrink-0">
                 <PieChart>
                   <ChartTooltip content={<MoneyChartTooltip config={chartConfig} hideLabel />} />
                   <Pie

@@ -91,7 +91,7 @@ export function MembersSection() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2 text-base font-semibold">
           <Users className="size-5" />
           {t('admin.members.title')}
         </CardTitle>

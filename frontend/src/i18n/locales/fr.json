@@ -31,20 +31,21 @@
     "currency": "EUR",
     "category": "Catégorie",
     "done": "Terminé",
-    "labelColon": "{{label}} :"
+    "labelColon": "{{label}} :",
+    "notFound": "Élément introuvable."
   },
   "nav": {
     "dashboard": "Tableau de bord",
     "dashboard.desc": "Vue d'ensemble",
     "accounts": "Comptes",
-    "accounts.desc": "Soldes & transactions",
+    "accounts.desc": "Soldes et transactions",
     "goals": "Objectifs",
     "goals.desc": "Suivi de vos épargnes",
     "budget": "Budget",
-    "budget.desc": "Dépenses & cashflow",
+    "budget.desc": "Dépenses et trésorerie",
     "sync": "Synchronisation",
     "settings": "Paramètres",
-    "settings.desc": "Préférences & compte",
+    "settings.desc": "Préférences et compte",
     "family": "Famille",
     "family.desc": "Vue partagée",
     "account": "Mon compte",
@@ -53,13 +54,13 @@
     "unknownProfile": "Profil inconnu",
     "admin": "Administration",
     "analysis": "Analyse",
-    "analysis.desc": "Répartition & diversification",
+    "analysis.desc": "Répartition et diversification",
     "hideAmounts": "Masquer les montants",
     "showAmounts": "Afficher les montants"
   },
   "auth": {
     "login": "Connexion",
-    "loginTagline": "Picsou",
+    "loginTagline": "Accédez à votre espace personnel Picsou.",
     "username": "Nom d'utilisateur",
     "password": "Mot de passe",
     "loginButton": "Se connecter",
@@ -80,7 +81,7 @@
     "mfaUseTotp": "Utiliser le code de l'application",
     "mfaRecoveryLabel": "Code de récupération",
     "mfaTrustDevice": "Faire confiance à cet appareil pendant 90 jours",
-    "mfaTrustDeviceDesc": "Évite la 2FA lors des prochaines connexions sur ce navigateur",
+    "mfaTrustDeviceDesc": "Évite la double authentification lors des prochaines connexions sur ce navigateur.",
     "mfaVerifyButton": "Vérifier",
     "mfaVerifying": "Vérification...",
     "mfaInvalidCode": "Code incorrect",
@@ -113,7 +114,7 @@
     "fixConnections": "Corriger les connexions",
     "invested": "Capital investi",
     "portfolioPerformance": "performance portefeuille",
-    "marketsClosed": "Marchés fermés — aucune donnée intraday disponible",
+    "marketsClosed": "Marchés fermés : aucune donnée intraday disponible",
     "distribution": "Répartition",
     "accountsLabel": "comptes",
     "ranges": {
@@ -121,7 +122,7 @@
       "7D": "7J",
       "1M": "1M",
       "3M": "3M",
-      "YTD": "1er janv.",
+      "YTD": "YTD",
       "1Y": "1A",
       "ALL": "Tout"
     },
@@ -139,7 +140,7 @@
     "searchHoldings": "Rechercher des titres ou tickers...",
     "allHoldings": "Tout",
     "shares": "parts",
-    "gainLoss": "Plus-value / Moins-value",
+    "gainLoss": "Plus ou moins-value",
     "totalLiabilities": "Total des dettes",
     "totalAssets": "Total des actifs",
     "liabilities": "Dettes",
@@ -152,7 +153,18 @@
       "net": "Évolution du patrimoine net",
       "gross": "Évolution du patrimoine brut",
       "financial": "Évolution du patrimoine financier"
-    }
+    },
+    "viewAllHistory": "Voir tout l'historique",
+    "rangeTitles": {
+      "24H": "Dernières 24 heures",
+      "7D": "7 derniers jours",
+      "1M": "Dernier mois",
+      "3M": "3 derniers mois",
+      "YTD": "Depuis le 1er janvier",
+      "1Y": "12 derniers mois",
+      "ALL": "Tout l'historique"
+    },
+    "distributionTitle": "Répartition des comptes"
   },
   "transactions": {
     "detail": "Détail de la transaction",
@@ -198,10 +210,10 @@
     "deleteRemovesConnection": "La connexion {{connection}} sera également supprimée et cessera de se synchroniser.",
     "noAccounts": "Aucun compte",
     "balance": "Solde",
-    "lastSync": "Dernière sync",
+    "lastSync": "Dernière synchronisation",
     "lastValuation": "Dernière estimation",
     "viaProvider": "via {{provider}}",
-    "syncStale": "Sync : {{time}}",
+    "syncStale": "Synchronisé {{time}}",
     "syncStaleTooltip": "Ce compte n'a pas été synchronisé récemment. Relancez la synchronisation ou reconnectez le fournisseur.",
     "holdings": "Positions",
     "transactions": "Transactions",
@@ -230,7 +242,7 @@
     "valueAndInvested": "Valeur et capital investi",
     "priceLive": "Prix en direct",
     "priceStale": "Prix datant de {{time}}",
-    "priceAsOf": "Cours du {{date}} — le fournisseur de prix n'a pas répondu",
+    "priceAsOf": "Cours du {{date}} (le fournisseur de prix n'a pas répondu)",
     "manual": "Manuel",
     "accountName": "Nom du compte",
     "beneficiary": "Bénéficiaire",
@@ -257,8 +269,8 @@
     },
     "tabOverview": "Aperçu",
     "cashBalance": "Liquidités dans le PEA/CTO",
-    "perEuroFundBalance": "Fonds en euros du PER (dernière synchro)",
-    "lifeEuroFundBalance": "Fonds en euros (dernière synchro)",
+    "perEuroFundBalance": "Fonds en euros du PER (dernière synchronisation)",
+    "lifeEuroFundBalance": "Fonds en euros (dernière synchronisation)",
     "dividends": {
       "title": "Dividendes à venir",
       "carousel": "Carrousel des dividendes à venir",
@@ -289,22 +301,23 @@
     "importSuccess_other": "{{count}} transactions importées",
     "importSuccessWithSkipped": "{{count}} transaction importée ({{skipped}} déjà présente)",
     "importSuccessWithSkipped_other": "{{count}} transactions importées ({{skipped}} déjà présentes)",
-    "importAlreadyDone": "Aucune nouvelle transaction — le CSV est déjà importé.",
+    "importAlreadyDone": "Aucune nouvelle transaction : ce fichier CSV a déjà été importé.",
     "importError": "Erreur lors de l'import : {{message}}",
     "addSnapshot": "Enregistrer",
     "monthlyHistory": "Solde en fin de mois",
-    "pnl": "Plus-value / Moins-value",
+    "pnl": "Plus ou moins-value",
     "filters": {
       "ALL": "Tout",
-      "STOCKS": "Actions & Fonds",
-      "METALS": "Métaux Précieux",
+      "STOCKS": "Actions et fonds",
+      "METALS": "Métaux précieux",
       "SAVINGS": "Livrets",
       "CHECKING": "Comptes courants",
       "CRYPTO": "Crypto",
       "REAL_ESTATE": "Immobilier",
       "RECEIVABLES": "Créances",
       "DEBTS": "Dettes",
-      "OTHER": "Autre"
+      "OTHER": "Autre",
+      "more": "Plus"
     },
     "showClosedLoans": "Afficher les prêts clôturés",
     "hideClosedLoans": "Masquer les prêts clôturés",
@@ -342,15 +355,15 @@
     "editTargets": "Mes cibles",
     "error": "Impossible de charger l'analyse",
     "points": "pts",
-    "targetShort": "cible {{value}}",
+    "targetShort": "Objectif : {{value}}",
     "empty": {
       "title": "Rien à analyser pour l'instant",
-      "description": "Ajoutez des comptes pour que Picsou puisse juger la composition de votre patrimoine."
+      "description": "Ajoutez un premier compte pour que Picsou puisse analyser la répartition de votre patrimoine."
     },
     "tiers": {
       "SAFETY_NET": "Matelas de sécurité",
       "REAL_ESTATE": "Immobilier",
-      "EQUITY": "Actions & ETF",
+      "EQUITY": "Actions et ETF",
       "CRYPTO": "Crypto",
       "ALTERNATIVE": "Actifs alternatifs"
     },
@@ -360,7 +373,7 @@
       "allocation": "Allocation",
       "cryptoPenalty": "Pénalité crypto",
       "leverageBonus": "Bonus de levier",
-      "notRated": "non évalué",
+      "notRated": "Non évalué",
       "misplaced": "{{value}} de votre patrimoine est à déplacer pour atteindre vos cibles.",
       "safetyNetUnknownHint": "Renseignez vos dépenses mensuelles obligatoires pour que le matelas de sécurité soit évalué.",
       "notRatedYet": "Pas encore de score : renseignez vos dépenses mensuelles, ou investissez au-delà de votre matelas."
@@ -371,33 +384,36 @@
       "short": "{{value}} de la cible",
       "covered": "Couvert",
       "excess": "Excédent",
-      "excessHint": "La part au-delà de la cible est de la trésorerie à replacer : elle n'entre pas dans la répartition ci-dessous.",
+      "excessHint": "Cet excédent dépasse votre matelas cible et peut être investi.",
       "unknown": "Renseignez vos dépenses mensuelles obligatoires pour définir la cible de votre matelas.",
       "dailyCash": "Vos comptes courants portent",
       "dailyCashHint": "non comptés dans le matelas ni dans la répartition.",
-      "inPassbooks": "sur vos livrets d'épargne."
+      "inPassbooks": "sur vos livrets d'épargne.",
+      "cardTitle": "Matelas de sécurité",
+      "configureCta": "Renseigner mes dépenses",
+      "dailyCashNote": "disponibles sur vos comptes courants, en plus de votre matelas de sécurité."
     },
     "targets": {
       "title": "Mes cibles d'allocation",
-      "description": "Le matelas se calcule en montant, le reste en pourcentage de ce qui dépasse.",
+      "description": "Définissez le montant de votre matelas de sécurité, puis la répartition du reste de votre patrimoine.",
       "expenses": "Dépenses mensuelles obligatoires",
       "expensesPlaceholder": "1 850",
-      "expensesHint": "Loyer, crédits, énergie, alimentation — ce qui tombe tous les mois quoi qu'il arrive.",
+      "expensesHint": "Indiquez vos dépenses fixes mensuelles (loyer, crédits, énergie et alimentation).",
       "suggestion": "Estimé à",
       "suggestionBasis": "sur {{count}} mois observés",
       "useSuggestion": "Utiliser",
       "months": "Mois de dépenses à couvrir",
-      "allocation": "Répartition cible du reste",
+      "allocation": "Répartition du reste du patrimoine",
       "sum": "Total {{value}} / {{max}}",
       "allocationHint": "Les quatre pourcentages doivent totaliser 100%."
     },
-    "targetAmount": "cible",
+    "targetAmount": "Objectif :",
     "diversification": {
       "title": "Diversification",
       "sectors": "Secteurs",
       "countries": "Zones géographiques",
       "effective": "{{value}} postes effectifs / {{target}} visés",
-      "coverage": "Calculé sur {{value}} du portefeuille actions & ETF",
+      "coverage": "Cette répartition couvre {{value}} de votre portefeuille d'actions et d'ETF.",
       "unclassified": "non classé",
       "noData": "Aucune donnée de répartition disponible",
       "noHoldings": "Aucune ligne d'actions ou d'ETF à analyser.",
@@ -406,13 +422,14 @@
         "bar": "Lignes",
         "donut": "Anneau",
         "treemap": "Compartiments"
-      }
+      },
+      "pendingProfiles": "La répartition sectorielle et géographique apparaîtra dès que les profils de vos titres auront été analysés. Cliquez sur « Actualiser les profils » ci-dessous ou classez-les manuellement."
     },
     "projection": {
       "title": "Projection du patrimoine",
       "years": "{{count}} ans",
-      "basis": "Base investissable",
-      "monthly": "versements",
+      "basis": "Capital de départ",
+      "monthly": "Versements mensuels",
       "nothingToProject": "Définissez un investissement mensuel dans Objectifs pour voir une projection.",
       "disclaimer": "Projection à partir de vos versements récurrents, capitalisée mensuellement. Hors immobilier, prêts et actifs alternatifs. Ce n'est pas une prévision.",
       "scenarios": {
@@ -431,7 +448,8 @@
       "tier": "Poche",
       "today": "Aujourd'hui",
       "atHorizon": "À {{count}} ans",
-      "atAge": "{{age}} ans"
+      "atAge": "{{age}} ans",
+      "referenceAt": "Projection à {{count}} ans (référence)"
     },
     "classification": {
       "title": "Classer ce titre",
@@ -441,10 +459,10 @@
       "tier": "Palier patrimonial",
       "inherit": "Laisser Picsou décider",
       "inferred": "Détecté automatiquement : {{value}}",
-      "tierHint": "À ne renseigner que si le titre n'appartient pas au palier de son compte — un ETC or ou un ETP bitcoin logé dans un CTO, par exemple.",
+      "tierHint": "À modifier uniquement si ce titre appartient à un autre palier que son compte.",
       "scopeHint": "Ce classement s'applique à {{ticker}} partout où vous le détenez, et survit aux synchronisations.",
       "listTitle": "Lignes à classer",
-      "missing": "manque : {{fields}}",
+      "missing": "Informations manquantes : {{fields}}",
       "notLookedUp": "pas encore recherché",
       "refresh": "Rechercher maintenant",
       "refreshQueued": "Recherche lancée sur {{count}} titres. Revenez dans une minute.",
@@ -459,10 +477,17 @@
       "others_other": "et {{count}} autres"
     },
     "alerts": {
-      "SINGLE_ASSET_CONCENTRATION": "{{label}} représente {{percent}} de votre patrimoine — un seul actif porte l'essentiel du risque.",
-      "EMPTY_TIER": "Aucun actif en {{label}} : cette poche est à zéro, pas simplement sous-dotée.",
-      "CUSHION_OVERFUNDED": "{{value}} au-delà de votre cible de matelas — de l'argent disponible à replacer."
-    }
+      "SINGLE_ASSET_CONCENTRATION": "{{label}} représente {{percent}} de votre patrimoine : le risque est fortement concentré sur un seul compte.",
+      "EMPTY_TIER": "Aucune exposition en {{label}} pour le moment.",
+      "CUSHION_OVERFUNDED": "Votre matelas de sécurité dépasse sa cible de {{value}} : cet excédent peut être investi."
+    },
+    "tabs": {
+      "pyramid": "Pyramide",
+      "diversification": "Diversification",
+      "projection": "Projection"
+    },
+    "alertsTitle": "Points d'attention",
+    "allocationCardTitle": "Répartition par classe d'actifs"
   },
   "accountTypes": {
     "checking": "Compte courant",
@@ -470,7 +495,7 @@
     "lep": "LEP",
     "livretA": "Livret A",
     "ldds": "LDDS",
-    "livretJeune": "Livret Jeune",
+    "livretJeune": "Livret jeune",
     "pel": "PEL",
     "cel": "CEL",
     "pea": "PEA",
@@ -490,11 +515,11 @@
   },
   "peerLoan": {
     "termsDescription": "Le montant prêté, la date, et si besoin un taux et une prévision.",
-    "borrowerHint": "Le bénéficiaire est le nom du compte. Un compte = un prêt.",
-    "linkedAccountHint": "Obligatoire : le compte qui reçoit les remboursements, pour que le patrimoine reste juste.",
+    "borrowerHint": "Chaque prêt correspond à un compte au nom du bénéficiaire.",
+    "linkedAccountHint": "Sélectionnez le compte qui reçoit les remboursements.",
     "termsHint": {
       "noCashLeg": "La sortie d'argent est déjà reflétée dans le solde du compte de trésorerie : aucune écriture ne sera créée.",
-      "syncedAccount": "Compte synchronisé : Picsou n'écrit aucun mouvement bancaire."
+      "syncedAccount": "Ce compte étant synchronisé, Picsou n'y ajoute aucun mouvement."
     },
     "setupHint": "Renseignez le montant prêté et le compte de trésorerie pour commencer le suivi.",
     "saved": "Conditions enregistrées.",
@@ -563,7 +588,7 @@
       "title": "Prévision",
       "planTitle": "Simulateur",
       "scheduled": "Prévu à ce jour",
-      "actual": "Réel",
+      "actual": "Remboursé à ce jour",
       "plannedInterest": "Intérêts prévus",
       "behind": "{{count}} échéance de retard",
       "behind_other": "{{count}} échéances de retard",
@@ -571,7 +596,7 @@
       "ahead_other": "{{count}} échéances d'avance",
       "onTrack": "Dans les temps",
       "disclaimer": "Prévision indicative, jamais contractuelle.",
-      "simulationResult": "{{months}} mois · {{monthlyPayment}}/mois · {{interest}} d'intérêts",
+      "simulationResult": "{{months}} mois à {{monthlyPayment}} par mois, dont {{interest}} d'intérêts",
       "accruedHint": "Intérêts courus à ce jour :",
       "remainingHint": "Reste dû (maximum par remboursement) :"
     },
@@ -650,7 +675,7 @@
     "add": {
       "action": "Ajouter une SCPI",
       "title": "Ajouter une part de SCPI",
-      "description": "Une part n'est pas un bien. La valeur retenue est le prix de retrait multiplié par le nombre de parts."
+      "description": "La valorisation correspond au nombre de parts multiplié par le prix de retrait."
     },
     "name": "Nom du véhicule",
     "managementCompany": "Société de gestion",
@@ -658,7 +683,7 @@
     "subscriptionPrice": "Prix de souscription",
     "withdrawalPrice": "Prix de retrait",
     "withdrawalValue": "Valeur au prix de retrait",
-    "subscriptionHint": "Affiché à côté du solde, jamais à sa place. Les frais d'entrée s'y trouvent.",
+    "subscriptionHint": "Le prix de souscription inclut les frais d'entrée et reste affiché à titre informatif.",
     "corumFundCode": "Code fonds CORUM",
     "corumFundHint": "Facultatif. La synchronisation CORUM rattache ses fonds d'elle-même ; ne saisissez un code que pour forcer un rattachement.",
     "sofidyFundCode": "Code fonds Sofidy",
@@ -668,21 +693,21 @@
     "reinvest": "Réinvestis",
     "jouissanceDate": "Date de jouissance",
     "annualDistribution": "Distribution annuelle par part (€)",
-    "annualDistributionHint": "Facultatif, mais le montant et la fréquence vont ensemble : les deux, ou aucun. Sert à estimer les versements à venir. Les montants réinvestis restent hors budget.",
+    "annualDistributionHint": "Facultatif. Renseignez le montant et la fréquence pour estimer les prochains versements.",
     "distributionFrequency": "Fréquence de distribution",
     "frequencyMonthly": "Mensuelle",
     "frequencyQuarterly": "Trimestrielle",
     "frequencyNone": "Non renseignée",
     "isin": "ISIN",
-    "incomplete": "Prix de retrait manquant : le solde précédent est conservé.",
+    "incomplete": "Le prix de retrait est manquant : le solde précédent est conservé.",
     "position": "Position",
     "edit": "Modifier",
     "save": "Enregistrer",
     "summary": {
       "title": "Pierre-papier",
-      "gross": "Valeur au retrait",
+      "gross": "Valeur brute",
       "debt": "Crédit lié",
-      "net": "Net",
+      "net": "Valeur nette",
       "hint": "Hors estimation au mètre carré. Le prix de souscription n'entre pas dans ce total.",
       "incomplete": "Une part utilise encore son dernier solde connu : le prix de retrait manque."
     },
@@ -701,7 +726,7 @@
         "UPDATED_other": "{{count}} mis à jour"
       },
       "detail": {
-        "PRICE_INCOMPLETE": "parts mises à jour, prix de retrait manquant : solde conservé",
+        "PRICE_INCOMPLETE": "Parts mises à jour, mais le prix de retrait est manquant : le solde précédent a été conservé.",
         "AMBIGUOUS": "plusieurs comptes SCPI portent ce nom, aucun n'a été rattaché. Choisissez-le en ajoutant une SCPI, ou renommez-en un.",
         "IGNORED": "ignoré, non synchronisé",
         "MISSING_AT_PROVIDER": "n'apparaît plus chez le fournisseur, compte conservé"
@@ -711,9 +736,9 @@
     "ignoreFundConfirm": "Détacher ce fonds ? Le compte et son historique restent, et les prochaines synchronisations ne le mettront plus à jour ni ne le recréeront.",
     "advancedLinks": "Avancé : codes de fonds du fournisseur",
     "seenFund": "Fonds trouvé par une synchronisation",
-    "seenFundNone": "Aucun — saisie manuelle",
+    "seenFundNone": "Aucun (saisie manuelle)",
     "seenFundHint": "Remplit le nom et le code du fonds, pour que la prochaine synchronisation mette ce compte à jour.",
-    "seenFundIgnored": "ignoré — le choisir le resynchronise"
+    "seenFundIgnored": "ignoré (le sélectionner le resynchronise)"
   },
   "debt": {
     "borrowedAmount": "Montant emprunté",
@@ -755,8 +780,8 @@
     "ticker": "Ticker",
     "name": "Nom",
     "unitPrice": "Prix unitaire",
-    "pnl": "Plus-value / Moins-value",
-    "pnlPercent": "Plus-value / Moins-value %",
+    "pnl": "Plus ou moins-value",
+    "pnlPercent": "Plus ou moins-value (%)",
     "quantity": "Quantité",
     "account": "Compte",
     "lastUpdated": "Dernière mise à jour",
@@ -768,7 +793,7 @@
     "avgBuyIn": "Prix moyen d'achat",
     "totalInvested": "Montant total investi",
     "quantitySyncedHint": "La quantité provient de la synchronisation on-chain / de la plateforme et n'est pas modifiable ici.",
-    "costBasisHint": "Définissez votre prix de revient réel pour que la plus/moins-value reflète ce que vous avez réellement investi — modifier un champ met à jour l'autre.",
+    "costBasisHint": "Définissez votre prix de revient réel afin que la plus-value ou moins-value reflète votre investissement effectif. La modification d'un champ met à jour l'autre.",
     "quantityInvalid": "Saisissez une quantité supérieure à zéro.",
     "costBasisInvalid": "Le prix de revient ne peut pas être négatif.",
     "editTitle": "Modifier {{ticker}}",
@@ -851,7 +876,7 @@
     "deleteGoal": "Supprimer l'objectif",
     "targetAmount": "Montant cible",
     "deadline": "Échéance",
-    "currentTotal": "Actuel",
+    "currentTotal": "Solde actuel",
     "progress": "Progression",
     "onTrack": "En bonne voie",
     "behind": "En retard",
@@ -868,7 +893,7 @@
     "viewCalendar": "Calendrier",
     "monthlyObjective": "Objectif mensuel",
     "calculatedObjective": "Objectif calculé",
-    "actual": "Réel",
+    "actual": "Montant épargné",
     "fromAccounts": "via comptes",
     "saveManual": "Enregistrer",
     "saveOverride": "Appliquer",
@@ -881,7 +906,7 @@
     "backfillHint": "Ajoutez d'anciennes contributions antérieures à la création de l'objectif.",
     "addYear": "+ Ajouter {{year}}",
     "addPreviousMonth": "Mois précédent",
-    "noData": "—",
+    "noData": "-",
     "linkedAccounts": "Comptes liés",
     "atCurrentPace": "Au rythme actuel",
     "goalType": "Type d'objectif",
@@ -891,7 +916,7 @@
     "expectedReturn": "Rendement attendu (%)",
     "startDate": "Début",
     "endDate": "Fin",
-    "until": "jusqu'au {{date}}",
+    "until": "Jusqu'au {{date}}",
     "recurringHint": "Sans date de fin, le versement est considéré comme indéfini. Le rendement attendu, s'il est renseigné, est celui appliqué à ce plan dans la projection ; sinon c'est celui du type de compte.",
     "types": {
       "SAVINGS_TARGET": "Épargne à échéance",
@@ -900,7 +925,7 @@
     "sections": {
       "savings": "Objectifs d'épargne",
       "recurring": "Investissements récurrents",
-      "recurringHint": "Ce que vous investissez chaque mois — c'est ce qui alimente la projection dans Analyse."
+      "recurringHint": "Le montant que vous investissez chaque mois alimente la projection dans la section Analyse."
     },
     "allocation": {
       "title": "Détail des positions",
@@ -908,11 +933,14 @@
       "pickAccountFirst": "Choisissez d'abord le compte alimenté.",
       "noHoldings": "Ce compte ne détient encore aucune position.",
       "amountFor": "Montant mensuel sur {{ticker}}",
-      "allocated": "Alloué",
-      "remaining": "reste",
+      "allocated": "Montant réparti :",
+      "remaining": "il reste",
       "over": "dépassement de",
       "unallocated": "Non alloué",
-      "toggle": "Afficher le détail des positions"
+      "toggle": "Afficher le détail des positions",
+      "amountPlaceholder": "Montant (€)",
+      "missingAmount": "Renseignez un montant pour chaque position cochée.",
+      "splitEqually": "Répartir équitablement"
     },
     "savingsRate": {
       "title": "Taux d'épargne",
@@ -921,15 +949,16 @@
       "benchmark": "Le taux d'épargne moyen des ménages en France s'établit autour de {{rate}} de leur revenu disponible brut",
       "needsIncome": "Renseignez votre net mensuel avant impôt et votre taux de prélèvement à la source pour voir votre taux d'épargne.",
       "goToSettings": "Aller aux paramètres"
-    }
+    },
+    "objectiveShort": "Objectif"
   },
   "budget": {
     "surtitle": "FINANCES",
-    "title": "Budget & Cashflow",
+    "title": "Budget et trésorerie",
     "tab": {
       "overview": "Aperçu",
       "envelopes": "Enveloppes",
-      "cashflow": "Cashflow",
+      "cashflow": "Trésorerie",
       "recurring": "Récurrents",
       "categorize": "À catégoriser",
       "transactions": "Transactions",
@@ -969,7 +998,7 @@
     },
     "overview": {
       "netThisCycle": "Solde net du cycle",
-      "incomeVsExpense": "{{income}} € entrées · {{expense}} € sorties",
+      "incomeVsExpense": "{{income}} de revenus et {{expense}} de dépenses",
       "envelopes": "Enveloppes",
       "onTrack": "Tout est sous contrôle",
       "overBudget": "{{count}} enveloppe dépassée",
@@ -977,8 +1006,8 @@
       "upcoming30": "À venir (30 j)",
       "upcomingCount": "{{count}} échéance à venir",
       "upcomingCount_other": "{{count}} échéances à venir",
-      "investable": "Épargne & invest.",
-      "contributedThisCycle": "{{amount}} € versés ce cycle",
+      "investable": "Épargne et investissement",
+      "contributedThisCycle": "{{amount}} versés ce cycle",
       "toCategorize": "{{count}} transaction à catégoriser",
       "toCategorize_other": "{{count}} transactions à catégoriser",
       "topEnvelopes": "Enveloppes les plus sollicitées",
@@ -1036,7 +1065,7 @@
       "subtitle": "Répartition de votre épargne et de vos investissements.",
       "stock": "Encours par classe d'actif",
       "contributions": "Contributions de la période",
-      "totalContributed": "Total versé",
+      "totalContributed": "Total versé :",
       "noStock": "Aucun encours à afficher.",
       "noContributions": "Aucune contribution sur cette période.",
       "noContributionsHint": "Les virements vers vos comptes d'épargne et d'investissement apparaîtront ici.",
@@ -1055,8 +1084,8 @@
       "emptyHint": "Créez une enveloppe pour suivre vos dépenses par catégorie.",
       "error": "Impossible de charger les enveloppes.",
       "deleteTitle": "Supprimer l'enveloppe",
-      "remaining": "{{amount}} restants · {{percent}}",
-      "overspent": "{{amount}} de dépassement · {{percent}}",
+      "remaining": "Il reste {{amount}} ({{percent}})",
+      "overspent": "Dépassement de {{amount}} ({{percent}})",
       "deleteDescription": "Supprimer l'enveloppe « {{name}} » ? Les transactions sont conservées."
     },
     "recurring": {
@@ -1078,8 +1107,8 @@
       "noCategory": "Sans catégorie",
       "formHint": "Ajoutez manuellement un prélèvement récurrent.",
       "variable": "Montant variable",
-      "autoConfirmedConfident": "Auto-confirmé · {{percent}} de confiance",
-      "priceFromTo": "{{from}} → {{to}}",
+      "autoConfirmedConfident": "Confirmé automatiquement ({{percent}} de confiance)",
+      "priceFromTo": "De {{from}} à {{to}}",
       "undo": "Annuler",
       "status": {
         "suggested": "Suggéré",
@@ -1103,17 +1132,25 @@
     "categorize": {
       "subtitle": "Affectez une catégorie aux transactions non classées.",
       "recategorize": "Recatégoriser",
-      "categorizeAi": "Catégoriser avec l'IA",
-      "aiSuggested": "IA : {{name}} · {{confidence}}",
+      "categorizeAi": "Catégoriser par intelligence artificielle",
+      "aiSuggested": "Suggestion d'intelligence artificielle : {{name}} ({{confidence}})",
       "selectCategory": "Choisir une catégorie",
       "assign": "Affecter",
       "empty": "Tout est catégorisé",
       "emptyHint": "Les nouvelles transactions à classer apparaîtront ici.",
       "error": "Impossible de charger les transactions à catégoriser.",
-      "aiProgress": "Catégorisation IA… {{processed}}/{{total}}",
-      "aiDone": "IA terminée : {{applied}} appliquées, {{suggested}} suggérées",
+      "aiProgress": "Catégorisation par intelligence artificielle… {{processed}}/{{total}}",
+      "aiDone": "Analyse par intelligence artificielle terminée : {{applied}} appliquées et {{suggested}} suggérées.",
       "createRule": "Créer une règle",
-      "editRule": "Modifier la règle"
+      "editRule": "Modifier la règle",
+      "configureAi": "Configurer l'intelligence artificielle",
+      "aiSettings": "Paramétrer l'intelligence artificielle",
+      "searchPlaceholder": "Rechercher une opération...",
+      "incoming": "Entrée",
+      "outgoing": "Sortie",
+      "incomeGroup": "Revenus",
+      "expenseGroup": "Dépenses",
+      "automate": "Automatiser"
     },
     "category": {
       "title": "Catégories",
@@ -1159,7 +1196,7 @@
       "previewCount_other": "{{count}} transactions seront modifiées",
       "previewCapped": "Affichage des 200 premières correspondances sur {{count}}",
       "createRule": "Créer une règle",
-      "ruleActive": "Règle\u00a0: {{pattern}}"
+      "ruleActive": "Règle : {{pattern}}"
     },
     "settings": {
       "cycleTitle": "Jour de paie",
@@ -1167,24 +1204,24 @@
       "cycleStartDay": "Jour de début de cycle",
       "currentCycle": "Cycle en cours : du {{start}} au {{end}}",
       "logoTitle": "Logos des marques",
-      "logoHint": "Récupère les logos des marques en ligne pour les afficher à la place des monogrammes. Désactivé par défaut, purement cosmétique — n'influence jamais la catégorisation.",
+      "logoHint": "Affiche le logo des enseignes à la place de leurs initiales.",
       "logoFetchLabel": "Afficher les logos en ligne",
-      "aiTitle": "Catégorisation par IA",
-      "aiHint": "Laissez un modèle proposer une catégorie pour les marchands que vos règles et la liste de marques ne reconnaissent pas. Désactivé par défaut ; ne traite que les transactions restées non catégorisées.",
-      "aiEnableLabel": "Activer les suggestions IA",
-      "aiModeLabel": "Ce que l'IA fait de sa réponse",
+      "aiTitle": "Catégorisation par intelligence artificielle",
+      "aiHint": "Laissez un modèle proposer une catégorie pour les opérations non reconnues par vos règles.",
+      "aiEnableLabel": "Activer l'intelligence artificielle",
+      "aiModeLabel": "Comportement de l'intelligence artificielle",
       "aiModeOption": {
         "SUGGEST": "Seulement suggérer",
-        "AUTO_HIGH_CONFIDENCE": "Appliquer si l'IA est sûre",
+        "AUTO_HIGH_CONFIDENCE": "Appliquer si l'intelligence artificielle est sûre",
         "AUTO_ALL": "Toujours appliquer"
       },
       "aiModeHint": {
-        "SUGGEST": "L'IA propose seulement une catégorie dans l'inbox ; rien n'est appliqué tant que vous ne validez pas.",
-        "AUTO_HIGH_CONFIDENCE": "Applique la catégorie automatiquement au-dessus du seuil de confiance ; sinon laisse une suggestion.",
-        "AUTO_ALL": "Applique toujours la meilleure réponse de l'IA. Le plus rapide, mais quelques erreurs seront à corriger."
+        "SUGGEST": "L'intelligence artificielle propose une catégorie et attend votre validation.",
+        "AUTO_HIGH_CONFIDENCE": "Applique automatiquement la catégorie au-dessus du seuil de confiance, et propose une suggestion en dessous.",
+        "AUTO_ALL": "Applique automatiquement la meilleure proposition de l'intelligence artificielle."
       },
       "aiThresholdLabel": "Seuil de confiance",
-      "aiThresholdHint": "En dessous, l'IA laisse une suggestion au lieu d'appliquer la catégorie.",
+      "aiThresholdHint": "En dessous de ce seuil, l'intelligence artificielle propose une suggestion sans l'appliquer.",
       "error": "Impossible de charger les réglages."
     }
   },
@@ -1195,30 +1232,37 @@
     "walletConnected": "Portefeuille suivi !",
     "trConnected": "Trade Republic connecté !",
     "desc": {
-      "banks": "Connecter vos banques via OAuth",
-      "exchanges": "Binance, Meria...",
-      "wallets": "Bitcoin, Ethereum, BNB, Solana...",
-      "tr": "Trade Republic",
-      "revolut": "Téléphone + code, synchro à la demande",
-      "bourso": "Comptes courants, livrets, PEA et comptes-titres chez BoursoBank",
-      "bourseDirect": "Synchroniser vos PEA et CTO",
-      "degiro": "Synchroniser votre compte-titres DEGIRO",
-      "ibkr": "Synchronisez votre compte Interactive Brokers via Flex Query",
-      "simplefin": "Importez vos comptes bancaires avec un jeton SimpleFIN",
-      "wise": "Vos Jars Wise, que la connexion bancaire ne voit pas",
-      "finary": "Importer depuis Finary",
-      "manual": "Créer un compte manuellement",
-      "amundi": "PEE, PEG, PERCO, PER chez Amundi",
-      "natixis": "PEE, PERCO, PER chez Natixis Interépargne",
-      "amex": "Carte de crédit American Express : solde et transactions",
-      "corum": "SCPI et assurance-vie CORUM Life : parts, valorisation et opérations",
-      "sofidy": "Parts de SCPI Sofidy, au prix de retrait",
-      "property": "Maison, appartement, terrain…",
-      "fortuneo": "Synchroniser vos comptes Fortuneo",
+      "banks": "Connectez vos banques européennes en toute sécurité via Open Banking.",
+      "exchanges": "Synchronisez vos plateformes d'échange crypto (Binance, Meria et autres).",
+      "wallets": "Suivez vos portefeuilles crypto sur Bitcoin, Ethereum, BNB et Solana.",
+      "tr": "Synchronisez votre portefeuille et vos placements Trade Republic.",
+      "revolut": "Synchronisez vos comptes Revolut par téléphone avec validation sur votre mobile.",
+      "bourso": "Synchronisez vos comptes courants, livrets, PEA et comptes-titres BoursoBank.",
+      "bourseDirect": "Synchronisez vos portefeuilles PEA et compte-titres Bourse Direct.",
+      "degiro": "Synchronisez votre compte-titres et vos positions DEGIRO.",
+      "ibkr": "Synchronisez votre compte Interactive Brokers via Flex Query.",
+      "simplefin": "Importez vos comptes bancaires à l'aide d'un jeton SimpleFIN.",
+      "wise": "Suivez vos réserves Wise, non couvertes par la connexion bancaire classique.",
+      "finary": "Importez votre patrimoine et vos actifs depuis votre compte Finary.",
+      "manual": "Créez et suivez un compte manuellement.",
+      "amundi": "Synchronisez vos plans d'épargne salariale (PEE, PEG, PERCO et PER) chez Amundi.",
+      "natixis": "Synchronisez vos plans d'épargne salariale (PEE, PERCO et PER) chez Natixis Interépargne.",
+      "amex": "Suivez le solde et les opérations de votre carte American Express.",
+      "corum": "Suivez vos parts de SCPI et votre assurance-vie CORUM Life.",
+      "sofidy": "Suivez vos parts de SCPI Sofidy et leur valeur de retrait.",
+      "property": "Estimez et suivez vos biens immobiliers (maison, appartement ou terrain).",
+      "fortuneo": "Synchronisez vos comptes courants, PEA et comptes-titres Fortuneo.",
       "caisseEpargne": "Compte courant, Livret A, LDDS, PEL, LEP, PER, assurance vie, prêts et cartes à la Caisse d'Epargne",
       "banquePopulaire": "Compte courant, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, compte à terme, parts sociales et PER à la Banque Populaire",
       "lbp": "Compte courant, Livret A et LEP à La Banque Postale",
-      "bnp": "Comptes courants, épargne, titres et assurance vie chez BNP Paribas ou Hello bank!"
+      "bnp": "Synchronisez vos comptes courants, votre épargne et vos placements BNP Paribas ou Hello bank!."
+    },
+    "categories": {
+      "all": "Tout",
+      "banks": "Banques",
+      "investing": "Bourse et épargne",
+      "crypto": "Crypto",
+      "manual": "Patrimoine et saisie manuelle"
     }
   },
   "sync": {
@@ -1237,7 +1281,7 @@
       "title": "Banques",
       "search": "Rechercher une banque",
       "country": "Pays",
-      "countriesLoadError": "Impossible de charger tous les pays — France uniquement.",
+      "countriesLoadError": "Impossible de charger la liste complète des pays (France uniquement).",
       "searchPlaceholder": "Ex. : BNP Paribas...",
       "searchError": "Impossible de rechercher les banques pour le moment.",
       "connected": "Connexions actives",
@@ -1251,14 +1295,14 @@
       "callbackDone": "Comptes synchronisés !",
       "callbackError": "Erreur de synchronisation",
       "initiateError": "Échec de la connexion",
-      "psd2ScopeNote": "Enable Banking ne synchronise que vos comptes courants (limitation PSD2). Pour vos PEA, AV, Livret A : utilisez Trade Republic, Boursobank, Finary, ou ajoutez-les manuellement.",
+      "psd2ScopeNote": "Enable Banking synchronise uniquement vos comptes courants. Pour vos PEA, assurances-vie et livrets, utilisez les intégrations dédiées ou ajoutez-les manuellement.",
       "wiseJarsMissing": "Vos Jars Wise ne passent pas par cette connexion.",
       "wiseJarsConnect": "Connecter les Jars",
       "wiseJarsConnected": "Vos Jars Wise sont synchronisés par le connecteur Wise Jars.",
-      "wiseJarsFailed": "La dernière synchro de vos Jars Wise a échoué.",
+      "wiseJarsFailed": "La dernière synchronisation de vos Jars Wise a échoué.",
       "wiseJarsOpen": "Ouvrir Wise Jars",
       "proBadge": "Pro",
-      "proBadgeTitle": "Compte professionnel — cette banque ne s'adresse qu'aux pros"
+      "proBadgeTitle": "Compte professionnel : cette banque est réservée aux professionnels."
     },
     "tr": {
       "title": "Trade Republic",
@@ -1310,14 +1354,14 @@
       "syncing": "Synchronisation en cours...",
       "connected": "Connecté",
       "forget": "Oublier les identifiants",
-      "lastSync": "Dernière synchro",
+      "lastSync": "Dernière synchronisation",
       "notConnected": "Non connecté",
       "syncSuccess": "Vos comptes sont à jour.",
       "phase": {
         "checkingSession": "Vérification de votre session Revolut…",
         "loggingIn": "Connexion à Revolut…",
-        "awaitingApproval": "Approuvez la connexion sur votre app Revolut… ({{remaining}} s restantes)",
-        "harvesting": "Récupération de vos comptes… ({{count}} trouvés)"
+        "awaitingApproval": "Approuvez la connexion dans votre application Revolut ({{remaining}} s restantes).",
+        "harvesting": "Récupération de vos comptes en cours ({{count}} trouvés)."
       },
       "errors": {
         "humanVerificationRequired": "Revolut vous demande de prouver que vous êtes humain (captcha), ce que Picsou ne peut pas faire à votre place. La connexion ne peut pas continuer. Réessayez plus tard.",
@@ -1346,8 +1390,8 @@
       "disconnect": "Déconnecter",
       "disconnectConfirm": "Supprimer la connexion Interactive Brokers enregistrée ?",
       "connected": "Connecté",
-      "statusError": "Échec de la dernière synchro",
-      "lastSync": "Dernière sync",
+      "statusError": "Échec de la dernière synchronisation",
+      "lastSync": "Dernière synchronisation",
       "neverSynced": "Jamais synchronisé",
       "syncedToast": "Interactive Brokers synchronisé : {{count}} compte(s)",
       "errors": {
@@ -1368,8 +1412,8 @@
       "disconnect": "Déconnecter",
       "disconnectConfirm": "Supprimer la connexion SimpleFIN enregistrée ? Les comptes importés restent, et ne se mettent plus à jour.",
       "connected": "Connecté",
-      "statusError": "Échec de la dernière synchro",
-      "lastSync": "Dernière sync",
+      "statusError": "Échec de la dernière synchronisation",
+      "lastSync": "Dernière synchronisation",
       "neverSynced": "Jamais synchronisé",
       "syncedToast": "SimpleFIN synchronisé : {{count}} compte(s)",
       "errors": {
@@ -1391,13 +1435,13 @@
       "disconnect": "Déconnecter",
       "disconnectConfirm": "Supprimer le jeton Wise enregistré ? Les Jars importés restent, et ne se mettent plus à jour.",
       "connected": "Connecté",
-      "statusError": "Échec de la dernière synchro",
-      "lastSync": "Dernière sync",
+      "statusError": "Échec de la dernière synchronisation",
+      "lastSync": "Dernière synchronisation",
       "neverSynced": "Jamais synchronisé",
       "syncedToast": "Wise synchronisé : {{count}} Jar",
       "syncedToast_other": "Wise synchronisé : {{count}} Jars",
       "statusTokenRefused": "Jeton refusé par Wise",
-      "replaceTokenHint": "Wise a refusé le jeton enregistré. Créez-en un nouveau sur wise.com et collez-le ici pour reprendre la synchro.",
+      "replaceTokenHint": "Wise a refusé le jeton enregistré. Créez-en un nouveau sur wise.com et collez-le ici pour reprendre la synchronisation.",
       "replaceToken": "Remplacer le jeton",
       "scopeNote": "Seuls les soldes des Jars sont suivis : en Europe, Wise ne partage pas leur historique avec un jeton personnel.",
       "errors": {
@@ -1415,7 +1459,7 @@
       "type": "Type de plateforme",
       "apiKey": "Clé API",
       "apiSecret": "Secret API",
-      "apiKeyOnly": "Meria se connecte avec une seule clé API en lecture seule — aucun secret requis.",
+      "apiKeyOnly": "Meria se connecte avec une seule clé API en lecture seule, sans secret supplémentaire.",
       "showSecret": "Afficher le secret API",
       "hideSecret": "Masquer le secret API",
       "connect": "Connecter",
@@ -1424,7 +1468,7 @@
       "remove": "Supprimer",
       "removeConfirm": "Supprimer cette plateforme ?",
       "noExchanges": "Aucune plateforme connectée",
-      "lastSync": "Dernière sync"
+      "lastSync": "Dernière synchronisation"
     },
     "wallets": {
       "title": "Portefeuilles crypto",
@@ -1439,18 +1483,18 @@
       "remove": "Supprimer",
       "removeConfirm": "Supprimer ce portefeuille ?",
       "noWallets": "Aucun portefeuille suivi",
-      "lastSync": "Dernière sync",
-      "evmHint": "Une seule adresse, toutes les chaînes EVM — Ethereum, BNB Chain, Polygon, Arbitrum, Optimism, Base et Avalanche."
+      "lastSync": "Dernière synchronisation",
+      "evmHint": "Une seule adresse couvre toutes les chaînes EVM : Ethereum, BNB Chain, Polygon, Arbitrum, Optimism, Base et Avalanche."
     },
     "visibility": {
       "title": "Comptes",
-      "description": "Choisissez quels comptes apparaissent dans l'application. Un compte masqué continue d'être synchronisé normalement — il est juste retiré de l'affichage.",
+      "description": "Choisissez les comptes visibles dans l'application. Un compte masqué reste synchronisé normalement, sans apparaître à l'écran.",
       "manualGroup": "Manuel"
     },
     "actual": {
       "title": "Actual Budget",
       "upload": "Importer un export Actual Budget",
-      "uploadHint": "Le .zip du budget exporté depuis Actual (Paramètres → Exporter les données) ou son db.sqlite",
+      "uploadHint": "Importez l'archive .zip exportée depuis Actual (dans Paramètres, puis Exporter les données) ou son fichier db.sqlite.",
       "chooseFile": "Choisir un fichier",
       "file": "Fichier Actual Budget",
       "preview": "Prévisualiser l'import",
@@ -1534,7 +1578,7 @@
       "login": "Se connecter à Finary",
       "connected": "Connecté",
       "notConnected": "Non connecté",
-      "lastSync": "Dernière synchro",
+      "lastSync": "Dernière synchronisation",
       "neverSynced": "Jamais",
       "sync": "Synchroniser",
       "syncing": "Synchronisation...",
@@ -1603,7 +1647,7 @@
       "syncAll": "Tout synchroniser",
       "syncing": "Synchronisation...",
       "noConnections": "Aucune connexion de synchronisation active",
-      "lastSync": "Dernière sync",
+      "lastSync": "Dernière synchronisation",
       "openFinary": "Ouvrir la page Finary pour synchroniser",
       "openRevolut": "Ouvrir la page Revolut pour se connecter",
       "sessionExpired": "Session expirée",
@@ -1817,7 +1861,7 @@
       "noSession": "Aucune session active",
       "sessionActive": "Session active",
       "reauthRequired": "Reconnexion nécessaire",
-      "lastSyncedAt": "Dernière synchro le",
+      "lastSyncedAt": "Dernière synchronisation le",
       "totpPrompt": "Saisissez le code à 6 chiffres de votre application d'authentification",
       "errors": {
         "tooManyAttempts": "Trop de tentatives. Veuillez patienter.",
@@ -1912,7 +1956,7 @@
       "errors": {
         "tooManyAttempts": "Natixis Interépargne a bloqué les nouvelles tentatives. Réessayez plus tard.",
         "invalidCredentials": "Natixis Interépargne a refusé l'e-mail ou le mot de passe.",
-        "mfaTypeUnsupported": "Ce compte ne propose que la connexion par passkey, ou un second facteur que Picsou ne sait pas gérer. Picsou a besoin de la connexion par mot de passe et des codes par SMS, e-mail ou appel vocal : activez les deux dans les paramètres de sécurité de Natixis Interépargne.",
+        "mfaTypeUnsupported": "Ce compte ne propose que la connexion par clé d'accès ou un second facteur que Picsou ne sait pas gérer. Picsou a besoin de la connexion par mot de passe et des codes par SMS, e-mail ou appel vocal : activez ces options dans les paramètres de sécurité de Natixis Interépargne.",
         "authAttemptExpired": "La tentative d'authentification a expiré. Recommencez.",
         "sessionExpired": "La session Natixis Interépargne a expiré. Reconnectez-vous pour reprendre la synchronisation.",
         "portfolioIncomplete": "Natixis Interépargne a renvoyé des plans d'épargne incomplets. Vos données existantes ont été conservées.",
@@ -1979,7 +2023,7 @@
       "clearSession": "Déconnecter",
       "noSession": "Aucune session active",
       "sessionActive": "Session active",
-      "scope": "Synchronise vos comptes CIC, courant et épargne (Livret A, LDDS, PEL…), que la connexion bancaire DSP2 ne remonte pas. Soldes seulement.",
+      "scope": "Synchronise vos comptes courants et vos livrets d'épargne CIC (Livret A, LDDS, PEL et autres) que la connexion bancaire DSP2 ne remonte pas, en récupérant les soldes.",
       "errors": {
         "tooManyAttempts": "Trop de tentatives. Veuillez patienter.",
         "invalidCredentials": "Identifiant ou mot de passe CIC invalide.",
@@ -2205,6 +2249,15 @@
         "clear": "Effacer",
         "validate": "Valider"
       }
+    },
+    "searchPlaceholder": "Rechercher une banque, un courtier ou un import...",
+    "categoriesLabel": "Catégories de synchronisation",
+    "categories": {
+      "all": "Tout",
+      "banks": "Banques",
+      "investing": "Bourse et épargne",
+      "cryptoAndWealth": "Crypto et patrimoine",
+      "imports": "Imports et visibilité"
     }
   },
   "settings": {
@@ -2222,9 +2275,6 @@
     "dateFormat": "Format de date",
     "dateFormatLocale": "Localisé",
     "dateFormatIso": "JJ-MM-AAAA",
-    "sidebarStyle": "Style de la barre latérale",
-    "sidebarStyleCurrent": "Actuel",
-    "sidebarStyleClassic": "Classique",
     "account": "Compte",
     "accountDescription": "Gérer votre compte",
     "username": "Nom d'utilisateur",
@@ -2278,12 +2328,12 @@
     "exportButton": "Exporter mes données",
     "exportDownload": "Télécharger",
     "exportIncludeSnapshots": "Inclure l'historique quotidien des soldes",
-    "exportIncludeSnapshotsHint": "Désactivé par défaut. Ajoute les snapshots quotidiens par compte utilisés pour les graphiques — volumineux pour les comptes anciens.",
+    "exportIncludeSnapshotsHint": "Ajoute l'historique quotidien des soldes utilisé par les graphiques.",
     "exportInvalidCredentials": "Identifiants invalides. Réessayez.",
     "exportRateLimited": "Trop de tentatives d'export. Réessayez plus tard.",
     "sessions": "Appareils connectés",
     "sessionsDescription": "Sessions persistantes \"Se souvenir de moi\" actives",
-    "sessionsEmpty": "Aucun appareil de confiance — vous devrez vous reconnecter à chaque visite.",
+    "sessionsEmpty": "Aucun appareil de confiance enregistré : vous devrez vous reconnecter à chaque visite.",
     "sessionsCurrent": "Cet appareil",
     "sessionsTrusted": "2FA approuvée",
     "sessionsUnknownDevice": "Appareil inconnu",
@@ -2301,7 +2351,7 @@
       "birthDate": "Date de naissance",
       "currentAge": "{{age}} ans",
       "retirementAge": "Âge de retraite visé",
-      "marginalTaxRate": "Tranche marginale d'imposition (TMI)",
+      "marginalTaxRate": "Taux marginal d'imposition (%)",
       "householdStatus": "Situation du foyer",
       "household": {
         "SINGLE": "Célibataire",
@@ -2324,7 +2374,12 @@
         "DYNAMIC": "Dynamique",
         "AGGRESSIVE": "Offensif"
       },
-      "saved": "Profil enregistré"
+      "saved": "Profil enregistré",
+      "groups": {
+        "personal": "Situation personnelle et foyer",
+        "taxAndIncome": "Revenus et fiscalité",
+        "investing": "Épargne et investissement"
+      }
     },
     "signInMethods": {
       "title": "Méthodes de connexion",
@@ -2351,11 +2406,26 @@
       "linkTitle": "Associer un compte {{provider}}",
       "linkDesc": "Confirmez votre identité, puis connectez-vous avec le compte {{provider}} à associer.",
       "linkMfaNote": "Quand vous vous connectez avec {{provider}}, Picsou ne demande pas le code de votre application d'authentification : le second facteur relève alors du fournisseur de connexion. La connexion par mot de passe demande toujours le code, sauf sur un appareil de confiance."
-    }
+    },
+    "tabs": {
+      "appearance": "Apparence",
+      "profile": "Profil et compte",
+      "security": "Sécurité",
+      "api": "API et applications",
+      "system": "Espace et système"
+    },
+    "profilePhoto": "Photo de profil",
+    "profilePhotoUpload": "Choisir une photo",
+    "profilePhotoChange": "Changer la photo",
+    "profilePhotoRemove": "Supprimer",
+    "profilePhotoInvalid": "Veuillez sélectionner une image valide (PNG, JPG ou WebP).",
+    "usernameTooShort": "Le nom d'utilisateur doit contenir au moins 3 caractères.",
+    "usernameInvalidChars": "Utilisez uniquement des lettres, chiffres, tirets ou underscores.",
+    "usernameTaken": "Ce nom d'utilisateur est déjà utilisé."
   },
   "accessKeys": {
-    "sectionTitle": "Clés d'accès & MCP",
-    "sectionDescription": "Créez des clés pour qu'un assistant IA puisse lire et gérer vos données via MCP",
+    "sectionTitle": "Clés d'accès et MCP",
+    "sectionDescription": "Créez des clés pour qu'un assistant d'intelligence artificielle puisse lire et gérer vos données via MCP",
     "newKey": "Nouvelle clé",
     "loading": "Chargement…",
     "empty": "Aucune clé d'accès. Créez-en une pour connecter un client MCP.",
@@ -2373,7 +2443,7 @@
     "namePlaceholder": "ex. Claude Desktop",
     "permissionsLabel": "Permissions",
     "groupRead": "Lecture",
-    "groupWrite": "Écriture & actions",
+    "groupWrite": "Écriture et actions",
     "selectScopeHint": "Sélectionnez au moins une permission.",
     "expiryLabel": "Expiration (facultatif)",
     "expiryHint": "Laissez vide pour une clé qui n'expire jamais.",
@@ -2382,7 +2452,7 @@
     "creating": "Création…",
     "error": "Impossible de créer la clé. Réessayez.",
     "secretTitle": "Copiez votre clé maintenant",
-    "secretWarning": "C'est la seule fois où la clé complète est affichée. Conservez-la en lieu sûr — vous ne pourrez plus la revoir.",
+    "secretWarning": "C'est la seule fois que la clé complète est affichée. Conservez-la en lieu sûr, vous ne pourrez plus la consulter ensuite.",
     "copy": "Copier",
     "copied": "Copié !",
     "done": "Terminé",
@@ -2390,7 +2460,7 @@
     "connectIntro": "Pointez n'importe quel client MCP vers cette URL et envoyez votre clé comme jeton Bearer :",
     "connectEndpointLabel": "URL MCP",
     "connectSnippetLabel": "Claude Desktop (mcp-remote)",
-    "connectHttpsWarning": "Servez MCP en HTTPS en production — en HTTP simple, votre clé circule en clair.",
+    "connectHttpsWarning": "Servez MCP en HTTPS en production : en HTTP simple, votre clé circule en clair.",
     "revokeTitle": "Révoquer cette clé ?",
     "revokeDescription": "Tout client MCP utilisant cette clé perd l'accès immédiatement. Action irréversible.",
     "scopes": {
@@ -2495,20 +2565,20 @@
         "desc": "Créer, modifier et supprimer des enveloppes budgétaires"
       },
       "budget_ai-write": {
-        "label": "Catégorisation IA",
-        "desc": "Lancer la catégorisation IA des transactions non catégorisées et suivre sa progression"
+        "label": "Catégorisation par intelligence artificielle",
+        "desc": "Lancer la catégorisation par intelligence artificielle des transactions non catégorisées et suivre sa progression"
       }
     }
   },
   "oauthConsent": {
     "title": "Autoriser {{app}} à accéder à vos données Picsou ?",
     "titleGeneric": "Connecter une application",
-    "description": "Vérifiez les permissions ci-dessous avant d'autoriser cette application à se connecter. Vous pouvez révoquer l'accès à tout moment depuis les Réglages.",
+    "description": "Vérifiez les permissions ci-dessous avant d'autoriser cette application à se connecter. Vous pouvez révoquer l'accès à tout moment depuis les Paramètres.",
     "loading": "Chargement de la demande…",
     "scopesIntro": "Cette application demande les permissions suivantes :",
     "noScopes": "Cette application ne demande aucune permission.",
     "missingParams": "Ce lien ne contient pas les informations nécessaires. Relancez la connexion depuis l'application.",
-    "error": "Impossible de charger cette demande de connexion. Elle a peut-être expiré — relancez-la depuis l'application.",
+    "error": "Impossible de charger cette demande de connexion. Elle a peut-être expiré : relancez-la depuis l'application.",
     "approve": "Autoriser",
     "deny": "Refuser"
   },
@@ -2545,7 +2615,7 @@
       "title": "Télémétrie anonyme",
       "description": "Rapports de plantage et compteurs d'usage envoyés aux développeurs de Picsou, uniquement si vous l'acceptez. Désactivée par défaut.",
       "toggle": "Partager une télémétrie anonyme",
-      "unavailable": "Indisponible — aucun serveur de télémétrie (DSN) n'est configuré sur cette instance.",
+      "unavailable": "Indisponible : aucun serveur de télémétrie (DSN) n'est configuré sur cette instance.",
       "privacy": "Seuls des rapports d'erreurs techniques, des gabarits de pages (ex. /accounts/:id) et des noms de fonctionnalités sont envoyés. Aucune donnée financière, personnelle ou identifiant n'est collectée, et les rapports sont nettoyés dans votre navigateur puis à nouveau sur votre serveur.",
       "error": "Impossible de modifier le réglage de télémétrie."
     }
@@ -2553,24 +2623,35 @@
   "admin": {
     "title": "Administration",
     "ai": {
-      "title": "Catégorisation IA",
-      "description": "Fournisseur d'IA optionnel utilisé pour catégoriser les transactions que les règles déterministes laissent non catégorisées.",
+      "title": "Catégorisation par intelligence artificielle",
+      "description": "Fournisseur d'intelligence artificielle optionnel utilisé pour catégoriser les transactions que les règles déterministes laissent non catégorisées.",
       "provider": "Fournisseur",
       "providerNone": "Désactivé",
       "providerOpenAi": "OpenAI / compatible",
       "model": "Modèle",
       "baseUrl": "URL de base",
       "apiKey": "Clé API",
-      "apiKeyHintPresent": "Une clé est déjà enregistrée — laissez vide pour la conserver.",
+      "apiKeyHintPresent": "Une clé est déjà enregistrée. Laissez le champ vide pour la conserver.",
       "apiKeyRequired": "Une clé API est requise lors du changement de fournisseur.",
-      "disabledHint": "La catégorisation IA est désactivée. Choisissez un fournisseur pour l'activer.",
+      "disabledHint": "La catégorisation par intelligence artificielle est désactivée. Ajoutez un fournisseur pour l'activer.",
       "test": "Tester la connexion",
       "testing": "Test en cours…",
       "save": "Enregistrer",
       "saving": "Enregistrement…",
       "saved": "Enregistré",
       "maxConcurrency": "Requêtes en parallèle",
-      "maxConcurrencyHint": "Nombre d'appels IA simultanés (1–16). Plus bas pour Ollama local."
+      "maxConcurrencyHint": "Nombre d'appels simultanés entre 1 et 16 (réduisez cette valeur pour un modèle local).",
+      "addProvider": "Ajouter un fournisseur",
+      "configureProvider": "Configurer un fournisseur",
+      "editProvider": "Modifier le fournisseur",
+      "removeProvider": "Supprimer le fournisseur",
+      "removeProviderConfirm": "La catégorisation par intelligence artificielle sera désactivée et la clé API enregistrée sera supprimée.",
+      "statusActive": "Actif",
+      "apiKeySaved": "Clé API enregistrée",
+      "apiKeyMissing": "Aucune clé API",
+      "apiKeyPlaceholderKeep": "•••••••••••• (laisser vide pour conserver)",
+      "parallelRequests": "{{count}} requêtes en parallèle",
+      "empty": "Aucun fournisseur d'intelligence artificielle configuré pour l'instant."
     },
     "security": {
       "title": "Sécurité",
@@ -2586,41 +2667,46 @@
       "saved": "Enregistré",
       "reloadFromEnv": "Recharger depuis l'environnement",
       "reloadFromEnvLoading": "Rechargement...",
-      "reloadFromEnvHint": "Écrase la liste ci-dessus avec la valeur actuelle de la variable d'environnement ALLOWED_ORIGINS. Utile si vous avez changé l'URL publique après le setup initial.",
+      "reloadFromEnvHint": "Remplace la liste ci-dessus par la valeur actuelle de la variable d'environnement ALLOWED_ORIGINS. Utile si vous avez changé l'URL publique après la configuration initiale.",
       "reloadFromEnvDone": "Origines rechargées depuis l'environnement."
     },
     "enableBanking": {
       "title": "Enable Banking",
       "description": "Identifiants de connexion à l'API Enable Banking",
-      "applicationId": "Application ID",
-      "applicationIdHint": "C'est l'UUID de votre application Enable Banking — il sert aussi de Key ID pour signer les requêtes.",
-      "redirectUri": "Redirect URI",
+      "applicationId": "Identifiant d'application",
+      "applicationIdHint": "Il s'agit de l'identifiant unique (UUID) de votre application Enable Banking, également utilisé comme identifiant de clé pour signer les requêtes.",
+      "redirectUri": "URL de redirection",
       "privateKey": "clé privée",
       "save": "Enregistrer",
       "saving": "Enregistrement...",
       "saved": "Enregistré",
       "ready": "Enable Banking est prêt.",
-      "incomplete": "Enable Banking n'est pas entièrement configuré. Manquant : {{fields}}. La recherche de banque et la synchronisation échoueront tant que ce n'est pas résolu.",
+      "incomplete": "La configuration d'Enable Banking est incomplète : il manque {{fields}}. La recherche de banques et la synchronisation ne pourront pas fonctionner tant que ces éléments ne seront pas renseignés.",
       "keypair": {
         "title": "Clé privée",
         "statusPresent": "Une clé privée est présente sur le serveur.",
-        "statusMissing": "Aucune clé privée sur le serveur pour l'instant — générez-en une ou importez-la ci-dessous.",
+        "statusMissing": "Aucune clé privée n'est enregistrée sur le serveur pour le moment. Générez-en une ou importez-la ci-dessous.",
         "modeGenerate": "Générer une paire de clés",
         "modeImport": "Importer un .pem existant",
         "body": "Picsou génère une paire de clés RSA-2048 sur le serveur. La moitié privée y reste ; vous téléversez la moitié publique vers Enable Banking.",
         "generate": "Générer la paire de clés",
         "regenerate": "Régénérer la paire de clés",
         "generating": "Génération...",
-        "importBody": "Téléversez la clé privée .pem de votre application Enable Banking — Picsou en dérive la clé publique.",
+        "importBody": "Téléversez la clé privée .pem de votre application Enable Banking : Picsou en dérive automatiquement la clé publique.",
         "chooseFile": "Choisir un fichier .pem",
         "orPaste": "ou collez le contenu directement",
         "importCta": "Importer la clé",
         "importing": "Importation...",
         "importError": "Impossible de lire la clé. Assurez-vous qu'il s'agit d'un fichier .pem PKCS#8 d'Enable Banking.",
-        "uploadInstruction": "Dans votre tableau de bord Enable Banking → votre app → Clé publique → collez ce bloc.",
+        "uploadInstruction": "Dans votre tableau de bord Enable Banking, ouvrez votre application puis collez ce bloc dans la section Clé publique.",
         "copy": "Copier la clé publique",
         "copied": "Copié !",
         "download": "Télécharger public.pem"
+      },
+      "missing": {
+        "applicationId": "l'identifiant d'application",
+        "redirectUri": "l'URL de redirection",
+        "privateKey": "la clé privée"
       }
     },
     "integrations": {
@@ -2644,7 +2730,7 @@
       "createUser": "Créer un user",
       "createUserPlaceholder": "Nom du membre",
       "displayName": "Nom affiché",
-      "noLogin": "—",
+      "noLogin": "-",
       "you": "(vous)",
       "statusAdmin": "Administrateur",
       "statusManaged": "Profil géré",
@@ -2655,7 +2741,7 @@
       "resetPassword": "Réinitialiser mot de passe",
       "resetMfa": "Réinitialiser 2FA",
       "resetMfaConfirmTitle": "Réinitialiser la 2FA ?",
-      "resetMfaConfirmDesc": "Cela désactive la 2FA du compte du membre, révoque ses codes de secours et déconnecte ses appareils. À utiliser uniquement si l'authenticator est perdu et qu'aucun code de secours n'est disponible.",
+      "resetMfaConfirmDesc": "Cette action désactive l'authentification à deux facteurs du membre, révoque ses codes de secours et déconnecte ses appareils. À utiliser uniquement si son application d'authentification est perdue et qu'aucun code de secours n'est disponible.",
       "mfaOn": "2FA active",
       "signInPassword": "Mot de passe",
       "signInSso": "SSO",
@@ -2673,35 +2759,41 @@
       "loading": "Chargement..."
     },
     "aiActivity": {
-      "title": "Activité IA",
-      "description": "Inspectez les appels de catégorisation IA récents — prompts et consommation de tokens.",
-      "view": "Voir les tâches IA",
-      "summary": "{{calls}} appels · {{tokens}} tokens au total",
+      "title": "Activité d'intelligence artificielle",
+      "description": "Consultez les appels récents de catégorisation par intelligence artificielle, leurs requêtes et leur consommation de jetons.",
+      "view": "Voir les tâches d'intelligence artificielle",
+      "summary": "{{calls}} appels pour {{tokens}} jetons au total",
       "colTime": "Heure",
       "colMerchant": "Marchand",
       "colModel": "Modèle",
-      "colTokens": "Tokens",
+      "colTokens": "Jetons",
       "colStatus": "Statut",
       "prompt": "Prompt",
       "response": "Réponse",
       "prev": "Précédent",
       "next": "Suivant",
-      "empty": "Aucun appel IA enregistré pour l'instant.",
+      "empty": "Aucun appel d'intelligence artificielle enregistré pour l'instant.",
       "loading": "Chargement…"
     },
     "instanceStatus": {
       "title": "État de l'instance",
-      "description": "Un sidecar est mal configuré, ou une version plus récente est disponible.",
+      "description": "Un connecteur est mal configuré ou une version plus récente est disponible.",
       "issuesTitle": "Problème de configuration",
-      "unreachable": "Ce sidecar ne répond pas. Le conteneur est absent, ou une ancienne version tourne encore.",
-      "unreachableWithBase": "Ce sidecar ne répond pas. L'image de base partagée est probablement absente : la construction a échoué, l'ancien conteneur continue ou n'existe pas.",
-      "outdated": "Ce sidecar répond, mais il ne tourne pas sur l'image de base partagée attendue.",
+      "unreachable": "Ce connecteur ne répond pas. Le conteneur est peut-être arrêté ou une ancienne version tourne encore.",
+      "unreachableWithBase": "Ce connecteur ne répond pas. Son image de base partagée est probablement absente ou sa construction a échoué.",
+      "outdated": "Ce connecteur répond, mais il n'utilise pas l'image de base partagée attendue.",
       "expectedBase": "Image de base partagée attendue :",
       "fixIntro": "Pour corriger, mettez à jour les images, puis relancez :",
       "fixBuildIntro": "Depuis les sources, avec Compose v2.33 ou plus récent (il construit d'abord sidecar-python, sidecar-chromium et sidecar-camoufox) :",
       "updateTitle": "Mise à jour disponible",
       "releaseNotes": "Notes de version",
       "later": "Plus tard"
+    },
+    "tabs": {
+      "members": "Membres et sécurité",
+      "integrations": "Banques et intégrations",
+      "ai": "Intelligence artificielle",
+      "system": "Diagnostics et système"
     }
   },
   "error": {
@@ -2780,15 +2872,15 @@
     ],
     "intro": {
       "title": "Bienvenue sur Picsou.",
-      "subtitle": "On vous installe ça en 2 minutes.",
-      "cta": "C'est parti",
+      "subtitle": "Suivez l'ensemble de vos comptes bancaires, placements et patrimoine depuis un tableau de bord personnel, hébergé chez vous en toute confidentialité.",
+      "cta": "Commencer",
       "language": "Langue",
       "skip": "Passer l'animation",
       "skipAria": "Passer l'animation d'accueil"
     },
     "admin": {
       "title": "Créez votre compte administrateur",
-      "subtitle": "C'est le premier — et seul obligatoire — compte sur Picsou. Vous pourrez inviter d'autres personnes depuis les Réglages.",
+      "subtitle": "Créez le compte principal pour administrer votre espace. Vous pourrez inviter d'autres membres par la suite depuis les Paramètres.",
       "username": "Nom d'utilisateur",
       "usernameHint": "Choisissez un nom d'utilisateur d'au moins 3 caractères.",
       "password": "Mot de passe",
@@ -2814,94 +2906,109 @@
     },
     "security": {
       "title": "Paramètres de sécurité",
-      "subtitle": "Nous avons pré-rempli tout ça à partir de votre connexion actuelle. Vous pourrez ajuster depuis les Réglages plus tard.",
+      "subtitle": "Ces paramètres sont pré-remplis d'après votre connexion actuelle. Vous pourrez les modifier à tout moment dans les Paramètres.",
       "originsLabel": "Origines autorisées",
-      "originsHint": "URLs autorisées à parler à l'API Picsou.",
+      "originsHint": "Adresses autorisées à communiquer avec votre instance Picsou.",
       "originAdd": "Ajouter une origine",
       "originRemove": "Retirer",
       "originRequired": "Au moins une origine est requise.",
       "originFormat": "Doit ressembler à http(s)://hôte[:port]",
       "secureCookiesLabel": "Cookies sécurisés",
-      "secureCookiesHint": "Laissez activé si Picsou est servi en HTTPS.",
+      "secureCookiesHint": "À activer lorsque vous accédez à Picsou en HTTPS.",
       "cta": "Continuer",
       "saving": "Enregistrement...",
       "submitError": "Impossible d'enregistrer les paramètres de sécurité. Réessayez."
     },
     "integrations": {
       "title": "Choisissez vos intégrations",
-      "subtitle": "Activez ce qui vous intéresse maintenant. Vous pourrez changer depuis Réglages → Intégrations.",
+      "subtitle": "Sélectionnez les services que vous souhaitez connecter. Vous pourrez modifier ces choix à tout moment dans les Paramètres.",
       "continue": "Continuer",
-      "skipAll": "Tout ignorer — je configurerai plus tard",
+      "skipAll": "Tout ignorer et configurer plus tard",
       "cards": {
         "enablebanking": {
           "title": "Enable Banking",
-          "description": "Connectez Revolut, BoursoBank, Trade Republic et 2000+ banques européennes via PSD2. Environ 5 minutes — on vous guide."
+          "description": "Connectez plus de 2 000 banques européennes via Open Banking (PSD2), en quelques minutes."
         },
         "boursobank": {
-          "title": "BoursoBank (sidecar)",
-          "description": "Synchronisation directe via le conteneur bourso-auth livré avec Picsou. Aucun compte externe requis."
+          "title": "BoursoBank",
+          "description": "Synchronisez directement vos comptes courants, vos livrets et vos portefeuilles BoursoBank."
         },
         "boursedirect": {
           "title": "Bourse Direct",
-          "description": "Synchronisez directement vos positions PEA et compte-titres avec une authentification 2FA."
+          "description": "Synchronisez vos positions PEA et compte-titres Bourse Direct en toute sécurité."
         },
         "traderepublic": {
           "title": "Trade Republic",
-          "description": "Synchronisez votre portefeuille Trade Republic avec vos identifiants. Vous les ajouterez au moment de créer le compte."
+          "description": "Synchronisez votre portefeuille et vos plans d'investissement Trade Republic."
         },
         "revolut": {
           "title": "Revolut",
-          "description": "Synchronisez tous vos actifs Revolut (comptes, pockets, vaults) avec votre numéro + code d'accès et une approbation sur votre mobile."
+          "description": "Synchronisez vos comptes, coffres et placements Revolut avec validation sur votre mobile."
         },
         "finary": {
           "title": "Finary",
-          "description": "Importez vos holdings et synchronisez avec votre compte Finary. Le TOTP est géré à l'ajout."
+          "description": "Importez votre patrimoine et synchronisez l'ensemble de vos actifs depuis Finary."
         },
         "crypto": {
           "title": "Plateformes crypto",
-          "description": "Suivez Binance et consorts via des clés API en lecture seule, chiffrées au repos."
+          "description": "Suivez vos actifs crypto (Binance, Meria et autres) grâce à des clés API chiffrées en lecture seule."
         },
         "fortuneo": {
           "title": "Fortuneo",
-          "description": "Synchronisez votre PEA, compte-titres et comptes courants avec une authentification 2FA."
+          "description": "Synchronisez vos comptes courants ainsi que vos portefeuilles PEA et compte-titres Fortuneo."
         },
         "lbp": {
           "title": "La Banque Postale",
-          "description": "Synchronisez votre compte courant et vos livrets (Livret A, LEP) avec le clavier et la validation mobile."
+          "description": "Synchronisez votre compte courant ainsi que vos livrets (Livret A et LEP) La Banque Postale."
+        },
+        "bnp": {
+          "title": "BNP Paribas / Hello bank!",
+          "description": "Synchronisez vos comptes courants, votre épargne et vos placements BNP Paribas ou Hello bank!."
         }
       },
       "hint": {
-        "none": "Rien à activer maintenant ? Aucun souci — vous pouvez tout ignorer et configurer plus tard.",
-        "some": "{{count}} intégration sélectionnée. On vous guide pour chacune.",
-        "some_other": "{{count}} intégrations sélectionnées. On vous guide pour chacune."
+        "none": "Vous pouvez aussi ignorer cette étape et connecter vos comptes plus tard.",
+        "some": "{{count}} intégration sélectionnée. Nous allons vous guider pour sa configuration.",
+        "some_other": "{{count}} intégrations sélectionnées. Nous allons vous guider pour chacune d'elles."
+      },
+      "searchPlaceholder": "Rechercher une banque, un courtier ou une plateforme...",
+      "clearSearch": "Effacer la recherche",
+      "categoriesLabel": "Catégories d'intégrations",
+      "empty": "Aucune intégration ne correspond à votre recherche.",
+      "resetFilter": "Afficher toutes les intégrations",
+      "categories": {
+        "all": "Tout",
+        "banks": "Banques",
+        "brokerage": "Bourse",
+        "wealth": "Patrimoine et crypto"
       }
     },
     "enablebanking": {
-      "substep": "Étape {{current}} sur {{total}} — Enable Banking",
+      "substep": "Étape {{current}} sur {{total}} pour Enable Banking",
       "skip": "Ignorer cette intégration",
       "back": "Retour",
       "continue": "Continuer",
-      "appIdFormat": "L'Application ID ne semble pas valide — ça doit être un UUID de 32 à 36 caractères.",
-      "redirectFormat": "Doit ressembler à http(s)://hôte[:port]/chemin",
+      "appIdFormat": "L'identifiant d'application ne semble pas valide : il doit s'agir d'un identifiant UUID de 32 à 36 caractères.",
+      "redirectFormat": "Format attendu : http(s)://hôte[:port]/chemin",
       "explain": {
-        "title": "C'est quoi Enable Banking ?",
-        "body": "Enable Banking est un agrégateur gratuit, régulé PSD2, qui permet à Picsou de parler aux banques européennes en votre nom. C'est audité et gratuit pour un usage personnel.",
+        "title": "Qu'est-ce qu'Enable Banking ?",
+        "body": "Enable Banking est un agrégateur bancaire européen régulé (PSD2) qui permet à Picsou de se connecter à vos banques en votre nom. Le service est audité et gratuit pour un usage personnel.",
         "haveAccount": "J'ai déjà un compte",
-        "needAccount": "J'en crée un",
+        "needAccount": "Créer un compte",
         "signupOpened": "Compte créé ?",
         "continueAfterSignup": "Oui, continuer",
-        "psd2Popover": "C'est quoi PSD2 ?",
+        "psd2Popover": "Qu'est-ce que la directive PSD2 ?",
         "psd2Body": "PSD2 est la réglementation européenne qui permet aux agrégateurs agréés de lire vos comptes avec votre consentement. Vos identifiants ne quittent jamais votre banque.",
         "prodWarningTitle": "Créez une application en mode PRODUCTION",
-        "prodWarningBody": "Dans votre tableau de bord Enable Banking, choisissez bien « Production » lors de la création de l'application — la SANDBOX ne donne accès qu'à des banques de test fictives, pas à vos vraies banques.",
-        "psd2ScopeNote": "Enable Banking ne synchronise que vos comptes courants (limitation PSD2). Pour vos PEA, Assurance Vie, Livret A, etc. : utilisez les intégrations dédiées (Trade Republic, Boursobank, Finary) ou ajoutez-les manuellement.",
+        "prodWarningBody": "Dans votre tableau de bord Enable Banking, choisissez bien « Production » lors de la création de l'application : la SANDBOX ne donne accès qu'à des banques de test fictives, pas à vos vraies banques.",
+        "psd2ScopeNote": "Enable Banking synchronise uniquement vos comptes courants (limitation PSD2). Pour vos PEA, assurances-vie et livrets, utilisez les intégrations dédiées (Trade Republic, BoursoBank, Finary) ou ajoutez-les manuellement.",
         "magicLinkHint": "Saisissez votre adresse e-mail sur la page de connexion. Enable Banking crée votre compte à la première connexion et vous envoie un lien de connexion à usage unique."
       },
       "creds": {
-        "title": "Collez votre Application ID",
-        "body": "Copiez l'Application ID de l'application que vous venez d'enregistrer dans le Control Panel Enable Banking.",
-        "applicationId": "Application ID",
-        "applicationIdHint": "L'Application ID correspond aussi au nom du fichier .pem téléchargé, sans l'extension .pem. Il sert également de Key ID.",
+        "title": "Collez votre identifiant d'application",
+        "body": "Copiez l'identifiant de l'application que vous venez d'enregistrer dans le panneau Enable Banking.",
+        "applicationId": "Identifiant d'application",
+        "applicationIdHint": "L'identifiant d'application correspond aussi au nom du fichier .pem téléchargé, sans son extension. Il sert également d'identifiant de clé.",
         "prodAcknowledge": "Je confirme que mon application Enable Banking est bien en mode PRODUCTION (pas SANDBOX)."
       },
       "keypair": {
@@ -2947,7 +3054,7 @@
       },
       "test": {
         "title": "Testez votre connexion",
-        "body": "On fait un petit appel authentifié à Enable Banking pour vérifier que tout est en place.",
+        "body": "Picsou effectue une requête de vérification auprès d'Enable Banking pour confirmer que votre configuration fonctionne.",
         "run": "Lancer le test",
         "running": "Test en cours...",
         "success": "Enable Banking est configuré",
@@ -2955,23 +3062,23 @@
         "backToPrevious": "Retour à l'étape précédente",
         "activationNotice": "Avant le test, utilisez « Activate by linking accounts » dans le Control Panel Enable Banking et autorisez vos propres comptes. Le mode restreint donne accès uniquement à ces comptes liés. « Request activation » correspond au parcours commercial.",
         "hints": {
-          "invalid_application_id": "L'Application ID ne correspond pas à ce qu'Enable Banking a en base. Revérifiez à l'étape des identifiants.",
-          "invalid_key_id": "Enable Banking a rejeté la signature. Vérifiez que l'Application ID et le .pem importé appartiennent à la même application, puis que vous l'avez activée avec « Activate by linking accounts ».",
-          "public_key_not_uploaded": "La clé de l'application ne correspond pas. Importez le .pem téléchargé pour cet Application ID. Si vous gérez une paire de clés du serveur, vérifiez que l'application utilise cette clé publique exacte.",
-          "redirect_uri_mismatch": "La redirect URI n'est pas whitelistée côté Enable Banking. Revérifiez l'étape de la redirect URI.",
+          "invalid_application_id": "L'identifiant d'application ne correspond à aucune application enregistrée chez Enable Banking. Vérifiez les identifiants saisis à l'étape précédente.",
+          "invalid_key_id": "Enable Banking a rejeté la signature. Vérifiez que l'identifiant d'application et le fichier .pem importé appartiennent à la même application, puis que vous l'avez activée avec « Activate by linking accounts ».",
+          "public_key_not_uploaded": "La clé de l'application ne correspond pas. Importez le fichier .pem téléchargé pour cet identifiant d'application. Si vous gérez une paire de clés sur le serveur, vérifiez que l'application utilise exactement cette clé publique.",
+          "redirect_uri_mismatch": "L'URL de redirection n'est pas autorisée dans votre espace Enable Banking. Vérifiez l'étape correspondante.",
           "network": "Impossible de joindre Enable Banking. Vérifiez votre réseau et réessayez.",
-          "unknown": "Quelque chose a cassé. Ouvrez les logs serveur pour plus de détails."
+          "unknown": "Une erreur inattendue s'est produite. Consultez les journaux du serveur pour plus de détails."
         },
         "successBody": "Ce test vérifie la configuration de l'application. Connectez vos comptes bancaires dans Picsou après la configuration initiale. Continuez vers la prochaine intégration."
       }
     },
     "bourso": {
-      "title": "Vérification du sidecar",
-      "body": "Picsou est livré avec un conteneur bourso-auth qui synchronise vos comptes BoursoBank. On va juste vérifier qu'il répond.",
-      "pinging": "Vérification du sidecar...",
-      "ok": "Le sidecar répond, tout est prêt.",
-      "downTitle": "Impossible de joindre le sidecar.",
-      "downHint": "Vérifiez que le conteneur bourso-auth tourne. Docker Compose le démarre par défaut.",
+      "title": "Vérification du connecteur BoursoBank",
+      "body": "Picsou utilise un connecteur local dédié pour synchroniser vos comptes BoursoBank. Vérifions qu'il est disponible.",
+      "pinging": "Vérification du connecteur...",
+      "ok": "Le connecteur BoursoBank est opérationnel.",
+      "downTitle": "Connecteur BoursoBank indisponible.",
+      "downHint": "Vérifiez que le service bourso-auth est démarré dans votre configuration Docker.",
       "retry": "Réessayer",
       "continue": "Continuer",
       "skip": "Ignorer pour l'instant"
@@ -2985,43 +3092,43 @@
     },
     "tr": {
       "title": "Trade Republic est prêt.",
-      "body": "Rien à configurer ici — vous vous connecterez avec vos identifiants Trade Republic au moment d'ajouter le compte dans Picsou.",
-      "tip": "Une fois l'installation finie, allez dans Comptes → Ajouter un compte → Trade Republic.",
-      "cta": "C'est compris",
+      "body": "Vous connecterez votre portefeuille Trade Republic après l'installation depuis vos comptes, à l'aide de vos identifiants.",
+      "tip": "Une fois l'installation terminée, rendez-vous dans Comptes, cliquez sur Ajouter un compte, puis choisissez Trade Republic.",
+      "cta": "Activer Trade Republic",
       "skip": "Ne pas activer Trade Republic"
     },
     "revolut": {
       "surtitle": "REVOLUT",
       "title": "Revolut est prêt.",
-      "body": "Rien à configurer ici — vous connecterez Revolut avec votre numéro et votre code d'accès, puis une approbation depuis votre app mobile, au moment d'ajouter le compte.",
-      "tip": "Une fois l'installation finie, allez dans Comptes → Ajouter un compte → Revolut.",
-      "cta": "C'est compris",
+      "body": "Vous connecterez Revolut après l'installation depuis vos comptes, avec votre numéro, votre code d'accès et une validation sur votre application mobile.",
+      "tip": "Une fois l'installation terminée, rendez-vous dans Comptes, cliquez sur Ajouter un compte, puis choisissez Revolut.",
+      "cta": "Activer Revolut",
       "skip": "Ne pas activer Revolut"
     },
     "finary": {
       "title": "Finary est prêt.",
-      "body": "Rien à configurer maintenant — vous vous connecterez avec votre compte Finary au moment de l'ajouter dans Picsou. Le TOTP est géré à l'ajout si votre compte en requiert un.",
-      "tip": "Une fois l'installation finie, allez dans Comptes → Ajouter un compte → Finary.",
-      "cta": "C'est compris",
+      "body": "Vous connecterez votre compte Finary après l'installation depuis vos comptes. L'authentification à deux facteurs est prise en charge lors de l'ajout.",
+      "tip": "Une fois l'installation terminée, rendez-vous dans Comptes, cliquez sur Ajouter un compte, puis choisissez Finary.",
+      "cta": "Activer Finary",
       "skip": "Ne pas activer Finary"
     },
     "crypto": {
       "title": "Chiffrez vos clés API de plateformes crypto",
-      "body": "Vos clés API de plateformes crypto (Binance, Meria...) sont chiffrées au repos. Picsou peut générer la clé de chiffrement pour vous — elle reste sur votre disque et n'est jamais transmise.",
+      "body": "Vos clés API de plateformes crypto sont chiffrées localement. Picsou peut générer automatiquement une clé de chiffrement, conservée uniquement sur votre machine.",
       "generateCta": "Générer une clé pour moi",
       "generating": "Génération...",
-      "existed": "Votre clé de chiffrement est déjà configurée — rien à faire.",
+      "existed": "Votre clé de chiffrement est déjà configurée.",
       "created": "Clé de chiffrement générée.",
       "pathLabel": "Source",
       "continue": "Continuer",
       "skip": "Ne pas activer les clés d'échange",
-      "error": "Impossible de préparer la clé de chiffrement. Regardez les logs du serveur."
+      "error": "Impossible de préparer la clé de chiffrement. Consultez les journaux du serveur pour plus de détails."
     },
     "complete": {
       "title": "Picsou est prêt.",
       "subtitle": "Bienvenue, {{name}}.",
       "summaryTitle": "Ce qui est activé",
-      "noIntegrations": "Aucune intégration activée pour l'instant — pas de souci, vous pourrez le faire depuis Réglages → Intégrations à tout moment.",
+      "noIntegrations": "Aucune intégration n'est activée pour le moment. Vous pourrez en ajouter à tout moment depuis la section Intégrations des Paramètres.",
       "completing": "Finalisation...",
       "cta": "Ouvrir mon tableau de bord",
       "loginFallback": "Aller à la connexion",
@@ -3036,10 +3143,17 @@
     },
     "lbp": {
       "title": "La Banque Postale est prête.",
-      "body": "Connectez votre compte après l'installation depuis Comptes → Ajouter un compte. Vous saisirez votre identifiant, puis vos 6 chiffres sur le clavier de la banque.",
+      "body": "Connectez votre compte après l'installation en allant dans Comptes puis Ajouter un compte. Vous saisirez votre identifiant, puis vos 6 chiffres sur le clavier de la banque.",
       "tip": "Picsou conserve uniquement une session chiffrée et, si vous le demandez, votre identifiant. Le mot de passe et les positions du clavier ne sont jamais enregistrés.",
       "cta": "Activer La Banque Postale",
       "skip": "Ne pas activer La Banque Postale"
+    },
+    "bnp": {
+      "title": "BNP Paribas et Hello bank! sont prêts.",
+      "body": "Connectez votre compte après l'installation en allant dans Comptes puis Ajouter un compte. Vous vous identifierez directement sur l'espace de la banque.",
+      "tip": "Picsou conserve uniquement une session chiffrée. Votre mot de passe n'est jamais enregistré.",
+      "cta": "Activer BNP Paribas",
+      "skip": "Ne pas activer BNP Paribas"
     }
   },
   "pockets": {
@@ -3066,7 +3180,7 @@
     "saveConfig": "Enregistrer",
     "deleteConfig": "Supprimer la configuration",
     "deleteConfigConfirm": "Supprimer la configuration livret ?",
-    "regulatedNet": "Produit réglementé — les intérêts sont nets d'impôt par la loi",
+    "regulatedNet": "Produit réglementé : les intérêts sont exonérés d'impôt.",
     "projectionTitle": "Intérêts estimés {{year}}",
     "projectionYtd": "Depuis le 1er janvier",
     "projectionFullYear": "Estimation pleine année",
@@ -3091,7 +3205,7 @@
     "feesIncluded": "Les frais sont déjà inclus dans le montant",
     "preview": "Aperçu",
     "rowsTotal": "{{count}} lignes",
-    "none": "— aucune —",
+    "none": "Aucune",
     "back": "Retour",
     "import": "Importer",
     "rowsImported": "{{count}} transactions importées",
@@ -3099,7 +3213,7 @@
     "rowLabel": "Ligne {{row}}",
     "field": {
       "date": "Date",
-      "side": "Achat / Vente",
+      "side": "Achat ou vente",
       "tickerOrIsin": "Ticker / ISIN",
       "name": "Nom",
       "quantity": "Quantité",
@@ -3115,11 +3229,6 @@
     "proceeds": "Produit",
     "avgCost": "PMP",
     "qtySold": "Qté vendue"
-  },
-  "sidebarStylePrompt": {
-    "title": "Choisissez le style de votre barre latérale",
-    "description": "Deux dispositions au choix — vous pourrez en changer à tout moment.",
-    "hint": "Modifiable à tout moment dans Paramètres > Apparence."
   },
   "property": {
     "kind": {
@@ -3236,9 +3345,9 @@
     },
     "summary": {
       "title": "Patrimoine immobilier",
-      "gross": "Brut",
+      "gross": "Valeur brute",
       "debt": "Endettement",
-      "net": "Net",
+      "net": "Valeur nette",
       "gain": "Plus-value",
       "loanToValue": "Taux d'endettement : {{pct}} de la valeur des biens",
       "rentalIncome": "Revenus locatifs mensuels :"
@@ -3486,5 +3595,20 @@
     "SSO_DISABLED": "La connexion unique n'est pas activée sur cette instance.",
     "SELF_UNLINK_FORBIDDEN": "Pour dissocier vos propres identités SSO, utilisez Méthodes de connexion dans les Paramètres.",
     "generic": "La connexion unique a échoué. Veuillez réessayer."
+  },
+  "whatsNew": {
+    "title": "Nouveautés",
+    "subtitle": "Aperçu des dernières améliorations de Picsou.",
+    "starGithub": "Star sur GitHub",
+    "starShort": "Star sur GitHub",
+    "viewReleaseNotes": "Voir les notes de version",
+    "fullChangelog": "Toutes les releases",
+    "updateAvailable": "Mise à jour disponible : {{version}}",
+    "upToDate": "À jour",
+    "checkUpdates": "Vérifier les mises à jour",
+    "howToUpdate": "Mettre à jour",
+    "updateInstructions": "Pour mettre à jour votre instance Docker, exécutez :",
+    "copied": "Copié",
+    "copy": "Copier"
   }
 }

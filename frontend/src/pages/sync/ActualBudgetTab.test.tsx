@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom'
+import { chooseSelectOption, getSelectOptionValues } from '@/test/radix-select'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -182,7 +183,7 @@ describe('ActualBudgetTab', () => {
     await uploadPreview()
     const type = await screen.findByLabelText('sync.actual.accountType')
 
-    expect(Array.from(type.querySelectorAll('option')).map((option) => option.value)).not.toContain('LOAN')
+    expect(getSelectOptionValues(type)).not.toContain('LOAN')
   })
 
   it('asks for the currency when the budget does not record one', async () => {
@@ -190,7 +191,7 @@ describe('ActualBudgetTab', () => {
     await uploadPreview({ ...preview, currency: null })
     const currency = await screen.findByLabelText('sync.actual.currency')
 
-    fireEvent.change(currency, { target: { value: 'USD' } })
+    chooseSelectOption(currency, 'USD')
     const [, request] = await confirmImport()
 
     expect(request.currency).toBe('USD')
@@ -215,11 +216,11 @@ describe('ActualBudgetTab', () => {
     })
 
     const account = await screen.findByLabelText('sync.actual.targetAccount')
-    expect(account).toHaveValue('31')
-    expect(Array.from(account.querySelectorAll('option')).map((option) => option.value)).toEqual(['', '31'])
+    expect(account).toHaveAttribute('data-value', '31')
+    expect(getSelectOptionValues(account)).toEqual(['', '31'])
     const category = screen.getByLabelText('sync.actual.targetCategory')
-    expect(category).toHaveValue('41')
-    expect(Array.from(category.querySelectorAll('option')).map((option) => option.value)).toEqual(['', '41'])
+    expect(category).toHaveAttribute('data-value', '41')
+    expect(getSelectOptionValues(category)).toEqual(['', '41'])
 
     const [, request] = await confirmImport()
     expect(request.accountMappings).toEqual([{ sourceId: 'acc-1', action: 'MAP_EXISTING', targetAccountId: 31 }])
@@ -239,12 +240,12 @@ describe('ActualBudgetTab', () => {
     })
 
     const account = await screen.findByLabelText('sync.actual.targetAccount')
-    expect(account).toHaveValue('35')
-    expect(Array.from(account.querySelectorAll('option')).map((option) => option.value)).toEqual(['', '31', '35'])
+    expect(account).toHaveAttribute('data-value', '35')
+    expect(getSelectOptionValues(account)).toEqual(['', '31', '35'])
     expect(screen.getByText('sync.actual.previouslyImported')).toBeInTheDocument()
-    fireEvent.change(account, { target: { value: '31' } })
+    chooseSelectOption(account, '31')
     expect(screen.queryByText('sync.actual.previouslyImported')).not.toBeInTheDocument()
-    fireEvent.change(account, { target: { value: '35' } })
+    chooseSelectOption(account, '35')
 
     const [, request] = await confirmImport()
     expect(request.accountMappings).toEqual([{ sourceId: 'acc-1', action: 'MAP_EXISTING', targetAccountId: 35 }])
@@ -266,10 +267,10 @@ describe('ActualBudgetTab', () => {
     })
 
     const [own, other] = await screen.findAllByLabelText('sync.actual.targetAccount')
-    expect(own).toHaveValue('36')
-    expect(Array.from(own.querySelectorAll('option')).map((option) => option.value)).toEqual(['', '36', '31'])
-    expect(other).toHaveValue('31')
-    expect(Array.from(other.querySelectorAll('option')).map((option) => option.value)).toEqual(['', '31'])
+    expect(own).toHaveAttribute('data-value', '36')
+    expect(getSelectOptionValues(own)).toEqual(['', '36', '31'])
+    expect(other).toHaveAttribute('data-value', '31')
+    expect(getSelectOptionValues(other)).toEqual(['', '31'])
   })
 
   it('creates a new account rather than reuse another budget\'s imported account of the same name', async () => {
@@ -293,9 +294,9 @@ describe('ActualBudgetTab', () => {
     await uploadPreview()
     const action = await screen.findByLabelText('sync.actual.categoryAction')
 
-    fireEvent.change(action, { target: { value: 'MAP_EXISTING' } })
+    chooseSelectOption(action, 'MAP_EXISTING')
     expect(screen.getByRole('button', { name: 'sync.actual.import' })).toBeDisabled()
-    fireEvent.change(action, { target: { value: 'UNCATEGORIZED' } })
+    chooseSelectOption(action, 'UNCATEGORIZED')
     expect(screen.getByRole('button', { name: 'sync.actual.import' })).toBeEnabled()
 
     const [, request] = await confirmImport()

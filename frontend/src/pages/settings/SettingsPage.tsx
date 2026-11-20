@@ -1,13 +1,17 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { type Theme, applyTheme, getStoredTheme } from '@/lib/theme'
 import { useTranslation } from 'react-i18next'
 import { SUPPORTED_LOCALES, resolveLocale } from '@/i18n/locales'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { useAuthStore } from '@/stores/auth-store'
-import { useAppStore, type DateFormat, type SidebarStyle } from '@/stores/app-store'
+import { useAppStore, type DateFormat } from '@/stores/app-store'
 import { useLogout } from '@/features/auth/hooks'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { WhatsNewDialog } from '@/components/shared/WhatsNewDialog'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { resizeProfilePhoto } from '@/lib/image-avatar'
 import {
   Card,
   CardContent,
@@ -18,6 +22,8 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getErrorStatus } from '@/lib/errors'
+import { cn, formatDate, getLocale } from '@/lib/utils'
+import { useMoney } from '@/hooks/use-money'
 import {
   Paintbrush,
   Globe,
@@ -33,10 +39,24 @@ import {
   IdCard,
   Link2,
   ExternalLink,
+  SlidersHorizontal,
+  Sun,
+  Moon,
+  Monitor,
+  Calendar,
+  Eye,
+  EyeOff,
+  Camera,
+  Trash2,
+  RefreshCw,
+  Megaphone,
+  Star,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { APP_VERSION } from '@/lib/app-version'
+import { PICSOU_GITHUB_URL } from '@/lib/whats-new'
+import { useInstanceStatus } from '@/features/admin/hooks'
 import { SecuritySection } from './security/SecuritySection'
 import { AccessKeysSection } from './sections/AccessKeysSection'
 import { ProfileSection } from './sections/ProfileSection'
@@ -49,6 +69,7 @@ import { ConnectedAppsSection } from './sections/ConnectedAppsSection'
 interface ToggleOption {
   value: string
   label: string
+  icon?: LucideIcon
 }
 
 function ToggleGroup({
@@ -61,19 +82,21 @@ function ToggleGroup({
   onChange: (value: string) => void
 }) {
   return (
-    <div className="flex w-full items-center rounded-2xl bg-muted p-1 @xl:inline-flex @xl:w-auto">
-      {options.map((opt) => (
+    <div className="flex w-full items-center gap-1 rounded-lg border border-border/60 bg-background/80 p-1">
+      {options.map(({ value: optValue, label, icon: Icon }) => (
         <button
-          key={opt.value}
+          key={optValue}
           type="button"
-          onClick={() => onChange(opt.value)}
-          className={`inline-flex h-10 flex-1 basis-0 items-center justify-center whitespace-nowrap rounded-xl px-4 text-sm font-medium transition-[background-color,color] @xl:min-w-24 @xl:flex-none @xl:basis-auto @xl:px-8 ${
-            value === opt.value
+          onClick={() => onChange(optValue)}
+          className={cn(
+            'inline-flex h-8 flex-1 basis-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-medium transition-[background-color,color]',
+            value === optValue
               ? 'bg-primary text-primary-foreground'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
+              : 'text-muted-foreground hover:text-foreground',
+          )}
         >
-          {opt.label}
+          {Icon && <Icon className="size-3.5 shrink-0" aria-hidden="true" />}
+          <span>{label}</span>
         </button>
       ))}
     </div>
@@ -96,17 +119,28 @@ function SectionCard({
   children: React.ReactNode
 }) {
   return (
-    <Card className="rounded-4xl bg-card">
+    <Card className="rounded-xl bg-card">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-lg">
-          {React.createElement(icon, { className: "size-5 text-muted-foreground" })}
+        <CardTitle className="flex items-center gap-2 text-base font-semibold">
+          {React.createElement(icon, { className: 'size-4 shrink-0 text-muted-foreground' })}
           {title}
         </CardTitle>
-        <CardDescription>{description}</CardDescription>
+        <CardDescription className="text-sm">{description}</CardDescription>
       </CardHeader>
       <CardContent>{children}</CardContent>
     </Card>
   )
+}
+
+type SettingsTab = 'appearance' | 'profile' | 'security' | 'api' | 'system'
+
+const VALID_TABS: SettingsTab[] = ['appearance', 'profile', 'security', 'api', 'system']
+
+function resolveTab(params: URLSearchParams): SettingsTab {
+  const raw = params.get('tab')
+  if (raw && VALID_TABS.includes(raw as SettingsTab)) return raw as SettingsTab
+  if (params.has('resume') || params.has('sso') || params.has('ssoError')) return 'security'
+  return 'appearance'
 }
 
 // ---------------------------------------------------------------------------
@@ -116,10 +150,48 @@ function SectionCard({
 export function SettingsPage() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab = resolveTab(searchParams)
   const user = useAuthStore((s) => s.user)
+  const money = useMoney()
   const logoutMutation = useLogout()
   const setUsername = useAuthStore((s) => s.setUsername)
-  const { dateFormat, setDateFormat, sidebarStyle, setSidebarStyle, hideAmounts, setHideAmounts } = useAppStore()
+  const {
+    demoMode,
+    dateFormat,
+    setDateFormat,
+    hideAmounts,
+    setHideAmounts,
+    profilePhotos,
+    setProfilePhoto,
+  } = useAppStore()
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false)
+  const isAdmin = user?.role === 'ADMIN'
+  const instanceStatusQuery = useInstanceStatus(activeTab === 'system' && isAdmin && !demoMode)
+  const displayedVersion = instanceStatusQuery.data?.currentVersion || APP_VERSION
+  const availableUpdate = instanceStatusQuery.data?.update ?? null
+  const photoInputRef = useRef<HTMLInputElement>(null)
+  const [photoError, setPhotoError] = useState<string | null>(null)
+  const photoKey = user?.memberId != null ? String(user.memberId) : 'self'
+  const profilePhoto = profilePhotos[photoKey]
+  const accountInitial = (user?.displayName || user?.username || 'P').charAt(0).toUpperCase()
+
+  async function handlePhotoSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setPhotoError(null)
+    try {
+      const dataUrl = await resizeProfilePhoto(file)
+      setProfilePhoto(photoKey, dataUrl)
+    } catch {
+      setPhotoError(t('settings.profilePhotoInvalid'))
+    }
+  }
+
+  const setActiveTab = (tab: SettingsTab) => {
+    setSearchParams(tab === 'appearance' ? {} : { tab }, { replace: true })
+  }
 
   // Username editing -------------------------------------------------------
   const [editingUsername, setEditingUsername] = useState(false)
@@ -184,9 +256,9 @@ export function SettingsPage() {
 
   // Theme / locale options
   const themeOptions: ToggleOption[] = [
-    { value: 'light', label: t('settings.themeLight') },
-    { value: 'dark', label: t('settings.themeDark') },
-    { value: 'system', label: t('settings.themeSystem') },
+    { value: 'light', label: t('settings.themeLight'), icon: Sun },
+    { value: 'dark', label: t('settings.themeDark'), icon: Moon },
+    { value: 'system', label: t('settings.themeSystem'), icon: Monitor },
   ]
 
   const localeOptions: ToggleOption[] = SUPPORTED_LOCALES.map((l) => ({
@@ -200,230 +272,392 @@ export function SettingsPage() {
   ]
 
   const amountsOptions: ToggleOption[] = [
-    { value: 'visible', label: t('settings.amountsVisible') },
-    { value: 'hidden', label: t('settings.amountsHidden') },
+    { value: 'visible', label: t('settings.amountsVisible'), icon: Eye },
+    { value: 'hidden', label: t('settings.amountsHidden'), icon: EyeOff },
   ]
 
-  const sidebarStyleOptions: ToggleOption[] = [
-    { value: 'current', label: t('settings.sidebarStyleCurrent') },
-    { value: 'classic', label: t('settings.sidebarStyleClassic') },
+  const todayIso = new Date().toLocaleDateString('en-CA')
+  const sampleDate = formatDate(todayIso, getLocale())
+
+
+  const tabs: Array<{ id: SettingsTab; label: string; icon: LucideIcon }> = [
+    { id: 'appearance', label: t('settings.tabs.appearance'), icon: Paintbrush },
+    { id: 'profile', label: t('settings.tabs.profile'), icon: User },
+    { id: 'security', label: t('settings.tabs.security'), icon: Shield },
+    { id: 'api', label: t('settings.tabs.api'), icon: KeyRound },
+    { id: 'system', label: t('settings.tabs.system'), icon: SlidersHorizontal },
   ]
 
   return (
     <div className="space-y-6">
       <PageHeader title={t('settings.title')} />
 
-      {/* Appearance ------------------------------------------------------- */}
-      <SectionCard
-        icon={Paintbrush}
-        title={t('settings.appearance')}
-        description={t('settings.appearanceDescription')}
+      <div
+        role="tablist"
+        aria-label={t('settings.title')}
+        className="flex w-full flex-wrap items-center gap-1 rounded-lg border border-border/60 bg-background/80 p-1"
       >
-        <div className="@container space-y-6">
-          {/* Theme */}
-          <div className="flex flex-col gap-2 @xl:flex-row @xl:items-center @xl:justify-between">
-            <Label className="text-sm font-medium">{t('settings.theme')}</Label>
-            <ToggleGroup
-              options={themeOptions}
-              value={theme}
-              onChange={(v) => setTheme(v as Theme)}
-            />
-          </div>
+        {tabs.map(({ id, label, icon: Icon }) => {
+          const active = activeTab === id
+          return (
+            <button
+              key={id}
+              role="tab"
+              type="button"
+              aria-selected={active}
+              onClick={() => setActiveTab(id)}
+              className={cn(
+                'inline-flex h-8 flex-auto items-center justify-center gap-2 rounded-md px-3.5 text-sm font-medium whitespace-nowrap transition-[background-color,color]',
+                active
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <Icon className="size-4 shrink-0" aria-hidden="true" />
+              <span>{label}</span>
+            </button>
+          )
+        })}
+      </div>
 
-          {/* Language */}
-          <div className="flex flex-col gap-2 @xl:flex-row @xl:items-center @xl:justify-between">
-            <Label className="text-sm font-medium">{t('settings.language')}</Label>
-            <ToggleGroup
-              options={localeOptions}
-              value={resolveLocale(locale).code}
-              onChange={handleLocaleChange}
-            />
-          </div>
+      {activeTab === 'appearance' && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Card className="rounded-xl bg-card">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                <Paintbrush className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                {t('settings.theme')}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ToggleGroup
+                options={themeOptions}
+                value={theme}
+                onChange={(v) => setTheme(v as Theme)}
+              />
+            </CardContent>
+          </Card>
 
-          {/* Date format */}
-          <div className="flex flex-col gap-2 @xl:flex-row @xl:items-center @xl:justify-between">
-            <Label className="text-sm font-medium">{t('settings.dateFormat')}</Label>
-            <ToggleGroup
-              options={dateFormatOptions}
-              value={dateFormat}
-              onChange={(v) => setDateFormat(v as DateFormat)}
-            />
-          </div>
+          <Card className="rounded-xl bg-card">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                <Globe className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                {t('settings.language')}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ToggleGroup
+                options={localeOptions}
+                value={resolveLocale(locale).code}
+                onChange={handleLocaleChange}
+              />
+            </CardContent>
+          </Card>
 
-          {/* Amounts. Duplicated from the sidebar's eye button on purpose: that button lives in
-              a sidebar that is hidden below 768px, and shoulder-surfing is likelier on a phone
-              than at a desk. */}
-          <div className="flex flex-col gap-2 @xl:flex-row @xl:items-center @xl:justify-between">
-            <Label className="text-sm font-medium">{t('settings.amounts')}</Label>
-            <ToggleGroup
-              options={amountsOptions}
-              value={hideAmounts ? 'hidden' : 'visible'}
-              onChange={(v) => setHideAmounts(v === 'hidden')}
-            />
-          </div>
+          <Card className="rounded-xl bg-card">
+            <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 pb-3">
+              <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                <Calendar className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                {t('settings.dateFormat')}
+              </CardTitle>
+              <span className="rounded-md bg-muted/60 px-2.5 py-1 text-xs font-medium tabular-nums text-muted-foreground">
+                {sampleDate}
+              </span>
+            </CardHeader>
+            <CardContent>
+              <ToggleGroup
+                options={dateFormatOptions}
+                value={dateFormat}
+                onChange={(v) => setDateFormat(v as DateFormat)}
+              />
+            </CardContent>
+          </Card>
 
-          {/* Sidebar style */}
-          <div className="flex flex-col gap-2 @xl:flex-row @xl:items-center @xl:justify-between">
-            <Label className="text-sm font-medium">{t('settings.sidebarStyle')}</Label>
-            <ToggleGroup
-              options={sidebarStyleOptions}
-              value={sidebarStyle}
-              onChange={(v) => setSidebarStyle(v as SidebarStyle)}
-            />
-          </div>
+          <Card className="rounded-xl bg-card">
+            <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 pb-3">
+              <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                {hideAmounts
+                  ? <EyeOff className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  : <Eye className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
+                {t('settings.amounts')}
+              </CardTitle>
+              <span className="rounded-md bg-muted/60 px-2.5 py-1 text-xs font-medium tabular-nums text-muted-foreground">
+                {money.amount(1234.56, 'EUR')}
+              </span>
+            </CardHeader>
+            <CardContent>
+              <ToggleGroup
+                options={amountsOptions}
+                value={hideAmounts ? 'hidden' : 'visible'}
+                onChange={(v) => setHideAmounts(v === 'hidden')}
+              />
+            </CardContent>
+          </Card>
         </div>
-      </SectionCard>
+      )}
 
-      {/* Account ---------------------------------------------------------- */}
-      <SectionCard
-        icon={User}
-        title={t('settings.account')}
-        description={t('settings.accountDescription')}
-      >
-        <div className="space-y-4">
-          <div className="flex items-center justify-between gap-4">
-            <Label className="text-sm font-medium shrink-0">
-              {t('settings.username')}
-            </Label>
-            {editingUsername ? (
-              <div className="flex flex-col items-end gap-1">
-                <div className="flex items-center gap-2">
-                  <Input
-                    value={newUsername}
-                    onChange={e => setNewUsername(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') saveUsername(); if (e.key === 'Escape') cancelEditUsername() }}
-                    className="w-72"
-                    autoFocus
-                    disabled={usernameSaving}
-                  />
-                  <Button size="icon" variant="outline" onClick={saveUsername} disabled={usernameSaving}>
-                    <Check className="size-4 text-emerald-600" />
-                  </Button>
-                  <Button size="icon" variant="outline" onClick={cancelEditUsername} disabled={usernameSaving}>
-                    <X className="size-4" />
-                  </Button>
+      {activeTab === 'profile' && (
+        <div className="space-y-6">
+          <SectionCard
+            icon={User}
+            title={t('settings.account')}
+            description={t('settings.accountDescription')}
+          >
+            <div className="space-y-5">
+              {/* Profile photo */}
+              <div className="flex items-center justify-between gap-4 border-b border-border/60 pb-4">
+                <div className="space-y-0.5">
+                  <Label className="text-sm font-medium">{t('settings.profilePhoto')}</Label>
+                  {photoError && <p className="text-sm text-destructive">{photoError}</p>}
                 </div>
-                {usernameError && <p className="text-sm text-destructive">{usernameError}</p>}
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={photoInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => void handlePhotoSelected(e)}
+                  />
+                  {profilePhoto && (
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      className="text-muted-foreground hover:text-destructive"
+                      aria-label={t('settings.profilePhotoRemove')}
+                      title={t('settings.profilePhotoRemove')}
+                      onClick={() => {
+                        setPhotoError(null)
+                        setProfilePhoto(photoKey, null)
+                      }}
+                    >
+                      <Trash2 className="size-4" aria-hidden="true" />
+                    </Button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => photoInputRef.current?.click()}
+                    aria-label={profilePhoto ? t('settings.profilePhotoChange') : t('settings.profilePhotoUpload')}
+                    title={profilePhoto ? t('settings.profilePhotoChange') : t('settings.profilePhotoUpload')}
+                    className="group relative cursor-pointer rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <Avatar className="size-10 rounded-lg after:rounded-lg">
+                      {profilePhoto && (
+                        <AvatarImage src={profilePhoto} alt={user?.displayName || user?.username || ''} className="rounded-lg" />
+                      )}
+                      <AvatarFallback className="rounded-lg bg-muted text-sm font-semibold text-muted-foreground">
+                        {accountInitial}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/45 text-white opacity-0 transition-opacity group-hover:opacity-100">
+                      <Camera className="size-4" aria-hidden="true" />
+                    </span>
+                  </button>
+                </div>
               </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">{user?.username}</span>
-                <Button size="icon" variant="outline" onClick={startEditUsername}>
-                  <Pencil className="size-4" />
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                <Label className="shrink-0 text-sm font-medium">
+                  {t('settings.username')}
+                </Label>
+                {editingUsername ? (
+                  <div className="flex flex-col items-end gap-1">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={newUsername}
+                        onChange={e => setNewUsername(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') saveUsername(); if (e.key === 'Escape') cancelEditUsername() }}
+                        className="w-64 sm:w-72"
+                        autoFocus
+                        disabled={usernameSaving}
+                      />
+                      <Button size="icon" variant="outline" onClick={saveUsername} disabled={usernameSaving}>
+                        <Check className="size-4 text-emerald-600" />
+                      </Button>
+                      <Button size="icon" variant="outline" onClick={cancelEditUsername} disabled={usernameSaving}>
+                        <X className="size-4" />
+                      </Button>
+                    </div>
+                    {usernameError && <p className="text-sm text-destructive">{usernameError}</p>}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-foreground">{user?.username}</span>
+                    <Button size="icon" variant="outline" onClick={startEditUsername}>
+                      <Pencil className="size-4" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+              <div className="flex justify-end border-t border-border/60 pt-4">
+                <Button variant="destructive" onClick={handleLogout} disabled={logoutMutation.isPending}>
+                  <LogOut className="size-4" />
+                  {t('settings.logout')}
                 </Button>
               </div>
-            )}
-          </div>
-          <div className="flex justify-end">
-            <Button variant="destructive" onClick={handleLogout} disabled={logoutMutation.isPending}>
-              <LogOut className="mr-2 size-4" />
-              {t('settings.logout')}
-            </Button>
-          </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            icon={IdCard}
+            title={t('settings.profile.title')}
+            description={t('settings.profile.description')}
+          >
+            <ProfileSection />
+          </SectionCard>
         </div>
-      </SectionCard>
+      )}
 
-      {/* Profile (personal + fiscal context) ------------------------------ */}
-      <SectionCard
-        icon={IdCard}
-        title={t('settings.profile.title')}
-        description={t('settings.profile.description')}
-      >
-        <ProfileSection />
-      </SectionCard>
-
-      {/* Security --------------------------------------------------------- */}
-      <SectionCard
-        icon={Shield}
-        title={t('settings.security')}
-        description={t('settings.securityDescription')}
-      >
-        <SecuritySection />
-      </SectionCard>
-
-      {/* Access keys & MCP ------------------------------------------------ */}
-      <SectionCard
-        icon={KeyRound}
-        title={t('accessKeys.sectionTitle')}
-        description={t('accessKeys.sectionDescription')}
-      >
-        <AccessKeysSection />
-      </SectionCard>
-
-      {/* Connected apps (OAuth) -------------------------------------------- */}
-      <SectionCard
-        icon={Link2}
-        title={t('connectedApps.sectionTitle')}
-        description={t('connectedApps.sectionDescription')}
-      >
-        <ConnectedAppsSection />
-      </SectionCard>
-
-      {/* Family ----------------------------------------------------------- */}
-      <SectionCard
-        icon={Users}
-        title={t('settings.family')}
-        description={t('settings.familyDescription')}
-      >
-        <button
-          type="button"
-          onClick={() => navigate('/settings/family')}
-          className="flex min-h-10 w-full items-center justify-between rounded-xl bg-muted/70 px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
-        >
-          <span>{t('settings.familyManage')}</span>
-          <ChevronRight className="size-4 text-muted-foreground" />
-        </button>
-      </SectionCard>
-
-      {/* Admin (admin-only) ----------------------------------------------- */}
-      {user?.role === 'ADMIN' && (
+      {activeTab === 'security' && (
         <SectionCard
           icon={Shield}
-          title={t('settings.adminSection')}
-          description={t('settings.adminDescription')}
+          title={t('settings.security')}
+          description={t('settings.securityDescription')}
         >
-          <button
-            type="button"
-            onClick={() => navigate('/admin')}
-            className="flex min-h-10 w-full items-center justify-between rounded-xl bg-muted/70 px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
-          >
-            <span>{t('settings.adminButton')}</span>
-            <ChevronRight className="size-4 text-muted-foreground" />
-          </button>
+          <SecuritySection />
         </SectionCard>
       )}
 
-      {/* About ------------------------------------------------------------ */}
-      <SectionCard
-        icon={Globe}
-        title={t('settings.about')}
-        description={t('settings.aboutDescription')}
-      >
-        <div className="grid gap-5 text-sm sm:grid-cols-3 sm:items-start">
-          <div className="space-y-1">
-            <p className="text-muted-foreground">{t('settings.application')}</p>
-            <p className="font-medium text-foreground">Picsou</p>
-          </div>
-          <div className="space-y-1">
-            <p className="text-muted-foreground">
-              {t('settings.version')}
-            </p>
-            <p className="font-medium text-foreground">{APP_VERSION}</p>
-          </div>
-          <div className="space-y-1 sm:justify-self-end sm:text-right">
-            <p className="text-muted-foreground">GitHub</p>
-            <a
-              href="https://github.com/cloeille/picsou-finance"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex min-h-10 max-w-full items-center gap-2 rounded-xl font-medium text-foreground transition-colors hover:text-muted-foreground"
-            >
-              <span className="truncate">github.com/cloeille/picsou-finance</span>
-              <ExternalLink className="size-4 text-muted-foreground" />
-            </a>
-          </div>
+      {activeTab === 'api' && (
+        <div className="space-y-6">
+          <SectionCard
+            icon={KeyRound}
+            title={t('accessKeys.sectionTitle')}
+            description={t('accessKeys.sectionDescription')}
+          >
+            <AccessKeysSection />
+          </SectionCard>
+
+          <SectionCard
+            icon={Link2}
+            title={t('connectedApps.sectionTitle')}
+            description={t('connectedApps.sectionDescription')}
+          >
+            <ConnectedAppsSection />
+          </SectionCard>
         </div>
-      </SectionCard>
+      )}
+
+      {activeTab === 'system' && (
+        <div className="space-y-6">
+          <div className={cn('grid gap-4', user?.role === 'ADMIN' && 'sm:grid-cols-2')}>
+            <button
+              type="button"
+              onClick={() => navigate('/settings/family')}
+              className="group flex items-center gap-4 rounded-xl border border-border/60 bg-card p-5 text-left transition-colors hover:bg-muted/35"
+            >
+              <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
+                <Users className="size-5" aria-hidden="true" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-base font-semibold text-foreground">{t('settings.family')}</p>
+                <p className="mt-0.5 text-sm text-muted-foreground">{t('settings.familyDescription')}</p>
+              </div>
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+            </button>
+
+            {user?.role === 'ADMIN' && (
+              <button
+                type="button"
+                onClick={() => navigate('/admin')}
+                className="group flex items-center gap-4 rounded-xl border border-border/60 bg-card p-5 text-left transition-colors hover:bg-muted/35"
+              >
+                <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
+                  <Shield className="size-5" aria-hidden="true" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-base font-semibold text-foreground">{t('settings.adminSection')}</p>
+                  <p className="mt-0.5 text-sm text-muted-foreground">{t('settings.adminDescription')}</p>
+                </div>
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+              </button>
+            )}
+          </div>
+
+          <SectionCard
+            icon={Globe}
+            title={t('settings.about')}
+            description={t('settings.aboutDescription')}
+          >
+            <div className="space-y-4">
+              <div className="grid gap-3 text-sm sm:grid-cols-3">
+                <div className="rounded-xl bg-muted/40 px-4 py-3">
+                  <p className="text-xs text-muted-foreground">{t('settings.application')}</p>
+                  <p className="mt-1 font-semibold text-foreground">Picsou</p>
+                </div>
+                <div className="rounded-xl bg-muted/40 px-4 py-3">
+                  <p className="text-xs text-muted-foreground">{t('settings.version')}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <span className="font-semibold tabular-nums text-foreground">
+                      v{displayedVersion}
+                    </span>
+                    {isAdmin && instanceStatusQuery.data && (
+                      availableUpdate ? (
+                        <Badge className="tabular-nums">
+                          {t('whatsNew.updateAvailable', { version: `v${availableUpdate.latestVersion}` })}
+                        </Badge>
+                      ) : (
+                        <Badge
+                          variant="secondary"
+                          className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                        >
+                          {t('whatsNew.upToDate')}
+                        </Badge>
+                      )
+                    )}
+                  </div>
+                </div>
+                <a
+                  href={PICSOU_GITHUB_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="group flex flex-col justify-between rounded-xl bg-muted/40 px-4 py-3 transition-colors hover:bg-muted/70"
+                >
+                  <p className="text-xs text-muted-foreground">GitHub</p>
+                  <span className="mt-1 inline-flex items-center gap-1.5 font-semibold text-foreground">
+                    <span className="truncate">Cloeille/picsou-finance</span>
+                    <ExternalLink className="size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" aria-hidden="true" />
+                  </span>
+                </a>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-4">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setWhatsNewOpen(true)}
+                >
+                  <Megaphone className="size-3.5" aria-hidden="true" />
+                  {t('whatsNew.title')}
+                </Button>
+                {isAdmin && !demoMode && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={instanceStatusQuery.isFetching}
+                    onClick={() => void instanceStatusQuery.refetch()}
+                  >
+                    <RefreshCw
+                      className={cn('size-3.5', instanceStatusQuery.isFetching && 'animate-spin')}
+                      aria-hidden="true"
+                    />
+                    {t('whatsNew.checkUpdates')}
+                  </Button>
+                )}
+                <Button size="sm" variant="outline" asChild>
+                  <a href={PICSOU_GITHUB_URL} target="_blank" rel="noreferrer">
+                    <Star className="size-3.5" aria-hidden="true" />
+                    {t('whatsNew.starGithub')}
+                  </a>
+                </Button>
+              </div>
+            </div>
+          </SectionCard>
+          <WhatsNewDialog open={whatsNewOpen} onOpenChange={setWhatsNewOpen} />
+        </div>
+      )}
     </div>
   )
 }

@@ -69,7 +69,7 @@ export function EBStep5Test({ onBack }: Props) {
     <EBSubstepShell current={5} total={5}>
       <div className="space-y-6">
         <div className="flex justify-center">
-          <span className="rounded-xl bg-primary/10 p-3 text-primary">
+          <span className="inline-flex size-10 items-center justify-center text-foreground">
             <Zap className="h-6 w-6" />
           </span>
         </div>
@@ -85,16 +85,16 @@ export function EBStep5Test({ onBack }: Props) {
         {phase === 'idle' && (
           <>
             <div
-              className="flex items-start gap-3 rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4 text-sm text-amber-900 dark:text-amber-200"
+              className="flex items-start gap-3 rounded-xl border border-border bg-muted/40 p-4 text-sm text-foreground"
               role="note"
             >
-              <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
               <p>{t('setup.enablebanking.test.activationNotice')}</p>
             </div>
             <div className="flex justify-center">
               <Button
                 onClick={run}
-                className="w-full rounded-full"
+                className="w-full rounded-lg"
               >
                 {t('setup.enablebanking.test.run')}
               </Button>
@@ -110,13 +110,13 @@ export function EBStep5Test({ onBack }: Props) {
         )}
 
         {phase === 'ok' && (
-          <div role="status" className="space-y-4 rounded-2xl border border-emerald-500/40 bg-emerald-500/5 p-6 text-center">
+          <div role="status" className="space-y-4 rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-6 text-center">
             <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-500" />
             <p className="text-lg font-medium">{t('setup.enablebanking.test.success')}</p>
             <p className="text-sm text-muted-foreground">{t('setup.enablebanking.test.successBody')}</p>
             <Button
               onClick={proceed}
-              className="w-full rounded-full"
+              className="w-full rounded-lg"
             >
               {t('setup.enablebanking.continue')}
             </Button>
@@ -126,7 +126,7 @@ export function EBStep5Test({ onBack }: Props) {
         {phase === 'ko' && (
           <div
             role="alert"
-            className="space-y-4 rounded-2xl border border-destructive/40 bg-destructive/5 p-6"
+            className="space-y-4 rounded-xl border border-destructive/40 bg-destructive/5 p-6"
           >
             <div className="flex items-start gap-3">
               <CircleAlert className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
@@ -137,14 +137,14 @@ export function EBStep5Test({ onBack }: Props) {
                 type="button"
                 variant="outline"
                 onClick={onBack}
-                className="w-full sm:w-auto"
+                className="rounded-lg w-full sm:w-auto"
               >
                 {t('setup.enablebanking.test.backToPrevious')}
               </Button>
               <Button
                 type="button"
                 onClick={run}
-                className="w-full rounded-full sm:w-auto"
+                className="w-full rounded-lg sm:w-auto"
               >
                 {t('setup.enablebanking.test.retry')}
               </Button>
@@ -158,7 +158,7 @@ export function EBStep5Test({ onBack }: Props) {
               type="button"
               variant="ghost"
               onClick={onBack}
-              className="w-full sm:w-auto"
+              className="rounded-lg w-full sm:w-auto"
             >
               {t('setup.enablebanking.back')}
             </Button>

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Area, AreaChart, CartesianGrid, Legend, Line, ReferenceLine, XAxis, YAxis } from 'recharts'
 import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/chart'
 import { TimeRangeSelector, type TimeRange } from '@/components/shared/TimeRangeSelector'
-import { formatDate, localeFromLanguage } from '@/lib/utils'
+import { formatDate, localeFromLanguage, capitalizeFirst } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
 import { yAxisWidth, AXIS_PROPS } from '@/lib/chart-axis'
 import { EmptyChartState } from '@/components/shared/EmptyChartState'
@@ -182,10 +182,10 @@ function getXAxisFormatter(range: TimeRange, locale: string, spanMs: number) {
   }
   if (spanMs <= 2 * 365 * day) {
     return (value: string | number) =>
-      new Date(value).toLocaleDateString(locale, { month: 'short' })
+      capitalizeFirst(new Date(value).toLocaleDateString(locale, { month: 'short' }), locale)
   }
   return (value: string | number) =>
-    new Date(value).toLocaleDateString(locale, { month: 'short', year: '2-digit' })
+    capitalizeFirst(new Date(value).toLocaleDateString(locale, { month: 'short', year: '2-digit' }), locale)
 }
 
 export function NetWorthChart({ data, intraday = [], range, onRangeChange, showInvested = true, target, projection, todayMs, todayLabel }: NetWorthChartProps) {

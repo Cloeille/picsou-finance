@@ -111,6 +111,11 @@ export const SetupStepEnableBanking = lazy(() =>
     default: m.SetupStepEnableBanking,
   }))
 )
+export const SetupStepBnp = lazy(() =>
+  import('@/pages/setup/integrations/SetupStepBnp').then((m) => ({
+    default: m.SetupStepBnp,
+  }))
+)
 export const SetupStepBoursoBank = lazy(() =>
   import('@/pages/setup/integrations/SetupStepBoursoBank').then((m) => ({
     default: m.SetupStepBoursoBank,

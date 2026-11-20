@@ -34,7 +34,7 @@ export function EBStep4Redirect({ onNext, onBack }: Props) {
     <EBSubstepShell current={2} total={5}>
       <div className="space-y-6">
         <div className="flex justify-center">
-          <span className="rounded-xl bg-primary/10 p-3 text-primary">
+          <span className="inline-flex size-10 items-center justify-center text-foreground">
             <ExternalLink className="h-6 w-6" />
           </span>
         </div>
@@ -59,16 +59,16 @@ export function EBStep4Redirect({ onNext, onBack }: Props) {
             type="button"
             variant="outline"
             onClick={handleCopy}
-            className="shrink-0 sm:w-auto"
+            className="rounded-lg shrink-0 sm:w-auto"
           >
             {copied ? (
               <>
-                <Check className="mr-2 h-4 w-4" />
+                <Check className="h-4 w-4" />
                 {t('setup.enablebanking.redirect.copied')}
               </>
             ) : (
               <>
-                <Copy className="mr-2 h-4 w-4" />
+                <Copy className="h-4 w-4" />
                 {t('setup.enablebanking.redirect.copy')}
               </>
             )}
@@ -104,13 +104,13 @@ export function EBStep4Redirect({ onNext, onBack }: Props) {
             type="button"
             variant="ghost"
             onClick={onBack}
-            className="w-full sm:w-auto"
+            className="rounded-lg w-full sm:w-auto"
           >
             {t('setup.enablebanking.back')}
           </Button>
           <Button
             onClick={onNext}
-            className="w-full rounded-full sm:w-auto"
+            className="w-full rounded-lg sm:w-auto"
           >
             {t('setup.enablebanking.redirect.addedCta')}
           </Button>

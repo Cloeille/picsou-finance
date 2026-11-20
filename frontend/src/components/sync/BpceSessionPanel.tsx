@@ -4,7 +4,6 @@ import {
   Landmark,
   LogOut,
   RefreshCw,
-  ShieldAlert,
   Smartphone,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -477,7 +476,7 @@ export function BpceSessionPanel({
               ? t(key("sessionActive"))
               : t(key("noSession"))}
           </Badge>
-          <p className="mt-2 text-xs text-muted-foreground">{t(key("scope"))}</p>
+          <p className="mt-2 text-sm text-muted-foreground">{t(key("scope"))}</p>
           {isSyncing && (
             <p className="mt-2 text-sm text-muted-foreground">
               {syncStatus === "QUEUED"
@@ -571,7 +570,7 @@ export function BpceSessionPanel({
             <Card size="sm">
               <CardContent className="space-y-2 py-4">
                 <p className="text-sm font-medium">{t(key("unsupportedTitle"))}</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   {t(key("unsupportedHint"))}
                 </p>
                 {/* Family and sub-family codes only: the contract id is never shown. */}
@@ -602,16 +601,6 @@ export function BpceSessionPanel({
             void submit()
           }}
         >
-          <Card size="sm" className="border-amber-500/30">
-            <CardContent className="flex items-start gap-3 py-4">
-              <ShieldAlert className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400" />
-              <ul className="space-y-1 text-xs text-muted-foreground">
-                <li>{t(key("notice.neverStored"))}</li>
-                <li>{t(key("notice.noRetry"))}</li>
-                <li>{t(key("notice.lockRisk"))}</li>
-              </ul>
-            </CardContent>
-          </Card>
           <Card size="sm">
             <CardContent className="space-y-4 py-4">
               {regions && !useRememberedIdentifier && (
@@ -643,9 +632,8 @@ export function BpceSessionPanel({
                     </p>
                     <Button
                       type="button"
-                      variant="link"
-                      size="sm"
-                      className="h-auto p-0"
+                      variant="outline"
+                      size="xs"
                       onClick={() => setTypingIdentifier(true)}
                     >
                       {t(key("useAnotherIdentifier"))}
@@ -674,9 +662,8 @@ export function BpceSessionPanel({
                 {status.data?.remembered === true && (
                   <Button
                     type="button"
-                    variant="link"
-                    size="sm"
-                    className="h-auto p-0"
+                    variant="outline"
+                    size="xs"
                     onClick={() => setTypingIdentifier(false)}
                   >
                     {t(key("backToRememberedIdentifier"))}
@@ -700,12 +687,12 @@ export function BpceSessionPanel({
             <Smartphone className="size-5 shrink-0 text-muted-foreground" />
             <div className="flex-1 space-y-1">
               <p className="text-sm">{t(key("securPassPrompt"))}</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 {t(key("securPassHint"))}
               </p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 {t(key("countdownLabel"))}{" "}
-                <span data-testid={`${fieldIdPrefix}-countdown`} className="font-mono">
+                <span data-testid={`${fieldIdPrefix}-countdown`} className="tabular-nums font-medium">
                   {formatCountdown(secondsLeft)}
                 </span>
               </p>
@@ -761,9 +748,9 @@ export function BpceSessionPanel({
                     <span key={index} data-dot className="size-2.5 rounded-full bg-foreground" />
                   ))}
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   {t(key("keypad.countdownLabel"))}{" "}
-                  <span data-testid={`${fieldIdPrefix}-keypad-countdown`} className="font-mono">
+                  <span data-testid={`${fieldIdPrefix}-keypad-countdown`} className="tabular-nums font-medium">
                     {formatCountdown(keypadSecondsLeft)}
                   </span>
                 </p>

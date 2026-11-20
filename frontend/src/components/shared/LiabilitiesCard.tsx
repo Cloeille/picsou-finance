@@ -44,7 +44,7 @@ export function LiabilitiesCard({ liabilities, totalMonthlyPayment }: Props) {
         {liabilities.map((liability) => (
           <div
             key={liability.accountId}
-            className="flex flex-col gap-1.5 rounded-2xl bg-muted/40 px-4 py-3"
+            className="flex flex-col gap-1.5 rounded-xl bg-muted/40 px-4 py-3"
           >
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">

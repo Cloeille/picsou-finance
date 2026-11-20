@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
-import { ChevronRight, Receipt } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CashflowSankey } from '@/components/shared/CashflowSankey'
@@ -27,15 +27,15 @@ function FlowSummary({ income, expense, net }: { income: number; expense: number
   return (
     <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
       <span className="text-muted-foreground">
-        {t('budget.cashflow.income')}{' '}
+        {t('common.labelColon', { label: t('budget.cashflow.income') })}{' '}
         <CurrencyDisplay value={income} className="font-medium text-emerald-600 dark:text-emerald-400" />
       </span>
       <span className="text-muted-foreground">
-        {t('budget.cashflow.expense')}{' '}
+        {t('common.labelColon', { label: t('budget.cashflow.expense') })}{' '}
         <CurrencyDisplay value={expense} className="font-medium text-foreground" />
       </span>
       <span className="text-muted-foreground">
-        {t('budget.cashflow.net')}{' '}
+        {t('common.labelColon', { label: t('budget.cashflow.net') })}{' '}
         <CurrencyDisplay
           value={net}
           showSign
@@ -186,26 +186,14 @@ export function SpendingPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-3">
-          <p className="text-sm text-muted-foreground">{t('budget.flow.subtitle')}</p>
-          <Link
-            to="/budget/transactions"
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Receipt size={12} />
-            {t('transactions.viewAll')}
-          </Link>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <PeriodNavigator
-            period={period}
-            from={flow.data?.from}
-            to={flow.data?.to}
-            onAnchorChange={setAnchor}
-          />
-          <PeriodToggle value={period} onChange={(p) => { setPeriod(p); setAnchor(undefined) }} />
-        </div>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <PeriodNavigator
+          period={period}
+          from={flow.data?.from}
+          to={flow.data?.to}
+          onAnchorChange={setAnchor}
+        />
+        <PeriodToggle value={period} onChange={(p) => { setPeriod(p); setAnchor(undefined) }} />
       </div>
 
       {isError && (

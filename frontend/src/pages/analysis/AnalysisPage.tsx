@@ -1,16 +1,20 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Pyramid, SlidersHorizontal } from 'lucide-react'
+import { LineChart, PieChart, Pyramid, SlidersHorizontal, type LucideIcon } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { cn } from '@/lib/utils'
 import { useAllocationTargets, useDiversification, useWealthPyramid } from '@/features/analysis/hooks'
 import { PyramidSection } from './PyramidSection'
 import { DiversificationSection } from './DiversificationSection'
 import { ProjectionSection } from './ProjectionSection'
 import { AllocationTargetsModal } from './AllocationTargetsModal'
+
+type AnalysisTab = 'pyramid' | 'diversification' | 'projection'
 
 export function AnalysisPage() {
   const { t } = useTranslation()
@@ -18,11 +22,18 @@ export function AnalysisPage() {
   const targets = useAllocationTargets()
   const diversification = useDiversification()
   const [editing, setEditing] = useState(false)
+  const [activeTab, setActiveTab] = useState<AnalysisTab>('pyramid')
 
   const hasWealth = (pyramid.data?.totalAssetsEur ?? 0) !== 0
 
+  const tabs: Array<{ id: AnalysisTab; label: string; icon: LucideIcon }> = [
+    { id: 'pyramid', label: t('analysis.tabs.pyramid'), icon: Pyramid },
+    { id: 'diversification', label: t('analysis.tabs.diversification'), icon: PieChart },
+    { id: 'projection', label: t('analysis.tabs.projection'), icon: LineChart },
+  ]
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col space-y-6">
       <PageHeader
         title={t('analysis.title')}
         actions={
@@ -48,19 +59,61 @@ export function AnalysisPage() {
       )}
 
       {pyramid.data && !hasWealth && (
-        <EmptyState
-          className="flex-1"
-          icon={<Pyramid className="size-12" />}
-          title={t('analysis.empty.title')}
-          description={t('analysis.empty.description')}
-        />
+        <Card>
+          <CardContent>
+            <EmptyState
+              className="py-8"
+              icon={<Pyramid className="size-10" />}
+              title={t('analysis.empty.title')}
+              description={t('analysis.empty.description')}
+            />
+          </CardContent>
+        </Card>
       )}
 
       {pyramid.data && hasWealth && (
-        <div className="space-y-4">
-          <PyramidSection pyramid={pyramid.data} />
-          {diversification.data && <DiversificationSection data={diversification.data} />}
-          <ProjectionSection />
+        <div className="space-y-6">
+          <div
+            role="tablist"
+            aria-label={t('analysis.title')}
+            className="flex w-full flex-wrap items-center gap-1 rounded-lg border border-border/60 bg-background/80 p-1"
+          >
+            {tabs.map(({ id, label, icon: Icon }) => {
+              const active = activeTab === id
+              return (
+                <button
+                  key={id}
+                  role="tab"
+                  type="button"
+                  aria-selected={active}
+                  onClick={() => setActiveTab(id)}
+                  className={cn(
+                    'inline-flex h-8 flex-auto items-center justify-center gap-2 rounded-md px-3.5 text-sm font-medium whitespace-nowrap transition-[background-color,color]',
+                    active
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  <Icon className="size-4 shrink-0" aria-hidden="true" />
+                  <span>{label}</span>
+                </button>
+              )
+            })}
+          </div>
+
+          {activeTab === 'pyramid' && <PyramidSection pyramid={pyramid.data} />}
+
+          {activeTab === 'diversification' && (
+            diversification.isError ? (
+              <ErrorState title={t('analysis.error')} onRetry={() => void diversification.refetch()} />
+            ) : diversification.isLoading ? (
+              <Skeleton className="h-72 w-full" />
+            ) : diversification.data ? (
+              <DiversificationSection data={diversification.data} />
+            ) : null
+          )}
+
+          {activeTab === 'projection' && <ProjectionSection />}
         </div>
       )}
 

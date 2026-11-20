@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom'
+import { chooseSelectOption, getSelectOptionValues } from '@/test/radix-select'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { AiCategorizationSection } from './AiCategorizationSection'
@@ -9,6 +10,7 @@ const state = vi.hoisted(() => ({
   testAiIsError: false,
   testAiError: null as Error | null,
   testAiMutate: vi.fn(),
+  testAiReset: vi.fn(),
   updateMutateAsync: vi.fn(),
   updateIsSuccess: false,
   updateError: null as Error | null,
@@ -28,6 +30,7 @@ vi.mock('@/features/admin/hooks', () => ({
   }),
   useTestAi: () => ({
     mutate: state.testAiMutate,
+    reset: state.testAiReset,
     isPending: false,
     isError: state.testAiIsError,
     data: state.testAiData,
@@ -49,42 +52,71 @@ describe('AiCategorizationSection', () => {
     state.testAiIsError = false
     state.testAiError = null
     state.testAiMutate = vi.fn()
-    state.updateMutateAsync = vi.fn()
+    state.testAiReset = vi.fn()
+    state.updateMutateAsync = vi.fn().mockResolvedValue(undefined)
     state.updateIsSuccess = false
     state.updateError = null
   })
 
-  it('renders all five provider options (none, anthropic, openrouter, openai, ollama)', () => {
+  it('shows empty state with an Add provider button when provider is none', () => {
     render(<AiCategorizationSection settings={DEFAULT_SETTINGS} />)
 
-    const select = screen.getByRole('combobox') as HTMLSelectElement
-    const values = Array.from(select.options).map((o) => o.value)
-
-    expect(values).toContain('none')
-    expect(values).toContain('anthropic')
-    expect(values).toContain('openrouter')
-    expect(values).toContain('openai')
-    expect(values).toContain('ollama')
-    expect(select.options).toHaveLength(5)
+    expect(screen.getByText('admin.ai.empty')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'admin.ai.addProvider' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('admin.ai.model')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('admin.ai.baseUrl')).not.toBeInTheDocument()
+    expect(screen.queryByText('admin.ai.test')).not.toBeInTheDocument()
   })
 
-  it('does not render an API key input when provider is ollama', () => {
-    render(<AiCategorizationSection settings={{ ...DEFAULT_SETTINGS, provider: 'ollama' }} />)
-    // No password input for Ollama
+  it('opens the configuration form with all four providers when Add provider is clicked and can close it', () => {
+    render(<AiCategorizationSection settings={DEFAULT_SETTINGS} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'admin.ai.addProvider' }))
+
+    const select = screen.getByRole('combobox')
+    const values = getSelectOptionValues(select)
+    expect(values).toEqual(['anthropic', 'openrouter', 'openai', 'ollama'])
+
+    fireEvent.click(screen.getByRole('button', { name: 'common.cancel' }))
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+    expect(screen.getByText('admin.ai.empty')).toBeInTheDocument()
+  })
+
+  it('shows a clear summary card when a provider is configured with its API key saved', () => {
+    render(
+      <AiCategorizationSection
+        settings={{
+          provider: 'anthropic',
+          model: 'claude-haiku-4-5',
+          baseUrl: '',
+          apiKeyPresent: true,
+          maxConcurrency: 4,
+        }}
+      />,
+    )
+
+    expect(screen.getByText('Anthropic (Claude)')).toBeInTheDocument()
+    expect(screen.getByText('admin.ai.statusActive')).toBeInTheDocument()
+    expect(screen.getByText('claude-haiku-4-5')).toBeInTheDocument()
+    expect(screen.queryByText('admin.ai.apiKeySaved')).not.toBeInTheDocument()
+    expect(screen.queryByText('admin.ai.parallelRequests')).not.toBeInTheDocument()
+    // Form stays closed until Edit is clicked
     expect(screen.queryByLabelText('admin.ai.apiKey')).not.toBeInTheDocument()
   })
 
-  it('renders a password input for API key when provider is anthropic', () => {
-    render(<AiCategorizationSection settings={{ ...DEFAULT_SETTINGS, provider: 'anthropic' }} />)
-    const apiKeyInput = screen.getByLabelText('admin.ai.apiKey')
-    expect(apiKeyInput).toBeInTheDocument()
-    expect(apiKeyInput).toHaveAttribute('type', 'password')
-  })
-
-  it('clicking Test calls testAi.mutate with current form values', () => {
-    render(<AiCategorizationSection settings={{ ...DEFAULT_SETTINGS, provider: 'anthropic' }} />)
-    fireEvent.click(screen.getByText('admin.ai.test'))
-    expect(state.testAiMutate).toHaveBeenCalledOnce()
+  it('clicking Test on the summary card calls testAi.mutate with saved values', () => {
+    render(
+      <AiCategorizationSection
+        settings={{ ...DEFAULT_SETTINGS, provider: 'anthropic', model: 'claude-haiku-4-5', apiKeyPresent: true }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'admin.ai.test' }))
+    expect(state.testAiMutate).toHaveBeenCalledWith({
+      provider: 'anthropic',
+      model: 'claude-haiku-4-5',
+      baseUrl: '',
+      apiKey: '',
+    })
   })
 
   it('renders the success message when testAi returns ok: true', () => {
@@ -99,21 +131,21 @@ describe('AiCategorizationSection', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Invalid API key.')
   })
 
-  it('hides all fields and shows only the hint when provider is none', () => {
-    render(<AiCategorizationSection settings={DEFAULT_SETTINGS} />)
-    expect(screen.getByText('admin.ai.disabledHint')).toBeInTheDocument()
-    expect(screen.queryByLabelText('admin.ai.model')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('admin.ai.baseUrl')).not.toBeInTheDocument()
-    // No Test button for disabled provider
-    expect(screen.queryByText('admin.ai.test')).not.toBeInTheDocument()
+  it('does not render an API key input when editing an ollama provider', () => {
+    render(<AiCategorizationSection settings={{ ...DEFAULT_SETTINGS, provider: 'ollama' }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'common.edit' }))
+    expect(screen.queryByLabelText('admin.ai.apiKey')).not.toBeInTheDocument()
   })
 
-  it('shows the apiKeyHintPresent hint when apiKeyPresent is true and provider unchanged', () => {
+  it('shows password input and apiKeyHintPresent when editing a provider with a saved key', () => {
     render(
       <AiCategorizationSection
         settings={{ ...DEFAULT_SETTINGS, provider: 'openai', apiKeyPresent: true }}
       />,
     )
+    fireEvent.click(screen.getByRole('button', { name: 'common.edit' }))
+    const apiKeyInput = screen.getByLabelText('admin.ai.apiKey')
+    expect(apiKeyInput).toHaveAttribute('type', 'password')
     expect(screen.getByText('admin.ai.apiKeyHintPresent')).toBeInTheDocument()
   })
 
@@ -123,18 +155,53 @@ describe('AiCategorizationSection', () => {
         settings={{ provider: 'anthropic', model: '', baseUrl: '', apiKeyPresent: true, maxConcurrency: 4 }}
       />,
     )
-    // Switch to a different provider
-    const select = screen.getByRole('combobox') as HTMLSelectElement
-    fireEvent.change(select, { target: { value: 'openai' } })
+    fireEvent.click(screen.getByRole('button', { name: 'common.edit' }))
 
-    // Submit with blank api key
-    fireEvent.click(screen.getByText('admin.ai.save'))
+    const select = screen.getByRole('combobox')
+    chooseSelectOption(select, 'openai')
 
-    // Save mutation must NOT have been called
+    fireEvent.click(screen.getByRole('button', { name: 'admin.ai.save' }))
+
     await waitFor(() => {
       expect(state.updateMutateAsync).not.toHaveBeenCalled()
     })
-    // Error message must appear
     expect(screen.getByText('admin.ai.apiKeyRequired')).toBeInTheDocument()
+  })
+
+  it('closes the form automatically after saving', async () => {
+    render(
+      <AiCategorizationSection
+        settings={{ provider: 'anthropic', model: 'claude-haiku-4-5', baseUrl: '', apiKeyPresent: true, maxConcurrency: 4 }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'common.edit' }))
+    expect(screen.getByLabelText('admin.ai.model')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'admin.ai.save' }))
+
+    await waitFor(() => {
+      expect(state.updateMutateAsync).toHaveBeenCalledOnce()
+    })
+    expect(screen.queryByLabelText('admin.ai.model')).not.toBeInTheDocument()
+  })
+
+  it('removes the configured provider after confirmation', async () => {
+    render(
+      <AiCategorizationSection
+        settings={{ provider: 'anthropic', model: 'claude-haiku-4-5', baseUrl: '', apiKeyPresent: true, maxConcurrency: 4 }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'admin.ai.removeProvider' }))
+    fireEvent.click(screen.getByRole('button', { name: 'common.delete' }))
+
+    await waitFor(() => {
+      expect(state.updateMutateAsync).toHaveBeenCalledWith({
+        provider: 'none',
+        model: '',
+        baseUrl: '',
+        apiKey: '',
+        maxConcurrency: 4,
+      })
+    })
   })
 })

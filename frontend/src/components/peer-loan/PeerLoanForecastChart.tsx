@@ -5,7 +5,7 @@ import { MoneyChartTooltip } from '@/components/shared/MoneyChartTooltip'
 import { AXIS_PROPS } from '@/lib/chart-axis'
 import { MONEY_AXIS_WIDTH } from '@/lib/money'
 import { useMoney } from '@/hooks/use-money'
-import { localeFromLanguage, toDate } from '@/lib/utils'
+import { localeFromLanguage, toDate, capitalizeFirst } from '@/lib/utils'
 import type { PeerLoanCurvePoint } from '@/types/api'
 
 interface PeerLoanForecastChartProps {
@@ -37,20 +37,14 @@ export function PeerLoanForecastChart({ data, hasPlan }: PeerLoanForecastChartPr
         <XAxis
           dataKey="date"
           {...AXIS_PROPS}
-          tickFormatter={(value) => toDate(String(value)).toLocaleDateString(locale, {
-            month: 'short',
-            year: '2-digit',
-          })}
+          tickFormatter={(value) => capitalizeFirst(toDate(String(value)).toLocaleDateString(locale, { month: 'short', year: '2-digit' }), locale)}
         />
         <YAxis {...AXIS_PROPS} tickFormatter={money.tick} width={MONEY_AXIS_WIDTH} />
         <ChartTooltip
           content={
             <MoneyChartTooltip
               config={chartConfig}
-              labelFormatter={(value) => new Intl.DateTimeFormat(locale, {
-                month: 'short',
-                year: 'numeric',
-              }).format(toDate(String(value)))}
+              labelFormatter={(value) => capitalizeFirst(new Intl.DateTimeFormat(locale, { month: 'short', year: 'numeric' }).format(toDate(String(value))), locale)}
             />
           }
         />

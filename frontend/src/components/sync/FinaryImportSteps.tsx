@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { NativeSelect } from '@/components/shared/NativeSelect'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -83,7 +84,7 @@ export function FinaryUploadZone({
 
       <div
         className={`flex flex-col items-center justify-center ${
-          modal ? 'gap-3 rounded-xl p-8' : 'gap-4 rounded-2xl p-12'
+          modal ? 'gap-3 rounded-xl p-8' : 'gap-4 rounded-xl p-12'
         } border-2 border-dashed text-center transition-colors ${
           dragOver ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 hover:border-muted-foreground/50'
         }`}
@@ -94,7 +95,7 @@ export function FinaryUploadZone({
         <Upload className={`${modal ? 'size-5' : 'size-6'} text-muted-foreground`} />
         <div>
           <p className={modal ? 'text-sm font-medium' : 'font-medium'}>{t('sync.finary.uploadFile')}</p>
-          <p className={`${modal ? 'text-xs' : 'mt-1 text-sm'} text-muted-foreground`}>{t('sync.finary.uploadHint')}</p>
+          <p className={`${modal ? 'text-sm' : 'mt-1 text-sm'} text-muted-foreground`}>{t('sync.finary.uploadHint')}</p>
         </div>
         <Button
           variant="outline"
@@ -161,13 +162,13 @@ export function FinaryMappingStep({
               <div className="flex items-center justify-between">
                 <div className="min-w-0">
                   <p className={modal ? 'truncate text-sm font-medium' : 'truncate font-medium'}>{account.finaryName}</p>
-                  <p className={modal ? 'text-xs text-muted-foreground' : 'text-sm text-muted-foreground'}>
+                  <p className={modal ? 'text-sm text-muted-foreground' : 'text-sm text-muted-foreground'}>
                     {account.finaryInstitution} &middot; {account.finaryCategory}
                   </p>
                 </div>
                 <div className={`text-right shrink-0 ${modal ? 'ml-2' : 'ml-3'}`}>
                   <CurrencyDisplay value={account.currentBalance} currency={account.nativeCurrency} />
-                  <p className="text-xs text-muted-foreground">{account.transactionCount} tx</p>
+                  <p className="text-sm text-muted-foreground">{account.transactionCount} tx</p>
                 </div>
               </div>
 
@@ -185,7 +186,7 @@ export function FinaryMappingStep({
               </div>
 
               {mapping?.action === 'MAP_EXISTING' && (
-                <select
+                <NativeSelect
                   className={SELECT_CLASS}
                   value={mapping.targetAccountId ?? ''}
                   onChange={(e) => {
@@ -201,7 +202,7 @@ export function FinaryMappingStep({
                         : <>{acc.name} ({acc.type}) &mdash; <CurrencyDisplay value={acc.currentBalance} /></>}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               )}
 
               {mapping?.action === 'CREATE_NEW' && mapping.newAccount && (
@@ -216,7 +217,7 @@ export function FinaryMappingStep({
                   </div>
                   <div className="space-y-1">
                     <Label>{t('sync.exchanges.type')}</Label>
-                    <select
+                    <NativeSelect
                       className={SELECT_CLASS}
                       value={mapping.newAccount.type}
                       onChange={(e) => onNewAccountField(index, 'type', e.target.value)}
@@ -227,7 +228,7 @@ export function FinaryMappingStep({
                       {ACCOUNT_TYPES.map((at) => (
                         <option key={at.value} value={at.value}>{t(at.labelKey)}</option>
                       ))}
-                    </select>
+                    </NativeSelect>
                   </div>
                   <div className="space-y-1">
                     <Label>{t('accounts.provider')}</Label>
@@ -284,7 +285,7 @@ function ResultStat({ label, value, color, modal }: { label: string; value: numb
   return (
     <div className={`rounded-xl bg-muted/50 ${modal ? 'p-3' : 'p-4'} text-center`}>
       <p className={`${modal ? 'text-xl' : 'text-2xl'} font-semibold ${color}`}>{value}</p>
-      <p className={`${modal ? '' : 'mt-1 '}text-xs text-muted-foreground`}>{label}</p>
+      <p className={`${modal ? '' : 'mt-1 '}text-sm text-muted-foreground`}>{label}</p>
     </div>
   )
 }

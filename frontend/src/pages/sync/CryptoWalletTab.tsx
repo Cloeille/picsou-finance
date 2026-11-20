@@ -98,17 +98,14 @@ export function CryptoWalletTab() {
 
       {/* Wallet list */}
       {!wallets || wallets.length === 0 ? (
-        <EmptyState
-          title={t('sync.wallets.noWallets')}
-          action={
-            showAddForm
-              ? undefined
-              : {
-                  label: t('sync.wallets.add'),
-                  onClick: () => setShowAddForm(true),
-                }
-          }
-        />
+        <Card>
+          <CardContent>
+            <EmptyState
+              className="py-8"
+              title={t('sync.wallets.noWallets')}
+            />
+          </CardContent>
+        </Card>
       ) : (
         <div className="space-y-3">
           {wallets.map(wallet => (

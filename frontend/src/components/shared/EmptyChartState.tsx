@@ -19,7 +19,7 @@ export function EmptyChartState({ title, description }: EmptyChartStateProps) {
           {title ?? t('dashboard.marketsClosed')}
         </p>
         {description && (
-          <p className="mt-1 text-xs text-muted-foreground/70">{description}</p>
+          <p className="mt-1 text-sm text-muted-foreground/70">{description}</p>
         )}
       </div>
     </div>

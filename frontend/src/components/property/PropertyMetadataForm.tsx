@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { NumericInput } from '@/components/shared/NumericInput'
 import { DateInput } from '@/components/shared/DateInput'
+import { NativeSelect } from '@/components/shared/NativeSelect'
 import { AddressAutocomplete } from './AddressAutocomplete'
 import { parseAmount } from '@/lib/utils'
 import { formatApiError } from '@/lib/errors'
@@ -54,8 +55,6 @@ const propertySchema = z.object({
 
 type PropertyFormData = z.infer<typeof propertySchema>
 
-const selectControlClassName =
-  'flex h-10 w-full rounded-md border border-input bg-background text-foreground px-4 text-sm outline-none [color-scheme:light] dark:[color-scheme:dark]'
 
 const PROPERTY_KINDS = ['HOUSE', 'APARTMENT', 'BUILDING', 'LAND', 'PARKING', 'COMMERCIAL'] as const
 const CATEGORIES = ['PRIMARY_RESIDENCE', 'SECONDARY_RESIDENCE', 'RENTAL', 'LAND', 'OTHER'] as const
@@ -138,28 +137,40 @@ export function PropertyMetadataForm({ accountId, metadata, onSaved }: PropertyM
     <form onSubmit={handleSubmit(submit)} className="space-y-6">
       <Section title={t('property.form.classification')}>
         <Field label={t('property.form.propertyType')} htmlFor="propertyType">
-          <select id="propertyType" className={selectControlClassName} {...register('propertyType')}>
-            <option value="">{t('property.form.choose')}</option>
-            {PROPERTY_KINDS.map(kind => (
-              <option key={kind} value={kind}>{t(`property.kind.${kind}`)}</option>
-            ))}
-          </select>
+          <Controller
+            name="propertyType"
+            control={control}
+            render={({ field }) => (
+              <NativeSelect id="propertyType" value={field.value ?? ''} onChange={(e) => field.onChange(e.target.value)}>
+                <option value="">{t('property.form.choose')}</option>
+                {PROPERTY_KINDS.map(kind => (
+                  <option key={kind} value={kind}>{t(`property.kind.${kind}`)}</option>
+                ))}
+              </NativeSelect>
+            )}
+          />
         </Field>
 
         <Field label={t('property.form.category')} htmlFor="category">
-          <select id="category" className={selectControlClassName} {...register('category')}>
-            <option value="">{t('property.form.choose')}</option>
-            {CATEGORIES.map(category => (
-              <option key={category} value={category}>{t(`property.category.${category}`)}</option>
-            ))}
-          </select>
+          <Controller
+            name="category"
+            control={control}
+            render={({ field }) => (
+              <NativeSelect id="category" value={field.value ?? ''} onChange={(e) => field.onChange(e.target.value)}>
+                <option value="">{t('property.form.choose')}</option>
+                {CATEGORIES.map(category => (
+                  <option key={category} value={category}>{t(`property.category.${category}`)}</option>
+                ))}
+              </NativeSelect>
+            )}
+          />
         </Field>
 
         <Field label={t('property.form.description')} htmlFor="description" full>
           <textarea
             id="description"
             rows={2}
-            className="flex w-full rounded-md border border-input bg-input/20 px-4 py-2 text-sm outline-none dark:bg-input/30"
+            className="flex w-full rounded-lg border border-input bg-input/20 px-4 py-2 text-sm outline-none dark:bg-input/30"
             {...register('description')}
           />
         </Field>
@@ -196,7 +207,7 @@ export function PropertyMetadataForm({ accountId, metadata, onSaved }: PropertyM
         </Field>
 
         {metadata?.inseeCode && (
-          <p className="col-span-full text-xs text-muted-foreground">
+          <p className="col-span-full text-sm text-muted-foreground">
             {t('property.form.geocoded', { insee: metadata.inseeCode })}
           </p>
         )}
@@ -224,10 +235,16 @@ export function PropertyMetadataForm({ accountId, metadata, onSaved }: PropertyM
           <NumericInput id="constructionYear" {...register('constructionYear', { setValueAs: toOptionalNumber })} />
         </Field>
         <Field label={t('property.form.energyClass')} htmlFor="energyClass">
-          <select id="energyClass" className={selectControlClassName} {...register('energyClass')}>
-            <option value="">{t('property.form.unknown')}</option>
-            {ENERGY_CLASSES.map(cls => <option key={cls} value={cls}>{cls}</option>)}
-          </select>
+          <Controller
+            name="energyClass"
+            control={control}
+            render={({ field }) => (
+              <NativeSelect id="energyClass" value={field.value ?? ''} onChange={(e) => field.onChange(e.target.value)}>
+                <option value="">{t('property.form.unknown')}</option>
+                {ENERGY_CLASSES.map(cls => <option key={cls} value={cls}>{cls}</option>)}
+              </NativeSelect>
+            )}
+          />
         </Field>
       </Section>
 
@@ -285,7 +302,7 @@ export function PropertyMetadataForm({ accountId, metadata, onSaved }: PropertyM
         <div className="col-span-full flex items-center justify-between gap-4 rounded-lg border p-3">
           <div>
             <p className="text-sm font-medium">{t('property.form.autoValuation')}</p>
-            <p className="text-xs text-muted-foreground">{t('property.form.autoValuationHint')}</p>
+            <p className="text-sm text-muted-foreground">{t('property.form.autoValuationHint')}</p>
           </div>
           <Switch
             checked={valuationMode === 'ESTIMATED'}

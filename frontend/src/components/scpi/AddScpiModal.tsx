@@ -1,8 +1,9 @@
 import { useState } from 'react'
+import { NativeSelect } from '@/components/shared/NativeSelect'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,8 +11,9 @@ import { Label } from '@/components/ui/label'
 import { NumericInput } from '@/components/shared/NumericInput'
 import { DateInput } from '@/components/shared/DateInput'
 import { useCreateAccount, useScpiFunds, useUpdateScpiPosition } from '@/features/accounts/hooks'
+import { ChevronDown } from 'lucide-react'
 import { formatApiError } from '@/lib/errors'
-import { parseAmount } from '@/lib/utils'
+import { cn, parseAmount } from '@/lib/utils'
 import type { DistributionFrequency, DividendPolicy, ScpiPositionRequest } from '@/types/api'
 
 interface AddScpiModalProps {
@@ -53,6 +55,7 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
   const [isin, setIsin] = useState('')
   const [corumFundCode, setCorumFundCode] = useState('')
   const [sofidyFundCode, setSofidyFundCode] = useState('')
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const [createdAccountId, setCreatedAccountId] = useState<number | null>(null)
 
   const shares = num(shareCount)
@@ -131,17 +134,16 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-xl" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{t('scpi.add.title')}</DialogTitle>
-          <DialogDescription>{t('scpi.add.description')}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           {pickable.length > 0 && (
             <div className="space-y-2">
               <Label htmlFor="scpi-seen-fund">{t('scpi.seenFund')}</Label>
-              <select
+              <NativeSelect
                 id="scpi-seen-fund"
                 className={selectControlClassName}
                 defaultValue=""
@@ -154,8 +156,8 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
                       + (fund.ignored ? ` — ${t('scpi.seenFundIgnored')}` : '')}
                   </option>
                 ))}
-              </select>
-              <p className="text-xs text-muted-foreground">{t('scpi.seenFundHint')}</p>
+              </NativeSelect>
+              <p className="text-sm text-muted-foreground">{t('scpi.seenFundHint')}</p>
             </div>
           )}
           <div className="space-y-2">
@@ -170,7 +172,7 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
               onChange={(e) => setManagementCompany(e.target.value)}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid items-end grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="scpi-shares">{t('scpi.shareCount')}</Label>
               <NumericInput id="scpi-shares" value={shareCount} onChange={(e) => setShareCount(e.target.value)} />
@@ -180,7 +182,7 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
               <Input id="scpi-isin" value={isin} maxLength={12} onChange={(e) => setIsin(e.target.value)} />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid items-end grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="scpi-withdrawal">{t('scpi.withdrawalPrice')}</Label>
               <NumericInput
@@ -198,8 +200,8 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
               />
             </div>
           </div>
-          <p className="text-xs text-muted-foreground">{t('scpi.subscriptionHint')}</p>
-          <div className="grid grid-cols-2 gap-4">
+          <p className="text-sm text-muted-foreground">{t('scpi.subscriptionHint')}</p>
+          <div className="grid items-end grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="scpi-annual-distribution">{t('scpi.annualDistribution')}</Label>
               <NumericInput
@@ -210,7 +212,7 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
             </div>
             <div className="space-y-2">
               <Label htmlFor="scpi-distribution-frequency">{t('scpi.distributionFrequency')}</Label>
-              <select
+              <NativeSelect
                 id="scpi-distribution-frequency"
                 className={selectControlClassName}
                 value={distributionFrequency}
@@ -219,37 +221,53 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
                 <option value="">{t('scpi.frequencyNone')}</option>
                 <option value="MONTHLY">{t('scpi.frequencyMonthly')}</option>
                 <option value="QUARTERLY">{t('scpi.frequencyQuarterly')}</option>
-              </select>
+              </NativeSelect>
             </div>
           </div>
-          <p className="text-xs text-muted-foreground">{t('scpi.annualDistributionHint')}</p>
-          <details className="space-y-4 rounded-md border p-3">
-          <summary className="cursor-pointer text-sm text-muted-foreground">{t('scpi.advancedLinks')}</summary>
-          <div className="space-y-2">
-            <Label htmlFor="scpi-corum-fund">{t('scpi.corumFundCode')}</Label>
-            <Input
-              id="scpi-corum-fund"
-              value={corumFundCode}
-              maxLength={40}
-              onChange={(e) => setCorumFundCode(e.target.value.toUpperCase())}
-            />
-            <p className="text-xs text-muted-foreground">{t('scpi.corumFundHint')}</p>
+          <p className="text-sm text-muted-foreground">{t('scpi.annualDistributionHint')}</p>
+          <div className="rounded-lg border border-border/60 bg-muted/20">
+            <button
+              type="button"
+              aria-expanded={showAdvanced}
+              onClick={() => setShowAdvanced((v) => !v)}
+              className="flex w-full cursor-pointer items-center justify-between gap-2 px-3.5 py-2.5 text-left text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <span>{t('scpi.advancedLinks')}</span>
+              <ChevronDown
+                className={cn(
+                  'size-4 shrink-0 text-muted-foreground transition-transform duration-150',
+                  showAdvanced && 'rotate-180',
+                )}
+                aria-hidden="true"
+              />
+            </button>
+            <div className={cn('space-y-4 border-t border-border/60 px-3.5 py-3', !showAdvanced && 'hidden')}>
+              <div className="space-y-2">
+                <Label htmlFor="scpi-corum-fund">{t('scpi.corumFundCode')}</Label>
+                <Input
+                  id="scpi-corum-fund"
+                  value={corumFundCode}
+                  maxLength={40}
+                  onChange={(e) => setCorumFundCode(e.target.value.toUpperCase())}
+                />
+                <p className="text-sm text-muted-foreground">{t('scpi.corumFundHint')}</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="scpi-sofidy-fund">{t('scpi.sofidyFundCode')}</Label>
+                <Input
+                  id="scpi-sofidy-fund"
+                  value={sofidyFundCode}
+                  maxLength={40}
+                  onChange={(e) => setSofidyFundCode(e.target.value.toUpperCase())}
+                />
+                <p className="text-sm text-muted-foreground">{t('scpi.sofidyFundHint')}</p>
+              </div>
+            </div>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="scpi-sofidy-fund">{t('scpi.sofidyFundCode')}</Label>
-            <Input
-              id="scpi-sofidy-fund"
-              value={sofidyFundCode}
-              maxLength={40}
-              onChange={(e) => setSofidyFundCode(e.target.value.toUpperCase())}
-            />
-            <p className="text-xs text-muted-foreground">{t('scpi.sofidyFundHint')}</p>
-          </div>
-          </details>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid items-end grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="scpi-dividend">{t('scpi.dividendPolicy')}</Label>
-              <select
+              <NativeSelect
                 id="scpi-dividend"
                 className={selectControlClassName}
                 value={dividendPolicy}
@@ -257,7 +275,7 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
               >
                 <option value="CASH">{t('scpi.cash')}</option>
                 <option value="REINVEST">{t('scpi.reinvest')}</option>
-              </select>
+              </NativeSelect>
             </div>
             <div className="space-y-2">
               <Label htmlFor="scpi-jouissance">{t('scpi.jouissanceDate')}</Label>

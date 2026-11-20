@@ -2,7 +2,7 @@ import { Area, AreaChart, CartesianGrid, ReferenceLine, XAxis, YAxis } from 'rec
 import { useTranslation } from 'react-i18next'
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { localeFromLanguage } from '@/lib/utils'
+import { localeFromLanguage, capitalizeFirst } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
 import { MONEY_AXIS_WIDTH } from '@/lib/money'
 import { usePropertyValuations } from '@/features/accounts/hooks'
@@ -59,7 +59,7 @@ export function PropertyValuationChart({ accountId, costBasis }: PropertyValuati
               dataKey="date"
               {...AXIS_PROPS}
               tickFormatter={(value) =>
-                new Date(value).toLocaleDateString(locale, { month: 'short', year: '2-digit' })}
+                capitalizeFirst(new Date(value).toLocaleDateString(locale, { month: 'short', year: '2-digit' }), locale)}
             />
             <YAxis
               {...AXIS_PROPS}

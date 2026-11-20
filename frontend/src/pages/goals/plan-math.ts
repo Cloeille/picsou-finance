@@ -17,6 +17,26 @@ export function allocatedTotal(allocations: AllocationDraft[]): number {
   return allocations.reduce((sum, a) => sum + draftAmount(a.amount), 0)
 }
 
+/** True when any checked holding still lacks a positive monthly amount. */
+export function hasIncompleteAllocations(allocations: AllocationDraft[]): boolean {
+  return allocations.some(a => draftAmount(a.amount) <= 0)
+}
+
+/** Splits `total` equally across checked holdings, placing any rounding cent on the last row. */
+export function splitEqually(allocations: AllocationDraft[], total: number): AllocationDraft[] {
+  const count = allocations.length
+  if (count === 0 || !Number.isFinite(total) || total <= 0) return allocations
+  const totalCents = Math.round(total * 100)
+  const baseCents = Math.floor(totalCents / count)
+  const remainderCents = totalCents - baseCents * count
+  return allocations.map((a, idx) => {
+    const cents = idx === count - 1 ? baseCents + remainderCents : baseCents
+    const euros = cents / 100
+    const formatted = Number.isInteger(euros) ? String(euros) : euros.toFixed(2)
+    return { ...a, amount: formatted }
+  })
+}
+
 /**
  * Whether a plan is paying in this month.
  *

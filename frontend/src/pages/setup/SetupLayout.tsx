@@ -26,15 +26,15 @@ export function SetupLayout() {
   const { t, i18n } = useTranslation()
   const location = useLocation()
 
-  const { index, total, label } = useMemo(() => {
+  const { index, total } = useMemo(() => {
     // Pick the longest-prefix match so sub-routes like /setup/integrations/enablebanking
     // resolve to the Integrations step, not Hello.
     const sorted = [...MAIN_STEPS].sort((a, b) => b.path.length - a.path.length)
     const match = sorted.find(s => location.pathname.startsWith(s.path))
       ?? MAIN_STEPS[0]
     const idx = MAIN_STEPS.findIndex(s => s.path === match.path)
-    return { index: idx + 1, total: MAIN_STEPS.length, label: t(match.i18nKey) }
-  }, [location.pathname, t])
+    return { index: idx + 1, total: MAIN_STEPS.length }
+  }, [location.pathname])
 
   useEffect(() => {
     // Preload the Homemade Apple font only on setup routes — dashboard
@@ -57,6 +57,8 @@ export function SetupLayout() {
     i18n.changeLanguage(lng)
   }
 
+  const isTopAlignedStep = location.pathname === '/setup/integrations'
+
   return (
     <div className="relative min-h-dvh bg-background setup-gradient">
       <Progress
@@ -69,7 +71,7 @@ export function SetupLayout() {
         <div
           role="radiogroup"
           aria-label={t('setup.intro.language')}
-          className="inline-flex min-h-12 shrink-0 items-center rounded-2xl border border-border/60 bg-background/80 p-1 backdrop-blur-md"
+          className="inline-flex h-10 shrink-0 items-center gap-0.5 rounded-lg border border-border/60 bg-background/80 p-1 backdrop-blur-md"
         >
           {SUPPORTED_LOCALES.map((locale) => (
             <button
@@ -79,7 +81,7 @@ export function SetupLayout() {
               aria-checked={activeLanguage === locale.code}
               onClick={() => switchLang(locale.code)}
               className={cn(
-                'inline-flex h-10 min-w-12 items-center justify-center rounded-xl px-4 text-sm font-medium transition-[background-color,color] sm:min-w-14 sm:px-5',
+                'inline-flex h-8 min-w-9 items-center justify-center rounded-md px-2.5 text-sm font-medium transition-[background-color,color]',
                 activeLanguage === locale.code
                   ? 'bg-primary text-primary-foreground'
                   : 'text-muted-foreground hover:text-foreground'
@@ -92,25 +94,28 @@ export function SetupLayout() {
 
         <span
           className={cn(
-            'inline-flex h-10 min-w-0 items-center rounded-full border border-border/60',
-            'bg-background/80 px-4 text-xs font-medium text-muted-foreground',
+            'inline-flex h-10 min-w-0 items-center rounded-lg border border-border/60',
+            'bg-background/80 px-4 text-sm font-medium tabular-nums text-muted-foreground',
             'backdrop-blur-md'
           )}
           aria-live="polite"
         >
           <span className="truncate">
-            {t('setup.progress.label', { current: index, total })} — {label}
+            {t('setup.progress.label', { current: index, total })}
           </span>
         </span>
       </header>
 
       <main
         id="setup-main"
-        className="mx-auto flex min-h-dvh w-full max-w-xl flex-col justify-center px-5 py-20 sm:max-w-2xl sm:px-8 sm:py-24"
+        className={cn(
+          'mx-auto flex min-h-dvh w-full max-w-xl flex-col px-5 py-20 sm:max-w-2xl sm:px-8 sm:py-24',
+          isTopAlignedStep ? 'justify-start' : 'justify-center'
+        )}
       >
         <a
           href="#setup-main"
-          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-20 focus:z-[60] focus:inline-flex focus:h-10 focus:items-center focus:rounded-full focus:bg-primary focus:px-6 focus:text-sm focus:font-medium focus:text-primary-foreground"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-20 focus:z-[60] focus:inline-flex focus:h-10 focus:items-center focus:rounded-lg focus:bg-primary focus:px-6 focus:text-sm focus:font-medium focus:text-primary-foreground"
         >
           {t('setup.a11y.skipToContent')}
         </a>
