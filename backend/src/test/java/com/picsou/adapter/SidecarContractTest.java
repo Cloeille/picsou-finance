@@ -89,7 +89,7 @@ class SidecarContractTest {
     static {
         rig(SidecarBank.AMEX, (c, t) -> {
             var a = new AmexAdapter(c, JSON, t, t, t);
-            return new Calls(() -> a.fetchAccounts(STATE), () -> a.initiateAuth("user", "secret", "sms"),
+            return new Calls(() -> a.fetchAccounts(STATE), () -> a.initiateAuth("user", "secret", "sms", null),
                 () -> a.completeAuth("process", "123456"));
         }, INVALID_DATA, INVALID_OTP, null);
         rig(SidecarBank.AMUNDI, (c, t) -> {

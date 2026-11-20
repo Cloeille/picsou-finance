@@ -8,7 +8,13 @@ import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.Category;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Transaction;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.AmexAdapter;
+import com.picsou.config.RateLimitConfig;
+import com.picsou.exception.SyncException;
+import com.picsou.port.SidecarErrorCode;
+import com.picsou.port.SidecarInitiate;
+import io.github.bucket4j.Bucket;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
@@ -27,14 +33,20 @@ import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -59,6 +71,15 @@ class AmexSyncServiceTest {
     @Mock TransactionTemplate txTemplate;
     @Mock TransactionStatus transactionStatus;
     @Captor ArgumentCaptor<List<Transaction>> transactionsCaptor;
+
+    /** The real bounded store, as {@code RateLimitConfig} builds it; fresh per test. */
+    Map<Long, Bucket> reloginBuckets = new RateLimitConfig().amexReloginBuckets();
+    Instant now = Instant.parse("2026-11-09T10:00:00Z");
+    Clock clock = new Clock() {
+        @Override public java.time.ZoneId getZone() { return ZoneOffset.UTC; }
+        @Override public Clock withZone(java.time.ZoneId zone) { return this; }
+        @Override public Instant instant() { return now; }
+    };
 
     AmexSyncService service;
 
@@ -855,6 +876,396 @@ class AmexSyncServiceTest {
         );
     }
 
+    // ─── Issue #537: remembered credentials and the unattended re-login ───
+
+    private static final String REMEMBERED = "remembered-credentials";
+    private static final String PASSWORD = "s3cret-Pa55";
+
+    @Test
+    void initiate_rememberWithoutCodeStoresTheEncryptedCredentialsOnTheNewSession() throws Exception {
+        stubPassThroughEncryption();
+        AtomicReference<SidecarSession> stored = captureInsertedSession();
+        when(port.initiateAuth("client", PASSWORD, "email", null))
+            .thenReturn(new SidecarInitiate(null, false, null, "fresh-state"));
+        service = serviceWith(job -> { });
+
+        var response = service.initiateAuth("client", PASSWORD, "email", true, 7L);
+
+        assertThat(response.mfaRequired()).isFalse();
+        assertThat(stored.get().getSessionState()).isEqualTo("enc:fresh-state");
+        var json = new ObjectMapper().readTree(stored.get().getEncryptedCredentials().substring(4));
+        assertThat(json.path("login").asText()).isEqualTo("client");
+        assertThat(json.path("password").asText()).isEqualTo(PASSWORD);
+        assertThat(json.path("method").asText()).isEqualTo("email");
+    }
+
+    @Test
+    void initiate_withoutRememberStoresNoCredentials() {
+        stubPassThroughEncryption();
+        AtomicReference<SidecarSession> stored = captureInsertedSession();
+        when(port.initiateAuth("client", PASSWORD, "sms", null))
+            .thenReturn(new SidecarInitiate(null, false, null, "fresh-state"));
+        service = serviceWith(job -> { });
+
+        service.initiateAuth("client", PASSWORD, "sms", false, 7L);
+
+        assertThat(stored.get().getEncryptedCredentials()).isNull();
+        verify(encryption, org.mockito.Mockito.times(1)).encrypt(anyString());
+    }
+
+    @Test
+    void initiate_replayingThePreviousSessionLetsAmexRecogniseTheDevice() {
+        stubPassThroughEncryption();
+        captureInsertedSession();
+        SidecarSession previous = activeSession(owner());
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.AMEX, 7L)).thenReturn(Optional.of(previous));
+        when(encryption.decrypt("encrypted")).thenReturn("previous-state");
+        when(port.initiateAuth("client", PASSWORD, "sms", "previous-state"))
+            .thenReturn(new SidecarInitiate(null, false, null, "fresh-state"));
+        service = serviceWith(job -> { });
+
+        service.initiateAuth("client", PASSWORD, "sms", false, 7L);
+
+        verify(port).initiateAuth("client", PASSWORD, "sms", "previous-state");
+    }
+
+    @Test
+    void initiate_anUnreadablePreviousSessionIsNotReplayedAndDoesNotFailTheLogin() {
+        stubPassThroughEncryption();
+        captureInsertedSession();
+        SidecarSession previous = activeSession(owner());
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.AMEX, 7L)).thenReturn(Optional.of(previous));
+        when(encryption.decrypt("encrypted")).thenThrow(new IllegalStateException("Tag mismatch"));
+        when(port.initiateAuth("client", PASSWORD, "sms", null))
+            .thenReturn(new SidecarInitiate(null, false, null, "fresh-state"));
+        service = serviceWith(job -> { });
+
+        service.initiateAuth("client", PASSWORD, "sms", false, 7L);
+
+        verify(port).initiateAuth("client", PASSWORD, "sms", null);
+    }
+
+    @Test
+    void initiate_rememberWithCodeStoresTheCredentialsOnlyWhenTheCodeIsAccepted() throws Exception {
+        stubPassThroughEncryption();
+        AtomicReference<SidecarSession> stored = captureInsertedSession();
+        when(port.initiateAuth("client", PASSWORD, "email", null))
+            .thenReturn(new SidecarInitiate("process-1", true, "OTP", null));
+        when(port.completeAuth("process-1", "123456")).thenReturn("fresh-state");
+        service = serviceWith(job -> { });
+
+        service.initiateAuth("client", PASSWORD, "email", true, 7L);
+        assertThat(stored.get()).isNull();
+        service.completeAuth("process-1", "123456", 7L);
+
+        assertThat(stored.get().getSessionState()).isEqualTo("enc:fresh-state");
+        var json = new ObjectMapper().readTree(stored.get().getEncryptedCredentials().substring(4));
+        assertThat(json.path("login").asText()).isEqualTo("client");
+        assertThat(json.path("method").asText()).isEqualTo("email");
+    }
+
+    @Test
+    void complete_aWrongCodeKeepsThePendingCredentialsForTheNextTry() {
+        stubPassThroughEncryption();
+        AtomicReference<SidecarSession> stored = captureInsertedSession();
+        when(port.initiateAuth("client", PASSWORD, "sms", null))
+            .thenReturn(new SidecarInitiate("process-1", true, "OTP", null));
+        when(port.completeAuth("process-1", "000000"))
+            .thenThrow(new SyncException("Wrong code", null, "INVALID_OTP"));
+        when(port.completeAuth("process-1", "123456")).thenReturn("fresh-state");
+        service = serviceWith(job -> { });
+
+        service.initiateAuth("client", PASSWORD, "sms", true, 7L);
+        assertThatThrownBy(() -> service.completeAuth("process-1", "000000", 7L))
+            .isInstanceOf(SyncException.class);
+        service.completeAuth("process-1", "123456", 7L);
+
+        assertThat(stored.get().getEncryptedCredentials()).isNotNull();
+    }
+
+    @Test
+    void initiate_rememberWithCodeWithoutRememberStoresNothingAtCompletion() {
+        stubPassThroughEncryption();
+        AtomicReference<SidecarSession> stored = captureInsertedSession();
+        when(port.initiateAuth("client", PASSWORD, "sms", null))
+            .thenReturn(new SidecarInitiate("process-1", true, "OTP", null));
+        when(port.completeAuth("process-1", "123456")).thenReturn("fresh-state");
+        service = serviceWith(job -> { });
+
+        service.initiateAuth("client", PASSWORD, "sms", false, 7L);
+        service.completeAuth("process-1", "123456", 7L);
+
+        assertThat(stored.get().getEncryptedCredentials()).isNull();
+    }
+
+    @Test
+    void complete_anotherMembersCodeNeverReceivesTheCredentials() {
+        stubPassThroughEncryption();
+        AtomicReference<SidecarSession> stored = captureInsertedSession();
+        lenient().when(memberRepository.findById(8L)).thenReturn(Optional.of(FamilyMember.builder().id(8L).build()));
+        when(port.initiateAuth("client", PASSWORD, "sms", null))
+            .thenReturn(new SidecarInitiate("process-1", true, "OTP", null));
+        when(port.completeAuth("process-1", "123456")).thenReturn("fresh-state");
+        service = serviceWith(job -> { });
+
+        service.initiateAuth("client", PASSWORD, "sms", true, 7L);
+        service.completeAuth("process-1", "123456", 8L);
+
+        assertThat(stored.get().getEncryptedCredentials()).isNull();
+    }
+
+    @Test
+    void complete_credentialsPendingForMoreThanTenMinutesAreNotStored() {
+        stubPassThroughEncryption();
+        AtomicReference<SidecarSession> stored = captureInsertedSession();
+        when(port.initiateAuth("client", PASSWORD, "sms", null))
+            .thenReturn(new SidecarInitiate("process-1", true, "OTP", null));
+        when(port.completeAuth("process-1", "123456")).thenReturn("fresh-state");
+        service = serviceWith(job -> { });
+
+        service.initiateAuth("client", PASSWORD, "sms", true, 7L);
+        now = now.plusSeconds(601);
+        service.completeAuth("process-1", "123456", 7L);
+
+        assertThat(stored.get().getEncryptedCredentials()).isNull();
+    }
+
+    @Test
+    void complete_pendingCredentialsAreUsedOnce() {
+        stubPassThroughEncryption();
+        AtomicReference<SidecarSession> stored = captureInsertedSession();
+        when(port.initiateAuth("client", PASSWORD, "sms", null))
+            .thenReturn(new SidecarInitiate("process-1", true, "OTP", null));
+        when(port.completeAuth("process-1", "123456")).thenReturn("fresh-state");
+        service = serviceWith(job -> { });
+
+        service.initiateAuth("client", PASSWORD, "sms", true, 7L);
+        service.completeAuth("process-1", "123456", 7L);
+        stored.set(null);
+        service.completeAuth("process-1", "123456", 7L);
+
+        assertThat(stored.get().getEncryptedCredentials()).isNull();
+    }
+
+    @Test
+    void queueSync_expiredSessionLogsInAgainOnceWithThePreviousStateAndReadsAgain() {
+        FamilyMember member = owner();
+        SidecarSession session = rememberedSession(member, "{\"login\":\"client\",\"password\":\"" + PASSWORD
+            + "\",\"method\":\"email\"}");
+        when(port.fetchAccounts("plain-state")).thenThrow(expired());
+        when(port.reauthenticate("client", PASSWORD, "email", "plain-state"))
+            .thenReturn(new SidecarInitiate(null, false, null, "fresh-state"));
+        when(port.fetchAccounts("fresh-state")).thenReturn(List.of(accountData("amex_1")));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
+        arrangeNewAccountPersistence(20L);
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(session.isActive()).isTrue();
+        assertThat(session.getSessionState()).isEqualTo("enc:fresh-state");
+        assertThat(session.getEncryptedCredentials()).isEqualTo(REMEMBERED);
+        verify(port, org.mockito.Mockito.times(1)).reauthenticate(anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void queueHistoryRecovery_expiredSessionReadsTheHistoryAgainWithTheNewState() {
+        FamilyMember member = owner();
+        SidecarSession session = rememberedSession(member, "{\"login\":\"client\",\"password\":\"" + PASSWORD
+            + "\",\"method\":\"sms\"}");
+        when(port.fetchTransactionHistory("plain-state")).thenThrow(expired());
+        when(port.reauthenticate("client", PASSWORD, "sms", "plain-state"))
+            .thenReturn(new SidecarInitiate(null, false, null, "fresh-state"));
+        when(port.fetchTransactionHistory("fresh-state")).thenReturn(List.of(accountData("amex_1")));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
+        arrangeNewAccountPersistence(20L);
+
+        service.queueHistoryRecovery(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        verify(port, org.mockito.Mockito.never()).fetchAccounts(anyString());
+    }
+
+    @Test
+    void queueSync_aMissingMethodDefaultsToSms() {
+        FamilyMember member = owner();
+        rememberedSession(member, "{\"login\":\"client\",\"password\":\"" + PASSWORD + "\"}");
+        when(port.fetchAccounts("plain-state")).thenThrow(expired());
+        when(port.reauthenticate("client", PASSWORD, "sms", "plain-state"))
+            .thenThrow(new SyncException("Wrong password", null, "INVALID_CREDENTIALS"));
+
+        service.queueSync(7L);
+
+        verify(port).reauthenticate("client", PASSWORD, "sms", "plain-state");
+    }
+
+    @Test
+    void queueSync_aReloginIsNeverFollowedByASecondOne() {
+        FamilyMember member = owner();
+        SidecarSession session = rememberedSession(member, "{\"login\":\"client\",\"password\":\"" + PASSWORD
+            + "\",\"method\":\"sms\"}");
+        when(port.fetchAccounts("plain-state")).thenThrow(expired());
+        when(port.reauthenticate("client", PASSWORD, "sms", "plain-state"))
+            .thenReturn(new SidecarInitiate(null, false, null, "fresh-state"));
+        when(port.fetchAccounts("fresh-state")).thenThrow(expired());
+
+        service.queueSync(7L);
+
+        verify(port, org.mockito.Mockito.times(1)).reauthenticate(anyString(), anyString(), anyString(), anyString());
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
+        assertThat(session.isActive()).isFalse();
+    }
+
+    @Test
+    void queueSync_aReloginThatStillAsksForACodeReadsAsExpiredAndKeepsTheCredentials() {
+        FamilyMember member = owner();
+        SidecarSession session = rememberedSession(member, "{\"login\":\"client\",\"password\":\"" + PASSWORD
+            + "\",\"method\":\"sms\"}");
+        when(port.fetchAccounts("plain-state")).thenThrow(expired());
+        when(port.reauthenticate("client", PASSWORD, "sms", "plain-state"))
+            .thenReturn(new SidecarInitiate("process-9", true, "OTP", null));
+
+        service.queueSync(7L);
+
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
+        assertThat(session.getEncryptedCredentials()).isEqualTo(REMEMBERED);
+        assertThat(service.getStatus(7L).credentialsRemembered()).isTrue();
+    }
+
+    @Test
+    void queueSync_aRejectedPasswordClearsTheCredentialsAndEndsTheSession() {
+        FamilyMember member = owner();
+        SidecarSession session = rememberedSession(member, "{\"login\":\"client\",\"password\":\"" + PASSWORD
+            + "\",\"method\":\"sms\"}");
+        when(port.fetchAccounts("plain-state")).thenThrow(expired());
+        when(port.reauthenticate("client", PASSWORD, "sms", "plain-state"))
+            .thenThrow(new SyncException("Wrong password", null, "INVALID_CREDENTIALS"));
+
+        service.queueSync(7L);
+
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INVALID_CREDENTIALS);
+        assertThat(session.getEncryptedCredentials()).isNull();
+        assertThat(session.isActive()).isFalse();
+        assertThat(service.getStatus(7L).credentialsRemembered()).isFalse();
+    }
+
+    @Test
+    void queueSync_aSpentReloginBudgetEndsTheRunWithoutCallingAmexAndKeepsTheCredentials() {
+        FamilyMember member = owner();
+        SidecarSession session = rememberedSession(member, "{\"login\":\"client\",\"password\":\"" + PASSWORD
+            + "\",\"method\":\"sms\"}");
+        Bucket spent = RateLimitConfig.createAmexAuthBucket();
+        assertThat(spent.tryConsumeAsMuchAsPossible()).isEqualTo(5);
+        reloginBuckets.put(7L, spent);
+        when(port.fetchAccounts("plain-state")).thenThrow(expired());
+
+        service.queueSync(7L);
+
+        verify(port, org.mockito.Mockito.never()).reauthenticate(any(), any(), any(), any());
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE);
+        assertThat(session.isActive()).isTrue();
+        assertThat(session.getEncryptedCredentials()).isEqualTo(REMEMBERED);
+    }
+
+    /** Credentials that cannot be decrypted or read back can never log in: they are cleared, the run ends expired. */
+    @ParameterizedTest
+    @ValueSource(strings = {"DECRYPT", "MALFORMED_JSON", "BLANK_PASSWORD", "UNKNOWN_METHOD"})
+    void queueSync_unreadableCredentialsAreClearedAndTheSessionExpires(String failure) {
+        FamilyMember member = owner();
+        SidecarSession session = rememberedSession(member, "unused");
+        switch (failure) {
+            case "DECRYPT" -> when(encryption.decrypt(REMEMBERED)).thenThrow(new IllegalStateException("Tag mismatch"));
+            case "MALFORMED_JSON" -> when(encryption.decrypt(REMEMBERED))
+                .thenReturn("{\"login\":\"client\",\"password\":\"" + PASSWORD);
+            case "BLANK_PASSWORD" -> when(encryption.decrypt(REMEMBERED))
+                .thenReturn("{\"login\":\"client\",\"password\":\"\"}");
+            default -> when(encryption.decrypt(REMEMBERED))
+                .thenReturn("{\"login\":\"client\",\"password\":\"" + PASSWORD + "\",\"method\":\"push\"}");
+        }
+        when(port.fetchAccounts("plain-state")).thenThrow(expired());
+
+        service.queueSync(7L);
+
+        verify(port, org.mockito.Mockito.never()).reauthenticate(any(), any(), any(), any());
+        assertThat(session.getEncryptedCredentials()).isNull();
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
+        assertThat(session.isActive()).isFalse();
+    }
+
+    @Test
+    void queueSync_expiredSessionWithoutCredentialsEndsAsExpiredWithoutALogin() {
+        SidecarSession session = activeSession(owner());
+        arrangeQueuedSession(session);
+        when(port.fetchAccounts("plain-state")).thenThrow(expired());
+
+        service.queueSync(7L);
+
+        verify(port, org.mockito.Mockito.never()).reauthenticate(any(), any(), any(), any());
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
+        assertThat(session.isActive()).isFalse();
+        assertThat(reloginBuckets).isEmpty();
+    }
+
+    @Test
+    void queueSync_otherFailuresAreNotRetriedWithALogin() {
+        SidecarSession session = rememberedSession(owner(), "{\"login\":\"client\",\"password\":\"" + PASSWORD
+            + "\",\"method\":\"sms\"}");
+        when(port.fetchAccounts("plain-state")).thenThrow(new SyncException("Down", null, "UPSTREAM_UNAVAILABLE"));
+
+        service.queueSync(7L);
+
+        verify(port, org.mockito.Mockito.never()).reauthenticate(any(), any(), any(), any());
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE);
+        assertThat(session.isActive()).isTrue();
+    }
+
+    @Test
+    void status_reportsWhetherCredentialsAreRememberedWithoutRevealingThem() {
+        SidecarSession session = activeSession(owner());
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.AMEX, 7L)).thenReturn(Optional.of(session));
+        assertThat(service.getStatus(7L).credentialsRemembered()).isFalse();
+
+        session.setEncryptedCredentials(REMEMBERED);
+        var status = service.getStatus(7L);
+
+        assertThat(status.credentialsRemembered()).isTrue();
+        assertThat(status.toString()).doesNotContain(REMEMBERED);
+        assertThat(service.getStatus(99L).credentialsRemembered()).isFalse();
+    }
+
+    private static SyncException expired() {
+        return new SyncException("The American Express session expired", null, "SESSION_EXPIRED");
+    }
+
+    private SidecarSession rememberedSession(FamilyMember member, String credentialsJson) {
+        SidecarSession session = activeSession(member);
+        session.setEncryptedCredentials(REMEMBERED);
+        arrangeQueuedSession(session);
+        stubPassThroughEncryption();
+        lenient().when(encryption.decrypt(REMEMBERED)).thenReturn(credentialsJson);
+        return session;
+    }
+
+    private void stubPassThroughEncryption() {
+        lenient().when(encryption.encrypt(any())).thenAnswer(inv -> "enc:" + inv.getArgument(0));
+        lenient().when(encryption.decrypt(org.mockito.ArgumentMatchers.startsWith("enc:")))
+            .thenAnswer(inv -> ((String) inv.getArgument(0)).substring(4));
+    }
+
+    /** The session {@code replaceAndQueue} inserts, as the repository saw it. */
+    private AtomicReference<SidecarSession> captureInsertedSession() {
+        AtomicReference<SidecarSession> stored = new AtomicReference<>();
+        lenient().when(memberRepository.findById(7L)).thenReturn(Optional.of(FamilyMember.builder().id(7L).build()));
+        lenient().when(sessionRepository.saveAndFlush(any(SidecarSession.class))).thenAnswer(inv -> {
+            SidecarSession session = inv.getArgument(0);
+            org.springframework.test.util.ReflectionTestUtils.setField(session, "id", 3L);
+            stored.set(session);
+            return session;
+        });
+        return stored;
+    }
+
     private void arrangeQueuedSession(SidecarSession session) {
         when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.AMEX, 7L)).thenReturn(Optional.of(session));
         when(sessionRepository.findByIdAndMemberIdForUpdate(session.getId(), 7L)).thenReturn(Optional.of(session));
@@ -895,7 +1306,9 @@ class AmexSyncServiceTest {
             transactionWriter,
             encryption,
             txTemplate,
-            executor
+            executor,
+            reloginBuckets,
+            clock
         );
     }
 

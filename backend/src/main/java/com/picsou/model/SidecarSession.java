@@ -243,12 +243,12 @@ public class SidecarSession extends AuditableEntity implements BpceSession {
                 || error == SidecarErrorCode.INVALID_SESSION_STATE;
             // The stored password was rejected: replaying it would lock the access.
             // Natixis keeps no password either: a refused refresh token needs a new login with a new code.
-            case NATIXIS, CIC, CMES, CORUM -> error == SidecarErrorCode.SESSION_EXPIRED
+            case NATIXIS, CIC, CMES, CORUM, AMEX -> error == SidecarErrorCode.SESSION_EXPIRED
                 || error == SidecarErrorCode.INVALID_CREDENTIALS;
             // The stored refresh cookie is the whole session: unreadable or rejected, only a new login helps.
             case TRADE_REPUBLIC -> error == SidecarErrorCode.SESSION_EXPIRED
                 || error == SidecarErrorCode.INVALID_SESSION_STATE;
-            case AMEX, AMUNDI, BOURSE_DIRECT, BOURSO, FORTUNEO, SOFIDY ->
+            case AMUNDI, BOURSE_DIRECT, BOURSO, FORTUNEO, SOFIDY ->
                 error == SidecarErrorCode.SESSION_EXPIRED;
         };
     }

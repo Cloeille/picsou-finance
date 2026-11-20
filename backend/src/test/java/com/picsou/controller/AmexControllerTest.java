@@ -58,16 +58,31 @@ class AmexControllerTest {
     void initiatePassesTheChosenOtpMethodToTheService() {
         when(request.getRemoteAddr()).thenReturn("127.0.0.1");
         var expected = new AmexSyncService.AuthInitResponse("process", true, "OTP");
-        when(service.initiateAuth("login", "password", "sms", MEMBER_ID)).thenReturn(expected);
+        when(service.initiateAuth("login", "password", "sms", false, MEMBER_ID)).thenReturn(expected);
 
         var response = controller.initiate(
-            new AmexController.InitiateRequest("login", "password", "sms"),
+            new AmexController.InitiateRequest("login", "password", "sms", null),
             request
         );
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isSameAs(expected);
-        verify(service).initiateAuth("login", "password", "sms", MEMBER_ID);
+        verify(service).initiateAuth("login", "password", "sms", false, MEMBER_ID);
+    }
+
+    @Test
+    void initiateForwardsTheRememberFlag() {
+        when(request.getRemoteAddr()).thenReturn("127.0.0.1");
+        var expected = new AmexSyncService.AuthInitResponse("process", true, "OTP");
+        when(service.initiateAuth("login", "password", "email", true, MEMBER_ID)).thenReturn(expected);
+
+        var response = controller.initiate(
+            new AmexController.InitiateRequest("login", "password", "email", true),
+            request
+        );
+
+        assertThat(response.getBody()).isSameAs(expected);
+        verify(service).initiateAuth("login", "password", "email", true, MEMBER_ID);
     }
 
     @Test
@@ -80,7 +95,7 @@ class AmexControllerTest {
 
         verify(service, times(0)).initiateAuth(org.mockito.ArgumentMatchers.anyString(),
             org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
-            org.mockito.ArgumentMatchers.anyLong());
+            org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.anyLong());
     }
 
     @Test
@@ -134,22 +149,22 @@ class AmexControllerTest {
     @Test
     void sixthAuthenticationAttemptFromTheSameIpIsRateLimited() {
         when(request.getRemoteAddr()).thenReturn("127.0.0.1");
-        when(service.initiateAuth("login", "password", "sms", MEMBER_ID)).thenReturn(
+        when(service.initiateAuth("login", "password", "sms", false, MEMBER_ID)).thenReturn(
             new AmexSyncService.AuthInitResponse("process", true, "OTP")
         );
 
         for (int attempt = 0; attempt < 5; attempt++) {
             assertThat(controller.initiate(
-                new AmexController.InitiateRequest("login", "password", "sms"),
+                new AmexController.InitiateRequest("login", "password", "sms", null),
                 request
             ).getStatusCode()).isEqualTo(HttpStatus.OK);
         }
 
         assertThat(controller.initiate(
-            new AmexController.InitiateRequest("login", "password", "sms"),
+            new AmexController.InitiateRequest("login", "password", "sms", null),
             request
         ).getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
-        verify(service, times(5)).initiateAuth("login", "password", "sms", MEMBER_ID);
+        verify(service, times(5)).initiateAuth("login", "password", "sms", false, MEMBER_ID);
     }
 
     @Test
@@ -164,6 +179,6 @@ class AmexControllerTest {
     }
 
     private AmexSyncService.SessionStatusResponse sessionStatus(SidecarSyncStatus syncStatus) {
-        return new AmexSyncService.SessionStatusResponse(true, syncStatus, null, null, null);
+        return new AmexSyncService.SessionStatusResponse(true, syncStatus, null, null, null, false);
     }
 }

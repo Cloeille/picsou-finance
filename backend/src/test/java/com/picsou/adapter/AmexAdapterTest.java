@@ -19,13 +19,79 @@ class AmexAdapterTest {
             {"processId":"p-1","mfaRequired":true,"mfaType":"OTP","sessionState":null}
             """);
 
-        var result = adapter.initiateAuth("user", "secret", "email");
+        var result = adapter.initiateAuth("user", "secret", "email", null);
 
         assertThat(result.mfaRequired()).isTrue();
         assertThat(result.mfaType()).isEqualTo("OTP");
         assertThat(bodies).singleElement().satisfies(body ->
             assertThat(body).contains("\"method\":\"email\"")
         );
+    }
+
+    @Test
+    void initiateAuth_omitsTheSessionStateWhenThereIsNone() {
+        for (String previous : new String[] {null, "", "  "}) {
+            List<String> bodies = new ArrayList<>();
+            AmexAdapter adapter = adapterRecording(bodies, """
+                {"processId":"p-1","mfaRequired":true,"mfaType":"OTP","sessionState":null}
+                """);
+
+            adapter.initiateAuth("user", "secret", "sms", previous);
+
+            assertThat(bodies).singleElement().satisfies(body -> {
+                assertThat(body).doesNotContain("sessionState");
+                assertThat(body).doesNotContain("unattended");
+            });
+        }
+    }
+
+    @Test
+    void initiateAuth_sendsThePreviousSessionToReuseTheTrustedDevice() {
+        List<String> bodies = new ArrayList<>();
+        AmexAdapter adapter = adapterRecording(bodies, """
+            {"processId":null,"mfaRequired":false,"mfaType":null,"sessionState":"fresh"}
+            """);
+
+        var result = adapter.initiateAuth("user", "secret", "sms", "previous-cookies");
+
+        assertThat(result.sessionState()).isEqualTo("fresh");
+        assertThat(bodies).singleElement().satisfies(body -> {
+            assertThat(body).contains("\"sessionState\":\"previous-cookies\"");
+            assertThat(body).doesNotContain("unattended");
+        });
+    }
+
+    @Test
+    void reauthenticate_isUnattendedAndCarriesThePreviousSession() {
+        List<String> bodies = new ArrayList<>();
+        AmexAdapter adapter = adapterRecording(bodies, """
+            {"processId":null,"mfaRequired":false,"mfaType":null,"sessionState":"fresh"}
+            """);
+
+        var result = adapter.reauthenticate("user", "secret", "email", "previous-cookies");
+
+        assertThat(result.mfaRequired()).isFalse();
+        assertThat(result.sessionState()).isEqualTo("fresh");
+        assertThat(bodies).singleElement().satisfies(body -> {
+            assertThat(body).contains("\"unattended\":true");
+            assertThat(body).contains("\"sessionState\":\"previous-cookies\"");
+            assertThat(body).contains("\"method\":\"email\"");
+        });
+    }
+
+    @Test
+    void reauthenticate_omitsTheSessionStateWhenThereIsNone() {
+        List<String> bodies = new ArrayList<>();
+        AmexAdapter adapter = adapterRecording(bodies, """
+            {"processId":null,"mfaRequired":false,"mfaType":null,"sessionState":"fresh"}
+            """);
+
+        adapter.reauthenticate("user", "secret", "sms", null);
+
+        assertThat(bodies).singleElement().satisfies(body -> {
+            assertThat(body).contains("\"unattended\":true");
+            assertThat(body).doesNotContain("sessionState");
+        });
     }
 
     @Test

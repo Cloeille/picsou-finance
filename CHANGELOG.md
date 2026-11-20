@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hides the card behind a recap row with its total.
   Unlike `hidden`, collapsed accounts stay in every total, budget and chart — see
   `docs/features/account-list-display.md`.
+- **American Express can log in again by itself.** The connection form has a "Remember my
+  credentials (encrypted)" box. Ticked, the daily sync signs in again on its own when the session
+  has expired, without a code as long as American Express recognises the device (Picsou now
+  ticks "trusted device" after your code). If American Express asks for a code anyway, no SMS
+  is sent and you reconnect as before. A refused password is forgotten. Disconnect forgets
+  everything (#537).
 
 ## [1.2.1] — 2026-11-20
 
