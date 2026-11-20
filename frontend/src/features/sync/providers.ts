@@ -270,7 +270,6 @@ export const sidecarProviders = {
     sync: () => sofidyApi.sync(),
     clear: () => sofidyApi.clearSession(),
   },
-
 } as const satisfies Record<string, SidecarProviderEntry>
 
 type Providers = typeof sidecarProviders

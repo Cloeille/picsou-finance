@@ -2134,8 +2134,8 @@
       "connected": "Connecté",
       "notConnected": "Non connecté",
       "needsReconnect": "Reconnexion nécessaire",
-      "lastSync": "Dernière synchro",
-      "neverSynced": "Pas encore synchronisé",
+      "lastSync": "Dernière synchronisation",
+      "neverSynced": "Jamais synchronisé",
       "connectedToast": "Louve Invest connecté. La première synchronisation est en cours.",
       "scope": "Accès en lecture seule à votre portefeuille (portfolio:read). Synchronise les parts de SCPI détenues en pleine propriété, au prix de retrait ; un fonds sans compte en reçoit un, ou est rattaché au compte SCPI du même nom (« Aurore » ou « Louve Invest - Aurore »). Les parts en nue-propriété ou en usufruit et les contrats d'assurance-vie ne sont pas synchronisés.",
       "errors": {

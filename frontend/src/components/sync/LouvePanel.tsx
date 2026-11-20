@@ -229,7 +229,7 @@ export function LouvePanel({ onConnected }: LouvePanelProps = {}) {
         )}
       </div>
 
-      <p className="mx-auto max-w-lg text-xs text-muted-foreground">{t('sync.louve.scope')}</p>
+      <p className="mx-auto max-w-lg text-sm text-muted-foreground">{t('sync.louve.scope')}</p>
 
       <ConfirmDialog
         open={confirmDisconnect}
