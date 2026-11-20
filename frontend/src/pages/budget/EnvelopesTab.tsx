@@ -145,11 +145,11 @@ function EnvelopeRow({ budget, onEdit, onDelete }: {
             </Button>
           </div>
         </div>
-        <div className="mt-3 h-2 w-full overflow-hidden rounded-md bg-muted"
+        <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-muted"
           role="progressbar" aria-label={budget.categoryName}
           aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}
           aria-valuetext={formatPercent(budget.percent, { fractionDigits: 0 })}>
-          <div className={`h-full rounded-md transition-all ${barTone}`}
+          <div className={`h-full rounded-full transition-all ${barTone}`}
             style={{ width: `${pct}%` }} />
         </div>
         <div className="mt-2 flex items-center justify-between text-sm">

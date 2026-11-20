@@ -71,7 +71,7 @@ function BreakdownRow({ row, total }: { row: CategorySpend; total: number }) {
         </span>
         <CurrencyDisplay value={row.amount} className="shrink-0 text-sm font-semibold tabular-nums" />
       </div>
-      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+      <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-muted">
         <div
           className="h-full rounded-full"
           style={{ width: `${Math.max(share * 100, 2)}%`, backgroundColor: color }}

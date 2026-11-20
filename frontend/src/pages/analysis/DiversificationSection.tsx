@@ -108,7 +108,7 @@ function BreakdownBar({
       ) : (
         <>
           {view === 'bar' && (
-            <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
+            <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted">
               {items.map((item, i) => (
                 <div
                   key={`${item.label}-${i}`}

@@ -147,8 +147,8 @@ export function AllocationTab() {
                             <CurrencyDisplay value={c.amount} />
                           </span>
                         </div>
-                        <div className="h-1.5 w-full overflow-hidden rounded-md bg-muted">
-                          <div className="h-full rounded-md"
+                        <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                          <div className="h-full rounded-full"
                             style={{ width: `${pct}%`, backgroundColor: c.color || ASSET_CLASS_COLOR[c.assetClass] }} />
                         </div>
                       </div>

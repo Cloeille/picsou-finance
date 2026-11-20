@@ -161,6 +161,7 @@ In dark mode the same logic holds: the card surface lifts one tonal step (`oklch
 - **Modals (`DialogContent`):** single-column grid (`grid-cols-1 *:min-w-0`), viewport-bounded (`max-h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-3rem)]`), scrolling vertically inside (`overflow-y-auto overflow-x-hidden overscroll-contain`).
 - **Selects & Disclosures:** always Radix `Select` / `NativeSelect` and custom Lucide `ChevronDown` disclosure buttons — never OS-native `<select>` or `<details>` elements.
 - **Empty states:** framed inside a `Card` with compact `py-8` padding and no duplicate primary CTA when the page header already provides one.
+- **Progress bars:** unified `h-2 w-full rounded-full bg-muted` pill track (`Progress` default) across goals, envelopes, loans, liabilities, budget breakdown, and analysis panels. Only fixed viewport top-edge setup bars use `h-1 rounded-none`.
 - **Z-index tiers:** `MobileBottomNav` (`z-40`) < `Dialog`/`Sheet` (`z-50`) < `DropdownMenu`/`Select` (`z-[60]`, `collisionPadding={16}`) < `Tooltip` (`z-[70]`).
 
 ### Navigation
