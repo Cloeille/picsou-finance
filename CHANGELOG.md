@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hides the card behind a recap row with its total.
   Unlike `hidden`, collapsed accounts stay in every total, budget and chart — see
   `docs/features/account-list-display.md`.
+- **Banque Populaire: import personal and home loans (6/12, 6/13).** Both loan kinds are now imported with
+  their borrowed amount, rate, installment and dates, as on Caisse d'Epargne. The two bank apps' sign-in
+  settings come from the bank's public web app configuration and are not yet verified against a real account:
+  if a loan app refuses them, the loan is still imported from its balance with no details and the session
+  stays connected. Sync logs name the field that could not be read (never a value) so a report can be
+  precise. (#567)
 - **Transfers between your own accounts are recognised.** After each sync, a debit on one of your
   accounts and the matching credit on another (same amount and currency, at most three days apart)
   are both categorised *Virement interne*, so cash flow and the flow diagram stop counting them as
@@ -27,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **American Express login no longer stalls behind the cookie banner.** When the consent banner
   showed up after the login form, it blocked the sign-in click and the connection failed with
   "Impossible de joindre American Express". It is now declined whenever it appears (#568).
+- **BoursoBank syncs a PEA-PME holding unlisted instruments.** Crowdfunding lines
+  (Homunity) have an ISIN but no ticker, and one such line failed the whole sync
+  with `UPSTREAM_FORMAT_CHANGED`, so no account was imported. The line now syncs
+  under its ISIN; a line with neither ticker nor valid ISIN is still refused.
 
 ## [1.2.1] — 2026-11-20
 

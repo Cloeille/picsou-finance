@@ -34,9 +34,10 @@ import java.util.Optional;
 import java.util.concurrent.Executor;
 
 /**
- * Imports Banque Populaire current accounts, savings books, term deposits and cooperative shares, with their transactions.
+ * Imports Banque Populaire current accounts, savings books, term deposits, cooperative shares and
+ * personal and home loans, with their transactions.
  * Banque Populaire runs on the BPCE platform, so the import is the shared {@link BpceSyncEngine}'s
- * (loans and PER included, should the sidecar ever report them); this service binds it to the
+ * (PER included, should the sidecar ever report it); this service binds it to the
  * Banque Populaire port, its rows of {@code sidecar_session} and labels, and owns the transaction boundaries. The sync
  * is <b>on demand only</b>, like Caisse d'Epargne's: no scheduler, startup or member sync. The
  * password is never stored; like Caisse d'Epargne, the identifier of the last successful login is
