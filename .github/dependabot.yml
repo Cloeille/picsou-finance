@@ -27,6 +27,10 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: org.springframework.ai:spring-ai-bom
         update-types: ["version-update:semver-major"]
+  - package-ecosystem: cargo
+    directory: /desktop/src-tauri
+    schedule:
+      interval: weekly
   - package-ecosystem: bun
     directory: /frontend
     schedule:
