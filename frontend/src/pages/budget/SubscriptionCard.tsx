@@ -81,7 +81,7 @@ export function SubscriptionCard({ series }: { series: RecurringSeries }) {
         </p>
 
         {series.autoConfirmed && (
-          <p className="mt-0.5 truncate text-sm text-muted-foreground">
+          <p className="mt-0.5 text-sm text-muted-foreground">
             {confidencePct != null
               ? t('budget.recurring.autoConfirmedConfident', { percent: confidencePct })
               : t('budget.recurring.activity.autoConfirmed')}
