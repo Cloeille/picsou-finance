@@ -28,7 +28,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Plus, Wallet, TrendingUp, TrendingDown, Download, Eye, EyeOff, ChevronUp, ChevronDown, ArrowUpDown, Check } from 'lucide-react'
+import { Plus, Wallet, TrendingUp, TrendingDown, Download, Eye, EyeOff, ChevronUp, ChevronDown, ArrowUpDown, Check, PiggyBank } from 'lucide-react'
 import { cn, formatPercent } from '@/lib/utils'
 import { HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES } from '@/lib/constants'
 import { accountInvestedAt, accountPnlAt, hasMeasurableGain } from '@/features/accounts/pnl'
@@ -502,15 +502,20 @@ export function AccountsPage() {
 
       {/* Savings suggestions banner */}
       {hasSavingsSuggestions && (
-        <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-900/50 dark:bg-emerald-950/30">
-          <p className="text-sm text-emerald-800 dark:text-emerald-300">
-            {t('savings.suggestionsBanner', { count: savingsSuggestions!.length })}
-          </p>
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-border/60 bg-card px-4 py-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/60 text-foreground">
+              <PiggyBank className="size-4" aria-hidden="true" />
+            </div>
+            <p className="text-sm font-medium text-foreground">
+              {t('savings.suggestionsBanner', { count: savingsSuggestions!.length })}
+            </p>
+          </div>
           <Button
             size="sm"
             variant="outline"
-            className="ml-4 shrink-0"
-            onClick={() => navigate(`/accounts/${savingsSuggestions![0].accountId}`)}
+            className="shrink-0"
+            onClick={() => navigate(`/accounts/${savingsSuggestions![0].accountId}?tab=config`)}
           >
             {t('savings.configureSavings')}
           </Button>

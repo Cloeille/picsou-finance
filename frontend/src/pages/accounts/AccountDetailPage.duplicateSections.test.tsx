@@ -77,6 +77,7 @@ vi.mock('@/features/savings/SavingsConfigSection', () => ({ SavingsConfigSection
 vi.mock('react-router', () => ({
   useParams: () => ({ id: '7' }),
   useNavigate: () => vi.fn(),
+  useSearchParams: () => [new URLSearchParams(), vi.fn()],
 }))
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({

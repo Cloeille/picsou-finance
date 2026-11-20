@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Unlike `hidden`, collapsed accounts stay in every total, budget and chart — see
   `docs/features/account-list-display.md`.
 
+### Changed
+
+- **Savings configuration banner and direct tab link.** Replaced the legacy emerald banner on `/accounts` with a neutral card matching the 1.2.1 design system, and clicking "Configurer" now opens the account detail page directly on the **Configuration livret** tab (`?tab=config`).
+
 ## [1.2.1] — 2026-11-20
 
 ### Added
