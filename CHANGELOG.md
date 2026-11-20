@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Trade Republic: separate native crypto into a dedicated `TR Crypto` account and fix bond detection.** Native Trade Republic crypto holdings (`categoryType: "cryptos"` or `instrumentType: "crypto"`, verified live on Bitcoin `XF000BTC0017`) now sync into a dedicated `TR Crypto` (`CRYPTO`, `tr_crypto`) account so they appear under the Accounts > Crypto tab with live CoinGecko prices and coin logos, while crypto ETFs/ETCs (`instrumentType: "fund"`) stay in `TR Titres`. When all positions in an existing `TR Titres` move to `TR Crypto`, `TR Titres` updates cleanly to 0 EUR without dropping its transaction history or creating a net-worth jump; selling all crypto clears an existing `TR Crypto` to 0 EUR; CSV crypto trades route to `TR Crypto` without duplicating pre-separation legs. Also fixed bond scaling for Trade Republic's plural `categoryType: "bonds"` and `bondInfo.currency` nominal currency field, and mapped `tax_wrapper_pl_ike` to `BROKERAGE`.
 - **American Express login no longer stalls behind the cookie banner.** When the consent banner
   showed up after the login form, it blocked the sign-in click and the connection failed with
   "Impossible de joindre American Express". It is now declined whenever it appears (#568).
