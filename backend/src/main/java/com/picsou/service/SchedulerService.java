@@ -29,6 +29,10 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.Executor;
 
+/**
+ * The scheduled jobs. {@code refreshPrices} runs on its own fixed delay; the cron jobs below are
+ * started by {@link CatchUpScheduler}, which also makes up a slot missed while the machine was off.
+ */
 @Service
 public class SchedulerService {
 
@@ -103,7 +107,6 @@ public class SchedulerService {
      * figures while hammering a service that is still on a preprod host with no documented
      * rate limits. Users who want a figure sooner have the manual refresh button.
      */
-    @Scheduled(cron = "0 30 3 1 * *")
     public void monthlyPropertyValuation() {
         log.info("Refreshing property valuations for all members");
         List<FamilyMember> members = familyMemberRepository.findAllByOrderByCreatedAtAsc();
@@ -123,9 +126,8 @@ public class SchedulerService {
     }
 
     /**
-     * Daily at 08:00: delegate to single owner MemberSyncService.
+     * Daily at 08:00 (see {@link CatchUpScheduler}): delegate to single owner MemberSyncService.
      */
-    @Scheduled(cron = "0 0 8 * * *")
     public void dailyBankSync() {
         log.info("Starting daily bank sync for all members");
         List<FamilyMember> members = familyMemberRepository.findAllByOrderByCreatedAtAsc();
@@ -149,9 +151,8 @@ public class SchedulerService {
     }
 
     /**
-     * Daily at 08:05: Take a balance snapshot for all accounts.
+     * Daily at 08:05 (see {@link CatchUpScheduler}): Take a balance snapshot for all accounts.
      */
-    @Scheduled(cron = "0 5 8 * * *")
     @Transactional
     public void dailySnapshots() {
         log.info("Taking daily snapshots for all accounts");
@@ -277,7 +278,6 @@ public class SchedulerService {
      * <p>A ticker nobody has warmed yet is not an error. It reports as unclassified in the
      * breakdown, with the uncovered share stated, until the next pass picks it up.
      */
-    @Scheduled(cron = "0 45 3 * * SUN")
     public void refreshSecurityProfiles() {
         Set<String> tickers = new TreeSet<>(holdingRepository.findDistinctTickers());
         if (tickers.isEmpty()) return;
@@ -303,7 +303,6 @@ public class SchedulerService {
      * <p>The pass itself runs on {@code dividendRefreshExecutor}, not on Spring's single
      * scheduler thread. The batch is capped for the same reason as {@link #refreshSecurityProfiles}.
      */
-    @Scheduled(cron = "0 15 4 * * SUN")
     public void refreshDividendHistory() {
         dividendRefreshExecutor.execute(this::refreshDividendHistoryPass);
     }

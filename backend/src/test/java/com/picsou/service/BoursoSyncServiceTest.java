@@ -1,5 +1,6 @@
 package com.picsou.service;
 
+import com.picsou.service.budget.InternalTransferPairingService;
 import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.adapter.OpenFigiIsinConverter;
 import com.picsou.config.CryptoEncryption;
@@ -70,6 +71,7 @@ class BoursoSyncServiceTest {
     @Mock TransactionTemplate txTemplate;
     @Mock TransactionStatus transactionStatus;
     @Mock DividendReceiptService dividendReceiptService;
+    @Mock InternalTransferPairingService transferPairingService;
     @Captor ArgumentCaptor<Account> accountCaptor;
     @Captor ArgumentCaptor<List<AccountHolding>> holdingsCaptor;
 
@@ -841,7 +843,7 @@ class BoursoSyncServiceTest {
             encryption,
             txTemplate,
             executor,
-            new ReceivedDividendClassifier(dividendReceiptService)
+            new ReceivedDividendClassifier(dividendReceiptService, transferPairingService)
         );
     }
 

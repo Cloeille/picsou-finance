@@ -381,6 +381,12 @@ account, so it cannot creep back.
 A missing or malformed ISIN is **not** fatal: the position keeps its BoursoBank
 symbol as its ticker.
 
+The reverse also holds. An unlisted instrument (real-estate crowdfunding on a
+PEA-PME) comes with `symbol` and `exchangeCode` set to `null` but a valid
+`isin`. The sidecar then uses the upper-cased ISIN as the line's symbol, and the
+reconciliation against the account valuation still applies. A line with neither
+a symbol nor a valid ISIN is still refused as `UPSTREAM_FORMAT_CHANGED`.
+
 That is what puts `BoursoBank` in `AccountService.PROVIDER_VALUED`. A line with
 no resolvable ticker is unpriceable *by construction* here rather than by
 accident, so without the provider-valued fallback a PEA would read as its cash

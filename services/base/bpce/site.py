@@ -97,7 +97,9 @@ class Site:
     # with a reason instead of failing the sync, and a failed transactions read still imports
     # it from its synthesis entry. `SAVINGS`, `PEL`, `LEP`, `TERM_DEPOSIT` and
     # `COOPERATIVE_SHARES` also turn on their sub codes (`3/02`, `3/04`, `3/27`, `4/09`,
-    # `4/10`); when absent from `provisional_kinds`, they stay unsupported.
+    # `4/10`); when absent from `provisional_kinds`, they stay unsupported. `LOAN` on Banque
+    # Populaire: a loan app refusal never ends the session, an unreadable detail imports the
+    # loan without it, and an unreadable entry is demoted to `unsupported`.
     provisional_kinds: frozenset[str] = frozenset()
     _region_labels: dict[str, str] = field(init=False, repr=False, compare=False)
 

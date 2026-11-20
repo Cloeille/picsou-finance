@@ -969,7 +969,7 @@
       "revolut": "Phone + passcode, on-demand sync",
       "fortuneo": "Fortuneo-Konten synchronisieren",
       "caisseEpargne": "Girokonto, Livret A, LDDS, PEL, LEP, PER, Lebensversicherung, Kredite und Karten bei der Caisse d'Epargne",
-      "banquePopulaire": "Girokonto, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, Festgeld, Genossenschaftsanteile und PER bei der Banque Populaire",
+      "banquePopulaire": "Girokonto, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, Festgeld, Genossenschaftsanteile, PER sowie Privat- und Immobilienkredite bei der Banque Populaire",
       "lbp": "Girokonto, Livret A und LEP bei La Banque Postale",
       "bnp": "Girokonten, Sparprodukte, Wertpapiere und Lebensversicherung bei BNP Paribas oder Hello bank!"
     },
@@ -1371,6 +1371,13 @@
         "serverError": "BoursoBank ist nicht erreichbar. Bitte erneut versuchen."
       }
     },
+    "bpceContracts": {
+      "personalLoan": "Ratenkredit",
+      "homeLoan": "Immobilienkredit",
+      "revolvingCredit": "Rahmenkredit",
+      "notImported_one": "{{count}} Vertrag nicht importiert, Details unten.",
+      "notImported_other": "{{count}} Verträge nicht importiert, Details unten."
+    },
     "caisseEpargne": {
       "title": "Caisse d'Epargne",
       "customerId": "Kennung",
@@ -1443,7 +1450,7 @@
       "disconnectConfirmAction": "Gespeicherte Sitzung löschen",
       "noSession": "Keine aktive Sitzung",
       "sessionActive": "Sitzung aktiv",
-      "scope": "Synchronisiert Ihre Girokonten, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, Festgelder, Genossenschaftsanteile und PER bei der Banque Populaire auf Abruf. Nur die Sitzung und Ihre Kennung werden verschlüsselt gespeichert, nie Ihr Passwort. Verträge, die Picsou nicht importieren kann, werden aufgelistet, aber nie angelegt.",
+      "scope": "Synchronisiert Ihre Girokonten, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, Festgelder, Genossenschaftsanteile, PER sowie Privat- und Immobilienkredite bei der Banque Populaire auf Abruf. Nur die Sitzung und Ihre Kennung werden verschlüsselt gespeichert, nie Ihr Passwort. Verträge, die Picsou nicht importieren kann, werden aufgelistet, aber nie angelegt.",
       "notice": {
         "neverStored": "Picsou sieht und speichert Ihr Passwort nie. Sie klicken es selbst auf der Tastatur der Bank; nur die Tastenpositionen werden einmalig gesendet.",
         "noRetry": "Picsou wiederholt eine Anmeldung nie. Schlägt sie fehl, wird nichts erneut gesendet, bis Sie das Formular selbst absenden.",
