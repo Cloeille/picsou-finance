@@ -140,7 +140,7 @@ describe('AccountsPage - Immobilier gain / loss', () => {
     selectRealEstate()
 
     // 300 000 - 250 000 = +50 000, i.e. +20.0 %
-    expect(screen.getByText('dashboard.portfolioPerformance')).toBeInTheDocument()
+    expect(screen.getByTestId('portfolio-performance')).toBeInTheDocument()
     expect(screen.getByText('(+20.0%)')).toBeInTheDocument()
   })
 
@@ -164,7 +164,7 @@ describe('AccountsPage - Immobilier gain / loss', () => {
     render(<AccountsPage />)
     selectRealEstate()
 
-    expect(screen.queryByText('dashboard.portfolioPerformance')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('portfolio-performance')).not.toBeInTheDocument()
     expect(screen.queryByTestId('pnl-chart')).not.toBeInTheDocument()
   })
 
@@ -200,7 +200,7 @@ describe('AccountsPage - Immobilier gain / loss', () => {
 
     render(<AccountsPage />)
 
-    expect(screen.queryByText('dashboard.portfolioPerformance')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('portfolio-performance')).not.toBeInTheDocument()
     const chartData = JSON.parse(screen.getByTestId('pnl-chart').getAttribute('data-chart') ?? '[]') as Array<Record<string, string | number>>
     expect(chartData[0]).not.toHaveProperty('STOCKS')
   })
