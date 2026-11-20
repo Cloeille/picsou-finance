@@ -354,7 +354,7 @@ export function DashboardPage() {
                       value={goal.currentTotal}
                       className="text-3xl font-semibold tabular-nums"
                     />
-                    <Progress value={goal.percentComplete ?? 0} className="h-2.5 [&_[data-slot=progress-indicator]]:bg-emerald-500" />
+                    <Progress value={goal.percentComplete ?? 0} className="[&_[data-slot=progress-indicator]]:bg-emerald-500" />
                   </ItemContent>
                   <ItemFooter>
                     <span className="text-sm text-muted-foreground">

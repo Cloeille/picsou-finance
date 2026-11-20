@@ -69,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Sidebar What's New GitHub link.** Removed the leading star icon to reduce visual clutter and darkened the right-hand external link icon (`text-foreground`) for clearer contrast.
 - **Custom return rate simulator in wealth projection.** Added an optional annual percentage input (e.g. `12%`) in Analysis > Projection (`ProjectionSection`) that plots a live custom curve using the same geometric monthly compounding as the backend and displays the projected final amount and gains for the selected horizon.
 - **Cleaner net-worth performance and debt breakdown spacing.** Removed the redundant visible "performance portefeuille" suffix on Dashboard, Accounts, and Account Detail summary cards (preserved as `aria-label` for accessibility) and tightened the net-worth assets-minus-liabilities breakdown row on Dashboard so each label stays grouped with its amount.
+- **Unified progress bar sizing and shape.** Standardized `<Progress>` and all custom progress/distribution bars across Dashboard, Goals, Budget, Analysis, Family, Loans, Liabilities, and Setup sub-steps to a single `h-2 w-full rounded-full bg-muted` pill style, backed by a CI guardrail in `design-guardrails.test.ts`.
 
 ## [1.2.1] — 2026-11-20
 

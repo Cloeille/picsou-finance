@@ -671,7 +671,7 @@ function GoalCard({ goal, onOpenDetail }: GoalCardProps) {
         {/* Progress bar */}
         <Progress
           value={goal.percentComplete}
-          className="h-2.5 mt-3 [&_[data-slot=progress-indicator]]:bg-emerald-500"
+          className="mt-3 [&_[data-slot=progress-indicator]]:bg-emerald-500"
         />
 
         {/* Footer: percent + target */}

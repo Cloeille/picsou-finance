@@ -338,7 +338,7 @@ function CalendarGridView({ months, selectedYm, onSelect }: {
                     </div>
                     {entry.effective != null ? (
                       <div>
-                        <div className="h-1.5 rounded-full bg-muted overflow-hidden mb-1">
+                        <div className="h-2 w-full rounded-full bg-muted overflow-hidden mb-1">
                           <div className="h-full rounded-full bg-primary/70 transition-[width]" style={{ width: `${Math.min(100, pct * 100)}%` }} />
                         </div>
                         <div className="flex justify-between text-xs text-muted-foreground">
