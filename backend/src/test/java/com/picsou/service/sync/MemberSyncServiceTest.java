@@ -41,6 +41,7 @@ class MemberSyncServiceTest {
     @Mock private NatixisSyncService natixisSyncService;
     @Mock private LbpSyncService lbpSyncService;
     @Mock private BnpSyncService bnpSyncService;
+    @Mock private com.picsou.service.LouveSyncService louveSyncService;
     @Mock private FortuneoSyncService fortuneoSyncService;
     @Mock private AmexSyncService amexSyncService;
     @Mock private IbkrSyncService ibkrSyncService;
@@ -65,8 +66,11 @@ class MemberSyncServiceTest {
             corumSyncService,
             natixisSyncService,
             lbpSyncService,
-            bnpSyncService
+            bnpSyncService,
+            louveSyncService
         );
+        lenient().when(louveSyncService.resyncReporting(anyLong())).thenReturn(
+            new SourceSyncResult("louve", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
         lenient().when(cmesSyncService.resyncReporting(anyLong())).thenReturn(
             new SourceSyncResult("cmes", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
         lenient().when(cicSyncService.resyncReporting(anyLong())).thenReturn(
@@ -103,7 +107,7 @@ class MemberSyncServiceTest {
 
         List<SourceSyncResult> results = memberSyncService.resyncScheduled(memberId);
 
-        assertEquals(22, results.size());
+        assertEquals(23, results.size());
         assertEquals("cmes", results.get(16).source());
         verify(cmesSyncService).resyncReporting(memberId);
         assertEquals("cic", results.get(17).source());
@@ -117,9 +121,12 @@ class MemberSyncServiceTest {
         assertEquals(SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, results.get(20).status());
         verify(lbpSyncService).getStatus(memberId);
         verify(lbpSyncService, never()).queueSync(memberId);
-        // BNP Paribas is last and delegates to its own resyncReporting.
+        // BNP Paribas delegates to its own resyncReporting.
         assertEquals("bnp", results.get(21).source());
         verify(bnpSyncService).resyncReporting(memberId);
+        // Louve Invest is last: its OAuth grant refreshes by itself.
+        assertEquals("louve", results.get(22).source());
+        verify(louveSyncService).resyncReporting(memberId);
         assertEquals("revolut", results.get(0).source());
         assertEquals("enable-banking", results.get(1).source());
         assertEquals("enable-banking-retry", results.get(2).source());

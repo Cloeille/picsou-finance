@@ -89,6 +89,11 @@ class ScpiFundReconcilerTest {
         lenient().when(positionRepository.findByMemberIdAndSofidyFundCode(eq(MEMBER), anyString()))
             .thenAnswer(inv -> positions.stream()
                 .filter(p -> inv.getArgument(1).equals(p.getSofidyFundCode())).findFirst());
+        lenient().when(positionRepository.findByMemberIdAndLouveFundCode(eq(MEMBER), anyString()))
+            .thenAnswer(inv -> positions.stream()
+                .filter(p -> inv.getArgument(1).equals(p.getLouveFundCode())).findFirst());
+        lenient().when(positionRepository.findByAccountMemberIdAndLouveFundCodeIsNotNull(MEMBER))
+            .thenAnswer(inv -> positions.stream().filter(p -> p.getLouveFundCode() != null).toList());
         lenient().when(positionRepository.findByAccountMemberIdAndCorumFundCodeIsNotNull(MEMBER))
             .thenAnswer(inv -> positions.stream().filter(p -> p.getCorumFundCode() != null).toList());
         lenient().when(fundRepository.save(any())).thenAnswer(inv -> {
@@ -113,7 +118,8 @@ class ScpiFundReconcilerTest {
 
     private static ScpiFundReconciler.SyncedFund fund(String code, String label, String shares, String withdrawal) {
         return new ScpiFundReconciler.SyncedFund(
-            code, label, new BigDecimal(shares), null, withdrawal == null ? null : new BigDecimal(withdrawal));
+            code, label, new BigDecimal(shares), null, withdrawal == null ? null : new BigDecimal(withdrawal),
+            null, null, null, null);
     }
 
     private Account manualScpi(String name) {
@@ -234,6 +240,99 @@ class ScpiFundReconcilerTest {
 
         assertThat(outcomes).containsExactly(Map.entry("US", ScpiFundOutcome.PRICE_INCOMPLETE));
         assertThat(accounts.get(0).getCurrentBalance()).isEqualByComparingTo("1800");
+    }
+
+    @Test
+    void louveAdoptsAnAccountNamedAfterTheDistributorAndTheFund() {
+        Account aurore = manualScpi("Louve Invest - Aurore");
+        Account explore = manualScpi("Louve Invest - Horizon Pierre");
+
+        Map<String, ScpiFundOutcome> outcomes = reconciler.reconcile(MEMBER, ScpiProvider.LOUVE, List.of(
+            fund("aurore", "Aurore", "12", "80"),
+            fund("horizon-pierre", "Horizon Pierre", "5", "200")
+        ), NOW);
+
+        assertThat(outcomes).containsExactly(
+            Map.entry("aurore", ScpiFundOutcome.LINKED), Map.entry("horizon-pierre", ScpiFundOutcome.LINKED));
+        assertThat(accounts).containsExactly(aurore, explore);
+        assertThat(positions).extracting(ScpiPosition::getLouveFundCode).containsExactly("aurore", "horizon-pierre");
+        assertThat(aurore.getCurrentBalance()).isEqualByComparingTo("960");
+    }
+
+    @Test
+    void theDistributorPrefixIsNotToleratedForAManagementCompany() {
+        manualScpi("Sofidy - Immorente");
+
+        Map<String, ScpiFundOutcome> outcomes = reconciler.reconcile(
+            MEMBER, ScpiProvider.SOFIDY, List.of(fund("IM", "Immorente", "1", "250")), NOW);
+
+        assertThat(outcomes).containsExactly(Map.entry("IM", ScpiFundOutcome.CREATED));
+        assertThat(accounts).hasSize(2);
+    }
+
+    @Test
+    void bothLouveSpellingsCountTowardsAmbiguity() {
+        manualScpi("Aurore");
+        manualScpi("Louve Invest Aurore");
+
+        Map<String, ScpiFundOutcome> outcomes = reconciler.reconcile(
+            MEMBER, ScpiProvider.LOUVE, List.of(fund("aurore", "Aurore", "12", "80")), NOW);
+
+        assertThat(outcomes).containsExactly(Map.entry("aurore", ScpiFundOutcome.AMBIGUOUS));
+        assertThat(positions).isEmpty();
+    }
+
+    @Test
+    void aLouveFundCarriesItsManagementCompanyIsinAndDistribution() {
+        reconciler.reconcile(MEMBER, ScpiProvider.LOUVE, List.of(new ScpiFundReconciler.SyncedFund(
+            "aurore", "Aurore", new BigDecimal("12"), new BigDecimal("80"), new BigDecimal("80"),
+            "Exemple REIM", "FR0000SYNTH6", new BigDecimal("6.40"), com.picsou.model.DistributionFrequency.MONTHLY)), NOW);
+
+        assertThat(accounts).singleElement().satisfies(a -> assertThat(a.getProvider()).isEqualTo("Louve Invest"));
+        assertThat(positions).singleElement().satisfies(p -> {
+            assertThat(p.getManagementCompany()).isEqualTo("Exemple REIM");
+            assertThat(p.getIsin()).isEqualTo("FR0000SYNTH6");
+            assertThat(p.getSubscriptionPriceEur()).isEqualByComparingTo("80");
+            assertThat(p.getAnnualDistributionPerShareEur()).isEqualByComparingTo("6.40");
+            assertThat(p.getDistributionFrequency()).isEqualTo(com.picsou.model.DistributionFrequency.MONTHLY);
+        });
+    }
+
+    @Test
+    void aSyncWithoutDistributionKeepsTheFiguresTheMemberEntered() {
+        reconciler.reconcile(MEMBER, ScpiProvider.LOUVE, List.of(fund("aurore", "Aurore", "12", "80")), NOW);
+        positions.get(0).setAnnualDistributionPerShareEur(new BigDecimal("3.50"));
+        positions.get(0).setDistributionFrequency(com.picsou.model.DistributionFrequency.QUARTERLY);
+
+        reconciler.reconcile(MEMBER, ScpiProvider.LOUVE, List.of(fund("aurore", "Aurore", "13", "80")), NOW);
+
+        assertThat(positions.get(0).getAnnualDistributionPerShareEur()).isEqualByComparingTo("3.50");
+        assertThat(positions.get(0).getDistributionFrequency()).isEqualTo(com.picsou.model.DistributionFrequency.QUARTERLY);
+        assertThat(positions.get(0).getManagementCompany()).isNull();
+    }
+
+    @Test
+    void aDismemberedLineIsRecordedWithoutWritingItsLinkedAccount() {
+        reconciler.reconcile(MEMBER, ScpiProvider.LOUVE, List.of(fund("aurore", "Aurore", "12", "80")), NOW);
+
+        Map<String, ScpiFundOutcome> outcomes = reconciler.reconcile(MEMBER, ScpiProvider.LOUVE, List.of(),
+            List.of(new ScpiFundReconciler.UnsupportedFund("aurore", "Aurore")), NOW);
+
+        assertThat(outcomes).containsExactly(Map.entry("aurore", ScpiFundOutcome.UNSUPPORTED_OWNERSHIP));
+        assertThat(accounts).singleElement().satisfies(a -> assertThat(a.getCurrentBalance()).isEqualByComparingTo("960"));
+        assertThat(positions.get(0).getShareCount()).isEqualByComparingTo("12");
+        assertThat(funds).singleElement().satisfies(f -> assertThat(f.getLastOutcome())
+            .isEqualTo(ScpiFundOutcome.UNSUPPORTED_OWNERSHIP));
+    }
+
+    @Test
+    void aDismemberedLineNeverCreatesAnAccount() {
+        Map<String, ScpiFundOutcome> outcomes = reconciler.reconcile(MEMBER, ScpiProvider.LOUVE, List.of(),
+            List.of(new ScpiFundReconciler.UnsupportedFund("aurore", "Aurore")), NOW);
+
+        assertThat(outcomes).containsExactly(Map.entry("aurore", ScpiFundOutcome.UNSUPPORTED_OWNERSHIP));
+        assertThat(accounts).isEmpty();
+        assertThat(positions).isEmpty();
     }
 
     @Test

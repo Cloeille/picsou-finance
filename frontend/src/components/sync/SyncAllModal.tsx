@@ -63,6 +63,8 @@ import {
   useSyncSimplefin,
   useWiseStatus,
   useSyncWise,
+  useLouveStatus,
+  useSyncLouve,
 } from '@/features/sync/hooks'
 import { useAccounts } from '@/features/accounts/hooks'
 import { formatTimeAgo } from '@/lib/utils'
@@ -101,7 +103,7 @@ type SyncConnection = {
   id: string
   providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso' | 'revolut'
     | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin' | 'wise'
-    | 'amex' | 'corum' | 'sofidy' | 'caisse-epargne' | 'banque-populaire' | 'lbp' | 'bnp' | 'cmes' | 'natixis' | 'cic'
+    | 'amex' | 'corum' | 'sofidy' | 'louve' | 'caisse-epargne' | 'banque-populaire' | 'lbp' | 'bnp' | 'cmes' | 'natixis' | 'cic'
   name: string
   status: string
   lastSyncedAt: string | null
@@ -131,6 +133,7 @@ const ProviderIcon: Record<SyncConnection['providerType'], React.ComponentType<{
   amex: CreditCard,
   corum: Building2,
   sofidy: Building2,
+  louve: Building2,
   'caisse-epargne': Landmark,
   'banque-populaire': Landmark,
   lbp: Landmark,
@@ -153,6 +156,7 @@ const REAUTH_TAB: Partial<Record<SyncConnection['providerType'], string>> = {
   amex: 'amex',
   corum: 'corum',
   sofidy: 'sofidy',
+  louve: 'louve',
   'caisse-epargne': 'caisse-epargne',
   'banque-populaire': 'banque-populaire',
   lbp: 'lbp',
@@ -242,6 +246,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: amexStatus } = useProviderStatus("amex")
   const { data: corumStatus } = useProviderStatus("corum")
   const { data: sofidyStatus } = useProviderStatus("sofidy")
+  const { data: louveStatus } = useLouveStatus()
   const { data: cmesStatus } = useProviderStatus("cmes")
   const { data: natixisStatus } = useProviderStatus("natixis")
   const { data: cicStatus } = useProviderStatus("cic")
@@ -375,6 +380,14 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       running: isJobRunning(sofidyStatus?.syncStatus),
     },
     {
+      type: 'louve' as const, name: 'Louve Invest', provider: 'Louve Invest',
+      ownsAccount: (a: Account) => a.scpi?.louveFundCode != null,
+      active: louveStatus?.connected ?? false, lastSyncedAt: louveStatus?.lastSyncedAt ?? null,
+      failed: louveStatus?.status === 'ERROR' || louveStatus?.status === 'REAUTH_REQUIRED',
+      // A refused grant only clears with a new consent, given from the Louve Invest tab.
+      reauth: louveStatus?.status === 'REAUTH_REQUIRED',
+    },
+    {
       type: 'cmes' as const, name: 'Crédit Mutuel / CIC Épargne Salariale', provider: 'Crédit Mutuel Épargne Salariale',
       active: cmesStatus?.isActive ?? false, lastSyncedAt: cmesStatus?.lastSyncCompletedAt ?? null,
       // A stored session is never IDLE (it is queued as it is created): an expired one is kept
@@ -398,7 +411,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       running: isJobRunning(cicStatus?.syncStatus),
       canReconnect: cicStatus?.canReconnect === true,
     },
-  ], [cicStatus, cmesStatus, natixisStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, banquePopulaireStatus, lbpStatus, bnpStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus, wiseStatus])
+  ], [cicStatus, cmesStatus, natixisStatus, amexStatus, corumStatus, sofidyStatus, louveStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, banquePopulaireStatus, lbpStatus, bnpStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus, wiseStatus])
 
   const retryBankMutation     = useRetryBankSync()
   const reconnectBankMutation = useReconnectBankSync()
@@ -425,6 +438,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const syncAmexMutation         = useProviderSync("amex")
   const syncCorumMutation        = useProviderSync("corum")
   const syncSofidyMutation       = useProviderSync("sofidy")
+  const syncLouveMutation        = useSyncLouve()
   const syncCmesMutation = useProviderSync("cmes")
   const syncNatixisMutation = useProviderSync("natixis")
   const syncCicMutation = useProviderSync("cic")
@@ -653,6 +667,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       case 'sofidy':
         syncSofidyMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
+      case 'louve':
+        syncLouveMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
       case 'cmes':
         syncCmesMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
@@ -709,6 +726,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncAmexMutation,
     syncCorumMutation,
     syncSofidyMutation,
+    syncLouveMutation,
     syncCmesMutation,
     syncNatixisMutation,
     syncCicMutation,

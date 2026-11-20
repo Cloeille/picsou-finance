@@ -677,6 +677,8 @@
     "corumFundHint": "Opcional. La sincronización CORUM vincula sus fondos por sí sola; escriba un código solo para forzar una vinculación.",
     "sofidyFundCode": "Código de fondo Sofidy",
     "sofidyFundHint": "Opcional. La sincronización Sofidy vincula sus fondos por sí sola; escriba un código solo para forzar una vinculación.",
+    "louveFundCode": "Código de fondo Louve Invest",
+    "louveFundHint": "Opcional. La sincronización de Louve Invest vincula sus fondos por sí sola; escribe un código (por ejemplo aurore) solo para forzar una vinculación.",
     "dividendPolicy": "Dividendos",
     "cash": "Pagados",
     "reinvest": "Reinvertidos",
@@ -718,7 +720,8 @@
         "PRICE_INCOMPLETE": "participaciones actualizadas, falta el precio de reembolso: saldo conservado",
         "AMBIGUOUS": "varias cuentas SCPI tienen este nombre, ninguna se vinculó. Elíjalo al añadir una SCPI o renombre una.",
         "IGNORED": "ignorado, no sincronizado",
-        "MISSING_AT_PROVIDER": "el proveedor ya no lo muestra, cuenta conservada"
+        "MISSING_AT_PROVIDER": "el proveedor ya no lo muestra, cuenta conservada",
+        "UNSUPPORTED_OWNERSHIP": "en nuda propiedad o usufructo, no valorado: cuenta sin cambios"
       }
     },
     "ignoreFund": "Ignorar este fondo",
@@ -965,6 +968,7 @@
       "amex": "Tarjeta de crédito American Express: saldo y transacciones",
       "corum": "SCPI y seguro de vida CORUM Life: participaciones, valoración y operaciones",
       "sofidy": "Participaciones de SCPI Sofidy, al precio de reembolso",
+      "louve": "Participaciones de SCPI compradas a través de Louve Invest, solo lectura, al precio de reembolso",
       "property": "Casa, piso, terreno…",
       "revolut": "Phone + passcode, on-demand sync",
       "fortuneo": "Sincronizar tus cuentas Fortuneo",
@@ -1873,6 +1877,41 @@
         "formatChanged": "El formato del sitio de Sofidy ha cambiado. Se han conservado sus datos existentes.",
         "invalidData": "Sofidy ha devuelto datos incoherentes. Se han conservado sus datos existentes.",
         "serverError": "No se ha podido conectar con Sofidy. Inténtelo de nuevo."
+      }
+    },
+    "louve": {
+      "title": "Louve Invest",
+      "intro": "Picsou lee tu cartera de SCPI de Louve Invest mediante la conexión oficial de Louve. Autorizas un acceso de solo lectura en la propia página de Louve: Picsou nunca ve tu contraseña de Louve.",
+      "connect": "Conectar con Louve Invest",
+      "reconnect": "Volver a conectar con Louve Invest",
+      "completing": "Finalizando la conexión…",
+      "sync": "Sincronizar",
+      "syncing": "Sincronizando…",
+      "disconnect": "Desconectar",
+      "disconnectConfirm": "Picsou olvida el acceso a Louve Invest y pide a Louve que lo revoque. Tus cuentas SCPI se conservan.",
+      "connected": "Conectado",
+      "notConnected": "No conectado",
+      "needsReconnect": "Hay que volver a conectar",
+      "lastSync": "Última sincronización",
+      "neverSynced": "Aún sin sincronizar",
+      "connectedToast": "Louve Invest conectado. La primera sincronización está en curso.",
+      "scope": "Acceso de solo lectura a tu cartera (portfolio:read). Sincroniza las participaciones de SCPI en plena propiedad, al precio de reembolso; un fondo sin cuenta recibe una, o se vincula a la cuenta SCPI con el mismo nombre («Aurore» o «Louve Invest - Aurore»). Las participaciones en nuda propiedad o usufructo y los contratos de seguro de vida no se sincronizan.",
+      "errors": {
+        "consentDenied": "No se concedió el acceso en Louve Invest. No se conectó nada.",
+        "callbackInvalid": "Louve Invest devolvió una respuesta incompleta. Vuelve a iniciar la conexión.",
+        "connectFailed": "No se pudo conectar Louve Invest. Inténtalo de nuevo.",
+        "syncFailed": "No se pudo iniciar la sincronización de Louve Invest. Inténtalo de nuevo.",
+        "lastSyncFailed": "La última sincronización de Louve Invest falló. Se conservaron tus datos existentes; inténtalo de nuevo en un momento.",
+        "disconnectFailed": "No se pudo desconectar Louve Invest. Inténtalo de nuevo.",
+        "authAttemptExpired": "Este intento de conexión caducó o ya se usó. Empieza de nuevo.",
+        "sessionExpired": "El acceso a Louve Invest se revocó o caducó. Vuelve a conectar para seguir sincronizando.",
+        "rateLimited": "Louve Invest está limitando las solicitudes. Inténtalo en unos minutos.",
+        "portfolioIncomplete": "Louve Invest devolvió una cartera incompleta. Se conservaron tus datos existentes.",
+        "formatChanged": "El formato de los datos de Louve Invest cambió. Se conservaron tus datos existentes.",
+        "invalidData": "Louve Invest devolvió datos incoherentes. Se conservaron tus datos existentes.",
+        "serverError": "No se pudo contactar con Louve Invest. Inténtalo de nuevo.",
+        "originNotAllowed": "Añade esta dirección de Picsou a los orígenes permitidos en Administración > Seguridad y vuelve a conectar. Louve Invest te devuelve a esa dirección.",
+        "originNotSecure": "Louve Invest necesita que Picsou se abra por HTTPS. Abre Picsou desde su dirección HTTPS y vuelve a conectar."
       }
     },
     "fortuneo": {
