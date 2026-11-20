@@ -56,6 +56,8 @@ import { IbkrPanel } from '@/components/sync/IbkrPanel'
 import { SimplefinPanel } from '@/components/sync/SimplefinPanel'
 import { WisePanel } from '@/components/sync/WisePanel'
 import { useCreateAccount, useUpdateDebtMetadata } from '@/features/accounts/hooks'
+import { useDesktopUnavailable } from '@/features/desktop/hooks'
+import { Badge } from '@/components/ui/badge'
 import {
   HousePlus,
   PenLine,
@@ -181,7 +183,10 @@ export function AddAccountModal({ open, onOpenChange, defaultType, onCreated }: 
   // the only route, and it is open as soon as the caller supplies the type.
   const manualOpen = showManualForm || (open && Boolean(defaultType))
 
+  const desktopUnavailable = useDesktopUnavailable()
+
   function handleSourceClick(key: string) {
+    if (desktopUnavailable(key)) return
     if (key === 'manual') {
       onOpenChange(false)
       setShowManualForm(true)
@@ -350,13 +355,19 @@ export function AddAccountModal({ open, onOpenChange, defaultType, onCreated }: 
                             key={key}
                             variant="outline"
                             className="h-auto justify-start gap-3 rounded-xl px-3.5 py-3"
+                            disabled={desktopUnavailable(key)}
                             onClick={() => handleSourceClick(key)}
                           >
                             <span className="inline-flex size-8 shrink-0 items-center justify-center text-foreground/80">
                               <Icon className="size-5" />
                             </span>
                             <div className="min-w-0 flex-1 whitespace-normal text-left">
-                              <p className="text-sm font-medium leading-snug">{t(labelKey)}</p>
+                              <p className="text-sm font-medium leading-snug">
+                                {t(labelKey)}
+                                {desktopUnavailable(key) && (
+                                  <Badge variant="secondary" className="ml-2">{t('desktop.unavailable')}</Badge>
+                                )}
+                              </p>
                               <p className="mt-0.5 line-clamp-2 text-xs font-normal text-muted-foreground" title={t(descKey)}>
                                 {t(descKey)}
                               </p>
