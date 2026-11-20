@@ -5,22 +5,33 @@ import { useHistory } from '@/features/history/hooks'
 import { NetWorthChart } from '@/components/shared/NetWorthChart'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { TrendingUp, TrendingDown, Loader2 } from 'lucide-react'
+import { Calendar, Pencil, Trash2, TrendingUp, TrendingDown, Loader2 } from 'lucide-react'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
 import { formatPercent } from '@/lib/utils'
 
 interface GoalDetailModalProps {
   goalId: number | null
   onClose: () => void
+  onEdit?: () => void
+  onCalendar?: () => void
+  onDelete?: () => void
 }
 
-export function GoalDetailModal({ goalId, onClose }: GoalDetailModalProps) {
+export function GoalDetailModal({
+  goalId,
+  onClose,
+  onEdit,
+  onCalendar,
+  onDelete,
+}: GoalDetailModalProps) {
   const { t } = useTranslation()
   const [range, setRange] = useState<TimeRange>('ALL')
 
@@ -205,6 +216,38 @@ export function GoalDetailModal({ goalId, onClose }: GoalDetailModalProps) {
                 </div>
               )}
             </div>
+
+            {(onDelete || onCalendar || onEdit) && (
+              <DialogFooter className="mt-4 gap-2 border-t pt-4 sm:justify-between">
+                {onDelete ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="text-destructive hover:text-destructive sm:mr-auto"
+                    onClick={onDelete}
+                  >
+                    <Trash2 className="size-4" aria-hidden="true" />
+                    {t('common.delete')}
+                  </Button>
+                ) : (
+                  <span />
+                )}
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {onCalendar && (
+                    <Button type="button" variant="outline" onClick={onCalendar}>
+                      <Calendar className="size-4" aria-hidden="true" />
+                      {t('goals.viewCalendar')}
+                    </Button>
+                  )}
+                  {onEdit && (
+                    <Button type="button" variant="outline" onClick={onEdit}>
+                      <Pencil className="size-4" aria-hidden="true" />
+                      {t('common.edit')}
+                    </Button>
+                  )}
+                </div>
+              </DialogFooter>
+            )}
           </>
         )}
       </DialogContent>

@@ -248,20 +248,28 @@ export function DashboardPage() {
           <CurrencyDisplay value={wealthValue} className="text-4xl font-bold" />
 
           {(data.totalLiabilities ?? 0) > 0 && wealthMode === 'net' && (
-            <div className="mt-2 flex items-center gap-4 text-sm">
-              <span className="text-muted-foreground">
-                {t('common.labelColon', { label: t('dashboard.totalAssets') })}
+            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm tabular-nums">
+              <span>
+                <span className="text-muted-foreground">
+                  {t('common.labelColon', { label: t('dashboard.totalAssets') })}{' '}
+                </span>
+                <CurrencyDisplay value={data.totalNetWorth + (data.totalLiabilities ?? 0)} />
               </span>
-              <CurrencyDisplay value={data.totalNetWorth + (data.totalLiabilities ?? 0)} />
-              <span className="text-red-500">-</span>
-              <span className="text-muted-foreground">
-                {t('common.labelColon', { label: t('dashboard.totalLiabilities') })}
+              <span className="text-red-500" aria-hidden="true">-</span>
+              <span>
+                <span className="text-muted-foreground">
+                  {t('common.labelColon', { label: t('dashboard.totalLiabilities') })}{' '}
+                </span>
+                <CurrencyDisplay value={data.totalLiabilities ?? 0} className="text-red-500" />
               </span>
-              <CurrencyDisplay value={data.totalLiabilities ?? 0} className="text-red-500" />
             </div>
           )}
 
-          <div className="mt-3 flex items-center gap-2">
+          <div
+            className="mt-3 flex items-center gap-2"
+            data-testid="portfolio-performance"
+            aria-label={t('dashboard.portfolioPerformance')}
+          >
             {pnl != null ? (
               <>
                 {pnlPositive
@@ -281,7 +289,6 @@ export function DashboardPage() {
             ) : (
               <span className="text-sm font-medium text-muted-foreground">{t('goals.noData')}</span>
             )}
-            <span className="text-sm text-muted-foreground">{t('dashboard.portfolioPerformance')}</span>
           </div>
         </CardContent>
       </Card>
@@ -347,7 +354,7 @@ export function DashboardPage() {
                       value={goal.currentTotal}
                       className="text-3xl font-semibold tabular-nums"
                     />
-                    <Progress value={goal.percentComplete ?? 0} className="h-2.5 [&_[data-slot=progress-indicator]]:bg-emerald-500" />
+                    <Progress value={goal.percentComplete ?? 0} className="[&_[data-slot=progress-indicator]]:bg-emerald-500" />
                   </ItemContent>
                   <ItemFooter>
                     <span className="text-sm text-muted-foreground">

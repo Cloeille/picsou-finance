@@ -129,7 +129,7 @@ export function FamilyDashboardPage() {
                         <span>{money.amount(goal.currentTotal)}</span>
                         <span className="text-muted-foreground">{money.amount(goal.targetAmount)}</span>
                       </div>
-                      <div className="h-2 rounded-full bg-muted overflow-hidden">
+                      <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
                         <div
                           className="h-full rounded-full bg-primary transition-[width]"
                           style={{ width: `${progress}%` }}

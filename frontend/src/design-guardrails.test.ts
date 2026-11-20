@@ -211,6 +211,28 @@ describe('UI & design system guardrails (see CONTRIBUTING.md & DESIGN.md)', () =
     }
   })
 
+  it('keeps standard progress bars unified at h-2 rounded-full', () => {
+    const progressPrimitive = sourceOf('components/ui/progress.tsx')
+    expect(progressPrimitive).toContain('h-2')
+    expect(progressPrimitive).toContain('rounded-full')
+
+    const violations: string[] = []
+    for (const [file, content] of tsxEntries) {
+      // Top-edge viewport loading bar in SetupLayout intentionally uses h-1 rounded-none.
+      if (file.endsWith('pages/setup/SetupLayout.tsx')) continue
+      for (const match of content.matchAll(/<Progress\b[^>]*className="([^"]*)"/g)) {
+        const cls = match[1]
+        if (/\bh-(?:1|1\.5|2\.5|3)\b/.test(cls)) {
+          violations.push(`${file}: ${cls}`)
+        }
+      }
+    }
+    expect(
+      violations,
+      'Progress bars should use the shared h-2 rounded-full default instead of per-page height overrides.',
+    ).toEqual([])
+  })
+
   it('forbids decorative Lucide icons inside CardTitle, DialogTitle, and TabsTrigger', () => {
     const violations: string[] = []
     const lucideImportRx = /import\s*\{([^}]+)\}\s*from\s*['"]lucide-react['"]/

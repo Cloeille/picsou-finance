@@ -267,11 +267,11 @@ export function OverviewTab() {
                     <span className="truncate">{b.categoryName}</span>
                     <span className="ml-auto tabular-nums text-muted-foreground">{formatPercent(b.percent, { fractionDigits: 0 })}</span>
                   </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-md bg-muted"
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted"
                     role="progressbar" aria-label={b.categoryName}
                     aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(b.percent, 100)}
                     aria-valuetext={formatPercent(b.percent, { fractionDigits: 0 })}>
-                    <div className={`h-full rounded-md ${
+                    <div className={`h-full rounded-full ${
                       b.overBudget ? 'bg-destructive' : b.percent >= 80 ? 'bg-foreground/75' : 'bg-primary'}`}
                       style={{ width: `${Math.min(b.percent, 100)}%` }} />
                   </div>

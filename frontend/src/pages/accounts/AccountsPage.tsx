@@ -617,7 +617,11 @@ export function AccountsPage() {
               <CardTitle>{t('accounts.total')}</CardTitle>
               <CurrencyDisplay value={totalBalance} className="text-4xl font-bold" />
               {hasPnl && pnl !== null && totalInvested !== null && totalInvested > 0 && (
-                <div className="mt-3 flex items-center gap-2">
+                <div
+                  className="mt-3 flex items-center gap-2"
+                  data-testid="portfolio-performance"
+                  aria-label={t('dashboard.portfolioPerformance')}
+                >
                   {pnlPositive
                     ? <TrendingUp className="text-emerald-500" size={18} />
                     : <TrendingDown className="text-red-500" size={18} />}
@@ -629,7 +633,6 @@ export function AccountsPage() {
                       </span>
                     )}
                   </span>
-                  <span className="text-sm text-muted-foreground">{t('dashboard.portfolioPerformance')}</span>
                 </div>
               )}
             </CardContent>
