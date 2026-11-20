@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronRight, ExternalLink, Megaphone, Star } from 'lucide-react'
+import { ChevronRight, ExternalLink, Megaphone } from 'lucide-react'
 import { WhatsNewDialog } from '@/components/shared/WhatsNewDialog'
 import { useAppStore } from '@/stores/app-store'
 import {
@@ -61,12 +61,9 @@ export function SidebarWhatsNewCard() {
         rel="noreferrer"
         className="group flex w-full items-center justify-between gap-2 border-t border-border/60 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
       >
-        <span className="inline-flex items-center gap-1.5">
-          <Star className="size-3.5 shrink-0 text-foreground" aria-hidden="true" />
-          <span>{t('whatsNew.starGithub')}</span>
-        </span>
+        <span>{t('whatsNew.starGithub')}</span>
         <ExternalLink
-          className="size-3 shrink-0 opacity-60 transition-opacity group-hover:opacity-100"
+          className="size-3.5 shrink-0 text-foreground"
           aria-hidden="true"
         />
       </a>
