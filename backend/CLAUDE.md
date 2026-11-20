@@ -50,7 +50,7 @@ com.picsou/
 
 **Rate limiting:** `RateLimitConfig` exposes named `Map<String, Bucket>` beans (Bucket4j); controllers inject the relevant bucket map via `@Qualifier` and enforce manually with `tryConsume(1)` before doing rate-limited work (there is no annotation-based limiter — every controller uses this same explicit check). Login: 5 attempts/15 min. Sync endpoints are also throttled.
 
-**Scheduled tasks** (`SchedulerService`): daily balance snapshots and price cache refresh. `PriceService` holds a 15-minute in-memory cache to avoid hammering external APIs.
+**Scheduled tasks** (`SchedulerService`): daily balance snapshots and price cache refresh. The cron jobs are started by `CatchUpScheduler`, which stores each last run in `app_setting` and makes up a slot missed while the machine was off, once (see `docs/features/scheduler-catch-up.md`). `PriceService` holds a 15-minute in-memory cache to avoid hammering external APIs.
 
 **Flyway owns the schema** — never use `ddl-auto: create/update`. Migration details and entity conventions: see [`docs/conventions/database.md`](../docs/conventions/database.md).
 

@@ -1,5 +1,6 @@
 package com.picsou.service;
 
+import com.picsou.service.budget.InternalTransferPairingService;
 import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.adapter.OpenFigiIsinConverter;
 import com.picsou.config.CryptoEncryption;
@@ -86,6 +87,7 @@ class FortuneoSyncServiceTest {
     @Mock TransactionTemplate txTemplate;
     @Mock TransactionStatus transactionStatus;
     @Mock DividendReceiptService dividendReceiptService;
+    @Mock InternalTransferPairingService transferPairingService;
     @Captor ArgumentCaptor<Account> accountCaptor;
     @Captor ArgumentCaptor<SidecarSession> sessionCaptor;
     @Captor ArgumentCaptor<List<AccountHolding>> holdingsCaptor;
@@ -1493,7 +1495,7 @@ class FortuneoSyncServiceTest {
             encryption,
             txTemplate,
             executor,
-            new ReceivedDividendClassifier(dividendReceiptService)
+            new ReceivedDividendClassifier(dividendReceiptService, transferPairingService)
         );
     }
 
