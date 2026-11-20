@@ -462,7 +462,7 @@ export function AccountsPage() {
               <Button
                 onClick={() => setReorderMode((v) => !v)}
                 size="sm"
-                variant={reorderActive ? 'default' : 'outline'}
+                variant={reorderActive ? 'secondary' : 'outline'}
                 aria-pressed={reorderActive}
               >
                 <ArrowUpDown className="size-4" />

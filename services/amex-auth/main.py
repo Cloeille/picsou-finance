@@ -80,6 +80,8 @@ LOGIN_FORM_POLL_SECONDS = 0.5
 LOGIN_MODULE_URL_MARKER = "/one-identity-login/"
 LOGIN_MODULE_FILE_PREFIX = "one-identity-login."
 COOKIE_BANNER_DECLINE_SELECTOR = "#user-consent-management-granular-banner-decline-all-button"
+# Live (#568): a visible, enabled, stable decline button still missed a 2 s click.
+COOKIE_BANNER_CLICK_TIMEOUT_MS = 5_000
 LOGIN_RESULT_TIMEOUT_SECONDS = 30
 # AMEX's own login request, sent by the page on submit. Akamai Bot Manager refuses a
 # login it scores as a bot by answering this request 403; the page then retries it
@@ -678,15 +680,6 @@ async def _login_form_visible(page: Page) -> bool:
         return False
 
 
-async def _decline_cookie_banner(page: Page) -> None:
-    try:
-        banner = page.locator(COOKIE_BANNER_DECLINE_SELECTOR).first
-        if await banner.is_visible():
-            await banner.click(timeout=2_000)
-    except PlaywrightError:
-        pass  # banner not shown (already consented or A/B) -- continue
-
-
 async def _open_login_form(page: Page) -> None:
     """Opens the login page and waits for its client-rendered form (#482).
 
@@ -701,6 +694,13 @@ async def _open_login_form(page: Page) -> None:
     is reloaded too: live, the module sometimes loads and the form still takes
     longer than the wait. Only a second miss reports a format change.
     """
+    # The consent banner can appear after the form, and its overlay then swallows
+    # the submit click until the login times out. Playwright runs this handler
+    # before any action whenever the banner is visible, whenever it arrives.
+    await page.add_locator_handler(
+        page.locator(COOKIE_BANNER_DECLINE_SELECTOR).first,
+        lambda banner: banner.click(timeout=COOKIE_BANNER_CLICK_TIMEOUT_MS),
+    )
     watch = _LoginModuleWatch()
     page.on("response", watch.on_response)
     page.on("requestfailed", watch.on_request_failed)
@@ -708,7 +708,6 @@ async def _open_login_form(page: Page) -> None:
     attempt = 1
     deadline = time.monotonic() + LOGIN_FORM_TIMEOUT_MS / 1000
     while True:
-        await _decline_cookie_banner(page)
         if await _login_form_visible(page):
             if attempt > 1:
                 log.info("AMEX login form shown after reload attempt=%d", attempt)

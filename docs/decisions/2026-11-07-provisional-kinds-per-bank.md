@@ -48,3 +48,4 @@ Demotion keeps the problem visible (unsupported list, field path in the log) wit
 
 - A new kind seen on one bank is added to that bank's `provisional_kinds`, then moved to a strict kind once it has been observed repeatedly.
 - Caisse d'Epargne's `Site` enables `PEL` (`3/04`) and `LEP` (`3/27`) while keeping `3/02`, `4/09` and `4/10` unsupported; Banque Populaire's `Site` enables `SAVINGS` (`3/02`, Compte sur Livret), `PEL` (`3/04`), `TERM_DEPOSIT` (`4/09`, term deposit) and `COOPERATIVE_SHARES` (`4/10`, cooperative shares) while keeping `3/27` unsupported.
+- Banque Populaire's `Site` also has `LOAN` (`6/12`, `6/13`) as a provisional kind, since its loan clients were never observed live: a loan app refusal never ends the session, an unreadable detail imports the loan without it (`loan: null`), and an unreadable entry is demoted to `unsupported`.
