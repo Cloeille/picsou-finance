@@ -3610,5 +3610,9 @@
     "updateInstructions": "Pour mettre à jour votre instance Docker, exécutez :",
     "copied": "Copié",
     "copy": "Copier"
+  },
+  "desktop": {
+    "unavailable": "Pas sur l’app desktop",
+    "unavailableDetail": "Cette banque a besoin d’un navigateur que l’application desktop n’inclut pas. Utilisez la version Docker de Picsou pour la synchroniser."
   }
 }
