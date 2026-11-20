@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, Network, Trash2 } from 'lucide-react'
+import { Download, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -179,9 +179,8 @@ export function EnableBankingDebugSection() {
   return (
     <Card className="rounded-xl bg-card">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base font-semibold">
-          <Network className="size-4 shrink-0 text-muted-foreground" />
-          Diagnostic API Enable Banking
+        <CardTitle className="text-base font-semibold">
+            Diagnostic API Enable Banking
         </CardTitle>
         <CardDescription>
           Journal des appels HTTP échangés avec Enable Banking à des fins de diagnostic.

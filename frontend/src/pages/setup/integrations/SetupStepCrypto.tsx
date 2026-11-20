@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { Bitcoin, CheckCircle2, CircleAlert, Loader2 } from 'lucide-react'
+import { CheckCircle2, CircleAlert, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useGenerateCryptoKey } from '@/features/setup/hooks'
 import { useSetupFlowStore } from '@/stores/setup-flow-store'
@@ -74,11 +74,6 @@ export function SetupStepCrypto() {
   return (
     <div className="mx-auto w-full max-w-lg space-y-6">
       <div className="text-center space-y-2">
-        <div className="flex justify-center">
-          <span className="inline-flex size-12 items-center justify-center text-foreground">
-            <Bitcoin className="h-6 w-6" />
-          </span>
-        </div>
         <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
           {t('setup.crypto.title')}
         </h1>

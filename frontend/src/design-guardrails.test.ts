@@ -210,4 +210,31 @@ describe('UI & design system guardrails (see CONTRIBUTING.md & DESIGN.md)', () =
       }
     }
   })
+
+  it('forbids decorative Lucide icons inside CardTitle, DialogTitle, and TabsTrigger', () => {
+    const violations: string[] = []
+    const lucideImportRx = /import\s*\{([^}]+)\}\s*from\s*['"]lucide-react['"]/
+    for (const [file, content] of tsxEntries) {
+      const m = lucideImportRx.exec(content)
+      if (!m) continue
+      const icons = m[1]
+        .split(',')
+        .map((s) => s.trim().split(/\s+as\s+/).pop()?.trim())
+        .filter((s): s is string => !!s && !s.startsWith('type '))
+      if (icons.length === 0) continue
+      const iconRx = new RegExp(`<(${icons.join('|')})\\b`)
+      for (const tag of ['CardTitle', 'DialogTitle', 'TabsTrigger']) {
+        const blockRx = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]{0,300}?)</${tag}>`, 'g')
+        for (const match of content.matchAll(blockRx)) {
+          if (iconRx.test(match[1])) {
+            violations.push(`${file} <${tag}>: ${match[1].replace(/\s+/g, ' ').trim().slice(0, 80)}`)
+          }
+        }
+      }
+    }
+    expect(
+      violations,
+      'Keep CardTitle, DialogTitle, and TabsTrigger text-only (see DESIGN.md "Icons").',
+    ).toEqual([])
+  })
 })

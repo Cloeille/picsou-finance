@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { CheckCircle2, CircleAlert, Info, Loader2, Zap } from 'lucide-react'
+import { CheckCircle2, CircleAlert, Info, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { EBSubstepShell } from './EBSubstepShell'
 import { useTestEnableBanking } from '@/features/setup/hooks'
@@ -68,11 +68,6 @@ export function EBStep5Test({ onBack }: Props) {
   return (
     <EBSubstepShell current={5} total={5}>
       <div className="space-y-6">
-        <div className="flex justify-center">
-          <span className="inline-flex size-10 items-center justify-center text-foreground">
-            <Zap className="h-6 w-6" />
-          </span>
-        </div>
         <div className="text-center space-y-2">
           <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight">
             {t('setup.enablebanking.test.title')}

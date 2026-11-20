@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Copy, Download, KeyRound, Loader2, Upload } from 'lucide-react'
+import { Check, Copy, Download, Loader2, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { formatApiError } from '@/lib/errors'
@@ -112,12 +112,6 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
   return (
     <EBSubstepShell current={4} total={5}>
       <div className="space-y-6">
-        <div className="flex justify-center">
-          <span className="inline-flex size-10 items-center justify-center text-foreground">
-            <KeyRound className="h-6 w-6" />
-          </span>
-        </div>
-
         <div className="flex flex-col rounded-lg border border-border/60 p-1 gap-1">
           <button
             type="button"

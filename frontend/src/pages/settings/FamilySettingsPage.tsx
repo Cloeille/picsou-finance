@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { formatApiError } from '@/lib/errors'
-import { Plus, Trash2, Link, Shield } from 'lucide-react'
+import { Plus, Trash2, Link } from 'lucide-react'
 
 export function FamilySettingsPage() {
   const { t } = useTranslation()
@@ -56,9 +56,8 @@ function MemberManagement() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Shield className="size-5" />
-          {t('family.settings.members')}
+        <CardTitle>
+            {t('family.settings.members')}
         </CardTitle>
         <CardDescription>
           {t('family.settings.membersDesc')}

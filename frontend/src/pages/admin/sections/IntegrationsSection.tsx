@@ -1,6 +1,5 @@
 import { useTranslation } from 'react-i18next'
 import { Switch } from '@/components/ui/switch'
-import { Plug } from 'lucide-react'
 import {
   Card,
   CardContent,
@@ -19,8 +18,7 @@ export function IntegrationsSection({ integrations }: { integrations: Record<str
   return (
     <Card className="rounded-xl bg-card">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base font-semibold">
-          <Plug className="size-4 shrink-0 text-muted-foreground" />
+        <CardTitle className="text-base font-semibold">
           {t('admin.integrations.title')}
         </CardTitle>
         <CardDescription>{t('admin.integrations.description')}</CardDescription>

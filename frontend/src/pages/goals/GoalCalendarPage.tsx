@@ -14,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { Separator } from '@/components/ui/separator'
-import { ArrowLeft, Calendar, LayoutGrid, Clock, Loader2, Plus } from 'lucide-react'
+import { ArrowLeft, Loader2, Plus } from 'lucide-react'
 import { cn, formatPercent, localeFromLanguage, parseAmount } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
 import type { GoalMonthEntry } from '@/types/api'
@@ -612,17 +612,14 @@ export function GoalCalendarPage() {
       {/* View toggle with shadcn Tabs */}
       <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as typeof viewMode)}>
         <TabsList className="w-full">
-          <TabsTrigger value="grid" className="gap-1.5">
-            <LayoutGrid className="size-4" />
-            <span className="hidden sm:inline">{t('goals.viewGrid')}</span>
+          <TabsTrigger value="grid">
+            {t('goals.viewGrid')}
           </TabsTrigger>
-          <TabsTrigger value="timeline" className="gap-1.5">
-            <Clock className="size-4" />
-            <span className="hidden sm:inline">{t('goals.viewTimeline')}</span>
+          <TabsTrigger value="timeline">
+            {t('goals.viewTimeline')}
           </TabsTrigger>
-          <TabsTrigger value="calendar" className="gap-1.5">
-            <Calendar className="size-4" />
-            <span className="hidden sm:inline">{t('goals.viewCalendar')}</span>
+          <TabsTrigger value="calendar">
+            {t('goals.viewCalendar')}
           </TabsTrigger>
         </TabsList>
       </Tabs>
