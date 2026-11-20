@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Unlike `hidden`, collapsed accounts stay in every total, budget and chart — see
   `docs/features/account-list-display.md`.
 
+### Changed
+
+- **BNP Paribas Clé Digitale approval guidance and live verification docs.** Updated the waiting and timeout messages for BNP Paribas mobile approvals across all four locales to remind users to check the paired Clé Digitale device and pending approvals inside the mobile app, and documented the live-verified Docker Camoufox Clé Digitale flow in `docs/features/bnp-paribas.md`.
+
 ## [1.2.1] — 2026-11-20
 
 ### Added
