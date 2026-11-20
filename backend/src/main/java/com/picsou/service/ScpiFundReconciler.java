@@ -2,6 +2,7 @@ package com.picsou.service;
 
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
+import com.picsou.model.DistributionFrequency;
 import com.picsou.model.ScpiFundOutcome;
 import com.picsou.model.ScpiPosition;
 import com.picsou.model.ScpiProvider;
@@ -29,7 +30,7 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Maps the funds of a CORUM or Sofidy snapshot onto SCPI accounts (GH issue #232).
+ * Maps the funds of a CORUM, Sofidy or Louve Invest snapshot onto SCPI accounts (GH issue #232).
  *
  * <p>For each fund, in this order:
  * <ol>
@@ -53,6 +54,7 @@ public class ScpiFundReconciler {
     private static final Logger log = LoggerFactory.getLogger(ScpiFundReconciler.class);
     private static final int ACCOUNT_NAME_MAX = 100;
     private static final int LABEL_MAX = 200;
+    private static final int MANAGEMENT_COMPANY_MAX = 100;
     /** Same colour the manual SCPI form uses. */
     private static final String SCPI_COLOR = "#7c3aed";
 
@@ -79,15 +81,31 @@ public class ScpiFundReconciler {
     /**
      * One fund line of a snapshot, already validated by the caller. A null
      * {@code subscriptionPrice} leaves the stored one alone; a null
-     * {@code withdrawalPrice} keeps the previous balance.
+     * {@code withdrawalPrice} keeps the previous balance. A null
+     * {@code managementCompany}, {@code isin}, {@code annualDistributionPerShare} or
+     * {@code distributionFrequency} leaves the stored one alone too (only Louve Invest
+     * publishes them; the caller validates them). The distribution pair is written
+     * together or not at all, so a figure is never paired with another fund's cadence.
      */
     public record SyncedFund(
         String fundCode,
         String label,
         BigDecimal quantity,
         BigDecimal subscriptionPrice,
-        BigDecimal withdrawalPrice
+        BigDecimal withdrawalPrice,
+        String managementCompany,
+        String isin,
+        BigDecimal annualDistributionPerShare,
+        DistributionFrequency distributionFrequency
     ) {}
+
+    /**
+     * A fund line the provider lists but that must not be valued: a dismembered share
+     * (nue-propriété, usufruit) is worth less than the full-ownership price the provider
+     * quotes. It is recorded with {@link ScpiFundOutcome#UNSUPPORTED_OWNERSHIP}, never
+     * linked, created or written, and it does not count as missing.
+     */
+    public record UnsupportedFund(String fundCode, String label) {}
 
     /**
      * @return the outcome per fund code, in snapshot order, then the missing funds
@@ -97,6 +115,23 @@ public class ScpiFundReconciler {
         Long memberId,
         ScpiProvider provider,
         List<SyncedFund> funds,
+        Instant syncedAt
+    ) {
+        return reconcile(memberId, provider, funds, List.of(), syncedAt);
+    }
+
+    /**
+     * As {@link #reconcile(Long, ScpiProvider, List, Instant)}, with the lines the provider
+     * lists but that must not be valued. A code present in both lists is the caller's error.
+     *
+     * @return the outcome per fund code, in snapshot order, then the unsupported lines, then the missing funds
+     */
+    @Transactional
+    public Map<String, ScpiFundOutcome> reconcile(
+        Long memberId,
+        ScpiProvider provider,
+        List<SyncedFund> funds,
+        List<UnsupportedFund> unsupported,
         Instant syncedAt
     ) {
         Map<String, ScpiFundOutcome> outcomes = new LinkedHashMap<>();
@@ -109,6 +144,20 @@ public class ScpiFundReconciler {
             ScpiProviderFund row = fundRow(memberId, provider, fund.fundCode(), fund.label());
             row.setLastSeenAt(syncedAt);
             ScpiFundOutcome outcome = applyFund(memberId, provider, fund, row, claimedAccounts);
+            row.setLastOutcome(outcome);
+            row.setLastSyncedAt(syncedAt);
+            fundRepository.save(row);
+            outcomes.put(fund.fundCode(), outcome);
+        }
+        for (UnsupportedFund fund : unsupported) {
+            if (!listed.add(fund.fundCode())) {
+                throw new IllegalArgumentException("A fund is listed both as supported and unsupported");
+            }
+            // The linked account, if any, is left exactly as it is: its last balance was written
+            // from a full-ownership line, and nothing here says what the dismembered right is worth.
+            ScpiProviderFund row = fundRow(memberId, provider, fund.fundCode(), fund.label());
+            row.setLastSeenAt(syncedAt);
+            ScpiFundOutcome outcome = row.isIgnored() ? ScpiFundOutcome.IGNORED : ScpiFundOutcome.UNSUPPORTED_OWNERSHIP;
             row.setLastOutcome(outcome);
             row.setLastSyncedAt(syncedAt);
             fundRepository.save(row);
@@ -138,7 +187,7 @@ public class ScpiFundReconciler {
                 : ScpiFundOutcome.UPDATED;
         }
 
-        List<Account> candidates = adoptionCandidates(memberId, fund.label(), claimedAccounts);
+        List<Account> candidates = adoptionCandidates(memberId, provider, fund.label(), claimedAccounts);
         if (candidates.size() > 1) {
             log.info("Several SCPI accounts match this {} fund, none adopted (member={}; fund={}; matches={})",
                 provider, memberId, fund.fundCode(), candidates.size());
@@ -177,6 +226,16 @@ public class ScpiFundReconciler {
     }
 
     private void apply(ScpiPosition position, SyncedFund fund) {
+        if (fund.managementCompany() != null && !fund.managementCompany().isBlank()) {
+            position.setManagementCompany(truncate(fund.managementCompany().trim(), MANAGEMENT_COMPANY_MAX));
+        }
+        if (fund.isin() != null) {
+            position.setIsin(fund.isin());
+        }
+        if (fund.annualDistributionPerShare() != null && fund.distributionFrequency() != null) {
+            position.setAnnualDistributionPerShareEur(fund.annualDistributionPerShare());
+            position.setDistributionFrequency(fund.distributionFrequency());
+        }
         positionService.applySyncedPosition(
             position, fund.quantity(), fund.subscriptionPrice(), fund.withdrawalPrice(), null);
     }
@@ -185,32 +244,43 @@ public class ScpiFundReconciler {
         return ScpiPosition.builder()
             .account(account)
             .member(account.getMember())
-            .managementCompany(provider.displayName())
+            // A distributor is not the management company; the fund's own one is set by apply().
+            .managementCompany(provider.distributor() ? null : provider.displayName())
             .shareCount(fund.quantity())
             .build();
     }
 
     /**
      * Manual SCPI accounts of the member, linked to no provider, whose normalized
-     * name equals the normalized fund label. An account linked to the other
+     * name equals the normalized fund label. An account linked to another
      * provider is never a candidate: it already mirrors a fund.
+     *
+     * <p>For a distributor ({@link ScpiProvider#distributor()}), the label prefixed by the
+     * distributor's name matches too: "Louve Invest - Aurore" is the Aurore fund bought through
+     * Louve Invest. That is still an exact match after normalization, not a fuzzy one, and
+     * both spellings count towards {@code AMBIGUOUS}.
      */
-    private List<Account> adoptionCandidates(Long memberId, String label, Set<Long> claimedAccounts) {
+    private List<Account> adoptionCandidates(
+        Long memberId, ScpiProvider provider, String label, Set<Long> claimedAccounts
+    ) {
         String wanted = normalize(label);
         if (wanted.isEmpty()) {
             return List.of();
         }
+        String prefixed = provider.distributor() ? normalize(provider.displayName() + " " + label) : wanted;
         List<Account> matches = new ArrayList<>();
         for (Account account : accountRepository.findAllByMemberIdOrderByCreatedAtAsc(memberId)) {
             if (account.getType() != AccountType.SCPI || claimedAccounts.contains(account.getId())) {
                 continue;
             }
-            if (!wanted.equals(normalize(account.getName()))) {
+            String name = normalize(account.getName());
+            if (!wanted.equals(name) && !prefixed.equals(name)) {
                 continue;
             }
             Optional<ScpiPosition> position = positionRepository.findByAccountIdAndMemberId(account.getId(), memberId);
             if (position.isPresent()
-                    && (position.get().getCorumFundCode() != null || position.get().getSofidyFundCode() != null)) {
+                    && (position.get().getCorumFundCode() != null || position.get().getSofidyFundCode() != null
+                        || position.get().getLouveFundCode() != null)) {
                 continue;
             }
             matches.add(account);
@@ -269,6 +339,7 @@ public class ScpiFundReconciler {
         return switch (provider) {
             case CORUM -> positionRepository.findByMemberIdAndCorumFundCode(memberId, fundCode);
             case SOFIDY -> positionRepository.findByMemberIdAndSofidyFundCode(memberId, fundCode);
+            case LOUVE -> positionRepository.findByMemberIdAndLouveFundCode(memberId, fundCode);
         };
     }
 
@@ -276,6 +347,7 @@ public class ScpiFundReconciler {
         return switch (provider) {
             case CORUM -> positionRepository.findByAccountMemberIdAndCorumFundCodeIsNotNull(memberId);
             case SOFIDY -> positionRepository.findByAccountMemberIdAndSofidyFundCodeIsNotNull(memberId);
+            case LOUVE -> positionRepository.findByAccountMemberIdAndLouveFundCodeIsNotNull(memberId);
         };
     }
 
@@ -283,6 +355,7 @@ public class ScpiFundReconciler {
         return switch (provider) {
             case CORUM -> position.getCorumFundCode();
             case SOFIDY -> position.getSofidyFundCode();
+            case LOUVE -> position.getLouveFundCode();
         };
     }
 
@@ -290,6 +363,7 @@ public class ScpiFundReconciler {
         switch (provider) {
             case CORUM -> position.setCorumFundCode(fundCode);
             case SOFIDY -> position.setSofidyFundCode(fundCode);
+            case LOUVE -> position.setLouveFundCode(fundCode);
         }
     }
 

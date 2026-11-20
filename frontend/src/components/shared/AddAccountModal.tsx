@@ -52,11 +52,13 @@ import { FortuneoPanel } from '@/components/sync/FortuneoPanel'
 import { AmexPanel } from '@/components/sync/AmexPanel'
 import { CorumPanel } from '@/components/sync/CorumPanel'
 import { SofidyPanel } from '@/components/sync/SofidyPanel'
+import { LouvePanel } from '@/components/sync/LouvePanel'
 import { IbkrPanel } from '@/components/sync/IbkrPanel'
 import { SimplefinPanel } from '@/components/sync/SimplefinPanel'
 import { WisePanel } from '@/components/sync/WisePanel'
 import { useCreateAccount, useUpdateDebtMetadata } from '@/features/accounts/hooks'
 import {
+  Building2,
   HousePlus,
   PenLine,
   ArrowRight,
@@ -80,7 +82,7 @@ interface AddAccountModalProps {
 
 type WizardStep =
   | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'revolut' | 'bourso' | 'caisseEpargne' | 'banquePopulaire'
-  | 'lbp' | 'bnp' | 'bourseDirect' | 'degiro' | 'ibkr' | 'simplefin' | 'wise' | 'amundi' | 'natixis' | 'fortuneo' | 'amex' | 'corum' | 'sofidy'
+  | 'lbp' | 'bnp' | 'bourseDirect' | 'degiro' | 'ibkr' | 'simplefin' | 'wise' | 'amundi' | 'natixis' | 'fortuneo' | 'amex' | 'corum' | 'sofidy' | 'louve'
   | 'finary' | 'property' | 'manual'
 
 // ---------------------------------------------------------------------------
@@ -117,6 +119,7 @@ const SOURCES: Array<{
   { key: 'natixis', category: 'investing', icon: NatixisLogo, labelKey: 'sync.natixis.title', descKey: 'addAccount.desc.natixis' },
   { key: 'corum', category: 'investing', icon: CorumLogo, labelKey: 'sync.corum.title', descKey: 'addAccount.desc.corum' },
   { key: 'sofidy', category: 'investing', icon: SofidyLogo, labelKey: 'sync.sofidy.title', descKey: 'addAccount.desc.sofidy' },
+  { key: 'louve', category: 'investing', icon: Building2, labelKey: 'sync.louve.title', descKey: 'addAccount.desc.louve' },
   { key: 'exchanges', category: 'crypto', icon: BitcoinLogo, labelKey: 'sync.exchanges.title', descKey: 'addAccount.desc.exchanges' },
   { key: 'wallets', category: 'crypto', icon: EthereumLogo, labelKey: 'sync.wallets.title', descKey: 'addAccount.desc.wallets' },
   { key: 'finary', category: 'manual', icon: FinaryLogo, labelKey: 'sync.finary.title', descKey: 'addAccount.desc.finary' },
@@ -146,6 +149,7 @@ const PANEL_STEPS: Partial<Record<WizardStep, ComponentType<{ onConnected?: () =
   amex: AmexPanel,
   corum: CorumPanel,
   sofidy: SofidyPanel,
+  louve: LouvePanel,
 }
 
 // ---------------------------------------------------------------------------

@@ -62,7 +62,7 @@ public class AccountConnectionService {
     /** One connection instance. {@code discriminator} separates two of the same kind. */
     public record ConnectionRef(Kind kind, String discriminator) {}
 
-    public enum Kind { WALLET, EXCHANGE, AMUNDI, CMES, CIC, TRADE_REPUBLIC, BOURSE_DIRECT, BOURSO, FORTUNEO, IBKR, SIMPLEFIN, WISE, DEGIRO, CORUM, NATIXIS, LBP, BNP, ENABLE_BANKING }
+    public enum Kind { WALLET, EXCHANGE, AMUNDI, CMES, CIC, TRADE_REPUBLIC, BOURSE_DIRECT, BOURSO, FORTUNEO, IBKR, SIMPLEFIN, WISE, DEGIRO, CORUM, LOUVE, NATIXIS, LBP, BNP, ENABLE_BANKING }
 
     /**
      * What deleting an account would cost ({@link #describeDeletion}, a prediction) or what it
@@ -93,6 +93,7 @@ public class AccountConnectionService {
     private final CorumSyncService corumSyncService;
     private final LbpSyncService lbpSyncService;
     private final BnpSyncService bnpSyncService;
+    private final LouveSyncService louveSyncService;
 
     public AccountConnectionService(
         AccountRepository accountRepository,
@@ -117,7 +118,8 @@ public class AccountConnectionService {
         WiseSyncService wiseSyncService,
         CorumSyncService corumSyncService,
         LbpSyncService lbpSyncService,
-        BnpSyncService bnpSyncService
+        BnpSyncService bnpSyncService,
+        LouveSyncService louveSyncService
     ) {
         this.accountRepository = accountRepository;
         this.accountService = accountService;
@@ -142,6 +144,7 @@ public class AccountConnectionService {
         this.corumSyncService = corumSyncService;
         this.lbpSyncService = lbpSyncService;
         this.bnpSyncService = bnpSyncService;
+        this.louveSyncService = louveSyncService;
     }
 
     /**
@@ -158,21 +161,25 @@ public class AccountConnectionService {
             .orElseThrow(() -> new ResourceNotFoundException("Account not found"));
         // Read before the delete: AccountService.delete unlinks the SCPI position, and the link
         // is the only thing that ties a CORUM SCPI account to its connection.
-        Set<Long> corumScpiAccountIds = corumScpiAccountIds(memberId);
-        Optional<ConnectionRef> connection = resolve(account, corumScpiAccountIds);
+        ScpiLinks scpiLinks = scpiLinks(memberId);
+        Optional<ConnectionRef> connection = resolve(account, scpiLinks);
 
-        if (connection.filter(ref -> ref.kind() == Kind.CORUM).isPresent()) {
-            // The CORUM sync takes the member lock, then writes the accounts; taking it here
-            // before the account write keeps the same order, so the two cannot deadlock.
+        // The CORUM and Louve syncs take the member lock, then write the accounts; taking it here
+        // before the account write keeps the same order, so the two cannot deadlock. Re-read under
+        // the lock: a sync that committed in between may have linked another SCPI account, which
+        // must keep the connection.
+        Kind kind = connection.map(ConnectionRef::kind).orElse(null);
+        if (kind == Kind.CORUM) {
             corumSyncService.lockMemberForAccountDeletion(memberId);
-            // Re-read under the lock: a sync that committed in between may have linked
-            // another SCPI account, which must keep the session.
-            corumScpiAccountIds = corumScpiAccountIds(memberId);
+            scpiLinks = scpiLinks(memberId);
+        } else if (kind == Kind.LOUVE) {
+            louveSyncService.lockMemberForAccountDeletion(memberId);
+            scpiLinks = scpiLinks(memberId);
         }
         accountService.delete(accountId, memberId);
 
         if (connection.isEmpty()
-                || hasOtherLiveAccount(connection.get(), accountId, memberId, corumScpiAccountIds)) {
+                || hasOtherLiveAccount(connection.get(), accountId, memberId, scpiLinks)) {
             return new DeletionImpact(false, null);
         }
 
@@ -193,9 +200,9 @@ public class AccountConnectionService {
         Account account = accountRepository.findByIdAndMemberId(accountId, memberId)
             .orElseThrow(() -> new ResourceNotFoundException("Account not found"));
 
-        Set<Long> corumScpiAccountIds = corumScpiAccountIds(memberId);
-        return resolve(account, corumScpiAccountIds)
-            .filter(ref -> !hasOtherLiveAccount(ref, accountId, memberId, corumScpiAccountIds))
+        ScpiLinks scpiLinks = scpiLinks(memberId);
+        return resolve(account, scpiLinks)
+            .filter(ref -> !hasOtherLiveAccount(ref, accountId, memberId, scpiLinks))
             .map(ref -> new DeletionImpact(true, label(ref, account, memberId)))
             .orElseGet(() -> new DeletionImpact(false, null));
     }
@@ -205,7 +212,7 @@ public class AccountConnectionService {
      * Enable Banking rows that predate V76 whose backfill could not be attributed with
      * certainty -- those simply keep their connection, the safe direction to fail.
      */
-    private Optional<ConnectionRef> resolve(Account account, Set<Long> corumScpiAccountIds) {
+    private Optional<ConnectionRef> resolve(Account account, ScpiLinks scpiLinks) {
         // Checked before the namespaces, not after: requisition_id is recorded by the connector
         // that created the account, so it *knows*, where a prefix only guesses. Enable Banking
         // account ids are the bank's own opaque strings -- nothing stops one from arriving as
@@ -250,7 +257,9 @@ public class AccountConnectionService {
 
         // The CORUM login also syncs SCPI funds, onto manual accounts with no external id:
         // only their position's CORUM fund code ties them to the connection.
-        if (corumScpiAccountIds.contains(account.getId())) return singleton(Kind.CORUM);
+        if (scpiLinks.corum().contains(account.getId())) return singleton(Kind.CORUM);
+        // Louve Invest only syncs SCPI funds, onto manual accounts tied by their Louve fund code.
+        if (scpiLinks.louve().contains(account.getId())) return singleton(Kind.LOUVE);
 
         return Optional.empty();
     }
@@ -268,11 +277,11 @@ public class AccountConnectionService {
      * start with any three characters.
      */
     private boolean hasOtherLiveAccount(
-        ConnectionRef ref, Long deletedAccountId, Long memberId, Set<Long> corumScpiAccountIds
+        ConnectionRef ref, Long deletedAccountId, Long memberId, ScpiLinks scpiLinks
     ) {
         return accountRepository.findAllByMemberIdOrderByCreatedAtAsc(memberId).stream()
             .filter(other -> !other.getId().equals(deletedAccountId))
-            .anyMatch(other -> resolve(other, corumScpiAccountIds).filter(ref::equals).isPresent());
+            .anyMatch(other -> resolve(other, scpiLinks).filter(ref::equals).isPresent());
     }
 
     /**
@@ -280,11 +289,18 @@ public class AccountConnectionService {
      * against the live accounts {@link #hasOtherLiveAccount} loads, so a position left on a
      * soft-deleted account (before the delete cleared its link) keeps nothing alive.
      */
-    private Set<Long> corumScpiAccountIds(Long memberId) {
-        return scpiPositionRepository.findByAccountMemberIdAndCorumFundCodeIsNotNull(memberId).stream()
-            .map(position -> position.getAccount().getId())
-            .collect(Collectors.toSet());
+    private ScpiLinks scpiLinks(Long memberId) {
+        return new ScpiLinks(
+            scpiPositionRepository.findByAccountMemberIdAndCorumFundCodeIsNotNull(memberId).stream()
+                .map(position -> position.getAccount().getId())
+                .collect(Collectors.toSet()),
+            scpiPositionRepository.findByAccountMemberIdAndLouveFundCodeIsNotNull(memberId).stream()
+                .map(position -> position.getAccount().getId())
+                .collect(Collectors.toSet()));
     }
+
+    /** Ids of the member's SCPI accounts linked to a CORUM fund, and to a Louve Invest fund. */
+    private record ScpiLinks(Set<Long> corum, Set<Long> louve) {}
 
     /** Returns whether there was anything left to remove. */
     private boolean removeConnection(ConnectionRef ref, Long memberId) {
@@ -313,6 +329,7 @@ public class AccountConnectionService {
             case FORTUNEO -> fortuneoSyncService.clearSession(memberId);
             case DEGIRO -> degiroSyncService.clearSession(memberId);
             case CORUM -> corumSyncService.clearSession(memberId);
+            case LOUVE -> louveSyncService.deleteConnection(memberId);
             case LBP -> lbpSyncService.clearSession(memberId);
             case BNP -> bnpSyncService.clearSession(memberId);
             case IBKR -> ibkrSyncService.deleteConnection(memberId);
@@ -344,6 +361,7 @@ public class AccountConnectionService {
             case FORTUNEO -> "Fortuneo";
             case DEGIRO -> "DEGIRO";
             case CORUM -> "CORUM";
+            case LOUVE -> "Louve Invest";
             case LBP -> "La Banque Postale";
             case BNP -> "BNP Paribas";
             case IBKR -> "Interactive Brokers";

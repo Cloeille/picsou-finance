@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo } from 'react'
 import { toast } from 'sonner'
-import { useParams, useNavigate } from 'react-router'
+import { useParams, useNavigate, useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -63,9 +63,11 @@ import type { AccountRequest, HoldingResponse, Transaction } from '@/types/api'
 export function AccountDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { t, i18n } = useTranslation()
   const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
   const accountId = parseInt(id!, 10)
+  const activeSavingsTab = searchParams.get('tab') === 'config' ? 'config' : 'overview'
 
   const { data: account, isLoading } = useAccount(accountId)
   const { data: accounts } = useAccounts()
@@ -534,7 +536,10 @@ export function AccountDetailPage() {
 
       {/* Savings accounts: split into Overview / Config tabs so the page stays clean. */}
       {isSavings && account ? (
-        <Tabs defaultValue="overview">
+        <Tabs
+          value={activeSavingsTab}
+          onValueChange={(next) => setSearchParams(next === 'config' ? { tab: 'config' } : {}, { replace: true })}
+        >
           <TabsList className="w-full">
             <TabsTrigger value="overview">{t('accounts.tabOverview')}</TabsTrigger>
             <TabsTrigger value="config">{t('savings.configSection')}</TabsTrigger>

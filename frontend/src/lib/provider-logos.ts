@@ -28,7 +28,8 @@
  * `BoursoSyncService.PROVIDER`, for La Banque Postale `LbpSyncService.PROVIDER`, for Natixis
  * `NatixisSyncService.PROVIDER`; Trade Republic writes
  * its name inline in `TradeRepublicSyncService.upsertAccount`; both CORUM connectors (SCPI and
- * CORUM Life) write `ScpiProvider.CORUM.displayName()`. `provider-logos.test.ts` pins
+ * CORUM Life) write `ScpiProvider.CORUM.displayName()`, and Louve Invest writes
+ * `ScpiProvider.LOUVE.displayName()`. `provider-logos.test.ts` pins
  * every literal so a rename on either side fails loudly instead of silently dropping the logo.
  */
 export const PROVIDER_LOGOS: Record<string, string> = {
@@ -39,6 +40,7 @@ export const PROVIDER_LOGOS: Record<string, string> = {
   'TRADE REPUBLIC': '/providers/trade-republic.svg',
   'NATIXIS INTERÉPARGNE': '/providers/natixis-interepargne.svg',
   CORUM: '/providers/corum.svg',
+  'LOUVE INVEST': '/providers/louve-invest.png',
 }
 
 /**

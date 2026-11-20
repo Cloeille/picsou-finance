@@ -197,7 +197,8 @@ class AccountToolsTest {
             wiseSyncService,
             mock(com.picsou.service.CorumSyncService.class),
             mock(com.picsou.service.LbpSyncService.class),
-            mock(com.picsou.service.BnpSyncService.class));
+            mock(com.picsou.service.BnpSyncService.class),
+            mock(com.picsou.service.LouveSyncService.class));
         return new RealServiceFixture(realService, accountRepository, accountServiceForConn,
             boursoSyncService, tradeRepublicSyncService);
     }

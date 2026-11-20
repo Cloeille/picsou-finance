@@ -52,7 +52,12 @@ vi.mock('@/features/history/hooks', () => ({ useHistory: hooks.useHistory }))
 vi.mock('@/features/family/hooks', () => ({
   useFamilyMembers: () => ({ data: [] }),
 }))
-vi.mock('@/features/savings/hooks', () => ({ useSavingsSuggestions: hooks.useSavingsSuggestions }))
+vi.mock('@/features/savings/hooks', () => ({
+  useSavingsSuggestions: hooks.useSavingsSuggestions,
+  useSetSavingsConfig: () => mutation(),
+  useDeleteSavingsConfig: () => mutation(),
+  useSavingsInterest: () => ({ data: undefined, isLoading: false }),
+}))
 vi.mock('@/features/budget/hooks', () => ({
   useCategories: hooks.useCategories,
   useCategorize: hooks.useCategorize,
@@ -275,5 +280,64 @@ describe('AccountDetailPage loan ownership editor', () => {
 
     expect(screen.getByText('property.ownership.title')).toBeInTheDocument()
     expect(screen.queryByText('common.save')).not.toBeInTheDocument()
+  })
+})
+
+describe('AccountDetailPage savings tab query param', () => {
+  const SAVINGS_ACCOUNT: Account = {
+    ...PER_ACCOUNT,
+    id: 99,
+    name: 'Livret A',
+    type: 'SAVINGS',
+  }
+
+  beforeEach(() => {
+    hooks.useAccount.mockReturnValue({ data: SAVINGS_ACCOUNT, isLoading: false })
+    hooks.useAccountHistory.mockReturnValue({ data: [] })
+    hooks.useHoldingsWithLivePrices.mockReturnValue({ data: [] })
+    hooks.useAccountPositions.mockReturnValue({ data: [] })
+    hooks.useAccountTransactions.mockReturnValue({ data: [] })
+    hooks.useAddTransaction.mockReturnValue(mutation())
+    hooks.useDeleteTransaction.mockReturnValue(mutation())
+    hooks.useUpdateTransaction.mockReturnValue(mutation())
+    hooks.useUpdateHolding.mockReturnValue(mutation())
+    hooks.useDeleteHolding.mockReturnValue(mutation())
+    hooks.useImportTRTransactions.mockReturnValue(mutation())
+    hooks.useHistory.mockReturnValue({ data: [] })
+    hooks.useSavingsSuggestions.mockReturnValue({ data: [] })
+    hooks.useCategories.mockReturnValue({ data: [] })
+    hooks.useCategorize.mockReturnValue(mutation())
+  })
+
+  it('opens directly on the savings configuration tab when ?tab=config is present', () => {
+    const client = new QueryClient()
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/accounts/99?tab=config']}>
+          <Routes>
+            <Route path="/accounts/:id" element={<AccountDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(screen.getByRole('tab', { name: 'savings.configSection' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'accounts.tabOverview' })).toHaveAttribute('aria-selected', 'false')
+  })
+
+  it('defaults to the overview tab when no tab query param is provided', () => {
+    const client = new QueryClient()
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/accounts/99']}>
+          <Routes>
+            <Route path="/accounts/:id" element={<AccountDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(screen.getByRole('tab', { name: 'accounts.tabOverview' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'savings.configSection' })).toHaveAttribute('aria-selected', 'false')
   })
 })

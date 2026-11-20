@@ -1,6 +1,5 @@
 package com.picsou.controller;
 
-import com.picsou.config.ClientIp;
 import com.picsou.config.RateLimitConfig;
 import com.picsou.service.NatixisSyncService;
 import com.picsou.service.UserContext;
@@ -16,6 +15,9 @@ import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+
+import static com.picsou.config.PerIpRateLimit.tooManyRequests;
+import static com.picsou.config.PerIpRateLimit.tryConsume;
 
 @RestController
 @RequestMapping("/api/natixis")
@@ -45,20 +47,20 @@ public class NatixisController {
 
     @PostMapping("/auth/initiate")
     public ResponseEntity<?> initiate(@Valid @RequestBody InitiateRequest req, HttpServletRequest request) {
-        if (!consume(authBuckets, request, RateLimitConfig::createNatixisAuthBucket)) return rateLimited(TOO_MANY_AUTH);
+        if (!tryConsume(authBuckets, request, RateLimitConfig::createNatixisAuthBucket)) return tooManyRequests(TOO_MANY_AUTH);
         return ResponseEntity.ok(service.initiateAuth(req.email(), req.password(), userContext.currentMemberId()));
     }
 
     @PostMapping("/auth/complete")
     public ResponseEntity<?> complete(@Valid @RequestBody CompleteRequest req, HttpServletRequest request) {
-        if (!consume(completeBuckets, request, RateLimitConfig::createNatixisCompleteBucket)) return rateLimited(TOO_MANY_AUTH);
+        if (!tryConsume(completeBuckets, request, RateLimitConfig::createNatixisCompleteBucket)) return tooManyRequests(TOO_MANY_AUTH);
         return ResponseEntity.ok(service.completeAuth(req.processId(), req.code(), userContext.currentMemberId()));
     }
 
     @PostMapping("/sync")
     public ResponseEntity<?> sync(HttpServletRequest request) {
-        if (!consume(syncBuckets, request, RateLimitConfig::createSyncBucket)) {
-            return rateLimited("Too many Natixis Interépargne synchronization requests. Please wait before retrying.");
+        if (!tryConsume(syncBuckets, request, RateLimitConfig::createSyncBucket)) {
+            return tooManyRequests("Too many Natixis Interépargne synchronization requests. Please wait before retrying.");
         }
         return ResponseEntity.accepted().body(service.queueSync(userContext.currentMemberId()));
     }
@@ -70,17 +72,6 @@ public class NatixisController {
     public ResponseEntity<Void> clear() {
         service.clearSession(userContext.currentMemberId());
         return ResponseEntity.noContent().build();
-    }
-
-    private static boolean consume(Map<String, Bucket> buckets, HttpServletRequest request,
-                                   java.util.function.Supplier<Bucket> factory) {
-        return buckets.computeIfAbsent(ClientIp.resolve(request), key -> factory.get()).tryConsume(1);
-    }
-
-    private ResponseEntity<ProblemDetail> rateLimited(String message) {
-        ProblemDetail detail = ProblemDetail.forStatus(HttpStatus.TOO_MANY_REQUESTS);
-        detail.setDetail(message);
-        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(detail);
     }
 
     /** Matches the sidecar's own bounds, so a value it would refuse never leaves the backend. */
