@@ -409,4 +409,16 @@ describe('AccountsPage - reorder covers co-owned accounts', () => {
     expect(orderMutate).toHaveBeenCalledWith([2, 1])
     expect(collapseMutate).not.toHaveBeenCalled()
   })
+
+  it('keeps one filled primary button while reordering', () => {
+    useAccounts.mockReturnValue({ data: [checking(1, { isOwner: true })], isLoading: false })
+    useHistory.mockReturnValue({ data: [], isLoading: false })
+
+    const { container } = render(<AccountsPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'accounts.reorder' }))
+
+    const done = screen.getByRole('button', { name: 'accounts.doneReordering' })
+    expect(done).toHaveAttribute('aria-pressed', 'true')
+    expect(container.querySelectorAll('[data-slot="button"][data-variant="default"]')).toHaveLength(1)
+  })
 })
