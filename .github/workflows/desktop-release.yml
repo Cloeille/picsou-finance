@@ -1,0 +1,118 @@
+name: Desktop release
+
+# Builds the signed Windows installer, Linux AppImage and macOS app of a published release and
+# attaches them with the updater's latest.json (#591): installed apps then offer the update in their tray. Off until the
+# maintainer sets the TAURI_UPDATER_PUBKEY variable and the signing secrets; see
+# docs/features/desktop-app.md, "Releases and updates".
+on:
+  release:
+    types: [published]
+  # Re-attaches to an existing release published before the key was set. The tag must contain
+  # this workflow's commit: an older tag has neither the scripts nor the updater.
+  workflow_dispatch:
+    inputs:
+      tag: {description: 'Release tag', required: true, type: string}
+
+permissions: {contents: read}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  # One build per OS: the runtime's wheels and binaries must match the system they run on.
+  build:
+    if: vars.TAURI_UPDATER_PUBKEY != ''
+    strategy:
+      # One OS failing must not cancel the other: its log is the only clue for the next run.
+      fail-fast: false
+      matrix:
+        include:
+          - {os: windows-latest, target: windows, bundle: nsis, platform: windows-x86_64, file: 'nsis/*_x64-setup.exe'}
+          - {os: ubuntu-22.04, target: linux, bundle: appimage, platform: linux-x86_64, file: 'appimage/*_amd64.AppImage'}
+          # The updater replaces the .app from its .tar.gz; the .dmg is for the first install.
+          - {os: macos-latest, target: macos, bundle: 'app,dmg', platform: darwin-aarch64, file: 'macos/*.app.tar.gz'}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    defaults:
+      run: {shell: bash}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false, ref: "refs/tags/${{ env.TAG }}"}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with: {python-version: '3.12'}
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with: {distribution: temurin, java-version: '21', cache: maven}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - name: The signing key is set
+        env: {KEY: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::TAURI_UPDATER_PUBKEY is set but the TAURI_SIGNING_PRIVATE_KEY secret is not"
+            exit 1
+          fi
+      - name: Stamp the release version
+        run: |
+          # Assigned first: inside echo, a failed stamp would leave VERSION empty and the step green.
+          VERSION=$(python .github/scripts/desktop_release.py stamp "$TAG")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - name: Build the backend jar
+        working-directory: backend
+        run: mvn -B -q package -DskipTests
+      - name: Build the SPA
+        working-directory: frontend
+        run: bun install --frozen-lockfile && bun run build
+      - name: Install the webview build dependencies
+        if: matrix.target == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libfuse2
+      - name: Assemble the runtime
+        run: python desktop/scripts/fetch_runtime.py --target ${{ matrix.target }}
+      - name: Build and sign the installer
+        working-directory: desktop/src-tauri
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
+          PUBKEY: "${{ vars.TAURI_UPDATER_PUBKEY }}"
+          # linuxdeploy's bundled strip can choke on newer ELF files; the JRE and CPython ship stripped.
+          NO_STRIP: 'true'
+        run: |
+          python ../../.github/scripts/desktop_release.py config "$PUBKEY" "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/release.json"
+          # linuxdeploy resolves each bundled library's dependencies: the JRE, PostgreSQL and
+          # CPython ones live next to them, not on the system path.
+          r="$PWD/../runtime"
+          export LD_LIBRARY_PATH="$r/jre/lib/server:$r/jre/lib:$r/postgres/lib:$r/python/lib"
+          npx --yes @tauri-apps/cli@2.12.4 build --bundles ${{ matrix.bundle }} --config "$RUNNER_TEMP/release.json"
+      - name: Keep the installer and its signature
+        run: |
+          mkdir out
+          bundle=desktop/src-tauri/target/release/bundle
+          installer=$(ls $bundle/${{ matrix.file }})
+          cp "$installer" "$installer.sig" out/
+          if [ "${{ matrix.target }}" = macos ]; then cp $bundle/dmg/*.dmg out/; fi
+          echo "${{ matrix.platform }}=$(basename "$installer")" > "out/platform-${{ matrix.target }}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with: {name: "release-${{ matrix.target }}", path: out/, if-no-files-found: error, retention-days: 1}
+
+  # Once every installer is built: latest.json lists them all, so no platform gets a half release.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: {contents: write}
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false, ref: "refs/tags/${{ env.TAG }}"}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: {pattern: "release-*", path: dist, merge-multiple: true}
+      - name: Write latest.json and attach everything to the release
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          cd dist
+          mapfile -t pairs < <(cat platform* 2>/dev/null || true)
+          ls
+          python3 ../.github/scripts/desktop_release.py manifest "$TAG" "$GITHUB_REPOSITORY" "${pairs[@]}" > latest.json
+          cat latest.json
+          gh release upload "$TAG" *.exe *.AppImage *.app.tar.gz *.dmg *.sig latest.json --clobber -R "$GITHUB_REPOSITORY"
