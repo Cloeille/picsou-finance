@@ -49,6 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (Homunity) have an ISIN but no ticker, and one such line failed the whole sync
   with `UPSTREAM_FORMAT_CHANGED`, so no account was imported. The line now syncs
   under its ISIN; a line with neither ticker nor valid ISIN is still refused.
+- **An account or transaction name containing `$t(` no longer freezes the page.** i18next before
+  26.4.4 backtracked exponentially on such a value inside a translated sentence: a name of about
+  35 characters blocked the browser tab for minutes. i18next is now 26.7.2.
 
 ### Changed
 
