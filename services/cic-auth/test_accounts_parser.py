@@ -909,7 +909,8 @@ class PageTest(unittest.TestCase):
              "assert not _has_balance(row)\n"
              "assert not _has_balance(row + 'h')\n"
              "assert _has_balance(row + '<td>12,34 EUR</td>')\n"],
-            capture_output=True, text=True, timeout=3,
+            # Generous for a cold interpreter on a slow runner; a quadratic scan takes minutes.
+            capture_output=True, text=True, timeout=10,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 

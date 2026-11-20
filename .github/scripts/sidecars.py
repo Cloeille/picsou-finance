@@ -6,7 +6,8 @@ no workflow file.
   sidecars.py                  JSON list of {"service", "base"}, one per sidecar
   sidecars.py --publish        docker.yml's build matrix: the app image, then every sidecar
   sidecars.py --select         ci.yml: writes `jobs` (the path filters that matched, $CHANGES,
-                               without `sidecar` when no sidecar leg is left) and `matrix`
+                               without `sidecar` when no sidecar leg is left, without
+                               `native-sidecars` when no browserless one is) and `matrix`
                                (one leg per affected sidecar and runner architecture) to
                                $GITHUB_OUTPUT. $ALL is 'true' when the path filter did not
                                run; $FILES lists the paths the `sidecar` filter matched.
@@ -77,6 +78,9 @@ def main(args):
         jobs = [job for job in json.loads(os.environ.get("CHANGES") or "[]") if job != "workflows"]
         if not selected:
             jobs = [job for job in jobs if job != "sidecar"]
+        # The macOS and Windows runs cover the browserless sidecars only.
+        if not any(leg["base"] == "python" for leg in selected):
+            jobs = [job for job in jobs if job != "native-sidecars"]
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
             output.write(f"jobs={json.dumps(jobs)}\nmatrix={json.dumps(selected)}\n")
     else:
