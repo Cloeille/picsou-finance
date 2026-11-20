@@ -34,6 +34,10 @@ reads as an outage (503) rather than a format change; the warning line, with
 `module_loaded=False module_failed=False`, is the tell. The backend waits up to
 90 s for `/initiate` to cover two form waits and the login outcome.
 
+The consent banner can appear after the form, and its overlay then swallows the
+submit click until the login times out (#568). `_open_login_form` registers a
+Playwright locator handler that declines it before any action, whenever it shows.
+
 After the submit, the sidecar watches AMEX's own login request
 (`/myca/logon/emea/action/login`). Akamai Bot Manager refuses a login it scores
 as a bot by answering that request 403; the page retries it and shows nothing.
