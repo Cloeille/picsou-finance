@@ -3444,6 +3444,11 @@
         "dueCount_one": "{{count}} vencimiento",
         "dueCount_other": "{{count}} vencimientos",
         "dueCount": "{{count}} vencimiento(s)"
+      },
+      "labels": {
+        "transferFrom": "Transferencia de {{name}}",
+        "transferIncoming": "Transferencia entrante de {{name}}",
+        "transferOutgoing": "Transferencia saliente a {{name}}"
       }
     },
     "categorize": {

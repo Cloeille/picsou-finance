@@ -1143,6 +1143,11 @@
         "dueCount_one": "{{count}} due",
         "dueCount_other": "{{count}} due",
         "dueCount": "{{count}} due"
+      },
+      "labels": {
+        "transferFrom": "Transfer from {{name}}",
+        "transferIncoming": "Incoming transfer from {{name}}",
+        "transferOutgoing": "Outgoing transfer to {{name}}"
       }
     },
     "categorize": {

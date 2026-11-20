@@ -1,5 +1,13 @@
 import { capitalizeFirst } from './utils'
 
+/** The keys {@link formatBankLabel} words a synthesized title with, so it follows the interface language. */
+export type BankLabelKey =
+  | 'budget.recurring.labels.transferFrom'
+  | 'budget.recurring.labels.transferIncoming'
+  | 'budget.recurring.labels.transferOutgoing'
+
+export type LabelTranslator = (key: BankLabelKey, options: { name: string }) => string
+
 export interface FormattedBankLabel {
   title: string
   detail: string | null
@@ -9,7 +17,7 @@ export interface FormattedBankLabel {
  * Strip SEPA mandate identifiers, creditor IDs, UUIDs, and parenthesized IBANs from raw bank
  * recurring labels so users see readable names instead of raw banking strings.
  */
-export function formatBankLabel(raw: string, locale = 'fr'): FormattedBankLabel {
+export function formatBankLabel(raw: string, locale: string, t: LabelTranslator): FormattedBankLabel {
   const trimmed = raw.trim()
   if (!trimmed) return { title: raw, detail: null }
 
@@ -45,7 +53,7 @@ export function formatBankLabel(raw: string, locale = 'fr'): FormattedBankLabel 
   const transferOnly = cleaned.match(/^(?:recu|reçu)\s+de\s+(.+)$/i)
   if (transferOnly && transferOnly[1]!.trim()) {
     return {
-      title: `Virement de ${transferOnly[1]!.trim()}`,
+      title: t('budget.recurring.labels.transferFrom', { name: transferOnly[1]!.trim() }),
       detail: null,
     }
   }
@@ -54,8 +62,12 @@ export function formatBankLabel(raw: string, locale = 'fr'): FormattedBankLabel 
   if (locale.toLowerCase().startsWith('fr')) {
     const incoming = cleaned.match(/^Incoming\s+Transfer\s+From\s+(.+)$/i)
     const outgoing = cleaned.match(/^Outgoing\s+Transfer\s+(?:To|For)\s+(.+)$/i)
-    if (incoming) return { title: `Virement entrant de ${incoming[1]!.trim()}`, detail: null }
-    if (outgoing) return { title: `Virement sortant vers ${outgoing[1]!.trim()}`, detail: null }
+    if (incoming) {
+      return { title: t('budget.recurring.labels.transferIncoming', { name: incoming[1]!.trim() }), detail: null }
+    }
+    if (outgoing) {
+      return { title: t('budget.recurring.labels.transferOutgoing', { name: outgoing[1]!.trim() }), detail: null }
+    }
   }
 
   return {

@@ -329,7 +329,7 @@ export function RecurringTab() {
                   </p>
                   <div className="divide-y divide-border/60">
                     {(occs ?? []).map((occ) => {
-                      const { title, detail } = formatBankLabel(occ.label, locale)
+                      const { title, detail } = formatBankLabel(occ.label, locale, (key, opts) => t(key, opts))
                       const rewardSuffix =
                         occ.creditCardPayment && occ.rewardPoints != null
                           ? ` · ${formatNumber(occ.rewardPoints)} ${t('accounts.amex.miles')}`

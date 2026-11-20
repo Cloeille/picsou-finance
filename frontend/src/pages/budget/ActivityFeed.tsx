@@ -19,7 +19,7 @@ function ActivityRow({ entry }: { entry: RecurringActivity }) {
   const locale = i18n?.resolvedLanguage ?? i18n?.language ?? getLocale()
 
   const isPriceChange = entry.type === 'PRICE_CHANGE'
-  const { title, detail } = formatBankLabel(entry.label, locale)
+  const { title, detail } = formatBankLabel(entry.label, locale, (key, opts) => t(key, opts))
   const description = isPriceChange && entry.previousAmount != null
     ? t('budget.recurring.activity.priceChangeDesc', {
         from: money.amount(Math.abs(entry.previousAmount)),

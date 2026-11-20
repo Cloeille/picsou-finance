@@ -28,7 +28,7 @@ export function SubscriptionCard({ series }: { series: RecurringSeries }) {
   const busy = confirm.isPending || ignore.isPending || remove.isPending
   const locale = i18n?.resolvedLanguage ?? i18n?.language ?? getLocale()
 
-  const { title, detail } = formatBankLabel(series.label, locale)
+  const { title, detail } = formatBankLabel(series.label, locale, (key, opts) => t(key, opts))
   const isIncome = series.expectedAmount > 0
   const showStatusBadge = series.status !== 'CONFIRMED'
   const statusVariant = series.status === 'SUGGESTED' ? 'secondary' : 'outline'

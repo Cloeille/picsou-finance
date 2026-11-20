@@ -3444,6 +3444,11 @@
         "dueCount_one": "{{count}} fällig",
         "dueCount_other": "{{count}} fällig",
         "dueCount": "{{count}} fällig"
+      },
+      "labels": {
+        "transferFrom": "Überweisung von {{name}}",
+        "transferIncoming": "Eingehende Überweisung von {{name}}",
+        "transferOutgoing": "Ausgehende Überweisung an {{name}}"
       }
     },
     "categorize": {

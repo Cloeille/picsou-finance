@@ -1143,6 +1143,11 @@
         "dueCount_one": "{{count}} échéance",
         "dueCount_other": "{{count}} échéances",
         "dueCount": "{{count}} échéance(s)"
+      },
+      "labels": {
+        "transferFrom": "Virement de {{name}}",
+        "transferIncoming": "Virement entrant de {{name}}",
+        "transferOutgoing": "Virement sortant vers {{name}}"
       }
     },
     "categorize": {
