@@ -100,6 +100,7 @@
 
 | Feature | Last updated | Note |
 |---------|-------------|------|
+| Scheduler catch-up after a missed slot | 2026-11-15 | [scheduler-catch-up.md](./features/scheduler-catch-up.md) |
 | MCP server + scoped access-keys | 2026-06-26 | [mcp-server.md](./features/mcp-server.md) |
 | Budget + OAuth2 tools in MCP | 2026-07-06 | [mcp-budget-oauth2.md](./features/mcp-budget-oauth2.md) |
 | Remote-MCP OAuth (claude.ai connector) | 2026-07-12 | [mcp-oauth-remote.md](./features/mcp-oauth-remote.md) |
