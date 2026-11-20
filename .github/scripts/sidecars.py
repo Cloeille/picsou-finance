@@ -11,6 +11,9 @@ no workflow file.
                                (one leg per affected sidecar and runner architecture) to
                                $GITHUB_OUTPUT. $ALL is 'true' when the path filter did not
                                run; $FILES lists the paths the `sidecar` filter matched.
+  sidecars.py --desktop        the desktop app's runtime pins, read from the Docker files
+                               (Java, PostgreSQL major, Python, Playwright) and the sidecar list
+                               with a `desktop` flag. Nothing is copied, so nothing drifts.
 """
 
 import json
@@ -68,9 +71,36 @@ def select(every, files):
     ]
 
 
+# Camoufox sidecars need a headful browser (Xvfb in Docker): not in the desktop app v1.
+DESKTOP_EXCLUDED_BASES = {"camoufox"}
+
+
+def _pin(path, pattern):
+    match = re.search(pattern, (ROOT / path).read_text(encoding="utf-8"))
+    if not match:
+        sys.exit(f"{path} no longer matches {pattern}: update sidecars.py --desktop")
+    return match.group(1)
+
+
+def desktop_manifest():
+    """What the desktop build bundles, so it follows the Docker release without a copy."""
+    return {
+        "java": _pin("backend/pom.xml", r"<java\.version>(\d+)</java\.version>"),
+        "postgres": _pin("docker/docker-compose.yml", r"(?m)^    image: postgres:(\d+)\b"),
+        "python": _pin("services/base/Dockerfile", r"(?m)^FROM python:(\d+\.\d+)-\S+ AS python$"),
+        "playwright": _pin("services/base/requirements-chromium.txt", r"(?m)^playwright==(\S+)$"),
+        "sidecars": [
+            {"service": s["service"], "base": s["base"], "desktop": s["base"] not in DESKTOP_EXCLUDED_BASES}
+            for s in inventory()
+        ],
+    }
+
+
 def main(args):
     if not args:
         print(json.dumps(inventory()))
+    elif args == ["--desktop"]:
+        print(json.dumps(desktop_manifest()))
     elif args == ["--publish"]:
         print(json.dumps(publish_matrix(os.environ["GITHUB_REPOSITORY"])))
     elif args == ["--select"]:

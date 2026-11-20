@@ -43,6 +43,12 @@ public interface ScpiPositionRepository extends JpaRepository<ScpiPosition, Long
     /** Every position this member linked to a CORUM fund. */
     List<ScpiPosition> findByAccountMemberIdAndCorumFundCodeIsNotNull(Long memberId);
 
+    /** The fund a Louve Invest sync writes to, matched on Louve's {@code scpiUrlId}. */
+    Optional<ScpiPosition> findByMemberIdAndLouveFundCode(Long memberId, String louveFundCode);
+
+    /** Every position this member linked to a Louve Invest fund. */
+    List<ScpiPosition> findByAccountMemberIdAndLouveFundCodeIsNotNull(Long memberId);
+
     /**
      * Positions of accounts the caller has already decided are readable, account fetched.
      *

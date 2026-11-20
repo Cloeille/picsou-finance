@@ -59,7 +59,8 @@ jobs:
             compose-sidecar-build: [*workflows, 'services/**', 'docker/docker-compose.yml']
             native-sidecars: [*workflows, 'services/base/**', 'services/*-auth/**']
             workflow-inventory: [*workflows, 'services/**', 'backend/src/main/resources/application*.yml', '.env.example',
-                                 'docker/.env.example', 'docker/docker-compose.yml', 'docker/Dockerfile']
+                                 'docker/.env.example', 'docker/docker-compose.yml', 'docker/Dockerfile',
+                                 'backend/pom.xml', 'backend/src/test/**']
             helm-chart: [*workflows, 'charts/**', 'backend/src/main/resources/application.yml', 'docker/docker-compose.yml']
             e2e: [*workflows, 'frontend/**']
       - name: Select the jobs and the sidecar matrix
@@ -471,6 +472,8 @@ jobs:
           config.SsoHandshakeSessionRaceIntegrationTest
           adapter.sidecar.SidecarBankCodesTest
           service.PeerLoanTransactionLinksPostgresTest
+          service.LouveConnectionPostgresTest
+          service.LouveClientRegistryPostgresTest
           migration.V142SidecarSessionMigrationTest
           migration.V146NatixisSidecarSessionMigrationTest
           migration.V149TradeRepublicSidecarSessionMigrationTest

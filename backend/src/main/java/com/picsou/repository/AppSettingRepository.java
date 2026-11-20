@@ -22,4 +22,22 @@ public interface AppSettingRepository extends JpaRepository<AppSetting, String> 
     int compareAndSet(@Param("key") String key,
                       @Param("expectedValue") String expectedValue,
                       @Param("newValue") String newValue);
+
+    /**
+     * Writes {@code key} unless a row already holds it, in one statement: of two callers racing
+     * for the same key, the first value stays. Returns 1 when this call wrote the row.
+     */
+    @Modifying
+    @Query(value = "INSERT INTO app_setting (setting_key, value) VALUES (:key, :value) "
+        + "ON CONFLICT (setting_key) DO NOTHING", nativeQuery = true)
+    int insertIfAbsent(@Param("key") String key, @Param("value") String value);
+
+    /**
+     * Compare-and-delete in one statement: removes {@code key} only while it still holds
+     * {@code value}. A bulk DELETE, so two callers removing the same value both succeed, one
+     * with 0 rows.
+     */
+    @Modifying
+    @Query("DELETE FROM AppSetting s WHERE s.key = :key AND s.value = :value")
+    int deleteIfValue(@Param("key") String key, @Param("value") String value);
 }

@@ -27,6 +27,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are both categorised *Virement interne*, so cash flow and the flow diagram stop counting them as
   spending and income. A category you chose by hand is never changed, and when two legs could
   match, Picsou leaves them alone rather than guess. See `docs/features/budget.md`. Closes #450.
+- **Louve Invest SCPI sync (verified against one real account).** Connect Louve Invest from the
+  Sync page or Add Account: Picsou sends you to Louve's own consent page and asks only for
+  read-only access to your portfolio (`portfolio:read`); no Louve password is typed into or stored
+  by Picsou, and no connector container is needed. The SCPI shares you hold in full ownership are
+  synced daily into one SCPI account per fund, valued at the withdrawal price, with the
+  subscription price, management company, ISIN and declared distribution filled in. An existing
+  account named "Aurore" or "Louve Invest - Aurore" is linked rather than duplicated. Shares held in
+  bare ownership or usufruct are listed but not valued, and life-insurance contracts are not
+  synced yet. Louve sends you back to the Picsou address you connected from, which must be one
+  of the allowed origins in Administration > Security (HTTPS, or `localhost` for development).
+  The encrypted OAuth tokens are stored by `V153`; the instance's Louve client registration is
+  kept in the application settings. See `docs/features/louve-invest.md`.
 
 ### Fixed
 
@@ -48,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   once per missed day. The weekly and monthly jobs follow the same rule. The first start after the
   upgrade only records the time and waits for the next slot. See
   [Scheduler catch-up](docs/features/scheduler-catch-up.md). (#585, part of #235)
+- **Caisse d'Epargne and Banque Populaire: the Sync tab names the contracts it does not import and counts them.** A personal loan (`6/12`), a home loan (`6/13`) and a revolving credit (`2/11`) show their name next to the code, and the success line adds how many contracts were not imported, so a missing loan is no longer silent. The revolving credit is never imported; a loan lands in this list only when Picsou cannot read its entry. Contracts of any other family keep the bare code. (#567, #486)
 
 ## [1.2.1] — 2026-11-20
 

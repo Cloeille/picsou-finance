@@ -22,6 +22,7 @@ export const syncKeys = {
   fortuneo: () => [...syncKeys.all, 'fortuneo'] as const,
   corum: () => [...syncKeys.all, 'corum'] as const,
   sofidy: () => [...syncKeys.all, 'sofidy'] as const,
+  louve: () => [...syncKeys.all, 'louve'] as const,
   ibkr: () => [...syncKeys.all, 'ibkr'] as const,
   simplefin: () => [...syncKeys.all, 'simplefin'] as const,
   wise: () => [...syncKeys.all, 'wise'] as const,

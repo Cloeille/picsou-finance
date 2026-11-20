@@ -62,6 +62,7 @@ class AccountConnectionServiceTest {
     @Mock SimplefinSyncService simplefinSyncService;
     @Mock WiseSyncService wiseSyncService;
     @Mock CorumSyncService corumSyncService;
+    @Mock LouveSyncService louveSyncService;
     @Mock LbpSyncService lbpSyncService;
     @Mock BnpSyncService bnpSyncService;
 
@@ -72,7 +73,7 @@ class AccountConnectionServiceTest {
             amundiSyncService, cmesSyncService, cicSyncService, natixisSyncService,
             tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService,
             fortuneoSyncService, degiroSyncService, ibkrSyncService, simplefinSyncService,
-            wiseSyncService, corumSyncService, lbpSyncService, bnpSyncService);
+            wiseSyncService, corumSyncService, lbpSyncService, bnpSyncService, louveSyncService);
     }
 
     private static Account account(long id, String externalId) {
@@ -268,6 +269,40 @@ class AccountConnectionServiceTest {
         order.verify(corumSyncService).lockMemberForAccountDeletion(MEMBER_ID);
         order.verify(accountService).delete(10L, MEMBER_ID);
         order.verify(corumSyncService).clearSession(MEMBER_ID);
+    }
+
+    @Test
+    void deletingTheLastLouveScpiAccountRemovesTheConnection() {
+        Account scpi = account(10L, null);
+        given(scpi, account(11L, null));
+        when(scpiPositionRepository.findByAccountMemberIdAndLouveFundCodeIsNotNull(MEMBER_ID))
+            .thenReturn(List.of(ScpiPosition.builder().account(scpi).louveFundCode("aurore").build()));
+        when(louveSyncService.deleteConnection(MEMBER_ID)).thenReturn(true);
+
+        AccountConnectionService service = service();
+        assertThat(service.describeDeletion(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(true, "Louve Invest"));
+        assertThat(service.deleteAccount(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(true, "Louve Invest"));
+        var order = inOrder(louveSyncService, accountService);
+        order.verify(louveSyncService).lockMemberForAccountDeletion(MEMBER_ID);
+        order.verify(accountService).delete(10L, MEMBER_ID);
+        order.verify(louveSyncService).deleteConnection(MEMBER_ID);
+        verify(corumSyncService, never()).lockMemberForAccountDeletion(anyLong());
+    }
+
+    @Test
+    void keepsTheLouveConnectionWhileAnotherLinkedFundRemains() {
+        Account first = account(10L, null);
+        Account second = account(11L, null);
+        given(first, second);
+        when(scpiPositionRepository.findByAccountMemberIdAndLouveFundCodeIsNotNull(MEMBER_ID))
+            .thenReturn(List.of(ScpiPosition.builder().account(first).louveFundCode("aurore").build(),
+                ScpiPosition.builder().account(second).louveFundCode("horizon-pierre").build()));
+
+        assertThat(service().deleteAccount(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
+        verify(louveSyncService, never()).deleteConnection(anyLong());
     }
 
     @Test

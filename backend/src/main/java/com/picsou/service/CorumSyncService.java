@@ -421,7 +421,8 @@ public class CorumSyncService {
                 holding.label(),
                 holding.quantity(),
                 holding.subscriptionPrice(),
-                holding.withdrawalPrice()
+                holding.withdrawalPrice(),
+                null, null, null, null // management company, ISIN, distribution: Louve Invest only
             ))
             .toList();
         return fundReconciler.reconcile(memberId, ScpiProvider.CORUM, funds, syncedAt);

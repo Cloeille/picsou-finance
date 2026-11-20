@@ -1,7 +1,8 @@
 import { useMemo, useState, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSearchParams } from 'react-router'
+import { useLocation, useSearchParams } from 'react-router'
 import {
+  Building2,
   Eye,
   Search,
   X,
@@ -59,6 +60,8 @@ import { CicTab } from './CicTab'
 import { AmexTab } from './AmexTab'
 import { CorumTab } from './CorumTab'
 import { SofidyTab } from './SofidyTab'
+import { LouveTab } from './LouveTab'
+import { LOUVE_CALLBACK_PATH } from '@/components/sync/LouvePanel'
 import { BoursoTab } from './BoursoTab'
 import { CaisseEpargneTab } from './CaisseEpargneTab'
 import { BanquePopulaireTab } from './BanquePopulaireTab'
@@ -103,6 +106,7 @@ const CONNECTORS: ConnectorDef[] = [
   { id: 'wallets', category: 'cryptoAndWealth', labelKey: 'sync.wallets.title', icon: EthereumLogo, keywords: 'bitcoin ethereum solana evm wallet' },
   { id: 'corum', category: 'cryptoAndWealth', labelKey: 'sync.corum.title', icon: CorumLogo, keywords: 'corum scpi assurance vie' },
   { id: 'sofidy', category: 'cryptoAndWealth', labelKey: 'sync.sofidy.title', icon: SofidyLogo, keywords: 'sofidy scpi immobilier' },
+  { id: 'louve', category: 'cryptoAndWealth', labelKey: 'sync.louve.title', icon: Building2, keywords: 'louve invest scpi immobilier' },
   { id: 'finary', category: 'cryptoAndWealth', labelKey: 'sync.finary.title', icon: FinaryLogo, keywords: 'finary agregateur patrimoine' },
 
   { id: 'actual', category: 'imports', labelKey: 'sync.actual.title', icon: ActualBudgetLogo, keywords: 'actual budget import sqlite' },
@@ -120,8 +124,13 @@ function normalize(value: string): string {
 export function SyncPage() {
   const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
+  const { pathname } = useLocation()
   const initialTab = searchParams.get('tab')
-  const [tab, setTabState] = useState(() => (initialTab && VALID_IDS.has(initialTab) ? initialTab : 'banks'))
+  // Louve Invest's OAuth callback lands on its own path and opens its tab.
+  const [tab, setTabState] = useState(() => {
+    if (pathname === LOUVE_CALLBACK_PATH) return 'louve'
+    return initialTab && VALID_IDS.has(initialTab) ? initialTab : 'banks'
+  })
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<SyncCategory>('all')
 
@@ -164,6 +173,7 @@ export function SyncPage() {
       case 'amex': return <AmexTab />
       case 'corum': return <CorumTab />
       case 'sofidy': return <SofidyTab />
+      case 'louve': return <LouveTab />
       case 'actual': return <ActualBudgetTab />
       case 'finary': return <FinaryTab />
       case 'homebank': return <HomeBankTab />
