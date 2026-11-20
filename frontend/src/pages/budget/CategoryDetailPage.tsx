@@ -114,7 +114,7 @@ export function CategoryDetailPage() {
       {!isLoading && !isError && data && (
         <>
           <Card>
-            <CardContent className="flex items-center justify-between gap-4 pt-6">
+            <CardContent className="flex items-center justify-between gap-4">
               <div className="flex min-w-0 items-center gap-3">
                 <span
                   className="inline-block size-3 shrink-0 rounded-full"

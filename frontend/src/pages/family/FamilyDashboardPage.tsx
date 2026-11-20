@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { useMoney } from '@/hooks/use-money'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { ErrorState } from '@/components/shared/ErrorState'
 import { LoadingSkeleton } from '@/components/shared/LoadingSkeleton'
 import { useFamilyDashboard } from '@/features/family/hooks'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -10,13 +11,22 @@ import { Wallet, Target, Users } from 'lucide-react'
 export function FamilyDashboardPage() {
   const money = useMoney()
   const { t } = useTranslation()
-  const { data, isLoading } = useFamilyDashboard()
+  const { data, isLoading, isError, refetch } = useFamilyDashboard()
 
   if (isLoading) {
     return <LoadingSkeleton />
   }
 
-  const dashboard = data!
+  if (isError || !data) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title={t('family.dashboard.title')} />
+        <ErrorState title={t('common.error')} onRetry={() => void refetch()} />
+      </div>
+    )
+  }
+
+  const dashboard = data
 
   return (
     <div className="space-y-6">
@@ -66,7 +76,7 @@ export function FamilyDashboardPage() {
                     <CardTitle className="text-sm">{account.name}</CardTitle>
                     <span className="text-xs text-muted-foreground">{account.ownerName}</span>
                   </div>
-                  <p className="text-xs text-muted-foreground">{account.type}</p>
+                  <p className="text-xs text-muted-foreground">{t(`accounts.types.${account.type}`, { defaultValue: account.type })}</p>
                 </CardHeader>
                 <CardContent>
                   <p className="text-lg font-bold">

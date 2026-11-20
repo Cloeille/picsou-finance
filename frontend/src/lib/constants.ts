@@ -189,4 +189,4 @@ export const VALUATION_FRESHNESS_BOUNDS_MS = { fresh: 35 * DAY_MS, recent: 60 * 
  * that is about the visuals.
  */
 export const SELECT_CONTROL_CLASS =
-  'flex h-10 w-full rounded-xl border border-input bg-input/20 px-4 text-sm outline-none dark:bg-input/30'
+  'flex h-10 w-full appearance-none rounded-lg border border-input bg-input/20 px-3.5 pr-9 text-sm outline-none transition-[border-color] focus:border-ring disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 bg-[url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2716%27%20height%3D%2716%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%2371717a%27%20stroke-width%3D%272%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27m6%209%206%206%206-6%27%2F%3E%3C%2Fsvg%3E")] bg-[length:1rem_1rem] bg-[right_0.75rem_center] bg-no-repeat'

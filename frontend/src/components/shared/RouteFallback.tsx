@@ -26,7 +26,7 @@ export function RouteFallback() {
         <Skeleton className="mb-1 h-5 w-32" />
         <Skeleton className="h-[34px] w-56" />
       </div>
-      <Skeleton className="h-64 w-full rounded-4xl" />
+      <Skeleton className="h-64 w-full rounded-xl" />
     </div>
   )
 }

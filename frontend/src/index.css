@@ -1,13 +1,14 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
+@import "@fontsource-variable/plus-jakarta-sans";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
     --font-heading: var(--font-sans);
-    --font-sans: 'Geist Variable', sans-serif;
+    --font-mono: var(--font-sans);
+    --font-sans: 'Plus Jakarta Sans Variable', sans-serif;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -163,9 +164,9 @@
 }
 
 @utility cn-card-title {
-  font-size: var(--text-sm);
-  line-height: var(--text-sm--line-height);
-  font-weight: 700;
+  font-size: var(--text-base);
+  line-height: var(--text-base--line-height);
+  font-weight: 600;
 }
 
 @layer base {
@@ -180,13 +181,23 @@
     box-shadow: 0 0 0 4px color-mix(in oklab, var(--ring) 20%, transparent);
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
+  }
+  button, input, select, textarea, code, pre {
+    font-family: var(--font-sans);
+  }
+  input[type="search"]::-webkit-search-cancel-button,
+  input[type="search"]::-webkit-search-decoration {
+    -webkit-appearance: none;
+    appearance: none;
   }
   html {
     @apply font-sans;
+    word-spacing: 0.14em;
   }
   h1, h2, h3, h4, h5, h6 {
     color: inherit;
+    word-spacing: 0.1em;
   }
 }
 
@@ -248,6 +259,11 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Keep Radix floating poppers (menus, selects, tooltips) cleanly above modals and cards. */
+[data-radix-popper-content-wrapper] {
+  z-index: 60 !important;
 }
 
 /* Scrollbar styling */

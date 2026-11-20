@@ -63,7 +63,7 @@ export function ConnectionGuard({ children }: { children: ReactNode }) {
             <h2 className="text-lg font-semibold">{t('error.noConnection')}</h2>
             <p className="text-sm text-muted-foreground">{t('error.noConnectionDesc')}</p>
             <Button onClick={checkHealth} variant="outline">
-              <RefreshCw className="size-4 mr-2" />
+              <RefreshCw className="size-4" />
               {t('common.retry')}
             </Button>
           </>

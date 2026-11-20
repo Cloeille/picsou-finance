@@ -82,7 +82,7 @@ describe('ProjectionSection', () => {
     render(<ProjectionSection />)
     // The label shares its paragraph with the amount, so the text node is split.
     expect(screen.getByText(/analysis\.projection\.basis/)).toBeInTheDocument()
-    expect(screen.getByText('analysis.projection.disclaimer')).toBeInTheDocument()
+    expect(screen.queryByText('analysis.projection.disclaimer')).not.toBeInTheDocument()
   })
 
   it('asks for a plan rather than drawing a flat line at zero', () => {

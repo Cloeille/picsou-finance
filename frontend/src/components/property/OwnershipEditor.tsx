@@ -44,7 +44,7 @@ export function OwnershipEditor({ accountId, canEdit }: OwnershipEditorProps) {
   if (isLoading) {
     return (
       <Card>
-        <CardContent className="pt-6"><Skeleton className="h-24 w-full" /></CardContent>
+        <CardContent><Skeleton className="h-24 w-full" /></CardContent>
       </Card>
     )
   }
@@ -150,7 +150,7 @@ function OwnershipForm({ accountId, ownership, rows, canEdit }: {
         )}
 
         {!overAllocated && unassigned > 0.01 && (
-          <p className="flex items-start gap-2 rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
+          <p className="flex items-start gap-2 rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
             {t('property.ownership.unassigned', { percent: formatPercent(unassigned) })}
           </p>

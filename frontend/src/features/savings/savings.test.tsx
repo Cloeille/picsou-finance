@@ -163,8 +163,7 @@ describe('SavingsConfigSection — projection card', () => {
     expect(screen.getByText(/savings\.projectionTitle/)).toBeInTheDocument()
     // Both interest values render via stubbed CurrencyDisplay
     expect(screen.getAllByTestId('currency')).toHaveLength(2)
-    // Disclaimer
-    expect(screen.getByText('savings.projectionDisclaimer')).toBeInTheDocument()
+    expect(screen.queryByText('savings.projectionDisclaimer')).not.toBeInTheDocument()
   })
 
   it('does NOT render projection card when initialConfig is null', () => {

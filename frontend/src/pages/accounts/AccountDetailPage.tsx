@@ -1,12 +1,13 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useMemo } from 'react'
 import { toast } from 'sonner'
 import { useParams, useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  useAccount, useAccountHistory, useHoldingsWithLivePrices, useAccountPositions,
+  useAccount, useAccounts, useAccountDeletionImpact, useAccountHistory, useHoldingsWithLivePrices, useAccountPositions,
   useAccountTransactions, useAddTransaction, useDeleteTransaction,
-  useUpdateTransaction, useUpdateHolding, useDeleteHolding, useImportTRTransactions
+  useUpdateTransaction, useUpdateHolding, useDeleteHolding, useImportTRTransactions,
+  useUpdateAccount, useDeleteAccount, useUpdateDebtMetadata
 } from '@/features/accounts/hooks'
 import { euroFundLabelKey, hasSyncedEuroFund } from '@/features/accounts/euro-fund'
 import { useCategories, useCategorize } from '@/features/budget/hooks'
@@ -18,6 +19,8 @@ import { PositionsByProduct } from '@/components/shared/PositionsByProduct'
 import { RealizedPnlSection } from '@/components/shared/RealizedPnlSection'
 import { TransactionsList } from '@/components/shared/TransactionsList'
 import { AddTransactionModal } from '@/components/shared/AddTransactionModal'
+import { AccountForm, type AccountFormData } from '@/components/shared/AccountForm'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { ImportTransactionsModal } from '@/components/shared/ImportTransactionsModal'
 import { EditHoldingModal } from '@/components/shared/EditHoldingModal'
 import { MonthEndBalanceModal } from '@/components/shared/MonthEndBalanceModal'
@@ -46,11 +49,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ArrowLeft, Calendar, TrendingUp, TrendingDown, Upload } from 'lucide-react'
+import { ArrowLeft, Calendar, Pencil, Trash2, TrendingUp, TrendingDown, Upload } from 'lucide-react'
 import { formatLocalDate, formatNumber, formatPercent, localeFromLanguage } from '@/lib/utils'
 import { accountTypeLabelKey, CASH_ACCOUNT_TYPES, HOLDING_ACCOUNT_TYPES } from '@/lib/constants'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
-import type { HoldingResponse, Transaction } from '@/types/api'
+import type { AccountRequest, HoldingResponse, Transaction } from '@/types/api'
 
 
 /**
@@ -65,6 +68,10 @@ export function AccountDetailPage() {
   const accountId = parseInt(id!, 10)
 
   const { data: account, isLoading } = useAccount(accountId)
+  const { data: accounts } = useAccounts()
+  const updateAccount = useUpdateAccount()
+  const updateDebt = useUpdateDebtMetadata()
+  const deleteAccount = useDeleteAccount()
   const { data: history } = useAccountHistory(accountId)
   const { data: holdings } = useHoldingsWithLivePrices(accountId)
   const { data: positions } = useAccountPositions(accountId)
@@ -85,7 +92,83 @@ export function AccountDetailPage() {
   const qc = useQueryClient()
 
   const [showHistory, setShowHistory] = useState(false)
+  const [showEditForm, setShowEditForm] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showAddTx, setShowAddTx] = useState(false)
+  const { data: deletionImpact } = useAccountDeletionImpact(showDeleteConfirm ? accountId : null)
+
+  const editDefaultValues: Partial<AccountFormData> | undefined = useMemo(() => {
+    if (!account) return undefined
+    const debt = account.debt
+    return {
+      name: account.name,
+      type: account.type,
+      provider: (account.type === 'LOAN' ? debt?.lenderName : account.provider) ?? '',
+      currency: account.currency,
+      currentBalance: account.type === 'CREDIT_CARD'
+        ? Math.abs(account.currentBalance)
+        : account.currentBalance,
+      isManual: account.isManual,
+      color: account.color,
+      ticker: account.ticker ?? '',
+      logoKey: account.logoKey ?? '',
+      openedAt: account.openedAt ?? '',
+      ...(debt
+        ? {
+            borrowedAmount: debt.borrowedAmount,
+            interestRatePct: debt.interestRate != null ? debt.interestRate * 100 : undefined,
+            monthlyPayment: debt.monthlyPayment ?? undefined,
+            insuranceMonthly: debt.insuranceMonthly ?? undefined,
+            fileFees: debt.fileFees ?? undefined,
+            startDate: debt.startDate ?? '',
+            endDate: debt.endDate ?? '',
+            linkedAccountId: debt.linkedAccountId ?? undefined,
+          }
+        : {}),
+    }
+  }, [account])
+
+  async function handleEditSubmit(data: AccountFormData) {
+    if (!account) return
+    const request: AccountRequest = {
+      name: data.name,
+      type: data.type,
+      provider: data.provider || undefined,
+      currency: data.currency,
+      currentBalance: data.currentBalance,
+      isManual: data.isManual,
+      color: data.color,
+      ticker: data.ticker || undefined,
+      logoKey: data.logoKey || undefined,
+      institutionId: data.institutionId,
+      openedAt: data.openedAt || undefined,
+    }
+    await updateAccount.mutateAsync({ id: account.id, data: request })
+    if (data.type === 'LOAN' && data.borrowedAmount && data.borrowedAmount > 0) {
+      await updateDebt.mutateAsync({
+        id: account.id,
+        data: {
+          borrowedAmount: data.borrowedAmount,
+          interestRate: data.interestRatePct != null ? data.interestRatePct / 100 : undefined,
+          monthlyPayment: data.monthlyPayment,
+          insuranceMonthly: data.insuranceMonthly,
+          fileFees: data.fileFees,
+          lenderName: data.provider || undefined,
+          startDate: data.startDate || undefined,
+          endDate: data.endDate || undefined,
+          linkedAccountId: data.linkedAccountId ?? null,
+        },
+      })
+    }
+    setShowEditForm(false)
+  }
+
+  async function handleConfirmDelete() {
+    if (!account) return
+    await deleteAccount.mutateAsync(account.id)
+    setShowDeleteConfirm(false)
+    navigate('/accounts')
+  }
   const [showImport, setShowImport] = useState(false)
   const [editingTx, setEditingTx] = useState<Transaction | null>(null)
   const [editingHolding, setEditingHolding] = useState<HoldingResponse | null>(null)
@@ -212,7 +295,7 @@ export function AccountDetailPage() {
               )}
               {showHoldings && (
                 <Button size="sm" variant="outline" onClick={() => setShowImport(true)}>
-                  <Upload className="mr-1.5 size-4" />
+                  <Upload className=".5 size-4" />
                   {t('import.importCsv')}
                 </Button>
               )}
@@ -274,14 +357,35 @@ export function AccountDetailPage() {
               size="sm"
               onClick={() => navigate('/accounts')}
             >
-              <ArrowLeft size={14} className="mr-1.5" />
+              <ArrowLeft size={14} className=".5" />
               {t('common.back')}
             </Button>
+            {account && account.isOwner !== false && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowEditForm(true)}
+                >
+                  <Pencil className="size-3.5" aria-hidden="true" />
+                  {t('common.edit')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-destructive hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive"
+                  onClick={() => setShowDeleteConfirm(true)}
+                >
+                  <Trash2 className="size-3.5" aria-hidden="true" />
+                  {t('common.delete')}
+                </Button>
+              </>
+            )}
             <Button
               size="sm"
               onClick={() => setShowHistory(true)}
             >
-              <Calendar size={14} className="mr-1.5" />
+              <Calendar size={14} className=".5" />
               {t('accounts.snapshots')}
             </Button>
           </div>
@@ -291,7 +395,7 @@ export function AccountDetailPage() {
       {/* Balance card */}
       {isLoading && !account ? (
         <Card>
-          <CardContent className="pt-6">
+          <CardContent>
             <Skeleton className="h-8 w-48 mb-2" />
             <Skeleton className="h-5 w-32" />
           </CardContent>
@@ -418,7 +522,7 @@ export function AccountDetailPage() {
           )
         ) : (
           <Card>
-            <CardContent className="pt-6">
+            <CardContent>
               <Skeleton className="h-32 w-full" />
             </CardContent>
           </Card>
@@ -431,7 +535,7 @@ export function AccountDetailPage() {
       {/* Savings accounts: split into Overview / Config tabs so the page stays clean. */}
       {isSavings && account ? (
         <Tabs defaultValue="overview">
-          <TabsList>
+          <TabsList className="w-full">
             <TabsTrigger value="overview">{t('accounts.tabOverview')}</TabsTrigger>
             <TabsTrigger value="config">{t('savings.configSection')}</TabsTrigger>
           </TabsList>
@@ -561,6 +665,31 @@ export function AccountDetailPage() {
         accountId={accountId}
         history={history}
         amountOwed={account?.type === 'CREDIT_CARD'}
+      />
+
+      {/* Edit & delete account dialogs */}
+      <AccountForm
+        open={showEditForm}
+        onOpenChange={setShowEditForm}
+        onSubmit={handleEditSubmit}
+        defaultValues={editDefaultValues}
+        accounts={accounts}
+        title={t('accounts.editAccount')}
+        loading={updateAccount.isPending || updateDebt.isPending}
+      />
+
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        onOpenChange={setShowDeleteConfirm}
+        title={t('accounts.deleteAccount')}
+        description={
+          deletionImpact?.removesConnection
+            ? `${t('accounts.deleteConfirm')} ${t('accounts.deleteRemovesConnection', { connection: deletionImpact.connectionLabel })}`
+            : t('accounts.deleteConfirm')
+        }
+        onConfirm={handleConfirmDelete}
+        loading={deleteAccount.isPending}
+        variant="destructive"
       />
     </div>
   )

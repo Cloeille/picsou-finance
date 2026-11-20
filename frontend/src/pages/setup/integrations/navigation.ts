@@ -10,6 +10,7 @@ export const INTEGRATION_SUBSTEP_ORDER: Array<{
   route: string
 }> = [
   { key: 'enablebanking', route: '/setup/integrations/enablebanking' },
+  { key: 'bnp', route: '/setup/integrations/bnp' },
   { key: 'boursobank', route: '/setup/integrations/boursobank' },
   { key: 'boursedirect', route: '/setup/integrations/boursedirect' },
   { key: 'fortuneo', route: '/setup/integrations/fortuneo' },

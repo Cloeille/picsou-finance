@@ -97,7 +97,7 @@ export function GoalDetailModal({ goalId, onClose }: GoalDetailModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
-      <DialogContent className="sm:max-w-[95vw] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[95vw] max-h-[90vh] overflow-y-auto" aria-describedby={undefined}>
         {isLoading || !goal ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -189,7 +189,7 @@ export function GoalDetailModal({ goalId, onClose }: GoalDetailModalProps) {
                     {goal.accounts.map((a) => (
                       <div
                         key={a.id}
-                        className="flex items-center gap-2 rounded-full bg-muted/50 px-3 py-1.5"
+                        className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-1.5"
                       >
                         <span
                           className="size-2 rounded-full shrink-0"

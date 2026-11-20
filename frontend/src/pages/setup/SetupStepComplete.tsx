@@ -4,13 +4,12 @@ import { useNavigate } from 'react-router'
 import { CheckCircle2, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Confetti } from './components/Confetti'
+import { INTEGRATION_LOGOS } from './components/IntegrationLogos'
 import { useCompleteSetup, useSetupStatus } from '@/features/setup/hooks'
 import { useSetupFlowStore, type IntegrationKey } from '@/stores/setup-flow-store'
 import { consumeSetupCredentials } from '@/stores/setup-credentials'
 import { authApi } from '@/features/auth/api'
 import { useAuthStore } from '@/stores/auth-store'
-import { useAppStore } from '@/stores/app-store'
-import { SidebarStylePromptModal } from '@/components/layout/SidebarStylePromptModal'
 
 type AutoLoginState = 'idle' | 'attempting' | 'success' | 'failed'
 
@@ -41,9 +40,6 @@ export function SetupStepComplete() {
 
   const [autoLogin, setAutoLogin] = useState<AutoLoginState>('idle')
   const ranOnce = useRef(false)
-
-  const hasSeenSidebarStylePrompt = useAppStore((s) => s.hasSeenSidebarStylePrompt)
-  const [showSidebarStylePrompt, setShowSidebarStylePrompt] = useState(!hasSeenSidebarStylePrompt)
 
   useEffect(() => {
     if (ranOnce.current) return
@@ -100,20 +96,18 @@ export function SetupStepComplete() {
 
   return (
     <div className="relative">
-      <SidebarStylePromptModal open={showSidebarStylePrompt} onOpenChange={setShowSidebarStylePrompt} />
-
       {/* The confetti container is absolutely positioned so it never pushes
           content around. The parent is relative so pieces anchor correctly. */}
       <Confetti />
 
-      <div className="relative space-y-8">
-        <div className="text-center space-y-2">
+      <div className="relative mx-auto w-full max-w-lg space-y-6">
+        <div className="space-y-2 text-center">
           <div className="flex justify-center">
-            <span className="rounded-2xl bg-emerald-500/10 p-3 text-emerald-500">
-              <CheckCircle2 className="h-8 w-8" />
+            <span className="inline-flex size-12 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="size-6" />
             </span>
           </div>
-          <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">
+          <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
             {t('setup.complete.title')}
           </h1>
           {displayName && (
@@ -124,51 +118,63 @@ export function SetupStepComplete() {
         </div>
 
         {integrationList.length > 0 ? (
-          <div className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5">
-            <p className="mb-3 text-xs font-semibold tracking-[0.18em] text-muted-foreground">
+          <div className="rounded-xl border border-border/60 bg-card p-4 sm:p-5">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {t('setup.complete.summaryTitle')}
             </p>
-            <ul className="space-y-2">
-              {integrationList.map((key) => (
-                <li key={key} className="flex items-center gap-2 text-sm">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                  {t(`setup.integrations.cards.${key}.title`)}
-                </li>
-              ))}
+            <ul className="space-y-2.5">
+              {integrationList.map((key) => {
+                const BrandLogo = INTEGRATION_LOGOS[key]
+                return (
+                  <li key={key} className="flex items-center gap-3 text-sm font-medium">
+                    <span className="inline-flex size-7 shrink-0 items-center justify-center text-foreground/80">
+                      {BrandLogo ? (
+                        <BrandLogo className="size-4" />
+                      ) : (
+                        <CheckCircle2 className="size-4" />
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">
+                      {t(`setup.integrations.cards.${key}.title`)}
+                    </span>
+                    <CheckCircle2 className="size-4 shrink-0 text-emerald-500" aria-hidden="true" />
+                  </li>
+                )
+              })}
             </ul>
           </div>
         ) : (
-          <div className="rounded-2xl border border-border/60 bg-muted/30 p-4 text-center text-xs text-muted-foreground">
+          <div className="rounded-xl border border-border/60 bg-card p-5 text-center text-sm leading-relaxed text-muted-foreground">
             {t('setup.complete.noIntegrations')}
           </div>
         )}
 
         {complete.isPending && (
           <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="size-4 animate-spin" />
             {t('setup.complete.completing')}
           </div>
         )}
 
         {autoLogin === 'attempting' && (
           <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="size-4 animate-spin" />
             {t('setup.complete.loggingIn')}
           </div>
         )}
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+        <div className="flex flex-col gap-2.5">
           {autoLogin === 'success' ? (
             <Button
               onClick={goToDashboard}
-              className="w-full rounded-full"
+              className="w-full rounded-lg"
             >
               {t('setup.complete.cta')}
             </Button>
           ) : autoLogin === 'failed' ? (
             <Button
               onClick={goToLogin}
-              className="w-full rounded-full"
+              className="w-full rounded-lg"
             >
               {t('setup.complete.loginFallback')}
             </Button>

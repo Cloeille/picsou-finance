@@ -100,7 +100,7 @@ function PartitionBarSegmentValue({
     <span
       data-slot="partition-bar-segment-value"
       className={cn(
-        "w-full truncate text-[0.625rem] leading-tight tabular-nums text-muted-foreground",
+        "w-full truncate text-xs leading-tight tabular-nums text-muted-foreground",
         className
       )}
       {...props}

@@ -66,7 +66,7 @@ export function CryptoWalletForm({ onSuccess, onCancel, variant }: CryptoWalletF
             ))}
           </div>
           {chain === 'EVM' && (
-            <p className="text-xs text-muted-foreground">{t('sync.wallets.evmHint')}</p>
+            <p className="text-sm text-muted-foreground">{t('sync.wallets.evmHint')}</p>
           )}
         </div>
 

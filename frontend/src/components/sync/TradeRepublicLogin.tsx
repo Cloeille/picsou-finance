@@ -238,7 +238,7 @@ export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }:
   const anotherNumber = reconnecting && (
     <Button
       type="button"
-      variant="link"
+      variant="outline"
       size="sm"
       className="w-full"
       onClick={() => {

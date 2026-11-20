@@ -21,6 +21,10 @@ vi.mock('react-i18next', () => ({
 // Mock getLocale for deterministic en-US output; cn simplified (Button still works).
 vi.mock('@/lib/utils', () => ({
   getLocale: () => 'en-US',
+  capitalizeFirst: (v: string, locale = 'en-US') => {
+    const [first = '', ...rest] = Array.from(v)
+    return first.toLocaleUpperCase(locale) + rest.join('')
+  },
   cn: (...classes: unknown[]) => classes.filter(Boolean).join(' '),
 }))
 

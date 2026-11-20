@@ -24,7 +24,7 @@ function StatusBadge({ status }: { status: number }) {
   const ok = status >= 200 && status < 300
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${
+      className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium tabular-nums ${
         ok
           ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
           : 'bg-destructive/10 text-destructive'
@@ -70,7 +70,7 @@ function EbCallLogDialog() {
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm text-muted-foreground">
-          {data ? `${data.length} appel(s) en mémoire` : '—'}
+          {data ? `${data.length} ${data.length > 1 ? 'appels en mémoire' : 'appel en mémoire'}` : 'Aucun appel'}
         </span>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => refetch()}>
@@ -78,7 +78,7 @@ function EbCallLogDialog() {
           </Button>
           {data && data.length > 0 && (
             <Button variant="outline" size="sm" onClick={() => exportTxt(data)}>
-              <Download className="mr-1.5 size-3.5" />
+              <Download className=".5 size-3.5" />
               Export .txt
             </Button>
           )}
@@ -88,7 +88,7 @@ function EbCallLogDialog() {
             disabled={clear.isPending || !data?.length}
             onClick={() => { clear.mutate(); setExpandedIdx(null) }}
           >
-            <Trash2 className="mr-1.5 size-3.5" />
+            <Trash2 className=".5 size-3.5" />
             Vider
           </Button>
         </div>
@@ -102,7 +102,7 @@ function EbCallLogDialog() {
       )}
       {!isLoading && !isError && data?.length === 0 && (
         <p className="py-8 text-center text-sm text-muted-foreground">
-          Aucun appel capturé — lance une sync Revolut pour en générer.
+          Aucun appel capturé pour le moment. Lancez une synchronisation Enable Banking pour afficher les échanges ici.
         </p>
       )}
 
@@ -113,9 +113,9 @@ function EbCallLogDialog() {
               <thead className="sticky top-0 bg-background">
                 <tr className="border-b text-left text-xs font-medium text-muted-foreground">
                   <th className="pb-2 pr-3 w-[140px]">Heure</th>
-                  <th className="pb-2 pr-3 w-[50px]">Méth.</th>
-                  <th className="pb-2 pr-3">Endpoint</th>
-                  <th className="pb-2 w-[60px] text-center">Status</th>
+                  <th className="pb-2 pr-3 w-[70px]">Méthode</th>
+                  <th className="pb-2 pr-3">Point de terminaison</th>
+                  <th className="pb-2 w-[70px] text-center">Statut</th>
                 </tr>
               </thead>
               <tbody>
@@ -142,20 +142,20 @@ function EbCallLogDialog() {
                     {expandedIdx === idx && (
                       <tr key={`${idx}-detail`} className="border-b last:border-0 bg-muted/10">
                         <td colSpan={4} className="px-2 pb-3 pt-1 space-y-3">
-                          <p className="font-mono text-[11px] break-all text-muted-foreground">
+                          <p className="text-xs break-all text-muted-foreground">
                             {entry.method} {entry.url}
                           </p>
                           {entry.requestBody && (
                             <div>
-                              <p className="mb-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Request body</p>
-                              <pre className="whitespace-pre-wrap break-all text-[11px] max-h-48 overflow-auto rounded bg-muted/40 p-2 font-mono">
+                              <p className="mb-1 text-xs font-medium text-muted-foreground">Corps de la requête</p>
+                              <pre className="whitespace-pre-wrap break-all text-xs max-h-48 overflow-auto rounded-md bg-muted/40 p-2.5">
                                 {tryPretty(entry.requestBody)}
                               </pre>
                             </div>
                           )}
                           <div>
-                            <p className="mb-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Response body</p>
-                            <pre className="whitespace-pre-wrap break-all text-[11px] max-h-96 overflow-auto rounded bg-muted/40 p-2 font-mono">
+                            <p className="mb-1 text-xs font-medium text-muted-foreground">Corps de la réponse</p>
+                            <pre className="whitespace-pre-wrap break-all text-xs max-h-96 overflow-auto rounded-md bg-muted/40 p-2.5">
                               {tryPretty(entry.responseBody)}
                             </pre>
                           </div>
@@ -177,14 +177,14 @@ export function EnableBankingDebugSection() {
   const [open, setOpen] = useState(false)
 
   return (
-    <Card className="rounded-4xl bg-card shadow-md">
+    <Card className="rounded-xl bg-card">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <Network className="size-5 text-muted-foreground" />
-          Enable Banking — Debug API
+        <CardTitle className="flex items-center gap-2 text-base font-semibold">
+          <Network className="size-4 shrink-0 text-muted-foreground" />
+          Diagnostic API Enable Banking
         </CardTitle>
         <CardDescription>
-          Capture des appels HTTP bruts (endpoint, request, response) vers Enable Banking pour diagnostic.
+          Journal des appels HTTP échangés avec Enable Banking à des fins de diagnostic.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -192,9 +192,9 @@ export function EnableBankingDebugSection() {
           <DialogTrigger asChild>
             <Button variant="outline">Voir les appels</Button>
           </DialogTrigger>
-          <DialogContent className="w-[95vw] sm:max-w-4xl">
+          <DialogContent className="w-[95vw] sm:max-w-4xl" aria-describedby={undefined}>
             <DialogHeader>
-              <DialogTitle>Enable Banking — Appels API bruts</DialogTitle>
+              <DialogTitle>Appels API Enable Banking</DialogTitle>
             </DialogHeader>
             {open && <EbCallLogDialog />}
           </DialogContent>

@@ -115,7 +115,7 @@ export function MfaDisableDialog({
               {t('settings.mfaCancel')}
             </Button>
             <Button type="submit" variant="destructive" disabled={disable.isPending}>
-              {disable.isPending && <Loader2 size={14} className="mr-1.5 animate-spin" />}
+              {disable.isPending && <Loader2 size={14} className=".5 animate-spin" />}
               {t('settings.mfaDisable')}
             </Button>
           </DialogFooter>

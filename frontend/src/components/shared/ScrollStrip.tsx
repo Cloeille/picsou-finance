@@ -78,7 +78,7 @@ export function ScrollStrip({
   return (
     <div
       ref={ref}
-      className={cn('-m-1 overflow-x-auto p-1', className)}
+      className={cn('-mx-1 overflow-x-auto px-1 py-1', className)}
       style={{
         maskImage:
           'linear-gradient(to right, transparent, #000 var(--fade-start, 0px), #000 calc(100% - var(--fade-end, 0px)), transparent)',
