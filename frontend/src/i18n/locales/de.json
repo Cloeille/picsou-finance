@@ -1955,7 +1955,7 @@
         "rateLimitedRetryAfter": "Zu viele Versuche. Versuche es in etwa {{minutes}} Min. erneut.",
         "tooManySyncs": "Zu viele Synchronisierungen. Warte, bevor Du es erneut versuchst.",
         "tooManySyncsRetryAfter": "Zu viele Synchronisierungen. Versuche es in etwa {{minutes}} Min. erneut.",
-        "appValidationTimeout": "Die Bestätigung kam nicht rechtzeitig an. Prüfe, ob Clé Digitale auf diesem Gerät aktiv ist oder schau in der BNP Paribas App unter den ausstehenden Freigaben nach, und beginne dann neu.",
+        "appValidationTimeout": "Die Bestätigung kam nicht rechtzeitig an. Prüfe, ob Clé Digitale auf Deinem Smartphone aktiv ist oder schau in der BNP Paribas App unter den ausstehenden Freigaben nach, und beginne dann neu.",
         "authAttemptExpired": "Dieser Anmeldeversuch ist abgelaufen. Beginne neu.",
         "sessionExpired": "Die Sitzung ist abgelaufen. Melde Dich erneut an.",
         "formatChanged": "Die Website der Bank sieht nicht mehr wie erwartet aus. Es wurde nichts importiert.",

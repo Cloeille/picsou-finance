@@ -1955,7 +1955,7 @@
         "rateLimitedRetryAfter": "Demasiados intentos. Inténtalo de nuevo en unos {{minutes}} min.",
         "tooManySyncs": "Demasiadas sincronizaciones. Espera antes de volver a intentarlo.",
         "tooManySyncsRetryAfter": "Demasiadas sincronizaciones. Inténtalo de nuevo en unos {{minutes}} min.",
-        "appValidationTimeout": "La aprobación no llegó a tiempo. Comprueba que Clé Digitale esté activa en este dispositivo o revisa las operaciones pendientes en la aplicación de BNP Paribas y vuelve a intentarlo.",
+        "appValidationTimeout": "La aprobación no llegó a tiempo. Comprueba que Clé Digitale esté activa en tu teléfono o revisa las operaciones pendientes en la aplicación de BNP Paribas y vuelve a intentarlo.",
         "authAttemptExpired": "Este intento de inicio de sesión caducó. Empieza de nuevo.",
         "sessionExpired": "La sesión caducó. Inicia sesión de nuevo.",
         "formatChanged": "El sitio del banco ya no tiene el aspecto esperado. No se importó nada.",

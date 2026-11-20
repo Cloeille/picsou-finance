@@ -2239,7 +2239,7 @@
         "rateLimitedRetryAfter": "Trop de tentatives. Réessayez dans environ {{minutes}} min.",
         "tooManySyncs": "Trop de synchronisations. Patientez avant de réessayer.",
         "tooManySyncsRetryAfter": "Trop de synchronisations. Réessayez dans environ {{minutes}} min.",
-        "appValidationTimeout": "La validation n'est pas arrivée à temps. Vérifiez que votre Clé Digitale est bien activée sur cet appareil ou consultez Opérations en attente dans l'application BNP Paribas, puis recommencez.",
+        "appValidationTimeout": "La validation n'est pas arrivée à temps. Vérifiez que votre Clé Digitale est bien activée sur votre téléphone ou consultez Opérations en attente dans l'application BNP Paribas, puis recommencez.",
         "authAttemptExpired": "Cette tentative de connexion a expiré. Recommencez.",
         "sessionExpired": "La session a expiré. Reconnectez-vous.",
         "formatChanged": "Le site de la banque ne ressemble plus à ce qui est attendu. Rien n'a été importé.",
