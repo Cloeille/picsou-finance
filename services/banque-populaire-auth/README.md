@@ -46,9 +46,10 @@ unchanged. The container listens on port 8001.
 | client space | `www.banquepopulaire.fr`, `/espace-client/` |
 | authorize / token | `https://www.as-ext-bad-ib.banquepopulaire.fr/api/oauth/v2/{authorize,token}` |
 | data | `https://www.rs-ext-bad-ib.banquepopulaire.fr` (synthesis and PFM transactions, same paths and queries as Caisse d'Epargne) |
-| allow-list | https `*.banquepopulaire.fr` only: no `bpce.fr`, no `caisse-epargne.fr` host |
+| allow-list | https `*.banquepopulaire.fr`, plus exactly `www.as-ext-bad-me.bpce.fr` and `www.rs-ext-bad-me.bpce.fr` (`extra_hosts`, no wildcard): no other `bpce.fr`, no `caisse-epargne.fr` host |
 | session cookies | the `banquepopulaire.fr` domain family only |
-| loan, home-loan apps | none (unsupported) |
+| authorize / token, personal-loan app | the main hosts, client `4107d671-…`, scope `managePersonalLoanPrd readPersonalLoanPrd readUser`, redirect `/espace-gestion/pret-personnel/postMessage/index.html`, no `claims` (public config, not observed live) |
+| home-loan app | `https://www.as-ext-bad-me.bpce.fr/api/oauth/v2/{authorize,token}`, client `873a10ce-…`, empty scope, redirect `/gestion-client/credit-immobilier/postMessage/index.html`, no `claims`; data `https://www.rs-ext-bad-me.bpce.fr` (public config, not observed live) |
 | PER app | `espace-assurances-de-personnes.banquepopulaire.fr` (gateway `www.rs-ext-bad-ib.banquepopulaire.fr`) |
 
 ## Login
@@ -87,11 +88,19 @@ or a LEP is not checked at all (a savings book has no card), so a malformed valu
 there is accepted. No card account, no card operation read, nothing listed in
 `unsupported` (a card is not a contract).
 
+Personal loans `6/12` and home loans `6/13` are imported as `LOAN`, each reading its detail
+with its own OAuth token minted on demand (like Caisse d'Epargne). `LOAN` is a provisional
+kind: the clients come from the bank's public web app configuration and were never
+observed in a live sync, so a refusal of a loan app (token or detail, even a 401) never
+ends the session, and a loan whose detail cannot be read is imported with its synthesis
+balance and `loan: null`. The log says which loan app and which field:
+`loan detail unreadable: product=… code=… rejected=<field path>`,
+`loan detail unavailable: product=… code=…`, `loan imported without detail: product=…`.
+
 Listed in `unsupported` (id, family and sub-family code only), never read, never fatal:
-personal loans `6/12`, home loans `6/13`, the revolving credit `2/11`
-("Credit Renouvelable Facelia", null balance), and any family not listed above.
-The PER `4/05` is read from the insurer app (minting a second OAuth token on demand,
-like Caisse d'Epargne; pinned to `PERIB`).
+the revolving credit `2/11` ("Credit Renouvelable Facelia", null balance), and any family
+not listed above. The PER `4/05` is read from the insurer app (minting a third OAuth
+token on demand, like Caisse d'Epargne; pinned to `PERIB`).
 
 ## Observed live (2026-11-05, 2026-11-08) and not
 
@@ -115,7 +124,7 @@ region, identifier, keypad, Sécur'Pass, session replay and `/accounts`. A wrong
 identifier or password was seen too: the bank shows a keypad for any identifier,
 then a modal "Identifiant ou mot de passe erroné", read as `INVALID_CREDENTIALS`.
 
-Not observed: the revolving-credit detail, personal or home loans, LEP.
+Not observed: the revolving-credit detail, LEP, and the personal and home loans (`6/12`, `6/13`): their clients were read from the public web app configuration on 2026-11-14, not seen in a live sync.
 
 ## Tests
 

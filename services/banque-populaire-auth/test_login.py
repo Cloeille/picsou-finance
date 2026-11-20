@@ -267,11 +267,14 @@ class NavigationAllowListTest(BanquePopulaireLoginTest):
             "https://www.icgauth.banquepopulaire.fr/se-connecter/identifier",
             "https://www.as-ext-bad-ib.banquepopulaire.fr/api/oauth/v2/authorize",
             "https://www.banquepopulaire.fr/espace-client/",
+            # The home-loan app's two BPCE hosts (`SITE.extra_hosts`), nothing else on bpce.fr.
+            "https://www.as-ext-bad-me.bpce.fr/api/oauth/v2/authorize",
+            "https://www.rs-ext-bad-me.bpce.fr/bapi/loan/v1/loans/x",
             "data:image/png;base64,AAAA",
         )
         refused = (
             "https://www.icgauth.caisse-epargne.fr/se-connecter/identifier",
-            "https://www.as-ext-bad-me.bpce.fr/api/oauth/v2/token",
+            "https://www.as-ext-bad-ib.bpce.fr/api/oauth/v2/token",
             "https://www.bpce.fr/",
             "https://evilbanquepopulaire.fr/",
             "http://www.banquepopulaire.fr/",

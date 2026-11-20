@@ -8,8 +8,11 @@ its `SITE` is the shared `bpce` package (services/base/bpce). Two differences:
   * the identifier page first asks for the establishment (a regional bank or the
     BRED): `POST /initiate` takes `{customerId, region}`, `region` one of
     `REGION_CODES`, and the login picks the option with that exact text;
-  * no personal-loan or home-loan app was observed: those contracts (6/12, 6/13) and
-    the revolving credit (2/11) are listed in `unsupported`, never read. The PER (4/05)
+  * the personal-loan (6/12) and home-loan (6/13) apps use their own public OAuth
+    clients, read from the bank's public web app configuration and not yet observed in
+    a live sync (`LOAN` is a provisional kind: a loan app refusal never ends the
+    session, and a loan whose detail cannot be read is imported without it). The
+    revolving credit (2/11) is listed in `unsupported`, never read. The PER (4/05)
     is read from the insurer app, like on Caisse d'Epargne (see `SITE.per`).
 
 Safety rules, same as every sidecar:
@@ -39,7 +42,7 @@ from typing import Literal
 
 import httpx
 from bpce import fetcher, login, per_client, replay
-from bpce.site import ChainProfile, PerApp, Site
+from bpce.site import ChainProfile, HomeLoanApp, PerApp, Site
 from fastapi import HTTPException, Request
 from picsou_sidecar import configure_logging, create_app
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
@@ -71,7 +74,9 @@ REGION_CODES = tuple(code for code, _ in REGIONS)
 SITE = Site(
     # Seen in one live run (2026-11-08): Compte sur Livret 3/02, PEL 3/04,
     # term deposit 4/09 and cooperative shares 4/10.
-    provisional_kinds=frozenset({"SAVINGS", "PEL", "TERM_DEPOSIT", "COOPERATIVE_SHARES", "PER"}),
+    # `LOAN`: 6/12 and 6/13, read from the bank's public web app configuration
+    # (2026-11-14), not yet observed in a live sync.
+    provisional_kinds=frozenset({"SAVINGS", "PEL", "TERM_DEPOSIT", "COOPERATIVE_SHARES", "PER", "LOAN"}),
     domain="banquepopulaire.fr",
     login_url="https://www.icgauth.banquepopulaire.fr/se-connecter/sso?service=cyber",
     client_host="www.banquepopulaire.fr",
@@ -85,6 +90,40 @@ SITE = Site(
     alphanumeric_identifier=True,
     # Cards are not imported for Banque Populaire.
     cards=False,
+    # The home-loan app is served by the BPCE group hosts, shared with Caisse d'Epargne:
+    # these two exactly, never a wildcard on bpce.fr.
+    extra_hosts=frozenset({"www.as-ext-bad-me.bpce.fr", "www.rs-ext-bad-me.bpce.fr"}),
+    # The personal-loan app (espace-gestion/pret-personnel) mints its own token, on the
+    # main authorization server: public client, scope and redirect of that app, no
+    # `claims`. Read from the bank's public web app configuration (2026-11-14), not yet
+    # observed in a live sync; every other authorize parameter is the one the main chain sends.
+    personal_loan=ChainProfile(
+        name="personal-loan",
+        overrides=(
+            ("client_id", "4107d671-4e78-4f18-8842-83d7ca6735a9"),
+            ("scope", "managePersonalLoanPrd readPersonalLoanPrd readUser"),
+            ("redirect_uri", "https://www.banquepopulaire.fr/espace-gestion/pret-personnel/postMessage/index.html"),
+        ),
+        drop=("claims",),
+    ),
+    # The home-loan app (gestion-client/credit-immobilier) mints its own token on the BPCE
+    # authorization server: same public client as Caisse d'Epargne, the redirect of that
+    # app, an empty `scope`, no `claims`. Read from the public web app configuration
+    # (2026-11-14), not yet observed in a live sync.
+    home_loan=HomeLoanApp(
+        chain=ChainProfile(
+            name="home-loan",
+            overrides=(
+                ("client_id", "873a10ce-67a7-4917-ab31-e5a482617303"),
+                ("scope", ""),
+                ("redirect_uri", "https://www.banquepopulaire.fr/gestion-client/credit-immobilier/postMessage/index.html"),
+            ),
+            drop=("claims",),
+        ),
+        authorize_url="https://www.as-ext-bad-me.bpce.fr/api/oauth/v2/authorize",
+        token_url="https://www.as-ext-bad-me.bpce.fr/api/oauth/v2/token",
+        base_url="https://www.rs-ext-bad-me.bpce.fr",
+    ),
     # The PER insurer app (espace-assurances-de-personnes) mints its own token: public
     # client and redirect of that app, an empty `scope` (the bank grants
     # `assuranceVieAuth_get_<id> readUser`, as on Caisse d'Epargne), no `claims`. Every
@@ -106,6 +145,8 @@ SITE = Site(
     ),
 )
 
+LOAN_CHAIN = SITE.personal_loan
+HOME_LOAN_CHAIN = SITE.home_loan.chain
 PER_CHAIN = SITE.per.chain
 
 # Test seam: tests inject an httpx.MockTransport here. None means real network.
@@ -238,8 +279,24 @@ async def token_check(req: TokenCheckRequest) -> dict:
 async def _fetch_once(session_state: str) -> dict:
     token = await _token_cache.get(session_state, transport=_TRANSPORT)
 
+    async def loan_token() -> str:
+        # Second OAuth chain, minted only when the synthesis holds a loan.
+        result = await _token_cache.get(session_state, transport=_TRANSPORT, chain=LOAN_CHAIN)
+        return result.access_token
+
+    async def home_loan_token() -> str:
+        # Home-loan app chain on the BPCE authorization server, minted only for a home loan.
+        result = await _token_cache.get(
+            session_state,
+            transport=_TRANSPORT,
+            authorize_url=SITE.home_loan.authorize_url,
+            token_url=SITE.home_loan.token_url,
+            chain=HOME_LOAN_CHAIN,
+        )
+        return result.access_token
+
     async def per_detail(contract_id: str, entity_code: str) -> dict:
-        # Second OAuth chain (insurer app), minted only when the synthesis holds a PER.
+        # Third OAuth chain (insurer app), minted only when the synthesis holds a PER.
         # The main token already proved the session alive, so a refusal here is
         # PER-specific: one fresh PER token is tried, then only this PER is left out.
         for attempt in (1, 2):
@@ -259,8 +316,14 @@ async def _fetch_once(session_state: str) -> dict:
                     raise replay.UpstreamError("PER token refused twice") from None
         raise AssertionError("unreachable")
 
-    # No loan app: those contracts are unsupported and no loan chain is ever minted.
-    return await fetcher.fetch_import(SITE, token.access_token, transport=_TRANSPORT, per_detail=per_detail)
+    return await fetcher.fetch_import(
+        SITE,
+        token.access_token,
+        transport=_TRANSPORT,
+        loan_token=loan_token,
+        per_detail=per_detail,
+        home_loan_token=home_loan_token,
+    )
 
 
 async def _fetch_accounts(session_state: str) -> dict:
@@ -270,6 +333,8 @@ async def _fetch_accounts(session_state: str) -> dict:
         # A cached token can be revoked before its expiry: drop both and replay once more.
         # A second rejection (or a failed replay) means the session itself is dead.
         _token_cache.evict(session_state)
+        _token_cache.evict(session_state, chain=LOAN_CHAIN)
+        _token_cache.evict(session_state, chain=HOME_LOAN_CHAIN)
         _token_cache.evict(session_state, chain=PER_CHAIN)
         return await _fetch_once(session_state)
 
