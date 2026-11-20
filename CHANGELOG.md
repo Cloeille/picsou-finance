@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Demo frontend image published by CI.** `ghcr.io/<owner>/picsou-finance/demo` (nginx, port 8080, `VITE_DEMO_MODE=true`, built from `docker/Dockerfile.demo`) follows the same tags as the app image, so a public demo site can track `nightly` instead of a hand-built image.
+
 ## [1.2.1] — 2026-11-20
 
 ### Added

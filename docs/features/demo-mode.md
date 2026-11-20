@@ -12,6 +12,10 @@ Allows running the frontend without a backend or authentication. Used for local 
 
 The `VITE_DEMO_MODE=true` environment variable in `frontend/.env` enables the mode. It is a build-time value read via `import.meta.env`.
 
+### Published image
+
+CI publishes the demo as `ghcr.io/<owner>/picsou-finance/demo` (`docker/Dockerfile.demo`: the frontend built with `VITE_DEMO_MODE=true`, served by nginx on 8080). It uses the app image's tags (`nightly` on main, the semver on a release tag). Do not build it by hand for deployment.
+
 ### Request interception
 
 At startup, if `VITE_DEMO_MODE === 'true'`, a custom Axios adapter replaces the real HTTP transport:
