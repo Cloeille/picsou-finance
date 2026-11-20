@@ -29,6 +29,10 @@ fails closed rather than silently echoing every origin. Methods: `GET/POST/PUT/P
 An explicit `CorsFilter` bean (not the Security DSL) carries a `LoggingCorsProcessor` that logs the
 origin on every rejection.
 
+The same list is the instance's set of public addresses for the Louve Invest connector: its OAuth
+redirect URI is the listed origin the browser is on (`originPolicy().checkOrigin`), so an address
+missing here cannot connect Louve. See [louve-invest.md](./louve-invest.md).
+
 ### Same-origin detection depends on the request scheme (the 403-behind-proxy trap)
 
 Spring's `CorsUtils.isCorsRequest()` classifies same-vs-cross origin by comparing the `Origin`

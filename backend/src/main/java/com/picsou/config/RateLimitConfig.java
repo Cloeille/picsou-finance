@@ -287,6 +287,14 @@ public class RateLimitConfig {
     }
 
     /**
+     * Per-IP Louve Invest connection limiter (start and callback): 10 per 15 minutes.
+     */
+    @Bean("louveAuthBuckets")
+    public Map<String, Bucket> louveAuthBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
      * Per-IP Sofidy auth rate limiter: 5 attempts per 15 minutes.
      */
     @Bean("sofidyAuthBuckets")
@@ -741,6 +749,20 @@ public class RateLimitConfig {
             .addLimit(Bandwidth.builder()
                 .capacity(5)
                 .refillIntervally(5, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    /**
+     * Per-IP Louve Invest connection limiter: 10 calls per 15 minutes, start and callback
+     * together, so a connection retried a few times still fits. There is no password to guess:
+     * this bounds the client registrations and token exchanges a caller can trigger on Louve.
+     */
+    public static Bucket createLouveAuthBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(10)
+                .refillIntervally(10, Duration.ofMinutes(15))
                 .build())
             .build();
     }

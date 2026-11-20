@@ -472,6 +472,8 @@ jobs:
           config.SsoHandshakeSessionRaceIntegrationTest
           adapter.sidecar.SidecarBankCodesTest
           service.PeerLoanTransactionLinksPostgresTest
+          service.LouveConnectionPostgresTest
+          service.LouveClientRegistryPostgresTest
           migration.V142SidecarSessionMigrationTest
           migration.V146NatixisSidecarSessionMigrationTest
           migration.V149TradeRepublicSidecarSessionMigrationTest

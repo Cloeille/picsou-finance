@@ -1,6 +1,6 @@
 # Feature: SCPI shares
 
-> Last updated: 2026-11-05
+> Last updated: 2026-11-17
 
 ## Context
 
@@ -160,6 +160,18 @@ loads no data over XHR, and its two Excel exports (fund movements, dividends) ca
 neither the withdrawal price nor the list of product codes. The ADR's data-flow
 assessment records what was observed (#422).
 
+### Louve Invest sync
+
+A Louve Invest connection reads the SCPI shares bought through that distributor from Louve's
+official MCP server, with an OAuth grant limited to `portfolio:read`; there is no sidecar and no
+password. Funds are matched by `scpi_position.louve_fund_code` (Louve's `scpiUrlId`, `aurore`),
+unique per member, through the same `ScpiFundReconciler` and `applySyncedPosition`. The
+withdrawal price is the fund sheet's, cross-checked with the line's own value (the lower one
+wins when they disagree), the subscription price, the management company and a valid ISIN are
+filled in, and the distribution per share is the published rate times the subscription price.
+A line held in nue-propriété or usufruct is not valued (`UNSUPPORTED_OWNERSHIP`). See
+[louve-invest.md](./louve-invest.md).
+
 ### Account creation and linking
 
 Since [#232](https://github.com/Cloeille/picsou-finance/issues/232), a sync does not need a
@@ -169,12 +181,15 @@ pre-made account. `ScpiFundReconciler` takes each fund of a complete snapshot:
 2. already linked → updated, `UPDATED` (or `PRICE_INCOMPLETE` without a withdrawal price);
 3. one manual SCPI account, linked to no fund, named like the fund label after
    normalization (case, accents, punctuation) → linked, `LINKED`; two or more → `AMBIGUOUS`,
-   nothing linked or created;
+   nothing linked or created. For a distributor (Louve Invest only), a name made of the
+   distributor and the fund label ("Louve Invest - Aurore") matches too, and counts towards
+   `AMBIGUOUS` like the bare label;
 4. otherwise → a new SCPI account named after the label, `CREATED`.
 
 A fund the member had and the provider no longer lists is reported `MISSING_AT_PROVIDER`;
 its account is kept. Sofidy still writes such a linked fund at zero shares (its ADR, point
-8); CORUM leaves it untouched. Positions linked by hand before V115 count too, so the first
+8); CORUM and Louve Invest leave it untouched. A Louve line in dismembered ownership is
+reported `UNSUPPORTED_OWNERSHIP` and writes nothing, not even to an account already linked. Positions linked by hand before V115 count too, so the first
 sync after the upgrade can report an old fund as missing; it only reports it.
 
 A snapshot whose currency is not `EUR`, or that has none, is refused as `INVALID_DATA`
@@ -233,6 +248,7 @@ same `ScpiPositionService.save` and never sends a CORUM or Sofidy fund code. See
   and `V106` (`sofidy_session`), both folded into `sidecar_session` by `V142`, above the base branch's `V103`. `V115`
   (`scpi_provider_fund`) follows V114 (`account_holding_provider_price_date`) on the base branch.
   `V127` adds `corum_session.encrypted_credentials`, which `V142` copies into `sidecar_session`.
+  `V153` adds `louve_fund_code`, the `LOUVE` provider and the `UNSUPPORTED_OWNERSHIP` outcome.
 - Deleting a SCPI account tombstones its funds. Without that, the next sync would
   recreate it, since a sync now creates the account of any fund it has not linked.
 - Adoption is unique-match only and never fuzzy. An account renamed away from the
@@ -301,6 +317,8 @@ Health checks produce no request log line.
 - Related ADR: [Sofidy Espace Associé fills existing SCPI accounts through a browserless sidecar](../decisions/2026-09-27-sofidy-scpi-sidecar.md)
 - Related ADR: [CORUM and Sofidy syncs create and link their SCPI accounts](../decisions/2026-10-16-scpi-sync-creates-accounts.md)
 - Related ADR: [CORUM Life contracts sync as one assurance-vie account each](../decisions/2026-11-05-corum-life-sync.md)
+- Related ADR: [Louve Invest through its official MCP server and OAuth, not a sidecar](../decisions/2026-11-17-louve-invest-official-mcp.md)
+- Related feature: [Louve Invest SCPI sync](./louve-invest.md)
 - Related feature: [CORUM Life sync](./corum-life.md)
 - Ticket: https://github.com/Cloeille/picsou-finance/issues/157
 - Ticket: https://github.com/Cloeille/picsou-finance/issues/232

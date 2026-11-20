@@ -27,6 +27,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are both categorised *Virement interne*, so cash flow and the flow diagram stop counting them as
   spending and income. A category you chose by hand is never changed, and when two legs could
   match, Picsou leaves them alone rather than guess. See `docs/features/budget.md`. Closes #450.
+- **Louve Invest SCPI sync (verified against one real account).** Connect Louve Invest from the
+  Sync page or Add Account: Picsou sends you to Louve's own consent page and asks only for
+  read-only access to your portfolio (`portfolio:read`); no Louve password is typed into or stored
+  by Picsou, and no connector container is needed. The SCPI shares you hold in full ownership are
+  synced daily into one SCPI account per fund, valued at the withdrawal price, with the
+  subscription price, management company, ISIN and declared distribution filled in. An existing
+  account named "Aurore" or "Louve Invest - Aurore" is linked rather than duplicated. Shares held in
+  bare ownership or usufruct are listed but not valued, and life-insurance contracts are not
+  synced yet. Louve sends you back to the Picsou address you connected from, which must be one
+  of the allowed origins in Administration > Security (HTTPS, or `localhost` for development).
+  The encrypted OAuth tokens are stored by `V153`; the instance's Louve client registration is
+  kept in the application settings. See `docs/features/louve-invest.md`.
 
 ### Fixed
 
