@@ -72,7 +72,7 @@ class InternalTransferPairingServiceTest {
         assertThat(out.isCategoryManual()).isFalse();
         verify(transactions).saveAll(List.of(out, in));
         verify(transactions).findByAccountIdInAndDateBetweenOrderByDateAsc(
-            eq(List.of(1L, 2L)), eq(TODAY.minusDays(90)), eq(TODAY));
+            eq(List.of(1L, 2L)), eq(TODAY.minusDays(93)), eq(TODAY.plusDays(3)));
     }
 
     /** The case in the issue: one leg already a transfer, the Livret credit uncategorised. */

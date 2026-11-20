@@ -37,7 +37,11 @@ import java.util.Set;
 public class InternalTransferPairingService {
 
     static final String CATEGORY_SLUG = "virement-interne";
-    /** Matches the bank sync lookback: older rows were paired by an earlier sync. */
+    /**
+     * Matches the bank sync lookback: older rows were paired by an earlier sync. Rows up to
+     * {@value #MAX_DAY_GAP} days past either end are loaded too, so a partner just outside the
+     * window (a future-dated deferred debit, say) still makes its group ambiguous.
+     */
     static final int LOOKBACK_DAYS = 90;
     static final int MAX_DAY_GAP = 3;
     private static final String TRADING = "TRADING";
@@ -72,7 +76,8 @@ public class InternalTransferPairingService {
             return 0;
         }
         List<Transaction> legs = transactions
-            .findByAccountIdInAndDateBetweenOrderByDateAsc(accountIds, today.minusDays(LOOKBACK_DAYS), today)
+            .findByAccountIdInAndDateBetweenOrderByDateAsc(accountIds,
+                today.minusDays(LOOKBACK_DAYS + MAX_DAY_GAP), today.plusDays(MAX_DAY_GAP))
             .stream()
             .filter(InternalTransferPairingService::isCandidate)
             .toList();
