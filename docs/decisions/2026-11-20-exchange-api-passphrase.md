@@ -6,7 +6,7 @@
 ## Context
 
 The upcoming OKX connector requires a user-chosen API passphrase alongside the key and secret.
-Its API keys are issued separately by the Global, EEA and US entities.
+Its Global, EEA and US entities use different API domains.
 
 ## Decision
 
@@ -25,7 +25,9 @@ Store the normalized code in a nullable plaintext `region` column on the connect
 ## Reasoning
 
 Named accessors make each field explicit. A dedicated column preserves the existing secret format.
-A regional API key exists only on the issuing entity's host, so its region is part of the key's identity.
+The region selects the API endpoint of the entity with which the account is currently registered.
+An OKX account that moves to another entity can keep its API key and use the new entity's API domain.
+[OKX account migration guidance](https://www.okx.com/en-sg/help/country-of-residence-change).
 
 ## Trade-offs accepted
 

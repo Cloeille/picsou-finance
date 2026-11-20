@@ -19,6 +19,9 @@ Picsou tracks cryptocurrency holdings from two sources: centralized exchanges (B
 ### Exchange credentials
 
 The form and service follow the adapter's `requiresApiSecret()`, `requiresApiPassphrase()` and `regions()` capabilities.
+There is no code generation for these capabilities. When an adapter overrides `regions()` or
+`requiresApiPassphrase()`, set the same region codes or flag in the frontend's
+[`SUPPORTED_EXCHANGES`](../../frontend/src/types/api.ts).
 When the adapter lists regions, the user must choose one. The service trims and upper-cases region codes,
 normalises blank fields to null, and preserves nonblank passphrases verbatim. It returns `400` for missing
 required fields, unexpected fields or unknown regions before any network call. Both adapter methods
@@ -240,7 +243,8 @@ Upsert Account (type=CRYPTO, no ticker)
   the stored region on sync and status reads. It also covers sync failures, unsupported exchanges,
   unpriced holdings and deleted accounts.
 - `CryptoExchangeTab.test.tsx` uses test-only exchange capabilities to verify passphrase masking, explicit region selection, conditional submission, and display of the stored region.
-- `CryptoExchangeControllerTest` checks that validation redacts rejected passphrases.
+- `CryptoExchangeControllerTest` checks that POST forwards the passphrase and region to the service,
+  exchange status JSON includes the stored region, and validation redacts rejected passphrases.
 - `CryptoExchangePositionRepositoryTest` -- the delete-then-reinsert rewrite against the real `uq_crypto_exchange_position`, the exact quantities it leaves behind, a product no longer held disappearing, and — with a second seeded account — that the bulk delete filters by account rather than emptying the table
 - `MeriaAdapterTest` -- aggregation across wallets/stakings/lendings per currency, staking counted as `amount` with accrued interest **not** added on top, a contract with no reward fields at all, a reward above the quantity or below zero reported with no decomposition at all (and a merge with one such contract staying undecomposed), symbols upper-cased under a forced Turkish locale, zero/blank entries dropped; and the all-or-nothing contract: every endpoint × {401, 403, 404, 429, 500} throws, as do `success:false` on HTTP 200, a reactor-wrapped timeout and a non-JSON (Cloudflare) body — while `data: []` **and an empty body on a 2xx** both yield an empty list without throwing. Also pins that only an `API-KEY` header is sent (no `Authorization`, no `X-MBX-APIKEY`, no `signature` query), that the secret argument is ignored, and that no message or log line contains the API key
 - `MeriaAdapterWiringTest` -- Spring picks the production constructor with and without `app.meria.base-url` set, and the production client reads a staking payload larger than the framework's default buffer (served over a real socket — the `ExchangeFunction` fixtures decode with the stub's strategies and cannot see that configuration)

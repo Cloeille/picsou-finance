@@ -18,6 +18,8 @@ import com.picsou.repository.CryptoExchangeSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -33,6 +35,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -322,24 +325,31 @@ class CryptoExchangeSyncServiceTest {
     }
 
     @Test
-    void addExchange_normalisesAndStoresRegionForSyncAndStatus() {
+    @ResourceLock(Resources.LOCALE)
+    void addExchange_normalisesRegionUnderTurkishLocaleAndStoresItForSyncAndStatus() {
         CryptoExchangePort adapter = twoCredentialAdapter();
-        ExchangeCredentials normalised = new ExchangeCredentials(KEY, SECRET, null, "EEA");
-        when(adapter.regions()).thenReturn(List.of("GLOBAL", "EEA", "US"));
+        ExchangeCredentials normalised = new ExchangeCredentials(KEY, SECRET, null, "IN");
+        when(adapter.regions()).thenReturn(List.of("IN"));
         when(adapter.testConnection(normalised)).thenReturn(true);
         when(adapter.fetchPositions(normalised)).thenReturn(List.of());
         arrangeSuccessfulSync(ExchangeType.BINANCE);
         CryptoExchangeSyncService service = serviceWith(adapter);
 
-        service.addExchange(ExchangeType.BINANCE, new ExchangeCredentials(KEY, SECRET, null, " eea "), MEMBER_ID);
+        Locale previousLocale = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.of("tr", "TR"));
+            service.addExchange(ExchangeType.BINANCE, new ExchangeCredentials(KEY, SECRET, null, " in "), MEMBER_ID);
+        } finally {
+            Locale.setDefault(previousLocale);
+        }
         service.sync(7L, MEMBER_ID);
 
         verify(adapter).testConnection(normalised);
         verify(adapter, times(2)).fetchPositions(normalised);
-        assertThat(saved[0].getRegion()).isEqualTo("EEA");
+        assertThat(saved[0].getRegion()).isEqualTo("IN");
         when(sessionRepository.findAllByMemberId(MEMBER_ID)).thenReturn(List.of(saved[0]));
         assertThat(service.getStatus(MEMBER_ID)).extracting(CryptoExchangeSyncService.ExchangeStatusResponse::region)
-            .containsExactly("EEA");
+            .containsExactly("IN");
     }
 
     // ── Sync ──────────────────────────────────────────────────────────────────
