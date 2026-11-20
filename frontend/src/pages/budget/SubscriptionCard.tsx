@@ -8,7 +8,7 @@ import {
   useDeleteRecurring,
   useIgnoreRecurring,
 } from '@/features/budget/hooks'
-import { cn, formatDate, getLocale } from '@/lib/utils'
+import { cn, formatDate, formatPercent, getLocale } from '@/lib/utils'
 import { formatBankLabel } from '@/lib/bank-label'
 import { useMoney } from '@/hooks/use-money'
 import type { RecurringSeries } from '@/types/api'
@@ -34,6 +34,9 @@ export function SubscriptionCard({ series }: { series: RecurringSeries }) {
   const statusVariant = series.status === 'SUGGESTED' ? 'secondary' : 'outline'
   const runtime = series.runtimeStatus !== 'SCHEDULED' ? RUNTIME_STATUS_META[series.runtimeStatus] : null
   const showPriceChange = series.priceChangedAt != null && series.previousAmount != null
+  const confidencePct = series.confidence != null
+    ? formatPercent(series.confidence * 100, { fractionDigits: 0 })
+    : null
 
   const metaParts: string[] = [t(CADENCE_LABEL_KEY[series.cadence])]
   if (series.nextDueDate) {
@@ -76,6 +79,14 @@ export function SubscriptionCard({ series }: { series: RecurringSeries }) {
         <p className="mt-0.5 truncate text-sm text-muted-foreground">
           {metaParts.join(' · ')}
         </p>
+
+        {series.autoConfirmed && (
+          <p className="mt-0.5 truncate text-sm text-muted-foreground">
+            {confidencePct != null
+              ? t('budget.recurring.autoConfirmedConfident', { percent: confidencePct })
+              : t('budget.recurring.activity.autoConfirmed')}
+          </p>
+        )}
 
         {showPriceChange && (
           <p className="mt-1 inline-flex items-center gap-1.5 text-sm text-rose-600 dark:text-rose-400">
