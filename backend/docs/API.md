@@ -1723,6 +1723,7 @@ rate limiting returns `429`.
 | `type` | `ExchangeType` | `BINANCE` · `KRAKEN` · `MERIA` |
 | `apiKey` | `string` | Exchange API key (required, max 200 chars) |
 | `apiSecret` | `string?` | Exchange API secret (max 300 chars). **Required** for `BINANCE` and `KRAKEN`; must be **omitted** for `MERIA`, which authenticates with a single read-only API key |
+| `apiPassphrase` | `string?` | Exchange API passphrase (max 200 characters and 347 UTF-8 bytes). Required only when the adapter uses one. Omit it for all current exchanges. |
 
 **Response `200` — `AccountResponse`.**
 
@@ -1730,7 +1731,7 @@ rate limiting returns `429`.
 
 | Status | When |
 |--------|------|
-| `400` | Blank API key; missing secret for an exchange that needs one; secret supplied for a single-key exchange |
+| `400` | Blank API key, missing required secret or passphrase, unexpected secret or passphrase, or a passphrase beyond the UTF-8 byte limit |
 | `422` | Bean-validation failure (`errors` map), the credentials were refused by the exchange, or the immediate sync failed |
 
 ---

@@ -1459,6 +1459,7 @@
       "type": "Exchange type",
       "apiKey": "API Key",
       "apiSecret": "API Secret",
+      "apiPassphrase": "API passphrase",
       "apiKeyOnly": "Meria connects with a single read-only API key — no secret needed.",
       "showSecret": "Show API secret",
       "hideSecret": "Hide API secret",

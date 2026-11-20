@@ -21,13 +21,33 @@ public interface CryptoExchangePort {
      * single read-only key and has no secret at all. {@code CryptoExchangeSyncService.addExchange}
      * is the enforcement point — it rejects a missing secret for an exchange that needs one, and a
      * stray secret for one that doesn't, before any network call. When this returns {@code false},
-     * the {@code apiSecret} argument of {@link #fetchPositions} and {@link #testConnection} is
+     * the {@code apiSecret} field passed to {@link #fetchPositions} and {@link #testConnection} is
      * always {@code null}.
      *
      * <p>Defaulted to {@code true} so existing adapters need no edit.
      */
     default boolean requiresApiSecret() {
         return true;
+    }
+
+    /**
+     * Whether this exchange requires an API passphrase. The sync service rejects missing or
+     * unexpected passphrases before testing a connection. When this returns {@code false}, the
+     * {@code apiPassphrase} field passed to the adapter is always {@code null}.
+     */
+    default boolean requiresApiPassphrase() {
+        return false;
+    }
+
+    /**
+     * An API key with the credentials required by the adapter. The secret and passphrase are
+     * {@code null} exactly when their respective requirements are false.
+     */
+    record ExchangeCredentials(String apiKey, String apiSecret, String apiPassphrase) {
+        @Override
+        public String toString() {
+            return "ExchangeCredentials[redacted]";
+        }
     }
 
     /**
@@ -42,16 +62,16 @@ public interface CryptoExchangePort {
      * the caller sums these into a single account balance and writes it to a daily
      * {@code BalanceSnapshot}, so a silently short result quietly dents the net-worth history.
      *
-     * @param apiSecret {@code null} when {@link #requiresApiSecret()} is {@code false}
+     * <p>Keep credentials out of exceptions and logs.
      */
-    List<ExchangePosition> fetchPositions(String apiKey, String apiSecret);
+    List<ExchangePosition> fetchPositions(ExchangeCredentials credentials);
 
     /**
      * Whether these credentials can read the account. Never throws — a failure is {@code false}.
      *
-     * @param apiSecret {@code null} when {@link #requiresApiSecret()} is {@code false}
+     * <p>Keep credentials out of logs.
      */
-    boolean testConnection(String apiKey, String apiSecret);
+    boolean testConnection(ExchangeCredentials credentials);
 
     /** What an exchange lets an asset be held as. Persisted by name — do not renumber or rename. */
     enum Product { SPOT, STAKING, LENDING }

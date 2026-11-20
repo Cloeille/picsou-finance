@@ -1,6 +1,6 @@
 # Feature: Crypto Tracking
 
-> Last updated: 2026-08-07
+> Last updated: 2026-11-20
 
 ## Context
 
@@ -10,15 +10,17 @@ Picsou tracks cryptocurrency holdings from two sources: centralized exchanges (B
 
 ### Three subsystems
 
-1. **CryptoExchangeSyncService** -- Manages exchange connections. Stores an encrypted API key, plus an encrypted secret **when the exchange has one**, in `CryptoExchangeSession`. Which credentials an exchange needs is declared by its adapter (`CryptoExchangePort.requiresApiSecret()`) and enforced here before any network call: a missing secret where one is required, and a stray secret where none is, are both a `400`. Fetches positions, converts to EUR via `PriceService.refreshCryptoQuotes()`, and upserts a single account per exchange with per-coin holdings in `AccountHolding` plus a per-product breakdown in `CryptoExchangePosition`.
+1. **CryptoExchangeSyncService** manages exchange connections. It encrypts the credentials in `CryptoExchangeSession`, fetches positions, converts them to EUR via `PriceService.refreshCryptoQuotes()`, and upserts one account per exchange with per-coin holdings in `AccountHolding` and a per-product breakdown in `CryptoExchangePosition`.
 
 2. **WalletSyncService** -- Manages on-chain wallet addresses. Stores chain type + address in `WalletAddress`. Fetches balances via `WalletPort` (a list — native asset plus any tokens), prices each ticker, sums to EUR, and upserts one account with a per-ticker `AccountHolding`. Does NOT store a ticker on the account itself to prevent double price conversion (the account balance is already in EUR).
 
 3. **PriceService** -- Provides EUR prices for crypto tickers via CoinGecko. See [price-service.md](./price-service.md).
 
-### AES-256-GCM encryption
+### Exchange credentials
 
-`CryptoEncryption` handles encryption/decryption of API keys and secrets stored in the database. Both `apiKey` and `apiSecret` are encrypted; `apiSecret` is `NULL` for single-key exchanges (`encrypt(null)` and `decrypt(null)` both return `null`, and V73 dropped the column's `NOT NULL`). It uses `AES/GCM/NoPadding` with a 12-byte IV and 128-bit tag. The IV is prepended to the ciphertext before Base64 encoding. The encryption key is provided via the `CRYPTO_ENCRYPTION_KEY` environment variable (Base64-encoded 256-bit key). The app **refuses to start** if the key is not set. See [encryption-at-rest.md](./encryption-at-rest.md) for full details.
+The form and service follow the adapter's `requiresApiSecret()` and `requiresApiPassphrase()` flags. The service normalises blank inputs to null, preserves nonblank passphrases verbatim, and returns `400` for missing required or unexpected credentials before any network call. Both adapter methods receive plaintext in an `ExchangeCredentials` record that redacts its string representation.
+
+`CryptoEncryption` encrypts each supplied credential separately with AES-256-GCM. V73 made `api_secret` nullable, and V154 adds the nullable `api_passphrase` column. Unused credentials are stored as `NULL`. See [encryption at rest](./encryption-at-rest.md).
 
 ### Binance adapter
 
@@ -127,25 +129,25 @@ The on-chain adapters (EVM, Solana) validate the JSON-RPC envelope through `Json
 
 ```
 Add Exchange:
-User submits API key (+ secret, if the exchange uses one)
+User submits API key and any required secret or passphrase
         |
         v
 CryptoExchangeSyncService.addExchange()
         |
         v
-validate against adapter.requiresApiSecret() -- 400 before any network call
+Validate the adapter's secret and passphrase requirements (400 before any network call)
         |
         v
-CryptoExchangePort.testConnection() -- validate credentials
+CryptoExchangePort.testConnection(credentials)
         |
         v
-CryptoEncryption.encrypt(key [+ secret]) -- AES-256-GCM
+Encrypt each supplied credential with CryptoEncryption
         |
         v
-Save CryptoExchangeSession (encryptedKey + encryptedSecret or NULL)
+Save CryptoExchangeSession (unused credentials are NULL)
         |
         v
-CryptoExchangePort.fetchPositions() -- one line per (product, asset)
+Decrypt on sync, then call CryptoExchangePort.fetchPositions(credentials)
         |
         v
 PriceService.refreshCryptoQuotes() -- convert to EUR, crypto-only
@@ -227,9 +229,11 @@ Upsert Account (type=CRYPTO, no ticker)
 
 ## Tests
 
-> `CryptoEncryptionTest` and `BitcoinKeyUtilsTest` were listed here for a long time without existing. AES-GCM round-tripping and BIP32 derivation are still untested — treat that as a known gap, not as coverage.
+> BIP32 derivation has no dedicated `BitcoinKeyUtilsTest`.
 
-- `CryptoExchangeSyncServiceTest` -- credential contract: blank key rejected, missing secret rejected for an exchange that needs one and stray secret rejected for one that doesn't (both **before** `testConnection`, so no wasted round-trip), blank secret normalised to `NULL` for a single-key exchange, Binance still requires both, a failed adapter marks the session `ERROR` without touching `accountService` (no snapshot, no holdings), and an exchange with no adapter fails as a readable 422. Plus the two refusals and their messages: an existing account's balance is left standing when nothing can be valued (**stub the account**, or the test runs the first-sync path and passes for an unrelated reason), and a deleted account tells the user to remove the session — both assert the specific text, since the generic catch used to replace it with "try again later", and that no session write happens on either path
+- `CryptoExchangeSyncServiceTest` covers credential validation before `testConnection`, blank optional fields stored as `NULL`, rejection of passphrases that exceed the encrypted column's capacity, encryption on add, and adapter input on connect and sync. It also covers sync failures, unsupported exchanges, unpriced holdings and deleted accounts.
+- `CryptoExchangeTab.test.tsx` uses a test-only capability flag to verify password masking, required input, and submission of the passphrase only for an exchange that uses one.
+- `CryptoExchangeControllerTest` checks that validation redacts rejected passphrases.
 - `CryptoExchangePositionRepositoryTest` -- the delete-then-reinsert rewrite against the real `uq_crypto_exchange_position`, the exact quantities it leaves behind, a product no longer held disappearing, and — with a second seeded account — that the bulk delete filters by account rather than emptying the table
 - `MeriaAdapterTest` -- aggregation across wallets/stakings/lendings per currency, staking counted as `amount` with accrued interest **not** added on top, a contract with no reward fields at all, a reward above the quantity or below zero reported with no decomposition at all (and a merge with one such contract staying undecomposed), symbols upper-cased under a forced Turkish locale, zero/blank entries dropped; and the all-or-nothing contract: every endpoint × {401, 403, 404, 429, 500} throws, as do `success:false` on HTTP 200, a reactor-wrapped timeout and a non-JSON (Cloudflare) body — while `data: []` **and an empty body on a 2xx** both yield an empty list without throwing. Also pins that only an `API-KEY` header is sent (no `Authorization`, no `X-MBX-APIKEY`, no `signature` query), that the secret argument is ignored, and that no message or log line contains the API key
 - `MeriaAdapterWiringTest` -- Spring picks the production constructor with and without `app.meria.base-url` set, and the production client reads a staking payload larger than the framework's default buffer (served over a real socket — the `ExchangeFunction` fixtures decode with the stub's strategies and cannot see that configuration)
@@ -245,6 +249,7 @@ Upsert Account (type=CRYPTO, no ticker)
 
 - Related ADR: [EVM multichain wallets](../decisions/2026-07-17-evm-multichain-wallets.md)
 - Related ADR: [AES-256-GCM for crypto secrets](../decisions/2026-03-01-aes-gcm-crypto-secrets.md)
+- Related ADR: [Exchange credentials carry an optional API passphrase](../decisions/2026-11-20-exchange-api-passphrase.md)
 - Related ADR: [Ports and adapters](../decisions/2026-01-01-ports-and-adapters.md)
 - Related feature: [Logos on account cards](./bank-logos.md) — Meria's mark ships in `frontend/public/exchanges/`, mapped on `Account.provider`; a wallet's account instead carries a `logoKey` (`blockchain` by default, `ledger` if the user picks it)
 - Related feature: [Encryption at rest](./encryption-at-rest.md)

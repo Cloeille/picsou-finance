@@ -6,10 +6,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import type { ExchangeType } from '@/types/api'
-import { SUPPORTED_EXCHANGES, exchangeRequiresApiSecret } from '@/types/api'
+import { SUPPORTED_EXCHANGES, exchangeRequiresApiPassphrase, exchangeRequiresApiSecret } from '@/types/api'
 import { useAddCryptoExchange } from '@/features/sync/hooks'
 import { extractErrorMessage, getErrorDetail } from '@/lib/errors'
-import { EXCHANGE_API_KEY_MAX_LENGTH, EXCHANGE_API_SECRET_MAX_LENGTH } from '@/lib/constants'
+import { EXCHANGE_API_KEY_MAX_LENGTH, EXCHANGE_API_PASSPHRASE_MAX_LENGTH, EXCHANGE_API_SECRET_MAX_LENGTH } from '@/lib/constants'
 
 interface CryptoExchangeFormProps {
   onSuccess: () => void
@@ -25,17 +25,19 @@ export function CryptoExchangeForm({ onSuccess, onCancel, variant }: CryptoExcha
   const [exchangeType, setExchangeType] = useState<ExchangeType>('BINANCE')
   const [apiKey, setApiKey] = useState('')
   const [apiSecret, setApiSecret] = useState('')
+  const [apiPassphrase, setApiPassphrase] = useState('')
   const [showSecret, setShowSecret] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const addMutation = useAddCryptoExchange()
   const requiresSecret = exchangeRequiresApiSecret(exchangeType)
+  const requiresPassphrase = exchangeRequiresApiPassphrase(exchangeType)
 
   function selectExchange(type: ExchangeType) {
     setExchangeType(type)
-    // Drop anything typed under the previous exchange: sending a secret to a single-key exchange
-    // is a 400, and it would be entirely self-inflicted.
+    // Clear optional credentials when switching exchanges.
     setApiSecret('')
+    setApiPassphrase('')
     setShowSecret(false)
     if (!modal) setError(null)
   }
@@ -44,7 +46,12 @@ export function CryptoExchangeForm({ onSuccess, onCancel, variant }: CryptoExcha
     e.preventDefault()
     setError(null)
     addMutation.mutate(
-      { type: exchangeType, apiKey, apiSecret: requiresSecret ? apiSecret : undefined },
+      {
+        type: exchangeType,
+        apiKey,
+        ...(requiresSecret && { apiSecret }),
+        ...(requiresPassphrase && { apiPassphrase }),
+      },
       {
         onSuccess,
         // Without this the backend's rejections (a wrong key, a missing or stray secret) leave
@@ -53,7 +60,9 @@ export function CryptoExchangeForm({ onSuccess, onCancel, variant }: CryptoExcha
         // user to check a secret they were never asked for sends them looking for a field that
         // does not exist.
         onError: (err: unknown) => {
-          const fallback = t(requiresSecret ? 'sync.exchanges.connectError' : 'sync.exchanges.connectErrorKeyOnly')
+          const fallback = t(requiresPassphrase
+            ? 'common.error'
+            : requiresSecret ? 'sync.exchanges.connectError' : 'sync.exchanges.connectErrorKeyOnly')
           setError(
             modal
               ? getErrorDetail(err) || (err as { message?: string })?.message || fallback
@@ -101,7 +110,7 @@ export function CryptoExchangeForm({ onSuccess, onCancel, variant }: CryptoExcha
             required
             maxLength={EXCHANGE_API_KEY_MAX_LENGTH}
           />
-          {!requiresSecret && (
+          {!requiresSecret && !requiresPassphrase && (
             <p className="text-sm text-muted-foreground">{t('sync.exchanges.apiKeyOnly')}</p>
           )}
         </div>
@@ -129,6 +138,21 @@ export function CryptoExchangeForm({ onSuccess, onCancel, variant }: CryptoExcha
                 {showSecret ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
               </button>
             </div>
+          </div>
+        )}
+
+        {requiresPassphrase && (
+          <div className="space-y-2">
+            <Label htmlFor="exchange-api-passphrase">{t('sync.exchanges.apiPassphrase')}</Label>
+            <Input
+              id="exchange-api-passphrase"
+              type="password"
+              value={apiPassphrase}
+              onChange={(e) => setApiPassphrase(e.target.value)}
+              placeholder={t('sync.exchanges.apiPassphrase')}
+              required
+              maxLength={EXCHANGE_API_PASSPHRASE_MAX_LENGTH}
+            />
           </div>
         )}
 

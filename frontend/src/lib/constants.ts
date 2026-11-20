@@ -149,6 +149,7 @@ export const TR_PIN_MAX_LENGTH = 128
  */
 export const EXCHANGE_API_KEY_MAX_LENGTH = 200
 export const EXCHANGE_API_SECRET_MAX_LENGTH = 300
+export const EXCHANGE_API_PASSPHRASE_MAX_LENGTH = 200
 
 /**
  * How long a successful `session-probe` result (RequireAuth's cookie-backed

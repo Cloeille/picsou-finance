@@ -974,25 +974,35 @@ export interface SecurityInsight {
  *
  * Mirrors the backend `com.picsou.model.ExchangeType` enum *and* its `CryptoExchangePort` beans —
  * there is no codegen between them, so adding an exchange means editing both sides in the same
- * change. `requiresApiSecret` mirrors `CryptoExchangePort.requiresApiSecret()`: Meria authenticates
- * with a single read-only API key, and `CryptoExchangeSyncService` returns 400 both for a missing
- * secret where one is needed and for a stray secret where none is — so getting this wrong is a
- * loud error, not a silent bug.
+ * change. `requiresApiSecret` and `requiresApiPassphrase` mirror the adapter's credential
+ * requirements. `CryptoExchangeSyncService` returns 400 for missing or unexpected credentials.
  *
  * KRAKEN is listed but has no backend adapter yet: picking it returns 422 "This exchange isn't
  * supported yet."
  */
 export const SUPPORTED_EXCHANGES = [
-  { type: 'BINANCE', requiresApiSecret: true },
-  { type: 'KRAKEN', requiresApiSecret: true },
-  { type: 'MERIA', requiresApiSecret: false },
+  { type: 'BINANCE', requiresApiSecret: true, requiresApiPassphrase: false },
+  { type: 'KRAKEN', requiresApiSecret: true, requiresApiPassphrase: false },
+  { type: 'MERIA', requiresApiSecret: false, requiresApiPassphrase: false },
 ] as const
 
 export type ExchangeType = (typeof SUPPORTED_EXCHANGES)[number]['type']
 
+export interface AddCryptoExchangeRequest {
+  type: ExchangeType
+  apiKey: string
+  apiSecret?: string
+  apiPassphrase?: string
+}
+
 /** Whether the exchange needs an API secret on top of its API key. */
 export function exchangeRequiresApiSecret(type: ExchangeType): boolean {
   return SUPPORTED_EXCHANGES.find(exchange => exchange.type === type)?.requiresApiSecret ?? true
+}
+
+/** Whether the exchange needs an API passphrase. */
+export function exchangeRequiresApiPassphrase(type: ExchangeType): boolean {
+  return SUPPORTED_EXCHANGES.find(exchange => exchange.type === type)?.requiresApiPassphrase ?? false
 }
 /**
  * On-chain wallet chains, in the order the pickers show them.

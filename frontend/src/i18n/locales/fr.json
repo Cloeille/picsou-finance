@@ -1459,6 +1459,7 @@
       "type": "Type de plateforme",
       "apiKey": "Clé API",
       "apiSecret": "Secret API",
+      "apiPassphrase": "Phrase secrète de l’API",
       "apiKeyOnly": "Meria se connecte avec une seule clé API en lecture seule, sans secret supplémentaire.",
       "showSecret": "Afficher le secret API",
       "hideSecret": "Masquer le secret API",

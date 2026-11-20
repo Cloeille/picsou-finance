@@ -1143,6 +1143,7 @@
       "type": "Tipo de exchange",
       "apiKey": "Clave API",
       "apiSecret": "Secreto API",
+      "apiPassphrase": "Frase secreta de la API",
       "apiKeyOnly": "Meria se conecta con una única clave API de solo lectura — no hace falta secreto.",
       "showSecret": "Mostrar el secreto API",
       "hideSecret": "Ocultar el secreto API",
