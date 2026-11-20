@@ -203,7 +203,7 @@ export function SyncPage() {
         </div>
 
         <div
-          role="tablist"
+          role="group"
           aria-label={t('sync.categoriesLabel')}
           className="flex w-full flex-wrap items-center gap-1 rounded-lg border border-border/60 bg-background/80 p-1"
         >
@@ -212,9 +212,8 @@ export function SyncPage() {
             return (
               <button
                 key={cat}
-                role="tab"
                 type="button"
-                aria-selected={active}
+                aria-pressed={active}
                 onClick={() => setCategory(cat)}
                 className={cn(
                   'inline-flex h-8 flex-auto items-center justify-center rounded-md px-3 text-sm font-medium whitespace-nowrap transition-[background-color,color]',
@@ -233,13 +232,15 @@ export function SyncPage() {
       {/* Mobile horizontal selector */}
       <div className="lg:hidden">
         <ScrollStrip activeKey={tab}>
-          <div className="flex w-max gap-1.5 pb-1">
+          <div role="tablist" aria-label={t('sync.title')} className="flex w-max gap-1.5">
             {filtered.map(({ id, labelKey, icon: Icon }) => {
               const active = tab === id
               return (
                 <button
                   key={id}
+                  role="tab"
                   type="button"
+                  aria-selected={active}
                   onClick={() => setTab(id)}
                   className={cn(
                     'inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm font-medium whitespace-nowrap transition-colors',
@@ -259,7 +260,9 @@ export function SyncPage() {
 
       <div className="grid gap-6 lg:grid-cols-[248px_minmax(0,1fr)] lg:items-start">
         {/* Desktop left connector list */}
-        <nav
+        <div
+          role="tablist"
+          aria-orientation="vertical"
           aria-label={t('sync.title')}
           className="hidden max-h-[calc(100vh-14rem)] space-y-1 overflow-y-auto rounded-xl border border-border/60 bg-card p-2 lg:block"
         >
@@ -269,7 +272,9 @@ export function SyncPage() {
               return (
                 <button
                   key={id}
+                  role="tab"
                   type="button"
+                  aria-selected={active}
                   onClick={() => setTab(id)}
                   className={cn(
                     'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors',
@@ -299,10 +304,10 @@ export function SyncPage() {
               </Button>
             </div>
           )}
-        </nav>
+        </div>
 
         {/* Active connector panel */}
-        <div className="min-w-0">
+        <div role="tabpanel" className="min-w-0">
           {renderPanel()}
         </div>
       </div>

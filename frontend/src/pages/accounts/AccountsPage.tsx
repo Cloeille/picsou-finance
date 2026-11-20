@@ -16,6 +16,7 @@ import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { ScrollStrip } from '@/components/shared/ScrollStrip'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -438,11 +439,12 @@ export function AccountsPage() {
 
       {hasAnyAccounts && (
         <>
-          <div
-            role="group"
-            aria-label={t('accounts.title')}
-            className="flex w-full flex-wrap items-center gap-1 rounded-lg border border-border/60 bg-background/80 p-1"
-          >
+          <ScrollStrip activeKey={filter}>
+            <div
+              role="group"
+              aria-label={t('accounts.title')}
+              className="flex min-w-full w-max items-center gap-1 rounded-lg border border-border/60 bg-background/80 p-1"
+            >
             {primaryFilters.map((f) => {
               const active = filter === f
               return (
@@ -516,7 +518,8 @@ export function AccountsPage() {
                 </DropdownMenu>
               </>
             )}
-          </div>
+            </div>
+          </ScrollStrip>
 
           {showsReceivablesOverview && peerLoansOverview.data && (
             <PeerLoansOverviewCard data={peerLoansOverview.data} />
