@@ -449,7 +449,11 @@ export function AccountDetailPage() {
               </p>
             )}
             {showHoldings && pnl !== null && (
-              <div className="mt-3 flex items-center gap-2">
+              <div
+                className="mt-3 flex items-center gap-2"
+                data-testid="portfolio-performance"
+                aria-label={t('dashboard.portfolioPerformance')}
+              >
                 {pnlPositive
                   ? <TrendingUp className="text-emerald-500" size={16} />
                   : <TrendingDown className="text-red-500" size={16} />}
@@ -461,7 +465,6 @@ export function AccountDetailPage() {
                     </span>
                   )}
                 </span>
-                <span className="text-sm text-muted-foreground">{t('dashboard.portfolioPerformance')}</span>
               </div>
             )}
           </>

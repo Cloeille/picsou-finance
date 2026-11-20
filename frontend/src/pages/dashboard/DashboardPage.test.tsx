@@ -115,10 +115,10 @@ describe('DashboardPage portfolio performance', () => {
   it('shows unavailable performance instead of zero when the selected range has unknown PnL', () => {
     renderDashboard()
 
-    const row = screen.getByText('dashboard.portfolioPerformance').parentElement
+    const row = screen.getByTestId('portfolio-performance')
     expect(row).toHaveTextContent('—')
-    expect(row?.querySelector('[data-testid="currency"]')).toBeNull()
-    expect(row?.querySelector('svg')).toBeNull()
+    expect(row.querySelector('[data-testid="currency"]')).toBeNull()
+    expect(row.querySelector('svg')).toBeNull()
   })
 
   it('does not substitute known live PnL when the selected range PnL is unknown', () => {
@@ -136,9 +136,9 @@ describe('DashboardPage portfolio performance', () => {
 
     renderDashboard()
 
-    const row = screen.getByText('dashboard.portfolioPerformance').parentElement
+    const row = screen.getByTestId('portfolio-performance')
     expect(row).toHaveTextContent('—')
-    expect(row?.querySelector('[data-testid="currency"]')).toBeNull()
+    expect(row.querySelector('[data-testid="currency"]')).toBeNull()
   })
 
   it('keeps a known zero range PnL as zero', () => {
@@ -156,10 +156,10 @@ describe('DashboardPage portfolio performance', () => {
 
     renderDashboard()
 
-    const row = screen.getByText('dashboard.portfolioPerformance').parentElement
-    expect(row?.querySelector('[data-testid="currency"]')).toHaveTextContent('0')
+    const row = screen.getByTestId('portfolio-performance')
+    expect(row.querySelector('[data-testid="currency"]')).toHaveTextContent('0')
     expect(row).toHaveTextContent('(0.0%)')
-    expect(row?.querySelector('svg')).not.toBeNull()
+    expect(row.querySelector('svg')).not.toBeNull()
   })
 })
 
