@@ -29,6 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The encrypted OAuth tokens are stored by `V153`; the instance's Louve client registration is
   kept in the application settings. See `docs/features/louve-invest.md`.
 
+### Fixed
+
+- **American Express login no longer stalls behind the cookie banner.** When the consent banner
+  showed up after the login form, it blocked the sign-in click and the connection failed with
+  "Impossible de joindre American Express". It is now declined whenever it appears (#568).
+
 ## [1.2.1] — 2026-11-20
 
 ### Added
