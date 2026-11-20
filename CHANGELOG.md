@@ -67,6 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Compact budget envelopes and cleaner card actions.** Removed double vertical padding on Budget envelope cards and Goals cards, switched envelopes to a compact 2-column grid with click-to-edit (moving Delete cleanly inside the edit dialog), moved Goal card actions (Calendar, Edit, Delete) into `GoalDetailModal`, and collapsed Recurring plan card actions into a single overflow menu.
 - **Recurring payment badges and price-change spacing.** Replaced the amber `DUE_SOON` badge with a neutral secondary gray badge matching the rest of the interface, and normalized word spacing on the price-change indicator in `SubscriptionCard`.
 - **Sidebar What's New GitHub link.** Removed the leading star icon to reduce visual clutter and darkened the right-hand external link icon (`text-foreground`) for clearer contrast.
+- **Custom return rate simulator in wealth projection.** Added an optional annual percentage input (e.g. `12%`) in Analysis > Projection (`ProjectionSection`) that plots a live custom curve using the same geometric monthly compounding as the backend and displays the projected final amount and gains for the selected horizon.
 
 ## [1.2.1] — 2026-11-20
 
