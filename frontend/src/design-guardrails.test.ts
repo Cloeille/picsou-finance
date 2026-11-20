@@ -231,6 +231,14 @@ describe('UI & design system guardrails (see CONTRIBUTING.md & DESIGN.md)', () =
           }
         }
       }
+      // Also guard custom role="tab" section tablists (excluding SyncPage bank/provider brand logos).
+      if (!file.endsWith('pages/sync/SyncPage.tsx')) {
+        for (const match of content.matchAll(/<button\b[^>]*role="tab"[^>]*>([\s\S]{0,220}?)<\/button>/g)) {
+          if (/<Icon\b/.test(match[1]) || iconRx.test(match[1])) {
+            violations.push(`${file} role="tab": ${match[1].replace(/\s+/g, ' ').trim().slice(0, 80)}`)
+          }
+        }
+      }
     }
     expect(
       violations,
