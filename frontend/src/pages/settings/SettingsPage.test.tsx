@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom'
 import { render, screen } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -25,41 +26,25 @@ vi.mock('@/stores/auth-store', () => ({
   useAuthStore: (selector: (state: { user: null; setUsername: () => void }) => unknown) =>
     selector({ user: null, setUsername: vi.fn() }),
 }))
-vi.mock('@/stores/app-store', () => ({
-  useAppStore: () => ({
+vi.mock('@/stores/app-store', () => {
+  const state = {
+    demoMode: false,
     dateFormat: 'locale',
     setDateFormat: vi.fn(),
-    sidebarStyle: 'current',
-    setSidebarStyle: vi.fn(),
     hideAmounts: false,
     setHideAmounts: vi.fn(),
-  }),
+    profilePhotos: {},
+    setProfilePhoto: vi.fn(),
+  }
+  return { useAppStore: Object.assign(() => state, { getState: () => state }) }
+})
+vi.mock('@/hooks/use-money', () => ({
+  useMoney: () => ({ format: (value: number) => String(value) }),
 }))
 vi.mock('@/features/auth/hooks', () => ({
   useLogout: () => ({ mutate: vi.fn() }),
 }))
-vi.mock('@/components/shared/PageHeader', () => ({
-  PageHeader: ({ title }: { title: string }) => <h1>{title}</h1>,
-}))
-vi.mock('@/components/ui/card', () => {
-  const Part = ({ children }: { children?: React.ReactNode }) => <div>{children}</div>
-  return {
-    Card: Part,
-    CardContent: Part,
-    CardDescription: Part,
-    CardHeader: Part,
-    CardTitle: Part,
-  }
-})
-vi.mock('@/components/ui/button', () => ({
-  Button: ({ children }: { children?: React.ReactNode }) => <button>{children}</button>,
-}))
-vi.mock('@/components/ui/input', () => ({
-  Input: () => <input />,
-}))
-vi.mock('@/components/ui/label', () => ({
-  Label: ({ children }: { children?: React.ReactNode }) => <label>{children}</label>,
-}))
+vi.mock('@/components/shared/WhatsNewDialog', () => ({ WhatsNewDialog: () => null }))
 vi.mock('./security/SecuritySection', () => ({ SecuritySection: () => null }))
 vi.mock('./sections/AccessKeysSection', () => ({ AccessKeysSection: () => null }))
 vi.mock('./sections/ProfileSection', () => ({ ProfileSection: () => null }))
@@ -68,19 +53,23 @@ vi.mock('./sections/ConnectedAppsSection', () => ({ ConnectedAppsSection: () => 
 const { SettingsPage } = await import('./SettingsPage')
 
 describe('SettingsPage', () => {
-  it('links to the canonical GitHub repository', () => {
+  it('links the About section to the canonical GitHub repository', () => {
     render(
-      <MemoryRouter>
-        <SettingsPage />
-      </MemoryRouter>,
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={['/settings?tab=system']}>
+          <SettingsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
     )
 
-    const link = screen.getByRole('link', {
-      name: 'github.com/Cloeille/picsou-finance',
-    })
-    expect(link).toHaveAttribute(
+    const repository = 'https://github.com/Cloeille/picsou-finance'
+    expect(screen.getByRole('link', { name: /Cloeille\/picsou-finance/ })).toHaveAttribute(
       'href',
-      'https://github.com/Cloeille/picsou-finance',
+      repository,
+    )
+    expect(screen.getByRole('link', { name: 'whatsNew.starGithub' })).toHaveAttribute(
+      'href',
+      repository,
     )
   })
 })
