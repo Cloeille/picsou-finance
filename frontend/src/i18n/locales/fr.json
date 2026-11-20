@@ -2256,7 +2256,7 @@
         "unverified": "Pas encore vérifié sur un vrai compte : la page de connexion a été contrôlée, mais la double authentification et l'import suivent le module open source woob."
       },
       "approvalPrompt": "Validez la connexion dans l'application mobile de votre banque.",
-      "approvalHint": "Cette page attend votre validation, puis importe vos comptes.",
+      "approvalHint": "Cette page attend votre validation, puis importe vos comptes. Si aucune notification n'apparaît, vérifiez l'appareil associé à votre Clé Digitale ou ouvrez l'application dans Vous, Clé Digitale, Opérations en attente.",
       "countdownLabel": "Temps restant :",
       "codePrompt": "Saisissez le code reçu par SMS de la banque.",
       "codeHint": "Le code est envoyé une seule fois à la banque et jamais stocké.",
@@ -2278,7 +2278,7 @@
         "rateLimitedRetryAfter": "Trop de tentatives. Réessayez dans environ {{minutes}} min.",
         "tooManySyncs": "Trop de synchronisations. Patientez avant de réessayer.",
         "tooManySyncsRetryAfter": "Trop de synchronisations. Réessayez dans environ {{minutes}} min.",
-        "appValidationTimeout": "La validation n'est pas arrivée à temps. Recommencez.",
+        "appValidationTimeout": "La validation n'est pas arrivée à temps. Vérifiez que votre Clé Digitale est bien activée sur votre téléphone ou consultez Opérations en attente dans l'application BNP Paribas, puis recommencez.",
         "authAttemptExpired": "Cette tentative de connexion a expiré. Recommencez.",
         "sessionExpired": "La session a expiré. Reconnectez-vous.",
         "formatChanged": "Le site de la banque ne ressemble plus à ce qui est attendu. Rien n'a été importé.",
