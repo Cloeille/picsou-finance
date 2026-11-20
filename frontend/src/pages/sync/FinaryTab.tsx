@@ -134,7 +134,7 @@ export function FinaryTab() {
       {/* Connection status card */}
       {isConnected && connectionStatus && (
         <Card size="sm">
-          <CardContent className="flex items-center justify-between py-4">
+          <CardContent className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               {isTotpRequired ? (
                 <Badge variant="secondary">

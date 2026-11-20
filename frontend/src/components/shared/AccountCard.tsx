@@ -135,7 +135,7 @@ export function AccountCard({ account, closed = false, onClick }: AccountCardPro
       className={`cursor-pointer transition-colors hover:bg-muted/20 ${closed ? 'opacity-70' : ''}`}
       onClick={onClick}
     >
-      <CardContent className="flex items-start gap-3 p-4">
+      <CardContent className="flex items-start gap-3">
         {propertyKind ? (
           <PropertyAvatar kind={propertyKind} color={account.color} />
         ) : (

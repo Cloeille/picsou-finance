@@ -159,7 +159,7 @@ export function LouvePanel({ onConnected }: LouvePanelProps = {}) {
       <p className="mx-auto max-w-lg text-sm text-muted-foreground">{t('sync.louve.intro')}</p>
 
       <Card size="sm">
-        <CardContent className="flex flex-wrap items-center gap-3 py-4">
+        <CardContent className="flex flex-wrap items-center gap-3">
           <Buildings className="size-5 text-muted-foreground" />
           {isActive ? (
             <Badge className="bg-green-500/10 text-green-600 dark:text-green-400">{t('sync.louve.connected')}</Badge>
@@ -184,7 +184,7 @@ export function LouvePanel({ onConnected }: LouvePanelProps = {}) {
 
       {(error || needsReconnect || lastFailed) && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3 py-4">
+          <CardContent className="flex items-center gap-3">
             <Warning className="size-5 shrink-0 text-destructive" />
             <p className="flex-1 text-sm text-destructive">
               {error ?? t(needsReconnect ? 'sync.louve.errors.sessionExpired' : 'sync.louve.errors.lastSyncFailed')}

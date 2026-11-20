@@ -113,7 +113,7 @@ function PocketCard({ account, onClick }: { account: Account; onClick?: () => vo
       className="cursor-pointer transition-shadow hover:shadow-md"
       onClick={onClick}
     >
-      <CardContent className="flex items-start gap-3 p-3 sm:p-4">
+      <CardContent className="flex items-start gap-3">
         <div
           className="mt-1 h-8 w-1 shrink-0 rounded-full"
           style={{ backgroundColor: account.color }}
@@ -825,8 +825,8 @@ export function AccountsPage() {
 
           {/* Collapsed recap: hidden cards stay counted in every total and chart */}
           {filter === 'ALL' && !reorderActive && collapsedCount > 0 && (
-            <Card>
-              <CardContent className="flex flex-wrap items-center gap-x-3 gap-y-1 py-3 text-sm">
+            <Card size="sm">
+              <CardContent className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                 <EyeSlash className="size-4 text-muted-foreground" />
                 <span className="font-medium">
                   {t('accounts.collapsedRecap', { count: collapsedCount })}

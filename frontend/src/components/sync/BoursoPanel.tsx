@@ -142,7 +142,7 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
   return (
     <div className="space-y-6">
       <Card size="sm">
-        <CardContent className="py-4">
+        <CardContent>
           <Badge
             className={
               connected
@@ -175,7 +175,7 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
 
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3 py-4">
+          <CardContent className="flex items-center gap-3">
             <Warning className="size-5 shrink-0 text-destructive" />
             <p className="flex-1 text-sm text-destructive">{visibleError}</p>
             {(error || statusError) && (
@@ -271,7 +271,7 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
           }}
         >
           <Card size="sm">
-            <CardContent className="space-y-4 py-4">
+            <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="bourso-customer-id">
                   <Bank className="mr-1 inline-block size-4" />
@@ -321,7 +321,7 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
 
       {!connected && authState === "AWAITING_APP" && (
         <Card size="sm">
-          <CardContent className="flex items-center gap-3 py-4">
+          <CardContent className="flex items-center gap-3">
             <DeviceMobile className="size-5 shrink-0 text-muted-foreground" />
             <div className="flex-1 space-y-1">
               <p className="text-sm">{t("sync.bourso.appValidationPrompt")}</p>

@@ -68,7 +68,7 @@ export function SimplefinPanel({ onConnected }: SimplefinPanelProps = {}) {
     <div className="space-y-6">
       {isConnected && status && (
         <Card size="sm">
-          <CardContent className="flex items-center justify-between py-4">
+          <CardContent className="flex items-center justify-between">
             <div className="flex flex-wrap items-center gap-3">
               {isError ? (
                 <Badge className="bg-destructive/10 text-destructive">{t('sync.simplefin.statusError')}</Badge>
@@ -94,7 +94,7 @@ export function SimplefinPanel({ onConnected }: SimplefinPanelProps = {}) {
 
       {error && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3 py-4">
+          <CardContent className="flex items-center gap-3">
             <Warning className="size-5 shrink-0 text-destructive" />
             <p className="flex-1 text-sm text-destructive">{error}</p>
           </CardContent>
@@ -148,7 +148,7 @@ export function SimplefinPanel({ onConnected }: SimplefinPanelProps = {}) {
             </a>
           </p>
           <Card size="sm">
-            <CardContent className="space-y-4 py-4">
+            <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="simplefin-token">
                   <Key className="mr-1 inline-block size-4" />

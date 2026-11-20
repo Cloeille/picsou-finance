@@ -240,8 +240,8 @@ export function OverviewTab() {
       {/* To-categorize nudge */}
       {(uncategorized?.length ?? 0) > 0 && (
         <button type="button" onClick={() => navigate('review')} className="block w-full text-left">
-          <Card className="border-border/80 bg-card transition-colors hover:bg-muted/40">
-            <CardContent className="flex items-center gap-3 py-4">
+          <Card className="border-border/80 bg-card py-3 transition-colors hover:bg-muted/40">
+            <CardContent className="flex items-center gap-3">
               <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
                 <Tray className="size-4" />
               </span>

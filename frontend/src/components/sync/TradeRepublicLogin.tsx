@@ -265,7 +265,7 @@ export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }:
     </div>
   ) : (
     <Card size="sm" className="border-destructive/30">
-      <CardContent className="py-4">
+      <CardContent>
         <div className="flex items-center gap-3">
           <Warning className="size-5 text-destructive shrink-0" />
           <p className="text-sm text-destructive flex-1">{errorMsg}</p>
@@ -282,7 +282,7 @@ export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }:
       <TrAppConfirmation countdownInSeconds={countdown} />
     ) : (
       <Card size="sm">
-        <CardContent className="py-4">
+        <CardContent>
           <TrAppConfirmation countdownInSeconds={countdown} />
         </CardContent>
       </Card>
@@ -296,7 +296,7 @@ export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }:
         </>
       ) : (
         <Card size="sm">
-          <CardContent className="space-y-4 py-4">
+          <CardContent className="space-y-4">
             {tanField}
             {tanSubmit}
           </CardContent>
@@ -314,7 +314,7 @@ export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }:
         </>
       ) : (
         <Card size="sm">
-          <CardContent className="space-y-4 py-4">
+          <CardContent className="space-y-4">
             {phoneField}
             {pinField}
             {initiateSubmit}

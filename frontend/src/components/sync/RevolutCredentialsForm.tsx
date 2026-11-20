@@ -98,7 +98,7 @@ export function RevolutCredentialsForm({ value, onChange, onSubmit, busy, varian
     <form onSubmit={onSubmit} className="space-y-4">
       {modal ? fields : (
         <Card size="sm">
-          <CardContent className="space-y-4 py-4">{fields}</CardContent>
+          <CardContent className="space-y-4">{fields}</CardContent>
         </Card>
       )}
     </form>
