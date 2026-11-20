@@ -636,6 +636,7 @@ class CiJobSelectionTest(unittest.TestCase):
                 "backend", "release-deployment", "workflow-inventory",
             },
             "charts/picsou/values.yaml": {"helm-chart"},
+            "desktop/src-tauri/src/supervisor.rs": {"desktop", "desktop-windows"},
             "charts/picsou/templates/sidecars.yaml": {"helm-chart"},
             "services/sofidy-auth/main.py": {"sidecar:sofidy-auth", "backend"} | services,
             "services/tr-auth/main.py": {"sidecar:tr-auth"} | services,
@@ -877,7 +878,10 @@ class JobTimeoutTest(unittest.TestCase):
 
     # Minutes a job may be given: about twice its slowest observed run. Per job overrides the file's cap.
     FILE_CAP = {"ci.yml": 20, "codeql.yml": 60, "docker.yml": 30}
-    JOB_CAP = {("ci.yml", "e2e"): 30}  # bimodal: most runs take 2 min, the slow tail 9-15 min
+    JOB_CAP = {
+        ("ci.yml", "e2e"): 30,  # bimodal: most runs take 2 min, the slow tail 9-15 min
+        ("ci.yml", "desktop-windows"): 40,  # cold Rust, Maven and bun builds: 25-30 min
+    }
 
     def test_every_job_has_a_bounded_timeout(self):
         workflows = sorted((ROOT / ".github/workflows").glob("*.yml"))
@@ -1026,6 +1030,66 @@ class SharedSidecarBaseTest(unittest.TestCase):
                         build["additional_contexts"][f"sidecar-{target}"],
                         f"service:sidecar-{target}",
                     )
+
+
+class DesktopManifestTest(unittest.TestCase):
+    def test_desktop_pins_are_read_from_the_docker_files(self):
+        manifest = json.loads(_sidecars("--desktop"))
+
+        self.assertRegex(manifest["java"], r"^\d+$")
+        self.assertIn(f"eclipse-temurin:{manifest['java']}-jre",
+                      (ROOT / "docker/Dockerfile").read_text(encoding="utf-8"))
+        self.assertRegex(manifest["postgres"], r"^\d+$")
+        self.assertRegex(manifest["python"], r"^3\.\d+$")
+        self.assertRegex(manifest["playwright"], r"^\d+\.\d+\.\d+$")
+        self.assertIn(f"playwright=={manifest['playwright']}\n",
+                      (ROOT / "services/base/requirements-chromium.txt").read_text(encoding="utf-8"))
+
+    def test_every_sidecar_is_listed_and_only_camoufox_ones_are_left_out(self):
+        manifest = json.loads(_sidecars("--desktop"))
+
+        self.assertEqual([(s["service"], s["base"]) for s in manifest["sidecars"]],
+                         [(s["service"], s["base"]) for s in _inventory()])
+        for sidecar in manifest["sidecars"]:
+            with self.subTest(sidecar=sidecar["service"]):
+                self.assertEqual(sidecar["desktop"], sidecar["base"] != "camoufox")
+
+    def test_backend_tests_run_on_the_postgres_major_the_desktop_bundles(self):
+        major = json.loads(_sidecars("--desktop"))["postgres"]
+        images = set()
+        for path in (ROOT / "backend/src/test").rglob("*.java"):
+            images |= set(re.findall(r'"(postgres:[^"]+)"', path.read_text(encoding="utf-8")))
+
+        self.assertTrue(images)
+        self.assertEqual({image.split(":")[1].split("-")[0] for image in images}, {major})
+
+    def test_a_moved_pin_fails_loudly_instead_of_shipping_a_stale_version(self):
+        good = {
+            "backend/pom.xml": "<java.version>21</java.version>\n",
+            "docker/docker-compose.yml": "services:\n  db:\n    image: postgres:16-alpine\n",
+            "services/base/Dockerfile": "FROM python:3.12-slim AS python\n",
+            "services/base/requirements-chromium.txt": "playwright==1.64.1\n",
+        }
+        broken = {
+            "backend/pom.xml": "<maven.compiler.release>21</maven.compiler.release>\n",
+            "docker/docker-compose.yml": "services:\n  db:\n    image: mariadb:11\n",
+            "services/base/Dockerfile": "FROM debian:bookworm AS python\n",
+            "services/base/requirements-chromium.txt": "playwright>=1.64\n",
+        }
+        for path in good:
+            with self.subTest(pin=path), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / ".github/scripts").mkdir(parents=True)
+                (root / ".github/scripts/sidecars.py").write_text(SIDECARS_SCRIPT.read_text(encoding="utf-8"))
+                (root / "services").mkdir()
+                for name, text in {**good, path: broken[path]}.items():
+                    (root / name).parent.mkdir(parents=True, exist_ok=True)
+                    (root / name).write_text(text)
+                result = subprocess.run([sys.executable, str(root / ".github/scripts/sidecars.py"), "--desktop"],
+                                        capture_output=True, text=True)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"{path} no longer matches", result.stderr)
 
 
 if __name__ == "__main__":
