@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Home, TrendingUp, TrendingDown } from 'lucide-react'
+import { TrendingUp, TrendingDown } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
@@ -35,8 +35,7 @@ export function RealEstateSummaryCard({ enabled = true }: { enabled?: boolean })
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Home className="size-4" />
+        <CardTitle className="text-base">
           {t('property.summary.title')}
         </CardTitle>
       </CardHeader>

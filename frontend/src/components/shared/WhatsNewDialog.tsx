@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Copy, ExternalLink, Megaphone } from 'lucide-react'
+import { Check, Copy, ExternalLink } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -47,10 +47,7 @@ export function WhatsNewDialog({ open, onOpenChange }: WhatsNewDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Megaphone className="size-4 text-foreground" aria-hidden="true" />
-            <span>{t('whatsNew.title')}</span>
-          </DialogTitle>
+          <DialogTitle>{t('whatsNew.title')}</DialogTitle>
           <DialogDescription>{t('whatsNew.subtitle')}</DialogDescription>
         </DialogHeader>
 

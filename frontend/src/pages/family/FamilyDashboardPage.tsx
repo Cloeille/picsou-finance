@@ -53,8 +53,7 @@ export function FamilyDashboardPage() {
 
       {/* Shared accounts */}
       <div>
-        <h2 className="mb-3 text-lg font-semibold flex items-center gap-2">
-          <Wallet className="size-5" />
+        <h2 className="mb-3 text-lg font-semibold">
           {t('family.dashboard.sharedAccounts')}
         </h2>
         {dashboard.sharedAccounts.length === 0 ? (
@@ -96,8 +95,7 @@ export function FamilyDashboardPage() {
 
       {/* Shared goals */}
       <div>
-        <h2 className="mb-3 text-lg font-semibold flex items-center gap-2">
-          <Target className="size-5" />
+        <h2 className="mb-3 text-lg font-semibold">
           {t('family.dashboard.sharedGoals')}
         </h2>
         {dashboard.sharedGoals.length === 0 ? (

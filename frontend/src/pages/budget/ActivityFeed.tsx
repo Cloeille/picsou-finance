@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Check, History, Repeat, TrendingUp, Undo2 } from 'lucide-react'
+import { Check, Repeat, TrendingUp, Undo2 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useRecurringActivity, useUndoRecurring } from '@/features/budget/hooks'
@@ -74,8 +74,7 @@ export function ActivityFeed() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <History className="size-4 text-muted-foreground" aria-hidden="true" />
+        <CardTitle className="text-base">
           {t('budget.recurring.activity.title')}
         </CardTitle>
       </CardHeader>

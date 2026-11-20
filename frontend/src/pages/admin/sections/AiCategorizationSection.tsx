@@ -5,7 +5,7 @@ import { NativeSelect } from '@/components/shared/NativeSelect'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { BrainCircuit, Check, KeyRound, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { Check, KeyRound, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -177,9 +177,8 @@ export function AiCategorizationSection({ settings }: { settings: AdminAiSetting
   return (
     <Card className="rounded-xl bg-card">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base font-semibold">
-          <BrainCircuit className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-          {t('admin.ai.title')}
+        <CardTitle className="text-base font-semibold">
+            {t('admin.ai.title')}
         </CardTitle>
         <CardDescription>{t('admin.ai.description')}</CardDescription>
       </CardHeader>

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Users, Link as LinkIcon, KeyRound, Trash2, Copy, Check, ShieldOff, Unlink, UserPlus } from 'lucide-react'
+import { Link as LinkIcon, KeyRound, Trash2, Copy, Check, ShieldOff, Unlink, UserPlus } from 'lucide-react'
 import {
   Card,
   CardContent,
@@ -91,8 +91,7 @@ export function MembersSection() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base font-semibold">
-          <Users className="size-5" />
+        <CardTitle className="text-base font-semibold">
           {t('admin.members.title')}
         </CardTitle>
         <CardDescription>{t('admin.members.description')}</CardDescription>

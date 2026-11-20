@@ -10,7 +10,6 @@ import {
   Copy,
   Download,
   KeyRound,
-  Landmark,
   Loader2,
   Upload,
 } from 'lucide-react'
@@ -74,8 +73,7 @@ export function EnableBankingSection({ settings }: { settings: AdminEnableBankin
   return (
     <Card className="rounded-xl bg-card">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base font-semibold">
-          <Landmark className="size-4 shrink-0 text-muted-foreground" />
+        <CardTitle className="text-base font-semibold">
           {t('admin.enableBanking.title')}
         </CardTitle>
         <CardDescription>{t('admin.enableBanking.description')}</CardDescription>
@@ -211,9 +209,8 @@ function KeypairPanel({ privateKeyPresent }: { privateKeyPresent: boolean }) {
   return (
     <div className="space-y-4">
       <div className="space-y-1">
-        <h3 className="flex items-center gap-2 text-sm font-medium">
-          <KeyRound className="size-4 text-muted-foreground" />
-          {t('admin.enableBanking.keypair.title')}
+        <h3 className="text-sm font-medium">
+            {t('admin.enableBanking.keypair.title')}
         </h3>
         <p className="text-sm text-muted-foreground">
           {privateKeyPresent

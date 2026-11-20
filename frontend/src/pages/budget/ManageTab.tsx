@@ -9,8 +9,6 @@ import {
   Pencil,
   Plus,
   Settings,
-  SlidersHorizontal,
-  Tags,
   Trash2,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -90,8 +88,7 @@ function BudgetPreferencesCard() {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Settings className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <CardTitle className="text-base">
           {t('settings.title')}
         </CardTitle>
       </CardHeader>
@@ -414,7 +411,6 @@ function CategoriesCard() {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
         <CardTitle className="flex items-center gap-2 text-base">
-          <Tags className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           {t('budget.category.title')}
           {categories && (
             <Badge variant="secondary" className="tabular-nums">{categories.length}</Badge>
@@ -535,7 +531,6 @@ function RulesCard() {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
         <CardTitle className="flex items-center gap-2 text-base">
-          <SlidersHorizontal className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           {t('budget.rule.title')}
           {rules && rules.length > 0 && (
             <Badge variant="secondary" className="tabular-nums">{rules.length}</Badge>

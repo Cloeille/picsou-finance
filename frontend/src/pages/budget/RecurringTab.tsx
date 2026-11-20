@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { NativeSelect } from '@/components/shared/NativeSelect'
 import { useTranslation } from 'react-i18next'
-import { ArrowDownLeft, ArrowUpRight, CalendarClock, Plus, RefreshCw, Repeat } from 'lucide-react'
+import { CalendarClock, Plus, RefreshCw, Repeat } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -170,10 +170,7 @@ export function RecurringTab() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Card className="py-3.5">
             <CardContent className="flex h-full flex-col justify-start gap-1.5">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <ArrowUpRight className="size-4 shrink-0" aria-hidden="true" />
-                <span>{t('budget.recurring.kpi.expenses')}</span>
-              </div>
+              <span className="text-sm text-muted-foreground">{t('budget.recurring.kpi.expenses')}</span>
               <div className="flex items-baseline gap-1.5 tabular-nums">
                 <CurrencyDisplay value={-summary.monthlyExpenses} className="text-xl font-bold text-foreground" />
                 <span className="text-xs text-muted-foreground">{t('budget.recurring.kpi.perMonth')}</span>
@@ -186,10 +183,7 @@ export function RecurringTab() {
 
           <Card className="py-3.5">
             <CardContent className="flex h-full flex-col justify-start gap-1.5">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <ArrowDownLeft className="size-4 shrink-0" aria-hidden="true" />
-                <span>{t('budget.recurring.kpi.income')}</span>
-              </div>
+              <span className="text-sm text-muted-foreground">{t('budget.recurring.kpi.income')}</span>
               <div className="flex items-baseline gap-1.5 tabular-nums">
                 <CurrencyDisplay
                   value={summary.monthlyIncome}
@@ -206,10 +200,7 @@ export function RecurringTab() {
 
           <Card className="py-3.5">
             <CardContent className="flex h-full flex-col justify-start gap-1.5">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <CalendarClock className="size-4 shrink-0" aria-hidden="true" />
-                <span>{t('budget.recurring.kpi.upcoming30d')}</span>
-              </div>
+              <span className="text-sm text-muted-foreground">{t('budget.recurring.kpi.upcoming30d')}</span>
               <CurrencyDisplay
                 value={summary.next30Net}
                 showSign
