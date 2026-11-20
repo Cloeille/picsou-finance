@@ -269,8 +269,16 @@ export const caisseEpargneApi = {
       })
       .then(r => r.data),
 
-  clearSession: () =>
-    api.delete<CaisseEpargneDeleteResponse>('/caisse-epargne/session').then(r => r.data),
+  /** One status per connection of the member. */
+  listSessions: () =>
+    api.get<CaisseEpargneSessionStatus[]>('/caisse-epargne/sessions', { skipGlobalErrorRedirect: true }).then(r => r.data),
+
+  /** No id removes every connection. */
+  clearSession: (sessionId?: number) =>
+    (sessionId === undefined
+      ? api.delete<CaisseEpargneDeleteResponse>('/caisse-epargne/session')
+      : api.delete<CaisseEpargneDeleteResponse>('/caisse-epargne/session', { params: { sessionId } })
+    ).then(r => r.data),
 }
 
 // --- Banque Populaire ---
@@ -311,8 +319,16 @@ export const banquePopulaireApi = {
       })
       .then(r => r.data),
 
-  clearSession: () =>
-    api.delete<BanquePopulaireDeleteResponse>('/banque-populaire/session').then(r => r.data),
+  /** One status per connection of the member. */
+  listSessions: () =>
+    api.get<BanquePopulaireSessionStatus[]>('/banque-populaire/sessions', { skipGlobalErrorRedirect: true }).then(r => r.data),
+
+  /** No id removes every connection. */
+  clearSession: (sessionId?: number) =>
+    (sessionId === undefined
+      ? api.delete<BanquePopulaireDeleteResponse>('/banque-populaire/session')
+      : api.delete<BanquePopulaireDeleteResponse>('/banque-populaire/session', { params: { sessionId } })
+    ).then(r => r.data),
 }
 
 // --- La Banque Postale ---

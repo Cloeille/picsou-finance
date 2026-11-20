@@ -29,10 +29,13 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Executor;
+import java.util.function.Function;
 
 /**
  * Imports Caisse d'Epargne current accounts, savings books, cards, loans and PER, with their
@@ -113,7 +116,7 @@ public class CaisseEpargneSyncService {
         this.txTemplate = txTemplate;
         this.engine = new BpceSyncEngine<>(
             BANK, SidecarBank.CAISSE_EPARGNE, port, new Sessions(sessionRepository),
-            this::toStatus, SessionStatusResponse::inactive,
+            this::toStatus, SessionStatusResponse::aggregate,
             BpceSyncEngine.BrandingSource.fixed(PROVIDER),
             accountRepository, transactionRepository, memberRepository, debtRepository, accountService,
             categorizationService, categoryService, encryption, txTemplate, syncExecutor, perService, clock);
@@ -124,26 +127,29 @@ public class CaisseEpargneSyncService {
      * sidecar answers with the bank's keypad, which the user clicks himself. A failure leaves any
      * session already stored (valid or not) exactly as it was.
      *
-     * <p>A blank {@code customerId} reuses the identifier remembered from the last successful
-     * login. If the bank rejects that remembered identifier, it is forgotten so it is never
-     * submitted again. The identifier that logs in is stored with the session once approved.
+     * <p>A blank {@code customerId} reuses the identifier remembered by the member's only
+     * connection (refused when there are none or several). If the bank rejects that remembered
+     * identifier, it is forgotten so it is never submitted again. A non-blank one that a connection
+     * of the member already holds replaces that connection once approved; any other adds a
+     * connection. The identifier that logs in is stored with the session once approved.
      */
     public BpceSyncEngine.InitiateResponse initiateAuth(String customerId, Long memberId) {
         StoredIdentifier stored = customerId == null || customerId.isBlank()
             ? storedCustomerId(memberId)
             : null;
         String identifier = stored != null ? stored.customerId() : customerId;
+        Long replacesSessionId = stored != null ? stored.sessionId() : sessionHolding(identifier, memberId);
         return engine.initiateAuth(() -> {
             try {
                 return port.initiateAuth(identifier);
             } catch (SyncException ex) {
                 if (stored != null && SyncValues.errorCode(ex, SidecarBank.CAISSE_EPARGNE, SidecarErrorCode.UPSTREAM_UNAVAILABLE)
                     == SidecarErrorCode.INVALID_CREDENTIALS) {
-                    forgetStoredCustomerId(memberId, stored.ciphertext());
+                    forgetStoredCustomerId(memberId, stored.sessionId(), stored.ciphertext());
                 }
                 throw ex;
             }
-        }, memberId, sessionRemembering(identifier));
+        }, memberId, replacesSessionId, sessionRemembering(identifier));
     }
 
     /** A session row that also stores the identifier that logged in, encrypted. */
@@ -155,17 +161,30 @@ public class CaisseEpargneSyncService {
         };
     }
 
-    /** The remembered identifier, or a refusal when there is none (or it cannot be read). */
-    private StoredIdentifier storedCustomerId(Long memberId) {
-        String encrypted = sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, memberId)
-            .map(SidecarSession::getEncryptedCredentials)
+    /** The id of the member's connection that logs in with this identifier, or null. */
+    private Long sessionHolding(String customerId, Long memberId) {
+        return sessionRepository.findAllByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, memberId).stream()
+            .filter(session -> session.getEncryptedCredentials() != null
+                && readCustomerId(session.getEncryptedCredentials()).filter(customerId::equals).isPresent())
+            .map(SidecarSession::getId)
+            .findFirst()
             .orElse(null);
+    }
+
+    /**
+     * The identifier remembered by the member's only connection; a refusal when there is none,
+     * it cannot be read, or there are several.
+     */
+    private StoredIdentifier storedCustomerId(Long memberId) {
+        List<SidecarSession> rows = sessionRepository.findAllByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, memberId);
+        SidecarSession row = rows.size() == 1 ? rows.get(0) : null;
+        String encrypted = row == null ? null : row.getEncryptedCredentials();
         if (encrypted != null) {
             Optional<String> customerId = readCustomerId(encrypted);
             if (customerId.isPresent()) {
-                return new StoredIdentifier(customerId.get(), encrypted);
+                return new StoredIdentifier(customerId.get(), row.getId(), encrypted);
             }
-            forgetStoredCustomerId(memberId, encrypted);
+            forgetStoredCustomerId(memberId, row.getId(), encrypted);
         }
         throw new SyncException("No Caisse d'Epargne identifier is remembered. Please enter it.", null,
             SidecarErrorCode.INVALID_CREDENTIALS.name());
@@ -185,12 +204,13 @@ public class CaisseEpargneSyncService {
     }
 
     /**
-     * Forgets the remembered identifier, but only if it is still the one that was read: a login
-     * that succeeded meanwhile stores a new ciphertext (fresh IV), which must survive.
+     * Forgets the identifier remembered by connection {@code sessionId}, but only if it is still the
+     * one that was read: a login that succeeded meanwhile stores a new ciphertext (fresh IV), which
+     * must survive.
      */
-    private void forgetStoredCustomerId(Long memberId, String readCiphertext) {
+    private void forgetStoredCustomerId(Long memberId, Long sessionId, String readCiphertext) {
         txTemplate.execute(status -> {
-            sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, memberId)
+            sessionRepository.findByIdAndMemberIdForUpdate(sessionId, memberId)
                 .filter(session -> readCiphertext.equals(session.getEncryptedCredentials()))
                 .ifPresent(session -> {
                     session.setEncryptedCredentials(null);
@@ -200,8 +220,8 @@ public class CaisseEpargneSyncService {
         });
     }
 
-    /** The remembered identifier and the ciphertext it was read from. */
-    private record StoredIdentifier(String customerId, String ciphertext) {
+    /** The remembered identifier, the connection that holds it and the ciphertext it was read from. */
+    private record StoredIdentifier(String customerId, Long sessionId, String ciphertext) {
         @Override
         public String toString() {
             return "StoredIdentifier[redacted]";
@@ -260,32 +280,48 @@ public class CaisseEpargneSyncService {
         }
     }
 
+    /** One status for all the member's connections. */
     @Transactional(readOnly = true)
     public SessionStatusResponse getStatus(Long memberId) {
         return engine.getStatus(memberId);
     }
 
+    /** One status per connection, oldest first. */
+    @Transactional(readOnly = true)
+    public List<SessionStatusResponse> listStatuses(Long memberId) {
+        return engine.listStatuses(memberId);
+    }
+
     /**
-     * Deletes the stored session. This only forgets the cookies in Picsou: the bank session is
-     * not revoked and may stay active until it expires. Returns whether a session was deleted.
+     * Deletes connection {@code sessionId}, or all the member's when null. This only forgets the
+     * cookies in Picsou: the bank session is not revoked and may stay active until it expires.
+     * Returns whether a session was deleted.
      */
-    public boolean clearSession(Long memberId) {
-        return engine.clearSession(memberId);
+    public boolean clearSession(Long memberId, Long sessionId) {
+        return engine.clearSession(memberId, sessionId);
+    }
+
+    /** The last three characters of the identifier: enough to tell connections apart, never the identifier. */
+    static String hint(String customerId) {
+        return customerId.length() <= 3 ? customerId : customerId.substring(customerId.length() - 3);
     }
 
     /** Whether the stored identifier is readable is part of the answer, so it is decrypted here; nothing is written. */
     private SessionStatusResponse toStatus(
         SidecarSession session, List<BpceSyncEngine.UnsupportedContract> unsupported
     ) {
-        String encryptedCredentials = session.getEncryptedCredentials();
+        Optional<String> customerId = Optional.ofNullable(session.getEncryptedCredentials())
+            .flatMap(this::readCustomerId);
         return new SessionStatusResponse(
+            session.getId(),
             session.isActive(),
             session.getSyncStatus(),
             session.getLastSyncStartedAt(),
             session.getLastSyncCompletedAt(),
             session.getLastSyncError(),
             unsupported,
-            encryptedCredentials != null && readCustomerId(encryptedCredentials).isPresent()
+            customerId.isPresent(),
+            customerId.map(CaisseEpargneSyncService::hint).orElse(null)
         );
     }
 
@@ -294,13 +330,8 @@ public class CaisseEpargneSyncService {
         implements BpceSyncEngine.SessionStore<SidecarSession> {
 
         @Override
-        public Optional<SidecarSession> findByMemberId(Long memberId) {
-            return repository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, memberId);
-        }
-
-        @Override
-        public Optional<SidecarSession> findByMemberIdForUpdate(Long memberId) {
-            return repository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, memberId);
+        public List<SidecarSession> findAllByMemberId(Long memberId) {
+            return repository.findAllByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, memberId);
         }
 
         @Override
@@ -330,6 +361,8 @@ public class CaisseEpargneSyncService {
     }
 
     public record SessionStatusResponse(
+        /** The connection's row id; null for the aggregate and for no connection. */
+        Long id,
         boolean isActive,
         SidecarSyncStatus syncStatus,
         Instant lastSyncStartedAt,
@@ -337,14 +370,47 @@ public class CaisseEpargneSyncService {
         SidecarErrorCode lastSyncError,
         List<BpceSyncEngine.UnsupportedContract> unsupported,
         /** An identifier is remembered: a reconnect can send a blank one. Never the value itself. */
-        boolean remembered
+        boolean remembered,
+        /** Last three characters of the identifier, null when none is stored or it cannot be read. */
+        String identifierHint
     ) implements SidecarSessionView {
         public SessionStatusResponse {
             unsupported = unsupported == null ? List.of() : List.copyOf(unsupported);
         }
 
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null, List.of(), false);
+            return new SessionStatusResponse(null, false, SidecarSyncStatus.IDLE, null, null, null, List.of(), false, null);
+        }
+
+        /** One status for several connections: none is inactive, one is itself, several carry no id, hint or remembered flag. */
+        static SessionStatusResponse aggregate(List<SessionStatusResponse> rows) {
+            if (rows.isEmpty()) {
+                return inactive();
+            }
+            if (rows.size() == 1) {
+                return rows.get(0);
+            }
+            SidecarSyncStatus status = List.of(SidecarSyncStatus.RUNNING, SidecarSyncStatus.QUEUED,
+                    SidecarSyncStatus.FAILED, SidecarSyncStatus.SUCCESS).stream()
+                .filter(wanted -> rows.stream().anyMatch(row -> row.syncStatus() == wanted))
+                .findFirst().orElse(SidecarSyncStatus.IDLE);
+            SidecarErrorCode error = status != SidecarSyncStatus.FAILED ? null : rows.stream()
+                .filter(row -> row.syncStatus() == SidecarSyncStatus.FAILED)
+                .map(SessionStatusResponse::lastSyncError).findFirst().orElse(null);
+            return new SessionStatusResponse(
+                null,
+                rows.stream().anyMatch(SessionStatusResponse::isActive),
+                status,
+                latest(rows, SessionStatusResponse::lastSyncStartedAt),
+                latest(rows, SessionStatusResponse::lastSyncCompletedAt),
+                error,
+                rows.stream().flatMap(row -> row.unsupported().stream()).toList(),
+                false,
+                null);
+        }
+
+        private static Instant latest(List<SessionStatusResponse> rows, Function<SessionStatusResponse, Instant> field) {
+            return rows.stream().map(field).filter(Objects::nonNull).max(Comparator.naturalOrder()).orElse(null);
         }
 
         @JsonProperty("unsupportedCount")

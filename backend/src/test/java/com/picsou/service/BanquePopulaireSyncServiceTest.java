@@ -433,7 +433,7 @@ class BanquePopulaireSyncServiceTest {
 
     @Test
     void theStatusWithoutASessionIsInactiveAndIdle() {
-        when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findAllByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(List.of());
 
         BanquePopulaireSyncService.SessionStatusResponse status = service.getStatus(7L);
 
@@ -455,7 +455,8 @@ class BanquePopulaireSyncServiceTest {
         assertThat(response.processId()).isEqualTo("proc-1");
         assertThat(response.expiresInSeconds()).isEqualTo(90);
         verify(port, times(1)).initiateAuth(anyString(), any());
-        verifyNoInteractions(sessionRepository, encryption, logoResolver);
+        verifyNothingStored();
+        verifyNoInteractions(encryption, logoResolver);
     }
 
     @Test
@@ -465,9 +466,8 @@ class BanquePopulaireSyncServiceTest {
         when(port.completeAuth("proc-1")).thenReturn("{\"cookies\":[]}");
         FamilyMember member = member();
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.empty());
         when(encryption.encrypt("{\"cookies\":[]}")).thenReturn("encrypted-state");
-        when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findAllByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(List.of());
 
         service.initiateAuth(CUSTOMER_ID, BanquePopulaireRegion.BRED, 7L);
         service.submitKeypad("proc-1", POSITIONS, 7L);
@@ -484,14 +484,16 @@ class BanquePopulaireSyncServiceTest {
 
     @Test
     void aNewLoginReplacesTheSessionAndItsRegion() {
-        SidecarSession earlier = activeSession();
+        SidecarSession earlier = activeSession(BanquePopulaireRegion.SUD);
+        earlier.setEncryptedCredentials("encrypted-id");
+        when(encryption.decrypt("encrypted-id")).thenReturn("{\"customerId\":\"" + CUSTOMER_ID + "\"}");
         when(port.initiateAuth(CUSTOMER_ID, BanquePopulaireRegion.SUD))
             .thenReturn(new BanquePopulairePort.InitiateResult("proc-2", keypad(), 90));
         when(port.completeAuth("proc-2")).thenReturn("{\"cookies\":[]}");
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.of(earlier));
+        when(sessionRepository.findByIdAndMemberIdForUpdate(earlier.getId(), 7L)).thenReturn(Optional.of(earlier));
         when(encryption.encrypt("{\"cookies\":[]}")).thenReturn("encrypted-state");
-        when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findAllByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(List.of(earlier));
 
         service.initiateAuth(CUSTOMER_ID, BanquePopulaireRegion.SUD, 7L);
         service.submitKeypad("proc-2", POSITIONS, 7L);
@@ -512,9 +514,8 @@ class BanquePopulaireSyncServiceTest {
             .thenReturn(new BanquePopulairePort.InitiateResult("proc-o", keypad(), 90));
         when(port.completeAuth("proc-n")).thenReturn("state-n");
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.empty());
         when(encryption.encrypt("state-n")).thenReturn("encrypted-n");
-        when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findAllByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(List.of());
 
         service.initiateAuth(CUSTOMER_ID, BanquePopulaireRegion.NORD, 7L);
         service.initiateAuth("B7654321", BanquePopulaireRegion.OCCITANE, 7L);
@@ -529,9 +530,8 @@ class BanquePopulaireSyncServiceTest {
     @Test
     void storeSessionStoresTheRegionItIsGiven() {
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.empty());
         when(encryption.encrypt("cookies")).thenReturn("encrypted-state");
-        when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findAllByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(List.of());
 
         service.storeSession("cookies", BanquePopulaireRegion.VAL_DE_FRANCE, 7L);
 
@@ -560,7 +560,8 @@ class BanquePopulaireSyncServiceTest {
                 assertThat(error.getMessage()).contains("Banque Populaire");
             });
         verify(port, never()).submitKeypad(anyString(), any());
-        verify(sessionRepository, never()).findByBankAndMemberId(any(), anyLong());
+        verify(sessionRepository, never()).delete(any());
+        verify(sessionRepository, never()).saveAndFlush(any());
     }
 
     @Test
@@ -613,10 +614,9 @@ class BanquePopulaireSyncServiceTest {
     }
 
     private void arrangeQueuedSession(SidecarSession session) {
-        lenient().when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.of(session));
         lenient().when(sessionRepository.findByIdAndMemberIdForUpdate(session.getId(), 7L))
             .thenReturn(Optional.of(session));
-        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.of(session));
+        lenient().when(sessionRepository.findAllByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(List.of(session));
         lenient().when(encryption.decrypt("encrypted")).thenReturn("plain-state");
     }
 
@@ -667,5 +667,12 @@ class BanquePopulaireSyncServiceTest {
             null, null, null, null, "DEFERRED_DEBIT", "1001", LocalDate.of(2026, 11, 30),
             List.of(new BanquePopulairePort.Transaction("c1", LocalDate.of(2026, 11, 2),
                 LocalDate.of(2026, 11, 30), new BigDecimal("-87.10"), "EUR", "RESTAURANT", "04")), true, null);
+    }
+
+    /** A login only reads the member's rows (to know which one it replaces): nothing is written. */
+    private void verifyNothingStored() {
+        verify(sessionRepository, never()).save(any());
+        verify(sessionRepository, never()).saveAndFlush(any());
+        verify(sessionRepository, never()).delete(any());
     }
 }

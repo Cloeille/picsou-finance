@@ -268,7 +268,12 @@ class SidecarSyncContractTest {
 
         service(bank).clear();
 
-        verify(sessions).findByBankAndMemberIdForUpdate(bank, MEMBER);
+        if (bank == SidecarBank.CAISSE_EPARGNE || bank == SidecarBank.BANQUE_POPULAIRE) {
+            // Several connections per member: the engine locks each row by id.
+            verify(sessions).findByIdAndMemberIdForUpdate(SESSION, MEMBER);
+        } else {
+            verify(sessions).findByBankAndMemberIdForUpdate(bank, MEMBER);
+        }
         verify(sessions).delete(session);
     }
 
@@ -342,6 +347,7 @@ class SidecarSyncContractTest {
             .syncStatus(SidecarSyncStatus.IDLE)
             .build();
         when(sessions.findByBankAndMemberId(bank, MEMBER)).thenReturn(Optional.of(session));
+        when(sessions.findAllByBankAndMemberId(bank, MEMBER)).thenReturn(List.of(session));
         when(sessions.findByBankAndMemberIdForUpdate(bank, MEMBER)).thenReturn(Optional.of(session));
         when(sessions.findByIdAndMemberIdForUpdate(SESSION, MEMBER)).thenReturn(Optional.of(session));
         return session;
@@ -406,7 +412,7 @@ class SidecarSyncContractTest {
     private record Bank(Object service) {
 
         void queueSync() {
-            call("queueSync", MEMBER);
+            call("queueSync", withoutSessionId("queueSync"));
         }
 
         SidecarSessionView status() {
@@ -414,7 +420,7 @@ class SidecarSyncContractTest {
         }
 
         void clear() {
-            call("clearSession", MEMBER);
+            call("clearSession", withoutSessionId("clearSession"));
         }
 
         boolean recovers() {
@@ -431,6 +437,11 @@ class SidecarSyncContractTest {
 
         SourceSyncResult resyncReporting() {
             return (SourceSyncResult) call("resyncReporting", MEMBER);
+        }
+
+        /** Caisse d'Epargne and Banque Populaire take an optional session id: null means every connection. */
+        private Object[] withoutSessionId(String name) {
+            return find(name).orElseThrow().getParameterCount() == 2 ? new Object[] {MEMBER, null} : new Object[] {MEMBER};
         }
 
         private Optional<Method> find(String name) {

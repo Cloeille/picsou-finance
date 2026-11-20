@@ -44,6 +44,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -110,7 +111,8 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
     private final BpcePort port;
     private final SessionStore<S> sessions;
     private final BiFunction<S, List<UnsupportedContract>, R> statusOf;
-    private final Supplier<R> inactiveStatus;
+    /** The bank's status for all of a member's connections: the inactive one for none, the row's own for one. */
+    private final Function<List<R>, R> aggregate;
     private final BrandingSource<S> branding;
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
@@ -132,7 +134,7 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
      */
     private final Map<String, PendingLogin<S>> pendingLogins = new ConcurrentHashMap<>();
     /**
-     * Bumped by {@link #clearSession}: a login that was waiting on the bank or the phone when the
+     * Bumped by {@link #clearSession}: a login that was waiting on the bank or the phone when a
      * connection was removed carries an older generation and stores nothing. Checked and bumped
      * under {@link #sessionWriteLock}.
      */
@@ -144,9 +146,8 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
      * one-line delegation to the bank's Spring Data repository.
      */
     interface SessionStore<S> {
-        Optional<S> findByMemberId(Long memberId);
-
-        Optional<S> findByMemberIdForUpdate(Long memberId);
+        /** Every connection of the member, oldest first (by creation, then id). */
+        List<S> findAllByMemberId(Long memberId);
 
         Optional<S> findByIdAndMemberIdForUpdate(Long id, Long memberId);
 
@@ -212,7 +213,7 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
         BpcePort port,
         SessionStore<S> sessions,
         BiFunction<S, List<UnsupportedContract>, R> statusOf,
-        Supplier<R> inactiveStatus,
+        Function<List<R>, R> aggregate,
         BrandingSource<S> branding,
         AccountRepository accountRepository,
         TransactionRepository transactionRepository,
@@ -232,7 +233,7 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
         this.port = port;
         this.sessions = sessions;
         this.statusOf = statusOf;
-        this.inactiveStatus = inactiveStatus;
+        this.aggregate = aggregate;
         this.branding = Objects.requireNonNull(branding, "branding");
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
@@ -256,10 +257,13 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
      * Starts a login. The bank's service makes the one sidecar call (no retry) and hands its
      * answer here. No password ever reaches Picsou: the sidecar answers with the bank's keypad,
      * which the user clicks himself. A failure leaves any session already stored (valid or not)
-     * exactly as it was. {@code sessionFactory} builds the row this login opens once approved.
+     * exactly as it was. {@code sessionFactory} builds the row this login opens once approved;
+     * {@code replacesSessionId} is the member's connection this login re-opens (deleted when the
+     * new row is stored), or null for a new connection.
      */
     InitiateResponse initiateAuth(
-        Supplier<BpcePort.InitiateResult> initiate, Long memberId, SessionFactory<S> sessionFactory
+        Supplier<BpcePort.InitiateResult> initiate, Long memberId, Long replacesSessionId,
+        SessionFactory<S> sessionFactory
     ) {
         Objects.requireNonNull(sessionFactory, "sessionFactory");
         long generation = authGeneration(memberId);
@@ -274,7 +278,8 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
         // Swept on every start: a stale process id must never be reachable again.
         pendingLogins.values().removeIf(pending -> !pending.deadline().isAfter(now));
         registerPending(result.processId(),
-            new PendingLogin<>(memberId, now.plusSeconds(result.expiresInSeconds()), null, sessionFactory, generation));
+            new PendingLogin<>(memberId, now.plusSeconds(result.expiresInSeconds()), null, sessionFactory,
+                replacesSessionId, generation));
         return new InitiateResponse(result.processId(), result.keypad(), result.expiresInSeconds());
     }
 
@@ -334,7 +339,7 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
         port.submitKeypad(processId, positions);
         registerPending(processId, new PendingLogin<>(memberId, null,
             clock.instant().plusSeconds(KEYPAD_APPROVAL_WINDOW_SECONDS), pending.sessionFactory(),
-            pending.generation()));
+            pending.replacesSessionId(), pending.generation()));
     }
 
     /**
@@ -400,23 +405,29 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
             throw error(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED,
                 bank.provider() + " did not return a session", null);
         }
-        return storeSession(plainState, memberId, pending.sessionFactory(), pending.generation());
+        return storeSession(plainState, memberId, pending.sessionFactory(), pending.replacesSessionId(),
+            pending.generation());
     }
 
     /**
-     * Stores (encrypted) the session state produced by a login, in a row built by
-     * {@code sessionFactory}; it replaces any row the member had. It does <b>not</b> queue a sync:
-     * the user triggers it.
+     * Stores (encrypted) a session state in a row built by {@code sessionFactory} (tests, imports).
+     * It replaces the member's only connection when there is exactly one, else adds a row. It does
+     * <b>not</b> queue a sync: the user triggers it.
      */
     R storeSession(String plainState, Long memberId, SessionFactory<S> sessionFactory) {
-        return storeSession(plainState, memberId, sessionFactory, authGeneration(memberId));
+        List<S> existing = sessions.findAllByMemberId(memberId);
+        Long replaces = existing.size() == 1 ? existing.get(0).getId() : null;
+        return storeSession(plainState, memberId, sessionFactory, replaces, authGeneration(memberId));
     }
 
     /**
      * Refused when {@link #clearSession} ran since {@code generation} was read: the user
-     * disconnected while this login was in flight.
+     * disconnected while this login was in flight. The row {@code replacesSessionId} is deleted
+     * (if it is still there) and the new one inserted; null only inserts.
      */
-    private R storeSession(String plainState, Long memberId, SessionFactory<S> sessionFactory, long generation) {
+    private R storeSession(
+        String plainState, Long memberId, SessionFactory<S> sessionFactory, Long replacesSessionId, long generation
+    ) {
         if (plainState == null || plainState.isBlank()) {
             throw error(SidecarErrorCode.INVALID_SESSION_STATE, "No " + bank.provider() + " session was provided", null);
         }
@@ -425,7 +436,9 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
             requireTransactionResult(txTemplate.execute(status -> {
                 FamilyMember member = memberRepository.findById(memberId)
                     .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
-                Optional<S> previous = sessions.findByMemberIdForUpdate(memberId);
+                Optional<S> previous = replacesSessionId == null
+                    ? Optional.empty()
+                    : sessions.findByIdAndMemberIdForUpdate(replacesSessionId, memberId);
                 previous.ifPresent(sessions::delete);
                 sessions.flush();
                 S created = sessionFactory.create(
@@ -437,58 +450,65 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
         return getStatus(memberId);
     }
 
+    /**
+     * Queues a sync of every active connection that is not already in flight; the single-worker
+     * executor runs them one after the other. Answers the aggregate status.
+     */
     R queueSync(Long memberId) {
-        QueueDecision<R> decision = requireTransactionResult(txTemplate.execute(status -> {
-            S session = sessions.findByMemberIdForUpdate(memberId)
-                .orElseThrow(() -> error(
-                    SidecarErrorCode.SESSION_EXPIRED,
-                    "No active " + bank.provider() + " session. Please reconnect.",
-                    null
-                ));
-            if (!session.isActive()) {
-                throw error(
-                    SidecarErrorCode.SESSION_EXPIRED,
-                    "The " + bank.provider() + " session expired. Please reconnect.",
-                    null
-                );
-            }
-            if (session.isSyncInFlight()) {
-                return new QueueDecision<>(null, toStatus(session), null);
-            }
-
-            String plainState;
-            try {
-                plainState = encryption.decrypt(session.getSessionState());
-            } catch (RuntimeException ex) {
-                // Unreadable (wrong key, corrupted): the session is dead, not a server fault.
-                // Recorded inside the transaction, then thrown after it so the row is committed.
+        QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
+            List<S> targets = lockedActive(memberId);
+            List<SyncJob> jobs = new ArrayList<>();
+            SyncException failure = null;
+            for (S session : targets) {
+                if (session.isSyncInFlight()) {
+                    continue;
+                }
+                String plainState;
+                try {
+                    plainState = encryption.decrypt(session.getSessionState());
+                } catch (RuntimeException ex) {
+                    // Unreadable (wrong key, corrupted): the session is dead, not a server fault.
+                    // Recorded inside the transaction, then thrown after it so the row is committed.
+                    session.markQueued();
+                    session.markFailed(SidecarErrorCode.INVALID_SESSION_STATE, Instant.now());
+                    sessions.save(session);
+                    log.warn("Stored {} session is unreadable (member={}; type={})",
+                        bank.provider(), memberId, ex.getClass().getSimpleName());
+                    if (failure == null) {
+                        failure = error(
+                            SidecarErrorCode.INVALID_SESSION_STATE,
+                            "The stored " + bank.provider() + " session is unusable. Please reconnect.",
+                            null
+                        );
+                    }
+                    continue;
+                }
                 session.markQueued();
-                session.markFailed(SidecarErrorCode.INVALID_SESSION_STATE, Instant.now());
                 sessions.save(session);
-                log.warn("Stored {} session is unreadable (member={}; type={})",
-                    bank.provider(), memberId, ex.getClass().getSimpleName());
-                return new QueueDecision<R>(null, null, error(
-                    SidecarErrorCode.INVALID_SESSION_STATE,
-                    "The stored " + bank.provider() + " session is unusable. Please reconnect.",
-                    null
-                ));
+                jobs.add(new SyncJob(session.getId(), memberId, plainState, branding.brandingFor(session)));
             }
-            session.markQueued();
-            sessions.save(session);
-            return new QueueDecision<>(
-                new SyncJob(session.getId(), memberId, plainState, branding.brandingFor(session)),
-                toStatus(session), null);
+            // A bad row is only an error when nothing else was queued or already running.
+            boolean busy = targets.stream().anyMatch(BpceSession::isSyncInFlight);
+            return new QueueDecision(jobs, jobs.isEmpty() && !busy ? failure : null);
         }));
 
         if (decision.failure() != null) {
             throw decision.failure();
         }
+        decision.jobs().forEach(this::submit);
+        return getStatus(memberId);
+    }
 
-        if (decision.job() != null) {
-            submit(decision.job());
-            return getStatus(memberId);
+    /** The member's active rows, locked. Nothing active is {@code SESSION_EXPIRED}. */
+    private List<S> lockedActive(Long memberId) {
+        List<S> locked = new ArrayList<>();
+        for (S row : sessions.findAllByMemberId(memberId)) {
+            sessions.findByIdAndMemberIdForUpdate(row.getId(), memberId).filter(S::isActive).ifPresent(locked::add);
         }
-        return decision.status();
+        if (locked.isEmpty()) {
+            throw error(SidecarErrorCode.SESSION_EXPIRED, "No active " + bank.provider() + " session. Please reconnect.", null);
+        }
+        return locked;
     }
 
     private void submit(SyncJob job) {
@@ -1150,25 +1170,37 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
         }
     }
 
+    /** One status for all the member's connections, see the bank's aggregate rule. */
     R getStatus(Long memberId) {
-        return sessions.findByMemberId(memberId)
-            .map(this::toStatus)
-            .orElseGet(inactiveStatus);
+        return aggregate.apply(listStatuses(memberId));
+    }
+
+    /** One status per connection, oldest first. */
+    List<R> listStatuses(Long memberId) {
+        return sessions.findAllByMemberId(memberId).stream().map(this::toStatus).toList();
     }
 
     /**
-     * Deletes the stored session. This only forgets the cookies in Picsou: the bank session is
-     * not revoked (there is no confirmed logout call on the port) and may stay active until it
-     * expires. Returns whether a stored session was there to delete. A login still in flight is
-     * cancelled too, so an approval on the phone after this stores nothing.
+     * Deletes one stored session ({@code sessionId}) or, when null, all the member's. This only
+     * forgets the cookies in Picsou: the bank session is not revoked (there is no confirmed logout
+     * call on the port) and may stay active until it expires. Returns whether a stored session was
+     * there to delete. Every login of the member still in flight is cancelled too, so an approval
+     * on the phone after this stores nothing.
      */
-    boolean clearSession(Long memberId) {
+    boolean clearSession(Long memberId, Long sessionId) {
         synchronized (sessionWriteLock) {
             authGenerations.merge(memberId, 1L, Long::sum);
             boolean removed = Boolean.TRUE.equals(txTemplate.execute(status -> {
-                Optional<S> session = sessions.findByMemberIdForUpdate(memberId);
-                session.ifPresent(sessions::delete);
-                return session.isPresent();
+                boolean any = false;
+                List<Long> ids = sessionId != null
+                    ? List.of(sessionId)
+                    : sessions.findAllByMemberId(memberId).stream().map(S::getId).toList();
+                for (Long id : ids) {
+                    Optional<S> row = sessions.findByIdAndMemberIdForUpdate(id, memberId);
+                    row.ifPresent(sessions::delete);
+                    any |= row.isPresent();
+                }
+                return any;
             }));
             pendingLogins.values().removeIf(pending -> pending.memberId().equals(memberId));
             return removed;
@@ -1345,14 +1377,14 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
      */
     private record PendingLogin<S>(
         Long memberId, Instant keypadExpiresAt, Instant approvalExpiresAt, SessionFactory<S> sessionFactory,
-        long generation
+        Long replacesSessionId, long generation
     ) {
         Instant deadline() {
             return approvalExpiresAt != null ? approvalExpiresAt : keypadExpiresAt;
         }
     }
 
-    private record QueueDecision<R>(SyncJob job, R status, SyncException failure) {}
+    private record QueueDecision(List<SyncJob> jobs, SyncException failure) {}
     private record SyncJob(Long sessionId, Long memberId, String plainState, Branding branding) {}
     private record PreparedSnapshot(List<PreparedAccount> accounts, List<UnsupportedContract> unsupported) {}
     private record PreparedAccount(

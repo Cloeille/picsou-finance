@@ -12,6 +12,8 @@ import { mockAccounts, mockBanquePopulaireAccounts } from './data/accounts'
 import { createDemoAdapter } from './index'
 
 const inactiveSession = {
+  id: null,
+  identifierHint: null,
   isActive: false,
   syncStatus: 'IDLE',
   lastSyncStartedAt: null,

@@ -1223,6 +1223,8 @@ export type CaisseEpargneErrorCode =
 
 /** Mirrors `CaisseEpargneSyncService.SessionStatusResponse`. */
 export interface CaisseEpargneSessionStatus {
+  /** The connection's row id; null in the aggregate status and when there is no connection. */
+  id: number | null
   isActive: boolean
   syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'FAILED'
   lastSyncStartedAt: string | null
@@ -1232,6 +1234,8 @@ export interface CaisseEpargneSessionStatus {
   unsupportedCount: number
   /** An identifier is stored (encrypted): an empty one at initiate reuses it. Never the value. */
   remembered?: boolean
+  /** Last 3 characters of the stored identifier, to tell connections apart; null when none is stored. */
+  identifierHint: string | null
 }
 
 /**
