@@ -92,14 +92,17 @@
 | 2026-11-05 | [Banque Populaire shares the Caisse d'Epargne code through a BPCE package and sync engine](./decisions/2026-11-05-bpce-shared-sidecar-and-engine.md) | Active |
 | 2026-11-05 | [La Banque Postale through a dedicated sidecar, replacing Enable Banking](./decisions/2026-11-05-la-banque-postale-sidecar.md) | Active |
 | 2026-11-09 | [BNP Paribas and Hello bank! through a dedicated Camoufox sidecar](./decisions/2026-11-09-bnp-paribas-sidecar.md) | Proposed (unverified) |
+| 2026-11-17 | [Louve Invest through its official MCP server and OAuth, not a sidecar](./decisions/2026-11-17-louve-invest-official-mcp.md) | Proposed (run against one real account) |
 | 2026-11-06 | [Natixis Interépargne through a browserless sidecar that keeps only the refresh token](./decisions/2026-11-06-natixis-interepargne-httpx-sidecar.md) | Active |
 | 2026-11-07 | [Contract kinds seen in few live runs are enabled per bank and demoted, not fatal](./decisions/2026-11-07-provisional-kinds-per-bank.md) | Active |
 | 2026-11-06 | [Parallel CI legs that prove their own completeness](./decisions/2026-11-06-parallel-ci-legs.md) | Active |
+| 2026-11-15 | [A Tauri desktop app built from the Docker release](./decisions/2026-11-15-desktop-app-tauri.md) | Proposed |
 
 ## Feature notes
 
 | Feature | Last updated | Note |
 |---------|-------------|------|
+| Scheduler catch-up after a missed slot | 2026-11-15 | [scheduler-catch-up.md](./features/scheduler-catch-up.md) |
 | MCP server + scoped access-keys | 2026-06-26 | [mcp-server.md](./features/mcp-server.md) |
 | Budget + OAuth2 tools in MCP | 2026-07-06 | [mcp-budget-oauth2.md](./features/mcp-budget-oauth2.md) |
 | Remote-MCP OAuth (claude.ai connector) | 2026-07-12 | [mcp-oauth-remote.md](./features/mcp-oauth-remote.md) |
@@ -176,7 +179,8 @@
 | Loan accounts (LOAN type, amortization view) | 2026-04-26 | [loans.md](./features/loans.md) |
 | Peer loans (receivables between individuals) | 2026-11-05 | [peer-loans.md](./features/peer-loans.md) |
 | Real estate valuation | 2026-08-11 | [real-estate-valuation.md](./features/real-estate-valuation.md) |
-| SCPI shares | 2026-11-05 | [scpi.md](./features/scpi.md) |
+| SCPI shares | 2026-11-17 | [scpi.md](./features/scpi.md) |
+| Louve Invest SCPI sync (official MCP server, OAuth, no sidecar) | 2026-11-17 | [louve-invest.md](./features/louve-invest.md) |
 | CORUM Life (assurance-vie) sync | 2026-11-05 | [corum-life.md](./features/corum-life.md) |
 | Precious metals (gold bullion and coins) | 2026-11-06 | [precious-metals.md](./features/precious-metals.md) |
 | Ownership shares | 2026-08-10 | [account-ownership-shares.md](./features/account-ownership-shares.md) |

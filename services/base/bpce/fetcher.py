@@ -423,6 +423,8 @@ async def _fetch_loan_details(
     loan_token: Optional[LoanTokenProvider],
     home_loan_token: Optional[LoanTokenProvider] = None,
     home_loan_base_url: Optional[str] = None,
+    *,
+    provisional: bool = False,
 ) -> tuple[dict, dict]:
     """`({externalId: parsed loan or None}, {externalId: code})` for every LOAN account.
 
@@ -434,17 +436,35 @@ async def _fetch_loan_details(
     replays or fails. The home-loan app is another OAuth client on BPCE hosts: a refusal
     there, minting its token or reading the detail (401), leaves only the home loans
     unavailable.
+
+    `provisional` (`"LOAN" in Site.provisional_kinds`) is for a site whose loan clients were
+    read from its public web app and never observed live. Then nothing a loan app answers
+    can cost more than its own detail: a `SessionExpired` never propagates (an unverified
+    client must not deactivate a live session), and a loan whose token cannot be minted or
+    whose detail cannot be read is still imported, with a null `loan`, instead of unavailable.
     """
     loans = [a for a in accounts if a["kind"] == "LOAN"]
     details: dict = {a["externalId"]: None for a in loans}
     unavailable: dict = {}
+
+    def leave_out(account: dict, code: str, product: str) -> None:
+        if provisional:
+            log.warning("loan imported without detail: product=%s", product)
+        else:
+            unavailable[account["externalId"]] = code
+
+    def unavailable_loan(account: dict, code: str, product: str) -> None:
+        log.warning("loan detail unavailable: product=%s code=%s", product, code)
+        leave_out(account, code, product)
+
     for product, provider in (("PERSONAL", loan_token), ("HOME", home_loan_token)):
         group = [a for a in loans if a.get("loanProduct", "PERSONAL") == product]
         if not group or provider is None:
             continue
         if product == "HOME" and home_loan_base_url is None:
             # A home-loan token without the site's home-loan host: nothing to read it from.
-            unavailable.update({a["externalId"]: UpstreamUnavailable.code for a in group})
+            for account in group:
+                unavailable_loan(account, UpstreamUnavailable.code, product)
             continue
         try:
             token = await provider()
@@ -453,12 +473,14 @@ async def _fetch_loan_details(
             # BPCE home-loan client says nothing about the SSO session. Propagating it would
             # make `_fetch_accounts` replay then report SESSION_EXPIRED, which deactivates a
             # live session (same stance as the PER reader in main.py).
-            if product != "HOME":
+            if product != "HOME" and not provisional:
                 raise
-            unavailable.update({a["externalId"]: UpstreamUnavailable.code for a in group})
+            for account in group:
+                unavailable_loan(account, UpstreamUnavailable.code, product)
             continue
         except replay.ReplayError as exc:
-            unavailable.update({a["externalId"]: exc.code for a in group})
+            for account in group:
+                unavailable_loan(account, exc.code, product)
             continue
         for account in group:
             ext = account["externalId"]
@@ -466,7 +488,7 @@ async def _fetch_loan_details(
             if product == "HOME":
                 entity_code = account.get("loanEntityCode")
                 if not isinstance(entity_code, str) or not entity_code.isascii() or not entity_code.isalnum():
-                    unavailable[ext] = UpstreamFormatChanged.code
+                    unavailable_loan(account, UpstreamFormatChanged.code, product)
                     continue
                 url = home_loan_base_url + HOME_LOAN_DETAIL_PATH + urllib.parse.quote(
                     f"{entity_code}-{contract_id}", safe=""
@@ -482,12 +504,22 @@ async def _fetch_loan_details(
             try:
                 payload = await _get_json(client, url, {}, bearer=token)
                 details[ext] = parse(payload)
-            except (FetchError, accounts_parser.ParseError) as exc:
-                unavailable[ext] = exc.code
+            except accounts_parser.ParseError as exc:
+                # Field path only (the parser names fields and positions, never a value):
+                # which part of a loan answer changed.
+                log.warning(
+                    "loan detail unreadable: product=%s code=%s rejected=%s",
+                    product,
+                    exc.code,
+                    accounts_parser._reason(exc),
+                )
+                leave_out(account, exc.code, product)
+            except FetchError as exc:
+                unavailable_loan(account, exc.code, product)
             except replay.SessionExpired:
-                if product != "HOME":
+                if product != "HOME" and not provisional:
                     raise
-                unavailable[ext] = UpstreamUnavailable.code
+                unavailable_loan(account, UpstreamUnavailable.code, product)
     return details, unavailable
 
 
@@ -578,7 +610,13 @@ async def fetch_import(
                 unavailable[external_id] = exc.code
 
         loans, loan_unavailable = await _fetch_loan_details(
-            client, base_url, accounts, loan_token, home_loan_token, home_loan_base_url
+            client,
+            base_url,
+            accounts,
+            loan_token,
+            home_loan_token,
+            home_loan_base_url,
+            provisional="LOAN" in site.provisional_kinds,
         )
         pensions, per_unavailable, per_listed = await _fetch_per_details(accounts, per_detail)
         unavailable.update(loan_unavailable)

@@ -688,6 +688,8 @@
     "corumFundHint": "Optional. A CORUM sync links its funds on its own; type a code only to force a link.",
     "sofidyFundCode": "Sofidy fund code",
     "sofidyFundHint": "Optional. A Sofidy sync links its funds on its own; type a code only to force a link.",
+    "louveFundCode": "Louve Invest fund code",
+    "louveFundHint": "Optional. The Louve Invest sync links its funds by itself; only type a code (for example aurore) to force a link.",
     "dividendPolicy": "Dividends",
     "cash": "Paid out",
     "reinvest": "Reinvested",
@@ -729,7 +731,8 @@
         "PRICE_INCOMPLETE": "shares updated, withdrawal price missing: balance kept",
         "AMBIGUOUS": "several SCPI accounts have this name, none was linked. Pick it when adding a SCPI, or rename one.",
         "IGNORED": "ignored, not synced",
-        "MISSING_AT_PROVIDER": "no longer listed by the provider, account kept"
+        "MISSING_AT_PROVIDER": "no longer listed by the provider, account kept",
+        "UNSUPPORTED_OWNERSHIP": "held in bare ownership or usufruct, not valued: account left as it was"
       }
     },
     "ignoreFund": "Ignore this fund",
@@ -1263,10 +1266,11 @@
       "amex": "American Express credit card: balance and transactions",
       "corum": "CORUM SCPI and CORUM Life insurance: units, valuation and operations",
       "sofidy": "Sofidy SCPI units, at the withdrawal price",
+      "louve": "SCPI units bought through Louve Invest, read-only, at the withdrawal price",
       "property": "House, apartment, land…",
       "fortuneo": "Sync your Fortuneo accounts",
       "caisseEpargne": "Current account, Livret A, LDDS, PEL, LEP, PER, life insurance, loans and cards at Caisse d'Epargne",
-      "banquePopulaire": "Current account, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, term deposit, cooperative shares and PER at Banque Populaire",
+      "banquePopulaire": "Current account, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, term deposit, cooperative shares, PER, and personal and home loans at Banque Populaire",
       "lbp": "Current account, Livret A and LEP at La Banque Postale",
       "bnp": "Current accounts, savings, securities and life insurance at BNP Paribas or Hello bank!"
     },
@@ -1700,6 +1704,13 @@
         "serverError": "Could not reach BoursoBank. Please try again."
       }
     },
+    "bpceContracts": {
+      "personalLoan": "Personal loan",
+      "homeLoan": "Home loan",
+      "revolvingCredit": "Revolving credit",
+      "notImported_one": "{{count}} contract not imported, details below.",
+      "notImported_other": "{{count}} contracts not imported, details below."
+    },
     "caisseEpargne": {
       "title": "Caisse d'Epargne",
       "customerId": "Identifier",
@@ -1772,7 +1783,7 @@
       "disconnectConfirmAction": "Delete the stored session",
       "noSession": "No active session",
       "sessionActive": "Session active",
-      "scope": "Syncs your Banque Populaire current accounts, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, term deposits, cooperative shares and PER on demand. Only the session and your identifier are kept, encrypted; never your password. Contracts Picsou cannot import are listed but never created.",
+      "scope": "Syncs your Banque Populaire current accounts, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, term deposits, cooperative shares, PER, and personal and home loans on demand. Only the session and your identifier are kept, encrypted; never your password. Contracts Picsou cannot import are listed but never created.",
       "notice": {
         "neverStored": "Picsou never sees or stores your password. You click it on the bank's keypad yourself; only the positions of the keys are sent, once.",
         "noRetry": "Picsou never retries a sign-in. If it fails, nothing is sent again until you submit the form yourself.",
@@ -2128,6 +2139,41 @@
         "formatChanged": "The Sofidy website format changed. Your existing data was kept.",
         "invalidData": "Sofidy returned inconsistent data. Your existing data was kept.",
         "serverError": "Could not reach Sofidy. Please try again."
+      }
+    },
+    "louve": {
+      "title": "Louve Invest",
+      "intro": "Picsou reads your Louve Invest SCPI portfolio through Louve's official connection. You approve read-only access on Louve's own page: Picsou never sees your Louve password.",
+      "connect": "Connect with Louve Invest",
+      "reconnect": "Reconnect with Louve Invest",
+      "completing": "Finishing the connection…",
+      "sync": "Sync",
+      "syncing": "Syncing…",
+      "disconnect": "Disconnect",
+      "disconnectConfirm": "Picsou forgets the Louve Invest access and asks Louve to revoke it. Your SCPI accounts are kept.",
+      "connected": "Connected",
+      "notConnected": "Not connected",
+      "needsReconnect": "Reconnection needed",
+      "lastSync": "Last sync",
+      "neverSynced": "Not synced yet",
+      "connectedToast": "Louve Invest connected. The first sync is running.",
+      "scope": "Read-only access to your portfolio (portfolio:read). Syncs the SCPI shares held in full ownership, valued at the withdrawal price; a fund without an account gets one, or is linked to the SCPI account with the same name (\"Aurore\" or \"Louve Invest - Aurore\"). Shares held in bare ownership or usufruct and life-insurance contracts are not synced.",
+      "errors": {
+        "consentDenied": "Access was not granted on Louve Invest. Nothing was connected.",
+        "callbackInvalid": "Louve Invest sent back an incomplete answer. Start the connection again.",
+        "connectFailed": "Could not connect Louve Invest. Please try again.",
+        "syncFailed": "Could not start the Louve Invest sync. Please try again.",
+        "lastSyncFailed": "The last Louve Invest sync failed. Your existing data was kept; try again in a moment.",
+        "disconnectFailed": "Could not disconnect Louve Invest. Please try again.",
+        "authAttemptExpired": "This connection attempt expired or was already used. Start again.",
+        "sessionExpired": "The Louve Invest access was revoked or expired. Reconnect to resume syncing.",
+        "rateLimited": "Louve Invest is limiting requests. Try again in a few minutes.",
+        "portfolioIncomplete": "Louve Invest returned an incomplete portfolio. Your existing data was kept.",
+        "formatChanged": "The Louve Invest data format changed. Your existing data was kept.",
+        "invalidData": "Louve Invest returned inconsistent data. Your existing data was kept.",
+        "serverError": "Could not reach Louve Invest. Please try again.",
+        "originNotAllowed": "Add this Picsou address to the allowed origins in Administration > Security, then connect again. Louve Invest sends you back to that address.",
+        "originNotSecure": "Louve Invest needs Picsou to be reached over HTTPS. Open Picsou through its HTTPS address and connect again."
       }
     },
     "amex": {

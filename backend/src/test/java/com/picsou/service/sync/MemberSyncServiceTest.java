@@ -1,5 +1,6 @@
 package com.picsou.service.sync;
 
+import com.picsou.service.budget.InternalTransferPairingService;
 import com.picsou.dto.FinaryAutoSyncResponse;
 import com.picsou.finary.FinaryApiSyncService;
 import com.picsou.exception.SyncException;
@@ -40,6 +41,7 @@ class MemberSyncServiceTest {
     @Mock private NatixisSyncService natixisSyncService;
     @Mock private LbpSyncService lbpSyncService;
     @Mock private BnpSyncService bnpSyncService;
+    @Mock private com.picsou.service.LouveSyncService louveSyncService;
     @Mock private FortuneoSyncService fortuneoSyncService;
     @Mock private AmexSyncService amexSyncService;
     @Mock private IbkrSyncService ibkrSyncService;
@@ -50,6 +52,7 @@ class MemberSyncServiceTest {
     @Mock private FinaryApiSyncService finaryApiSyncService;
     @Mock private DegiroSyncService degiroSyncService;
     @Mock private DividendReceiptService dividendReceiptService;
+    @Mock private InternalTransferPairingService transferPairingService;
 
     private MemberSyncService memberSyncService;
 
@@ -59,12 +62,15 @@ class MemberSyncServiceTest {
             revolutSyncService, syncService, trSyncService, boursoSyncService,
             bourseDirectSyncService, amundiSyncService, fortuneoSyncService, amexSyncService,
             ibkrSyncService, simplefinSyncService, wiseSyncService, cryptoExchangeSyncService, walletSyncService,
-            finaryApiSyncService, degiroSyncService, new ReceivedDividendClassifier(dividendReceiptService), cmesSyncService, cicSyncService,
+            finaryApiSyncService, degiroSyncService, new ReceivedDividendClassifier(dividendReceiptService, transferPairingService), cmesSyncService, cicSyncService,
             corumSyncService,
             natixisSyncService,
             lbpSyncService,
-            bnpSyncService
+            bnpSyncService,
+            louveSyncService
         );
+        lenient().when(louveSyncService.resyncReporting(anyLong())).thenReturn(
+            new SourceSyncResult("louve", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
         lenient().when(cmesSyncService.resyncReporting(anyLong())).thenReturn(
             new SourceSyncResult("cmes", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
         lenient().when(cicSyncService.resyncReporting(anyLong())).thenReturn(
@@ -101,7 +107,7 @@ class MemberSyncServiceTest {
 
         List<SourceSyncResult> results = memberSyncService.resyncScheduled(memberId);
 
-        assertEquals(22, results.size());
+        assertEquals(23, results.size());
         assertEquals("cmes", results.get(16).source());
         verify(cmesSyncService).resyncReporting(memberId);
         assertEquals("cic", results.get(17).source());
@@ -115,9 +121,12 @@ class MemberSyncServiceTest {
         assertEquals(SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, results.get(20).status());
         verify(lbpSyncService).getStatus(memberId);
         verify(lbpSyncService, never()).queueSync(memberId);
-        // BNP Paribas is last and delegates to its own resyncReporting.
+        // BNP Paribas delegates to its own resyncReporting.
         assertEquals("bnp", results.get(21).source());
         verify(bnpSyncService).resyncReporting(memberId);
+        // Louve Invest is last: its OAuth grant refreshes by itself.
+        assertEquals("louve", results.get(22).source());
+        verify(louveSyncService).resyncReporting(memberId);
         assertEquals("revolut", results.get(0).source());
         assertEquals("enable-banking", results.get(1).source());
         assertEquals("enable-banking-retry", results.get(2).source());
@@ -282,6 +291,35 @@ class MemberSyncServiceTest {
         inOrder.verify(finaryApiSyncService).autoSync(memberId);
         inOrder.verify(dividendReceiptService).classifyRecent(eq(memberId), any(java.time.LocalDate.class));
         verify(dividendReceiptService, times(1)).classifyRecent(eq(memberId), any(java.time.LocalDate.class));
+    }
+
+    @Test
+    void resyncForUser_pairsInternalTransfersOnceAfterDividends() {
+        Long memberId = 53L;
+        when(amexSyncService.resyncReporting(memberId)).thenReturn(success("amex"));
+
+        memberSyncService.resyncForUser(memberId, Set.of("amex"));
+
+        InOrder inOrder = inOrder(amexSyncService, dividendReceiptService, transferPairingService);
+        inOrder.verify(amexSyncService).resyncReporting(memberId);
+        inOrder.verify(dividendReceiptService).classifyRecent(eq(memberId), any(java.time.LocalDate.class));
+        inOrder.verify(transferPairingService).pairRecent(eq(memberId), any(java.time.LocalDate.class));
+        verify(transferPairingService, times(1)).pairRecent(eq(memberId), any(java.time.LocalDate.class));
+    }
+
+    @Test
+    void transferPairingRunsWhenDividendClassificationFailsAndNeverChangesTheResults() {
+        Long memberId = 54L;
+        when(amexSyncService.resyncReporting(memberId)).thenReturn(success("amex"));
+        when(dividendReceiptService.classifyRecent(eq(memberId), any(java.time.LocalDate.class)))
+            .thenThrow(new IllegalStateException("db down"));
+        when(transferPairingService.pairRecent(eq(memberId), any(java.time.LocalDate.class)))
+            .thenThrow(new IllegalStateException("db down"));
+
+        List<SourceSyncResult> results = memberSyncService.resyncForUser(memberId, Set.of("amex"));
+
+        assertThat(results).containsExactly(success("amex"));
+        verify(transferPairingService).pairRecent(eq(memberId), any(java.time.LocalDate.class));
     }
 
     @Test

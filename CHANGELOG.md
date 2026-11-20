@@ -16,6 +16,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hides the card behind a recap row with its total.
   Unlike `hidden`, collapsed accounts stay in every total, budget and chart — see
   `docs/features/account-list-display.md`.
+- **Banque Populaire: import personal and home loans (6/12, 6/13).** Both loan kinds are now imported with
+  their borrowed amount, rate, installment and dates, as on Caisse d'Epargne. The two bank apps' sign-in
+  settings come from the bank's public web app configuration and are not yet verified against a real account:
+  if a loan app refuses them, the loan is still imported from its balance with no details and the session
+  stays connected. Sync logs name the field that could not be read (never a value) so a report can be
+  precise. (#567)
+- **Transfers between your own accounts are recognised.** After each sync, a debit on one of your
+  accounts and the matching credit on another (same amount and currency, at most three days apart)
+  are both categorised *Virement interne*, so cash flow and the flow diagram stop counting them as
+  spending and income. A category you chose by hand is never changed, and when two legs could
+  match, Picsou leaves them alone rather than guess. See `docs/features/budget.md`. Closes #450.
+- **Louve Invest SCPI sync (verified against one real account).** Connect Louve Invest from the
+  Sync page or Add Account: Picsou sends you to Louve's own consent page and asks only for
+  read-only access to your portfolio (`portfolio:read`); no Louve password is typed into or stored
+  by Picsou, and no connector container is needed. The SCPI shares you hold in full ownership are
+  synced daily into one SCPI account per fund, valued at the withdrawal price, with the
+  subscription price, management company, ISIN and declared distribution filled in. An existing
+  account named "Aurore" or "Louve Invest - Aurore" is linked rather than duplicated. Shares held in
+  bare ownership or usufruct are listed but not valued, and life-insurance contracts are not
+  synced yet. Louve sends you back to the Picsou address you connected from, which must be one
+  of the allowed origins in Administration > Security (HTTPS, or `localhost` for development).
+  The encrypted OAuth tokens are stored by `V153`; the instance's Louve client registration is
+  kept in the application settings. See `docs/features/louve-invest.md`.
+
+### Fixed
+
+- **American Express login no longer stalls behind the cookie banner.** When the consent banner
+  showed up after the login form, it blocked the sign-in click and the connection failed with
+  "Impossible de joindre American Express". It is now declined whenever it appears (#568).
+- **BoursoBank syncs a PEA-PME holding unlisted instruments.** Crowdfunding lines
+  (Homunity) have an ISIN but no ticker, and one such line failed the whole sync
+  with `UPSTREAM_FORMAT_CHANGED`, so no account was imported. The line now syncs
+  under its ISIN; a line with neither ticker nor valid ISIN is still refused.
+
+### Changed
+
+- **A missed daily sync is made up once.** When Picsou was off or the machine asleep at 08:00, the bank
+  sync and the balance snapshot now run within a minute or two of the next start or wake, once, not
+  once per missed day. The weekly and monthly jobs follow the same rule. The first start after the
+  upgrade only records the time and waits for the next slot. See
+  [Scheduler catch-up](docs/features/scheduler-catch-up.md). (#585, part of #235)
+- **Caisse d'Epargne and Banque Populaire: the Sync tab names the contracts it does not import and counts them.** A personal loan (`6/12`), a home loan (`6/13`) and a revolving credit (`2/11`) show their name next to the code, and the success line adds how many contracts were not imported, so a missing loan is no longer silent. The revolving credit is never imported; a loan lands in this list only when Picsou cannot read its entry. Contracts of any other family keep the bare code. (#567, #486)
 
 ### Changed
 

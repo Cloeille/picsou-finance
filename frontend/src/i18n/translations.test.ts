@@ -35,6 +35,17 @@ describe('translations', () => {
     expect(t('accounts.export.selected', { count: 2 })).toBe(two)
   })
 
+  it.each([
+    ['fr', '1 contrat non importé, détail ci-dessous.', '3 contrats non importés, détail ci-dessous.'],
+    ['en', '1 contract not imported, details below.', '3 contracts not imported, details below.'],
+    ['de', '1 Vertrag nicht importiert, Details unten.', '3 Verträge nicht importiert, Details unten.'],
+    ['es', '1 contrato no importado, detalle abajo.', '3 contratos no importados, detalle abajo.'],
+  ] as const)('%s pluralizes the BPCE contracts not imported', async (lng, one, other) => {
+    const t = await translatorFor(lng)
+    expect(t('sync.bpceContracts.notImported', { count: 1 })).toBe(one)
+    expect(t('sync.bpceContracts.notImported', { count: 3 })).toBe(other)
+  })
+
   it('puts a no-break space before the colon of a French label only', async () => {
     const label = 'Objectif mensuel'
     expect((await translatorFor('fr'))('common.labelColon', { label })).toBe('Objectif mensuel\u00a0:')

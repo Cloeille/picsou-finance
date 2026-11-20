@@ -1,7 +1,6 @@
 package com.picsou.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.picsou.config.ClientIp;
 import com.picsou.config.RateLimitConfig;
 import com.picsou.service.BnpSyncService;
 import com.picsou.service.UserContext;
@@ -10,8 +9,6 @@ import io.github.bucket4j.ConsumptionProbe;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,13 +17,16 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+
+import static com.picsou.config.PerIpRateLimit.consumeProbe;
+import static com.picsou.config.PerIpRateLimit.tooManyRequests;
+import static com.picsou.config.PerIpRateLimit.tryConsume;
 
 /**
  * BNP Paribas and Hello bank! endpoints. Login is three calls ({@code /auth/initiate},
@@ -92,9 +92,9 @@ public class BnpController {
         if (!BRANDS.contains(brand)) {
             throw invalidBody();
         }
-        ConsumptionProbe probe = consumeToken(authBuckets, RateLimitConfig::createBnpAuthBucket, request);
+        ConsumptionProbe probe = consumeProbe(authBuckets, request, RateLimitConfig::createBnpAuthBucket);
         if (!probe.isConsumed()) {
-            return tooMany(probe, "Too many BNP Paribas sign-in attempts. Please wait before retrying.");
+            return tooManyRequests(probe, "Too many BNP Paribas sign-in attempts. Please wait before retrying.");
         }
         return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store")
             .body(service.initiateAuth(customerId, brand, userContext.currentMemberId()));
@@ -106,9 +106,9 @@ public class BnpController {
         requireOnlyFields(body, "processId", "positions");
         String processId = processId(body);
         List<Integer> positions = positions(body.get("positions"));
-        ConsumptionProbe probe = consumeToken(stepBuckets, RateLimitConfig::createBnpKeypadBucket, request);
+        ConsumptionProbe probe = consumeProbe(stepBuckets, request, RateLimitConfig::createBnpKeypadBucket);
         if (!probe.isConsumed()) {
-            return tooMany(probe, "Too many BNP Paribas keypad requests. Please wait before retrying.");
+            return tooManyRequests(probe, "Too many BNP Paribas keypad requests. Please wait before retrying.");
         }
         // The positions are never echoed back, here or in an error.
         return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store")
@@ -132,9 +132,9 @@ public class BnpController {
             if (!CODE.matcher(code).matches()) {
                 throw invalidBody();
             }
-            ConsumptionProbe probe = consumeToken(completeBuckets, RateLimitConfig::createBnpCompleteBucket, request);
+            ConsumptionProbe probe = consumeProbe(completeBuckets, request, RateLimitConfig::createBnpCompleteBucket);
             if (!probe.isConsumed()) {
-                return tooMany(probe, "Too many BNP Paribas code attempts. Please wait before retrying.");
+                return tooManyRequests(probe, "Too many BNP Paribas code attempts. Please wait before retrying.");
             }
         }
         return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store")
@@ -143,12 +143,8 @@ public class BnpController {
 
     @PostMapping("/sync")
     public ResponseEntity<?> sync(HttpServletRequest request) {
-        boolean allowed = syncBuckets.computeIfAbsent(ClientIp.resolve(request), key -> RateLimitConfig.createSyncBucket())
-            .tryConsume(1);
-        if (!allowed) {
-            ProblemDetail detail = ProblemDetail.forStatus(HttpStatus.TOO_MANY_REQUESTS);
-            detail.setDetail("Too many BNP Paribas synchronization requests. Please wait before retrying.");
-            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(detail);
+        if (!tryConsume(syncBuckets, request, RateLimitConfig::createSyncBucket)) {
+            return tooManyRequests("Too many BNP Paribas synchronization requests. Please wait before retrying.");
         }
         return ResponseEntity.accepted().body(service.queueSync(userContext.currentMemberId()));
     }
@@ -217,26 +213,6 @@ public class BnpController {
     /** A body-level refusal. The message is fixed: nothing of the input is ever echoed. */
     static IllegalArgumentException invalidBody() {
         return new IllegalArgumentException(INVALID_BODY);
-    }
-
-    // --- rate limiting ----------------------------------------------------------
-
-    private ConsumptionProbe consumeToken(
-        Map<String, Bucket> buckets,
-        java.util.function.Supplier<Bucket> factory,
-        HttpServletRequest request
-    ) {
-        return buckets.computeIfAbsent(ClientIp.resolve(request), key -> factory.get())
-            .tryConsumeAndReturnRemaining(1);
-    }
-
-    private ResponseEntity<ProblemDetail> tooMany(ConsumptionProbe probe, String message) {
-        long seconds = Math.max(1, Duration.ofNanos(probe.getNanosToWaitForRefill()).plusMillis(999).toSeconds());
-        ProblemDetail detail = ProblemDetail.forStatus(HttpStatus.TOO_MANY_REQUESTS);
-        detail.setDetail(message);
-        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-            .header(HttpHeaders.RETRY_AFTER, Long.toString(seconds))
-            .body(detail);
     }
 
     record DeleteResponse(boolean removed, boolean bankSessionRevoked, String message) {}
