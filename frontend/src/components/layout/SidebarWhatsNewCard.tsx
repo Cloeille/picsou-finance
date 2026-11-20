@@ -1,10 +1,9 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CaretRight, ArrowSquareOut, MegaphoneSimple } from '@phosphor-icons/react'
+import { ArrowUpRight } from '@phosphor-icons/react'
 import { WhatsNewDialog } from '@/components/shared/WhatsNewDialog'
 import { useAppStore } from '@/stores/app-store'
 import {
-  PICSOU_GITHUB_URL,
   getLatestWhatsNew,
   resolveWhatsNewLocale,
 } from '@/lib/whats-new'
@@ -25,17 +24,15 @@ export function SidebarWhatsNewCard() {
   }
 
   return (
-    <div className="mb-2 overflow-hidden rounded-xl border border-border/60 bg-muted/25">
+    <div className="mb-2">
       <button
         type="button"
         onClick={handleOpen}
-        className="group flex w-full cursor-pointer flex-col gap-0.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="group flex w-full cursor-pointer flex-col gap-2 rounded-xl border border-border/60 bg-muted/50 px-3 py-3 text-left transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <div className="flex w-full items-center justify-between gap-2">
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
-            <MegaphoneSimple className="size-3.5 shrink-0 text-foreground" aria-hidden="true" />
-            <span>{t('whatsNew.title')}</span>
-            <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="rounded-md border border-border/60 bg-background/80 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
               v{latest.version}
             </span>
             {hasUnread && (
@@ -45,28 +42,20 @@ export function SidebarWhatsNewCard() {
               />
             )}
           </span>
-          <CaretRight
-            className="size-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground"
+          <ArrowUpRight
+            className="size-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-foreground"
             aria-hidden="true"
           />
         </div>
-        <p className="line-clamp-1 text-xs leading-relaxed text-muted-foreground">
-          {latest.summary[locale]}
-        </p>
+        <div className="space-y-0.5">
+          <p className="text-sm font-semibold leading-snug text-foreground">
+            {t('whatsNew.cardTitle', { version: latest.version })}
+          </p>
+          <p className="line-clamp-1 text-xs leading-relaxed text-muted-foreground">
+            {latest.summary[locale]}
+          </p>
+        </div>
       </button>
-
-      <a
-        href={PICSOU_GITHUB_URL}
-        target="_blank"
-        rel="noreferrer"
-        className="group flex w-full items-center justify-between gap-2 border-t border-border/60 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-      >
-        <span>{t('whatsNew.starGithub')}</span>
-        <ArrowSquareOut
-          className="size-3.5 shrink-0 text-foreground"
-          aria-hidden="true"
-        />
-      </a>
 
       <WhatsNewDialog open={open} onOpenChange={setOpen} />
     </div>

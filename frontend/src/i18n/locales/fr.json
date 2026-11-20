@@ -3679,6 +3679,7 @@
     "howToUpdate": "Mettre à jour",
     "updateInstructions": "Pour mettre à jour votre instance Docker, exécutez :",
     "copied": "Copié",
-    "copy": "Copier"
+    "copy": "Copier",
+    "cardTitle": "Découvrez Picsou {{version}}"
   }
 }
