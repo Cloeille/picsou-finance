@@ -1,10 +1,9 @@
 import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
 import { Landmark } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { BankCountrySelect, DEFAULT_BANK_COUNTRY } from '@/components/shared/BankCountrySelect'
-import { useSearchInstitutions } from '@/features/sync/hooks'
+import { useBankCountries, useSearchInstitutions } from '@/features/sync/hooks'
 
 interface BankPickerProps {
   id?: string
@@ -30,23 +29,25 @@ interface BankPickerProps {
  * this field had before. See `docs/features/bank-logos.md`.
  */
 export function BankPicker({ id, value, placeholder, onChange }: BankPickerProps) {
-  const { t } = useTranslation()
   const [country, setCountry] = useState(DEFAULT_BANK_COUNTRY)
   // Suggestions are dismissed on pick, and re-armed on the next keystroke: without this,
   // choosing "Crédit Agricole" leaves a list still matching "Crédit Agricole" open under it.
   const [showSuggestions, setShowSuggestions] = useState(false)
 
+  const { data: countries } = useBankCountries()
+  const showCountryPicker = Array.isArray(countries) && countries.length > 1
   const { data: institutions } = useSearchInstitutions(value.trim(), country)
   const suggestions = showSuggestions ? (institutions ?? []) : []
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-start gap-2">
+    <div className="min-w-0 space-y-2">
+      <div className="flex min-w-0 items-start gap-2">
         <Input
           id={id}
           value={value}
           placeholder={placeholder}
           autoComplete="off"
+          className="min-w-0 flex-1"
           onChange={(e) => {
             setShowSuggestions(true)
             // The id belongs to the bank that was picked; the moment the text diverges from it
@@ -54,7 +55,9 @@ export function BankPicker({ id, value, placeholder, onChange }: BankPickerProps
             onChange(e.target.value, undefined)
           }}
         />
-        <BankCountrySelect value={country} onChange={setCountry} />
+        {showCountryPicker && (
+          <BankCountrySelect value={country} onChange={setCountry} silentFallback />
+        )}
       </div>
 
       {suggestions.length > 0 && (
@@ -84,8 +87,6 @@ export function BankPicker({ id, value, placeholder, onChange }: BankPickerProps
           ))}
         </ul>
       )}
-
-      <p className="text-xs text-muted-foreground">{t('accounts.bankPickerHint')}</p>
     </div>
   )
 }

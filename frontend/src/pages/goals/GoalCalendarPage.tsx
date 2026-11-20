@@ -45,7 +45,7 @@ function capitalizeLocalized(value: string, locale: string): string {
 }
 
 function monthAbbr(ym: string, locale: string): string {
-  return new Intl.DateTimeFormat(locale, { month: 'short' }).format(monthDate(ym))
+  return capitalizeLocalized(new Intl.DateTimeFormat(locale, { month: 'short' }).format(monthDate(ym)), locale)
 }
 
 function fullMonthName(ym: string, locale: string): string {
@@ -165,7 +165,7 @@ function YearGridView({ months, selectedYm, onSelect, onAddPreviousMonth, isAddi
                   {isAddingMonth
                     ? <Loader2 className="size-5 animate-spin" />
                     : <Plus className="size-5" />}
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.1em] leading-tight text-center">
+                  <span className="text-xs font-semibold uppercase tracking-[0.1em] leading-tight text-center">
                     {t('goals.addPreviousMonth')}
                   </span>
                 </button>
@@ -193,7 +193,7 @@ function YearGridView({ months, selectedYm, onSelect, onAddPreviousMonth, isAddi
                       isSelected ? 'border-primary bg-accent' : 'border-border hover:bg-accent/50'
                     }`}
                   >
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground leading-none">
+                    <span className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground leading-none">
                       {monthAbbr(entry.yearMonth, locale)}
                     </span>
                     <div className="relative">
@@ -210,7 +210,7 @@ function YearGridView({ months, selectedYm, onSelect, onAddPreviousMonth, isAddi
                             <span className="text-xs font-bold leading-none tabular-nums text-foreground">
                               {effectiveText}
                             </span>
-                            <span className="text-[11px] font-semibold leading-none tabular-nums" style={{ color: textColor }}>
+                            <span className="text-xs font-semibold leading-none tabular-nums" style={{ color: textColor }}>
                               {percentLabel}
                             </span>
                           </>
@@ -221,7 +221,7 @@ function YearGridView({ months, selectedYm, onSelect, onAddPreviousMonth, isAddi
                         )}
                       </div>
                     </div>
-                    <span className="text-[11px] text-muted-foreground leading-none tabular-nums">
+                    <span className="text-xs text-muted-foreground leading-none tabular-nums">
                       obj.&nbsp;{wholeEuros(entry.objective)}
                     </span>
                   </button>
@@ -254,7 +254,7 @@ function YearGridView({ months, selectedYm, onSelect, onAddPreviousMonth, isAddi
 function TimelineView({ months, selectedYm, onSelect }: {
   months: GoalMonthEntry[]; selectedYm: string | null; onSelect: (ym: string) => void
 }) {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
   const sorted = useMemo(() =>
     [...(months ?? [])].filter(e => isPastOrCurrent(e.yearMonth)).reverse(),
@@ -288,10 +288,10 @@ function TimelineView({ months, selectedYm, onSelect }: {
                 {entry.effective != null ? <CurrencyDisplay value={entry.effective} /> : ''}
               </span>
               {entry.manualActual != null && (
-                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">manu.</Badge>
+                <Badge variant="secondary">{t('goals.declared')}</Badge>
               )}
               {entry.override != null && (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0">modif.</Badge>
+                <Badge variant="outline">{t('goals.modified')}</Badge>
               )}
             </button>
           )
@@ -308,7 +308,7 @@ function TimelineView({ months, selectedYm, onSelect }: {
 function CalendarGridView({ months, selectedYm, onSelect }: {
   months: GoalMonthEntry[]; selectedYm: string | null; onSelect: (ym: string) => void
 }) {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
   const years = useMemo(() => groupByYear(months), [months])
 
@@ -341,9 +341,9 @@ function CalendarGridView({ months, selectedYm, onSelect }: {
                         <div className="h-1.5 rounded-full bg-muted overflow-hidden mb-1">
                           <div className="h-full rounded-full bg-primary/70 transition-[width]" style={{ width: `${Math.min(100, pct * 100)}%` }} />
                         </div>
-                        <div className="flex justify-between text-[11px] text-muted-foreground">
-                          <span>obj. <CurrencyDisplay value={entry.objective} className="text-[11px]" /></span>
-                          <span><CurrencyDisplay value={entry.effective} className="text-[11px]" /></span>
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>{t('goals.objectiveShort')} <CurrencyDisplay value={entry.objective} className="text-xs" /></span>
+                          <span><CurrencyDisplay value={entry.effective} className="text-xs" /></span>
                         </div>
                       </div>
                     ) : (
@@ -351,8 +351,8 @@ function CalendarGridView({ months, selectedYm, onSelect }: {
                     )}
                     {(entry.manualActual != null || entry.override != null) && (
                       <div className="flex gap-1 mt-1.5">
-                        {entry.manualActual != null && <Badge variant="secondary" className="text-[9px] px-1 py-0">manu.</Badge>}
-                        {entry.override != null && <Badge variant="outline" className="text-[9px] px-1 py-0 text-violet-500 border-violet-300">modif.</Badge>}
+                        {entry.manualActual != null && <Badge variant="secondary">{t('goals.declared')}</Badge>}
+                        {entry.override != null && <Badge variant="outline" className="text-violet-600 border-violet-300 dark:text-violet-400">{t('goals.modified')}</Badge>}
                       </div>
                     )}
                   </button>
@@ -393,10 +393,10 @@ function MonthDetailPanel({ goalId, entry, onClose, className }: {
           <div className="flex items-center gap-2">
             <CardTitle className="text-base">{fullMonthName(entry.yearMonth, locale)}</CardTitle>
             {entry.override != null && (
-              <Badge variant="outline" className="text-[10px]">{t('goals.modified')}</Badge>
+              <Badge variant="outline" className="text-xs">{t('goals.modified')}</Badge>
             )}
             {entry.manualActual != null && (
-              <Badge variant="secondary" className="text-[10px]">{t('goals.declared')}</Badge>
+              <Badge variant="secondary" className="text-xs">{t('goals.declared')}</Badge>
             )}
           </div>
           <Button variant="ghost" size="icon" onClick={onClose}>
@@ -611,7 +611,7 @@ export function GoalCalendarPage() {
 
       {/* View toggle with shadcn Tabs */}
       <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as typeof viewMode)}>
-        <TabsList>
+        <TabsList className="w-full">
           <TabsTrigger value="grid" className="gap-1.5">
             <LayoutGrid className="size-4" />
             <span className="hidden sm:inline">{t('goals.viewGrid')}</span>
@@ -643,7 +643,7 @@ export function GoalCalendarPage() {
       </Card>
 
       {/* Two-column layout: active view (left) + sticky edit panel (right, desktop) */}
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px] items-start">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] items-start">
         <div className="min-w-0 space-y-4">
           {viewMode === 'grid' && (
             <YearGridView

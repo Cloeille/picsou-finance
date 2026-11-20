@@ -40,7 +40,7 @@ export function ScpiSyncSummary({ provider, completedAt, hideWhenEmpty = false }
           {parts.length > 0 && ` — ${parts.join(', ')}`}
         </p>
       ) : (
-        <p className="text-amber-600 dark:text-amber-400">
+        <p className="text-muted-foreground">
           {listed.length === 0 ? t('scpi.sync.noFund') : t('scpi.sync.noneApplied', { count: listed.length })}
         </p>
       )}

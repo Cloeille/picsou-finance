@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { Boxes, CheckCircle2, CircleAlert, Loader2 } from 'lucide-react'
+import { CheckCircle2, CircleAlert, Loader2 } from 'lucide-react'
+import { BoursoBankLogo } from '../components/IntegrationLogos'
 import { Button } from '@/components/ui/button'
 import { useBoursoBankHealth } from '@/features/setup/hooks'
 import { useSetupFlowStore } from '@/stores/setup-flow-store'
@@ -63,11 +64,11 @@ export function SetupStepBoursoBank() {
   const proceed = () => navigate(nextIntegrationRoute('boursobank', selected))
 
   return (
-    <div className="space-y-8">
+    <div className="mx-auto w-full max-w-lg space-y-6">
       <div className="text-center space-y-2">
         <div className="flex justify-center">
-          <span className="rounded-xl bg-primary/10 p-3 text-primary">
-            <Boxes className="h-6 w-6" />
+          <span className="inline-flex size-12 items-center justify-center text-foreground">
+            <BoursoBankLogo className="size-6" />
           </span>
         </div>
         <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
@@ -86,7 +87,7 @@ export function SetupStepBoursoBank() {
       )}
 
       {phase === 'ok' && (
-        <div className="flex flex-col items-center gap-3 rounded-2xl border border-emerald-500/40 bg-emerald-500/5 p-6 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-6 text-center">
           <CheckCircle2 className="h-10 w-10 text-emerald-500" />
           <p className="text-lg font-medium">{t('setup.bourso.ok')}</p>
         </div>
@@ -95,7 +96,7 @@ export function SetupStepBoursoBank() {
       {phase === 'ko' && (
         <div
           role="alert"
-          className="space-y-3 rounded-2xl border border-destructive/40 bg-destructive/5 p-6"
+          className="space-y-3 rounded-xl border border-destructive/40 bg-destructive/5 p-6"
         >
           <div className="flex items-start gap-3">
             <CircleAlert className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
@@ -109,20 +110,12 @@ export function SetupStepBoursoBank() {
         </div>
       )}
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:justify-between">
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={proceed}
-          className="w-full sm:w-auto"
-        >
-          {t('setup.bourso.skip')}
-        </Button>
+      <div className="flex flex-col gap-2.5">
         {phase === 'ko' ? (
           <Button
             onClick={run}
             disabled={health.isPending}
-            className="w-full rounded-full"
+            className="w-full rounded-lg"
           >
             {t('setup.bourso.retry')}
           </Button>
@@ -130,11 +123,19 @@ export function SetupStepBoursoBank() {
           <Button
             onClick={proceed}
             disabled={phase === 'checking'}
-            className="w-full rounded-full"
+            className="w-full rounded-lg"
           >
             {t('setup.bourso.continue')}
           </Button>
         )}
+        <Button
+          type="button"
+          variant="outline"
+          onClick={proceed}
+          className="w-full rounded-lg"
+        >
+          {t('setup.bourso.skip')}
+        </Button>
       </div>
     </div>
   )

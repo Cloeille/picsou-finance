@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom'
+import { getSelectOptionValues } from '@/test/radix-select'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -160,9 +161,9 @@ describe('FinaryTab', () => {
     const mapButtons = await screen.findAllByRole('button', { name: 'sync.finary.mapExisting' })
     fireEvent.click(mapButtons[1])
 
-    const [ledgerPicker, courantPicker] = screen.getAllByRole('combobox') as HTMLSelectElement[]
-    const offered = (select: HTMLSelectElement) =>
-      Array.from(select.options).map((o) => o.value).filter(Boolean)
+    const [ledgerPicker, courantPicker] = screen.getAllByRole('combobox')
+    const offered = (select: HTMLElement) =>
+      getSelectOptionValues(select).filter(Boolean)
     expect(offered(ledgerPicker)).toEqual(['10', '20'])
     expect(offered(courantPicker)).toEqual(['20'])
   })

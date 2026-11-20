@@ -29,23 +29,23 @@ describe('HoldingLogo', () => {
   it("shows the name's initials when there is no logo", () => {
     // A share whose mark was never stored. The caller renders the ticker as text beside this, so
     // the fallback must not repeat it.
-    const { container } = render(<HoldingLogo logoUrl={null} ticker="IWDA" name="iShares Core MSCI World" />)
+    const { container } = render(<HoldingLogo logoUrl={null} ticker="ACME" name="Acme Global Fund" />)
 
     expect(container.querySelector('img')).not.toBeInTheDocument()
-    expect(container.textContent).toBe('IC')
-    expect(container.textContent).not.toContain('IWDA')
+    expect(container.textContent).toBe('AG')
+    expect(container.textContent).not.toContain('ACME')
   })
 
   it('keeps an empty disc when there is neither a logo nor a name', () => {
     // An exchange coin line: its only initials would be the ticker's, printed right beside it.
-    const { container } = render(<HoldingLogo logoUrl={null} ticker="BTC" />)
+    const { container } = render(<HoldingLogo logoUrl={null} ticker="XYZ" />)
 
     expect(container.textContent).toBe('')
     expect(container.querySelector('[data-slot="avatar-fallback"]')).toBeInTheDocument()
   })
 
   it('keeps an empty disc when the name is blank', () => {
-    const { container } = render(<HoldingLogo logoUrl={null} ticker="BTC" name="   " />)
+    const { container } = render(<HoldingLogo logoUrl={null} ticker="XYZ" name="   " />)
 
     expect(container.textContent).toBe('')
     expect(container.querySelector('[data-slot="avatar-fallback"]')).toBeInTheDocument()
@@ -53,10 +53,27 @@ describe('HoldingLogo', () => {
 
   it('keeps an empty disc when the name is only the ticker', () => {
     // A dividend without a known name: the backend fills the name with the ticker.
-    const { container } = render(<HoldingLogo logoUrl={null} ticker="IWDA" name="iwda" />)
+    const { container } = render(<HoldingLogo logoUrl={null} ticker="ACME" name="acme" />)
 
     expect(container.textContent).toBe('')
     expect(container.querySelector('[data-slot="avatar-fallback"]')).toBeInTheDocument()
+  })
+
+  it('shows bundled SVG marks for known crypto, currencies, and ETF issuers', async () => {
+    const { container: c1 } = render(<HoldingLogo logoUrl={null} ticker="BTC" />)
+    await waitFor(() => {
+      expect(c1.querySelector('img')).toHaveAttribute('src', '/holdings/btc.svg')
+    })
+
+    const { container: c2 } = render(<HoldingLogo logoUrl={null} ticker="WPEA.PA" name="iShares MSCI World Swap PEA" />)
+    await waitFor(() => {
+      expect(c2.querySelector('img')).toHaveAttribute('src', '/holdings/ishares.svg')
+    })
+
+    const { container: c3 } = render(<HoldingLogo logoUrl={null} ticker="EUR" />)
+    await waitFor(() => {
+      expect(c3.querySelector('img')).toHaveAttribute('src', '/holdings/eur.svg')
+    })
   })
 
   it('falls back to an empty mark when the image fails to load', async () => {

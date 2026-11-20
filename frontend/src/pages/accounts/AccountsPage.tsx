@@ -1,37 +1,45 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
-import { useAccounts, useAccountTree, useAccountDeletionImpact, useUpdateAccount, useDeleteAccount, useUpdateDebtMetadata, useSetDisplayOrder, useSetListCollapsed } from '@/features/accounts/hooks'
+import { useAccounts, useAccountTree, useSetDisplayOrder, useSetListCollapsed } from '@/features/accounts/hooks'
 import { orderAccountsForList, splitCollapsed } from '@/features/accounts/display'
 import { useHistory } from '@/features/history/hooks'
 import { useSavingsSuggestions } from '@/features/savings/hooks'
 import { usePeerLoansOverview } from '@/features/peer-loans/hooks'
 import { PeerLoansOverviewCard } from '@/components/peer-loan/PeerLoansOverviewCard'
-import { AccountForm } from '@/components/shared/AccountForm'
 import { AddAccountModal } from '@/components/shared/AddAccountModal'
 import { AddPropertyModal } from '@/components/property/AddPropertyModal'
 import { ExportAccountsModal } from '@/components/shared/ExportAccountsModal'
 import { AddScpiModal } from '@/components/scpi/AddScpiModal'
 import { AccountCard } from '@/components/shared/AccountCard'
 import { AccountsStackedChart } from '@/components/shared/AccountsStackedChart'
-import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { ErrorState } from '@/components/shared/ErrorState'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { ScrollStrip } from '@/components/shared/ScrollStrip'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Plus, Wallet, Pencil, Trash2, TrendingUp, TrendingDown, Download, Eye, EyeOff, ChevronUp, ChevronDown, ArrowUpDown } from 'lucide-react'
+import { Plus, Wallet, TrendingUp, TrendingDown, Download, Eye, EyeOff, ChevronUp, ChevronDown, ArrowUpDown, Check } from 'lucide-react'
 import { cn, formatPercent } from '@/lib/utils'
 import { HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES } from '@/lib/constants'
 import { accountInvestedAt, accountPnlAt, hasMeasurableGain } from '@/features/accounts/pnl'
 import { useAppStore } from '@/stores/app-store'
-import type { Account, AccountRequest, AccountType } from '@/types/api'
+import type { Account, AccountType } from '@/types/api'
 
 type AssetFilter = 'ALL' | 'STOCKS' | 'METALS' | 'SAVINGS' | 'CHECKING' | 'CRYPTO' | 'REAL_ESTATE' | 'RECEIVABLES' | 'DEBTS' | 'OTHER'
 
 const FILTER_KEYS: AssetFilter[] = ['ALL', 'STOCKS', 'METALS', 'SAVINGS', 'CHECKING', 'CRYPTO', 'REAL_ESTATE', 'RECEIVABLES', 'DEBTS', 'OTHER']
+const CATEGORY_FILTER_KEYS: AssetFilter[] = FILTER_KEYS.filter((f) => f !== 'ALL')
+const MAX_PRIMARY_CATEGORIES = 5
 
 const ASSET_FILTER_MAP: Record<AssetFilter, AccountType[] | null> = {
   ALL: null,
@@ -84,33 +92,6 @@ const TYPE_TO_GROUP: Record<AccountType, string> = {
 }
 
 
-// The edit / delete buttons over each card show on hover; a touch screen has no
-// hover, so they stay visible there, and when keyboard focus is inside the card.
-const CARD_ACTIONS_CLASS =
-  'absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100 transition-opacity'
-
-type AccountFormData = {
-  name: string
-  type: AccountType
-  provider?: string
-  currency: string
-  currentBalance?: number
-  isManual: boolean
-  color: string
-  ticker?: string
-  logoKey?: string
-  institutionId?: string
-  borrowedAmount?: number
-  interestRatePct?: number
-  monthlyPayment?: number
-  insuranceMonthly?: number
-  fileFees?: number
-  startDate?: string
-  endDate?: string
-  linkedAccountId?: number
-  openedAt?: string
-}
-
 // ─── Inline pocket card (smaller, with "alloué" tooltip) ─────────────────────
 
 function PocketCard({ account, onClick }: { account: Account; onClick?: () => void }) {
@@ -137,17 +118,16 @@ function PocketCard({ account, onClick }: { account: Account; onClick?: () => vo
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
+const CARD_ACTIONS_CLASS = 'absolute top-2 right-2 flex gap-1'
+
 export function AccountsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
 
-  const { data: accounts, isLoading: isAccountsLoading } = useAccounts()
+  const { data: accounts, isLoading: isAccountsLoading, isError: isAccountsError, refetch: refetchAccounts } = useAccounts()
   // The demo adapter has no handler for the export route, and an unhandled route resolves to
   // {} -- which here would download a corrupt workbook instead of failing visibly.
   const demoMode = useAppStore(state => state.demoMode)
-  const updateAccount = useUpdateAccount()
-  const updateDebt = useUpdateDebtMetadata()
-  const deleteAccount = useDeleteAccount()
   const { data: savingsSuggestions } = useSavingsSuggestions()
   const hasSavingsSuggestions = Array.isArray(savingsSuggestions) && savingsSuggestions.length > 0
 
@@ -156,9 +136,6 @@ export function AccountsPage() {
   const [showPropertyModal, setShowPropertyModal] = useState(false)
   const [showExportModal, setShowExportModal] = useState(false)
   const [showScpiModal, setShowScpiModal] = useState(false)
-  const [showEditForm, setShowEditForm] = useState(false)
-  const [editingAccount, setEditingAccount] = useState<Account | null>(null)
-  const [deleteId, setDeleteId] = useState<number | null>(null)
   const [filter, setFilter] = useState<AssetFilter>('ALL')
   const [reorderMode, setReorderMode] = useState(false)
   const reorderActive = reorderMode && filter === 'ALL'
@@ -198,12 +175,32 @@ export function AccountsPage() {
   // parent Revolut wallet instead. See useAccountTree for the orphaned-pocket
   // fallback (parent wallet soft-deleted) that keeps such a pocket from vanishing.
 
+  const { nonPocketAccounts: allNonPocketAccounts } = useAccountTree(accounts)
   const { nonPocketAccounts, walletGroups: allWalletGroups, standaloneAccounts: allStandaloneAccounts } =
     useAccountTree(visibleAccounts)
 
-  // Deleting the last account on a connection removes that connection too, and a bank one
-  // costs a full OAuth re-authorisation to get back -- so the dialog names it first.
-  const { data: deletionImpact } = useAccountDeletionImpact(deleteId)
+  const { primaryFilters, overflowPopulatedFilters, overflowEmptyFilters } = useMemo(() => {
+    const populated: AssetFilter[] = []
+    const empty: AssetFilter[] = []
+    for (const f of CATEGORY_FILTER_KEYS) {
+      const types = ASSET_FILTER_MAP[f]
+      if (types && allNonPocketAccounts.some((a) => types.includes(a.type))) {
+        populated.push(f)
+      } else {
+        empty.push(f)
+      }
+    }
+    return {
+      primaryFilters: ['ALL', ...populated.slice(0, MAX_PRIMARY_CATEGORIES)] as AssetFilter[],
+      overflowPopulatedFilters: populated.slice(MAX_PRIMARY_CATEGORIES),
+      overflowEmptyFilters: empty,
+    }
+  }, [allNonPocketAccounts])
+  const overflowFilters = useMemo(
+    () => [...overflowPopulatedFilters, ...overflowEmptyFilters],
+    [overflowPopulatedFilters, overflowEmptyFilters],
+  )
+  const isOverflowFilterActive = overflowFilters.includes(filter)
 
   // All non-pocket IDs for history query (split mode for per-account breakdown)
   const allAccountIds = useMemo(() => nonPocketAccounts.map((a) => a.id), [nonPocketAccounts])
@@ -438,99 +435,6 @@ export function AccountsPage() {
     setShowCreateModal(true)
   }
 
-  function handleOpenEdit(account: Account) {
-    setEditingAccount(account)
-    setShowEditForm(true)
-  }
-
-  function handleEditFormOpenChange(open: boolean) {
-    setShowEditForm(open)
-    if (!open) setEditingAccount(null)
-  }
-
-  async function handleEditSubmit(data: AccountFormData) {
-    if (!editingAccount) return
-    const request: AccountRequest = {
-      name: data.name,
-      type: data.type,
-      provider: data.provider || undefined,
-      currency: data.currency,
-      currentBalance: data.currentBalance,
-      isManual: data.isManual,
-      color: data.color,
-      ticker: data.ticker || undefined,
-      // Empty rather than absent for every account without a logo choice; the backend keeps
-      // whatever it already stores when this is undefined.
-      logoKey: data.logoKey || undefined,
-      // Set only when a bank was picked from the catalog; the backend resolves its logo from it.
-      institutionId: data.institutionId,
-      // Undefined leaves the stored date alone, which is what an account type that never offers
-      // the field should do -- see AccountRequest.
-      openedAt: data.openedAt || undefined,
-    }
-    await updateAccount.mutateAsync({ id: editingAccount.id, data: request })
-    if (data.type === 'LOAN' && data.borrowedAmount && data.borrowedAmount > 0) {
-      await updateDebt.mutateAsync({
-        id: editingAccount.id,
-        data: {
-          borrowedAmount: data.borrowedAmount,
-          interestRate: data.interestRatePct != null ? data.interestRatePct / 100 : undefined,
-          monthlyPayment: data.monthlyPayment,
-          insuranceMonthly: data.insuranceMonthly,
-          fileFees: data.fileFees,
-          lenderName: data.provider || undefined,
-          startDate: data.startDate || undefined,
-          endDate: data.endDate || undefined,
-          // null, not undefined: an omitted key would leave a previously linked property
-          // attached when the user picks "no linked asset".
-          linkedAccountId: data.linkedAccountId ?? null,
-        },
-      })
-    }
-    setShowEditForm(false)
-    setEditingAccount(null)
-  }
-
-  async function handleConfirmDelete() {
-    if (deleteId === null) return
-    await deleteAccount.mutateAsync(deleteId)
-    setDeleteId(null)
-  }
-
-  const defaultValues: Partial<AccountFormData> | undefined = useMemo(() => {
-    if (!editingAccount) return undefined
-    const debt = editingAccount.debt
-    return {
-      name: editingAccount.name,
-      type: editingAccount.type,
-      provider: (editingAccount.type === 'LOAN' ? debt?.lenderName : editingAccount.provider) ?? '',
-      currency: editingAccount.currency,
-      // The form asks for a card's amount owed; the backend stores it negative.
-      currentBalance: editingAccount.type === 'CREDIT_CARD'
-        ? Math.abs(editingAccount.currentBalance)
-        : editingAccount.currentBalance,
-      isManual: editingAccount.isManual,
-      color: editingAccount.color,
-      ticker: editingAccount.ticker ?? '',
-      logoKey: editingAccount.logoKey ?? '',
-      openedAt: editingAccount.openedAt ?? '',
-      ...(debt
-        ? {
-            borrowedAmount: debt.borrowedAmount,
-            interestRatePct: debt.interestRate != null ? debt.interestRate * 100 : undefined,
-            monthlyPayment: debt.monthlyPayment ?? undefined,
-            insuranceMonthly: debt.insuranceMonthly ?? undefined,
-            fileFees: debt.fileFees ?? undefined,
-            startDate: debt.startDate ?? '',
-            endDate: debt.endDate ?? '',
-            linkedAccountId: debt.linkedAccountId ?? undefined,
-          }
-        : {}),
-    }
-  }, [editingAccount])
-
-  const isMutating = updateAccount.isPending || updateDebt.isPending
-
   const hasAnyAccounts = (accounts?.length ?? 0) > 0
 
   return (
@@ -616,22 +520,84 @@ export function AccountsPage() {
       {hasAnyAccounts && (
         <>
           <ScrollStrip activeKey={filter}>
-            <div className="flex w-max items-center gap-1 md:w-auto md:flex-wrap">
-              {FILTER_KEYS.map((f) => (
+            <div
+              role="group"
+              aria-label={t('accounts.title')}
+              className="flex min-w-full w-max items-center gap-1 rounded-lg border border-border/60 bg-background/80 p-1"
+            >
+            {primaryFilters.map((f) => {
+              const active = filter === f
+              return (
                 <button
                   key={f}
-                  aria-pressed={filter === f}
+                  type="button"
+                  aria-pressed={active}
                   onClick={() => setFilter(f)}
                   className={cn(
-                    'inline-flex h-10 min-w-32 items-center justify-center rounded-md px-6 text-sm font-medium transition-[background-color,color]',
-                    filter === f
-                      ? 'bg-primary text-primary-foreground shadow-sm'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                    'inline-flex h-8 flex-auto items-center justify-center whitespace-nowrap rounded-md px-3 text-sm font-medium transition-[background-color,color]',
+                    active
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
                   {t(`accounts.filters.${f}`)}
                 </button>
-              ))}
+              )
+            })}
+            {overflowFilters.length > 0 && (
+              <>
+                <span aria-hidden="true" className="mx-0.5 hidden h-4 w-px bg-border/60 sm:block" />
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-pressed={isOverflowFilterActive}
+                      className={cn(
+                        'inline-flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-medium transition-[background-color,color]',
+                        isOverflowFilterActive
+                          ? 'bg-primary text-primary-foreground'
+                          : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      <span>
+                        {isOverflowFilterActive
+                          ? t(`accounts.filters.${filter}`)
+                          : t('accounts.filters.more')}
+                      </span>
+                      <ChevronDown className="size-3.5 opacity-75" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-44">
+                    {overflowPopulatedFilters.map((f) => (
+                      <DropdownMenuItem
+                        key={f}
+                        onSelect={() => setFilter(f)}
+                        className="justify-between gap-2"
+                      >
+                        <span>{t(`accounts.filters.${f}`)}</span>
+                        {filter === f && <Check className="size-4 text-primary" />}
+                      </DropdownMenuItem>
+                    ))}
+                    {overflowPopulatedFilters.length > 0 && overflowEmptyFilters.length > 0 && (
+                      <DropdownMenuSeparator />
+                    )}
+                    {overflowEmptyFilters.map((f) => (
+                      <DropdownMenuItem
+                        key={f}
+                        onSelect={() => setFilter(f)}
+                        className={cn(
+                          'justify-between gap-2',
+                          filter !== f && 'text-muted-foreground',
+                        )}
+                      >
+                        <span>{t(`accounts.filters.${f}`)}</span>
+                        {filter === f && <Check className="size-4 text-primary" />}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            )}
             </div>
           </ScrollStrip>
 
@@ -683,22 +649,24 @@ export function AccountsPage() {
         </>
       )}
 
-      {isLoading ? (
+      {isAccountsError ? (
+        <ErrorState title={t('common.error')} onRetry={() => void refetchAccounts()} />
+      ) : isLoading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="h-32 w-full rounded-xl" />
           ))}
         </div>
       ) : filteredNonPockets.length === 0 && !showsReceivablesOverview ? (
-        <EmptyState
-          className="min-h-[calc(100vh-14rem)]"
-          icon={<Wallet className="size-12" />}
-          title={t('accounts.noAccounts')}
-          action={{
-            label: addingProperty ? t('property.add.action') : t('accounts.addAccount'),
-            onClick: () => handleOpenCreate(),
-          }}
-        />
+        <Card>
+          <CardContent>
+            <EmptyState
+              className="py-8"
+              icon={<Wallet className="size-10" />}
+              title={t('accounts.noAccounts')}
+            />
+          </CardContent>
+        </Card>
       ) : (
         <div className="space-y-4">
           {/* Wallet groups: parent account + nested pocket sub-accounts */}
@@ -711,79 +679,50 @@ export function AccountsPage() {
                   closed={closedPeerLoanIds.has(wallet.id)}
                   onClick={() => navigate(`/accounts/${wallet.id}`)}
                 />
-                <div className={CARD_ACTIONS_CLASS}>
-                  {reorderActive ? (
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7"
-                        aria-label={t('accounts.moveUp')}
-                        disabled={wIndex === 0 || setDisplayOrder.isPending}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          moveWalletGroup(wIndex, -1)
-                        }}
-                      >
-                        <ChevronUp className="size-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7"
-                        aria-label={t('accounts.moveDown')}
-                        disabled={wIndex === displayWalletGroups.length - 1 || setDisplayOrder.isPending}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          moveWalletGroup(wIndex, 1)
-                        }}
-                      >
-                        <ChevronDown className="size-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7"
-                        aria-label={t(wallet.listCollapsed ? 'accounts.expandAccount' : 'accounts.collapseAccount')}
-                        aria-pressed={wallet.listCollapsed}
-                        disabled={setListCollapsed.isPending}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setListCollapsed.mutate({ id: wallet.id, collapsed: !wallet.listCollapsed })
-                        }}
-                      >
-                        {wallet.listCollapsed ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7"
-                    aria-label={t('common.edit')}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleOpenEdit(wallet)
-                    }}
-                  >
-                    <Pencil className="size-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 text-destructive hover:text-destructive"
-                    aria-label={t('common.delete')}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setDeleteId(wallet.id)
-                    }}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </Button>
-                    </>
-                  )}
-                </div>
+                {reorderActive && (
+                  <div className={CARD_ACTIONS_CLASS}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7"
+                      aria-label={t('accounts.moveUp')}
+                      disabled={wIndex === 0 || setDisplayOrder.isPending}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        moveWalletGroup(wIndex, -1)
+                      }}
+                    >
+                      <ChevronUp className="size-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7"
+                      aria-label={t('accounts.moveDown')}
+                      disabled={wIndex === displayWalletGroups.length - 1 || setDisplayOrder.isPending}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        moveWalletGroup(wIndex, 1)
+                      }}
+                    >
+                      <ChevronDown className="size-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7"
+                      aria-label={t(wallet.listCollapsed ? 'accounts.expandAccount' : 'accounts.collapseAccount')}
+                      aria-pressed={wallet.listCollapsed}
+                      disabled={setListCollapsed.isPending}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setListCollapsed.mutate({ id: wallet.id, collapsed: !wallet.listCollapsed })
+                      }}
+                    >
+                      {wallet.listCollapsed ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                    </Button>
+                  </div>
+                )}
               </div>
 
               {/* Pocket sub-accounts */}
@@ -793,26 +732,11 @@ export function AccountsPage() {
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {walletPockets.map((pocket) => (
-                    <div key={pocket.id} className="relative group">
-                      <PocketCard
-                        account={pocket}
-                        onClick={() => navigate(`/accounts/${pocket.id}`)}
-                      />
-                      <div className={CARD_ACTIONS_CLASS}>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-7"
-                          aria-label={t('common.edit')}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleOpenEdit(pocket)
-                          }}
-                        >
-                          <Pencil className="size-3.5" />
-                        </Button>
-                      </div>
-                    </div>
+                    <PocketCard
+                      key={pocket.id}
+                      account={pocket}
+                      onClick={() => navigate(`/accounts/${pocket.id}`)}
+                    />
                   ))}
                 </div>
               </div>
@@ -829,79 +753,50 @@ export function AccountsPage() {
                     closed={closedPeerLoanIds.has(account.id)}
                     onClick={() => navigate(`/accounts/${account.id}`)}
                   />
-                  <div className={CARD_ACTIONS_CLASS}>
-                    {reorderActive ? (
-                      <>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-7"
-                          aria-label={t('accounts.moveUp')}
-                          disabled={sIndex === 0 || setDisplayOrder.isPending}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            moveStandalone(sIndex, -1)
-                          }}
-                        >
-                          <ChevronUp className="size-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-7"
-                          aria-label={t('accounts.moveDown')}
-                          disabled={sIndex === displayStandalone.length - 1 || setDisplayOrder.isPending}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            moveStandalone(sIndex, 1)
-                          }}
-                        >
-                          <ChevronDown className="size-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-7"
-                          aria-label={t(account.listCollapsed ? 'accounts.expandAccount' : 'accounts.collapseAccount')}
-                          aria-pressed={account.listCollapsed}
-                          disabled={setListCollapsed.isPending}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setListCollapsed.mutate({ id: account.id, collapsed: !account.listCollapsed })
-                          }}
-                        >
-                          {account.listCollapsed ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7"
-                      aria-label={t('common.edit')}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleOpenEdit(account)
-                      }}
-                    >
-                      <Pencil className="size-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 text-destructive hover:text-destructive"
-                      aria-label={t('common.delete')}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setDeleteId(account.id)
-                      }}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                      </>
-                    )}
-                  </div>
+                  {reorderActive && (
+                    <div className={CARD_ACTIONS_CLASS}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        aria-label={t('accounts.moveUp')}
+                        disabled={sIndex === 0 || setDisplayOrder.isPending}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          moveStandalone(sIndex, -1)
+                        }}
+                      >
+                        <ChevronUp className="size-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        aria-label={t('accounts.moveDown')}
+                        disabled={sIndex === displayStandalone.length - 1 || setDisplayOrder.isPending}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          moveStandalone(sIndex, 1)
+                        }}
+                      >
+                        <ChevronDown className="size-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        aria-label={t(account.listCollapsed ? 'accounts.expandAccount' : 'accounts.collapseAccount')}
+                        aria-pressed={account.listCollapsed}
+                        disabled={setListCollapsed.isPending}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setListCollapsed.mutate({ id: account.id, collapsed: !account.listCollapsed })
+                        }}
+                      >
+                        {account.listCollapsed ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -954,30 +849,6 @@ export function AccountsPage() {
             navigate(`/accounts/${created.id}`)
           }
         }}
-      />
-
-      <AccountForm
-        open={showEditForm}
-        onOpenChange={handleEditFormOpenChange}
-        onSubmit={handleEditSubmit}
-        defaultValues={defaultValues}
-        accounts={accounts}
-        title={t('accounts.editAccount')}
-        loading={isMutating}
-      />
-
-      <ConfirmDialog
-        open={deleteId !== null}
-        onOpenChange={(open) => { if (!open) setDeleteId(null) }}
-        title={t('accounts.deleteAccount')}
-        description={
-          deletionImpact?.removesConnection
-            ? `${t('accounts.deleteConfirm')} ${t('accounts.deleteRemovesConnection', { connection: deletionImpact.connectionLabel })}`
-            : t('accounts.deleteConfirm')
-        }
-        onConfirm={handleConfirmDelete}
-        loading={deleteAccount.isPending}
-        variant="destructive"
       />
     </div>
   )

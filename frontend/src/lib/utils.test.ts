@@ -136,7 +136,7 @@ describe('formatLocalDate', () => {
 
   it('optionally includes the weekday without losing the French ordinal', () => {
     expect(formatLocalDate('2026-10-01', 'fr-FR', { weekday: 'long' }))
-      .toBe('jeudi 1er octobre 2026')
+      .toBe('Jeudi 1er octobre 2026')
   })
 
   it('drops the leading zero on other days', () => {
@@ -151,7 +151,7 @@ describe('formatLocalDate', () => {
     vi.stubEnv('TZ', 'America/New_York')
     try {
       expect(formatLocalDate('2026-07-31', 'fr-FR', { weekday: 'long' }))
-        .toBe('vendredi 31 juillet 2026')
+        .toBe('Vendredi 31 juillet 2026')
     } finally {
       vi.unstubAllEnvs()
     }

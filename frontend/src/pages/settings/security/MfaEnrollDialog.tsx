@@ -124,7 +124,7 @@ export function MfaEnrollDialog({
                 {t('settings.mfaCancel')}
               </Button>
               <Button type="submit" disabled={enrollInit.isPending}>
-                {enrollInit.isPending && <Loader2 size={14} className="mr-1.5 animate-spin" />}
+                {enrollInit.isPending && <Loader2 size={14} className=".5 animate-spin" />}
                 {t('settings.mfaContinue')}
               </Button>
             </DialogFooter>
@@ -141,7 +141,7 @@ export function MfaEnrollDialog({
               />
             </div>
             <div className="space-y-1.5">
-              <p className="text-xs text-muted-foreground">{t('settings.mfaEnrollSecretManual')}</p>
+              <p className="text-sm text-muted-foreground">{t('settings.mfaEnrollSecretManual')}</p>
               <code className="block w-full font-mono text-xs sm:text-sm break-all rounded border bg-muted/40 p-2 text-center">
                 {secret}
               </code>
@@ -182,7 +182,7 @@ export function MfaEnrollDialog({
                 {t('settings.mfaPrevious')}
               </Button>
               <Button type="submit" disabled={enrollVerify.isPending || code.length !== 6}>
-                {enrollVerify.isPending && <Loader2 size={14} className="mr-1.5 animate-spin" />}
+                {enrollVerify.isPending && <Loader2 size={14} className=".5 animate-spin" />}
                 {t('settings.mfaConfirm')}
               </Button>
             </DialogFooter>

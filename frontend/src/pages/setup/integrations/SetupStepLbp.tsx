@@ -1,17 +1,12 @@
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { Landmark } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAcknowledgeIntegration } from '@/features/setup/hooks'
 import { formatApiError } from '@/lib/errors'
 import { useSetupFlowStore } from '@/stores/setup-flow-store'
+import { LaBanquePostaleLogo } from '../components/IntegrationLogos'
 import { nextIntegrationRoute } from './navigation'
 
-/**
- * La Banque Postale is a browser connector: the account is connected after setup, from
- * Comptes → Ajouter un compte (or the Sync tab), where the keypad and the mobile approval
- * happen. This step only records that the user wants the integration enabled.
- */
 export function SetupStepLbp() {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -25,51 +20,54 @@ export function SetupStepLbp() {
       markDone('lbp')
       navigate(nextIntegrationRoute('lbp', selected))
     } catch {
-      // Keep the step mounted so the mutation error is visible and retryable.
+      // Error surfaced via ack.error below so the user can retry.
     }
   }
 
   const skip = () => navigate(nextIntegrationRoute('lbp', selected))
 
   return (
-    <div className="space-y-8">
-      <div className="text-center space-y-2">
+    <div className="mx-auto w-full max-w-lg space-y-6">
+      <div className="space-y-2 text-center">
         <div className="flex justify-center">
-          <span className="rounded-xl bg-primary/10 p-3 text-primary">
-            <Landmark className="h-6 w-6" />
+          <span className="inline-flex size-12 items-center justify-center text-foreground">
+            <LaBanquePostaleLogo className="size-7" />
           </span>
         </div>
-        <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
+        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
           {t('setup.lbp.title')}
         </h1>
-        <p className="mx-auto max-w-md text-sm text-muted-foreground">
+        <p className="mx-auto max-w-md text-sm leading-relaxed text-muted-foreground">
           {t('setup.lbp.body')}
         </p>
       </div>
-      <div className="rounded-2xl border border-border/60 bg-muted/30 p-4 text-center text-xs text-muted-foreground">
+
+      <div className="rounded-xl border border-border/60 bg-muted/30 p-4 text-center text-sm leading-relaxed text-muted-foreground">
         {t('setup.lbp.tip')}
       </div>
-      <div className="mx-auto flex w-full max-w-lg flex-col gap-3">
-        {ack.isError && (
-          <p role="alert" className="text-sm text-destructive">
-            {formatApiError(ack.error, t)}
-          </p>
-        )}
+
+      {ack.isError && (
+        <p role="alert" className="text-center text-sm text-destructive">
+          {formatApiError(ack.error, t)}
+        </p>
+      )}
+
+      <div className="flex flex-col gap-2.5">
+        <Button
+          onClick={proceed}
+          disabled={ack.isPending}
+          className="w-full rounded-lg"
+        >
+          {t('setup.lbp.cta')}
+        </Button>
         <Button
           type="button"
           variant="outline"
           onClick={skip}
           disabled={ack.isPending}
-          className="w-full rounded-full"
+          className="w-full rounded-lg"
         >
           {t('setup.lbp.skip')}
-        </Button>
-        <Button
-          onClick={proceed}
-          disabled={ack.isPending}
-          className="w-full rounded-full"
-        >
-          {t('setup.lbp.cta')}
         </Button>
       </div>
     </div>

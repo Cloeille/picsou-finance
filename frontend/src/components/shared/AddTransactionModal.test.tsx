@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { chooseSelectOption, getSelectOptions } from '@/test/radix-select'
 import { AddTransactionModal } from './AddTransactionModal'
 
 // jsdom lacks matchMedia, which DateInput probes for the touch/native date picker.
@@ -88,7 +89,7 @@ describe('AddTransactionModal precious metals', () => {
     expect(screen.queryByPlaceholderText('accounts.tickerOrIsinPlaceholder')).not.toBeInTheDocument()
     expect(screen.getByText('holdings.quantity')).toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText('accounts.preciousMetalProduct'), { target: { value: 'GOLD:NAPOLEON-20F' } })
+    chooseSelectOption(screen.getByLabelText('accounts.preciousMetalProduct'), 'GOLD:NAPOLEON-20F')
     expect(screen.getByText('accounts.quantityCoins')).toBeInTheDocument()
 
     const numeric = document.querySelectorAll('input[inputmode="decimal"]')
@@ -107,7 +108,7 @@ describe('AddTransactionModal precious metals', () => {
     usePreciousMetals.mockReturnValue({ data: catalogue })
     render(<AddTransactionModal open onOpenChange={vi.fn()} accountId={9} accountType="PRECIOUS_METALS" onSubmit={vi.fn()} />)
 
-    fireEvent.change(screen.getByLabelText('accounts.preciousMetalProduct'), { target: { value: 'GOLD:GRAM' } })
+    chooseSelectOption(screen.getByLabelText('accounts.preciousMetalProduct'), 'GOLD:GRAM')
     expect(screen.getByText('accounts.quantityGrams')).toBeInTheDocument()
   })
 
@@ -117,9 +118,10 @@ describe('AddTransactionModal precious metals', () => {
       initialValues={{ id: 1, date: '2026-10-01', description: 'Buy', amount: -710, txType: 'BUY',
         ticker: ' gold:napoleon-20f ', quantity: 1, pricePerUnit: 710 }} />)
 
-    expect(screen.getByLabelText('accounts.preciousMetalProduct')).toHaveValue('GOLD:NAPOLEON-20F')
+    const select = screen.getByLabelText('accounts.preciousMetalProduct')
+    expect(select).toHaveAttribute('data-value', 'GOLD:NAPOLEON-20F')
     expect(screen.getByText('accounts.quantityCoins')).toBeInTheDocument()
-    expect(screen.getAllByRole('option')).toHaveLength(3)
+    expect(getSelectOptions(select)).toHaveLength(3)
   })
 
   it('keeps a stored product the catalogue no longer lists visible, as an extra option', async () => {
@@ -130,9 +132,11 @@ describe('AddTransactionModal precious metals', () => {
         ticker: 'AAPL', quantity: 1, pricePerUnit: 710 }} />)
 
     const select = screen.getByLabelText('accounts.preciousMetalProduct')
-    expect(select).toHaveValue('AAPL')
-    expect(screen.getByRole('option', { name: 'AAPL' })).toBeInTheDocument()
-    expect(screen.getAllByRole('option')).toHaveLength(4)
+    expect(select).toHaveAttribute('data-value', 'AAPL')
+    const options = getSelectOptions(select)
+    expect(options.map(o => o.textContent)).toContain('AAPL')
+    expect(options).toHaveLength(4)
+    fireEvent.keyDown(options[0] ?? select, { key: 'Escape' })
 
     // The form still submits what it shows: the backend refuses it, and that error is displayed.
     fireEvent.click(screen.getByRole('button', { name: 'common.save' }))
@@ -143,7 +147,7 @@ describe('AddTransactionModal precious metals', () => {
     usePreciousMetals.mockReturnValue({ data: catalogue })
     render(<AddTransactionModal open onOpenChange={vi.fn()} accountId={9} accountType="PRECIOUS_METALS" onSubmit={vi.fn()} />)
 
-    expect(screen.getAllByRole('option')).toHaveLength(3)
+    expect(getSelectOptions(screen.getByLabelText('accounts.preciousMetalProduct'))).toHaveLength(3)
   })
 
   it('says the catalogue failed to load instead of "Loading", and retries it', () => {
@@ -162,7 +166,7 @@ describe('AddTransactionModal precious metals', () => {
     usePreciousMetals.mockReturnValue({ data: undefined, isError: false })
     render(<AddTransactionModal open onOpenChange={vi.fn()} accountId={9} accountType="PRECIOUS_METALS" onSubmit={vi.fn()} />)
 
-    expect(screen.getByText('accounts.preciousMetalCatalogueLoading')).toBeInTheDocument()
+    expect(screen.getByLabelText('accounts.preciousMetalProduct')).toHaveTextContent('accounts.preciousMetalCatalogueLoading')
     expect(screen.queryByText('accounts.preciousMetalCatalogueError')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'common.retry' })).not.toBeInTheDocument()
   })

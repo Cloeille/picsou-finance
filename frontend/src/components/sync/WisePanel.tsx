@@ -190,7 +190,7 @@ export function WisePanel({ onConnected }: WisePanelProps = {}) {
 
       {isConnected && tokenRefused && <div className="mx-auto flex max-w-lg">{disconnectButton}</div>}
 
-      <p className="mx-auto max-w-lg text-xs text-muted-foreground">{t('sync.wise.scopeNote')}</p>
+      <p className="mx-auto max-w-lg text-sm text-muted-foreground">{t('sync.wise.scopeNote')}</p>
 
       <ConfirmDialog
         open={showDisconnectConfirm}

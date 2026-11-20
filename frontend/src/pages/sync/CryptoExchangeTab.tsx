@@ -86,17 +86,14 @@ export function CryptoExchangeTab() {
 
       {/* Exchange list */}
       {!exchanges || exchanges.length === 0 ? (
-        <EmptyState
-          title={t('sync.exchanges.noExchanges')}
-          action={
-            showAddForm
-              ? undefined
-              : {
-                  label: t('sync.exchanges.add'),
-                  onClick: () => setShowAddForm(true),
-                }
-          }
-        />
+        <Card>
+          <CardContent>
+            <EmptyState
+              className="py-8"
+              title={t('sync.exchanges.noExchanges')}
+            />
+          </CardContent>
+        </Card>
       ) : (
         <div className="space-y-3">
           {exchanges.map(exchange => (

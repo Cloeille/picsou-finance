@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { NativeSelect } from '@/components/shared/NativeSelect'
 import { useTranslation } from 'react-i18next'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -41,7 +42,7 @@ export function ImportTransactionsModal({ open, onOpenChange, accountId }: Impor
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl">
+      <DialogContent className="sm:max-w-3xl" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{t('import.title')}</DialogTitle>
         </DialogHeader>
@@ -164,7 +165,7 @@ function ImportWizard({ accountId, onOpenChange }: { accountId: number; onOpenCh
             disabled={previewMutation.isPending}
             onClick={() => fileInputRef.current?.click()}
           >
-            {previewMutation.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+            {previewMutation.isPending && <Loader2 className="size-4 animate-spin" />}
             {t('import.chooseFile')}
           </Button>
         </div>
@@ -187,7 +188,7 @@ function ImportWizard({ accountId, onOpenChange }: { accountId: number; onOpenCh
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="space-y-1">
           <Label>{t('import.delimiter')}</Label>
-          <select
+          <NativeSelect
             className={SELECT_CLASS}
             value={dialect?.delimiter ?? ','}
             onChange={e => setDialect(d => (d ? { ...d, delimiter: e.target.value } : d))}
@@ -195,22 +196,22 @@ function ImportWizard({ accountId, onOpenChange }: { accountId: number; onOpenCh
             <option value=",">{t('import.delimiterComma')}</option>
             <option value=";">{t('import.delimiterSemicolon')}</option>
             <option value={'\t'}>{t('import.delimiterTab')}</option>
-          </select>
+          </NativeSelect>
         </div>
         <div className="space-y-1">
           <Label>{t('import.decimal')}</Label>
-          <select
+          <NativeSelect
             className={SELECT_CLASS}
             value={dialect?.decimal ?? 'DOT'}
             onChange={e => setDialect(d => (d ? { ...d, decimal: e.target.value as 'DOT' | 'COMMA' } : d))}
           >
             <option value="DOT">1.23</option>
             <option value="COMMA">1,23</option>
-          </select>
+          </NativeSelect>
         </div>
         <div className="space-y-1">
           <Label>{t('import.dateFormat')}</Label>
-          <select
+          <NativeSelect
             className={SELECT_CLASS}
             value={dialect?.dateFormat ?? 'yyyy-MM-dd'}
             onChange={e => setDialect(d => (d ? { ...d, dateFormat: e.target.value } : d))}
@@ -218,7 +219,7 @@ function ImportWizard({ accountId, onOpenChange }: { accountId: number; onOpenCh
             {['yyyy-MM-dd', 'dd/MM/yyyy', 'MM/dd/yyyy', 'dd.MM.yyyy', 'dd-MM-yyyy'].map(f => (
               <option key={f} value={f}>{f}</option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
       </div>
 
@@ -232,7 +233,7 @@ function ImportWizard({ accountId, onOpenChange }: { accountId: number; onOpenCh
                 {t(`import.field.${key}`)}
                 {optional && <span className="text-muted-foreground"> ({t('common.optional')})</span>}
               </Label>
-              <select
+              <NativeSelect
                 className={SELECT_CLASS}
                 value={mapping?.[key] ?? ''}
                 onChange={e => setField(key, e.target.value === '' ? null : Number(e.target.value))}
@@ -241,7 +242,7 @@ function ImportWizard({ accountId, onOpenChange }: { accountId: number; onOpenCh
                 {columns.map((c, i) => (
                   <option key={i} value={i}>{c}</option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
           ))}
         </div>
@@ -276,7 +277,7 @@ function ImportWizard({ accountId, onOpenChange }: { accountId: number; onOpenCh
       <DialogFooter>
         <Button type="button" variant="outline" onClick={() => setPreview(null)}>{t('import.back')}</Button>
         <Button type="button" onClick={handleImport} disabled={executeMutation.isPending}>
-          {executeMutation.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+          {executeMutation.isPending && <Loader2 className="size-4 animate-spin" />}
           {t('import.import')}
         </Button>
       </DialogFooter>

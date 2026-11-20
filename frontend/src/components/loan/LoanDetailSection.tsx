@@ -16,7 +16,7 @@ export function LoanDetailSection({ accountId }: LoanDetailSectionProps) {
   if (isLoading) {
     return (
       <Card>
-        <CardContent className="pt-6">
+        <CardContent>
           <Skeleton className="h-32 w-full" />
         </CardContent>
       </Card>

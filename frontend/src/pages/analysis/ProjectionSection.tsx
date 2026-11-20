@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { AllocationTrajectory } from './AllocationTrajectory'
 import {
@@ -20,11 +19,6 @@ import { AXIS_PROPS, AXIS_PROPS_FLUSH } from '@/lib/chart-axis'
 
 const HORIZONS = [10, 20, 30] as const
 
-/**
- * The theme's chart tokens are a single-hue ramp, not five distinct hues — which suits ordered
- * data exactly. Spread across it darkest-to-lightest so "more optimistic" reads as "brighter",
- * skipping chart-5 because it disappears against a dark background at a 2px stroke.
- */
 const SCENARIO_COLORS: Record<ProjectionScenario['key'], string> = {
   PESSIMISTIC: 'var(--chart-4)',
   CAUTIOUS: 'var(--chart-3)',
@@ -32,18 +26,9 @@ const SCENARIO_COLORS: Record<ProjectionScenario['key'], string> = {
   OPTIMISTIC: 'var(--chart-1)',
 }
 
-/** Contributions are drawn beneath every scenario, so they read as the floor the gain sits on. */
 const CONTRIBUTED_COLOR = 'var(--color-muted-foreground)'
-
-/** The series the legend can toggle: contributions first, then the scenarios in payload order. */
 const CONTRIBUTED_KEY = 'contributed'
 
-/**
- * The next round number at or above a value — 1, 2, 2.5 or 5 times a power of ten.
- *
- * <p>Needed because the Y domain is pinned rather than derived from what is on screen (see below),
- * and a hard-coded maximum of, say, 1 284 617 would put its ticks at 256 923 intervals.
- */
 function niceCeiling(value: number): number {
   if (value <= 0) return 1
   const magnitude = 10 ** Math.floor(Math.log10(value))
@@ -56,11 +41,7 @@ export function ProjectionSection() {
   const { t } = useTranslation()
   const dateLabel = useProjectionDateLabel()
   const [years, setYears] = useState<number>(20)
-  // Two questions, one card: how much, and in what. Tabs rather than two cards because they
-  // share a horizon — switching view must not lose it.
   const [view, setView] = useState<'wealth' | 'allocation'>('wealth')
-  // Everything visible until the reader says otherwise. Hidden rather than shown, so a scenario
-  // added later to the payload appears without anyone remembering to opt it in.
   const [hidden, setHidden] = useState<Set<string>>(() => new Set())
   const money = useMoney()
   const projection = useProjection(years)
@@ -69,8 +50,6 @@ export function ProjectionSection() {
     const entries = (projection.data?.scenarios ?? []).map((s) => [
       s.key,
       {
-        // The rate comes from the payload, never restated here: a label that disagrees with the
-        // curve that produced it is worse than no label.
         label: t(`analysis.projection.scenarios.${s.key}`, {
           value: formatPercent(s.annualPercent),
         }),
@@ -80,15 +59,11 @@ export function ProjectionSection() {
     return Object.fromEntries(entries) as ChartConfig
   }, [projection.data, t])
 
-  // Recharts wants one row per x value with a column per series.
   const rows = useMemo(() => {
     const scenarios = projection.data?.scenarios ?? []
     const first = scenarios[0]
     if (!first) return []
     return first.points.map((point, i) => {
-      // The same for every scenario — it is capital in, not a return — so it is read off the
-      // first and drawn once. The gap above it is the gain, which is the figure this chart was
-      // computing all along and never showed.
       const row: Record<string, string | number> = {
         date: point.date,
         contributed: point.contributedEur,
@@ -100,13 +75,6 @@ export function ProjectionSection() {
     })
   }, [projection.data])
 
-  /**
-   * Pinned to the full set of series, not to the visible ones.
-   *
-   * <p>Letting the axis breathe when a curve is hidden makes every remaining curve jump to a new
-   * scale — so the act of hiding the optimistic line appears to move the pessimistic one, which
-   * is the opposite of what the reader clicked for.
-   */
   const yMax = useMemo(() => {
     let max = 0
     for (const row of rows) {
@@ -116,6 +84,13 @@ export function ProjectionSection() {
     }
     return niceCeiling(max)
   }, [rows])
+
+  const referenceFinal = useMemo(() => {
+    const scenarios = projection.data?.scenarios ?? []
+    const ref = scenarios.find((s) => s.key === 'REFERENCE') ?? scenarios[0]
+    const last = ref?.points[ref.points.length - 1]
+    return last ? { valueEur: last.valueEur, contributedEur: last.contributedEur } : null
+  }, [projection.data])
 
   const legend = useMemo(
     () => [
@@ -143,35 +118,44 @@ export function ProjectionSection() {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-x-4 gap-y-2">
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <CardTitle>{t('analysis.projection.title')}</CardTitle>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex gap-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex items-center gap-1 rounded-lg bg-muted p-1">
             {(['wealth', 'allocation'] as const).map((key) => (
-              <Button
+              <button
                 key={key}
-                variant={view === key ? 'default' : 'outline'}
-                size="sm"
-                className="px-4 sm:px-8"
+                type="button"
                 aria-pressed={view === key}
                 onClick={() => setView(key)}
+                className={cn(
+                  'inline-flex h-8 items-center justify-center rounded-md px-3 text-xs font-medium transition-colors',
+                  view === key
+                    ? 'bg-background text-foreground shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
               >
                 {t(`analysis.projection.views.${key}`)}
-              </Button>
+              </button>
             ))}
           </div>
-          <div className="flex gap-1">
-          {HORIZONS.map((horizon) => (
-            <Button
-              key={horizon}
-              variant={horizon === years ? 'default' : 'outline'}
-              size="sm"
-              className="px-4 sm:px-8"
-              onClick={() => setYears(horizon)}
-            >
-              {t('analysis.projection.years', { count: horizon })}
-            </Button>
-          ))}
+          <div className="inline-flex items-center gap-1 rounded-lg bg-muted p-1">
+            {HORIZONS.map((horizon) => (
+              <button
+                key={horizon}
+                type="button"
+                aria-pressed={horizon === years}
+                onClick={() => setYears(horizon)}
+                className={cn(
+                  'inline-flex h-8 items-center justify-center rounded-md px-3 text-xs font-medium tabular-nums transition-colors',
+                  horizon === years
+                    ? 'bg-background text-foreground shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {t('analysis.projection.years', { count: horizon })}
+              </button>
+            ))}
           </div>
         </div>
       </CardHeader>
@@ -180,125 +164,122 @@ export function ProjectionSection() {
           <p className="text-sm text-muted-foreground">{t('analysis.projection.nothingToProject')}</p>
         ) : (
           <>
-            {/* The base is stated because it is not the net worth on the dashboard: property,
-                loans and alternative assets are out, and a reader has to know that. */}
-            <p className="mb-4 text-sm text-muted-foreground">
-              {t('analysis.projection.basis')}{' '}
-              <CurrencyDisplay value={projection.data.baseValueEur} className="text-foreground" />
-              {projection.data.monthlyInflowEur > 0 && (
-                <>
-                  {' · '}
-                  {t('analysis.projection.monthly')}{' '}
-                  <CurrencyDisplay
-                    value={projection.data.monthlyInflowEur}
-                    className="text-foreground"
-                  />
-                </>
+            <div className="mb-5 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-xl bg-muted/40 px-4 py-3">
+                <p className="text-xs text-muted-foreground">{t('analysis.projection.basis')}</p>
+                <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">
+                  <CurrencyDisplay value={projection.data.baseValueEur} />
+                </p>
+              </div>
+              <div className="rounded-xl bg-muted/40 px-4 py-3">
+                <p className="text-xs text-muted-foreground">{t('analysis.projection.monthly')}</p>
+                <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">
+                  <CurrencyDisplay value={projection.data.monthlyInflowEur} />
+                </p>
+              </div>
+              {referenceFinal && (
+                <div className="rounded-xl bg-muted/40 px-4 py-3">
+                  <p className="text-xs text-muted-foreground">
+                    {t('analysis.projection.referenceAt', { count: years })}
+                  </p>
+                  <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">
+                    <CurrencyDisplay value={referenceFinal.valueEur} />
+                  </p>
+                </div>
               )}
-            </p>
+            </div>
 
             {view === 'allocation' ? (
               <AllocationTrajectory allocation={projection.data.allocation} />
             ) : (
               <>
-            <ChartContainer config={config} className={cn('h-[320px] w-full')}>
-              <AreaChart data={rows} margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>
-                <defs>
-                  {Object.keys(config).map((key) => (
-                    <linearGradient key={key} id={`fill-${key}`} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={`var(--color-${key})`} stopOpacity={0.25} />
-                      <stop offset="100%" stopColor={`var(--color-${key})`} stopOpacity={0.02} />
-                    </linearGradient>
-                  ))}
-                </defs>
-                <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="date"
-                  {...AXIS_PROPS}
-                  tickFormatter={(value: string) => value.slice(0, 4)}
-                />
-                <YAxis
-                  {...AXIS_PROPS_FLUSH}
-                  width={MONEY_AXIS_WIDTH}
-                  domain={[0, yMax]}
-                  tickFormatter={money.tick}
-                />
-                <ChartTooltip
-                  content={
-                    <MoneyChartTooltip
-                      config={config}
-                      indicator="line"
-                      labelFormatter={(value) => dateLabel(String(value))}
+                <ChartContainer config={config} className={cn('aspect-auto h-[320px] w-full')}>
+                  <AreaChart data={rows} margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>
+                    <defs>
+                      {Object.keys(config).map((key) => (
+                        <linearGradient key={key} id={`fill-${key}`} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={`var(--color-${key})`} stopOpacity={0.25} />
+                          <stop offset="100%" stopColor={`var(--color-${key})`} stopOpacity={0.02} />
+                        </linearGradient>
+                      ))}
+                    </defs>
+                    <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="date"
+                      {...AXIS_PROPS}
+                      tickFormatter={(value: string) => value.slice(0, 4)}
                     />
-                  }
-                />
-                {!hidden.has(CONTRIBUTED_KEY) && (
-                  <Area
-                    type="monotone"
-                    dataKey="contributed"
-                    stroke={CONTRIBUTED_COLOR}
-                    fill={CONTRIBUTED_COLOR}
-                    fillOpacity={0.12}
-                    strokeWidth={1}
-                    strokeDasharray="4 3"
-                    dot={false}
-                    name={t('analysis.projection.contributed')}
-                  />
-                )}
-                {Object.keys(config)
-                  .filter((key) => !hidden.has(key))
-                  .map((key) => (
-                    <Area
-                      key={key}
-                      type="monotone"
-                      dataKey={key}
-                      stroke={`var(--color-${key})`}
-                      fill={`url(#fill-${key})`}
-                      strokeWidth={2}
-                      dot={false}
+                    <YAxis
+                      {...AXIS_PROPS_FLUSH}
+                      width={MONEY_AXIS_WIDTH}
+                      domain={[0, yMax]}
+                      tickFormatter={money.tick}
                     />
-                  ))}
-              </AreaChart>
-            </ChartContainer>
-
-            {/* Rendered here rather than through Recharts' <Legend>, which sorts alphabetically
-                and so scrambles a series whose whole meaning is its order. Each entry is also the
-                control for its curve: four scenarios plus contributions is more than a 320px
-                chart can separate, and comparing two of them means removing the other three. */}
-            <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
-              {legend.map((entry) => {
-                const shown = !hidden.has(entry.key)
-                return (
-                  <li key={entry.key}>
-                    <button
-                      type="button"
-                      aria-pressed={shown}
-                      onClick={() => toggle(entry.key)}
-                      className={cn(
-                        'flex items-center gap-1.5 text-xs transition-opacity hover:opacity-100',
-                        shown ? 'text-muted-foreground' : 'text-muted-foreground/50 line-through',
-                      )}
-                    >
-                      <span
-                        className={cn('size-2 shrink-0 rounded-full', !shown && 'opacity-40')}
-                        style={{ backgroundColor: entry.color }}
-                        aria-hidden="true"
+                    <ChartTooltip
+                      content={
+                        <MoneyChartTooltip
+                          config={config}
+                          indicator="line"
+                          labelFormatter={(value) => dateLabel(String(value))}
+                        />
+                      }
+                    />
+                    {!hidden.has(CONTRIBUTED_KEY) && (
+                      <Area
+                        type="monotone"
+                        dataKey="contributed"
+                        stroke={CONTRIBUTED_COLOR}
+                        fill={CONTRIBUTED_COLOR}
+                        fillOpacity={0.12}
+                        strokeWidth={1}
+                        strokeDasharray="4 3"
+                        dot={false}
+                        name={t('analysis.projection.contributed')}
                       />
-                      {entry.label}
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-            <p className="mt-2 text-xs text-muted-foreground">
-              {t('analysis.projection.blendNote')}
-            </p>
+                    )}
+                    {Object.keys(config)
+                      .filter((key) => !hidden.has(key))
+                      .map((key) => (
+                        <Area
+                          key={key}
+                          type="monotone"
+                          dataKey={key}
+                          stroke={`var(--color-${key})`}
+                          fill={`url(#fill-${key})`}
+                          strokeWidth={2}
+                          dot={false}
+                        />
+                      ))}
+                  </AreaChart>
+                </ChartContainer>
+
+                <ul className="mt-4 flex flex-wrap gap-x-4 gap-y-1.5">
+                  {legend.map((entry) => {
+                    const shown = !hidden.has(entry.key)
+                    return (
+                      <li key={entry.key}>
+                        <button
+                          type="button"
+                          aria-pressed={shown}
+                          onClick={() => toggle(entry.key)}
+                          className={cn(
+                            'flex items-center gap-1.5 text-xs transition-opacity hover:opacity-100',
+                            shown ? 'text-muted-foreground' : 'text-muted-foreground/50 line-through',
+                          )}
+                        >
+                          <span
+                            className={cn('size-2 shrink-0 rounded-full', !shown && 'opacity-40')}
+                            style={{ backgroundColor: entry.color }}
+                            aria-hidden="true"
+                          />
+                          {entry.label}
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
               </>
             )}
-
-            <p className="mt-3 text-xs text-muted-foreground">
-              {t('analysis.projection.disclaimer')}
-            </p>
           </>
         )}
       </CardContent>

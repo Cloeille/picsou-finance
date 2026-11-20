@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { formatPercent, localeFromLanguage } from '@/lib/utils'
+import { formatPercent, localeFromLanguage, capitalizeFirst } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import type { LoanSummary } from '@/types/api'
@@ -13,8 +13,7 @@ export function LoanProgressCard({ summary }: LoanProgressCardProps) {
   const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
 
   const endLabel = summary.endDate
-    ? new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' })
-        .format(new Date(summary.endDate))
+    ? capitalizeFirst(new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(new Date(summary.endDate)), locale)
     : '—'
 
   const pct = Math.max(0, Math.min(100, summary.capitalRepaidPct))

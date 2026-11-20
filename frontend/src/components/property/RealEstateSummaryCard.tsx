@@ -19,7 +19,7 @@ export function RealEstateSummaryCard({ enabled = true }: { enabled?: boolean })
   if (isLoading) {
     return (
       <Card>
-        <CardContent className="pt-6"><Skeleton className="h-24 w-full" /></CardContent>
+        <CardContent><Skeleton className="h-24 w-full" /></CardContent>
       </Card>
     )
   }
@@ -63,13 +63,13 @@ export function RealEstateSummaryCard({ enabled = true }: { enabled?: boolean })
         </div>
 
         {data.loanToValue != null && (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             {t('property.summary.loanToValue', { pct: formatPercent(data.loanToValue) })}
           </p>
         )}
 
         {data.monthlyRentalIncome > 0 && (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             {t('property.summary.rentalIncome')}{' '}
             <CurrencyDisplay value={data.monthlyRentalIncome} className="tabular-nums" />
           </p>
@@ -90,9 +90,8 @@ export function RealEstateSummaryCard({ enabled = true }: { enabled?: boolean })
               </Stat>
             </div>
             {data.paper?.some((line) => line.valuationStatus === 'PRICE_INCOMPLETE') && (
-              <p className="text-xs text-amber-600 dark:text-amber-400">{t('scpi.summary.incomplete')}</p>
+              <p className="text-sm text-muted-foreground">{t('scpi.summary.incomplete')}</p>
             )}
-            <p className="text-xs text-muted-foreground">{t('scpi.summary.hint')}</p>
           </div>
         )}
       </CardContent>

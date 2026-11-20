@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { NativeSelect } from '@/components/shared/NativeSelect'
 import { useTranslation } from 'react-i18next'
 import { CalendarClock, Plus, RefreshCw } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -14,7 +15,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -26,7 +26,7 @@ import {
   useRecurring,
   useRecurringCalendar,
 } from '@/features/budget/hooks'
-import { formatNumber, getLocale, parseAmount } from '@/lib/utils'
+import { formatNumber, getLocale, parseAmount, capitalizeFirst } from '@/lib/utils'
 import type { RecurringCadence } from '@/types/api'
 import { ColorDot } from './budget-utils'
 import { CADENCE_LABEL_KEY } from './budget-meta'
@@ -64,10 +64,9 @@ function RecurringForm({ open, onOpenChange }: {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{t('budget.recurring.add')}</DialogTitle>
-          <DialogDescription>{t('budget.recurring.formHint')}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
@@ -80,7 +79,7 @@ function RecurringForm({ open, onOpenChange }: {
             <Input id="rec-cp" value={counterparty} onChange={(e) => setCounterparty(e.target.value)}
               placeholder="NETFLIX.COM" />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid items-end grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="rec-amount">{t('budget.recurring.amount')}</Label>
               <NumericInput id="rec-amount" value={amount}
@@ -88,30 +87,30 @@ function RecurringForm({ open, onOpenChange }: {
             </div>
             <div className="space-y-2">
               <Label htmlFor="rec-cadence">{t('budget.recurring.cadence')}</Label>
-              <select id="rec-cadence" value={cadence}
+              <NativeSelect id="rec-cadence" value={cadence}
                 onChange={(e) => setCadence(e.target.value as RecurringCadence)}
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus:border-ring">
                 {CADENCES.map((c) => (
                   <option key={c} value={c}>{t(CADENCE_LABEL_KEY[c])}</option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid items-end grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="rec-due">{t('budget.recurring.nextDue')}</Label>
               <DateInput id="rec-due" value={nextDueDate} onChange={setNextDueDate} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="rec-cat">{t('budget.recurring.category')}</Label>
-              <select id="rec-cat" value={categoryId}
+              <NativeSelect id="rec-cat" value={categoryId}
                 onChange={(e) => setCategoryId(e.target.value === '' ? '' : Number(e.target.value))}
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus:border-ring">
                 <option value="">{t('budget.recurring.noCategory')}</option>
                 {(categories ?? []).filter((c) => !c.archived).map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
           </div>
         </div>
@@ -152,8 +151,7 @@ export function RecurringTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">{t('budget.recurring.subtitle')}</p>
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" onClick={() => detect.mutate()}
             disabled={detect.isPending}>
@@ -189,8 +187,7 @@ export function RecurringTab() {
               {[...groups.entries()].map(([ym, occs]) => (
                 <div key={ym}>
                   <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
-                    {new Intl.DateTimeFormat(getLocale(), { month: 'long', year: 'numeric' })
-                      .format(new Date(`${ym}-01T00:00:00`))}
+                    {capitalizeFirst(new Intl.DateTimeFormat(getLocale(), { month: 'long', year: 'numeric' }).format(new Date(`${ym}-01T00:00:00`)), getLocale())}
                   </p>
                   <div className="space-y-2">
                     {(occs ?? []).map((occ) => {

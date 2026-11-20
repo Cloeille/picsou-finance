@@ -46,7 +46,7 @@ async function open(page: Page, path: string) {
 const PAGES = [
   ['/settings', 'Système'],
   ['/settings/family', 'Sélectionner'],
-  ['/analysis', '30 ans'],
+  ['/analysis', 'Score de composition'],
   ['/accounts/2', '+ Ajouter'],
   ['/goals', 'Apport immobilier'],
   ['/goals/1/calendar', 'Voyage au Japon'],
@@ -95,7 +95,7 @@ test.describe('Phone layout (360px)', () => {
 
   test('account filters sit on one swipeable row', async ({ page }) => {
     await open(page, '/accounts')
-    const filter = page.getByRole('main').getByRole('button', { name: 'Actions & Fonds' })
+    const filter = page.getByRole('main').getByRole('button', { name: 'Actions et fonds' })
     await expect(filter).toBeVisible()
     const tops = await filter.locator('xpath=..').locator('button')
       .evaluateAll((buttons) => new Set(buttons.map((b) => Math.round(b.getBoundingClientRect().top))).size)
@@ -174,7 +174,7 @@ test.describe('Phone layout (360px)', () => {
   // The global focus ring is drawn 4px outside the control (index.css), so a strip's overflow
   // must leave room for it above and below, or keyboard users lose sight of where they are.
   const STRIP_ITEMS = [
-    ['/accounts', 'button', 'Actions & Fonds'],
+    ['/accounts', 'button', 'Actions et fonds'],
     ['/budget/review', 'link', /À catégoriser/],
     ['/sync?tab=visibility', 'tab', 'Comptes'],
   ] as const

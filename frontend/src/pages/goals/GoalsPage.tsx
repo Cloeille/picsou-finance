@@ -5,10 +5,11 @@ import { useGoals, useCreateGoal, useUpdateGoal, useDeleteGoal } from '@/feature
 import { useAccounts } from '@/features/accounts/hooks'
 import { useMemberProfile } from '@/features/profile/hooks'
 import { AllocationPicker } from './AllocationPicker'
-import { allocatedTotal } from './plan-math'
+import { allocatedTotal, hasIncompleteAllocations } from './plan-math'
 import { SavingsRateCard } from './SavingsRateCard'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { ErrorState } from '@/components/shared/ErrorState'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { LoadingSkeleton } from '@/components/shared/LoadingSkeleton'
@@ -62,7 +63,7 @@ export function GoalsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
 
-  const { data: goals, isLoading } = useGoals()
+  const { data: goals, isLoading, isError, refetch } = useGoals()
   const { data: accounts } = useAccounts()
   const { data: profile } = useMemberProfile()
   const createGoal = useCreateGoal()
@@ -166,12 +167,24 @@ export function GoalsPage() {
   const overAllocated =
     form.type === 'RECURRING_INVESTMENT' &&
     allocatedTotal(form.allocations) - monthlyAmountValue > 0.005
+  const incompleteAllocations =
+    form.type === 'RECURRING_INVESTMENT' &&
+    hasIncompleteAllocations(form.allocations)
 
   const handleConfirmDelete = () => {
     if (deleteId != null) {
       deleteGoal.mutate(deleteId)
       setDeleteId(null)
     }
+  }
+
+  if (isError) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title={t('goals.title')} />
+        <ErrorState title={t('common.error')} onRetry={() => void refetch()} />
+      </div>
+    )
   }
 
   if (isLoading) return <LoadingSkeleton />
@@ -195,12 +208,15 @@ export function GoalsPage() {
       />
 
       {goalList.length === 0 ? (
-        <EmptyState
-          className="min-h-[calc(100vh-14rem)]"
-          icon={<Target className="size-12" />}
-          title={t('goals.noGoals')}
-          action={{ label: t('goals.addGoal'), onClick: openCreate }}
-        />
+        <Card>
+          <CardContent>
+            <EmptyState
+              className="py-8"
+              icon={<Target className="size-10" />}
+              title={t('goals.noGoals')}
+            />
+          </CardContent>
+        </Card>
       ) : (
         <div className="flex flex-col gap-8">
           {savingsTargets.length > 0 && (
@@ -221,15 +237,12 @@ export function GoalsPage() {
 
           {recurringPlans.length > 0 && (
             <section className="flex flex-col gap-4">
-              <div>
-                <h2 className="text-sm text-muted-foreground">{t('goals.sections.recurring')}</h2>
-                <p className="text-xs text-muted-foreground">{t('goals.sections.recurringHint')}</p>
-              </div>
+              <h2 className="text-sm text-muted-foreground">{t('goals.sections.recurring')}</h2>
               <SavingsRateCard
                 plans={recurringPlans}
                 monthlyNetIncome={profile?.monthlyNetIncome ?? null}
                 today={today}
-                onOpenSettings={() => navigate('/settings')}
+                onOpenSettings={() => navigate('/settings?tab=profile')}
               />
               {recurringPlans.map((goal) => (
                 <RecurringPlanCard
@@ -252,7 +265,7 @@ export function GoalsPage() {
 
       {/* Create / Edit dialog */}
       <Dialog open={showForm} onOpenChange={(open) => { if (!open) closeForm() }}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="sm:max-w-2xl" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>
               {editingGoal ? t('goals.editGoal') : t('goals.addGoal')}
@@ -291,7 +304,7 @@ export function GoalsPage() {
             </div>
 
             {form.type === 'SAVINGS_TARGET' ? (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid items-end grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="goal-target">{t('goals.targetAmount')}</Label>
                   <NumericInput
@@ -314,7 +327,7 @@ export function GoalsPage() {
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid items-end grid-cols-2 gap-3">
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="goal-monthly">{t('goals.monthlyAmount')}</Label>
                     <NumericInput
@@ -335,7 +348,7 @@ export function GoalsPage() {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid items-end grid-cols-2 gap-3">
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="goal-start">{t('goals.startDate')}</Label>
                     <DateInput
@@ -353,7 +366,6 @@ export function GoalsPage() {
                     />
                   </div>
                 </div>
-                <p className="text-sm text-muted-foreground">{t('goals.recurringHint')}</p>
               </>
             )}
 
@@ -403,13 +415,13 @@ export function GoalsPage() {
                   createGoal.isPending ||
                   updateGoal.isPending ||
                   form.accountIds.length === 0 ||
-                  overAllocated
+                  overAllocated ||
+                  incompleteAllocations
                 }
               >
                 {(createGoal.isPending || updateGoal.isPending) && (
                   <Loader2
-                    className="size-4 animate-spin mr-1"
-                  />
+                    className="size-4 animate-spin" />
                 )}
                 {t('common.save')}
               </Button>
@@ -486,7 +498,7 @@ function RecurringPlanCard({
                 )}
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
-                {t('goals.currentTotal')} <CurrencyDisplay value={goal.currentTotal} />
+                {t('common.labelColon', { label: t('goals.currentTotal') })} <CurrencyDisplay value={goal.currentTotal} />
               </p>
             </div>
           </div>

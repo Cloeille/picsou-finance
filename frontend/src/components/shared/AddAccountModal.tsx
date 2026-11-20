@@ -2,6 +2,32 @@ import { useMemo, useState, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
+import {
+  AmexLogo,
+  AmundiLogo,
+  BanquePopulaireLogo,
+  BitcoinLogo,
+  BnpParibasLogo,
+  BourseDirectLogo,
+  BoursoBankLogo,
+  CaisseEpargneLogo,
+  CorumLogo,
+  DegiroLogo,
+  EnableBankingLogo,
+  EthereumLogo,
+  FinaryLogo,
+  FortuneoLogo,
+  IbkrLogo,
+  LaBanquePostaleLogo,
+  NatixisLogo,
+  RevolutLogo,
+  SimplefinLogo,
+  SofidyLogo,
+  TradeRepublicLogo,
+  WiseLogo,
+} from '@/pages/setup/components/IntegrationLogos'
 import {
   BackButton,
   BankWizard,
@@ -32,19 +58,12 @@ import { SimplefinPanel } from '@/components/sync/SimplefinPanel'
 import { WisePanel } from '@/components/sync/WisePanel'
 import { useCreateAccount, useUpdateDebtMetadata } from '@/features/accounts/hooks'
 import {
-  Landmark,
-  HousePlus,
-  ArrowLeftRight,
-  Wallet,
-  Smartphone,
-  CreditCard,
   Building2,
-  FileSpreadsheet,
+  HousePlus,
   PenLine,
   ArrowRight,
-  BriefcaseBusiness,
-  TrendingUp,
-  PiggyBank,
+  Search,
+  X,
 } from 'lucide-react'
 import type { Account, AccountRequest, AccountType } from '@/types/api'
 
@@ -70,33 +89,47 @@ type WizardStep =
 // Source config
 // ---------------------------------------------------------------------------
 
-const SOURCES: { key: WizardStep; icon: typeof Landmark; labelKey: string; descKey: string }[] = [
-  { key: 'banks', icon: Landmark, labelKey: 'sync.banks.title', descKey: 'addAccount.desc.banks' },
-  { key: 'exchanges', icon: ArrowLeftRight, labelKey: 'sync.exchanges.title', descKey: 'addAccount.desc.exchanges' },
-  { key: 'wallets', icon: Wallet, labelKey: 'sync.wallets.title', descKey: 'addAccount.desc.wallets' },
-  { key: 'tr', icon: Smartphone, labelKey: 'sync.tr.title', descKey: 'addAccount.desc.tr' },
-  { key: 'revolut', icon: CreditCard, labelKey: 'sync.revolut.title', descKey: 'addAccount.desc.revolut' },
-  { key: 'bourso', icon: Landmark, labelKey: 'sync.bourso.title', descKey: 'addAccount.desc.bourso' },
-  { key: 'caisseEpargne', icon: Landmark, labelKey: 'sync.caisseEpargne.title', descKey: 'addAccount.desc.caisseEpargne' },
-  { key: 'banquePopulaire', icon: Landmark, labelKey: 'sync.banquePopulaire.title', descKey: 'addAccount.desc.banquePopulaire' },
-  { key: 'lbp', icon: Landmark, labelKey: 'sync.lbp.title', descKey: 'addAccount.desc.lbp' },
-  { key: 'bnp', icon: Landmark, labelKey: 'sync.bnp.title', descKey: 'addAccount.desc.bnp' },
-  { key: 'bourseDirect', icon: BriefcaseBusiness, labelKey: 'sync.bourseDirect.title', descKey: 'addAccount.desc.bourseDirect' },
-  { key: 'degiro', icon: TrendingUp, labelKey: 'sync.degiro.title', descKey: 'addAccount.desc.degiro' },
-  { key: 'ibkr', icon: BriefcaseBusiness, labelKey: 'sync.ibkr.title', descKey: 'addAccount.desc.ibkr' },
-  { key: 'simplefin', icon: Landmark, labelKey: 'sync.simplefin.title', descKey: 'addAccount.desc.simplefin' },
-  { key: 'wise', icon: PiggyBank, labelKey: 'sync.wise.title', descKey: 'addAccount.desc.wise' },
-  { key: 'amundi', icon: PiggyBank, labelKey: 'sync.amundi.title', descKey: 'addAccount.desc.amundi' },
-  { key: 'natixis', icon: PiggyBank, labelKey: 'sync.natixis.title', descKey: 'addAccount.desc.natixis' },
-  { key: 'fortuneo', icon: PiggyBank, labelKey: 'sync.fortuneo.title', descKey: 'addAccount.desc.fortuneo' },
-  { key: 'amex', icon: CreditCard, labelKey: 'sync.amex.title', descKey: 'addAccount.desc.amex' },
-  { key: 'corum', icon: Building2, labelKey: 'sync.corum.title', descKey: 'addAccount.desc.corum' },
-  { key: 'sofidy', icon: Building2, labelKey: 'sync.sofidy.title', descKey: 'addAccount.desc.sofidy' },
-  { key: 'louve', icon: Building2, labelKey: 'sync.louve.title', descKey: 'addAccount.desc.louve' },
-  { key: 'finary', icon: FileSpreadsheet, labelKey: 'sync.finary.title', descKey: 'addAccount.desc.finary' },
-  { key: 'property', icon: HousePlus, labelKey: 'property.add.source', descKey: 'addAccount.desc.property' },
-  { key: 'manual', icon: PenLine, labelKey: 'addAccount.manual', descKey: 'addAccount.desc.manual' },
+type SourceCategory = 'all' | 'banks' | 'investing' | 'crypto' | 'manual'
+
+const SOURCE_CATEGORIES: SourceCategory[] = ['all', 'banks', 'investing', 'crypto', 'manual']
+
+const SOURCES: Array<{
+  key: WizardStep
+  category: Exclude<SourceCategory, 'all'>
+  icon: ComponentType<{ className?: string }>
+  labelKey: string
+  descKey: string
+}> = [
+  { key: 'banks', category: 'banks', icon: EnableBankingLogo, labelKey: 'sync.banks.title', descKey: 'addAccount.desc.banks' },
+  { key: 'bnp', category: 'banks', icon: BnpParibasLogo, labelKey: 'sync.bnp.title', descKey: 'addAccount.desc.bnp' },
+  { key: 'bourso', category: 'banks', icon: BoursoBankLogo, labelKey: 'sync.bourso.title', descKey: 'addAccount.desc.bourso' },
+  { key: 'fortuneo', category: 'banks', icon: FortuneoLogo, labelKey: 'sync.fortuneo.title', descKey: 'addAccount.desc.fortuneo' },
+  { key: 'lbp', category: 'banks', icon: LaBanquePostaleLogo, labelKey: 'sync.lbp.title', descKey: 'addAccount.desc.lbp' },
+  { key: 'caisseEpargne', category: 'banks', icon: CaisseEpargneLogo, labelKey: 'sync.caisseEpargne.title', descKey: 'addAccount.desc.caisseEpargne' },
+  { key: 'banquePopulaire', category: 'banks', icon: BanquePopulaireLogo, labelKey: 'sync.banquePopulaire.title', descKey: 'addAccount.desc.banquePopulaire' },
+  { key: 'revolut', category: 'banks', icon: RevolutLogo, labelKey: 'sync.revolut.title', descKey: 'addAccount.desc.revolut' },
+  { key: 'amex', category: 'banks', icon: AmexLogo, labelKey: 'sync.amex.title', descKey: 'addAccount.desc.amex' },
+  { key: 'wise', category: 'banks', icon: WiseLogo, labelKey: 'sync.wise.title', descKey: 'addAccount.desc.wise' },
+  { key: 'simplefin', category: 'banks', icon: SimplefinLogo, labelKey: 'sync.simplefin.title', descKey: 'addAccount.desc.simplefin' },
+  { key: 'tr', category: 'investing', icon: TradeRepublicLogo, labelKey: 'sync.tr.title', descKey: 'addAccount.desc.tr' },
+  { key: 'bourseDirect', category: 'investing', icon: BourseDirectLogo, labelKey: 'sync.bourseDirect.title', descKey: 'addAccount.desc.bourseDirect' },
+  { key: 'degiro', category: 'investing', icon: DegiroLogo, labelKey: 'sync.degiro.title', descKey: 'addAccount.desc.degiro' },
+  { key: 'ibkr', category: 'investing', icon: IbkrLogo, labelKey: 'sync.ibkr.title', descKey: 'addAccount.desc.ibkr' },
+  { key: 'amundi', category: 'investing', icon: AmundiLogo, labelKey: 'sync.amundi.title', descKey: 'addAccount.desc.amundi' },
+  { key: 'natixis', category: 'investing', icon: NatixisLogo, labelKey: 'sync.natixis.title', descKey: 'addAccount.desc.natixis' },
+  { key: 'corum', category: 'investing', icon: CorumLogo, labelKey: 'sync.corum.title', descKey: 'addAccount.desc.corum' },
+  { key: 'sofidy', category: 'investing', icon: SofidyLogo, labelKey: 'sync.sofidy.title', descKey: 'addAccount.desc.sofidy' },
+  { key: 'louve', category: 'investing', icon: Building2, labelKey: 'sync.louve.title', descKey: 'addAccount.desc.louve' },
+  { key: 'exchanges', category: 'crypto', icon: BitcoinLogo, labelKey: 'sync.exchanges.title', descKey: 'addAccount.desc.exchanges' },
+  { key: 'wallets', category: 'crypto', icon: EthereumLogo, labelKey: 'sync.wallets.title', descKey: 'addAccount.desc.wallets' },
+  { key: 'finary', category: 'manual', icon: FinaryLogo, labelKey: 'sync.finary.title', descKey: 'addAccount.desc.finary' },
+  { key: 'property', category: 'manual', icon: HousePlus, labelKey: 'property.add.source', descKey: 'addAccount.desc.property' },
+  { key: 'manual', category: 'manual', icon: PenLine, labelKey: 'addAccount.manual', descKey: 'addAccount.desc.manual' },
 ]
+
+function normalizeQuery(v: string): string {
+  return v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+}
 
 // Steps that are nothing but a sync Panel behind a Back button.
 const PANEL_STEPS: Partial<Record<WizardStep, ComponentType<{ onConnected?: () => void }>>> = {
@@ -128,10 +161,21 @@ export function AddAccountModal({ open, onOpenChange, defaultType, onCreated }: 
   const createAccount = useCreateAccount()
   const updateDebt = useUpdateDebtMetadata()
   const [step, setStep] = useState<WizardStep>('selector')
+  const [query, setQuery] = useState('')
+  const [category, setCategory] = useState<SourceCategory>('all')
   const manualDefaults = useMemo(
     () => (defaultType ? { type: defaultType } : undefined),
     [defaultType],
   )
+
+  const filteredSources = useMemo(() => {
+    const q = normalizeQuery(query)
+    return SOURCES.filter((s) => {
+      if (category !== 'all' && s.category !== category) return false
+      if (!q) return true
+      return normalizeQuery(`${t(s.labelKey)} ${t(s.descKey)}`).includes(q)
+    })
+  }, [category, query, t])
 
   const [showManualForm, setShowManualForm] = useState(false)
   const [showPropertyForm, setShowPropertyForm] = useState(false)
@@ -160,6 +204,8 @@ export function AddAccountModal({ open, onOpenChange, defaultType, onCreated }: 
   function handleDialogChange(open: boolean) {
     if (open) {
       setStep('selector')
+      setQuery('')
+      setCategory('all')
     }
     onOpenChange(open)
   }
@@ -230,8 +276,15 @@ export function AddAccountModal({ open, onOpenChange, defaultType, onCreated }: 
         {/* sm:max-w-xl, not just max-w-xl: DialogContent's own `sm:max-w-sm` is a different
             Tailwind variant, so tailwind-merge keeps it and an unprefixed max-w-xl silently has
             no effect above 640px — which is what squeezed this wizard into 24rem. */}
-        <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-xl overflow-y-auto sm:max-w-xl">
-          <DialogHeader>
+        <DialogContent
+          className={cn(
+            'max-w-2xl sm:max-w-2xl',
+            step === 'selector'
+              ? 'flex h-[min(680px,calc(100dvh-2rem))] flex-col overflow-hidden'
+              : 'max-h-[calc(100dvh-2rem)] overflow-y-auto'
+          )}
+        >
+          <DialogHeader className="shrink-0">
             <DialogTitle>
               {step === 'selector' ? t('addAccount.title') : t(`sync.${step === 'tr' ? 'tr' : step}.title`)}
             </DialogTitle>
@@ -240,24 +293,99 @@ export function AddAccountModal({ open, onOpenChange, defaultType, onCreated }: 
 
           <>
               {step === 'selector' && (
-                <div className="grid grid-cols-1 gap-2">
-                  {SOURCES.map(({ key, icon: Icon, labelKey, descKey }) => (
-                    <Button
-                      key={key}
-                      variant="outline"
-                      className="h-auto justify-start gap-3 px-4 py-3"
-                      onClick={() => handleSourceClick(key)}
-                    >
-                      <Icon className="size-5 text-muted-foreground shrink-0" />
-                      {/* Button is inline-flex + whitespace-nowrap: without min-w-0 and whitespace-normal the
-                          text column keeps its one-line width, overflows the row and pushes the arrow out. */}
-                      <div className="min-w-0 flex-1 whitespace-normal text-left">
-                        <p className="text-sm font-medium">{t(labelKey)}</p>
-                        <p className="line-clamp-2 text-xs text-muted-foreground" title={t(descKey)}>{t(descKey)}</p>
+                <div className="flex min-h-0 flex-1 flex-col gap-3">
+                  <div className="relative shrink-0">
+                    <Search
+                      className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                    <Input
+                      type="search"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder={t('sync.searchPlaceholder')}
+                      aria-label={t('sync.searchPlaceholder')}
+                      className="pl-10 pr-10"
+                    />
+                    {query && (
+                      <button
+                        type="button"
+                        onClick={() => setQuery('')}
+                        aria-label={t('setup.integrations.clearSearch')}
+                        className="absolute right-1 top-1/2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      >
+                        <X className="size-4" aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
+
+                  <div
+                    role="tablist"
+                    aria-label={t('sync.categoriesLabel')}
+                    className="flex w-full shrink-0 flex-wrap items-center gap-1 rounded-lg bg-muted p-1"
+                  >
+                    {SOURCE_CATEGORIES.map((cat) => {
+                      const active = category === cat
+                      return (
+                        <button
+                          key={cat}
+                          role="tab"
+                          type="button"
+                          aria-selected={active}
+                          onClick={() => setCategory(cat)}
+                          className={cn(
+                            'inline-flex h-8 flex-auto items-center justify-center rounded-md px-2.5 text-xs font-medium whitespace-nowrap transition-[background-color,color]',
+                            active
+                              ? 'bg-primary text-primary-foreground'
+                              : 'text-muted-foreground hover:text-foreground'
+                          )}
+                        >
+                          {t(`addAccount.categories.${cat}`)}
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                    {filteredSources.length > 0 ? (
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {filteredSources.map(({ key, icon: Icon, labelKey, descKey }) => (
+                          <Button
+                            key={key}
+                            variant="outline"
+                            className="h-auto justify-start gap-3 rounded-xl px-3.5 py-3"
+                            onClick={() => handleSourceClick(key)}
+                          >
+                            <span className="inline-flex size-8 shrink-0 items-center justify-center text-foreground/80">
+                              <Icon className="size-5" />
+                            </span>
+                            <div className="min-w-0 flex-1 whitespace-normal text-left">
+                              <p className="text-sm font-medium leading-snug">{t(labelKey)}</p>
+                              <p className="mt-0.5 line-clamp-2 text-xs font-normal text-muted-foreground" title={t(descKey)}>
+                                {t(descKey)}
+                              </p>
+                            </div>
+                            <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
+                          </Button>
+                        ))}
                       </div>
-                      <ArrowRight className="size-4 text-muted-foreground shrink-0" />
-                    </Button>
-                  ))}
+                    ) : (
+                      <div className="flex h-full min-h-48 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/70 p-6 text-center">
+                        <p className="text-sm text-muted-foreground">{t('setup.integrations.empty')}</p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="xs"
+                          onClick={() => {
+                            setQuery('')
+                            setCategory('all')
+                          }}
+                        >
+                          {t('setup.integrations.resetFilter')}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

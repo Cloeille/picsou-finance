@@ -53,7 +53,7 @@ function ScopeCheckbox({
           {checked && <Check className="size-3" />}
         </span>
         {t(`accessKeys.scopes.${k}.label`)}
-        <code className="text-[10px] font-normal text-muted-foreground">{scope}</code>
+        <code className="text-xs font-normal text-muted-foreground">{scope}</code>
       </span>
       <span className="pl-6 text-xs text-muted-foreground">{t(`accessKeys.scopes.${k}.desc`)}</span>
     </label>
@@ -116,16 +116,16 @@ export function ConsentPage() {
   const writeScopes = requestedScopes.filter((s) => scopeGroup(s) === 'write')
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
-      <Card className="w-full max-w-2xl">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <ShieldCheck className="size-5 text-muted-foreground" />
+    <div className="flex min-h-dvh items-center justify-center bg-background px-4 py-10">
+      <Card className="w-full max-w-2xl rounded-xl border border-border/60 py-7 ring-0 sm:py-8">
+        <CardHeader className="px-6 sm:px-8">
+          <CardTitle className="flex items-center gap-2 text-base font-semibold">
+            <ShieldCheck className="size-4 shrink-0 text-muted-foreground" />
             {data ? t('oauthConsent.title', { app: data.clientName }) : t('oauthConsent.titleGeneric')}
           </CardTitle>
-          <CardDescription>{t('oauthConsent.description')}</CardDescription>
+          <CardDescription className="text-sm leading-relaxed">{t('oauthConsent.description')}</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-6 sm:px-8">
           {!clientId ? (
             <AlertBanner variant="bordered" role="alert">{t('oauthConsent.missingParams')}</AlertBanner>
           ) : isLoading ? (
@@ -186,10 +186,10 @@ export function ConsentPage() {
               )}
 
               <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:justify-end">
-                <Button type="button" variant="outline" onClick={handleDeny} className="w-full sm:w-auto">
+                <Button type="button" variant="outline" onClick={handleDeny} className="w-full rounded-lg sm:w-auto">
                   {t('oauthConsent.deny')}
                 </Button>
-                <Button type="button" onClick={handleApprove} className="w-full sm:w-auto">
+                <Button type="button" onClick={handleApprove} className="w-full rounded-lg sm:w-auto">
                   {t('oauthConsent.approve')}
                 </Button>
               </div>

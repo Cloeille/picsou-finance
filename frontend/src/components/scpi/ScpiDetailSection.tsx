@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { NativeSelect } from '@/components/shared/NativeSelect'
 import { useTranslation } from 'react-i18next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -9,8 +10,9 @@ import { DateInput } from '@/components/shared/DateInput'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { useIgnoreScpiFund, useUpdateScpiPosition } from '@/features/accounts/hooks'
+import { ChevronDown } from 'lucide-react'
 import { formatApiError } from '@/lib/errors'
-import { parseAmount } from '@/lib/utils'
+import { cn, parseAmount } from '@/lib/utils'
 import type { Account, DistributionFrequency, DividendPolicy, ScpiPositionRequest, ScpiProvider } from '@/types/api'
 
 const selectControlClassName =
@@ -48,6 +50,7 @@ export function ScpiDetailSection({ account }: { account: Account }) {
   const [corumFundCode, setCorumFundCode] = useState(position?.corumFundCode ?? '')
   const [sofidyFundCode, setSofidyFundCode] = useState(position?.sofidyFundCode ?? '')
   const [louveFundCode, setLouveFundCode] = useState(position?.louveFundCode ?? '')
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   function startEditing() {
     setShareCount(position?.shareCount?.toString() ?? '')
@@ -105,7 +108,7 @@ export function ScpiDetailSection({ account }: { account: Account }) {
       </CardHeader>
       <CardContent className="space-y-4">
         {position?.valuationStatus === 'PRICE_INCOMPLETE' && (
-          <p className="text-sm text-amber-600 dark:text-amber-400">{t('scpi.incomplete')}</p>
+          <p className="text-sm text-muted-foreground">{t('scpi.incomplete')}</p>
         )}
 
         {position && (!editing || !canEdit) && (
@@ -138,7 +141,6 @@ export function ScpiDetailSection({ account }: { account: Account }) {
                   : '—'}
               </dd>
             </div>
-            <div className="col-span-2 text-xs text-muted-foreground">{t('scpi.subscriptionHint')}</div>
             <div>
               <dt className="text-muted-foreground">{t('scpi.dividendPolicy')}</dt>
               <dd>{t(position.dividendPolicy === 'REINVEST' ? 'scpi.reinvest' : 'scpi.cash')}</dd>
@@ -190,7 +192,7 @@ export function ScpiDetailSection({ account }: { account: Account }) {
 
         {canEdit && editing && (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid items-end grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="scpi-edit-company">{t('scpi.managementCompany')}</Label>
                 <Input id="scpi-edit-company" value={managementCompany} onChange={(e) => setManagementCompany(e.target.value)} />
@@ -200,7 +202,7 @@ export function ScpiDetailSection({ account }: { account: Account }) {
                 <Input id="scpi-edit-isin" value={isin} maxLength={12} onChange={(e) => setIsin(e.target.value)} />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid items-end grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="scpi-edit-shares">{t('scpi.shareCount')}</Label>
                 <NumericInput id="scpi-edit-shares" value={shareCount} onChange={(e) => setShareCount(e.target.value)} />
@@ -210,33 +212,49 @@ export function ScpiDetailSection({ account }: { account: Account }) {
                 <NumericInput id="scpi-edit-withdrawal" value={withdrawalPrice} onChange={(e) => setWithdrawalPrice(e.target.value)} />
               </div>
             </div>
-            <details className="space-y-4 rounded-md border p-3">
-            <summary className="cursor-pointer text-sm text-muted-foreground">{t('scpi.advancedLinks')}</summary>
-            <div className="space-y-2">
-              <Label htmlFor="scpi-edit-corum-fund">{t('scpi.corumFundCode')}</Label>
-              <Input id="scpi-edit-corum-fund" value={corumFundCode} maxLength={40} onChange={(e) => setCorumFundCode(e.target.value)} />
-              <p className="text-xs text-muted-foreground">{t('scpi.corumFundHint')}</p>
+            <div className="rounded-lg border border-border/60 bg-muted/20">
+              <button
+                type="button"
+                aria-expanded={showAdvanced}
+                onClick={() => setShowAdvanced((v) => !v)}
+                className="flex w-full cursor-pointer items-center justify-between gap-2 px-3.5 py-2.5 text-left text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <span>{t('scpi.advancedLinks')}</span>
+                <ChevronDown
+                  className={cn(
+                    'size-4 shrink-0 text-muted-foreground transition-transform duration-150',
+                    showAdvanced && 'rotate-180',
+                  )}
+                  aria-hidden="true"
+                />
+              </button>
+              <div className={cn('space-y-4 border-t border-border/60 px-3.5 py-3', !showAdvanced && 'hidden')}>
+                <div className="space-y-2">
+                  <Label htmlFor="scpi-edit-corum-fund">{t('scpi.corumFundCode')}</Label>
+                  <Input id="scpi-edit-corum-fund" value={corumFundCode} maxLength={40} onChange={(e) => setCorumFundCode(e.target.value)} />
+                  <p className="text-sm text-muted-foreground">{t('scpi.corumFundHint')}</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="scpi-edit-sofidy-fund">{t('scpi.sofidyFundCode')}</Label>
+                  <Input id="scpi-edit-sofidy-fund" value={sofidyFundCode} maxLength={40} onChange={(e) => setSofidyFundCode(e.target.value)} />
+                  <p className="text-sm text-muted-foreground">{t('scpi.sofidyFundHint')}</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="scpi-edit-louve-fund">{t('scpi.louveFundCode')}</Label>
+                  <Input id="scpi-edit-louve-fund" value={louveFundCode} maxLength={40} onChange={(e) => setLouveFundCode(e.target.value)} />
+                  <p className="text-sm text-muted-foreground">{t('scpi.louveFundHint')}</p>
+                </div>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="scpi-edit-sofidy-fund">{t('scpi.sofidyFundCode')}</Label>
-              <Input id="scpi-edit-sofidy-fund" value={sofidyFundCode} maxLength={40} onChange={(e) => setSofidyFundCode(e.target.value)} />
-              <p className="text-xs text-muted-foreground">{t('scpi.sofidyFundHint')}</p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="scpi-edit-louve-fund">{t('scpi.louveFundCode')}</Label>
-              <Input id="scpi-edit-louve-fund" value={louveFundCode} maxLength={40} onChange={(e) => setLouveFundCode(e.target.value)} />
-              <p className="text-xs text-muted-foreground">{t('scpi.louveFundHint')}</p>
-            </div>
-            </details>
             <div className="space-y-2">
               <Label htmlFor="scpi-edit-subscription">{t('scpi.subscriptionPrice')}</Label>
               <NumericInput id="scpi-edit-subscription" value={subscriptionPrice} onChange={(e) => setSubscriptionPrice(e.target.value)} />
-              <p className="text-xs text-muted-foreground">{t('scpi.subscriptionHint')}</p>
+              <p className="text-sm text-muted-foreground">{t('scpi.subscriptionHint')}</p>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid items-end grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="scpi-edit-dividend">{t('scpi.dividendPolicy')}</Label>
-                <select
+                <NativeSelect
                   id="scpi-edit-dividend"
                   className={selectControlClassName}
                   value={dividendPolicy}
@@ -244,14 +262,14 @@ export function ScpiDetailSection({ account }: { account: Account }) {
                 >
                   <option value="CASH">{t('scpi.cash')}</option>
                   <option value="REINVEST">{t('scpi.reinvest')}</option>
-                </select>
+                </NativeSelect>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="scpi-edit-jouissance">{t('scpi.jouissanceDate')}</Label>
                 <DateInput id="scpi-edit-jouissance" value={jouissanceDate} onChange={setJouissanceDate} />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid items-end grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="scpi-edit-annual-distribution">{t('scpi.annualDistribution')}</Label>
                 <NumericInput
@@ -262,7 +280,7 @@ export function ScpiDetailSection({ account }: { account: Account }) {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="scpi-edit-distribution-frequency">{t('scpi.distributionFrequency')}</Label>
-                <select
+                <NativeSelect
                   id="scpi-edit-distribution-frequency"
                   className={selectControlClassName}
                   value={distributionFrequency}
@@ -271,10 +289,10 @@ export function ScpiDetailSection({ account }: { account: Account }) {
                   <option value="">{t('scpi.frequencyNone')}</option>
                   <option value="MONTHLY">{t('scpi.frequencyMonthly')}</option>
                   <option value="QUARTERLY">{t('scpi.frequencyQuarterly')}</option>
-                </select>
+                </NativeSelect>
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">{t('scpi.annualDistributionHint')}</p>
+            <p className="text-sm text-muted-foreground">{t('scpi.annualDistributionHint')}</p>
             {updatePosition.error && (
               <p className="text-sm text-destructive">{formatApiError(updatePosition.error, t, 'common.error')}</p>
             )}

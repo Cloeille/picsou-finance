@@ -50,20 +50,20 @@ export function TransactionRow({ transaction: tx, logoUrlFor, onClick, index = 0
             {tx.budgetNeutral && (
               <span
                 title={t('accounts.inContractHint')}
-                className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground shrink-0"
+                className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground shrink-0"
               >
                 {t('accounts.inContract')}
               </span>
             )}
             {tx.isManual && (
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground shrink-0">
+              <span className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground shrink-0">
                 {t('accounts.manual')}
               </span>
             )}
           </div>
           {(tx.accountName || tx.category) && (
             <p className="text-xs text-muted-foreground py-0.5">
-              {[tx.accountName, tx.category].filter(Boolean).join(' — ')}
+              {[tx.accountName, tx.category].filter(Boolean).join(', ')}
             </p>
           )}
         </div>

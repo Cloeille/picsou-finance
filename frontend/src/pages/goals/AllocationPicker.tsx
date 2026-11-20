@@ -2,9 +2,16 @@ import { useTranslation } from 'react-i18next'
 import { useHoldingsWithLivePrices } from '@/features/accounts/hooks'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { NumericInput } from '@/components/shared/NumericInput'
+import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
-import { allocatedTotal, type AllocationDraft } from './plan-math'
+import {
+  allocatedTotal,
+  draftAmount,
+  hasIncompleteAllocations,
+  splitEqually,
+  type AllocationDraft,
+} from './plan-math'
 
 interface AllocationPickerProps {
   /** The funded account, or null while none is picked. */
@@ -38,6 +45,7 @@ export function AllocationPicker({
   const allocated = allocatedTotal(allocations)
   const remainder = monthlyAmount - allocated
   const over = remainder < -0.005
+  const incomplete = hasIncompleteAllocations(allocations)
 
   const toggle = (ticker: string) => {
     const existing = allocations.find(a => a.ticker === ticker)
@@ -53,9 +61,21 @@ export function AllocationPicker({
 
   return (
     <div className="flex flex-col gap-2">
-      <div>
-        <Label>{t('goals.allocation.title')}</Label>
-        <p className="text-sm text-muted-foreground">{t('goals.allocation.hint')}</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <Label>{t('goals.allocation.title')}</Label>
+          <p className="text-sm text-muted-foreground">{t('goals.allocation.hint')}</p>
+        </div>
+        {allocations.length > 0 && monthlyAmount > 0 && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onChange(splitEqually(allocations, monthlyAmount))}
+          >
+            {t('goals.allocation.splitEqually')}
+          </Button>
+        )}
       </div>
 
       {accountId == null ? (
@@ -69,6 +89,7 @@ export function AllocationPicker({
           <div className="flex max-h-48 flex-col gap-2 overflow-y-auto">
             {holdings.map(h => {
               const line = allocations.find(a => a.ticker === h.ticker)
+              const lineMissing = line != null && draftAmount(line.amount) <= 0
               return (
                 <div key={h.ticker} className="flex items-center gap-2.5">
                   <label className="flex min-w-0 flex-1 cursor-pointer select-none items-center gap-2.5">
@@ -84,10 +105,11 @@ export function AllocationPicker({
                   {line && (
                     <NumericInput
                       aria-label={t('goals.allocation.amountFor', { ticker: h.ticker })}
-                      className="w-28 shrink-0"
+                      aria-invalid={lineMissing}
+                      className="w-32 shrink-0"
                       value={line.amount}
                       onChange={e => setAmount(h.ticker, e.target.value)}
-                      placeholder="100"
+                      placeholder={t('goals.allocation.amountPlaceholder')}
                     />
                   )}
                 </div>
@@ -96,12 +118,19 @@ export function AllocationPicker({
           </div>
 
           {allocations.length > 0 && (
-            <p className={cn('text-sm', over ? 'text-destructive' : 'text-muted-foreground')}>
-              {t('goals.allocation.allocated')} <CurrencyDisplay value={allocated} />
-              {' — '}
-              {over ? t('goals.allocation.over') : t('goals.allocation.remaining')}{' '}
-              <CurrencyDisplay value={Math.abs(remainder)} />
-            </p>
+            <div className="space-y-1">
+              <p className={cn('text-sm', over ? 'text-destructive' : 'text-muted-foreground')}>
+                {t('goals.allocation.allocated')} <CurrencyDisplay value={allocated} />
+                {', '}
+                {over ? t('goals.allocation.over') : t('goals.allocation.remaining')}{' '}
+                <CurrencyDisplay value={Math.abs(remainder)} />
+              </p>
+              {incomplete && (
+                <p role="alert" className="text-sm text-destructive">
+                  {t('goals.allocation.missingAmount')}
+                </p>
+              )}
+            </div>
           )}
         </>
       )}

@@ -124,7 +124,7 @@ export function SecuritySection() {
               )}
               <div>
                 <p className="text-sm font-medium">{t('settings.mfaStatus')}</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   {isLoading
                     ? '...'
                     : status?.enabled
@@ -162,7 +162,7 @@ export function SecuritySection() {
               onClick={() => setRegenerateOpen(true)}
               className="w-full @xl:w-auto"
             >
-              <KeyRound size={14} className="mr-1.5" />
+              <KeyRound size={14} className=".5" />
               {t('settings.mfaRegenerate')}
             </Button>
           )}
@@ -170,31 +170,28 @@ export function SecuritySection() {
       )}
 
       {/* ── GDPR data export block ───────────────────────────────────── */}
-      <div className="space-y-2 pt-4 border-t">
-        <div className="flex flex-col gap-3 @xl:flex-row @xl:items-center @xl:justify-between">
-          <div>
-            <p className="text-sm font-medium">{t('settings.exportTitle')}</p>
-            <p className="text-xs text-muted-foreground">
-              {t('settings.exportShortDesc')}
-            </p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => openDialog('export')}
-            className="w-full @xl:w-auto"
-          >
-            <Download size={14} className="mr-1.5" />
-            {t('settings.exportButton')}
-          </Button>
+      <div className="space-y-3 border-t pt-4">
+        <div className="space-y-1">
+          <p className="text-sm font-medium">{t('settings.exportTitle')}</p>
+          <p className="text-sm text-muted-foreground">
+            {t('settings.exportShortDesc')}
+          </p>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => openDialog('export')}
+        >
+          <Download className="size-4" aria-hidden="true" />
+          {t('settings.exportButton')}
+        </Button>
       </div>
 
       {/* ── Persistent sessions block ────────────────────────────────── */}
       <div className="space-y-2 pt-4 border-t">
         <div>
           <p className="text-sm font-medium">{t('settings.sessions')}</p>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             {t('settings.sessionsDescription')}
           </p>
         </div>

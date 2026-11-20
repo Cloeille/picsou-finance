@@ -72,11 +72,11 @@ export function ActivationPage() {
 
   if (success) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background p-4">
-        <Card className="w-full max-w-md">
-          <CardHeader>
-            <CardTitle>{t('activation.successTitle')}</CardTitle>
-            <CardDescription>{t('activation.successRedirect')}</CardDescription>
+      <div className="flex min-h-dvh items-center justify-center bg-background px-4 py-10">
+        <Card className="w-full max-w-md rounded-xl border border-border/60 py-7 ring-0 sm:py-8">
+          <CardHeader className="items-center gap-1.5 px-6 text-center sm:px-8">
+            <CardTitle className="text-2xl font-semibold tracking-tight">{t('activation.successTitle')}</CardTitle>
+            <CardDescription className="text-sm leading-relaxed">{t('activation.successRedirect')}</CardDescription>
           </CardHeader>
         </Card>
       </div>
@@ -84,31 +84,31 @@ export function ActivationPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>{t('activation.title')}</CardTitle>
-          <CardDescription>
+    <div className="flex min-h-dvh items-center justify-center bg-background px-4 py-10">
+      <Card className="w-full max-w-md rounded-xl border border-border/60 py-7 ring-0 sm:py-8">
+        <CardHeader className="items-center gap-1.5 px-6 text-center sm:px-8">
+          <CardTitle className="text-2xl font-semibold tracking-tight">{t('activation.title')}</CardTitle>
+          <CardDescription className="text-sm leading-relaxed">
             {sso ? t('activation.subtitleSso', { provider: sso.providerName }) : t('activation.subtitle')}
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-6 sm:px-8">
           {/* Warning */}
-          <div className="mb-6 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-900 dark:text-yellow-200">
-            <p className="font-semibold mb-1">{t('activation.noticeTitle')}</p>
+          <div className="mb-5 rounded-xl border border-border bg-muted/40 p-4 text-sm leading-relaxed text-muted-foreground">
+            <p className="mb-1 text-sm font-semibold">{t('activation.noticeTitle')}</p>
             <p>{t('activation.noticeBody')}</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="flex items-start gap-2">
+            <div className="flex items-start gap-2.5">
               <input
                 type="checkbox"
                 id="acknowledge"
                 checked={acknowledged}
                 onChange={(e) => setAcknowledged(e.target.checked)}
-                className="mt-1"
+                className="mt-0.5 size-4 shrink-0 rounded accent-primary"
               />
-              <Label htmlFor="acknowledge" className="text-sm">
+              <Label htmlFor="acknowledge" className="cursor-pointer text-sm leading-snug">
                 {t('activation.acknowledge')}
               </Label>
             </div>
@@ -118,7 +118,7 @@ export function ActivationPage() {
                 variant="roomy"
                 role="alert"
                 action={
-                  <Button type="button" variant="outline" size="sm" onClick={() => void ssoInfo.refetch()}>
+                  <Button type="button" variant="outline" size="sm" onClick={() => void ssoInfo.refetch()} className="rounded-lg">
                     {t('common.retry')}
                   </Button>
                 }
@@ -134,21 +134,21 @@ export function ActivationPage() {
                   variant="outline"
                   disabled={!acknowledged}
                   onClick={() => submitSsoStart({ intent: 'activate', token, ack: true })}
-                  className="h-auto min-h-10 w-full whitespace-normal py-2"
+                  className="h-auto min-h-10 w-full whitespace-normal rounded-lg px-4 py-2.5 text-sm font-medium"
                 >
-                  <KeyRound aria-hidden="true" />
+                  <KeyRound className="size-4" aria-hidden="true" />
                   {t('activation.ssoButton', { provider: sso.providerName })}
                 </Button>
                 <div className="flex items-center gap-3">
                   <Separator className="h-px flex-1" />
-                  <span className="text-sm text-muted-foreground">{t('auth.sso.or')}</span>
+                  <span className="text-xs text-muted-foreground">{t('auth.sso.or')}</span>
                   <Separator className="h-px flex-1" />
                 </div>
               </>
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="password">{t('activation.password')}</Label>
+              <Label htmlFor="password" className="text-sm font-semibold">{t('activation.password')}</Label>
               <Input
                 id="password"
                 type="password"
@@ -157,11 +157,12 @@ export function ActivationPage() {
                 placeholder={t('activation.passwordPlaceholder')}
                 minLength={8}
                 required
+                className="h-10 rounded-lg px-3.5 text-sm"
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="confirmPassword">{t('activation.confirmPassword')}</Label>
+              <Label htmlFor="confirmPassword" className="text-sm font-semibold">{t('activation.confirmPassword')}</Label>
               <Input
                 id="confirmPassword"
                 type="password"
@@ -169,6 +170,7 @@ export function ActivationPage() {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder={t('activation.confirmPlaceholder')}
                 required
+                className="h-10 rounded-lg px-3.5 text-sm"
               />
             </div>
 
@@ -176,7 +178,7 @@ export function ActivationPage() {
               <p role="alert" className="text-sm text-destructive">{error}</p>
             )}
 
-            <Button type="submit" className="w-full" disabled={!acknowledged || loading}>
+            <Button type="submit" className="h-10 w-full rounded-lg text-sm font-medium" disabled={!acknowledged || loading}>
               {loading ? t('activation.submitting') : t('activation.submit')}
             </Button>
           </form>

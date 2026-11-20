@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAddSnapshot } from '@/features/accounts/hooks'
 import { extractErrorMessage } from '@/lib/errors'
-import { localeFromLanguage, parseAmount } from '@/lib/utils'
+import { localeFromLanguage, parseAmount, capitalizeFirst } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { NumericInput } from '@/components/shared/NumericInput'
 import { Label } from '@/components/ui/label'
@@ -22,7 +22,7 @@ function getLast12Months(locale: string) {
     const key = `${year}-${String(month).padStart(2, '0')}`
     const lastDay = new Date(year, month, 0).getDate()
     const date = `${key}-${String(lastDay).padStart(2, '0')}`
-    const label = d.toLocaleDateString(locale, { month: 'long', year: 'numeric' })
+    const label = capitalizeFirst(d.toLocaleDateString(locale, { month: 'long', year: 'numeric' }), locale)
     months.push({ key, year, month, date, label })
   }
   return months
@@ -51,7 +51,7 @@ export function MonthEndBalanceModal({ open, onClose, accountId, history, amount
 
   return (
     <Dialog open={open} onOpenChange={o => { if (!o) onClose() }}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{t('accounts.monthlyHistory')}</DialogTitle>
           {amountOwed && <p className="text-sm text-muted-foreground">{t('accounts.currentDebt')}</p>}
@@ -169,7 +169,7 @@ function MonthEndForm({ accountId, history, amountOwed, onClose }: MonthEndFormP
           disabled={saving || modified.size === 0}
         >
           {saving && (
-            <Loader2 size={12} className="mr-1.5 animate-spin" />
+            <Loader2 size={12} className=".5 animate-spin" />
           )}
           {t('accounts.addSnapshot')}
           {modified.size > 0 && ` (${modified.size})`}

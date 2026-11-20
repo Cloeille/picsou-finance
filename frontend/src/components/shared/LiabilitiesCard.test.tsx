@@ -114,7 +114,7 @@ describe('LiabilitiesCard', () => {
 
   it('shows nothing extra for a credit card without statement data', () => {
     render(<LiabilitiesCard liabilities={[baseCard]} />)
-    const row = screen.getByText('Amex').closest('.rounded-2xl')
+    const row = screen.getByText('Amex').closest('.rounded-xl')
     expect(row).toHaveTextContent(/^Amex2254\.9$/)
     expect(screen.queryByLabelText('Parameters not configured')).toBeNull()
   })
