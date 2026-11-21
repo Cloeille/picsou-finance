@@ -28,6 +28,7 @@ pub fn register(routes: &mut Routes) {
 /// The sync module's cross-track seams, held by AppState as state.sync. Each starts with the
 /// behavior Java has when the other side has nothing; the coordinator wires the real ones.
 pub struct SyncHooks {
+    pub ibkr: ibkr::Hooks,
     pub wallets: wallets::Hooks,
     pub simplefin: simplefin::Hooks,
     pub enable_banking: enable_banking::Hooks,
@@ -38,6 +39,7 @@ pub struct SyncHooks {
 impl SyncHooks {
     pub fn new(db: PgPool) -> Self {
         Self {
+            ibkr: ibkr::Hooks::default(),
             wallets: wallets::Hooks::new(),
             simplefin: simplefin::Hooks::new(),
             enable_banking: enable_banking::Hooks::new(),
