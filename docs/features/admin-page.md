@@ -146,7 +146,8 @@ admin role only).
 - **Raw, not masked.** IBANs, holder names, balances, transactions and session ids stay as the
   bank sent them, because they are what is being debugged (matching a card to its account needs
   the IBAN). The dialog states it, and the `.txt` export (`ebCallLogExport.ts`) opens with an
-  English warning to review the file before sharing it publicly.
+  English warning to review the file before sharing it publicly. Both name the session ids: the
+  server log only ever shows their fingerprint (`LogSanitizer`), the call log shows them whole.
 
 ## Technical choices
 

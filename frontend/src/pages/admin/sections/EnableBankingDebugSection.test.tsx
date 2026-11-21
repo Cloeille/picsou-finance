@@ -32,6 +32,7 @@ describe('EnableBankingDebugSection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Voir les appels' }))
 
     expect(screen.getByRole('note')).toHaveTextContent(/IBAN/)
+    expect(screen.getByRole('note')).toHaveTextContent(/identifiants de session/)
     expect(screen.getByRole('note')).toHaveTextContent(/avant de partager/)
   })
 })
@@ -41,6 +42,7 @@ describe('buildEbCallLogExport', () => {
     const text = buildEbCallLogExport([ENTRY])
 
     expect(text.startsWith(RAW_DATA_WARNING + '\n\n')).toBe(true)
+    expect(RAW_DATA_WARNING).toContain('session ids')
     expect(text).toContain('GET https://api.enablebanking.com/accounts/uid-synthetic/details')
     expect(text).toContain('HTTP 200')
     expect(text).toContain('"iban": "FR00SYNTHETIC"')

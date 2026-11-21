@@ -2,12 +2,13 @@ import type { EbCallEntry } from '@/features/admin/api'
 
 /**
  * Leads the exported file. The export is made to be attached to a bug report, often a public
- * one, and it holds the provider's raw answers: IBANs, holder names, balances, transactions.
+ * one, and it holds the provider's raw answers: IBANs, holder names, balances, transactions,
+ * and the Enable Banking session ids in URLs and bodies.
  * English, because that file is read by maintainers.
  */
 export const RAW_DATA_WARNING =
-  'WARNING: raw Enable Banking responses: IBANs, account holder names, balances and transactions. ' +
-  'Review and remove personal data before sharing this file publicly.'
+  'WARNING: raw Enable Banking calls: IBANs, account holder names, balances, transactions, ' +
+  'and session ids in URLs and bodies. Review and remove them before sharing this file publicly.'
 
 export function tryPretty(json: string) {
   try { return JSON.stringify(JSON.parse(json), null, 2) } catch { return json }

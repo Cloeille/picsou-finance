@@ -85,8 +85,8 @@ function EbCallLogDialog() {
       </div>
 
       <p role="note" className="text-xs text-foreground">
-        Ces réponses sont brutes : IBAN, titulaires, soldes et transactions. Relisez et retirez les données
-        personnelles avant de partager l’export publiquement.
+        Ces appels sont bruts : IBAN, titulaires, soldes, transactions et identifiants de session dans
+        les URL et les réponses. Relisez et retirez-les avant de partager l’export publiquement.
       </p>
 
       {isLoading && (
