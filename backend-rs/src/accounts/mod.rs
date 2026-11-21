@@ -4,10 +4,13 @@ pub mod connection;
 pub mod dashboard;
 pub mod dto;
 pub mod history;
+pub mod institution_logo;
 pub mod jdecimal;
 pub mod meta;
 pub mod ownership;
+pub mod positions;
 pub mod query;
+pub mod realized_pnl;
 pub mod scale;
 pub mod seams;
 pub mod service;
@@ -18,6 +21,9 @@ pub use seams::Seams;
 use crate::routes::Routes;
 
 pub fn register(routes: &mut Routes) {
+    institution_logo::register(routes);
+    positions::register(routes);
+    realized_pnl::register(routes);
     routes
         .get("/api/accounts", service::find_all)
         .post("/api/accounts", service::create)

@@ -251,10 +251,13 @@ async fn security_headers(State(state): State<AppState>, request: Request, next:
     );
     headers.insert(header::X_XSS_PROTECTION, HeaderValue::from_static("0"));
     headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
-    headers.insert(
-        header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static(CSP),
-    );
+    // ContentSecurityPolicyHeaderWriter leaves a policy the handler set (served logos).
+    if !headers.contains_key(header::CONTENT_SECURITY_POLICY) {
+        headers.insert(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static(CSP),
+        );
+    }
     headers.insert(
         header::REFERRER_POLICY,
         HeaderValue::from_static("strict-origin-when-cross-origin"),
