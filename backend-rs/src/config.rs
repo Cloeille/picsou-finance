@@ -226,6 +226,8 @@ pub struct Config {
     pub sso: SsoConfig,
     pub enablebanking: EnableBankingConfig,
     pub sidecars: HashMap<&'static str, String>,
+    /// APP_NATIVE_SIDECARS: default the 6 pure-HTTP bank connectors to `native://<service>`.
+    pub native_sidecars: bool,
     /// APP_SIDECAR_API_KEY (app.sidecar.api-key), trimmed; None when blank.
     pub sidecar_api_key: Option<String>,
     pub mcp_enabled: bool,
@@ -240,6 +242,8 @@ pub struct Config {
     /// Price and market-data hosts Java hard-codes; overridable here so tests can stub them.
     pub yahoo_finance_base_url: String,
     pub coingecko_base_url: String,
+    /// Optional COINGECKO_API_KEY (demo or pro); when unset, historical lookback is clamped to 364 days.
+    pub coingecko_api_key: Option<String>,
     pub precious_metals_base_url: String,
     pub openfigi_base_url: String,
     pub justetf_base_url: String,
@@ -323,6 +327,17 @@ pub const NATIVE_SIDECAR_URLS: &[(&str, &str, &str)] = &[
     ("cmes", "CMES_BASE_URL", "https://www.creditmutuel-ere.fr"),
     ("sofidy", "SOFIDY_BASE_URL", "https://moncompte.sofidy.com"),
     ("cic", "CIC_BASE_URL", "https://www.cic.fr"),
+];
+
+/// Sidecars with built-in native Rust implementations (opted into via `APP_NATIVE_SIDECARS=true`
+/// or individually via `<BANK>_AUTH_URL=native://<service>`).
+pub const NATIVE_SIDECAR_SERVICES: &[&str] = &[
+    "bourso-auth",
+    "cic-auth",
+    "cmes-auth",
+    "degiro-auth",
+    "natixis-auth",
+    "sofidy-auth",
 ];
 
 /// Sidecar compose service name, its URL variable, the production default and the dev default.
@@ -590,13 +605,18 @@ impl Config {
             None => proxy_ip.map_or(TrustedProxies::None, TrustedProxies::Exact),
         };
 
+        let native_sidecars = bool_or(env, "APP_NATIVE_SIDECARS", false)?;
         let sidecars = SIDECARS
             .iter()
             .map(|(name, var, prod, dev_url)| {
-                (
-                    *name,
-                    env.or(var, if dev { dev_url } else { prod }).to_owned(),
-                )
+                let value = match env.get(var) {
+                    Some(v) => v.to_owned(),
+                    None if native_sidecars && NATIVE_SIDECAR_SERVICES.contains(name) => {
+                        format!("native://{name}")
+                    }
+                    None => (if dev { *dev_url } else { *prod }).to_owned(),
+                };
+                (*name, value)
             })
             .collect();
 
@@ -729,6 +749,7 @@ impl Config {
                     .to_owned(),
             },
             sidecars,
+            native_sidecars,
             sidecar_api_key: env.non_blank("APP_SIDECAR_API_KEY"),
             mcp_enabled: bool_or(env, "MCP_ENABLED", true)?,
             mcp_protocol: env.or("MCP_PROTOCOL", "SSE").to_owned(),
@@ -751,6 +772,7 @@ impl Config {
             coingecko_base_url: env
                 .or("COINGECKO_BASE_URL", "https://api.coingecko.com/api/v3")
                 .to_owned(),
+            coingecko_api_key: env.non_blank("COINGECKO_API_KEY"),
             precious_metals_base_url: env
                 .or("PRECIOUS_METALS_BASE_URL", "https://www.loomis-fxgs.fr")
                 .to_owned(),
@@ -803,5 +825,59 @@ impl Config {
             .get(name)
             .map(String::as_str)
             .expect("a bank listed in NATIVE_SIDECAR_URLS")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base_env() -> Env {
+        Env::from_map([
+            ("JWT_SECRET", "0123456789abcdef0123456789abcdef"),
+            ("CRYPTO_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef"),
+        ])
+    }
+
+    #[test]
+    fn native_sidecars_flag_defaults_off_and_opts_in_the_six_http_banks() {
+        let off = Config::load(&base_env()).unwrap();
+        assert!(!off.native_sidecars);
+        assert_eq!(
+            off.sidecar_url("bourso-auth"),
+            Some("http://bourso-auth:8001")
+        );
+        assert_eq!(
+            off.sidecar_url("degiro-auth"),
+            Some("http://degiro-auth:8001")
+        );
+        assert_eq!(off.sidecar_url("tr-auth"), Some("http://tr-auth:8001"));
+
+        let mut env = base_env();
+        env.set("APP_NATIVE_SIDECARS", "true");
+        let on = Config::load(&env).unwrap();
+        assert!(on.native_sidecars);
+        for service in NATIVE_SIDECAR_SERVICES {
+            assert_eq!(
+                on.sidecar_url(service),
+                Some(format!("native://{service}").as_str()),
+                "{service}"
+            );
+        }
+        // Browser-based sidecars keep their HTTP defaults.
+        assert_eq!(on.sidecar_url("tr-auth"), Some("http://tr-auth:8001"));
+        assert_eq!(on.sidecar_url("bnp-auth"), Some("http://bnp-auth:8001"));
+
+        // Explicit per-bank URL overrides APP_NATIVE_SIDECARS.
+        env.set("BOURSO_AUTH_URL", "http://127.0.0.1:8004");
+        let overridden = Config::load(&env).unwrap();
+        assert_eq!(
+            overridden.sidecar_url("bourso-auth"),
+            Some("http://127.0.0.1:8004")
+        );
+        assert_eq!(
+            overridden.sidecar_url("cic-auth"),
+            Some("native://cic-auth")
+        );
     }
 }

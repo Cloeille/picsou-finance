@@ -47,6 +47,10 @@ services:
       # trusted forwarded-address peer.
       PICSOU_PROXY_IP: ${PICSOU_PROXY_IP:-172.30.253.2}
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
+      # Optional: set APP_NATIVE_SIDECARS=true in docker/.env to run the 6 pure-HTTP
+      # connectors (bourso, cic, cmes, degiro, natixis, sofidy) natively in-process
+      # without spinning up their Python sidecar containers.
+      APP_NATIVE_SIDECARS: ${APP_NATIVE_SIDECARS:-false}
     depends_on:
       db:
         condition: service_started

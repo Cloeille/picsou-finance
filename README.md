@@ -87,6 +87,8 @@ Modules, data flows and key constraints: [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 
 ## Getting started
 
+> **Prefer a one-click desktop app instead of Docker?** Download the macOS (Apple Silicon), Windows, or Linux installer from [GitHub Releases](https://github.com/Cloeille/picsou-finance/releases). Releases are unsigned, so macOS Gatekeeper / Windows SmartScreen will ask you to approve the first launch — see the [step-by-step opening guide](docs/features/desktop-app.md#opening-the-unsigned-desktop-app-macos-gatekeeper--windows-smartscreen).
+
 ### Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) & Docker Compose v2.17+ (v2.33+ to build the sidecars from source with `--build`)
@@ -393,6 +395,7 @@ cp docker/.env.example docker/.env
 | Variable | When to set | Description |
 |----------|-------------|-------------|
 | `COMPOSE_PROFILES` | To enable connectors or TLS | Comma-separated connector profiles (`bourso,revolut`), optionally including `tls`, or `all-connectors`. Empty: app and database only |
+| `APP_NATIVE_SIDECARS` | Skip Python containers for 6 banks | `true` runs BoursoBank, CIC, CMES, DEGIRO, Natixis and Sofidy natively in-process in Rust without starting their Python sidecars (defaults to `false`) |
 | `APP_SIDECAR_API_KEY` | When a connector is enabled | `openssl rand -base64 32`. Shared by the app and every enabled `*-auth` sidecar; recreate them together after a rotation |
 | `POSTGRES_PASSWORD` | Before the first start | Strong random password, shared by the app and PostgreSQL (default `picsou`) |
 | `JWT_SECRET` | Override auto-gen | `openssl rand -base64 48` |

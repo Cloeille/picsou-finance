@@ -640,13 +640,21 @@ pub async fn bourso_health(
             .unwrap_or_default()
             .to_owned(),
     };
-    let reached = state
-        .http
-        .get(format!("{}/health", url.trim_end_matches('/')))
-        .timeout(BOURSO_TIMEOUT)
-        .send()
-        .await
-        .is_ok_and(|r| r.status().is_success());
+    let reached = if crate::native_sidecars::is_native_url(&url) {
+        state
+            .connectors
+            .native
+            .resolve("bourso-auth", &url)
+            .is_some()
+    } else {
+        state
+            .http
+            .get(format!("{}/health", url.trim_end_matches('/')))
+            .timeout(BOURSO_TIMEOUT)
+            .send()
+            .await
+            .is_ok_and(|r| r.status().is_success())
+    };
     let response = if reached {
         enable_integration(&state, "boursobank").await?;
         audit::record(
