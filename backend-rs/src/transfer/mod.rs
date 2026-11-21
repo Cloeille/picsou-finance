@@ -72,6 +72,15 @@ impl Transfer {
             finary: finary::Stores::new(clock),
         }
     }
+
+    /// Evicts expired import previews across all four two-phase importers (wired into the 60 s
+    /// cleanup scheduler by track T8).
+    pub fn purge_expired(&self) {
+        self.csv.purge_expired();
+        self.actual.purge_expired();
+        self.homebank.purge_expired();
+        self.finary.purge_expired();
+    }
 }
 
 /// The shared per-IP sync bucket every file import draws from.

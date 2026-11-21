@@ -53,6 +53,11 @@ impl Stores {
             previews: PreviewStore::new(clock.clone(), Duration::from_secs(30 * 60), 32, 4),
         }
     }
+
+    /// The scheduled cleanupExpiredCache.
+    pub fn purge_expired(&self) {
+        self.previews.purge_expired();
+    }
 }
 
 /// String.equalsIgnoreCase, char by char through the simple case mappings.

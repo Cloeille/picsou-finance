@@ -60,6 +60,10 @@ impl Stores {
         }
     }
 
+    pub fn purge_expired(&self) {
+        self.previews.purge_expired();
+    }
+
     /// HomeBankFileParser.parse: the extension picks the decoder; every failure is a 400 whose
     /// message never carries source data, crypto or parser details.
     async fn decode(
