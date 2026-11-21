@@ -5,6 +5,7 @@ mod sidecars;
 mod supervisor;
 mod update;
 mod upgrade;
+mod webview_bank;
 
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
@@ -173,7 +174,10 @@ fn main() {
         .manage(stack.clone())
         .manage(update::TrayItem::default())
         .on_window_event(|window, event| {
-            // Closing the window keeps Picsou running in the tray; only Quit stops it.
+            // Closing the main window keeps Picsou running in the tray; bank login windows close normally.
+            if window.label() != "main" {
+                return;
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if !TRAY_OK.load(Ordering::SeqCst) {
                     return;
@@ -185,7 +189,7 @@ fn main() {
         .manage(Failure::default())
         .invoke_handler(tauri::generate_handler![restore_backup])
         .on_page_load(|webview, payload| {
-            if payload.event() == PageLoadEvent::Finished {
+            if webview.label() == "main" && payload.event() == PageLoadEvent::Finished {
                 if payload.url().scheme() == "http" {
                     tracing::info!("the app page loaded {} ms after launch", since_launch());
                 }
@@ -218,7 +222,7 @@ fn main() {
             let stack = handle.state::<Shared>().inner().clone();
             // The window shows ui/index.html while PostgreSQL starts, then the app.
             std::thread::spawn(move || {
-                match supervisor::start(&layout, &stack) {
+                match supervisor::start(&layout, &stack, Some(handle.clone())) {
                     Ok(ready) => match (handle.get_webview_window("main"), Url::parse(&ready.url)) {
                         (Some(window), Ok(url)) => {
                             let _ = window.navigate(url);
