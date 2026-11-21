@@ -1,0 +1,151 @@
+1	1	init schema	SQL	V1__init_schema.sql	-1901568195	t
+2	2	goals	SQL	V2__goals.sql	-714311276	t
+3	3	requisitions	SQL	V3__requisitions.sql	1107735747	t
+4	4	trade republic session	SQL	V4__trade_republic_session.sql	-297254367	t
+5	5	tr refresh token	SQL	V5__tr_refresh_token.sql	-2067311866	t
+6	6	rename gocardless column	SQL	V6__rename_gocardless_column.sql	1102497761	t
+7	7	goal month override	SQL	V7__goal_month_override.sql	1277953021	t
+8	9	crypto exchange session	SQL	V9__crypto_exchange_session.sql	-144920035	t
+9	10	wallet address	SQL	V10__wallet_address.sql	623362	t
+10	11	account holding	SQL	V11__account_holding.sql	-1097190847	t
+11	12	transactions	SQL	V12__transactions.sql	1383036066	t
+12	13	goal manual contribution	SQL	V13__goal_manual_contribution.sql	536610436	t
+13	14	price snapshot	SQL	V14__price_snapshot.sql	-271893893	t
+14	15	widen encrypted columns	SQL	V15__widen_encrypted_columns.sql	-1340041620	t
+15	16	finary session	SQL	V16__finary_session.sql	-61541580	t
+16	17	requisition last synced at	SQL	V17__requisition_last_synced_at.sql	1752135809	t
+17	18	snapshot invested amount	SQL	V18__snapshot_invested_amount.sql	-1716865155	t
+18	19	real estate and debts	SQL	V19__real_estate_and_debts.sql	489450710	t
+19	20	create family system	SQL	V20__create_family_system.sql	2078385666	t
+20	21	migrate existing data	SQL	V21__migrate_existing_data.sql	1467879504	t
+21	22	make member id not null	SQL	V22__make_member_id_not_null.sql	-1379050504	t
+22	23	bourso session	SQL	V23__bourso_session.sql	-1172357386	t
+23	24	manual transactions	SQL	V24__manual_transactions.sql	348487527	t
+24	25	setup state	SQL	V25__setup_state.sql	-805352967	t
+25	26	setup audit	SQL	V26__setup_audit.sql	-2039651762	t
+26	27	loan extra fields	SQL	V27__loan_extra_fields.sql	2033295252	t
+27	28	mfa and persistent sessions	SQL	V28__mfa_and_persistent_sessions.sql	590645133	t
+28	29	app user token version	SQL	V29__app_user_token_version.sql	-678188737	t
+29	30	account soft delete	SQL	V30__account_soft_delete.sql	-85923943	t
+30	31	price cleanup gate	SQL	V31__price_cleanup_gate.sql	182192327	t
+31	32	goal history start	SQL	V32__goal_history_start.sql	2065142221	t
+32	33	budget foundation	SQL	V33__budget_foundation.sql	559262325	t
+33	34	budgets envelopes	SQL	V34__budgets_envelopes.sql	823881236	t
+34	35	recurring	SQL	V35__recurring.sql	482446300	t
+35	36	transaction security name	SQL	V36__transaction_security_name.sql	-924862297	t
+36	37	access keys	SQL	V37__access_keys.sql	1983429252	t
+37	38	budget categorization foundation	SQL	V38__budget_categorization_foundation.sql	472017710	t
+38	39	merchant knowledge base	SQL	V39__merchant_knowledge_base.sql	-908877637	t
+39	40	recurring v2	SQL	V40__recurring_v2.sql	-843998786	t
+40	41	ai categorization	SQL	V41__ai_categorization.sql	-1742311334	t
+41	42	ai call log	SQL	V42__ai_call_log.sql	-1603115690	t
+42	43	revolut pockets	SQL	V43__revolut_pockets.sql	-180702851	t
+43	44	savings interest config	SQL	V44__savings_interest_config.sql	1921364934	t
+44	45	category manual	SQL	V45__category_manual.sql	1386917808	t
+45	46	account iban	SQL	V46__account_iban.sql	1919249764	t
+46	47	account external unique	SQL	V47__account_external_unique.sql	-1024222822	t
+47	48	revolut session	SQL	V48__revolut_session.sql	621117103	t
+48	49	revolut session credentials	SQL	V49__revolut_session_credentials.sql	181798847	t
+49	50	account bank logo	SQL	V50__account_bank_logo.sql	-143514598	t
+50	51	requisition oauth state	SQL	V51__requisition_oauth_state.sql	960451194	t
+51	52	fix negative loan balances	SQL	V52__fix_negative_loan_balances.sql	482072512	t
+52	53	transaction fees	SQL	V53__transaction_fees.sql	-1587847076	t
+53	54	oauth2 authorization server	SQL	V54__oauth2_authorization_server.sql	285097764	t
+54	55	account hidden	SQL	V55__account_hidden.sql	1108709303	t
+55	56	wallet ethereum to evm	SQL	V56__wallet_ethereum_to_evm.sql	903440536	t
+56	57	wallet evm account name	SQL	V57__wallet_evm_account_name.sql	-1770899403	t
+57	58	persistent session previous token	SQL	V58__persistent_session_previous_token.sql	1251005780	t
+58	59	ibkr connection	SQL	V59__ibkr_connection.sql	-1382846890	t
+59	60	account cash balance	SQL	V60__account_cash_balance.sql	-1212750843	t
+60	61	bourse direct session	SQL	V61__bourse_direct_session.sql	2053764575	t
+61	62	bourse direct integration	SQL	V62__bourse_direct_integration.sql	236247500	t
+62	63	harden bourse direct sync	SQL	V63__harden_bourse_direct_sync.sql	-840345283	t
+63	64	backfill bourse direct valuations	SQL	V64__backfill_bourse_direct_valuations.sql	88940041	t
+64	65	constrain bourse direct sync errors	SQL	V65__constrain_bourse_direct_sync_errors.sql	-1764174252	t
+65	66	real estate valuation and ownership	SQL	V66__real_estate_valuation_and_ownership.sql	-1702517568	t
+66	67	real estate bathrooms	SQL	V67__real_estate_bathrooms.sql	-344487203	t
+67	68	widen requisition institution id	SQL	V68__widen_requisition_institution_id.sql	964932951	t
+68	69	account type employee savings	SQL	V69__account_type_employee_savings.sql	1868227775	t
+69	70	amundi session	SQL	V70__amundi_session.sql	-128704472	t
+70	71	degiro session	SQL	V71__degiro_session.sql	-7407515	t
+71	72	account external unique add provider	SQL	V72__account_external_unique_add_provider.sql	-1654641129	t
+72	73	crypto exchange session optional secret	SQL	V73__crypto_exchange_session_optional_secret.sql	2086011636	t
+73	74	crypto exchange position	SQL	V74__crypto_exchange_position.sql	2090401392	t
+74	75	account logo key	SQL	V75__account_logo_key.sql	761514827	t
+75	76	account requisition link	SQL	V76__account_requisition_link.sql	765044914	t
+76	77	merge duplicate sync accounts	SQL	V77__merge_duplicate_sync_accounts.sql	-1194692503	t
+77	78	bourso session	SQL	V78__bourso_session.sql	1572086464	t
+78	79	account type french savings	SQL	V79__account_type_french_savings.sql	-1867052547	t
+79	80	widen tr and degiro session tokens	SQL	V80__widen_tr_and_degiro_session_tokens.sql	-628249808	t
+80	82	account type life insurance and scpi	SQL	V82__account_type_life_insurance_and_scpi.sql	2005180793	t
+81	83	wealth allocation	SQL	V83__wealth_allocation.sql	-1688386411	t
+82	84	security profile	SQL	V84__security_profile.sql	678491163	t
+83	85	goal recurring investment	SQL	V85__goal_recurring_investment.sql	362588360	t
+84	86	unbounded encrypted session tokens	SQL	V86__unbounded_encrypted_session_tokens.sql	1035388032	t
+85	87	bourso fraud ack required	SQL	V87__bourso_fraud_ack_required.sql	-886183849	t
+86	88	transaction external id	SQL	V88__transaction_external_id.sql	2119042670	t
+87	89	goal allocation	SQL	V89__goal_allocation.sql	-126389987	t
+88	90	member profile	SQL	V90__member_profile.sql	-1103962078	t
+89	91	account opened at	SQL	V91__account_opened_at.sql	-732405673	t
+90	92	default category impots	SQL	V92__default_category_impots.sql	-2113380200	t
+91	93	fortuneo session	SQL	V93__fortuneo_session.sql	-1569596521	t
+92	94	backfill tr crypto transaction tickers	SQL	V94__backfill_tr_crypto_transaction_tickers.sql	2050086936	t
+93	95	fortuneo integration	SQL	V95__fortuneo_integration.sql	-76224459	t
+94	96	backfill trade republic valuations	SQL	V96__backfill_trade_republic_valuations.sql	664629777	t
+95	97	security profile isin	SQL	V97__security_profile_isin.sql	1417570777	t
+96	98	security profile status	SQL	V98__security_profile_status.sql	-797426580	t
+97	99	security profile fund facts	SQL	V99__security_profile_fund_facts.sql	140413632	t
+98	100	account type credit card	SQL	V100__account_type_credit_card.sql	-1913620508	t
+99	101	amex session	SQL	V101__amex_session.sql	2146410648	t
+100	102	amex payment details	SQL	V102__amex_payment_details.sql	-103508152	t
+101	103	bourso stored credentials	SQL	V103__bourso_stored_credentials.sql	361733516	t
+102	104	scpi position	SQL	V104__scpi_position.sql	-1394143358	t
+103	105	corum session	SQL	V105__corum_session.sql	-1294621136	t
+104	106	sofidy session	SQL	V106__sofidy_session.sql	517564302	t
+105	107	instrument logo	SQL	V107__instrument_logo.sql	-1659855228	t
+106	108	bourso identity selection unsupported	SQL	V108__bourso_identity_selection_unsupported.sql	1261160507	t
+107	109	caisse epargne session	SQL	V109__caisse_epargne_session.sql	1431320512	t
+108	110	caisse epargne keypad error codes	SQL	V110__caisse_epargne_keypad_error_codes.sql	44166266	t
+109	111	account card nature	SQL	V111__account_card_nature.sql	223613474	t
+110	112	account type per	SQL	V112__account_type_per.sql	1092070697	t
+111	113	simplefin connection	SQL	V113__simplefin_connection.sql	909019635	t
+112	114	account holding provider price date	SQL	V114__account_holding_provider_price_date.sql	648459078	t
+113	115	scpi provider fund	SQL	V115__scpi_provider_fund.sql	1396183375	t
+114	116	dividend forecast	SQL	V116__dividend_forecast.sql	-664084982	t
+115	117	cmes session	SQL	V117__cmes_session.sql	417705843	t
+116	118	revolut exchange leg repair	SQL	V118__revolut_exchange_leg_repair.sql	-842358998	t
+117	119	widen holding ticker	SQL	V119__widen_holding_ticker.sql	-1210349634	t
+118	120	cmes session invalid otp	SQL	V120__cmes_session_invalid_otp.sql	329269283	t
+119	121	cic session	SQL	V121__cic_session.sql	-2139517703	t
+120	122	crypto asset	SQL	V122__crypto_asset.sql	159746787	t
+121	123	account type precious metals	SQL	V123__account_type_precious_metals.sql	562265372	t
+122	124	corum session life ambiguous	SQL	V124__corum_session_life_ambiguous.sql	-190132388	t
+123	125	corum life contract facts	SQL	V125__corum_life_contract_facts.sql	708929393	t
+124	126	transaction budget neutral	SQL	V126__transaction_budget_neutral.sql	833417231	t
+125	127	corum session credentials	SQL	V127__corum_session_credentials.sql	690061749	t
+126	128	sso identities	SQL	V128__sso_identities.sql	-982766245	t
+127	131	wise connection	SQL	V131__wise_connection.sql	1865483322	t
+128	132	account institution	SQL	V132__account_institution.sql	53520470	t
+129	133	account type brokerage	SQL	V133__account_type_brokerage.sql	-1581973882	t
+130	134	banque populaire session	SQL	V134__banque_populaire_session.sql	-1825160040	t
+131	135	account type peer loan	SQL	V135__account_type_peer_loan.sql	-343441799	t
+132	136	peer loans	SQL	V136__peer_loans.sql	250573500	t
+133	137	peer loan cash leg	SQL	V137__peer_loan_cash_leg.sql	-1884713366	t
+134	138	peer loan linked repayment	SQL	V138__peer_loan_linked_repayment.sql	-197686470	t
+135	139	peer loan rate period	SQL	V139__peer_loan_rate_period.sql	-1983145407	t
+136	140	widen peer loan rate	SQL	V140__widen_peer_loan_rate.sql	-2034194655	t
+137	141	peer loan rate no upper bound	SQL	V141__peer_loan_rate_no_upper_bound.sql	1357828986	t
+138	142	sidecar session	SQL	V142__sidecar_session.sql	-1666022929	t
+139	143	lbp session	SQL	V143__lbp_session.sql	189757555	t
+140	144	lbp saved identifier	SQL	V144__lbp_saved_identifier.sql	-13062675	t
+141	145	caisse epargne stored identifier	SQL	V145__caisse_epargne_stored_identifier.sql	-993111626	t
+142	146	natixis sidecar session	SQL	V146__natixis_sidecar_session.sql	-1108941318	t
+143	147	banque populaire sidecar session	SQL	V147__banque_populaire_sidecar_session.sql	888546693	t
+144	148	banque populaire stored identifier	SQL	V148__banque_populaire_stored_identifier.sql	-1378424821	t
+145	149	trade republic sidecar session	SQL	V149__trade_republic_sidecar_session.sql	708122336	t
+146	150	bnp sidecar session	SQL	V150__bnp_sidecar_session.sql	-848738617	t
+147	151	snapshot source	SQL	V151__snapshot_source.sql	-283550719	t
+148	152	account list display	SQL	V152__account_list_display.sql	-913017703	t
+149	153	louve invest sync	SQL	V153__louve_invest_sync.sql	69741356	t
+150	154	unlink loans from deleted accounts	SQL	V154__unlink_loans_from_deleted_accounts.sql	-1840970441	t
+151	155	crypto exchange session passphrase and region	SQL	V155__crypto_exchange_session_passphrase_and_region.sql	876488454	t

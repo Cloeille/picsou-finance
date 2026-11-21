@@ -1,0 +1,84 @@
+[package]
+name = "picsou"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "picsou"
+path = "src/main.rs"
+
+[[test]]
+name = "integration"
+path = "tests/integration/main.rs"
+
+[features]
+testing = []
+
+[dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "gzip", "multipart", "stream", "cookies"] }
+aes-gcm = "0.11.1"
+anyhow = "1.0.104"
+async-trait = "0.1.92"
+axum = { version = "0.8", features = ["macros", "http2"] }
+base64 = "0.23.1"
+bcrypt = "0.19.3"
+bytes = "1.12.2"
+chrono = { version = "0.4.45", features = ["serde"] }
+chrono-tz = "0.10.4"
+crc32fast = "1.5.5"
+csv = "1.4.0"
+futures = "0.3.34"
+hex = "0.4.3"
+hmac = "0.13.0"
+http = "1.5.0"
+http-body-util = "0.1.5"
+httpdate = "1.0.3"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+include_dir = "0.7.4"
+jsonwebtoken = { version = "12.0.0", features = ["rust_crypto"] }
+libc = "0.2.191"
+md-5 = "0.11.0"
+mime_guess = "2.0.5"
+openidconnect = "4.1.0"
+percent-encoding = "2.3.2"
+qrcode = "0.15.0"
+quick-xml = { version = "0.42.0", features = ["serialize"] }
+rand = "0.10.4"
+regex = "1.13.2"
+rsa = { version = "0.9", features = ["pem"] }
+rust_decimal = { version = "1.43.0", features = ["serde-arbitrary-precision", "serde-with-arbitrary-precision", "maths"] }
+rust_xlsxwriter = "0.103.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["arbitrary_precision", "preserve_order"] }
+serde_with = "3.25.0"
+sha1 = "0.11.0"
+sha2 = "0.11.1"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "chrono", "uuid", "rust_decimal", "json", "macros"] }
+subtle = "2.6.1"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["full"] }
+totp-rs = "6.0.0"
+tower = "0.5.3"
+tower-http = { version = "0.7.1", features = ["compression-gzip", "compression-br", "compression-deflate", "set-header", "trace", "limit", "normalize-path"] }
+tracing = "0.1.44"
+tracing-appender = "0.2.5"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "json"] }
+url = "2.5.9"
+uuid = { version = "1.29.3", features = ["v4", "serde"] }
+aes = "0.9"
+http-body = "1"
+
+[dev-dependencies]
+wiremock = "0.6.5"
+picsou = { path = ".", features = ["testing"] }
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+codegen-units = 4
+lto = "thin"
