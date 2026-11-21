@@ -247,13 +247,15 @@ fn select_against(
         if consumed_fetched[index] {
             continue;
         }
-        let (Some(date), Some(amount)) =
-            (data.date, data.amount.filter(|a| fits_ledger_amount(*a)))
-        else {
+        let Some(amount) = data.amount.filter(|a| fits_ledger_amount(*a)) else {
             tracing::warn!(
                 "Skipping a transaction on account {} — amount does not fit the ledger",
                 account.id
             );
+            continue;
+        };
+        // Java hands a dateless row to saveAll, where the NOT NULL column rejects the batch.
+        let Some(date) = data.date else {
             continue;
         };
         let mut row = NewTransaction::new(
