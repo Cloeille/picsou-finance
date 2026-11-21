@@ -475,9 +475,9 @@ async fn report_missing(
         .into_iter()
         .chain(positions.into_iter().map(|(c, n)| (c, Some(n))))
     {
-        if !known.contains_key(&code) {
-            order.push(code.clone());
-            known.insert(code, label);
+        if let std::collections::btree_map::Entry::Vacant(e) = known.entry(code) {
+            order.push(e.key().clone());
+            e.insert(label);
         }
     }
     for code in order {

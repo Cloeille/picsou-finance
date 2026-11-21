@@ -171,6 +171,43 @@ async fn a_coingecko_429_pauses_the_next_calls() {
 }
 
 #[tokio::test]
+async fn gold_is_priced_per_gram_from_the_future_and_coins_from_the_quote_page() {
+    let yahoo = MockServer::start().await;
+    let coingecko = MockServer::start().await;
+    let loomis = MockServer::start().await;
+    stub_chart(&yahoo, "GC=F", "EUR", 3110.34768, 1).await;
+    Mock::given(method("GET"))
+        .and(path("/fr/or/cotation-produits/"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            r#"<div class="raterow"><a href="/produit/20-francs-napoleon/">Napoléon</a>
+               <span>Cotation du <span class="d">14/01/2026</span></span><div class="col col_price">1&nbsp;234,56 €</div></div>
+               <div class="raterow"><a href="/produit/krugerrand-sud-afrique/">Kr</a>
+               <span>Cotation du <span>01/01/2025</span></span><div class="col col_price">2 900,00 €</div></div>"#,
+        ))
+        .mount(&loomis)
+        .await;
+    let app = TestApp::builder()
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .env("COINGECKO_BASE_URL", coingecko.uri())
+        .env("PRECIOUS_METALS_BASE_URL", loomis.uri())
+        .spawn()
+        .await;
+    let today = app.state.clock.today();
+    let tickers = BTreeSet::from([
+        "GOLD:GRAM".to_owned(),
+        "gold:napoleon-20f".to_owned(),
+        "GOLD:KRUGERRAND".to_owned(),
+    ]);
+    let quotes = app.state.ledger.prices.quotes(&tickers, false, today).await;
+    assert_eq!(quotes["GOLD:GRAM"].price.to_string(), "100.00000000");
+    assert_eq!(quotes["GOLD:NAPOLEON-20F"].price.to_string(), "1234.56");
+    assert!(
+        !quotes.contains_key("GOLD:KRUGERRAND"),
+        "a quote older than a week is ignored"
+    );
+}
+
+#[tokio::test]
 async fn the_precious_metals_catalogue_is_listed_in_registry_order() {
     let yahoo = MockServer::start().await;
     let coingecko = MockServer::start().await;
@@ -187,4 +224,70 @@ async fn the_precious_metals_catalogue_is_listed_in_registry_order() {
         body[0],
         json!({"ticker": "GOLD:GRAM", "name": "Gold (fine gram)", "unit": "GRAM"})
     );
+}
+
+#[tokio::test]
+async fn precious_metals_intraday_holds_coin_quote_flat_and_parses_french_amounts() {
+    use chrono::NaiveDate;
+    use picsou::market::metals::{parse_french_amount, parse_quotes};
+
+    assert_eq!(
+        parse_french_amount(" 3&nbsp;875,00&nbsp;€ ")
+            .unwrap()
+            .to_string(),
+        "3875.00"
+    );
+    assert_eq!(
+        parse_french_amount("3\u{202F}875,5 €").unwrap().to_string(),
+        "3875.5"
+    );
+    assert!(parse_french_amount("Cotation suspendue").is_none());
+    assert!(parse_french_amount("0,00 €").is_none());
+
+    let html = r#"<div class="raterow"><a href="/produit/20-francs-napoleon/">N</a>
+        <span>Cotation du <span>05/11/2026</span></span><div class="col col_price">709,90&nbsp;€</div></div>
+        <div class="raterow"><a href="/produit/souverain/">S</a>
+        <span>Cotation du <span>n/a</span></span><div class="col col_price">550,00 €</div></div>"#;
+    assert!(
+        parse_quotes(html, NaiveDate::from_ymd_opt(2026, 11, 12).unwrap())
+            .contains_key("20-francs-napoleon")
+    );
+    assert!(
+        !parse_quotes(html, NaiveDate::from_ymd_opt(2026, 11, 13).unwrap())
+            .contains_key("20-francs-napoleon")
+    );
+    assert!(
+        parse_quotes(html, NaiveDate::from_ymd_opt(2026, 11, 13).unwrap())
+            .contains_key("souverain"),
+        "a row without a readable date keeps its quote"
+    );
+
+    let yahoo = MockServer::start().await;
+    let coingecko = MockServer::start().await;
+    let loomis = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/fr/or/cotation-produits/"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            r#"<div class="raterow"><a href="/produit/20-francs-napoleon/">N</a>
+               <span>Cotation du <span>14/01/2026</span></span><div class="col col_price">709,90&nbsp;€</div></div>"#,
+        ))
+        .mount(&loomis)
+        .await;
+    let app = TestApp::builder()
+        .with_admin()
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .env("COINGECKO_BASE_URL", coingecko.uri())
+        .env("PRECIOUS_METALS_BASE_URL", loomis.uri())
+        .spawn()
+        .await;
+    let admin = app.login_admin().await;
+    let points = admin
+        .get("/api/prices/GOLD:NAPOLEON-20F/intraday")
+        .send()
+        .await
+        .json();
+    let arr = points.as_array().unwrap();
+    assert_eq!(arr.len(), 25);
+    assert_eq!(arr[0]["priceEur"].to_string(), "709.90");
+    assert_eq!(arr[24]["priceEur"].to_string(), "709.90");
 }

@@ -3,8 +3,7 @@
 //! the historical backfill and the intraday series. Implements the ledger's PriceRead.
 //!
 //! Routing as CompositePriceProvider: a precious-metals product, else a coin the crypto registry
-//! maps (CoinGecko), else Yahoo Finance. The metals provider is not ported: those products are
-//! valued from their last recorded price.
+//! maps (CoinGecko), else Yahoo Finance. CoinGecko's daily and hourly series are not ported.
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
@@ -15,7 +14,7 @@ use rust_decimal::Decimal;
 use sqlx::PgPool;
 
 use super::coingecko::CoinGecko;
-use super::metals;
+use super::metals::{self, PreciousMetals};
 use super::yahoo::YahooFinance;
 use crate::clock::AppClock;
 use crate::ledger::prices::{self, MAX_FALLBACK_AGE_DAYS, PriceRead, Quote};
@@ -34,6 +33,7 @@ pub struct PriceService {
     clock: AppClock,
     yahoo: Arc<YahooFinance>,
     coingecko: Arc<CoinGecko>,
+    metals: Arc<PreciousMetals>,
     cache: Mutex<HashMap<String, CachedPrice>>,
 }
 
@@ -43,12 +43,14 @@ impl PriceService {
         clock: AppClock,
         yahoo: Arc<YahooFinance>,
         coingecko: Arc<CoinGecko>,
+        metals: Arc<PreciousMetals>,
     ) -> Self {
         Self {
             db,
             clock,
             yahoo,
             coingecko,
+            metals,
             cache: Mutex::new(HashMap::new()),
         }
     }
@@ -92,7 +94,15 @@ impl PriceService {
             .filter(|t| !metals::supports(t) && !crypto.contains(*t))
             .cloned()
             .collect();
+        let metal: BTreeSet<String> = tickers
+            .iter()
+            .filter(|t| metals::supports(t))
+            .cloned()
+            .collect();
         let mut result = HashMap::new();
+        if !metal.is_empty() {
+            result.extend(self.metals.prices_eur(&metal).await);
+        }
         if !crypto.is_empty() {
             result.extend(self.coingecko.prices_eur(&crypto).await);
         }
@@ -193,8 +203,11 @@ impl PriceService {
         from: NaiveDate,
         to: NaiveDate,
     ) -> Vec<(NaiveDate, Decimal)> {
-        if metals::supports(ticker) || crypto.contains(ticker) {
-            // The metals and CoinGecko history providers are not ported.
+        if metals::supports(ticker) {
+            return self.metals.historical_prices_eur(ticker, from, to).await;
+        }
+        if crypto.contains(ticker) {
+            // CoinGecko's history is not ported.
             return Vec::new();
         }
         self.yahoo.historical_prices_eur(ticker, from, to).await
@@ -232,7 +245,10 @@ impl PriceService {
         }
         let upper = ticker.to_uppercase();
         let crypto = self.crypto_of(&BTreeSet::from([upper.clone()])).await;
-        if metals::supports(&upper) || crypto.contains(&upper) {
+        if metals::supports(&upper) {
+            return self.metals.intraday_prices_eur(&upper, from, to).await;
+        }
+        if crypto.contains(&upper) {
             return Vec::new();
         }
         self.yahoo.intraday_prices_eur(&upper, from, to).await

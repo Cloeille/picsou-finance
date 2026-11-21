@@ -24,6 +24,7 @@ use sqlx::PgPool;
 
 use self::coingecko::CoinGecko;
 use self::cooldown::YahooCooldown;
+use self::metals::PreciousMetals;
 use self::openfigi::OpenFigi;
 use self::prices::PriceService;
 use self::yahoo::YahooFinance;
@@ -81,6 +82,12 @@ impl Market {
                 clock.clone(),
                 yahoo.clone(),
                 coingecko,
+                Arc::new(PreciousMetals::new(
+                    http.clone(),
+                    &config.precious_metals_base_url,
+                    yahoo.clone(),
+                    clock.clone(),
+                )),
             )),
             openfigi,
             cooldown,
