@@ -72,7 +72,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Removed noisy goal pace tags ("En bonne voie" / "En retard").** Removed the decorative and often misleading status pill from `GoalCard`, `GoalDetailModal`, and `GoalProgressBar` so savings goals present clean factual figures (current total, target, progress bar, months remaining, required monthly pace, and average contribution) without visual clutter competing with primary buttons.
+- **Goal cards no longer show an "On track" / "Behind" tag.** The cards and the goal detail keep
+  the figures behind that verdict (required monthly pace, average contribution, months left), so the
+  comparison stays readable without a coloured tag competing with the page's actions.
 - **Trade Republic: native crypto gets its own `TR Crypto` account.** Coins bought on Trade Republic
   (Bitcoin and the like) moved out of `TR Titres` into a new `TR Crypto` account, so they show under
   Accounts > Crypto with live CoinGecko prices and coin logos. Crypto ETFs and ETCs stay in `TR Titres`.

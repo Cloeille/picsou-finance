@@ -45,7 +45,7 @@ export function GoalDetailModal({
   // is drawn in the same reference frame as the live area (which starts from
   // the linked accounts' pre-goal balance, not from zero). Without it, the
   // dashed target line floats far below the data and the chart looks rosy
-  // even when the "behind" badge fires.
+  // even when the goal is behind its required monthly pace.
   const baseline = useMemo(() => {
     if (!goal || !history?.length) return 0
     const createdMs = new Date(goal.createdAt).getTime()
