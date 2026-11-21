@@ -72,13 +72,16 @@ impl Market {
             cooldown.clone(),
             clock.clone(),
         ));
-        let coingecko = Arc::new(CoinGecko::new(
-            http.clone(),
-            &config.coingecko_base_url,
-            db.clone(),
-            clock.clone(),
-            Arc::new(YahooCooldown::new(clock.clone())),
-        ));
+        let coingecko = Arc::new(
+            CoinGecko::new(
+                http.clone(),
+                &config.coingecko_base_url,
+                db.clone(),
+                clock.clone(),
+                Arc::new(YahooCooldown::new(clock.clone())),
+            )
+            .with_api_key(config.coingecko_api_key.clone()),
+        );
         let openfigi = Arc::new(OpenFigi::new(
             http.clone(),
             &config.openfigi_base_url,
