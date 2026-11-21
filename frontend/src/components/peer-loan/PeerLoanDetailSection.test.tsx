@@ -7,7 +7,10 @@ import type { PeerLoanDetail, PeerLoanRepayment } from '@/types/api'
 
 // The real English strings, so a key missing from the locale fails here instead of rendering
 // as its own name; {{amount}} is the only placeholder the delete dialog uses.
+const overrides: Record<string, string> = {}
+
 function lookup(key: string): string | undefined {
+  if (key in overrides) return overrides[key]
   const value = key.split('.').reduce<unknown>(
     (node, part) => (node && typeof node === 'object' ? (node as Record<string, unknown>)[part] : undefined),
     en,
@@ -115,5 +118,37 @@ describe('PeerLoanDetailSection delete confirmation', () => {
     expect(within(dialog).getByText(/will be deleted\. The loan balance/)).toBeInTheDocument()
     expect(within(dialog).queryByText(/cash movement/)).not.toBeInTheDocument()
     expect(within(dialog).queryByText(/linked transaction/)).not.toBeInTheDocument()
+  })
+
+  it('hides the empty forecast card on a closed loan and renders a real destructive delete button', () => {
+    detail.current = {
+      ...loan([row({ kind: 'WRITE_OFF', note: 'Closure write-off', hasCashLeg: false })]),
+      closedAt: '2026-11-21',
+      principalRemaining: 0,
+      writtenOff: 1000,
+      plannedMonthlyAmount: null,
+      plannedMonths: null,
+      curve: [],
+    }
+    render(<PeerLoanDetailSection accountId={16} />)
+
+    expect(screen.getByText('Loan summary')).toBeInTheDocument()
+    expect(screen.queryByText('Forecast')).not.toBeInTheDocument()
+    const deleteBtn = screen.getByRole('button', { name: 'Delete' })
+    expect(deleteBtn.className).toContain('text-destructive')
+  })
+
+  it('shows the closure write-off note in the reader\'s language', () => {
+    overrides['peerLoan.ledger.closureWriteOffNote'] = 'Abandon lors de la clôture'
+    detail.current = {
+      ...loan([row({ kind: 'WRITE_OFF', note: 'Closure write-off', hasCashLeg: false })]),
+      closedAt: '2026-11-21',
+      writtenOff: 500,
+    }
+    render(<PeerLoanDetailSection accountId={16} />)
+
+    expect(screen.getByText('Abandon lors de la clôture')).toBeInTheDocument()
+    expect(screen.queryByText('Closure write-off')).not.toBeInTheDocument()
+    delete overrides['peerLoan.ledger.closureWriteOffNote']
   })
 })

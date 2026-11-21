@@ -131,8 +131,6 @@ function PocketCard({ account, onClick }: { account: Account; onClick?: () => vo
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
-const CARD_ACTIONS_CLASS = 'absolute top-2 right-2 flex gap-1'
-
 export function AccountsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -633,8 +631,8 @@ export function AccountsPage() {
                 <div
                   className="mt-3 flex items-center gap-2"
                   data-testid="portfolio-performance"
-                  aria-label={t('dashboard.portfolioPerformance')}
                 >
+                  <span className="sr-only">{t('dashboard.portfolioPerformance')}</span>
                   {pnlPositive
                     ? <TrendUp className="text-emerald-500" size={18} />
                     : <TrendDown className="text-red-500" size={18} />}
@@ -694,56 +692,56 @@ export function AccountsPage() {
           {displayWalletGroups.map(({ wallet, pockets: walletPockets }, wIndex) => (
             <div key={wallet.id} className={cn('space-y-2', reorderActive && wallet.listCollapsed && 'opacity-60')}>
               {/* Parent wallet card */}
-              <div className="relative group">
+              <div>
                 <AccountCard
                   account={wallet}
                   closed={closedPeerLoanIds.has(wallet.id)}
                   onClick={() => navigate(`/accounts/${wallet.id}`)}
+                  footer={reorderActive ? (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        aria-label={t('accounts.moveUp')}
+                        disabled={wIndex === 0 || setDisplayOrder.isPending}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          moveWalletGroup(wIndex, -1)
+                        }}
+                      >
+                        <CaretUp className="size-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        aria-label={t('accounts.moveDown')}
+                        disabled={wIndex === displayWalletGroups.length - 1 || setDisplayOrder.isPending}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          moveWalletGroup(wIndex, 1)
+                        }}
+                      >
+                        <CaretDown className="size-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        aria-label={t(wallet.listCollapsed ? 'accounts.expandAccount' : 'accounts.collapseAccount')}
+                        aria-pressed={wallet.listCollapsed}
+                        disabled={setListCollapsed.isPending}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setListCollapsed.mutate({ id: wallet.id, collapsed: !wallet.listCollapsed })
+                        }}
+                      >
+                        {wallet.listCollapsed ? <EyeSlash className="size-3.5" /> : <Eye className="size-3.5" />}
+                      </Button>
+                    </>
+                  ) : undefined}
                 />
-                {reorderActive && (
-                  <div className={CARD_ACTIONS_CLASS}>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7"
-                      aria-label={t('accounts.moveUp')}
-                      disabled={wIndex === 0 || setDisplayOrder.isPending}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        moveWalletGroup(wIndex, -1)
-                      }}
-                    >
-                      <CaretUp className="size-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7"
-                      aria-label={t('accounts.moveDown')}
-                      disabled={wIndex === displayWalletGroups.length - 1 || setDisplayOrder.isPending}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        moveWalletGroup(wIndex, 1)
-                      }}
-                    >
-                      <CaretDown className="size-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7"
-                      aria-label={t(wallet.listCollapsed ? 'accounts.expandAccount' : 'accounts.collapseAccount')}
-                      aria-pressed={wallet.listCollapsed}
-                      disabled={setListCollapsed.isPending}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setListCollapsed.mutate({ id: wallet.id, collapsed: !wallet.listCollapsed })
-                      }}
-                    >
-                      {wallet.listCollapsed ? <EyeSlash className="size-3.5" /> : <Eye className="size-3.5" />}
-                    </Button>
-                  </div>
-                )}
               </div>
 
               {/* Pocket sub-accounts */}
@@ -768,56 +766,56 @@ export function AccountsPage() {
           {displayStandalone.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {displayStandalone.map((account, sIndex) => (
-                <div key={account.id} className={cn('relative group', reorderActive && account.listCollapsed && 'opacity-60')}>
+                <div key={account.id} className={cn('h-full', reorderActive && account.listCollapsed && 'opacity-60')}>
                   <AccountCard
                     account={account}
                     closed={closedPeerLoanIds.has(account.id)}
                     onClick={() => navigate(`/accounts/${account.id}`)}
+                    footer={reorderActive ? (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          aria-label={t('accounts.moveUp')}
+                          disabled={sIndex === 0 || setDisplayOrder.isPending}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            moveStandalone(sIndex, -1)
+                          }}
+                        >
+                          <CaretUp className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          aria-label={t('accounts.moveDown')}
+                          disabled={sIndex === displayStandalone.length - 1 || setDisplayOrder.isPending}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            moveStandalone(sIndex, 1)
+                          }}
+                        >
+                          <CaretDown className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          aria-label={t(account.listCollapsed ? 'accounts.expandAccount' : 'accounts.collapseAccount')}
+                          aria-pressed={account.listCollapsed}
+                          disabled={setListCollapsed.isPending}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setListCollapsed.mutate({ id: account.id, collapsed: !account.listCollapsed })
+                          }}
+                        >
+                          {account.listCollapsed ? <EyeSlash className="size-3.5" /> : <Eye className="size-3.5" />}
+                        </Button>
+                      </>
+                    ) : undefined}
                   />
-                  {reorderActive && (
-                    <div className={CARD_ACTIONS_CLASS}>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7"
-                        aria-label={t('accounts.moveUp')}
-                        disabled={sIndex === 0 || setDisplayOrder.isPending}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          moveStandalone(sIndex, -1)
-                        }}
-                      >
-                        <CaretUp className="size-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7"
-                        aria-label={t('accounts.moveDown')}
-                        disabled={sIndex === displayStandalone.length - 1 || setDisplayOrder.isPending}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          moveStandalone(sIndex, 1)
-                        }}
-                      >
-                        <CaretDown className="size-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7"
-                        aria-label={t(account.listCollapsed ? 'accounts.expandAccount' : 'accounts.collapseAccount')}
-                        aria-pressed={account.listCollapsed}
-                        disabled={setListCollapsed.isPending}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setListCollapsed.mutate({ id: account.id, collapsed: !account.listCollapsed })
-                        }}
-                      >
-                        {account.listCollapsed ? <EyeSlash className="size-3.5" /> : <Eye className="size-3.5" />}
-                      </Button>
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
@@ -834,7 +832,7 @@ export function AccountsPage() {
                 <CurrencyDisplay value={collapsedTotal} className="font-semibold" />
                 <span className="text-muted-foreground">{t('accounts.collapsedHint')}</span>
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
                   className="ml-auto"
                   onClick={() => setReorderMode(true)}

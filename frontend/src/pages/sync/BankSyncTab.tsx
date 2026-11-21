@@ -223,7 +223,7 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
           <CardContent className="flex items-center gap-3">
             <Warning className="size-4 shrink-0 text-destructive" />
             <span className="flex-1 text-sm font-medium text-destructive">{initiateError}</span>
-            <Button variant="ghost" size="sm" onClick={() => setInitiateError(null)}>
+            <Button variant="outline" size="sm" onClick={() => setInitiateError(null)}>
               {t('common.close')}
             </Button>
           </CardContent>
@@ -236,7 +236,7 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
           <CardContent className="flex items-center gap-3">
             <Warning className="size-4 shrink-0 text-destructive" />
             <span className="flex-1 text-sm font-medium text-destructive">{retryError}</span>
-            <Button variant="ghost" size="sm" onClick={() => setRetryError(null)}>
+            <Button variant="outline" size="sm" onClick={() => setRetryError(null)}>
               {t('common.close')}
             </Button>
           </CardContent>

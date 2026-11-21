@@ -460,8 +460,8 @@ export function AccountDetailPage() {
               <div
                 className="mt-3 flex items-center gap-2"
                 data-testid="portfolio-performance"
-                aria-label={t('dashboard.portfolioPerformance')}
               >
+                <span className="sr-only">{t('dashboard.portfolioPerformance')}</span>
                 {pnlPositive
                   ? <TrendUp className="text-emerald-500" size={16} />
                   : <TrendDown className="text-red-500" size={16} />}

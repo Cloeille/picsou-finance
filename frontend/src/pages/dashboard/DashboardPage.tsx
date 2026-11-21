@@ -268,8 +268,8 @@ export function DashboardPage() {
           <div
             className="mt-3 flex items-center gap-2"
             data-testid="portfolio-performance"
-            aria-label={t('dashboard.portfolioPerformance')}
           >
+            <span className="sr-only">{t('dashboard.portfolioPerformance')}</span>
             {pnl != null ? (
               <>
                 {pnlPositive

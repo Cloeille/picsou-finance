@@ -37,10 +37,24 @@ public class CryptoExchangeSession extends AuditableEntity {
     @Column(name = "api_secret", length = 500)
     private String apiSecret;
 
+    @JsonIgnore
+    @Column(name = "api_passphrase", length = 500)
+    private String apiPassphrase;
+
+    @Column(length = 20)
+    private String region;
+
     @Column(nullable = false, length = 20)
     @Builder.Default
     private String status = "CONNECTED";
 
     @Column(name = "last_synced_at")
     private Instant lastSyncedAt;
+
+    public static class CryptoExchangeSessionBuilder {
+        @Override
+        public String toString() {
+            return "CryptoExchangeSessionBuilder[redacted]";
+        }
+    }
 }

@@ -67,6 +67,7 @@ import java.util.Optional;
 public class PeerLoanService {
 
     /** Note attached to the write-off a closure creates. */
+    // PeerLoanDetailSection.tsx matches this exact text to show a translated note: change both together.
     static final String CLOSURE_NOTE = "Closure write-off";
 
     /** Seeded category for money moving between the member's own accounts. */

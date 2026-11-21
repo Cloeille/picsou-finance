@@ -27,6 +27,7 @@ green `make test-…` locally is the CI job. `make help` lists them.
 | `make test-sidecar SIDECAR=tr-auth` | Builds one connector's shared base and image, then runs its tests inside it. |
 | `make test-sidecars` | The `services/base` tests, then every connector. |
 | `make build` | Every image Compose builds: the app, the connectors and their bases. `SERVICES="app tr-auth"` builds only those. |
+| `make desktop` | The Linux desktop app (`.deb`, AppImage) from the same jar and SPA, with the Docker release's Java and PostgreSQL majors. See [desktop-app.md](docs/features/desktop-app.md). |
 | `make format` | Prettier on the frontend sources. |
 | `make deps` | Reinstalls the frontend dependencies (after a `bun.lock` change). |
 | `make release VERSION=x.y.z` | Maintainers. Checks that `CHANGELOG.md` has a `## [x.y.z]` section, that the tree is clean and `HEAD` is on `origin/main`, then tags and pushes the tag (`REMOTE=upstream` from a fork). CI publishes the images and the chart once green. |
@@ -157,9 +158,10 @@ is rejected with the matching rule and expected pattern.
   or `NativeSelect` (`@/components/shared/NativeSelect`, which renders Radix Select under the hood).
   *(Enforced in CI.)*
 - **Collapsible / advanced sections**: never use raw HTML `<details>`/`<summary>` or raw Unicode
-  triangle glyphs (`▶`, `▼`). Build collapsible blocks with a button (`aria-expanded`), Lucide
-  `ChevronDown` with `rotate-180`, and a clean bordered container. *(Enforced in CI.)*
-- **Icons**: always use icons from `lucide-react`, sized consistently (`size-4` in buttons and
+  triangle glyphs (`▶`, `▼`). Build collapsible blocks with a button (`aria-expanded`), Phosphor
+  `CaretDown` with `rotate-180`, and a clean bordered container. *(Enforced in CI.)*
+- **Icons**: always use icons from `@phosphor-icons/react` (regular weight and hidden from screen
+  readers by default, set in `lib/icon-defaults.ts`; `lucide-react` is refused in CI), sized consistently (`size-4` in buttons and
   headers, `size-3.5` in compact controls, `size-5` in nav items, `size-10` in empty states).
 
 ### 7. Empty states & card actions

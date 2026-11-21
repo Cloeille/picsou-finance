@@ -2,7 +2,7 @@ import { api } from '@/lib/api-client'
 import { z } from 'zod'
 import type {
   Account,
-  ExchangeType,
+  AddCryptoExchangeRequest,
   ChainType,
   ExchangeStatus,
   Institution,
@@ -162,11 +162,9 @@ export const trApi = {
 // --- Crypto Exchanges ---
 
 export const cryptoExchangeApi = {
-  // apiSecret is optional: single-key exchanges (Meria) must not send one, and axios drops an
-  // undefined field from the JSON body entirely.
-  add: (type: ExchangeType, apiKey: string, apiSecret?: string) =>
+  add: (request: AddCryptoExchangeRequest) =>
     api
-      .post<Account>('/crypto/exchange', { type, apiKey, apiSecret })
+      .post<Account>('/crypto/exchange', request)
       .then(r => r.data),
 
   sync: (id: number) =>

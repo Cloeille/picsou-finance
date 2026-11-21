@@ -176,8 +176,8 @@ export function ScpiDetailSection({ account }: { account: Account }) {
                     <Button
                       type="button"
                       size="sm"
-                      variant="ghost"
-                      className="h-auto px-2 py-0 text-xs"
+                      variant="outline"
+                      className="h-7 px-2.5 text-xs"
                       disabled={ignoreFund.isPending}
                       onClick={() => setFundToIgnore({ provider, fundCode: code })}
                     >

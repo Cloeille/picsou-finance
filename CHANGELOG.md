@@ -42,6 +42,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Profile photo upload now works under the production CSP.** `resizeProfilePhoto` read uploaded images via a `blob:` URL (`URL.createObjectURL`), which Spring Boot's production `Content-Security-Policy` (`img-src 'self' data: https:`) blocked — causing valid PNG, JPEG and WebP files to fail with an "invalid image" error. It now reads files through `FileReader.readAsDataURL` so uploads comply with the strict CSP without weakening it.
+- **Account reorder controls no longer overlap account type badges.** In `/accounts` reorder mode ("Réorganiser"), the move-up, move-down and collapse buttons floated over the top-right corner of each card and collided with badges like "Compte titres" or "Compte courant". They now sit inside an in-flow hairline `CardFooter` bar at the bottom of `AccountCard`, keeping titles, badges and card heights cleanly aligned across the grid.
+- **Trade Republic bonds are valued correctly again.** Bonds listed under Trade Republic's
+  `bonds` category were not detected as bonds, and the nominal currency was not read, so their price
+  could be off by a factor of 100 or left empty. A Polish IKE wrapper now syncs as a brokerage account
+  (`TR IKE`), for accounts created from now on.
+- **BoursoBank syncs a PER.** A PER on the dashboard was read as a securities account, its
+  trading-board lookup answered 404, and the whole sync failed with `UPSTREAM_FORMAT_CHANGED`,
+  so no account was imported. The PER is now read from its own page: one position per fund,
+  merged across compartments, and a payment not yet invested as cash. If that page cannot be
+  read, the PER keeps its last values and the other accounts still sync; for now only the
+  sidecar log says so. (#351, #624)
+- **BoursoBank: a notice shown instead of the dashboard no longer breaks the sync.** When the bank
+  parks the dashboard behind a notice it lets you postpone (a card renewal offer, for instance),
+  the connector now follows its "Voir plus tard" link and reads the accounts. A notice that cannot
+  be postponed is reported by name instead of `Dashboard carried no account section`.
+- **Deleting a property no longer breaks the loan linked to it.** A loan or peer loan still linked
+  to a deleted account could not be read, and the accounts page failed with an error. Deleting an
+  account now unlinks them, and the upgrade repairs the loans already in that state (`V154`).
 - **American Express login no longer stalls behind the cookie banner.** When the consent banner
   showed up after the login form, it blocked the sign-in click and the connection failed with
   "Impossible de joindre American Express". It is now declined whenever it appears (#568).
@@ -59,6 +78,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Goal cards no longer show an "On track" / "Behind" tag.** The cards and the goal detail keep
+  the figures behind that verdict (required monthly pace, average contribution, months left), so the
+  comparison stays readable without a coloured tag competing with the page's actions.
+- **Calmer peer loan page.** The summary card is titled "Loan summary" (the borrower is already
+  the page title) with the loan period in your language; the forecast card is hidden on a closed
+  loan that has nothing to forecast; the write-off note added when closing a loan is translated;
+  each repayment reads on two lines with Edit and Delete buttons. Dismiss buttons on alerts and a
+  few other text-only buttons now use the same icon buttons as the rest of the app.
+- **Trade Republic: native crypto gets its own `TR Crypto` account.** Coins bought on Trade Republic
+  (Bitcoin and the like) moved out of `TR Titres` into a new `TR Crypto` account, so they show under
+  Accounts > Crypto with live CoinGecko prices and coin logos. Crypto ETFs and ETCs stay in `TR Titres`.
+  On the first sync after the upgrade, `TR Titres` drops by the crypto amount and `TR Crypto` takes
+  it, so net worth does not move; past transactions and snapshots stay on `TR Titres`, and CSV imports
+  do not duplicate earlier crypto trades. `TR Crypto` is a new account: sharing with another member,
+  exclusions and goal links set on `TR Titres` are not copied to it, set them again if you use them.
 - **A missed daily sync is made up once.** When Picsou was off or the machine asleep at 08:00, the bank
   sync and the balance snapshot now run within a minute or two of the next start or wake, once, not
   once per missed day. The weekly and monthly jobs follow the same rule. The first start after the
@@ -75,7 +109,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cleaner net-worth performance and debt breakdown spacing.** Removed the redundant visible "performance portefeuille" suffix on Dashboard, Accounts, and Account Detail summary cards (preserved as `aria-label` for accessibility) and tightened the net-worth assets-minus-liabilities breakdown row on Dashboard so each label stays grouped with its amount.
 - **Unified progress bar sizing and shape.** Standardized `<Progress>` and all custom progress/distribution bars across Dashboard, Goals, Budget, Analysis, Family, Loans, Liabilities, and Setup sub-steps to a single `h-2 w-full rounded-full bg-muted` pill style, backed by a CI guardrail in `design-guardrails.test.ts`.
 - **Site-wide icon harmonization (macOS restraint).** Removed decorative icons from all horizontal tab bars (Budget, Settings, Admin, Goals calendar), all `CardTitle` / `DialogTitle` / section headings across Settings, Admin, Budget, Family, Property, OAuth, and What's New, KPI card labels in Budget, and Enable Banking / Crypto setup step headers. Documented the icon charter in `DESIGN.md` and enforced it in `design-guardrails.test.ts`.
-- **Migrated icon library to Phosphor Icons (`@phosphor-icons/react`).** Replaced `lucide-react` across the entire frontend with `@phosphor-icons/react` (`weight="regular"` globally via `IconContext.Provider`, `weight="fill"` on active sidebar and mobile navigation items), updated `vite.config.ts`, `components.json`, `DESIGN.md`, and enforced the single-library rule in `design-guardrails.test.ts`.
+- **Migrated icon library to Phosphor Icons (`@phosphor-icons/react`).** Replaced `lucide-react` across the entire frontend with `@phosphor-icons/react` (`weight="regular"` globally via `IconContext.Provider`, `weight="fill"` on active sidebar and mobile navigation items), updated `vite.config.ts`, `components.json`, `DESIGN.md`, and enforced the single-library rule in `design-guardrails.test.ts`. Icons stay hidden from screen readers by default, as with lucide (`lib/icon-defaults.ts`).
 - **Redesigned sidebar What's New card.** Simplified `SidebarWhatsNewCard` into a single neutral gray card (`bg-muted/50`) with a squared `rounded-md` version tag, diagonal `ArrowUpRight` indicator, and clean title/summary hierarchy, removing the bolted-on GitHub star footer row from the sidebar (kept inside the What's New dialog and Settings > About).
 - **Eliminated double vertical padding on Card banners and cards site-wide.** Removed redundant `py-*` / `p-*` vertical padding on 86 `<CardContent>` instances across 27 files (Budget overview nudge banner, AccountCard, PocketCard, SavingsRateCard, GoalCalendarPage, and all Sync status/login cards) since `<Card>` already provides symmetric `py-4` / `py-3`, and upgraded `design-guardrails.test.ts` to block future regressions.
 - **Removed static point markers on all chart curves site-wide.** Removed the `24H` / `7D` dot markers in `NetWorthChart` and explicitly enforced `dot={false}` on every Recharts `<Area>` and `<Line>` curve (`PropertyValuationChart`, `BalanceHistoryChart`, etc.), backed by `DESIGN.md` and a CI guardrail in `design-guardrails.test.ts`.

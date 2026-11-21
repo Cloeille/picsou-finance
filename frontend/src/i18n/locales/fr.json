@@ -1,5 +1,6 @@
 {
   "common": {
+    "actions": "Actions",
     "loading": "Chargement...",
     "add": "Ajouter",
     "save": "Enregistrer",
@@ -546,7 +547,8 @@
     },
     "ledger": {
       "interestPart": "dont {{amount}} d'intérêts",
-      "noCashLeg": "Hors trésorerie"
+      "noCashLeg": "Hors trésorerie",
+      "closureWriteOffNote": "Abandon lors de la clôture"
     },
     "noPlan": "Aucune prévision définie. Ajoutez une durée ou une mensualité pour l'estimer.",
     "closedHint": "Ce prêt est clôturé. Supprimez l'abandon pour le rouvrir.",
@@ -588,7 +590,9 @@
       "interestCalculated": "Intérêts calculés",
       "interestDue": "Intérêts dus",
       "principalRepaid": "Capital remboursé",
-      "writtenOff": "Abandonné"
+      "writtenOff": "Abandonné",
+      "title": "Suivi du prêt",
+      "period": "Du {{from}} au {{to}}"
     },
     "forecast": {
       "title": "Prévision",
@@ -887,13 +891,10 @@
     "deadline": "Échéance",
     "currentTotal": "Solde actuel",
     "progress": "Progression",
-    "onTrack": "En bonne voie",
-    "behind": "En retard",
     "monthsLeft": "mois restants",
     "monthlyNeeded": "nécessaire/mois",
     "avgContribution": "contribution moy./mois",
     "noGoals": "Aucun objectif défini",
-    "waiting": "En cours",
     "calendar": "Calendrier",
     "legendProgress": "Part de l'objectif du mois atteinte (ex. 94 %)",
     "legendOvershoot": "Dépassement de l'objectif (ex. +8 %)",
@@ -1490,6 +1491,15 @@
       "type": "Type de plateforme",
       "apiKey": "Clé API",
       "apiSecret": "Secret API",
+      "apiPassphrase": "Phrase secrète de l’API",
+      "region": "Région",
+      "regionPlaceholder": "Choisir une région",
+      "regionHelp": "Choisissez la région à laquelle votre compte sur la plateforme est rattaché.",
+      "regions": {
+        "GLOBAL": "Monde",
+        "EEA": "Espace économique européen",
+        "US": "États-Unis"
+      },
       "apiKeyOnly": "Meria se connecte avec une seule clé API en lecture seule, sans secret supplémentaire.",
       "showSecret": "Afficher le secret API",
       "hideSecret": "Masquer le secret API",

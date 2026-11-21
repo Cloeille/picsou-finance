@@ -44,8 +44,6 @@ import {
   DotsThree,
   CaretDown,
   CircleNotch,
-  TrendUp,
-  TrendDown,
 } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import type { GoalProgress, GoalType } from '@/types/api'
@@ -546,7 +544,7 @@ function RecurringPlanCard({
                   variant="ghost"
                   size="icon"
                   className="size-8 text-muted-foreground hover:text-foreground"
-                  aria-label={t('common.edit')}
+                  aria-label={t('common.actions')}
                 >
                   <DotsThree className="size-4" />
                 </Button>
@@ -608,38 +606,6 @@ interface GoalCardProps {
 function GoalCard({ goal, onOpenDetail }: GoalCardProps) {
   const { t } = useTranslation()
 
-  const statusBadge = (() => {
-    if ((goal.monthlyNeeded ?? 0) <= 0) {
-      return (
-        <Badge className="gap-1">
-          <TrendUp className="size-3" />
-          {t('goals.achieved')}
-        </Badge>
-      )
-    }
-    if (goal.avgMonthlyContribution == null) {
-      return (
-        <Badge variant="secondary" className="gap-1">
-          {t('goals.waiting')}
-        </Badge>
-      )
-    }
-    if (goal.isOnTrack) {
-      return (
-        <Badge className="gap-1">
-          <TrendUp className="size-3" />
-          {t('goals.onTrack')}
-        </Badge>
-      )
-    }
-    return (
-      <Badge variant="destructive" className="gap-1">
-        <TrendDown className="size-3" />
-        {t('goals.behind')}
-      </Badge>
-    )
-  })()
-
   return (
     <Card
       role="button"
@@ -654,12 +620,11 @@ function GoalCard({ goal, onOpenDetail }: GoalCardProps) {
       }}
     >
       <CardContent>
-        {/* Header: name + status */}
+        {/* Header: goal name */}
         <div className="mb-2.5 flex items-center justify-between gap-2">
           <span className="cn-font-heading line-clamp-2 break-words text-sm font-semibold text-foreground">
             {goal.name}
           </span>
-          {statusBadge}
         </div>
 
         {/* Current total */}

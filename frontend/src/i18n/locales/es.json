@@ -1,5 +1,6 @@
 {
   "common": {
+    "actions": "Acciones",
     "loading": "Cargando...",
     "add": "Añadir",
     "save": "Guardar",
@@ -535,7 +536,8 @@
     },
     "ledger": {
       "interestPart": "de los cuales {{amount}} de intereses",
-      "noCashLeg": "Sin movimiento de efectivo"
+      "noCashLeg": "Sin movimiento de efectivo",
+      "closureWriteOffNote": "Condonación al cierre"
     },
     "noPlan": "Sin previsión definida. Añade una duración o una cuota mensual para estimarla.",
     "closedHint": "Este préstamo está cerrado. Elimina la condonación para reabrirlo.",
@@ -577,7 +579,9 @@
       "interestCalculated": "Intereses calculados",
       "interestDue": "Intereses pendientes",
       "principalRepaid": "Capital devuelto",
-      "writtenOff": "Condonado"
+      "writtenOff": "Condonado",
+      "title": "Resumen del préstamo",
+      "period": "Del {{from}} al {{to}}"
     },
     "forecast": {
       "title": "Previsión",
@@ -876,13 +880,10 @@
     "deadline": "Fecha límite",
     "currentTotal": "Actual",
     "progress": "Progreso",
-    "onTrack": "En buen camino",
-    "behind": "Con retraso",
     "monthsLeft": "meses restantes",
     "monthlyNeeded": "necesario/mes",
     "avgContribution": "aportación media/mes",
     "noGoals": "Sin objetivos definidos",
-    "waiting": "En curso",
     "calendar": "Calendario",
     "legendProgress": "Parte del objetivo del mes alcanzada (p. ej. 94 %)",
     "legendOvershoot": "Por encima del objetivo (p. ej. +8 %)",
@@ -1156,6 +1157,15 @@
       "type": "Tipo de exchange",
       "apiKey": "Clave API",
       "apiSecret": "Secreto API",
+      "apiPassphrase": "Frase secreta de la API",
+      "region": "Región",
+      "regionPlaceholder": "Elige una región",
+      "regionHelp": "Elige la región a la que pertenece tu cuenta en la plataforma.",
+      "regions": {
+        "GLOBAL": "Global",
+        "EEA": "Espacio Económico Europeo",
+        "US": "Estados Unidos"
+      },
       "apiKeyOnly": "Meria se conecta con una única clave API de solo lectura — no hace falta secreto.",
       "showSecret": "Mostrar el secreto API",
       "hideSecret": "Ocultar el secreto API",

@@ -577,9 +577,20 @@ class TradeRepublicAdapterTest {
     @Test
     void isBond_matchesTheExactTypeOnly_neverASubstring() {
         assertThat(TradeRepublicAdapter.isBond("bond")).isTrue();
+        assertThat(TradeRepublicAdapter.isBond("bonds")).isTrue();
         assertThat(TradeRepublicAdapter.isBond("stock")).isFalse();
         assertThat(TradeRepublicAdapter.isBond("bondEtf")).isFalse();
         assertThat(TradeRepublicAdapter.isBond(null)).isFalse();
+    }
+
+    @Test
+    void isNativeCrypto_matchesExactCategoryOrInstrumentTypeOnly() {
+        assertThat(TradeRepublicAdapter.isNativeCrypto("cryptos", "crypto")).isTrue();
+        assertThat(TradeRepublicAdapter.isNativeCrypto("cryptos", "")).isTrue();
+        assertThat(TradeRepublicAdapter.isNativeCrypto("stocksAndETFs", "crypto")).isTrue();
+        assertThat(TradeRepublicAdapter.isNativeCrypto("stocksAndETFs", "fund")).isFalse();
+        assertThat(TradeRepublicAdapter.isNativeCrypto("stocksAndETFs", "derivative")).isFalse();
+        assertThat(TradeRepublicAdapter.isNativeCrypto("", "")).isFalse();
     }
 
     private static final String TREASURY = "US91282CMK44";
@@ -655,6 +666,98 @@ class TradeRepublicAdapterTest {
 
         assertThat(priceOf(securities, TREASURY)).isNull();
         assertThat(securities.balanceEur()).isEqualByComparingTo("447.05");
+    }
+
+    @Test
+    void fetchAccounts_readsBondNominalCurrencyFromBondInfoAndPluralBondsCategory() {
+        String realBondPortfolio = "{\"categories\":[{\"categoryType\":\"bonds\",\"positions\":["
+            + "{\"isin\":\"XS2352739184\",\"netSize\":\"500\",\"averageBuyIn\":\"0.8941\",\"instrumentType\":\"bond\"}"
+            + "]}]}";
+        String realBondInstrument = "{\"isin\":\"XS2352739184\",\"typeId\":\"bond\","
+            + "\"exchangeIds\":[\"LSX\"],\"bondInfo\":{\"currency\":\"EUR\"}}";
+        TradeRepublicAdapter adapter = adapterAgainstPortfolio(
+            realBondPortfolio, realBondInstrument, Map.of("XS2352739184.LSX", "98.25"));
+
+        TrAccountData securities = securities(adapter.fetchAccounts(sessionToken()));
+
+        assertThat(priceOf(securities, "XS2352739184")).isEqualByComparingTo("0.9825");
+        assertThat(securities.balanceEur()).isEqualByComparingTo("491.25");
+    }
+
+    @Test
+    void fetchAccounts_splitsNativeCryptoIntoTrCryptoAndKeepsCryptoEtcInTrTitres() {
+        String cryptoEtc = "CH0454664001";
+        String mixedPortfolio = "{\"categories\":["
+            + "{\"categoryType\":\"stocksAndETFs\",\"positions\":["
+            + "{\"isin\":\"" + cryptoEtc + "\",\"netSize\":\"2\",\"averageBuyIn\":\"40\",\"instrumentType\":\"fund\"}"
+            + "]},"
+            + "{\"categoryType\":\"cryptos\",\"positions\":["
+            + "{\"isin\":\"" + BTC + "\",\"netSize\":\"0.00004\",\"averageBuyIn\":\"123436.75\",\"instrumentType\":\"crypto\"}"
+            + "]}]}";
+        TradeRepublicAdapter adapter = adapterAgainstPortfolio(
+            mixedPortfolio,
+            "{\"exchangeIds\":[\"BHS\"]}",
+            Map.of(cryptoEtc + ".BHS", "50", BTC + ".BHS", "53000"));
+
+        List<TrAccountData> accounts = adapter.fetchAccounts(sessionToken());
+
+        TrAccountData securities = securities(accounts);
+        assertThat(securities.type()).isEqualTo(com.picsou.model.AccountType.COMPTE_TITRES);
+        assertThat(securities.positions()).extracting(TradeRepublicAdapter.TrPosition::isin).containsExactly(cryptoEtc);
+        assertThat(securities.balanceEur()).isEqualByComparingTo("100.00");
+
+        TrAccountData crypto = accounts.stream()
+            .filter(a -> TradeRepublicAdapter.EXTERNAL_ID_CRYPTO.equals(a.externalId()))
+            .findFirst()
+            .orElseThrow();
+        assertThat(crypto.name()).isEqualTo("TR Crypto");
+        assertThat(crypto.type()).isEqualTo(com.picsou.model.AccountType.CRYPTO);
+        assertThat(crypto.positions()).singleElement().satisfies(pos -> {
+            assertThat(pos.isin()).isEqualTo(BTC);
+            assertThat(pos.quantity()).isEqualByComparingTo("0.00004");
+            assertThat(pos.currentPrice()).isEqualByComparingTo("53000");
+        });
+        assertThat(crypto.balanceEur()).isEqualByComparingTo("2.12");
+    }
+
+    @Test
+    void fetchAccounts_cryptoOnlyDefaultPortfolio_emitsEmptyTrTitresAndPopulatedTrCrypto() {
+        String cryptoOnly = "{\"categories\":[{\"categoryType\":\"cryptos\",\"positions\":["
+            + "{\"isin\":\"" + BTC + "\",\"netSize\":\"0.00004\",\"averageBuyIn\":{\"value\":123436.75,\"currency\":\"EUR\"},"
+            + "\"instrumentType\":\"crypto\"}"
+            + "]}]}";
+        TradeRepublicAdapter adapter = adapterAgainstPortfolio(
+            cryptoOnly, "{\"exchangeIds\":[\"BHS\"]}", Map.of(BTC + ".BHS", "53000"));
+
+        List<TrAccountData> accounts = adapter.fetchAccounts(sessionToken());
+
+        TrAccountData securities = securities(accounts);
+        assertThat(securities.positions()).isEmpty();
+        assertThat(securities.balanceEur()).isEqualByComparingTo("0");
+
+        TrAccountData crypto = accounts.stream()
+            .filter(a -> TradeRepublicAdapter.EXTERNAL_ID_CRYPTO.equals(a.externalId()))
+            .findFirst()
+            .orElseThrow();
+        assertThat(crypto.positions()).extracting(TradeRepublicAdapter.TrPosition::isin).containsExactly(BTC);
+        assertThat(crypto.balanceEur()).isEqualByComparingTo("2.12");
+    }
+
+    @Test
+    void fetchAccounts_mapsPolishIkeWrapperAsBrokerage() throws Exception {
+        JsonNode claims = new ObjectMapper().readTree(
+            "{\"act\":{\"acc\":{\"owner\":{\"tax_wrapper_pl_ike\":{\"sec\":[\"SEC_PL\"],\"cash\":[\"CASH_PL\"]}}}}}");
+        TradeRepublicAdapter adapter = adapterAgainstPortfolio(
+            "{\"categories\":[]}", "{}", Map.of());
+
+        List<TrAccountData> accounts = adapter.fetchAccounts("cookie", claims);
+
+        TrAccountData ike = accounts.stream()
+            .filter(a -> "tr_tax_wrapper_pl_ike".equals(a.externalId()))
+            .findFirst()
+            .orElseThrow();
+        assertThat(ike.name()).isEqualTo("TR IKE");
+        assertThat(ike.type()).isEqualTo(com.picsou.model.AccountType.BROKERAGE);
     }
 
     private static java.math.BigDecimal priceOf(TrAccountData account, String isin) {
