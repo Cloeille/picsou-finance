@@ -77,12 +77,23 @@ impl AiProvider {
 }
 
 /// AiProviderConfig: the stored provider with its decrypted key.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AiConfig {
     pub provider: AiProvider,
     pub api_key: Option<String>,
     pub model: String,
     pub base_url: String,
+}
+
+impl std::fmt::Debug for AiConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AiConfig")
+            .field("provider", &self.provider)
+            .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
+            .field("model", &self.model)
+            .field("base_url", &self.base_url)
+            .finish()
+    }
 }
 
 impl AiConfig {
@@ -635,4 +646,29 @@ pub async fn update_ai(
         crate::identity::common::log_safe(&provider)
     );
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ai_config_debug_redacts_api_key() {
+        let with_key = AiConfig {
+            provider: AiProvider::OpenAi,
+            api_key: Some("sk-super-secret-value".to_owned()),
+            model: "gpt-4o-mini".to_owned(),
+            base_url: "https://api.openai.com".to_owned(),
+        };
+        let rendered = format!("{with_key:?}");
+        assert!(!rendered.contains("sk-super-secret-value"));
+        assert!(rendered.contains("Some(\"[REDACTED]\")"));
+
+        let without_key = AiConfig {
+            api_key: None,
+            ..with_key
+        };
+        let rendered_none = format!("{without_key:?}");
+        assert!(rendered_none.contains("api_key: None"));
+    }
 }

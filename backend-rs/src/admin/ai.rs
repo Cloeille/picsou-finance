@@ -66,10 +66,7 @@ async fn chat(state: &AppState, cfg: &AiConfig) -> Result<Option<String>, String
     if !status.is_success() {
         return Err(format!("The provider answered HTTP {}", status.as_u16()));
     }
-    let body: Value = response
-        .json()
-        .await
-        .map_err(|_| "The provider returned an unreadable answer".to_owned())?;
+    let body = crate::ai::provider::read_json_capped(response).await?;
     let text = match cfg.provider {
         AiProvider::OpenAi | AiProvider::OpenRouter => body
             .pointer("/choices/0/message/content")

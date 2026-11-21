@@ -7,7 +7,7 @@
 
 mod parser;
 mod prompt;
-mod provider;
+pub(crate) mod provider;
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};

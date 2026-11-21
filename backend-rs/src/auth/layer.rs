@@ -169,6 +169,38 @@ enum Outcome {
 
 async fn authenticate(state: &AppState, request: &mut Request, cookies: &mut Cookies) -> Outcome {
     let path = decoded_path(request.uri().path());
+    if pattern_matches("/mcp/**", &path) {
+        let mut principal = None;
+        if let Some(token) = bearer(request).filter(|t| !t.is_empty()) {
+            if token.starts_with(access_key::PREFIX) {
+                match access_key::validate(state, &token).await {
+                    Ok(Some(key)) => {
+                        if !state
+                            .limits
+                            .try_consume(&policies::MCP_KEY, &key.key_id.to_string())
+                        {
+                            return Outcome::Respond(raw::response(
+                                StatusCode::TOO_MANY_REQUESTS,
+                                raw::ACCESS_KEY_RATE_LIMITED,
+                            ));
+                        }
+                        principal = Some(Principal {
+                            user: key.owner,
+                            method: AuthMethod::AccessKey {
+                                key_id: key.key_id,
+                                scopes: key.scopes,
+                            },
+                        });
+                    }
+                    Ok(None) => {}
+                    Err(e) => tracing::warn!("Access key validation failed: {e}"),
+                }
+            } else if let Some(mcp) = authenticate_mcp_token(state, &token).await {
+                principal = Some(mcp);
+            }
+        }
+        return Outcome::Continue(principal);
+    }
     let mut principal = None;
     if is_backend_path(&path) {
         let token = cookies::read(request.headers(), cookies::ACCESS).or_else(|| {
@@ -179,36 +211,6 @@ async fn authenticate(state: &AppState, request: &mut Request, cookies: &mut Coo
         }
         if principal.is_none() {
             principal = restore_from_persistent(state, request, cookies).await;
-        }
-    }
-    if request.uri().path().starts_with("/mcp")
-        && let Some(token) = bearer(request)
-    {
-        if token.starts_with(access_key::PREFIX) {
-            match access_key::validate(state, &token).await {
-                Ok(Some(key)) => {
-                    if !state
-                        .limits
-                        .try_consume(&policies::MCP_KEY, &key.key_id.to_string())
-                    {
-                        return Outcome::Respond(raw::response(
-                            StatusCode::TOO_MANY_REQUESTS,
-                            raw::ACCESS_KEY_RATE_LIMITED,
-                        ));
-                    }
-                    principal = Some(Principal {
-                        user: key.owner,
-                        method: AuthMethod::AccessKey {
-                            key_id: key.key_id,
-                            scopes: key.scopes,
-                        },
-                    });
-                }
-                Ok(None) => {}
-                Err(e) => tracing::warn!("Access key validation failed: {e}"),
-            }
-        } else if let Some(mcp) = authenticate_mcp_token(state, &token).await {
-            principal = Some(mcp);
         }
     }
     if principal.is_none()

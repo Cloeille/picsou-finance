@@ -524,6 +524,23 @@ async fn access_keys_authenticate_the_mcp_surface_only() {
             .status,
         StatusCode::UNAUTHORIZED
     );
+    let session = app.login_admin().await;
+    let cookie_on_mcp = session.get("/mcp").send().await;
+    assert_eq!(
+        cookie_on_mcp.status,
+        StatusCode::UNAUTHORIZED,
+        "web session cookies must not authenticate /mcp"
+    );
+    assert_eq!(
+        cookie_on_mcp.header("www-authenticate"),
+        Some(
+            format!(
+                "Bearer resource_metadata=\"{}/.well-known/oauth-protected-resource\"",
+                app.base_url
+            )
+            .as_str()
+        )
+    );
 }
 
 #[tokio::test]

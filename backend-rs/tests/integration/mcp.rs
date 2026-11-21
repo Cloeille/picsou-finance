@@ -515,7 +515,7 @@ async fn security_properties_a_b_and_cookie_defense_in_depth() {
     assert!(text.contains("Admin Checking"));
     assert!(!text.contains("Child Checking"));
 
-    // Defense in depth: a web cookie session calling an MCP tool fails the scope check.
+    // /mcp/** auth isolation: a web cookie session is rejected with RFC 9728 401 challenge.
     let browser = app.login_admin().await;
     let init = browser
         .post("/mcp")
@@ -529,28 +529,16 @@ async fn security_properties_a_b_and_cookie_defense_in_depth() {
         }))
         .send()
         .await;
-    assert_eq!(init.status, StatusCode::OK);
-    let sid = init.header("mcp-session-id").unwrap().to_owned();
-    let call = browser
-        .post("/mcp")
-        .allow_decimal_strings()
-        .header("Mcp-Session-Id", &sid)
-        .header("Accept", "application/json")
-        .json(&json!({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": { "name": "list_accounts", "arguments": {} }
-        }))
-        .send()
-        .await;
-    let body = call.json();
-    assert_eq!(body["result"]["isError"], true);
-    assert!(
-        body["result"]["content"][0]["text"]
+    assert_eq!(init.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        init.header("www-authenticate"),
+        Some(
+            format!(
+                "Bearer resource_metadata=\"{}/.well-known/oauth-protected-resource\"",
+                app.base_url
+            )
             .as_str()
-            .unwrap()
-            .contains("accounts:read")
+        )
     );
 }
 

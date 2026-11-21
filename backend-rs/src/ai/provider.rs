@@ -11,6 +11,27 @@ use crate::admin::settings::{AiConfig, AiProvider};
 pub(crate) const ANTHROPIC_MAX_TOKENS: u32 = 4096;
 pub(crate) const ANTHROPIC_VERSION: &str = "2023-06-01";
 pub(crate) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
+/// Hard cap on upstream AI provider JSON response bodies (1 MiB) before parsing.
+pub(crate) const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
+
+/// Reads an upstream AI HTTP response body up to `MAX_RESPONSE_BYTES` and parses it as JSON.
+pub(crate) async fn read_json_capped(mut response: reqwest::Response) -> Result<Value, String> {
+    let unreadable = || "The provider returned an unreadable answer".to_owned();
+    if response
+        .content_length()
+        .is_some_and(|len| len > MAX_RESPONSE_BYTES as u64)
+    {
+        return Err(unreadable());
+    }
+    let mut buf = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| unreadable())? {
+        if buf.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+            return Err(unreadable());
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    serde_json::from_slice(&buf).map_err(|_| unreadable())
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProviderResponse {
@@ -78,10 +99,7 @@ pub(crate) async fn call_provider(
         return Err(format!("The provider answered HTTP {}", status.as_u16()));
     }
 
-    let body: Value = response
-        .json()
-        .await
-        .map_err(|_| "The provider returned an unreadable answer".to_owned())?;
+    let body = read_json_capped(response).await?;
 
     Ok(extract_response(cfg.provider, &body))
 }

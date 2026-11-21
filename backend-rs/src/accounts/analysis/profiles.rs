@@ -130,28 +130,30 @@ impl RefreshRunner {
         {
             return Ok(Trigger::AlreadyRunning);
         }
-        let tickers: BTreeSet<String> = match holdings::distinct_tickers(db, None).await {
-            Ok(tickers) => tickers.into_iter().collect(),
-            Err(e) => {
-                self.running.store(false, Ordering::Release);
-                return Err(e);
+        struct RunningGuard(Arc<AtomicBool>);
+        impl Drop for RunningGuard {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::Release);
             }
-        };
+        }
+        let guard = RunningGuard(self.running.clone());
+        let tickers: BTreeSet<String> = holdings::distinct_tickers(db, None)
+            .await?
+            .into_iter()
+            .collect();
         if tickers.is_empty() {
-            self.running.store(false, Ordering::Release);
             return Ok(Trigger::Queued(0));
         }
         let count = tickers.len();
-        let running = self.running.clone();
         let refresher = self.refresher.clone();
         let db = db.clone();
         tokio::spawn(async move {
+            let _guard = guard;
             let refreshed = refresher.refresh_stale(&db, &tickers, BATCH).await;
             tracing::info!(
                 "Security profiles: on-demand refresh updated {refreshed} of {} tickers",
                 tickers.len()
             );
-            running.store(false, Ordering::Release);
         });
         Ok(Trigger::Queued(count))
     }

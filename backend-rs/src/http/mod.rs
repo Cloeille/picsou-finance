@@ -72,6 +72,12 @@ async fn anonymous_body_limit(request: Request, next: Next) -> Response {
                 .insert(header::CONNECTION, HeaderValue::from_static("close"));
             return response;
         }
+        let (parts, body) = request.into_parts();
+        let limited = axum::body::Body::new(http_body_util::Limited::new(
+            body,
+            MAX_ANONYMOUS_BODY as usize,
+        ));
+        return next.run(Request::from_parts(parts, limited)).await;
     }
     next.run(request).await
 }

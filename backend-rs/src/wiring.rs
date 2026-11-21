@@ -19,6 +19,7 @@ use crate::accounts::positions::CryptoLogoRead;
 use crate::accounts::seams::{
     BankLogos as AccountBankLogos, ConnectionKind, ConnectionRef, ConnectionRemoval,
     DashboardGoals, IntradayPrices, IsinResolver as AccountIsinResolver, PropertyValuer,
+    RemovedConnection,
 };
 use crate::accounts::security::{
     EtfComposition as AccountEtfComposition, FundFacts as AccountFundFacts, SecurityRef,
@@ -220,13 +221,18 @@ impl EbAccountResponses for AccountsToResponse {
 impl ExchangeAccountResponder for AccountsToResponse {
     async fn account_response(&self, state: &AppState, account: &Account) -> AppResult<Value> {
         let mut conn = state.db.acquire().await?;
-        account_to_json(
+        // Exchange sync returns the freshly written account with its computed balance scale
+        // (Hibernate keeps the managed instance rather than re-reading numeric(20,8)).
+        let response = crate::accounts::dto::to_response(
             &mut conn,
             &*state.ledger.prices,
             account,
+            None,
+            None,
             state.clock.today(),
         )
-        .await
+        .await?;
+        serde_json::to_value(response).map_err(AppError::internal)
     }
 }
 
@@ -457,16 +463,16 @@ impl ConnectionRemoval for SyncConnectionRemoval {
         conn: &mut PgConnection,
         connection: &ConnectionRef,
         member_id: i64,
-    ) -> AppResult<bool> {
+    ) -> AppResult<RemovedConnection> {
         use ConnectionKind as K;
         let state = self
             .0
             .get()
             .ok_or_else(|| AppError::internal("AppState unavailable during connection removal"))?;
-        match connection.kind {
+        let removed = match connection.kind {
             K::Wallet => {
                 let Ok(wallet_id) = connection.discriminator.parse::<i64>() else {
-                    return Ok(false);
+                    return Ok(RemovedConnection::simple(false));
                 };
                 let exists: bool = sqlx::query_scalar(
                     "SELECT EXISTS(SELECT 1 FROM wallet_address WHERE id = $1 AND member_id = $2)",
@@ -476,11 +482,11 @@ impl ConnectionRemoval for SyncConnectionRemoval {
                 .fetch_one(&mut *conn)
                 .await?;
                 if !exists {
-                    return Ok(false);
+                    return Ok(RemovedConnection::simple(false));
                 }
                 crate::sync::wallets::remove_wallet(conn, state.clock.now(), wallet_id, member_id)
                     .await?;
-                Ok(true)
+                true
             }
             K::Exchange => {
                 let id: Option<i64> = sqlx::query_scalar(
@@ -491,47 +497,47 @@ impl ConnectionRemoval for SyncConnectionRemoval {
                 .fetch_optional(&mut *conn)
                 .await?;
                 let Some(id) = id else {
-                    return Ok(false);
+                    return Ok(RemovedConnection::simple(false));
                 };
                 sqlx::query("DELETE FROM crypto_exchange_session WHERE id = $1")
                     .bind(id)
                     .execute(&mut *conn)
                     .await?;
-                Ok(true)
+                true
             }
-            K::Amundi => delete_sidecar(conn, SidecarBank::Amundi, member_id).await,
+            K::Amundi => delete_sidecar(conn, SidecarBank::Amundi, member_id).await?,
             K::Cmes => {
                 let _guard = state.connectors.cmes_logins.write_lock().await;
                 state.connectors.cmes_logins.forget_member(member_id);
-                delete_sidecar(conn, SidecarBank::Cmes, member_id).await
+                delete_sidecar(conn, SidecarBank::Cmes, member_id).await?
             }
             K::Cic => {
                 let _guard = state.connectors.cic_logins.write_lock().await;
                 state.connectors.cic_logins.forget_member(member_id);
-                delete_sidecar(conn, SidecarBank::Cic, member_id).await
+                delete_sidecar(conn, SidecarBank::Cic, member_id).await?
             }
             K::Natixis => {
                 let _guard = state.connectors.natixis_logins.write_lock().await;
                 state.connectors.natixis_logins.forget_member(member_id);
-                delete_sidecar(conn, SidecarBank::Natixis, member_id).await
+                delete_sidecar(conn, SidecarBank::Natixis, member_id).await?
             }
             K::TradeRepublic => {
                 let _guard = state.connectors.trade_republic.session_write.lock().await;
                 state.connectors.trade_republic.bump_generation(member_id);
-                delete_sidecar(conn, SidecarBank::TradeRepublic, member_id).await
+                delete_sidecar(conn, SidecarBank::TradeRepublic, member_id).await?
             }
-            K::BourseDirect => delete_sidecar(conn, SidecarBank::BourseDirect, member_id).await,
-            K::Bourso => delete_sidecar(conn, SidecarBank::Bourso, member_id).await,
-            K::Fortuneo => delete_sidecar(conn, SidecarBank::Fortuneo, member_id).await,
-            K::Corum => delete_sidecar(conn, SidecarBank::Corum, member_id).await,
-            K::Bnp => delete_sidecar(conn, SidecarBank::Bnp, member_id).await,
+            K::BourseDirect => delete_sidecar(conn, SidecarBank::BourseDirect, member_id).await?,
+            K::Bourso => delete_sidecar(conn, SidecarBank::Bourso, member_id).await?,
+            K::Fortuneo => delete_sidecar(conn, SidecarBank::Fortuneo, member_id).await?,
+            K::Corum => delete_sidecar(conn, SidecarBank::Corum, member_id).await?,
+            K::Bnp => delete_sidecar(conn, SidecarBank::Bnp, member_id).await?,
             K::Degiro => {
                 let rows = sqlx::query("DELETE FROM degiro_session WHERE member_id = $1")
                     .bind(member_id)
                     .execute(&mut *conn)
                     .await?
                     .rows_affected();
-                Ok(rows > 0)
+                rows > 0
             }
             K::Lbp => {
                 let rows = sqlx::query("DELETE FROM lbp_session WHERE member_id = $1")
@@ -539,7 +545,7 @@ impl ConnectionRemoval for SyncConnectionRemoval {
                     .execute(&mut *conn)
                     .await?
                     .rows_affected();
-                Ok(rows > 0)
+                rows > 0
             }
             K::Ibkr => {
                 let rows = sqlx::query("DELETE FROM ibkr_connection WHERE member_id = $1")
@@ -547,7 +553,7 @@ impl ConnectionRemoval for SyncConnectionRemoval {
                     .execute(&mut *conn)
                     .await?
                     .rows_affected();
-                Ok(rows > 0)
+                rows > 0
             }
             K::Simplefin => {
                 let rows = sqlx::query("DELETE FROM simplefin_connection WHERE member_id = $1")
@@ -555,24 +561,30 @@ impl ConnectionRemoval for SyncConnectionRemoval {
                     .execute(&mut *conn)
                     .await?
                     .rows_affected();
-                Ok(rows > 0)
+                rows > 0
             }
-            K::Wise => Ok(crate::sync::wise::delete_connection(&mut *conn, member_id).await?),
+            K::Wise => crate::sync::wise::delete_connection(&mut *conn, member_id).await?,
             K::Louve => {
                 let removal =
                     crate::sync::louve::service::delete_connection_in(&state, conn, member_id)
                         .await?;
                 let removed = removal.removed;
-                if removed {
+                let after_commit = removed.then(|| {
                     let revoke_state = state.clone();
-                    tokio::spawn(async move {
-                        removal.revoke_after_commit(&revoke_state).await;
-                    });
-                }
-                Ok(removed)
+                    Box::new(move || {
+                        tokio::spawn(async move {
+                            removal.revoke_after_commit(&revoke_state).await;
+                        });
+                    }) as Box<dyn FnOnce() + Send>
+                });
+                return Ok(RemovedConnection {
+                    removed,
+                    after_commit,
+                });
             }
-            K::EnableBanking => Ok(false),
-        }
+            K::EnableBanking => false,
+        };
+        Ok(RemovedConnection::simple(removed))
     }
 }
 

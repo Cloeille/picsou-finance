@@ -86,13 +86,15 @@ fn ping_payload() -> String {
 struct SseCleanup {
     state: AppState,
     session_id: String,
-    streamable: bool,
+    streamable_sse_id: Option<u64>,
 }
 
 impl Drop for SseCleanup {
     fn drop(&mut self) {
-        if self.streamable {
-            self.state.mcp.detach_streamable_sse(&self.session_id);
+        if let Some(sse_id) = self.streamable_sse_id {
+            self.state
+                .mcp
+                .detach_streamable_sse(&self.session_id, sse_id);
         } else {
             self.state.mcp.remove_sse(&self.session_id);
         }
@@ -115,6 +117,7 @@ fn sse_stream(
                 ticker.tick().await;
                 loop {
                     tokio::select! {
+                        _ = tx.closed() => break,
                         msg = rx.recv() => {
                             let Some(data) = msg else { break; };
                             if tx.send(Ok(Event::default().event("message").data(data))).await.is_err() {
@@ -130,17 +133,21 @@ fn sse_stream(
                     }
                 }
             }
-            None => {
-                while let Some(data) = rx.recv().await {
-                    if tx
-                        .send(Ok(Event::default().event("message").data(data)))
-                        .await
-                        .is_err()
-                    {
-                        break;
+            None => loop {
+                tokio::select! {
+                    _ = tx.closed() => break,
+                    msg = rx.recv() => {
+                        let Some(data) = msg else { break; };
+                        if tx
+                            .send(Ok(Event::default().event("message").data(data)))
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
                     }
                 }
-            }
+            },
         }
     })
 }
@@ -197,7 +204,7 @@ pub async fn get_mcp(State(state): State<AppState>, auth: Auth, headers: HeaderM
                 SseCleanup {
                     state,
                     session_id,
-                    streamable: false,
+                    streamable_sse_id: None,
                 },
             );
             with_sse_headers(Sse::new(stream).into_response())
@@ -214,12 +221,13 @@ pub async fn get_mcp(State(state): State<AppState>, auth: Auth, headers: HeaderM
                 );
             };
             let (tx, rx) = mpsc::unbounded_channel();
-            if !state
+            let now = state.clock.now();
+            let Some(sse_id) = state
                 .mcp
-                .attach_streamable_sse(session_id, auth.user.id, tx)
-            {
+                .attach_streamable_sse(session_id, auth.user.id, tx, now)
+            else {
                 return StatusCode::NOT_FOUND.into_response();
-            }
+            };
             let stream = sse_stream(
                 None,
                 rx,
@@ -227,7 +235,7 @@ pub async fn get_mcp(State(state): State<AppState>, auth: Auth, headers: HeaderM
                 SseCleanup {
                     state,
                     session_id: session_id.to_owned(),
-                    streamable: true,
+                    streamable_sse_id: Some(sse_id),
                 },
             );
             with_sse_headers(Sse::new(stream).into_response())
@@ -252,6 +260,7 @@ pub async fn post_mcp(
         Ok(msg) => msg,
         Err(err_resp) => return json_response(StatusCode::BAD_REQUEST, &err_resp),
     };
+    let now = state.clock.now();
     match message {
         IncomingMessage::Request { id, method, params } if method == "initialize" => {
             let (resp, version) =
@@ -259,7 +268,7 @@ pub async fn post_mcp(
             let session_id = Uuid::new_v4().to_string();
             state
                 .mcp
-                .insert_streamable(session_id.clone(), auth.user.id);
+                .insert_streamable(session_id.clone(), auth.user.id, now);
             let mut http_resp = json_response(StatusCode::OK, &resp);
             if let Ok(val) = HeaderValue::from_str(&session_id) {
                 http_resp.headers_mut().insert(HEADER_SESSION_ID, val);
@@ -283,11 +292,11 @@ pub async fn post_mcp(
             if method == "notifications/initialized" {
                 if !state
                     .mcp
-                    .mark_streamable_initialized(session_id, auth.user.id)
+                    .mark_streamable_initialized(session_id, auth.user.id, now)
                 {
                     return StatusCode::NOT_FOUND.into_response();
                 }
-            } else if !state.mcp.has_streamable(session_id, auth.user.id) {
+            } else if !state.mcp.has_streamable(session_id, auth.user.id, now) {
                 return StatusCode::NOT_FOUND.into_response();
             }
             StatusCode::ACCEPTED.into_response()
@@ -303,7 +312,7 @@ pub async fn post_mcp(
                     ),
                 );
             };
-            if !state.mcp.has_streamable(session_id, auth.user.id) {
+            if !state.mcp.has_streamable(session_id, auth.user.id, now) {
                 return StatusCode::NOT_FOUND.into_response();
             }
             StatusCode::ACCEPTED.into_response()
@@ -315,7 +324,7 @@ pub async fn post_mcp(
                     &JsonRpcResponse::err(id, ERR_INVALID_REQUEST, "Missing Mcp-Session-Id header"),
                 );
             };
-            if !state.mcp.has_streamable(session_id, auth.user.id) {
+            if !state.mcp.has_streamable(session_id, auth.user.id, now) {
                 return StatusCode::NOT_FOUND.into_response();
             }
             let is_tool_call = method == "tools/call";

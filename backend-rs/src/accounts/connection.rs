@@ -268,6 +268,7 @@ pub async fn delete_account_with_impact(
     )
     .await?;
     let mut impact = DeletionImpact::none();
+    let mut after_commit: Option<Box<dyn FnOnce() + Send>> = None;
     if let Some(connection) = connection
         && !has_other_live_account(&mut tx, &connection, id, member_id, &links).await?
     {
@@ -290,11 +291,13 @@ pub async fn delete_account_with_impact(
                 false
             }
         } else {
-            state
+            let outcome = state
                 .accounts
                 .connections
                 .remove(&mut tx, &connection, member_id)
-                .await?
+                .await?;
+            after_commit = outcome.after_commit;
+            outcome.removed
         };
         if removed {
             impact = DeletionImpact {
@@ -304,6 +307,9 @@ pub async fn delete_account_with_impact(
         }
     }
     tx.commit().await?;
+    if let Some(run) = after_commit {
+        run();
+    }
     Ok(impact)
 }
 

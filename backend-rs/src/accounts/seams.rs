@@ -143,8 +143,24 @@ pub enum ConnectionKind {
     EnableBanking,
 }
 
+/// Outcome of removing a sync connection inside a DB transaction, plus an optional post-commit
+/// hook (e.g. async remote OAuth token revocation) that MUST run only after `tx.commit()` succeeds.
+pub struct RemovedConnection {
+    pub removed: bool,
+    pub after_commit: Option<Box<dyn FnOnce() + Send>>,
+}
+
+impl RemovedConnection {
+    pub fn simple(removed: bool) -> Self {
+        Self {
+            removed,
+            after_commit: None,
+        }
+    }
+}
+
 /// AccountConnectionService.removeConnection for the connections the sync tracks own (T5/T6):
-/// clearSession, deleteConnection, removeWallet, removeExchange. True when something was removed.
+/// clearSession, deleteConnection, removeWallet, removeExchange.
 /// Enable Banking requisitions are removed by T2 itself (a repository delete).
 #[async_trait]
 pub trait ConnectionRemoval: Send + Sync {
@@ -153,7 +169,7 @@ pub trait ConnectionRemoval: Send + Sync {
         conn: &mut PgConnection,
         connection: &ConnectionRef,
         member_id: i64,
-    ) -> AppResult<bool>;
+    ) -> AppResult<RemovedConnection>;
 }
 
 /// No sync track: no session or connection row of theirs can exist, so nothing is removed.
@@ -166,8 +182,8 @@ impl ConnectionRemoval for NoSyncConnections {
         _conn: &mut PgConnection,
         _connection: &ConnectionRef,
         _member_id: i64,
-    ) -> AppResult<bool> {
-        Ok(false)
+    ) -> AppResult<RemovedConnection> {
+        Ok(RemovedConnection::simple(false))
     }
 }
 
