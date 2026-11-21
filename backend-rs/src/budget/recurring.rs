@@ -12,6 +12,7 @@ use sqlx::{FromRow, PgExecutor};
 
 use super::categories::require;
 use super::params::Params;
+use super::repo::column_scale;
 use super::{detection, jdec};
 use crate::AppState;
 use crate::auth::Auth;
@@ -128,6 +129,7 @@ pub async fn series_of_member<'e>(
     .bind(status)
     .fetch_all(db)
     .await
+    .map(|rows: Vec<Series>| rows.into_iter().map(with_column_scales).collect())
 }
 
 pub async fn find_by_label<'e>(
@@ -142,6 +144,19 @@ pub async fn find_by_label<'e>(
     .bind(label)
     .fetch_optional(db)
     .await
+    .map(|s: Option<Series>| s.map(with_column_scales))
+}
+
+/// Restores the NUMERIC(20, 2) scale of zero amounts, as JDBC reads them.
+fn with_column_scales(mut s: Series) -> Series {
+    s.expected_amount = column_scale(s.expected_amount, 2);
+    for v in [&mut s.amount_min, &mut s.amount_max, &mut s.previous_amount]
+        .into_iter()
+        .flatten()
+    {
+        *v = column_scale(*v, 2);
+    }
+    s
 }
 
 fn series_not_found() -> AppError {
@@ -154,6 +169,7 @@ async fn require_series(state: &AppState, id: i64, member_id: i64) -> AppResult<
         .bind(member_id)
         .fetch_optional(&state.db)
         .await?
+        .map(with_column_scales)
         .ok_or_else(series_not_found)
 }
 

@@ -289,3 +289,13 @@ pub async fn member_rows_by_ids<'e>(
 ) -> sqlx::Result<Vec<Transaction>> {
     crate::ledger::transactions::find_by_ids_and_member(db, ids, member_id).await
 }
+
+/// The value of a NUMERIC(p, scale) column as JDBC reads it: sqlx decodes a zero without its
+/// scale (0.00 comes back as 0).
+pub fn column_scale(value: Decimal, scale: u32) -> Decimal {
+    let mut v = value;
+    if v.is_zero() {
+        v.rescale(scale);
+    }
+    v
+}

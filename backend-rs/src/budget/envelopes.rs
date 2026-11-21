@@ -140,7 +140,7 @@ async fn find_all(
                 &state,
                 row.id,
                 &category,
-                row.monthly_limit,
+                repo::column_scale(row.monthly_limit, 2),
                 auth.member_id,
                 cycle,
             )

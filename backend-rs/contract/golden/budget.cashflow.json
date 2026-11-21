@@ -1,0 +1,872 @@
+{
+  "description": "Cashflow, Sankey flow, spending breakdown and drill, allocation, over the current cycle, a past anchor and YTD",
+  "scenario": "budget.cashflow",
+  "steps": [
+    {
+      "body": {
+        "archived": false,
+        "color": "#6366f1",
+        "id": "<id:1>",
+        "isDefault": false,
+        "kind": "INCOME",
+        "name": "Salaire net",
+        "sortOrder": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "08 POST /api/categories as admin"
+    },
+    {
+      "body": {
+        "archived": false,
+        "color": "#6366f1",
+        "id": "<id:2>",
+        "isDefault": false,
+        "kind": "EXPENSE",
+        "name": "Maison",
+        "sortOrder": 1
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "09 POST /api/categories as admin"
+    },
+    {
+      "body": {
+        "archived": false,
+        "color": "#6366f1",
+        "id": "<id:3>",
+        "isDefault": false,
+        "kind": "EXPENSE",
+        "name": "Énergie",
+        "parentId": "<id:2>",
+        "sortOrder": 2
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "10 POST /api/categories as admin"
+    },
+    {
+      "body": {
+        "archived": false,
+        "color": "#6366f1",
+        "id": "<id:4>",
+        "isDefault": false,
+        "kind": "TRANSFER",
+        "name": "Épargne perso",
+        "sortOrder": 3
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "11 POST /api/categories as admin"
+    },
+    {
+      "body": {
+        "expense": 992.70000000,
+        "from": "<month:first>",
+        "income": 2540.00000000,
+        "net": 1547.30000000,
+        "period": "CYCLE",
+        "series": [
+          {
+            "end": "<month:last>",
+            "expense": 992.70000000,
+            "income": 2540.00000000,
+            "label": "<month>",
+            "net": 1547.30000000,
+            "start": "<month:first>"
+          }
+        ],
+        "to": "<month:last>"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "23 GET /api/cashflow as admin"
+    },
+    {
+      "body": {
+        "expense": 1500.00000000,
+        "from": "<month-29:first>",
+        "income": 1000.00000000,
+        "net": -500.00000000,
+        "period": "CYCLE",
+        "series": [
+          {
+            "end": "<month-29:last>",
+            "expense": 1500.00000000,
+            "income": 1000.00000000,
+            "label": "<month-29>",
+            "net": -500.00000000,
+            "start": "<month-29:first>"
+          }
+        ],
+        "to": "<month-29:last>"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "24 GET /api/cashflow?period=CYCLE&anchor=2024-06-15 as admin"
+    },
+    {
+      "body": {
+        "expense": 1500.00000000,
+        "from": "<month-34:first>",
+        "income": 1000.00000000,
+        "net": -500.00000000,
+        "period": "YTD",
+        "series": [
+          {
+            "end": "<month-34:last>",
+            "expense": 0,
+            "income": 0,
+            "label": "<month-34>",
+            "net": 0,
+            "start": "<month-34:first>"
+          },
+          {
+            "end": "<month-33:last>",
+            "expense": 0,
+            "income": 0,
+            "label": "<month-33>",
+            "net": 0,
+            "start": "<month-33:first>"
+          },
+          {
+            "end": "<month-32:last>",
+            "expense": 0,
+            "income": 0,
+            "label": "<month-32>",
+            "net": 0,
+            "start": "<month-32:first>"
+          },
+          {
+            "end": "<month-31:last>",
+            "expense": 0,
+            "income": 0,
+            "label": "<month-31>",
+            "net": 0,
+            "start": "<month-31:first>"
+          },
+          {
+            "end": "<month-30:last>",
+            "expense": 0,
+            "income": 0,
+            "label": "<month-30>",
+            "net": 0,
+            "start": "<month-30:first>"
+          },
+          {
+            "end": "<month-29:last>",
+            "expense": 1500.00000000,
+            "income": 1000.00000000,
+            "label": "<month-29>",
+            "net": -500.00000000,
+            "start": "<month-29:first>"
+          }
+        ],
+        "to": "2024-06-15"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "25 GET /api/cashflow?period=YTD&anchor=2024-06-15 as admin"
+    },
+    {
+      "body": {
+        "detail": "Failed to convert 'period' with value: 'MONTH'",
+        "instance": "/api/cashflow",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "26 GET /api/cashflow?period=MONTH as admin"
+    },
+    {
+      "body": {
+        "detail": "Failed to convert 'anchor' with value: 'nope'",
+        "instance": "/api/cashflow",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "27 GET /api/cashflow?anchor=nope as admin"
+    },
+    {
+      "body": {
+        "expense": 992.70000000,
+        "from": "<month:first>",
+        "income": 2540.00000000,
+        "links": [
+          {
+            "source": 0,
+            "target": 3,
+            "value": 2500.00000000
+          },
+          {
+            "source": 1,
+            "target": 3,
+            "value": 40.00000000
+          },
+          {
+            "source": 2,
+            "target": 3,
+            "value": 150.00000000
+          },
+          {
+            "source": 3,
+            "target": 4,
+            "value": 900.00000000
+          },
+          {
+            "source": 3,
+            "target": 5,
+            "value": 80.40000000
+          },
+          {
+            "source": 3,
+            "target": 6,
+            "value": 12.30000000
+          },
+          {
+            "source": 3,
+            "target": 7,
+            "value": 300.00000000
+          },
+          {
+            "source": 3,
+            "target": 8,
+            "value": 150.00000000
+          },
+          {
+            "source": 3,
+            "target": 9,
+            "value": 1247.30000000
+          }
+        ],
+        "net": 1547.30000000,
+        "nodes": [
+          {
+            "color": "#6366f1",
+            "key": "cat:1",
+            "label": "Salaire net",
+            "type": "INCOME"
+          },
+          {
+            "key": "__income_other__",
+            "type": "INCOME"
+          },
+          {
+            "key": "__transfer_in__",
+            "type": "TRANSFER_IN"
+          },
+          {
+            "key": "__hub__",
+            "type": "HUB"
+          },
+          {
+            "color": "#6366f1",
+            "key": "cat:2",
+            "label": "Maison",
+            "type": "EXPENSE"
+          },
+          {
+            "color": "#6366f1",
+            "key": "cat:3",
+            "label": "Énergie",
+            "type": "EXPENSE"
+          },
+          {
+            "key": "__expense_uncat__",
+            "type": "EXPENSE"
+          },
+          {
+            "assetClass": "SAVINGS",
+            "color": "#0ea5e9",
+            "key": "acct:2",
+            "label": "Livret A",
+            "type": "SAVINGS"
+          },
+          {
+            "assetClass": "INVESTMENT",
+            "color": "#0ea5e9",
+            "key": "acct:3",
+            "label": "PEA",
+            "type": "SAVINGS"
+          },
+          {
+            "key": "__unspent__",
+            "type": "UNSPENT"
+          }
+        ],
+        "period": "CYCLE",
+        "saved": 450.00000000,
+        "to": "<month:last>",
+        "transferredIn": 150.00000000,
+        "transferredOut": 0,
+        "withdrawn": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "28 GET /api/cashflow/flow?period=CYCLE as admin"
+    },
+    {
+      "body": {
+        "expense": 1500.00000000,
+        "from": "<month-29:first>",
+        "income": 1000.00000000,
+        "links": [
+          {
+            "source": 0,
+            "target": 3,
+            "value": 1000.00000000
+          },
+          {
+            "source": 1,
+            "target": 3,
+            "value": 400.00000000
+          },
+          {
+            "source": 2,
+            "target": 3,
+            "value": 500.00000000
+          },
+          {
+            "source": 3,
+            "target": 4,
+            "value": 1500.00000000
+          },
+          {
+            "source": 3,
+            "target": 5,
+            "value": 400.00000000
+          }
+        ],
+        "net": -500.00000000,
+        "nodes": [
+          {
+            "color": "#6366f1",
+            "key": "cat:1",
+            "label": "Salaire net",
+            "type": "INCOME"
+          },
+          {
+            "assetClass": "SAVINGS",
+            "color": "#0ea5e9",
+            "key": "acct:2",
+            "label": "Livret A",
+            "type": "WITHDRAWAL"
+          },
+          {
+            "key": "__shortfall__",
+            "type": "SHORTFALL"
+          },
+          {
+            "key": "__hub__",
+            "type": "HUB"
+          },
+          {
+            "color": "#6366f1",
+            "key": "cat:2",
+            "label": "Maison",
+            "type": "EXPENSE"
+          },
+          {
+            "key": "__transfer_out__",
+            "type": "TRANSFER_OUT"
+          }
+        ],
+        "period": "CYCLE",
+        "saved": 0,
+        "to": "<month-29:last>",
+        "transferredIn": 0,
+        "transferredOut": 400.00000000,
+        "withdrawn": 400.00000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "29 GET /api/cashflow/flow?period=CYCLE&anchor=2024-06-15 as admin"
+    },
+    {
+      "body": {
+        "expense": 0,
+        "from": "2020-01-01",
+        "income": 0,
+        "links": [],
+        "net": 0,
+        "nodes": [],
+        "period": "CYCLE",
+        "saved": 0,
+        "to": "2020-01-31",
+        "transferredIn": 0,
+        "transferredOut": 0,
+        "withdrawn": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "30 GET /api/cashflow/flow?anchor=2020-01-15 as admin"
+    },
+    {
+      "body": {
+        "categories": [
+          {
+            "amount": 900.00000000,
+            "categoryId": "<id:2>",
+            "color": "#6366f1",
+            "count": 1,
+            "name": "Maison",
+            "share": 0.9066
+          },
+          {
+            "amount": 80.40000000,
+            "categoryId": "<id:3>",
+            "color": "#6366f1",
+            "count": 1,
+            "name": "Énergie",
+            "parentColor": "#6366f1",
+            "parentId": "<id:2>",
+            "parentName": "Maison",
+            "share": 0.0810
+          },
+          {
+            "amount": 12.30000000,
+            "count": 1,
+            "share": 0.0124
+          }
+        ],
+        "from": "<month:first>",
+        "period": "CYCLE",
+        "to": "<month:last>",
+        "totalExpense": 992.70000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "31 GET /api/spending/by-category?period=CYCLE as admin"
+    },
+    {
+      "body": {
+        "categories": [
+          {
+            "amount": 1500.00000000,
+            "categoryId": "<id:2>",
+            "color": "#6366f1",
+            "count": 1,
+            "name": "Maison",
+            "share": 1.0000
+          }
+        ],
+        "from": "<month-34:first>",
+        "period": "YTD",
+        "to": "2024-06-15",
+        "totalExpense": 1500.00000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "32 GET /api/spending/by-category?period=YTD&anchor=2024-06-15 as admin"
+    },
+    {
+      "body": {
+        "categoryId": "<id:2>",
+        "children": [
+          {
+            "categoryId": "<id:3>",
+            "color": "#6366f1",
+            "count": 1,
+            "name": "Énergie",
+            "total": -80.40000000
+          }
+        ],
+        "color": "#6366f1",
+        "count": 2,
+        "from": "<month:first>",
+        "name": "Maison",
+        "period": "CYCLE",
+        "to": "<month:last>",
+        "total": -980.40000000,
+        "transactions": [
+          {
+            "accountId": "<id:1>",
+            "accountName": "Courant",
+            "amount": -80.40000000,
+            "budgetNeutral": false,
+            "categoryId": "<id:3>",
+            "categoryName": "Énergie",
+            "counterparty": "EDF",
+            "createdAt": "<instant>",
+            "date": "<month:first>",
+            "description": "EDF",
+            "id": "<id:4>",
+            "isManual": false,
+            "nativeCurrency": "EUR"
+          },
+          {
+            "accountId": "<id:1>",
+            "accountName": "Courant",
+            "amount": -900.00000000,
+            "budgetNeutral": false,
+            "categoryId": "<id:2>",
+            "categoryName": "Maison",
+            "counterparty": "Loyer",
+            "createdAt": "<instant>",
+            "date": "<month:first>",
+            "description": "Loyer",
+            "id": "<id:3>",
+            "isManual": false,
+            "nativeCurrency": "EUR"
+          }
+        ]
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "33 GET /api/spending/category/{home}?period=CYCLE as admin"
+    },
+    {
+      "body": {
+        "categoryId": "<id:3>",
+        "children": [],
+        "color": "#6366f1",
+        "count": 1,
+        "from": "<month:first>",
+        "name": "Énergie",
+        "period": "CYCLE",
+        "to": "<month:last>",
+        "total": -80.40000000,
+        "transactions": [
+          {
+            "accountId": "<id:1>",
+            "accountName": "Courant",
+            "amount": -80.40000000,
+            "budgetNeutral": false,
+            "categoryId": "<id:3>",
+            "categoryName": "Énergie",
+            "counterparty": "EDF",
+            "createdAt": "<instant>",
+            "date": "<month:first>",
+            "description": "EDF",
+            "id": "<id:4>",
+            "isManual": false,
+            "nativeCurrency": "EUR"
+          }
+        ]
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "34 GET /api/spending/category/{energy} as admin"
+    },
+    {
+      "body": {
+        "detail": "Category not found",
+        "instance": "/api/spending/category/999999",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "35 GET /api/spending/category/999999 as admin"
+    },
+    {
+      "body": {
+        "contributions": [
+          {
+            "accountId": "<id:2>",
+            "accountName": "Livret A",
+            "amount": 300.00000000,
+            "assetClass": "SAVINGS",
+            "color": "#0ea5e9"
+          },
+          {
+            "accountId": "<id:3>",
+            "accountName": "PEA",
+            "amount": 150.00000000,
+            "assetClass": "INVESTMENT",
+            "color": "#0ea5e9"
+          }
+        ],
+        "from": "<month:first>",
+        "period": "CYCLE",
+        "stock": [
+          {
+            "amount": 1000.00000000,
+            "assetClass": "CURRENT",
+            "percent": 33.33
+          },
+          {
+            "amount": 1000.00000000,
+            "assetClass": "SAVINGS",
+            "percent": 33.33
+          },
+          {
+            "amount": 1000.00000000,
+            "assetClass": "INVESTMENT",
+            "percent": 33.33
+          }
+        ],
+        "to": "<month:last>",
+        "totalContributions": 450.00000000,
+        "totalStock": 3000.00000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "36 GET /api/allocation?period=CYCLE as admin"
+    },
+    {
+      "body": {
+        "contributions": [],
+        "from": "<month-34:first>",
+        "period": "YTD",
+        "stock": [
+          {
+            "amount": 1000.00000000,
+            "assetClass": "CURRENT",
+            "percent": 33.33
+          },
+          {
+            "amount": 1000.00000000,
+            "assetClass": "SAVINGS",
+            "percent": 33.33
+          },
+          {
+            "amount": 1000.00000000,
+            "assetClass": "INVESTMENT",
+            "percent": 33.33
+          }
+        ],
+        "to": "2024-06-15",
+        "totalContributions": 0,
+        "totalStock": 3000.00000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "37 GET /api/allocation?period=YTD&anchor=2024-06-15 as admin"
+    }
+  ]
+}
