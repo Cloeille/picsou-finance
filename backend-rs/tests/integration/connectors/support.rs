@@ -71,3 +71,54 @@ pub async fn store_session(
     .await
     .expect("session")
 }
+
+/// A JSON number from its decimal text, so test payloads never go through a float.
+pub fn n(number: &str) -> serde_json::Value {
+    serde_json::from_str(number).expect("JSON number")
+}
+
+/// Mounts a 200 JSON answer on POST `route`.
+pub async fn answer(sidecar: &wiremock::MockServer, route: &str, body: serde_json::Value) {
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path(route))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(body))
+        .mount(sidecar)
+        .await;
+}
+
+/// Mounts an error answer on POST `route`.
+pub async fn fail(
+    sidecar: &wiremock::MockServer,
+    route: &str,
+    status: u16,
+    body: serde_json::Value,
+) {
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path(route))
+        .respond_with(wiremock::ResponseTemplate::new(status).set_body_json(body))
+        .mount(sidecar)
+        .await;
+}
+
+/// Stores a session for the admin, POSTs `sync_path`, waits for the job and returns the status.
+pub async fn sync_stored(
+    app: &TestApp,
+    client: &Client,
+    bank: SidecarBank,
+    member_id: i64,
+    base: &str,
+) -> serde_json::Value {
+    store_session(app, bank, member_id, "plain-state").await;
+    let queued = client.post(&format!("{base}/sync")).send().await;
+    assert_eq!(queued.status, 202, "{}", queued.text());
+    settle(app).await;
+    client.get(&format!("{base}/status")).send().await.json()
+}
+
+/// Rows of one query, decoded as text tuples for compact assertions.
+pub async fn count(app: &TestApp, sql: &str) -> i64 {
+    sqlx::query_scalar(sql)
+        .fetch_one(&app.state.db)
+        .await
+        .expect("count")
+}

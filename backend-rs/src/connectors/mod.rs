@@ -27,6 +27,7 @@ use sqlx::PgPool;
 
 use self::seams::Seams;
 use self::sidecar::jobs::Jobs;
+use self::sidecar::pending::PendingLogins;
 use crate::AppState;
 use crate::config::Config;
 use crate::ledger::sidecar::SidecarBank;
@@ -58,6 +59,9 @@ pub struct Connectors {
     api_key: Option<String>,
     pub jobs: Jobs,
     pub seams: Seams,
+    /// CMES and CIC logins waiting for their second factor.
+    pub cmes_logins: PendingLogins,
+    pub cic_logins: PendingLogins,
 }
 
 impl Connectors {
@@ -78,6 +82,8 @@ impl Connectors {
             api_key: config.sidecar_api_key.clone(),
             jobs: Jobs::default(),
             seams: Seams::new(db),
+            cmes_logins: PendingLogins::default(),
+            cic_logins: PendingLogins::default(),
         })
     }
 

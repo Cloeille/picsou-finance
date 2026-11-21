@@ -86,4 +86,24 @@ const bourseDirect: Scenario = {
   ],
 };
 
-export const scenarios = [bourseDirect];
+const amundi: Scenario = {
+  name: "connectors.amundi",
+  description: "Amundi: status, failing logins (code and app push), validation, sync without a session, stored session states",
+  steps: [
+    ...bootstrap(),
+    ...disconnectedFlow("/api/amundi", {
+      initiate: { login: "jdoe", password: "secret" },
+      invalidInitiate: { login: "", password: "x".repeat(101) },
+    }),
+    post("/api/amundi/auth/complete", { processId: "p-1" }, { expect: 422, note: "an app push carries no code" }),
+    post("/api/amundi/auth/complete", { processId: "p-1", code: "12" }, { expect: 422 }),
+    storedSession("AMUNDI", { active: false, status: "FAILED", error: "CAPTCHA_BLOCKED" }),
+    get("/api/amundi/status", { expect: 200 }),
+    post("/api/amundi/sync", undefined, { expect: 422 }),
+    sql("session queued", `UPDATE sidecar_session SET is_active = true, sync_status = 'QUEUED', last_sync_error = NULL WHERE bank = 'AMUNDI'`),
+    post("/api/amundi/sync", undefined, { expect: 202 }),
+    get("/api/amundi/status", { expect: 200 }),
+  ],
+};
+
+export const scenarios = [bourseDirect, amundi];

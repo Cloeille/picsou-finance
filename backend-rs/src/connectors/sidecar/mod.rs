@@ -4,7 +4,11 @@
 pub mod base_url;
 pub mod client;
 pub mod error;
+pub mod flow;
 pub mod jobs;
+pub mod pending;
+pub mod plans;
+pub mod portfolio;
 pub mod session;
 pub mod template;
 pub mod web;

@@ -14,18 +14,18 @@ use serde_json::json;
 use sqlx::PgConnection;
 
 use crate::AppState;
+use crate::connectors::sidecar::portfolio::{self, PortfolioAccount};
 use crate::connectors::sidecar::template::error;
 use crate::connectors::sidecar::{
     AuthInitResponse, JobResult, SessionStatusResponse, SidecarClient, SidecarInitiate,
     SidecarSession, SidecarSessionState, SyncError, SyncJob, SyncStrategy, SyncTemplate,
 };
 use crate::error::{AppError, AppResult};
-use crate::ledger::accounts::{self, NewAccount};
+use crate::ledger::members;
 use crate::ledger::model::{AccountType, HoldingDraft};
 use crate::ledger::providers::BOURSE_DIRECT as PROVIDER;
 use crate::ledger::sidecar::{SidecarBank, SidecarErrorCode, SourceSyncResult};
 use crate::ledger::sync_values::{clean, limit, money_close, sum_complete, weighted_average};
-use crate::ledger::{holdings, members, snapshots};
 
 const BANK: SidecarBank = SidecarBank::BourseDirect;
 const AUTH_TIMEOUT: Duration = Duration::from_secs(45);
@@ -466,48 +466,6 @@ async fn upsert_account(
     member_id: i64,
     synced_at: DateTime<Utc>,
 ) -> JobResult<()> {
-    let now = state.clock.now();
-    let existing =
-        accounts::find_by_external_id_and_member(&mut *conn, &data.external_id, member_id).await?;
-    let saved = match existing {
-        Some(mut account) => {
-            account.name = data.name.clone();
-            account.account_type = data.account_type;
-            account.provider = Some(PROVIDER.to_owned());
-            account.currency = "EUR".to_owned();
-            account.is_manual = false;
-            account.current_balance = data.balance_eur;
-            account.cash_balance = Some(data.cash_balance);
-            account.last_synced_at = Some(synced_at);
-            accounts::update(&mut *conn, &account, now).await?
-        }
-        None => {
-            if accounts::exists_soft_deleted_by_external_id(
-                &mut *conn,
-                &data.external_id,
-                member_id,
-            )
-            .await?
-            {
-                tracing::info!("Bourse Direct skipped a soft-deleted account (member={member_id})");
-                return Ok(());
-            }
-            let mut draft = NewAccount::new(member_id, data.name.clone(), data.account_type);
-            draft.external_account_id = Some(data.external_id.clone());
-            draft.provider = Some(PROVIDER.to_owned());
-            draft.is_manual = false;
-            draft.color = if data.account_type == AccountType::Pea {
-                "#10b981"
-            } else {
-                "#3b82f6"
-            }
-            .to_owned();
-            draft.current_balance = data.balance_eur;
-            draft.cash_balance = Some(data.cash_balance);
-            draft.last_synced_at = Some(synced_at);
-            accounts::insert(&mut *conn, &draft, now).await?
-        }
-    };
     let drafts: Vec<HoldingDraft> = data
         .positions
         .iter()
@@ -524,16 +482,21 @@ async fn upsert_account(
             ..HoldingDraft::default()
         })
         .collect();
-    holdings::replace_all(&mut *conn, saved.id, &drafts, now).await?;
-    snapshots::upsert(
-        &mut *conn,
-        saved.id,
-        data.balance_eur,
-        data.invested_amount_eur,
-        state.clock.today(),
-        now,
-    )
-    .await?;
+    let account = PortfolioAccount {
+        external_id: &data.external_id,
+        name: &data.name,
+        account_type: data.account_type,
+        provider: PROVIDER,
+        color: if data.account_type == AccountType::Pea {
+            "#10b981"
+        } else {
+            "#3b82f6"
+        },
+        balance_eur: data.balance_eur,
+        cash_balance: Some(data.cash_balance),
+        invested_eur: data.invested_amount_eur,
+    };
+    portfolio::write(state, conn, member_id, &account, &drafts, synced_at).await?;
     Ok(())
 }
 
