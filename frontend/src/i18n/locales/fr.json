@@ -1397,7 +1397,10 @@
       },
       "errors": {
         "humanVerificationRequired": "Revolut vous demande de prouver que vous êtes humain (captcha), ce que Picsou ne peut pas faire à votre place. La connexion ne peut pas continuer. Réessayez plus tard.",
-        "upstreamFormatChanged": "La connexion n'a pas abouti. Vérifiez votre numéro de téléphone et réessayez."
+        "upstreamFormatChanged": "La connexion n'a pas abouti. Vérifiez votre numéro de téléphone et réessayez.",
+        "authAttemptExpired": "La tentative de connexion a expiré. Recommencez la connexion.",
+        "sessionExpired": "Votre session Revolut a expiré. Veuillez vous reconnecter.",
+        "serverError": "Impossible de joindre Revolut. Veuillez réessayer."
       },
       "selection": {
         "title": "Choisissez les comptes à importer",
@@ -1407,6 +1410,14 @@
         "alreadyImported": "Déjà importé",
         "transactions": "{{count}} transactions",
         "allImported": "Tous vos comptes Revolut sont déjà importés."
+      },
+      "webview": {
+        "hint": "Connectez-vous directement sur le portail officiel Revolut dans une fenêtre dédiée. Picsou ne voit jamais vos identifiants.",
+        "connect": "Se connecter sur Revolut",
+        "reconnect": "Reconnecter Revolut",
+        "waiting": "Connectez-vous dans la fenêtre Revolut qui vient de s’ouvrir…",
+        "waitingHint": "Saisissez vos identifiants et approuvez la connexion sur votre téléphone directement sur le site Revolut. La fenêtre se fermera automatiquement une fois la connexion établie.",
+        "fetching": "Connexion réussie, récupération de vos comptes…"
       }
     },
     "ibkr": {
@@ -2233,7 +2244,15 @@
       },
       "historyLimit": "AMEX limite l'historique aux transactions exposées par son API ; les plus anciennes peuvent être indisponibles.",
       "recoverHistory": "Récupérer l’historique disponible",
-      "recoveringHistory": "Récupération de l’historique…"
+      "recoveringHistory": "Récupération de l’historique…",
+      "webview": {
+        "hint": "Connectez-vous directement sur le portail officiel American Express dans une fenêtre dédiée. Picsou ne voit jamais vos identifiants.",
+        "connect": "Se connecter sur American Express",
+        "reconnect": "Reconnecter American Express",
+        "waiting": "Connectez-vous dans la fenêtre American Express qui vient de s’ouvrir…",
+        "waitingHint": "Saisissez vos identifiants et validez la vérification en deux étapes directement sur le site American Express. La fenêtre se fermera automatiquement une fois la connexion établie.",
+        "fetching": "Connexion réussie, récupération de vos comptes…"
+      }
     },
     "fortuneo": {
       "title": "Fortuneo",

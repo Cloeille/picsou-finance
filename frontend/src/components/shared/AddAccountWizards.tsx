@@ -25,7 +25,7 @@ import {
 } from '@/components/sync/FinaryImportSteps'
 import { useFinaryImport } from '@/features/sync/use-finary-import'
 import { RevolutCredentialsForm, type RevolutCredentials } from '@/components/sync/RevolutCredentialsForm'
-import { useRevolutDiscovery } from '@/features/sync/use-revolut-discovery'
+import { useRevolutDiscovery, useRevolutWebview } from '@/features/sync/use-revolut-discovery'
 import { RevolutSelectionCard } from '@/components/sync/RevolutSelectionCard'
 import { revolutPhaseLabel } from '@/features/sync/revolut-phase'
 import {
@@ -170,13 +170,23 @@ export function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: 
   const { data: status } = useRevolutStatus()
   const confirmSync = useConfirmRevolutSync()
 
-  const { errorMsg, setErrorMsg, isSyncing, progress, startPending, startDiscovery } = useRevolutDiscovery({
+  const { errorMsg, setErrorMsg, isSyncing, progress, startPending, startDiscovery, attachDiscovery } = useRevolutDiscovery({
     onStart: () => setResultReady(false),
     onFinished: () => setResultReady(true),
   })
 
+  const { webviewState, webviewInProgress, webviewStarting, startWebview, cancelWebview } = useRevolutWebview({
+    onStart: () => {
+      setErrorMsg(null)
+      setResultReady(false)
+    },
+    onSyncing: () => attachDiscovery(),
+    onError: (msg) => setErrorMsg(msg),
+  })
+
   const remembered = status?.remembered ?? false
-  const busy = isSyncing || startPending
+  const webviewSupported = status?.webviewLoginSupported === true
+  const busy = isSyncing || startPending || webviewStarting || webviewInProgress
 
   function handleQuickSync() {
     startDiscovery({})
@@ -220,6 +230,27 @@ export function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: 
           </AlertBanner>
         )}
 
+        {webviewInProgress && (
+          <div className="flex items-center gap-3 rounded-lg bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+            <CircleNotch className="size-4 animate-spin shrink-0" />
+            <div className="flex-1 space-y-0.5">
+              <p className="text-foreground">
+                {webviewState === 'FETCHING'
+                  ? t('sync.revolut.webview.fetching')
+                  : t('sync.revolut.webview.waiting')}
+              </p>
+              {webviewState === 'WAITING' && (
+                <p className="text-xs text-muted-foreground">{t('sync.revolut.webview.waitingHint')}</p>
+              )}
+            </div>
+            {webviewState === 'WAITING' && (
+              <Button type="button" variant="outline" size="sm" onClick={cancelWebview}>
+                {t('common.cancel')}
+              </Button>
+            )}
+          </div>
+        )}
+
         {isSyncing && (
           <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
             <CircleNotch className="size-4 animate-spin shrink-0" />
@@ -235,8 +266,16 @@ export function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: 
           />
         )}
 
-        {!resultReady && (
-          remembered ? (
+        {!resultReady && !webviewInProgress && (
+          webviewSupported ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">{t('sync.revolut.webview.hint')}</p>
+              <Button type="button" onClick={() => void startWebview()} disabled={busy} className="w-full">
+                {webviewStarting ? <CircleNotch className="size-4 animate-spin" /> : <ArrowsClockwise className="size-4" />}
+                {webviewStarting ? t('sync.revolut.syncing') : t('sync.revolut.webview.connect')}
+              </Button>
+            </div>
+          ) : remembered ? (
             <Button onClick={handleQuickSync} disabled={busy} className="w-full">
               {busy ? <CircleNotch className="size-4 animate-spin" /> : <ArrowsClockwise className="size-4" />}
               {busy ? t('sync.revolut.syncing') : t('sync.revolut.sync')}

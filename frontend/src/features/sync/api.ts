@@ -42,6 +42,9 @@ import type {
   BnpWebviewStatusResponse,
   BnpWebviewCancelResponse,
   RevolutSessionStatus,
+  RevolutWebviewStartResponse,
+  RevolutWebviewStatusResponse,
+  RevolutWebviewCancelResponse,
   SyncProgress,
   BourseDirectSessionStatus,
   BourseDirectAuthInitResponse,
@@ -58,6 +61,9 @@ import type {
   AmexSessionStatus,
   AmexAuthInitResponse,
   AmexOtpMethod,
+  AmexWebviewStartResponse,
+  AmexWebviewStatusResponse,
+  AmexWebviewCancelResponse,
   FortuneoSessionStatus,
   FortuneoAuthInitResponse,
   CorumSessionStatus,
@@ -430,6 +436,22 @@ export const revolutApi = {
 
   clearSession: () =>
     api.delete('/revolut/session'),
+
+  /** Picsou Desktop only: opens a native OS WebView directly on app.revolut.com. */
+  startWebview: () =>
+    api.post<RevolutWebviewStartResponse>('/revolut/webview/start').then(r => r.data),
+
+  getWebviewStatus: (processId: string) =>
+    api
+      .get<RevolutWebviewStatusResponse>(`/revolut/webview/status/${encodeURIComponent(processId)}`, {
+        skipGlobalErrorRedirect: true,
+      })
+      .then(r => r.data),
+
+  cancelWebview: (processId: string) =>
+    api
+      .post<RevolutWebviewCancelResponse>(`/revolut/webview/cancel/${encodeURIComponent(processId)}`)
+      .then(r => r.data),
 }
 
 // --- DEGIRO ---
@@ -537,6 +559,22 @@ export const amexApi = {
       .then(r => r.data),
 
   clearSession: () => api.delete('/amex/session'),
+
+  /** Picsou Desktop only: opens a native OS WebView directly on American Express's login page. */
+  startWebview: () =>
+    api.post<AmexWebviewStartResponse>('/amex/webview/start').then(r => r.data),
+
+  getWebviewStatus: (processId: string) =>
+    api
+      .get<AmexWebviewStatusResponse>(`/amex/webview/status/${encodeURIComponent(processId)}`, {
+        skipGlobalErrorRedirect: true,
+      })
+      .then(r => r.data),
+
+  cancelWebview: (processId: string) =>
+    api
+      .post<AmexWebviewCancelResponse>(`/amex/webview/cancel/${encodeURIComponent(processId)}`)
+      .then(r => r.data),
 }
 
 // --- Fortuneo ---

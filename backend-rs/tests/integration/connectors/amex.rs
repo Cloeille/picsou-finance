@@ -687,3 +687,154 @@ async fn the_scheduler_entry_reports_queued_or_not_connected() {
     assert_eq!(queued.status, SyncStatus::Queued);
     assert_eq!(queued.source, "amex");
 }
+
+#[tokio::test]
+async fn webview_endpoints_are_desktop_only_and_drive_full_sync_on_desktop() {
+    // Web/Docker mode (PICSOU_DESKTOP unset): status omits webviewLoginSupported and routes 404.
+    let sidecar = MockServer::start().await;
+    let web_app = app_with_sidecar(URL, &sidecar).await;
+    let (web_client, _) = admin(&web_app).await;
+    let web_st = status(&web_client).await;
+    assert!(web_st.get("webviewLoginSupported").is_none());
+    assert_eq!(
+        web_client
+            .post("/api/amex/webview/start")
+            .send()
+            .await
+            .status,
+        404
+    );
+
+    // Desktop mode (PICSOU_DESKTOP=true): status advertises webviewLoginSupported = true.
+    let desktop_app = picsou::testing::TestApp::builder()
+        .with_admin()
+        .env(URL, sidecar.uri())
+        .env("PICSOU_DESKTOP", "true")
+        .spawn()
+        .await;
+    let (client, member_id) = admin(&desktop_app).await;
+    let (other, _) = member(&desktop_app, "other-amex").await;
+    assert_eq!(status(&client).await["webviewLoginSupported"], true);
+
+    answer(
+        &sidecar,
+        "/webview/start",
+        json!({ "processId": "wv-amex-1", "status": "WAITING_LOGIN" }),
+    )
+    .await;
+    let started = client.post("/api/amex/webview/start").send().await;
+    assert_eq!(started.status, 200, "{}", started.text());
+    assert_eq!(started.header("cache-control"), Some("no-store"));
+    assert_eq!(started.json()["processId"], "wv-amex-1");
+
+    // Another member cannot poll or cancel the attempt.
+    assert_eq!(
+        other
+            .get("/api/amex/webview/status/wv-amex-1")
+            .send()
+            .await
+            .json()["code"],
+        "AUTH_ATTEMPT_EXPIRED"
+    );
+    assert_eq!(
+        other
+            .post("/api/amex/webview/cancel/wv-amex-1")
+            .send()
+            .await
+            .json()["cancelled"],
+        false
+    );
+
+    Mock::given(method("GET"))
+        .and(path("/webview/status/wv-amex-1"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "status": "WAITING_LOGIN" })),
+        )
+        .up_to_n_times(1)
+        .mount(&sidecar)
+        .await;
+    assert_eq!(
+        client
+            .get("/api/amex/webview/status/wv-amex-1")
+            .send()
+            .await
+            .json()["status"],
+        "WAITING_LOGIN"
+    );
+
+    Mock::given(method("GET"))
+        .and(path("/webview/status/wv-amex-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "DONE",
+            "sessionState": "amex-desktop-jar-1"
+        })))
+        .mount(&sidecar)
+        .await;
+    answer(
+        &sidecar,
+        "/accounts",
+        json!([card(
+            vec![tx("2026-01-15", "Cafe", "-4.50", "posted")],
+            true
+        )]),
+    )
+    .await;
+
+    let done = client
+        .get("/api/amex/webview/status/wv-amex-1")
+        .send()
+        .await;
+    assert_eq!(done.status, 200, "{}", done.text());
+    let done_json = done.json();
+    assert_eq!(done_json["status"], "SYNCING");
+    assert!(done_json.get("sessionState").is_none());
+
+    settle(&desktop_app).await;
+    let final_st = status(&client).await;
+    assert_eq!(final_st["isActive"], true);
+    assert_eq!(final_st["syncStatus"], "SUCCESS");
+    assert_eq!(final_st["webviewLoginSupported"], true);
+
+    let row = session_of(&desktop_app, BANK, member_id).await.unwrap();
+    assert_eq!(
+        desktop_app
+            .state
+            .crypto
+            .decrypt(&row.session_state)
+            .unwrap(),
+        "amex-desktop-jar-1"
+    );
+
+    // Cancel flow removes pending login and calls bridge cancel.
+    sidecar.reset().await;
+    answer(
+        &sidecar,
+        "/webview/start",
+        json!({ "processId": "wv-amex-2", "status": "WAITING_LOGIN" }),
+    )
+    .await;
+    answer(
+        &sidecar,
+        "/webview/cancel/wv-amex-2",
+        json!({ "cancelled": true }),
+    )
+    .await;
+    assert_eq!(
+        client.post("/api/amex/webview/start").send().await.status,
+        200
+    );
+    let cancelled = client
+        .post("/api/amex/webview/cancel/wv-amex-2")
+        .send()
+        .await;
+    assert_eq!(cancelled.status, 200);
+    assert_eq!(cancelled.json()["cancelled"], true);
+    assert_eq!(
+        client
+            .get("/api/amex/webview/status/wv-amex-2")
+            .send()
+            .await
+            .json()["code"],
+        "AUTH_ATTEMPT_EXPIRED"
+    );
+}

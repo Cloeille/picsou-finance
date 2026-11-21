@@ -1787,7 +1787,15 @@
       },
       "historyLimit": "AMEX limita el historial a las transacciones que expone su API; puede que las más antiguas no estén disponibles.",
       "recoverHistory": "Recuperar historial disponible",
-      "recoveringHistory": "Recuperando historial…"
+      "recoveringHistory": "Recuperando historial…",
+      "webview": {
+        "hint": "Inicia sesión directamente en el portal oficial de American Express en una ventana dedicada. Picsou nunca ve tus credenciales.",
+        "connect": "Conectar con American Express",
+        "reconnect": "Reconectar American Express",
+        "waiting": "Inicia sesión en la ventana de American Express que se acaba de abrir…",
+        "waitingHint": "Introduce tus credenciales y completa la verificación en dos pasos directamente en el sitio de American Express. La ventana se cerrará automáticamente al terminar.",
+        "fetching": "Sesión iniciada — recuperando tus cuentas…"
+      }
     },
     "revolut": {
       "title": "Revolut",
@@ -1809,7 +1817,10 @@
       },
       "errors": {
         "humanVerificationRequired": "Revolut te pide demostrar que eres humano (captcha) y Picsou no puede hacerlo por ti. El inicio de sesión no puede continuar. Inténtalo de nuevo más tarde.",
-        "upstreamFormatChanged": "El inicio de sesión no se completó. Comprueba tu número de teléfono e inténtalo de nuevo."
+        "upstreamFormatChanged": "El inicio de sesión no se completó. Comprueba tu número de teléfono e inténtalo de nuevo.",
+        "authAttemptExpired": "El intento de inicio de sesión ha caducado. Vuelve a intentarlo.",
+        "sessionExpired": "Tu sesión de Revolut ha caducado. Vuelve a conectarte.",
+        "serverError": "No se pudo conectar con Revolut. Inténtalo de nuevo."
       },
       "selection": {
         "title": "Choose which accounts to import",
@@ -1819,6 +1830,14 @@
         "alreadyImported": "Already imported",
         "transactions": "{{count}} transactions",
         "allImported": "All your Revolut accounts are already imported."
+      },
+      "webview": {
+        "hint": "Inicia sesión directamente en el portal oficial de Revolut en una ventana dedicada. Picsou nunca ve tus credenciales.",
+        "connect": "Conectar con Revolut",
+        "reconnect": "Reconectar Revolut",
+        "waiting": "Inicia sesión en la ventana de Revolut que se acaba de abrir…",
+        "waitingHint": "Introduce tus credenciales y aprueba el inicio de sesión en tu teléfono directamente en el sitio de Revolut. La ventana se cerrará automáticamente al terminar.",
+        "fetching": "Sesión iniciada — recuperando tus cuentas…"
       }
     },
     "corum": {

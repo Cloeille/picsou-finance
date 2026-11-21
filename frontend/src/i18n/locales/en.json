@@ -1397,7 +1397,10 @@
       },
       "errors": {
         "humanVerificationRequired": "Revolut is asking you to prove you are human (captcha), and Picsou cannot do that for you. Sign-in cannot continue. Try again later.",
-        "upstreamFormatChanged": "The sign-in didn't go through. Check your phone number and try again."
+        "upstreamFormatChanged": "The sign-in didn't go through. Check your phone number and try again.",
+        "authAttemptExpired": "The sign-in attempt expired. Please try again.",
+        "sessionExpired": "Your Revolut session has expired. Please reconnect.",
+        "serverError": "Unable to reach Revolut. Please try again."
       },
       "selection": {
         "title": "Choose which accounts to import",
@@ -1407,6 +1410,14 @@
         "alreadyImported": "Already imported",
         "transactions": "{{count}} transactions",
         "allImported": "All your Revolut accounts are already imported."
+      },
+      "webview": {
+        "hint": "Sign in directly on the official Revolut web app in a dedicated window. Picsou never sees your credentials.",
+        "connect": "Sign in to Revolut",
+        "reconnect": "Reconnect Revolut",
+        "waiting": "Sign in using the Revolut window that just opened…",
+        "waitingHint": "Enter your credentials and approve the sign-in on your phone directly on Revolut’s site. The window closes automatically once signed in.",
+        "fetching": "Signed in — fetching your accounts…"
       }
     },
     "ibkr": {
@@ -2233,6 +2244,14 @@
         "formatChanged": "The American Express website format has changed. Your existing data has been preserved.",
         "invalidData": "American Express returned inconsistent data. Your existing data has been preserved.",
         "serverError": "Unable to reach American Express. Please try again."
+      },
+      "webview": {
+        "hint": "Sign in directly on the official American Express portal in a dedicated window. Picsou never sees your credentials.",
+        "connect": "Sign in to American Express",
+        "reconnect": "Reconnect American Express",
+        "waiting": "Sign in using the American Express window that just opened…",
+        "waitingHint": "Enter your credentials and complete two-step verification directly on American Express’s site. The window closes automatically once signed in.",
+        "fetching": "Signed in — fetching your accounts…"
       }
     },
     "fortuneo": {

@@ -1,12 +1,16 @@
 //! Reusable native Tauri WebView bank connector bridge (`127.0.0.1` loopback HTTP).
 //!
-//! Hosts interactive WebView bank connectors inside `picsou-desktop` (starting with BNP Paribas /
-//! Hello bank!, ready for Amex/Revolut next). Every route except `GET /health` and the
-//! per-process bearer-authenticated `POST /webview/callback/{processId}` requires the shared
+//! Hosts interactive WebView bank connectors inside `picsou-desktop` for BNP Paribas / Hello bank!,
+//! American Express, and Revolut. Every route except health checks and BNP's per-process
+//! bearer-authenticated `POST /webview/callback/{processId}` requires the shared
 //! `X-Picsou-Sidecar-Key` (`APP_SIDECAR_API_KEY`) verified in constant time.
 
+pub mod amex;
+pub mod amex_parsers;
 pub mod bnp;
 pub mod bnp_parsers;
+pub mod revolut;
+pub mod revolut_parsers;
 
 use std::io;
 use std::net::TcpListener;
@@ -24,10 +28,12 @@ use tauri::AppHandle;
 use tokio::sync::oneshot;
 
 use crate::supervisor::LOOPBACK;
+use amex::AmexWebviewManager;
 use bnp::{ApiError, BnpWebviewManager};
+use revolut::RevolutWebviewManager;
 
 /// Sidecar services natively served by this WebView bridge on Desktop (removed from unavailable).
-pub const PROVIDED_SERVICES: &[&str] = &["bnp-auth"];
+pub const PROVIDED_SERVICES: &[&str] = &["bnp-auth", "amex-auth", "revolut-auth"];
 
 const API_KEY_HEADER: &str = "X-Picsou-Sidecar-Key";
 const AUTH_CHALLENGE: &str = "Picsou-Sidecar-Key";
@@ -36,6 +42,8 @@ struct BridgeState {
     app: AppHandle,
     api_key: String,
     bnp: Arc<BnpWebviewManager>,
+    amex: Arc<AmexWebviewManager>,
+    revolut: Arc<RevolutWebviewManager>,
 }
 
 /// Running loopback WebView bridge; dropping or calling `stop` shuts down the HTTP server and
@@ -44,6 +52,8 @@ pub struct WebviewBridge {
     url: String,
     app: AppHandle,
     bnp: Arc<BnpWebviewManager>,
+    amex: Arc<AmexWebviewManager>,
+    revolut: Arc<RevolutWebviewManager>,
     shutdown: Option<oneshot::Sender<()>>,
 }
 
@@ -52,8 +62,18 @@ impl WebviewBridge {
         &self.url
     }
 
+    pub fn amex_url(&self) -> String {
+        format!("{}/amex", self.url)
+    }
+
+    pub fn revolut_url(&self) -> String {
+        format!("{}/revolut", self.url)
+    }
+
     pub fn stop(&mut self) {
         self.bnp.close_all(&self.app);
+        self.amex.close_all(&self.app);
+        self.revolut.close_all(&self.app);
         if let Some(tx) = self.shutdown.take() {
             let _ = tx.send(());
         }
@@ -67,10 +87,14 @@ pub fn start(app: AppHandle, api_key: String) -> io::Result<WebviewBridge> {
     listener.set_nonblocking(true)?;
 
     let bnp = Arc::new(BnpWebviewManager::new());
+    let amex = Arc::new(AmexWebviewManager::new());
+    let revolut = Arc::new(RevolutWebviewManager::new());
     let state = Arc::new(BridgeState {
         app: app.clone(),
         api_key,
         bnp: Arc::clone(&bnp),
+        amex: Arc::clone(&amex),
+        revolut: Arc::clone(&revolut),
     });
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
@@ -106,18 +130,41 @@ pub fn start(app: AppHandle, api_key: String) -> io::Result<WebviewBridge> {
         url: format!("http://{LOOPBACK}:{port}"),
         app,
         bnp,
+        amex,
+        revolut,
         shutdown: Some(shutdown_tx),
     })
 }
 
 fn build_router(state: Arc<BridgeState>) -> axum::Router {
     axum::Router::new()
+        // BNP Paribas / Hello bank! (root prefix for backwards compatibility)
         .route("/health", get(health))
-        .route("/webview/start", post(webview_start))
-        .route("/webview/status/{process_id}", get(webview_status))
-        .route("/webview/cancel/{process_id}", post(webview_cancel))
-        .route("/webview/callback/{process_id}", post(webview_callback))
-        .route("/accounts", post(accounts))
+        .route("/webview/start", post(bnp_webview_start))
+        .route("/webview/status/{process_id}", get(bnp_webview_status))
+        .route("/webview/cancel/{process_id}", post(bnp_webview_cancel))
+        .route("/webview/callback/{process_id}", post(bnp_webview_callback))
+        .route("/accounts", post(bnp_accounts))
+        // American Express
+        .route("/amex/health", get(health))
+        .route("/amex/webview/start", post(amex_webview_start))
+        .route("/amex/webview/status/{process_id}", get(amex_webview_status))
+        .route("/amex/webview/cancel/{process_id}", post(amex_webview_cancel))
+        .route("/amex/accounts", post(amex_accounts))
+        // Revolut
+        .route("/revolut/health", get(health))
+        .route("/revolut/webview/start", post(revolut_webview_start))
+        .route(
+            "/revolut/webview/status/{process_id}",
+            get(revolut_webview_status),
+        )
+        .route(
+            "/revolut/webview/cancel/{process_id}",
+            post(revolut_webview_cancel),
+        )
+        .route("/revolut/sync", post(revolut_sync))
+        .route("/revolut/progress/{member_id}", get(revolut_progress))
+        .route("/revolut/accounts", post(revolut_accounts))
         .with_state(state)
 }
 
@@ -146,13 +193,19 @@ fn error_response(err: ApiError) -> Response {
     (err.status, Json(json!({ "detail": err.detail }))).into_response()
 }
 
+fn revolut_error_response(err: ApiError) -> Response {
+    (err.status, Json(json!({ "error": err.detail }))).into_response()
+}
+
 async fn health() -> impl IntoResponse {
     Json(json!({ "status": "ok", "webview": true }))
 }
 
+// ─── BNP routes ──────────────────────────────────────────────────────────────
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct StartRequest {
+struct BnpStartRequest {
     #[serde(default = "default_brand")]
     brand: String,
 }
@@ -161,10 +214,10 @@ fn default_brand() -> String {
     "bnp".to_owned()
 }
 
-async fn webview_start(
+async fn bnp_webview_start(
     State(state): State<Arc<BridgeState>>,
     headers: HeaderMap,
-    Json(body): Json<StartRequest>,
+    Json(body): Json<BnpStartRequest>,
 ) -> Response {
     if !sidecar_key_valid(&headers, &state.api_key) {
         return unauthorized_response();
@@ -175,7 +228,7 @@ async fn webview_start(
     }
 }
 
-async fn webview_status(
+async fn bnp_webview_status(
     State(state): State<Arc<BridgeState>>,
     headers: HeaderMap,
     Path(process_id): Path<String>,
@@ -189,7 +242,7 @@ async fn webview_status(
     }
 }
 
-async fn webview_cancel(
+async fn bnp_webview_cancel(
     State(state): State<Arc<BridgeState>>,
     headers: HeaderMap,
     Path(process_id): Path<String>,
@@ -201,7 +254,7 @@ async fn webview_cancel(
     (StatusCode::OK, Json(json!({ "cancelled": cancelled }))).into_response()
 }
 
-async fn webview_callback(
+async fn bnp_webview_callback(
     State(state): State<Arc<BridgeState>>,
     headers: HeaderMap,
     Path(process_id): Path<String>,
@@ -220,14 +273,14 @@ async fn webview_callback(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct AccountsRequest {
+struct BnpAccountsRequest {
     session_state: String,
 }
 
-async fn accounts(
+async fn bnp_accounts(
     State(state): State<Arc<BridgeState>>,
     headers: HeaderMap,
-    Json(body): Json<AccountsRequest>,
+    Json(body): Json<BnpAccountsRequest>,
 ) -> Response {
     if !sidecar_key_valid(&headers, &state.api_key) {
         return unauthorized_response();
@@ -236,6 +289,181 @@ async fn accounts(
         Ok(reply) => (StatusCode::OK, Json(reply)).into_response(),
         Err(err) => error_response(err),
     }
+}
+
+// ─── Amex routes ─────────────────────────────────────────────────────────────
+
+async fn amex_webview_start(
+    State(state): State<Arc<BridgeState>>,
+    headers: HeaderMap,
+) -> Response {
+    if !sidecar_key_valid(&headers, &state.api_key) {
+        return unauthorized_response();
+    }
+    match state.amex.start_login(state.app.clone()).await {
+        Ok(reply) => (StatusCode::OK, Json(reply)).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+async fn amex_webview_status(
+    State(state): State<Arc<BridgeState>>,
+    headers: HeaderMap,
+    Path(process_id): Path<String>,
+) -> Response {
+    if !sidecar_key_valid(&headers, &state.api_key) {
+        return unauthorized_response();
+    }
+    match state.amex.get_status(&process_id) {
+        Ok(reply) => (StatusCode::OK, Json(reply)).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+async fn amex_webview_cancel(
+    State(state): State<Arc<BridgeState>>,
+    headers: HeaderMap,
+    Path(process_id): Path<String>,
+) -> Response {
+    if !sidecar_key_valid(&headers, &state.api_key) {
+        return unauthorized_response();
+    }
+    let cancelled = state.amex.cancel(&state.app, &process_id);
+    (StatusCode::OK, Json(json!({ "cancelled": cancelled }))).into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AmexAccountsRequest {
+    session_state: String,
+    #[serde(default)]
+    history: bool,
+}
+
+async fn amex_accounts(
+    State(state): State<Arc<BridgeState>>,
+    headers: HeaderMap,
+    Json(body): Json<AmexAccountsRequest>,
+) -> Response {
+    if !sidecar_key_valid(&headers, &state.api_key) {
+        return unauthorized_response();
+    }
+    match state.amex.accounts(&body.session_state, body.history).await {
+        Ok(reply) => (StatusCode::OK, Json(reply)).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+// ─── Revolut routes ──────────────────────────────────────────────────────────
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+struct RevolutStartRequest {
+    member_id: String,
+}
+
+async fn revolut_webview_start(
+    State(state): State<Arc<BridgeState>>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    if !sidecar_key_valid(&headers, &state.api_key) {
+        return unauthorized_response();
+    }
+    let req: RevolutStartRequest = if body.iter().all(u8::is_ascii_whitespace) {
+        RevolutStartRequest::default()
+    } else {
+        match serde_json::from_slice(&body) {
+            Ok(parsed) => parsed,
+            Err(_) => {
+                return error_response(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "INVALID_REQUEST",
+                ));
+            }
+        }
+    };
+    match state
+        .revolut
+        .start_login(state.app.clone(), &req.member_id)
+        .await
+    {
+        Ok(reply) => (StatusCode::OK, Json(reply)).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+async fn revolut_webview_status(
+    State(state): State<Arc<BridgeState>>,
+    headers: HeaderMap,
+    Path(process_id): Path<String>,
+) -> Response {
+    if !sidecar_key_valid(&headers, &state.api_key) {
+        return unauthorized_response();
+    }
+    match state.revolut.get_status(&process_id) {
+        Ok(reply) => (StatusCode::OK, Json(reply)).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+async fn revolut_webview_cancel(
+    State(state): State<Arc<BridgeState>>,
+    headers: HeaderMap,
+    Path(process_id): Path<String>,
+) -> Response {
+    if !sidecar_key_valid(&headers, &state.api_key) {
+        return unauthorized_response();
+    }
+    let cancelled = state.revolut.cancel(&state.app, &process_id);
+    (StatusCode::OK, Json(json!({ "cancelled": cancelled }))).into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RevolutSyncRequest {
+    #[serde(default)]
+    member_id: String,
+}
+
+async fn revolut_sync(
+    State(state): State<Arc<BridgeState>>,
+    headers: HeaderMap,
+    Json(body): Json<RevolutSyncRequest>,
+) -> Response {
+    if !sidecar_key_valid(&headers, &state.api_key) {
+        return unauthorized_response();
+    }
+    match state.revolut.sync_member(&body.member_id).await {
+        Ok(reply) => (StatusCode::OK, Json(reply)).into_response(),
+        Err(err) => revolut_error_response(err),
+    }
+}
+
+async fn revolut_accounts(
+    State(state): State<Arc<BridgeState>>,
+    headers: HeaderMap,
+    Json(body): Json<RevolutSyncRequest>,
+) -> Response {
+    if !sidecar_key_valid(&headers, &state.api_key) {
+        return unauthorized_response();
+    }
+    match state.revolut.sync_member(&body.member_id).await {
+        Ok(reply) => (StatusCode::OK, Json(reply)).into_response(),
+        Err(err) => revolut_error_response(err),
+    }
+}
+
+async fn revolut_progress(
+    State(state): State<Arc<BridgeState>>,
+    headers: HeaderMap,
+    Path(member_id): Path<String>,
+) -> Response {
+    if !sidecar_key_valid(&headers, &state.api_key) {
+        return unauthorized_response();
+    }
+    let snap = state.revolut.get_progress(&member_id);
+    (StatusCode::OK, Json(snap)).into_response()
 }
 
 #[cfg(test)]
@@ -258,5 +486,12 @@ mod tests {
 
         headers.insert(API_KEY_HEADER, HeaderValue::from_static("secret-key"));
         assert!(sidecar_key_valid(&headers, "secret-key"));
+    }
+
+    #[test]
+    fn provided_services_covers_all_three_webview_banks() {
+        assert!(PROVIDED_SERVICES.contains(&"bnp-auth"));
+        assert!(PROVIDED_SERVICES.contains(&"amex-auth"));
+        assert!(PROVIDED_SERVICES.contains(&"revolut-auth"));
     }
 }

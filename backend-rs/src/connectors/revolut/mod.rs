@@ -7,7 +7,7 @@ pub mod progress;
 mod sync;
 
 use axum::Json as AxumJson;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
@@ -16,6 +16,7 @@ pub use progress::RevolutProgress;
 pub use sync::resync_reporting;
 
 use super::sidecar::jobs::Pool;
+use super::sidecar::keypad::no_store;
 use super::sidecar::web::consume;
 use crate::AppState;
 use crate::auth::Auth;
@@ -30,8 +31,25 @@ pub fn register(routes: &mut Routes) {
         .post("/api/revolut/sync", sync_now)
         .get("/api/revolut/sync/progress", sync_progress)
         .post("/api/revolut/sync/confirm", confirm_sync)
+        .post("/api/revolut/webview/start", webview_start)
+        .get("/api/revolut/webview/status/{processId}", webview_status)
+        .post("/api/revolut/webview/cancel/{processId}", webview_cancel)
         .get("/api/revolut/status", status)
         .delete("/api/revolut/session", disconnect);
+}
+
+const INVALID_WEBVIEW_ID: &str = "The Revolut request is not valid";
+
+fn validate_process_id(process_id: &str) -> AppResult<()> {
+    if process_id.is_empty()
+        || process_id.len() > 128
+        || !process_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        return Err(AppError::BadRequest(INVALID_WEBVIEW_ID.to_owned()));
+    }
+    Ok(())
 }
 
 const RATE_LIMITED: &str = "Too many sync attempts. Please wait before trying again.";
@@ -122,6 +140,38 @@ async fn confirm_sync(
     )
     .await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Opens an interactive OS WebView login on Picsou Desktop (never handles credentials).
+async fn webview_start(
+    State(state): State<AppState>,
+    auth: Auth,
+    ip: ClientIp,
+) -> AppResult<Response> {
+    consume(&state, &policies::REVOLUT_WEBVIEW, &ip, RATE_LIMITED)?;
+    Ok(no_store(sync::start_webview(&state, auth.member_id).await?))
+}
+
+async fn webview_status(
+    State(state): State<AppState>,
+    auth: Auth,
+    Path(process_id): Path<String>,
+) -> AppResult<Response> {
+    validate_process_id(&process_id)?;
+    Ok(no_store(
+        sync::poll_webview_status(&state, &process_id, auth.member_id, POOL).await?,
+    ))
+}
+
+async fn webview_cancel(
+    State(state): State<AppState>,
+    auth: Auth,
+    Path(process_id): Path<String>,
+) -> AppResult<Response> {
+    validate_process_id(&process_id)?;
+    Ok(no_store(
+        sync::cancel_webview(&state, &process_id, auth.member_id).await?,
+    ))
 }
 
 async fn status(

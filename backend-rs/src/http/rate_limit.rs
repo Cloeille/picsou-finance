@@ -70,6 +70,7 @@ pub mod policies {
         BANQUE_POPULAIRE_AUTH = "banquePopulaireAuthBuckets": [3 / 15];
         BANQUE_POPULAIRE_KEYPAD = "banquePopulaireKeypadBuckets": [5 / 15];
         REVOLUT_AUTH = "revolutAuthBuckets": [5 / 15];
+        REVOLUT_WEBVIEW = "revolutWebviewBuckets": [10 / 15];
         BOURSE_DIRECT_AUTH = "bourseDirectAuthBuckets": [5 / 15];
         DEGIRO_AUTH = "degiroAuthBuckets": [5 / 15];
         AMUNDI_AUTH = "amundiAuthBuckets": [5 / 15];
@@ -86,6 +87,7 @@ pub mod policies {
         GEOCODE = "geocodeBuckets": [60 / 1];
         FORTUNEO_AUTH = "fortuneoAuthBuckets": [5 / 15];
         AMEX_AUTH = "amexAuthBuckets": [5 / 15];
+        AMEX_WEBVIEW = "amexWebviewBuckets": [10 / 15];
         IBKR_SYNC = "ibkrSyncBuckets": [6 / 1];
         SIMPLEFIN_REQUEST = "simplefinRequestBuckets": [6 / 1];
         WISE_REQUEST = "wiseRequestBuckets": [6 / 1];

@@ -24,6 +24,8 @@ pub struct SessionStatusResponse {
     pub last_sync_started_at: Option<DateTime<Utc>>,
     pub last_sync_completed_at: Option<DateTime<Utc>>,
     pub last_sync_error: Option<SidecarErrorCode>,
+    /// Present and `true` only on Picsou Desktop for connectors with native OS WebView login.
+    pub webview_login_supported: Option<bool>,
 }
 
 impl SessionStatusResponse {
@@ -35,6 +37,7 @@ impl SessionStatusResponse {
             last_sync_started_at: None,
             last_sync_completed_at: None,
             last_sync_error: None,
+            webview_login_supported: None,
         }
     }
 
@@ -46,7 +49,13 @@ impl SessionStatusResponse {
             last_sync_started_at: session.last_sync_started_at,
             last_sync_completed_at: session.last_sync_completed_at,
             last_sync_error: session.last_sync_error,
+            webview_login_supported: None,
         }
+    }
+
+    pub fn with_webview_supported(mut self, supported: bool) -> Self {
+        self.webview_login_supported = supported.then_some(true);
+        self
     }
 }
 
