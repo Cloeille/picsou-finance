@@ -72,6 +72,8 @@ pub struct Inner {
     pub desktop_info: bool,
     /// The ledger's plug-in points (prices, connection locks, merchant knowledge base).
     pub ledger: ledger::Ledger,
+    /// The import preview stores (track T7).
+    pub transfer: transfer::Transfer,
 }
 
 impl Deref for AppState {
@@ -98,6 +100,7 @@ impl AppState {
         Ok(Self(Arc::new(Inner {
             jwt: Jwt::new(&config.jwt, clock.clone())?,
             limits: RateLimiter::new(clock.clone()),
+            transfer: transfer::Transfer::new(&clock),
             crypto,
             http,
             clock,
