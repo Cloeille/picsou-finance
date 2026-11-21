@@ -350,6 +350,8 @@ pub struct Seams {
     pub symbol_catalog: Arc<dyn SymbolCatalog>,
     pub bank_logos: Arc<dyn BankLogos>,
     pub scpi_funds: Arc<dyn ScpiFunds>,
+    /// SyncProgressService of the Revolut discovery (RevolutController).
+    pub revolut_progress: Arc<crate::connectors::revolut::RevolutProgress>,
 }
 
 impl Seams {
@@ -362,6 +364,7 @@ impl Seams {
             symbol_catalog: Arc::new(NoSymbolCatalog),
             bank_logos: Arc::new(NoBankLogos),
             scpi_funds: Arc::new(super::corum::scpi_funds::RecordedScpiFunds),
+            revolut_progress: Arc::default(),
         }
     }
 }
