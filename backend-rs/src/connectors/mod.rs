@@ -62,6 +62,8 @@ pub struct Connectors {
     /// CMES and CIC logins waiting for their second factor.
     pub cmes_logins: PendingLogins,
     pub cic_logins: PendingLogins,
+    /// Natixis logins waiting for their code (no credentials are kept).
+    pub natixis_logins: PendingLogins,
 }
 
 impl Connectors {
@@ -84,6 +86,7 @@ impl Connectors {
             seams: Seams::new(db),
             cmes_logins: PendingLogins::default(),
             cic_logins: PendingLogins::default(),
+            natixis_logins: PendingLogins::default(),
         })
     }
 

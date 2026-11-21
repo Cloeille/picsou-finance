@@ -74,6 +74,15 @@ impl PendingLogins {
         self.inner().pending.remove(process_id);
     }
 
+    pub fn member_process_ids(&self, member_id: i64) -> Vec<String> {
+        self.inner()
+            .pending
+            .iter()
+            .filter(|(_, p)| p.member_id == member_id)
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
     /// A disconnect: bumps the generation and drops the member's pending logins.
     pub fn forget_member(&self, member_id: i64) {
         let mut inner = self.inner();

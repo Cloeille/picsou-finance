@@ -8,6 +8,7 @@ use chrono::{DateTime, Utc};
 use regex::Regex;
 use rust_decimal::Decimal;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 
 use super::error::SyncError;
 use super::template::error;
@@ -17,6 +18,7 @@ use crate::ledger::sidecar::SidecarErrorCode;
 use crate::ledger::sync_values::{clean, limit, money_close, sum_complete, weighted_average};
 
 const MAX_TICKER_LENGTH: usize = 30;
+const LABEL_HASH_LENGTH: usize = 8;
 
 static ISIN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new("^[A-Z]{2}[A-Z0-9]{9}[0-9]$").expect("regex"));
@@ -35,6 +37,10 @@ pub struct PlanRules {
     pub fund_code_prefix: Option<&'static str>,
     /// Whether a merged line left with neither units nor value is dropped (Amundi).
     pub drops_empty_merged_lines: bool,
+    /// Whether an empty plan list is a valid answer (Natixis) rather than a short scrape.
+    pub allows_no_plan: bool,
+    /// Whether a label-keyed fund gets a hash of its label, so two truncated labels stay apart.
+    pub hashes_label_fallback: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -272,7 +278,41 @@ impl PlanRules {
                 None => code,
             });
         }
-        slug(position.label.as_deref()).ok_or_else(|| self.invalid("a fund without any identifier"))
+        let label = slug(position.label.as_deref())
+            .ok_or_else(|| self.invalid("a fund without any identifier"))?;
+        if !self.hashes_label_fallback {
+            return Ok(label);
+        }
+        let digest = Sha256::digest(
+            clean(position.label.as_deref())
+                .unwrap_or_default()
+                .as_bytes(),
+        );
+        let hash = hex::encode_upper(digest)[..LABEL_HASH_LENGTH].to_owned();
+        let room = MAX_TICKER_LENGTH - LABEL_HASH_LENGTH - 1;
+        let prefix = if label.len() <= room {
+            label
+        } else {
+            label[..room].trim_end_matches('-').to_owned()
+        };
+        Ok(format!("{prefix}-{hash}"))
+    }
+
+    /// The ticker an operation's fund resolves to, as its position would (no ISIN on operations).
+    pub fn operation_ticker(
+        &self,
+        fund_code: Option<&str>,
+        fund_label: Option<&str>,
+    ) -> Result<String, SyncError> {
+        self.resolve_ticker(&Position {
+            isin: None,
+            fund_code: fund_code.map(str::to_owned),
+            label: fund_label.map(str::to_owned),
+            quantity: None,
+            unit_value: None,
+            value_eur: None,
+            pnl_eur: None,
+        })
     }
 }
 

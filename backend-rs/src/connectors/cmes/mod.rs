@@ -58,6 +58,8 @@ const RULES: PlanRules = PlanRules {
     default_name: "Épargne salariale",
     fund_code_prefix: Some("CMES-"),
     drops_empty_merged_lines: false,
+    allows_no_plan: false,
+    hashes_label_fallback: false,
 };
 
 static CODE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\d{4,8}$").expect("regex"));

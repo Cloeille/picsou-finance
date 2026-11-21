@@ -200,6 +200,8 @@ const RULES: PlanRules = PlanRules {
     default_name: "Amundi",
     fund_code_prefix: None,
     drops_empty_merged_lines: true,
+    allows_no_plan: false,
+    hashes_label_fallback: false,
 };
 
 pub struct Strategy;

@@ -440,3 +440,24 @@ pub async fn mark_interrupted_failed<'e>(
     .await?
     .rows_affected())
 }
+
+/// markInterruptedSyncsFailedBefore: only rows not touched since `stale_before`, since a live job
+/// keeps updating its row.
+pub async fn mark_interrupted_failed_before<'e>(
+    db: impl PgExecutor<'e>,
+    bank: SidecarBank,
+    completed_at: DateTime<Utc>,
+    stale_before: DateTime<Utc>,
+) -> sqlx::Result<u64> {
+    Ok(sqlx::query(
+        "UPDATE sidecar_session SET sync_status = 'FAILED', last_sync_completed_at = $2, \
+         last_sync_error = 'INTERNAL_ERROR' WHERE bank = $1 AND sync_status IN ('QUEUED', 'RUNNING') \
+         AND updated_at < $3",
+    )
+    .bind(bank.as_str())
+    .bind(completed_at)
+    .bind(stale_before)
+    .execute(db)
+    .await?
+    .rows_affected())
+}
