@@ -2,4 +2,5 @@
 
 mod account_export;
 mod csv_import;
+mod finary;
 mod support;

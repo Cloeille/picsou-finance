@@ -75,6 +75,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 zip = { version = "9.8.1", default-features = false, features = ["deflate"] }
 pbkdf2 = "0.13.0"
 flate2 = "1.1.11"
+num-bigint = "0.5.1"
 
 [dev-dependencies]
 wiremock = "0.6.5"
