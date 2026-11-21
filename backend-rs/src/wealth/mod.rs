@@ -3,10 +3,12 @@
 pub mod dividends;
 pub mod goals;
 pub mod history;
+pub mod params;
 pub mod peer_loans;
 pub mod real_estate;
 pub mod savings;
 pub mod scpi;
+pub mod validation;
 
 use std::sync::Arc;
 

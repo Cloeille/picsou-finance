@@ -81,7 +81,8 @@ impl Errors {
         }
     }
 
-    fn default_message(&self, english: &str, french: &str) -> String {
+    /// Hibernate Validator's default message in the request's language.
+    pub fn default_message(&self, english: &str, french: &str) -> String {
         match self.lang {
             Lang::English => english.to_owned(),
             Lang::French => french.to_owned(),
