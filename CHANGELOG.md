@@ -42,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Profile photo upload now works under the production CSP.** `resizeProfilePhoto` read uploaded images via a `blob:` URL (`URL.createObjectURL`), which Spring Boot's production `Content-Security-Policy` (`img-src 'self' data: https:`) blocked — causing valid PNG, JPEG and WebP files to fail with an "invalid image" error. It now reads files through `FileReader.readAsDataURL` so uploads comply with the strict CSP without weakening it.
+- **Account reorder controls no longer overlap account type badges.** In `/accounts` reorder mode ("Réorganiser"), the move-up, move-down and collapse buttons floated over the top-right corner of each card and collided with badges like "Compte titres" or "Compte courant". They now sit inside an in-flow hairline `CardFooter` bar at the bottom of `AccountCard`, keeping titles, badges and card heights cleanly aligned across the grid.
 - **American Express login no longer stalls behind the cookie banner.** When the consent banner
   showed up after the login form, it blocked the sign-in click and the connection failed with
   "Impossible de joindre American Express". It is now declined whenever it appears (#568).
