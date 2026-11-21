@@ -194,6 +194,29 @@ title as a length, form ids and field names and types, a few element ids. Names 
 Compose: profile `bnp` (or `all-connectors`), service `bnp-auth` on the `sidecar-camoufox` base; Helm:
 `bnp-auth` in `charts/picsou/values.yaml` (`BNP_AUTH_URL`).
 
+### Picsou Desktop (native WebView)
+
+On Picsou Desktop (`PICSOU_DESKTOP=true`), `picsou-desktop` hosts an embedded loopback WebView bridge
+(`desktop/src-tauri/src/webview_bank/`, bound strictly to `127.0.0.1` and authenticated with
+`X-Picsou-Sidecar-Key`) wired as `BNP_AUTH_URL`. Instead of driving Camoufox or showing a keypad in
+Picsou:
+
+1. `GET /api/bnp/status` advertises `webviewLoginSupported: true`.
+2. Clicking **Sign in to BNP Paribas / Hello bank!** calls `POST /api/bnp/webview/start`, which opens
+   an incognito native OS `WebviewWindow` (`WKWebView` on macOS, `WebView2` on Windows, `WebKitGTK` on
+   Linux) directly on the bank's official login URL (`mabanque.bnpparibas/auth/login` or
+   `www.hellobank.fr/auth/login?requiredDAC=3`).
+3. The member signs in directly on the bank's portal (customer number, keypad, Clé Digitale / SMS);
+   Picsou never intercepts or reads credentials.
+4. Once `InfosClient` confirms the session is active on a valid bank host, read-only JSON endpoints
+   (`rib-wspl`, `getlstcpt`, `releveOp`, `pe-war`) are fetched inside that authenticated WebView,
+   normalized in Rust (`bnp_parsers.rs` with `Decimal`), cached briefly in memory, cookies are captured
+   into the encrypted `sessionState`, and the login window closes automatically.
+5. `GET /api/bnp/webview/status/{processId}` persists the encrypted session and queues the standard
+   BNP sync (`POST /accounts`), while `POST /api/bnp/webview/cancel/{processId}` (or closing the window)
+   cancels cleanly. Subsequent refreshes reuse stored cookies over HTTP and return `401 SESSION_EXPIRED`
+   once the bank's ~15-24 min idle window expires, prompting a one-click reconnect.
+
 ## Verification boundary
 
 Two owner-assisted runs exercised the connector against a real BNP Paribas account on

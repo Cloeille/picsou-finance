@@ -66,6 +66,7 @@ pub mod policies {
         BNP_AUTH = "bnpAuthBuckets": [3 / 15];
         BNP_KEYPAD = "bnpKeypadBuckets": [5 / 15];
         BNP_COMPLETE = "bnpCompleteBuckets": [10 / 15];
+        BNP_WEBVIEW = "bnpWebviewBuckets": [10 / 15];
         BANQUE_POPULAIRE_AUTH = "banquePopulaireAuthBuckets": [3 / 15];
         BANQUE_POPULAIRE_KEYPAD = "banquePopulaireKeypadBuckets": [5 / 15];
         REVOLUT_AUTH = "revolutAuthBuckets": [5 / 15];

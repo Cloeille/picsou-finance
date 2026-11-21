@@ -150,10 +150,15 @@ fn well_formed(name: &str) -> bool {
     !name.is_empty() && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
-/// The sidecars of the Docker release this desktop build does not ship (`fetch_runtime.py`).
+/// The sidecars of the Docker release this desktop build does not ship (`fetch_runtime.py`),
+/// excluding services natively served by the embedded Tauri WebView bridge.
 pub fn unavailable_services(runtime: &Path) -> Vec<String> {
     let text = std::fs::read_to_string(runtime.join("sidecars-unavailable.json")).unwrap_or_default();
-    serde_json::from_str::<Vec<String>>(&text).unwrap_or_default().into_iter().filter(|s| well_formed(s)).collect()
+    serde_json::from_str::<Vec<String>>(&text)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|s| well_formed(s) && !crate::webview_bank::PROVIDED_SERVICES.contains(&s.as_str()))
+        .collect()
 }
 
 /// `bourso-auth` → `BOURSO_AUTH_URL`, the variable `application.yml` reads.
@@ -385,7 +390,7 @@ mod tests {
         let layout = Layout { runtime: dir.join("runtime"), data: dir.join("data") };
         let env = serve(&layout, &Shared::default(), "k", IDLE).unwrap();
         assert!(env.contains(&("PICSOU_DESKTOP".to_owned(), "true".to_owned())));
-        assert!(env.contains(&("PICSOU_DESKTOP_UNAVAILABLE".to_owned(), "amex-auth,bnp-auth".to_owned())));
+        assert!(env.contains(&("PICSOU_DESKTOP_UNAVAILABLE".to_owned(), "amex-auth".to_owned())));
     }
 
     #[test]

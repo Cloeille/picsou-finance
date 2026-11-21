@@ -18,7 +18,7 @@ use picsou::clock::SystemClock;
 use picsou::config::{Config, Env};
 use tokio::sync::oneshot;
 
-use crate::{sidecars, upgrade};
+use crate::{sidecars, upgrade, webview_bank};
 
 pub const LOOPBACK: &str = "127.0.0.1";
 const DB_USER: &str = "picsou";
@@ -70,6 +70,8 @@ pub struct Stack {
     pg_ctl: Option<(PathBuf, PathBuf)>,
     /// Bank sidecars running right now, by service; `sidecars.rs` starts and stops them.
     pub sidecars: std::collections::HashMap<String, Child>,
+    /// Native Tauri WebView bank bridge (BNP Paribas / Hello bank!, etc.).
+    webview_bridge: Option<webview_bank::WebviewBridge>,
     pub stopping: bool,
 }
 
@@ -239,7 +241,7 @@ struct Backend {
 }
 
 /// Starts PostgreSQL, then the backend in this process, and returns once the backend is ready.
-pub fn start(layout: &Layout, stack: &Shared) -> Result<Ready, Failed> {
+pub fn start(layout: &Layout, stack: &Shared, app: Option<tauri::AppHandle>) -> Result<Ready, Failed> {
     let secrets = layout.secrets();
     private_dir(&layout.data).and_then(|_| private_dir(&secrets)).map_err(|e| format!("data folder: {e}"))?;
     let password = secret(&secrets.join("postgres_password")).map_err(|e| format!("database password: {e}"))?;
@@ -272,6 +274,22 @@ pub fn start(layout: &Layout, stack: &Shared) -> Result<Ready, Failed> {
         std::env::vars_os().filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?))).collect();
     env.extend(backend_env(layout, db_port, port, &password));
     env.extend(sidecars::serve(layout, stack, &sidecar_key, sidecars::IDLE).map_err(|e| format!("sidecar ports: {e}"))?);
+    if let Some(app_handle) = app {
+        let mut bridge = webview_bank::start(app_handle, sidecar_key.clone())
+            .map_err(|e| format!("webview bank bridge: {e}"))?;
+        let bridge_url = bridge.url().to_owned();
+        {
+            let mut s = stack.lock().unwrap_or_else(|e| e.into_inner());
+            if s.stopping {
+                drop(s);
+                bridge.stop();
+                return Err("Picsou is quitting".to_owned().into());
+            }
+            s.webview_bridge = Some(bridge);
+        }
+        env.push(("BNP_AUTH_URL".to_owned(), bridge_url));
+        env.push(("APP_SIDECAR_API_KEY".to_owned(), sidecar_key.clone()));
+    }
     let config = Config::load(&Env::from_map(env)).map_err(|e| format!("the backend settings are invalid: {e}"))?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -454,11 +472,20 @@ pub fn backend_env(layout: &Layout, db_port: u16, port: u16, password: &str) -> 
 /// Stops the backend once its requests in flight are answered, then PostgreSQL with a fast
 /// shutdown, so the next start needs no recovery.
 pub fn stop(stack: &Shared) {
-    let (backend, postgres, pg_ctl, running) = {
+    let (backend, postgres, pg_ctl, running, webview_bridge) = {
         let mut s = stack.lock().unwrap_or_else(|e| e.into_inner());
         s.stopping = true;
-        (s.backend.take(), s.postgres.take(), s.pg_ctl.take(), std::mem::take(&mut s.sidecars))
+        (
+            s.backend.take(),
+            s.postgres.take(),
+            s.pg_ctl.take(),
+            std::mem::take(&mut s.sidecars),
+            s.webview_bridge.take(),
+        )
     };
+    if let Some(mut bridge) = webview_bridge {
+        bridge.stop();
+    }
     // In parallel: each may take up to STOP_TIMEOUT to finish a request in flight.
     let ending: Vec<_> = running.into_values().map(|s| std::thread::spawn(move || end(s, Signal::Terminate))).collect();
     for handle in ending {

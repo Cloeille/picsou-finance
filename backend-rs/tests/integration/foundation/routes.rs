@@ -31,6 +31,10 @@ const FRAMEWORK_ROUTES: &[(&str, &str)] = &[
     ("POST", "/api/auth/desktop-autologin"),
     ("GET", "/api/desktop/lock"),
     ("PUT", "/api/desktop/lock"),
+    // Desktop-only interactive WebView bank connector endpoints (additive, not in Java).
+    ("POST", "/api/bnp/webview/start"),
+    ("GET", "/api/bnp/webview/status/{}"),
+    ("POST", "/api/bnp/webview/cancel/{}"),
 ];
 
 /// Spring and axum share the {name} syntax; a regex constraint ({id:\d+}) and the variable name

@@ -4138,12 +4138,22 @@ name = "picsou-desktop"
 version = "1.2.2"
 dependencies = [
  "anyhow",
+ "axum",
+ "base64 0.23.1",
+ "chrono",
  "dunce",
  "getrandom 0.4.3",
+ "hex",
  "libc",
  "picsou",
+ "regex",
+ "reqwest 0.12.28",
+ "rust_decimal",
  "semver",
+ "serde",
  "serde_json",
+ "sha2 0.11.1",
+ "subtle",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",
@@ -4151,6 +4161,8 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "tracing",
+ "url",
+ "uuid",
  "windows-sys 0.61.2",
 ]
 

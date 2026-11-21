@@ -38,6 +38,9 @@ import type {
   BnpAuthKeypadResponse,
   BnpAuthCompleteResponse,
   BnpDeleteResponse,
+  BnpWebviewStartResponse,
+  BnpWebviewStatusResponse,
+  BnpWebviewCancelResponse,
   RevolutSessionStatus,
   SyncProgress,
   BourseDirectSessionStatus,
@@ -392,6 +395,22 @@ export const bnpApi = {
       .then(r => r.data),
 
   clearSession: () => api.delete<BnpDeleteResponse>('/bnp/session').then(r => r.data),
+
+  /** Picsou Desktop only: opens a native OS WebView directly on the bank's login page. */
+  startWebview: (brand: BnpBrand) =>
+    api.post<BnpWebviewStartResponse>('/bnp/webview/start', { brand }).then(r => r.data),
+
+  getWebviewStatus: (processId: string) =>
+    api
+      .get<BnpWebviewStatusResponse>(`/bnp/webview/status/${encodeURIComponent(processId)}`, {
+        skipGlobalErrorRedirect: true,
+      })
+      .then(r => r.data),
+
+  cancelWebview: (processId: string) =>
+    api
+      .post<BnpWebviewCancelResponse>(`/bnp/webview/cancel/${encodeURIComponent(processId)}`)
+      .then(r => r.data),
 }
 
 // --- Revolut ---

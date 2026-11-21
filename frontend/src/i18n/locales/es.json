@@ -2029,6 +2029,14 @@
         "cancel": "Cancelar",
         "clear": "Borrar",
         "validate": "Validar"
+      },
+      "webview": {
+        "hint": "Inicia sesión directamente en el portal oficial del banco en una ventana dedicada. Picsou nunca ve tus credenciales.",
+        "connect": "Conectar con {{brand}}",
+        "reconnect": "Reconectar {{brand}}",
+        "waiting": "Inicia sesión en la ventana de {{brand}} que se acaba de abrir…",
+        "waitingHint": "Introduce tus credenciales y aprueba Clé Digitale directamente en el sitio del banco. La ventana se cerrará automáticamente al terminar.",
+        "fetching": "Sesión iniciada — recuperando tus cuentas…"
       }
     },
     "searchPlaceholder": "Buscar un banco, bróker o importación...",
