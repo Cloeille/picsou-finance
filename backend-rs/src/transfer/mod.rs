@@ -10,6 +10,8 @@ pub mod me_export;
 pub mod preview_store;
 pub mod upload;
 
+use std::sync::Arc;
+
 use http::StatusCode;
 
 use crate::AppState;
@@ -17,6 +19,8 @@ use crate::clock::AppClock;
 use crate::error::{AppError, AppResult, Problem};
 use crate::http::client_ip::ClientIp;
 use crate::http::rate_limit::policies;
+use crate::ledger::instrument::TickerResult;
+use crate::ledger::sync_values::java_trim;
 use crate::routes::Routes;
 
 pub fn register(routes: &mut Routes) {
@@ -28,8 +32,30 @@ pub fn register(routes: &mut Routes) {
     me_export::register(routes);
 }
 
-/// The preview stores of the two-phase imports, held by AppState as state.transfer.
+/// OpenFigiIsinConverter.resolve, owned by track T4. Without it Java falls back to the ISIN.
+#[async_trait::async_trait]
+pub trait IsinResolver: Send + Sync {
+    async fn resolve(&self, isin: &str) -> TickerResult;
+}
+
+/// The converter's fallback when no lookup succeeds: the trimmed, upper-cased ISIN, no name.
+pub struct IsinAsTicker;
+
+#[async_trait::async_trait]
+impl IsinResolver for IsinAsTicker {
+    async fn resolve(&self, isin: &str) -> TickerResult {
+        TickerResult {
+            ticker: java_trim(isin).to_uppercase(),
+            name: None,
+        }
+    }
+}
+
+/// The preview stores of the two-phase imports and the cross-track seams, held by AppState as
+/// state.transfer.
 pub struct Transfer {
+    /// Track T4 replaces it with the OpenFIGI converter.
+    pub isin: Arc<dyn IsinResolver>,
     pub csv: csv_import::Stores,
     pub actual: actual::Stores,
     pub homebank: homebank::Stores,
@@ -39,6 +65,7 @@ pub struct Transfer {
 impl Transfer {
     pub fn new(clock: &AppClock) -> Self {
         Self {
+            isin: Arc::new(IsinAsTicker),
             csv: csv_import::Stores::new(clock),
             actual: actual::Stores::new(clock),
             homebank: homebank::Stores::new(clock),

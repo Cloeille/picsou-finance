@@ -1,6 +1,36 @@
-//! Multipart bodies for the upload endpoints.
+//! Multipart bodies for the upload endpoints and the fixtures the transfer tests share.
 
 #![allow(dead_code)]
+
+use chrono::{DateTime, TimeZone, Utc};
+use picsou::ledger::accounts::{self, NewAccount};
+use picsou::ledger::model::{Account, AccountType};
+use picsou::testing::TestApp;
+
+pub fn now() -> DateTime<Utc> {
+    Utc.with_ymd_and_hms(2026, 3, 15, 10, 0, 0).unwrap()
+}
+
+/// The member of the signed-in admin.
+pub async fn admin_member(app: &TestApp) -> i64 {
+    sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+        .fetch_one(&app.state.db)
+        .await
+        .expect("admin member")
+}
+
+pub async fn account(
+    app: &TestApp,
+    member_id: i64,
+    account_type: AccountType,
+    manual: bool,
+) -> Account {
+    let mut draft = NewAccount::new(member_id, "Account", account_type);
+    draft.is_manual = manual;
+    accounts::insert(&app.state.db, &draft, now())
+        .await
+        .expect("account")
+}
 
 pub const BOUNDARY: &str = "----picsou-test-boundary";
 
