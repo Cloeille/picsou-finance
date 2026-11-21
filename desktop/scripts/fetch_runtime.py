@@ -59,8 +59,21 @@ TARGETS = {
 }
 # The MSVC runtime zonky's and theseus' Windows binaries import, which a fresh Windows may lack.
 VC_RUNTIME = ("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll")
-# The shared packages of services/base, as the image's site-packages has them.
-SHARED_LIBS = ("picsou_sidecar", "euro_information", "bpce")
+# The 6 pure-HTTP bank sidecars run natively in-process inside backend-rs (`native://<service>`):
+# Desktop no longer ships Python copies of them.
+NATIVE_SIDECARS = frozenset({
+    "bourso-auth",
+    "cic-auth",
+    "cmes-auth",
+    "degiro-auth",
+    "natixis-auth",
+    "sofidy-auth",
+})
+# The shared packages of services/base needed by the remaining Chromium sidecars.
+# `euro_information` was only used by cic-auth and cmes-auth (both now native Rust).
+SHARED_LIBS = ("picsou_sidecar", "bpce")
+# The only PostgreSQL binaries Desktop invokes (`supervisor.rs`); pg_dump/pg_restore live in pgtools/.
+POSTGRES_BINS = frozenset({"postgres", "initdb", "pg_ctl"})
 
 
 def pins():
@@ -150,8 +163,213 @@ def trim_python(home):
     for path in doomed:
         if path.is_dir():
             shutil.rmtree(path)
-        elif path.exists():
+        elif path.exists() or path.is_symlink():
             path.unlink()
+    # tauri-bundler dereferences symlinks when copying resources into .app/.deb/AppImage, which
+    # turns `python` and `python3` symlinks into extra 17 MB copies of `python3.12`. Flatten
+    # `bin/python3` into the single real binary that `sidecars.rs` invokes and drop the rest.
+    bin_dir = home / "bin"
+    if bin_dir.is_dir():
+        py3 = bin_dir / "python3"
+        if py3.is_symlink():
+            real = py3.resolve()
+            py3.unlink()
+            shutil.move(str(real), str(py3))
+        for entry in list(bin_dir.iterdir()):
+            if entry.name != "python3":
+                if entry.is_dir() and not entry.is_symlink():
+                    shutil.rmtree(entry)
+                else:
+                    entry.unlink()
+
+
+def _sha256_file(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _otool_rpath_deps(path):
+    """Returns unique @rpath/@loader_path dependencies of a Mach-O file (excluding its own install ID)."""
+    out = subprocess.run(["otool", "-L", str(path)], capture_output=True, text=True)
+    if out.returncode != 0:
+        return []
+    deps = []
+    lines = out.stdout.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.endswith(":"):
+            i += 1
+            if (path.suffix in (".dylib", ".so") or ".dylib" in path.name) and i < len(lines):
+                first = lines[i].strip().split(" (")[0]
+                if Path(first).name == path.name:
+                    i += 1
+            continue
+        dep = line.strip().split(" (")[0]
+        if dep.startswith(("@rpath/", "@loader_path/")):
+            deps.append(dep)
+        i += 1
+    return list(dict.fromkeys(deps))
+
+
+def _elf_needed(path):
+    """Returns DT_NEEDED SONAMEs of an ELF binary or shared library via readelf."""
+    out = subprocess.run(["readelf", "-d", str(path)], capture_output=True, text=True)
+    if out.returncode != 0:
+        return set()
+    return set(re.findall(r"\(NEEDED\)\s+Shared library:\s+\[([^\]]+)\]", out.stdout))
+
+
+def _dedup_with_symlinks(lib_dir, glob_pattern):
+    """Fallback exact-hash deduplication: keep the longest filename and symlink aliases to it."""
+    groups = {}
+    for path in sorted(lib_dir.glob(glob_pattern)):
+        if path.is_file() and not path.is_symlink():
+            groups.setdefault(_sha256_file(path), []).append(path)
+    for members in groups.values():
+        if len(members) <= 1:
+            continue
+        survivor = max(members, key=lambda p: len(p.name))
+        for alias in members:
+            if alias != survivor:
+                alias.unlink()
+                alias.symlink_to(survivor.name)
+
+
+def trim_postgres(pg_dir, target, native):
+    """Shrinks the embedded PostgreSQL tree without losing server functionality:
+    - drops procedural languages (plpython/plperl/pltcl) that link absent system runtimes;
+    - drops unused CLI binaries (Desktop only runs postgres, initdb and pg_ctl);
+    - eliminates byte-identical shared-library copies in lib/ (which zonky ships as full copies
+      rather than symlinks, ~161 MB of pure duplication on macOS);
+    - on native macOS (Apple Silicon only), thins universal fat Mach-O files to arm64 (-67 MB).
+    """
+    # The procedural languages link a system Python 3.6, Perl 5.26 and Tcl that no desktop has, and
+    # linuxdeploy (AppImage) refuses a library whose dependency is missing. Picsou uses none of them.
+    for module in pg_dir.rglob("*"):
+        if module.is_file() and module.name.split(".")[0].startswith(("plpython", "plperl", "pltcl", "hstore_pl", "jsonb_pl", "ltree_pl", "bool_pl")):
+            module.unlink()
+
+    bin_dir = pg_dir / "bin"
+    if bin_dir.is_dir():
+        for entry in list(bin_dir.iterdir()):
+            if not entry.is_file() and not entry.is_symlink():
+                continue
+            if target["os"] == "windows":
+                if entry.suffix.lower() == ".exe" and entry.stem.lower() not in POSTGRES_BINS:
+                    entry.unlink()
+            elif entry.name not in POSTGRES_BINS:
+                entry.unlink()
+
+    lib_dir = pg_dir / "lib"
+    if not lib_dir.is_dir():
+        return
+
+    if target["os"] == "macos":
+        if not native:
+            _dedup_with_symlinks(lib_dir, "*.dylib")
+            return
+        modified = set()
+        # 1. Thin universal fat Mach-O files to arm64 first (Apple Silicon only target).
+        macho_files = [p for p in bin_dir.iterdir() if p.is_file()] + [
+            p for p in lib_dir.rglob("*") if p.is_file() and not p.is_symlink()
+        ]
+        for path in macho_files:
+            info = subprocess.run(["lipo", "-info", str(path)], capture_output=True, text=True)
+            if info.returncode == 0 and "Architectures in the fat file:" in info.stdout and "arm64" in info.stdout:
+                thinned = path.with_name(path.name + ".arm64")
+                subprocess.run(["lipo", "-thin", "arm64", str(path), "-output", str(thinned)], check=True)
+                thinned.chmod(path.stat().st_mode)
+                thinned.replace(path)
+                modified.add(path)
+
+        # 2. Deduplicate byte-identical top-level .dylibs WITHOUT symlinks (tauri-bundler
+        # dereferences symlinks when copying resources into Picsou.app). Rewrite any surviving
+        # caller referencing a removed alias via install_name_tool.
+        groups = {}
+        for path in sorted(lib_dir.glob("*.dylib")):
+            if path.is_file() and not path.is_symlink():
+                groups.setdefault(_sha256_file(path), []).append(path)
+        dep_map = {p: _otool_rpath_deps(p) for p in macho_files if p.exists()}
+
+        alias_to_survivor = {}
+        for members in groups.values():
+            if len(members) <= 1:
+                continue
+            member_names = {m.name for m in members}
+            referenced = set()
+            for caller, deps in dep_map.items():
+                if caller in members:
+                    continue
+                for dep in deps:
+                    dep_name = Path(dep).name
+                    if dep_name in member_names:
+                        referenced.add(dep_name)
+            survivor_name = max(referenced or member_names, key=len)
+            for member in members:
+                if member.name != survivor_name:
+                    alias_to_survivor[member.name] = survivor_name
+                    member.unlink()
+
+        for caller, deps in dep_map.items():
+            if not caller.exists():
+                continue
+            for old_dep in deps:
+                dep_name = Path(old_dep).name
+                if dep_name in alias_to_survivor:
+                    new_dep = old_dep.rsplit("/", 1)[0] + "/" + alias_to_survivor[dep_name]
+                    subprocess.run(["install_name_tool", "-change", old_dep, new_dep, str(caller)],
+                                   check=True, capture_output=True)
+                    modified.add(caller)
+
+        # Ad-hoc re-sign every modified Mach-O binary so Apple Silicon runs it cleanly.
+        for path in sorted(modified):
+            if path.exists():
+                subprocess.run(["codesign", "--force", "--sign", "-", str(path)], check=True, capture_output=True)
+
+        for tool in sorted(POSTGRES_BINS):
+            if (bin_dir / tool).exists():
+                subprocess.run([str(bin_dir / tool), "--version"], check=True, capture_output=True)
+
+    elif target["os"] == "linux":
+        if native and shutil.which("readelf"):
+            elf_files = [p for p in bin_dir.iterdir() if p.is_file()] + [
+                p for p in lib_dir.rglob("*") if p.is_file() and not p.is_symlink()
+            ]
+            needed_by = {p: _elf_needed(p) for p in elf_files}
+            groups = {}
+            for path in sorted(lib_dir.glob("*.so*")):
+                if path.is_file() and not path.is_symlink():
+                    groups.setdefault(_sha256_file(path), []).append(path)
+            for members in groups.values():
+                if len(members) <= 1:
+                    continue
+                member_names = {m.name for m in members}
+                referenced = set()
+                for caller, deps in needed_by.items():
+                    if caller not in members:
+                        referenced |= deps & member_names
+                if not referenced:
+                    survivor = max(members, key=lambda p: len(p.name))
+                    for alias in members:
+                        if alias != survivor:
+                            alias.unlink()
+                    continue
+                survivor_name = max(referenced, key=len)
+                for member in members:
+                    if member.name == survivor_name:
+                        continue
+                    member.unlink()
+                    if member.name in referenced:
+                        member.symlink_to(survivor_name)
+            for tool in sorted(POSTGRES_BINS):
+                if (bin_dir / tool).exists():
+                    subprocess.run([str(bin_dir / tool), "--version"], check=True, capture_output=True)
+        else:
+            _dedup_with_symlinks(lib_dir, "*.so*")
 
 
 def image_files(dockerfile):
@@ -183,14 +401,19 @@ def sidecars(manifest, target):
     for lib in SHARED_LIBS:
         shutil.copytree(ROOT / "services/base" / lib, out / "lib" / lib, ignore=tests)
     # Chromium itself is not bundled: the app downloads it on the first Chromium sidecar start.
-    shipped = [s for s in manifest["sidecars"] if s["desktop"] and s["base"] in ("python", "chromium")]
+    # Pure-HTTP sidecars in NATIVE_SIDECARS run natively in Rust and are not shipped as Python.
+    shipped = [
+        s for s in manifest["sidecars"]
+        if s["desktop"] and s["base"] == "chromium" and s["service"] not in NATIVE_SIDECARS
+    ]
     for sidecar in shipped:
         folder = ROOT / "services" / sidecar["service"]
         (out / sidecar["service"]).mkdir(parents=True)
         for name in image_files(folder / "Dockerfile"):
             shutil.copy2(folder / name, out / sidecar["service"] / name)
     (RUNTIME / "sidecars.json").write_text(json.dumps(shipped, indent=2), encoding="utf-8")
-    # The ones the desktop cannot run (Camoufox): the UI marks them "not available on desktop".
+    # The ones the desktop cannot run via Python (Camoufox): the UI marks them "not available on
+    # desktop" unless the native Tauri WebView bridge serves them (`webview_bank::PROVIDED_SERVICES`).
     left_out = [s["service"] for s in manifest["sidecars"] if not s["desktop"]]
     (RUNTIME / "sidecars-unavailable.json").write_text(json.dumps(left_out), encoding="utf-8")
     trim_python(RUNTIME / "python")
@@ -273,11 +496,7 @@ def main():
     jar_url = f"{zonky}/{version}/embedded-postgres-binaries-{target['artifact']}-{version}.jar"
     jar = zipfile.ZipFile(io.BytesIO(download(jar_url, text(f"{jar_url}.sha256"))))
     extract(jar.read(target["archive"]), RUNTIME / "postgres")
-    # The procedural languages link a system Python 3.6, Perl 5.26 and Tcl that no desktop has, and
-    # linuxdeploy (AppImage) refuses a library whose dependency is missing. Picsou uses none of them.
-    for module in (RUNTIME / "postgres").rglob("*"):
-        if module.is_file() and module.name.split(".")[0].startswith(("plpython", "plperl", "pltcl", "hstore_pl", "jsonb_pl", "ltree_pl", "bool_pl")):
-            module.unlink()
+    trim_postgres(RUNTIME / "postgres", target, native)
     pg_tools(manifest, target, native)
     if target["os"] == "windows":
         vc_runtime([RUNTIME / "postgres" / "bin", RUNTIME / "pgtools" / "bin"])

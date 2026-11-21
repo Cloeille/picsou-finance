@@ -1,6 +1,37 @@
-# Feature: Desktop app (Linux shell)
+# Feature: Desktop app
 
 > Last updated: 2026-11-21
+
+## Opening the unsigned desktop app (macOS Gatekeeper & Windows SmartScreen)
+
+Picsou is a free, open-source, self-hosted project and does not yet pay for an Apple Developer ID or a Windows EV code-signing certificate. Because of this, macOS and Windows will show a standard "unidentified developer" warning the **first time** you open a release downloaded from GitHub. This is expected for unsigned open-source apps — you only have to approve Picsou once.
+
+### macOS (Apple Silicon)
+
+1. Open the downloaded `.dmg` and drag **Picsou.app** into your **Applications** folder.
+2. Double-click **Picsou** once — macOS Gatekeeper will block it with an "unidentified developer" message. Click **Done** (or **OK**).
+3. Open **System Settings → Privacy & Security**, scroll down to the **Security** section where Picsou is listed, and click **Open Anyway** (*Ouvrir quand même*), then confirm with your Mac password or Touch ID.
+   - *On macOS 14 Sonoma*: you can also right-click **Picsou.app** in Applications, choose **Open** (*Ouvrir*), and click **Open** again in the dialog.
+4. **Terminal fallback** (if macOS says the app is "damaged" or does not display the *Open Anyway* button): open Terminal and clear the download quarantine attribute once:
+   ```bash
+   xattr -cr /Applications/Picsou.app
+   ```
+   Then launch **Picsou** normally from Applications.
+
+> [!NOTE]
+> Future in-app updates are verified against Picsou's cryptographic updater key and installed directly by the app, so Gatekeeper will not prompt you again after the initial install.
+
+### Windows (64-bit)
+
+1. Double-click the downloaded installer (`Picsou_<version>_x64-setup.exe`).
+2. When Microsoft Defender SmartScreen displays **"Windows protected your PC"** (*Windows a protégé votre ordinateur*), click **More info** (*Informations complémentaires*).
+3. Click **Run anyway** (*Exécuter quand même*).
+4. Picsou installs into your user folder (`%LOCALAPPDATA%\Picsou`) without asking for administrator rights.
+
+### Linux
+
+- **AppImage**: make the file executable (`chmod +x Picsou_*.AppImage`) and run it.
+- **Debian / Ubuntu (`.deb`)**: install with `sudo apt install ./Picsou_*.deb`.
 
 ## Context
 
@@ -101,14 +132,26 @@ warm start: PostgreSQL ready 0.05 s later, the app page loaded 0.4 s after launc
 - Secrets are not 0600: NTFS has no POSIX modes. They sit in the user's own `%LOCALAPPDATA%`; the
   backend logs a warning when it cannot chmod.
 
-### Bank sidecars (#589, browserless slice)
+### Bank sidecars (#589)
 
+- **Six pure-HTTP connectors run natively in-process in Rust** (`bourso-auth`, `cic-auth`,
+  `cmes-auth`, `degiro-auth`, `natixis-auth`, `sofidy-auth`): `supervisor.rs` points their
+  `<BANK>_AUTH_URL` variables to `native://<service>` (unless overridden in the user's
+  environment), so Desktop runs them with zero Python processes and `fetch_runtime.py` no longer
+  bundles them or `euro_information`.
 - `fetch_runtime.py` adds `runtime/python/` (python-build-standalone, the base image's minor
-  from the `PYTHON_BUILD` release pinned in the script, SHA-256 checked, Tk/IDLE/pip/headers trimmed: ~75 MB) and `runtime/sidecars/`: the shared
-  libraries of `services/base` without test helpers, the pinned packages of
-  `requirements.txt` in `site/`, and one folder per browserless sidecar holding exactly the
-  files its Dockerfile `COPY`s. `runtime/sidecars.json` lists them. Wheels must match the
-  bundled interpreter, so the runtime is built on its own OS.
+  from the `PYTHON_BUILD` release pinned in the script, SHA-256 checked, Tk/IDLE/pip/headers
+  trimmed and `bin/python3` flattened so `tauri-bundler` does not dereference symlinks into
+  duplicate copies: ~54 MB) and `runtime/sidecars/`: the shared libraries (`picsou_sidecar`,
+  `bpce`) without test helpers, the pinned packages of `requirements.txt` and
+  `requirements-chromium.txt` in `site/`, and one folder per remaining Chromium sidecar holding
+  exactly the files its Dockerfile `COPY`s. `runtime/sidecars.json` lists them. Wheels must
+  match the bundled interpreter, so the runtime is built on its own OS.
+- `fetch_runtime.py` also trims `runtime/postgres/`: strips procedural languages (`plpython`,
+  `plperl`, `pltcl`, …) and unused CLI tools (keeping only `postgres`, `initdb`, `pg_ctl`),
+  eliminates byte-identical shared-library duplicates in `postgres/lib/` (rewriting macOS
+  `@rpath` aliases with `install_name_tool` rather than leaving symlinks that `tauri-bundler`
+  would dereference), and thins universal Mach-O binaries to `arm64` on macOS (~293 MB → ~64 MB).
 - `sidecars.rs` opens one loopback port per listed sidecar and hands the backend
   `<SERVICE>_URL` plus `APP_SIDECAR_API_KEY` (generated once in `secrets/sidecar_api_key`).
   Nothing runs at idle: the first connection starts `python -m uvicorn main:app` on a private
