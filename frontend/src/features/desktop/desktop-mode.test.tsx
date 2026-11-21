@@ -1,0 +1,248 @@
+import '@testing-library/jest-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter, Route, Routes } from 'react-router'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+function memoryStorage(): Storage {
+  const m = new Map<string, string>()
+  return {
+    getItem: (key) => m.get(key) ?? null,
+    setItem: (key, value) => void m.set(key, String(value)),
+    removeItem: (key) => void m.delete(key),
+    clear: () => m.clear(),
+    key: (index) => [...m.keys()][index] ?? null,
+    get length() { return m.size },
+  } as Storage
+}
+
+vi.stubGlobal('localStorage', memoryStorage())
+vi.stubGlobal('sessionStorage', memoryStorage())
+vi.stubGlobal('matchMedia', () => ({
+  matches: false,
+  addEventListener: () => undefined,
+  removeEventListener: () => undefined,
+}))
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string) => key,
+    i18n: { language: 'fr', changeLanguage: vi.fn() },
+  }),
+}))
+
+const { refresh, desktopAutologin, getLockStatus, updateLock, listMembers } = vi.hoisted(() => ({
+  refresh: vi.fn(),
+  desktopAutologin: vi.fn(),
+  getLockStatus: vi.fn(),
+  updateLock: vi.fn(),
+  listMembers: vi.fn(),
+}))
+
+vi.mock('@/features/auth/api', () => ({
+  authApi: { refresh, desktopAutologin, logout: vi.fn() },
+}))
+vi.mock('@/features/desktop/api', () => ({
+  desktopApi: { getLockStatus, updateLock },
+}))
+vi.mock('@/features/family/api', () => ({
+  familyApi: { listMembers },
+}))
+vi.mock('@/components/shared/WhatsNewDialog', () => ({ WhatsNewDialog: () => null }))
+vi.mock('@/pages/settings/security/SecuritySection', () => ({
+  SecuritySection: () => <div>security-section</div>,
+}))
+vi.mock('@/pages/settings/sections/AccessKeysSection', () => ({
+  AccessKeysSection: () => <div>access-keys-section</div>,
+}))
+vi.mock('@/pages/settings/sections/ProfileSection', () => ({
+  ProfileSection: () => <div>profile-section</div>,
+}))
+vi.mock('@/pages/settings/sections/ConnectedAppsSection', () => ({
+  ConnectedAppsSection: () => <div>connected-apps-section</div>,
+}))
+
+const { RequireAuth } = await import('@/features/auth/guards')
+const { AppSidebar } = await import('@/components/layout/AppSidebar')
+const { SettingsPage } = await import('@/pages/settings/SettingsPage')
+const { DesktopLockCard } = await import('@/pages/settings/security/DesktopLockCard')
+const { useAuthStore } = await import('@/stores/auth-store')
+const { useAppStore, selectIsAdvancedMode } = await import('@/stores/app-store')
+
+const LOCAL_ADMIN = {
+  username: 'louis',
+  role: 'ADMIN' as const,
+  memberId: 1,
+  displayName: 'Louis',
+}
+
+function makeClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  })
+}
+
+describe('Desktop Mode auto-login & Advanced Mode', () => {
+  beforeEach(() => {
+    refresh.mockReset()
+    desktopAutologin.mockReset()
+    getLockStatus.mockReset()
+    updateLock.mockReset()
+    listMembers.mockReset()
+    listMembers.mockResolvedValue([])
+    localStorage.clear()
+    sessionStorage.clear()
+    useAuthStore.setState({ user: null, isAuthenticated: false })
+    useAppStore.setState({
+      demoMode: false,
+      desktopMode: false,
+      desktopLockEnabled: false,
+      advancedMode: false,
+    })
+  })
+
+  it('auto-logs in seamlessly on Desktop when lock is disabled without flashing /login', async () => {
+    useAppStore.setState({ desktopMode: true, desktopLockEnabled: false })
+    refresh.mockRejectedValue(new Error('401'))
+    desktopAutologin.mockResolvedValue(LOCAL_ADMIN)
+
+    render(
+      <QueryClientProvider client={makeClient()}>
+        <MemoryRouter initialEntries={['/']}>
+          <Routes>
+            <Route path="/login" element={<div>login-screen</div>} />
+            <Route path="/" element={<RequireAuth><div>desktop-app</div></RequireAuth>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(await screen.findByText('desktop-app')).toBeInTheDocument()
+    expect(screen.queryByText('login-screen')).not.toBeInTheDocument()
+    expect(desktopAutologin).toHaveBeenCalledTimes(1)
+    expect(useAuthStore.getState().user).toEqual(LOCAL_ADMIN)
+  })
+
+  it('does not auto-login when Desktop password lock is enabled', async () => {
+    useAppStore.setState({ desktopMode: true, desktopLockEnabled: true })
+    refresh.mockRejectedValue(new Error('401'))
+
+    render(
+      <QueryClientProvider client={makeClient()}>
+        <MemoryRouter initialEntries={['/']}>
+          <Routes>
+            <Route path="/login" element={<div>login-screen</div>} />
+            <Route path="/" element={<RequireAuth><div>desktop-app</div></RequireAuth>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(await screen.findByText('login-screen')).toBeInTheDocument()
+    expect(desktopAutologin).not.toHaveBeenCalled()
+  })
+
+  it('always enables effective advanced mode outside Desktop Mode, and gates it inside Desktop Mode', () => {
+    expect(selectIsAdvancedMode({ desktopMode: false, advancedMode: false })).toBe(true)
+    expect(selectIsAdvancedMode({ desktopMode: true, advancedMode: false })).toBe(false)
+    expect(selectIsAdvancedMode({ desktopMode: true, advancedMode: true })).toBe(true)
+  })
+
+  it('hides Admin and Logout in AppSidebar on unlocked Desktop Grand Public mode, and reveals them as configured', async () => {
+    useAuthStore.getState().login(LOCAL_ADMIN)
+    useAppStore.setState({ desktopMode: true, desktopLockEnabled: false, advancedMode: false })
+
+    const { rerender } = render(
+      <QueryClientProvider client={makeClient()}>
+        <MemoryRouter>
+          <AppSidebar />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'nav.account' }), { button: 0 })
+    expect(await screen.findByRole('menuitem', { name: 'nav.settings' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'nav.admin' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'settings.logout' })).not.toBeInTheDocument()
+
+    useAppStore.setState({ desktopMode: true, desktopLockEnabled: true, advancedMode: true })
+    rerender(
+      <QueryClientProvider client={makeClient()}>
+        <MemoryRouter>
+          <AppSidebar />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(await screen.findByRole('menuitem', { name: 'nav.admin' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'settings.logout' })).toBeInTheDocument()
+  })
+
+  it('toggles Advanced Mode in SettingsPage and reveals the hidden API tab', () => {
+    useAuthStore.getState().login(LOCAL_ADMIN)
+    useAppStore.setState({ desktopMode: true, desktopLockEnabled: false, advancedMode: false })
+
+    render(
+      <QueryClientProvider client={makeClient()}>
+        <MemoryRouter initialEntries={['/settings']}>
+          <SettingsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(screen.queryByRole('tab', { name: 'settings.tabs.api' })).not.toBeInTheDocument()
+    const toggle = screen.getByRole('switch', { name: 'desktop.advancedMode.label' })
+    expect(toggle).toHaveAttribute('aria-checked', 'false')
+
+    fireEvent.click(toggle)
+
+    expect(useAppStore.getState().advancedMode).toBe(true)
+    expect(screen.getByRole('tab', { name: 'settings.tabs.api' })).toBeInTheDocument()
+  })
+
+  it('enables and disables Desktop password lock from DesktopLockCard', async () => {
+    useAuthStore.getState().login(LOCAL_ADMIN)
+    useAppStore.setState({ desktopMode: true, desktopLockEnabled: false })
+    getLockStatus.mockResolvedValue({ enabled: false })
+    updateLock.mockResolvedValueOnce({ enabled: true }).mockResolvedValueOnce({ enabled: false })
+
+    render(
+      <QueryClientProvider client={makeClient()}>
+        <DesktopLockCard />
+      </QueryClientProvider>,
+    )
+
+    expect(await screen.findByText('desktop.lock.statusDisabled')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'desktop.lock.enableButton' }))
+
+    fireEvent.change(screen.getByLabelText('desktop.lock.newPasswordLabel'), {
+      target: { value: 'strong-password-123' },
+    })
+    fireEvent.change(screen.getByLabelText('desktop.lock.confirmPasswordLabel'), {
+      target: { value: 'strong-password-123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'desktop.lock.enableConfirm' }))
+
+    await waitFor(() => expect(updateLock).toHaveBeenCalledWith({
+      enabled: true,
+      newPassword: 'strong-password-123',
+    }))
+    expect(useAppStore.getState().desktopLockEnabled).toBe(true)
+    expect(await screen.findByText('desktop.lock.statusEnabled')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'desktop.lock.disableButton' }))
+    fireEvent.change(screen.getByLabelText('desktop.lock.currentPasswordLabel'), {
+      target: { value: 'strong-password-123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'desktop.lock.disableConfirm' }))
+
+    await waitFor(() => expect(updateLock).toHaveBeenCalledWith({
+      enabled: false,
+      currentPassword: 'strong-password-123',
+    }))
+    expect(useAppStore.getState().desktopLockEnabled).toBe(false)
+  })
+})

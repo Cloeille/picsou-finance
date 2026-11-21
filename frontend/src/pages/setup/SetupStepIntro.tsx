@@ -3,18 +3,27 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { Button } from '@/components/ui/button'
 import { HelloGreeting } from './HelloGreeting'
+import { DesktopWelcomeStep } from './DesktopWelcomeStep'
 import { useSetupStatus } from '@/features/setup/hooks'
 
 /**
- * Step 0 of the wizard — the signature moment. After the Hello greeting
- * cycles through 12 locales, the welcome hero fades in with the single
- * "Get started" CTA.
+ * Step 0 of the wizard — the signature moment. On Desktop Mode, skips straight
+ * to the 1-step local welcome card. On Web/Docker, cycles through 12 locales
+ * before fading in the welcome hero.
  */
 export function SetupStepIntro() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [phase, setPhase] = useState<'greeting' | 'content'>('greeting')
-  const { data: setupStatus } = useSetupStatus()
+  const { data: setupStatus, isLoading } = useSetupStatus()
+
+  if (isLoading) {
+    return null
+  }
+
+  if (setupStatus?.desktopMode) {
+    return <DesktopWelcomeStep />
+  }
 
   return (
     <div className="relative">

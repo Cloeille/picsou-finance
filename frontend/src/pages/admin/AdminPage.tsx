@@ -4,6 +4,7 @@ import { PageHeader } from '@/components/shared/PageHeader'
 import { LoadingSkeleton } from '@/components/shared/LoadingSkeleton'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { useAdminSettings } from '@/features/admin/hooks'
+import { selectIsAdvancedMode, useAppStore } from '@/stores/app-store'
 import { cn } from '@/lib/utils'
 import { SecuritySection } from './sections/SecuritySection'
 import { EnableBankingSection } from './sections/EnableBankingSection'
@@ -26,6 +27,7 @@ export function AdminPage() {
   const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab = resolveTab(searchParams.get('tab'))
+  const isAdvancedMode = useAppStore(selectIsAdvancedMode)
   const { data, isLoading, isError, refetch } = useAdminSettings()
 
   const setActiveTab = (tab: AdminTab) => {
@@ -95,13 +97,13 @@ export function AdminPage() {
           {activeTab === 'ai' && (
             <div className="space-y-6">
               <AiCategorizationSection settings={data.ai} />
-              <AiActivitySection />
+              {isAdvancedMode && <AiActivitySection />}
             </div>
           )}
 
           {activeTab === 'system' && (
             <div className="space-y-6">
-              <EnableBankingDebugSection />
+              {isAdvancedMode && <EnableBankingDebugSection />}
               <TelemetrySection settings={data.telemetry} />
             </div>
           )}

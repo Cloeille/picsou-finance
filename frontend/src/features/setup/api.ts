@@ -14,6 +14,19 @@ export interface SetupStatus {
   integrations: Record<string, boolean>
   // Optional: the wizard's separate client has no demo adapter.
   sso?: SetupSsoInfo
+  desktopMode?: boolean
+  desktopLockEnabled?: boolean
+}
+
+export interface DesktopQuickStartRequest {
+  displayName?: string
+}
+
+export interface DesktopQuickStartResponse {
+  username: string
+  role: 'ADMIN' | 'MEMBER'
+  memberId: number
+  displayName: string
 }
 
 export interface SetupAdminRequest {
@@ -113,4 +126,12 @@ export const setupApi = {
     setupClient.post<void>(`/integrations/${key}/acknowledge`).then(r => r.data),
 
   complete: () => setupClient.post<void>('/complete').then(r => r.data),
+
+  desktopQuickStart: (body: DesktopQuickStartRequest) =>
+    setupClient
+      .post<DesktopQuickStartResponse>('/desktop-quick-start', body, { withCredentials: true })
+      .then(r => ({
+        ...r.data,
+        role: r.data.role as 'ADMIN' | 'MEMBER',
+      })),
 }

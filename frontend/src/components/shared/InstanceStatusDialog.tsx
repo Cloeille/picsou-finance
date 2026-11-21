@@ -12,7 +12,7 @@ import {
 import { useInstanceStatus } from '@/features/admin/hooks'
 import type { InstanceStatusIssue } from '@/features/admin/api'
 import { useTelemetryConsentPrompt } from '@/features/telemetry/hooks'
-import { useAppStore } from '@/stores/app-store'
+import { selectIsAdvancedMode, useAppStore } from '@/stores/app-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { instanceStatusFingerprint } from './instance-status'
 
@@ -31,9 +31,10 @@ export function InstanceStatusDialog() {
   const { t } = useTranslation()
   const isAdmin = useAuthStore((s) => s.user?.role === 'ADMIN')
   const demoMode = useAppStore((s) => s.demoMode)
+  const isAdvancedMode = useAppStore(selectIsAdvancedMode)
   const dismissedFingerprint = useAppStore((s) => s.dismissedInstanceStatusFingerprint)
   const dismiss = useAppStore((s) => s.setDismissedInstanceStatusFingerprint)
-  const enabled = isAdmin && !demoMode
+  const enabled = isAdmin && !demoMode && isAdvancedMode
   const { data: status } = useInstanceStatus(enabled)
   const telemetryConsent = useTelemetryConsentPrompt()
 

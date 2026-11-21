@@ -25,7 +25,7 @@ import { Item, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@/comp
 import { useFamilyMembers } from '@/features/family/hooks'
 import { selectSwitchableMembers } from '@/features/family/members'
 import { useAuthStore } from '@/stores/auth-store'
-import { useAppStore } from '@/stores/app-store'
+import { selectIsAdvancedMode, useAppStore } from '@/stores/app-store'
 import { useLogout } from '@/features/auth/hooks'
 import { useProfileStore } from '@/stores/profile-store'
 import { cn } from '@/lib/utils'
@@ -33,14 +33,16 @@ import { NAV_ITEMS, FAMILY_NAV_ITEM } from './sidebar-nav-items'
 import { SidebarWhatsNewCard } from './SidebarWhatsNewCard'
 
 function AccountMenuFooterItems({
-  isAdmin,
+  showAdmin,
+  showLogout,
   hideAmounts,
   onToggleHideAmounts,
   onAdminClick,
   onLogoutClick,
   logoutPending,
 }: {
-  isAdmin: boolean
+  showAdmin: boolean
+  showLogout: boolean
   hideAmounts: boolean
   onToggleHideAmounts: () => void
   onAdminClick: () => void
@@ -74,19 +76,23 @@ function AccountMenuFooterItems({
         <span>{t(hideAmounts ? 'nav.showAmounts' : 'nav.hideAmounts')}</span>
       </DropdownMenuItem>
 
-      {isAdmin && (
+      {showAdmin && (
         <DropdownMenuItem onClick={onAdminClick}>
           <Shield className="size-4" aria-hidden="true" />
           <span>{t('nav.admin')}</span>
         </DropdownMenuItem>
       )}
 
-      <DropdownMenuSeparator />
+      {showLogout && (
+        <>
+          <DropdownMenuSeparator />
 
-      <DropdownMenuItem onClick={onLogoutClick} disabled={logoutPending}>
-        <SignOut className="size-4" aria-hidden="true" />
-        <span>{t('settings.logout')}</span>
-      </DropdownMenuItem>
+          <DropdownMenuItem onClick={onLogoutClick} disabled={logoutPending}>
+            <SignOut className="size-4" aria-hidden="true" />
+            <span>{t('settings.logout')}</span>
+          </DropdownMenuItem>
+        </>
+      )}
     </>
   )
 }
@@ -143,13 +149,17 @@ export function AppSidebar() {
   const queryClient = useQueryClient()
   const user = useAuthStore((s) => s.user)
   const demoMode = useAppStore((s) => s.demoMode)
+  const desktopMode = useAppStore((s) => s.desktopMode)
+  const desktopLockEnabled = useAppStore((s) => s.desktopLockEnabled)
+  const isAdvancedMode = useAppStore(selectIsAdvancedMode)
   const hideAmounts = useAppStore((s) => s.hideAmounts)
   const toggleHideAmounts = useAppStore((s) => s.toggleHideAmounts)
   const profilePhotos = useAppStore((s) => s.profilePhotos)
   const activeMemberId = useProfileStore((s) => s.activeMemberId)
   const setActiveMember = useProfileStore((s) => s.setActiveMember)
   const canSwitchProfile = !demoMode && user?.role === 'ADMIN'
-  const isAdmin = user?.role === 'ADMIN'
+  const showAdmin = user?.role === 'ADMIN' && isAdvancedMode
+  const showLogout = !desktopMode || desktopLockEnabled
   const { data: familyMembers = [] } = useFamilyMembers({ enabled: canSwitchProfile })
   const switchableMembers = selectSwitchableMembers(familyMembers)
   const activeMember = switchableMembers.find((member) => member.id === activeMemberId)
@@ -281,7 +291,8 @@ export function AppSidebar() {
             )}
 
             <AccountMenuFooterItems
-              isAdmin={isAdmin}
+              showAdmin={showAdmin}
+              showLogout={showLogout}
               hideAmounts={hideAmounts}
               onToggleHideAmounts={toggleHideAmounts}
               onAdminClick={() => navigate('/admin')}

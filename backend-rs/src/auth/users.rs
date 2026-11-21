@@ -151,3 +151,14 @@ pub async fn count<'e>(db: impl PgExecutor<'e>) -> Result<i64, sqlx::Error> {
         .fetch_one(db)
         .await
 }
+
+/// Earliest created active user — used by local Desktop Mode auto-login.
+pub async fn find_primary_active<'e>(
+    db: impl PgExecutor<'e>,
+) -> Result<Option<AppUser>, sqlx::Error> {
+    let sql = format!("{SELECT} WHERE u.is_activated = true ORDER BY u.id ASC LIMIT 1");
+    Ok(sqlx::query_as::<_, Row>(&sql)
+        .fetch_optional(db)
+        .await?
+        .map(Into::into))
+}

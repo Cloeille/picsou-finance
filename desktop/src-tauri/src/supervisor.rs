@@ -444,6 +444,7 @@ pub fn backend_env(layout: &Layout, db_port: u16, port: u16, password: &str) -> 
         ("APP_VERSION", APP_VERSION.to_owned()),
         ("SECURE_COOKIES", "false".to_owned()),
         ("APP_STARTUP_SYNC_ENABLED", "false".to_owned()),
+        ("APP_DESKTOP_MODE", "true".to_owned()),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_owned(), v))
@@ -689,6 +690,7 @@ mod tests {
         assert_eq!(PathBuf::from(&env["SPA_LOCATION"]), root.join("runtime").join("spa"));
         assert_eq!(env["SECURE_COOKIES"], "false");
         assert_eq!(env["APP_STARTUP_SYNC_ENABLED"], "false");
+        assert_eq!(env["APP_DESKTOP_MODE"], "true");
         assert_eq!(env["APP_VERSION"], APP_VERSION);
         assert!(env.values().all(|v| !v.contains("0.0.0.0") && !v.starts_with("/data")));
     }

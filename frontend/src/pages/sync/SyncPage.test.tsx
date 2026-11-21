@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
@@ -26,13 +27,16 @@ vi.stubGlobal(
 const { SyncPage } = await import('./SyncPage')
 
 function renderAt(entry: string) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <MemoryRouter initialEntries={[entry]}>
-      <Routes>
-        <Route path="/sync" element={<SyncPage />} />
-        <Route path="/sync/louve/callback" element={<SyncPage />} />
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={[entry]}>
+        <Routes>
+          <Route path="/sync" element={<SyncPage />} />
+          <Route path="/sync/louve/callback" element={<SyncPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   )
 }
 

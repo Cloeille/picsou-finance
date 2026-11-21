@@ -155,7 +155,7 @@ export function SyncPage() {
   // A bank the desktop app does not ship: its panel says so instead of offering a login that cannot work.
   const unavailableOnDesktop = (
     <Card size="sm">
-      <CardContent className="py-4">
+      <CardContent>
         <p className="text-sm text-muted-foreground">{t('desktop.unavailableDetail')}</p>
       </CardContent>
     </Card>
