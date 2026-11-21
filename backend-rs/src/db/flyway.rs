@@ -30,6 +30,8 @@ pub enum MigrationError {
          change their external_account_id, then start again. See docs/features/docker-deployment.md#upgrading-a-10x-database-to-110"
     )]
     DuplicateExternalAccounts(i64),
+    #[error("Schema-validation: {0}")]
+    Schema(String),
     #[error("Migration inventory is incomplete: {0}")]
     Incomplete(String),
     #[error("Migration {script} failed: {source}")]

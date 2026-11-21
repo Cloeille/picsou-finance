@@ -79,6 +79,26 @@ async fn pending_lists_the_scripts_not_yet_applied() {
     );
 }
 
+#[tokio::test]
+async fn the_expected_schema_is_the_one_the_migrations_build() {
+    let db = fresh_database().await;
+    let mut conn = connect(&db).await;
+    let snapshot = picsou::db::schema::snapshot(&mut conn).await.unwrap();
+    let text = snapshot.join("\n") + "\n";
+    if std::env::var_os("PICSOU_WRITE_SCHEMA").is_some() {
+        std::fs::write(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/src/db/schema.tsv"),
+            &text,
+        )
+        .unwrap();
+    }
+    assert!(
+        text == picsou::db::schema::EXPECTED,
+        "a migration changed the schema: PICSOU_WRITE_SCHEMA=1 cargo test the_expected_schema rewrites src/db/schema.tsv"
+    );
+    picsou::db::schema::check(&mut conn).await.unwrap();
+}
+
 fn release_cli(command: &str, database: &TestDatabase) -> std::process::Output {
     std::process::Command::new(env!("CARGO_BIN_EXE_picsou"))
         .arg(command)
@@ -113,6 +133,19 @@ async fn the_release_cli_migrates_and_verifies_like_the_java_one() {
     assert_eq!(incomplete.status.code(), Some(1));
     assert!(
         stderr.contains("Migration inventory is incomplete") && stderr.contains(&last),
+        "{stderr}"
+    );
+
+    let drifted_db = fresh_database().await;
+    sqlx::query("ALTER TABLE account DROP COLUMN payment_due_amount")
+        .execute(&mut connect(&drifted_db).await)
+        .await
+        .unwrap();
+    let drifted = release_cli("verify", &drifted_db);
+    let stderr = String::from_utf8_lossy(&drifted.stderr);
+    assert_eq!(drifted.status.code(), Some(1));
+    assert!(
+        stderr.contains("missing column [payment_due_amount] in table [account]"),
         "{stderr}"
     );
 

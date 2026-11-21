@@ -4,7 +4,7 @@
 use sqlx::{Connection, PgConnection};
 
 use crate::config::Datasource;
-use crate::db::{connect_options, flyway};
+use crate::db::{connect_options, flyway, schema};
 
 /// Runs `migrate` or `verify` against the SPRING_DATASOURCE_* database; the exit code.
 ///
@@ -52,6 +52,10 @@ async fn apply(command: &str, datasource: &Datasource) -> Result<(), Vec<String>
     } else {
         flyway::verify(&mut conn).await
     };
+    let outcome = match outcome {
+        Ok(()) => schema::check(&mut conn).await,
+        Err(e) => Err(e),
+    };
     let _ = conn.close().await;
     outcome.map_err(|e| diagnose(&e))
 }
@@ -65,6 +69,7 @@ fn diagnose(error: &flyway::MigrationError) -> Vec<String> {
             lines
         }
         Database(source) => diagnose_sql(source, "a database error"),
+        Schema(_) => vec![format!("Schema validation: {error}")],
         BadName(_)
         | Validation(_)
         | HighBaseline(_)
