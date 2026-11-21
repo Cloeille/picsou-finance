@@ -3,6 +3,7 @@
 pub mod flyway;
 pub mod release_cli;
 pub mod schema;
+pub mod sqlite;
 
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
