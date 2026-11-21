@@ -206,3 +206,56 @@ async fn a_cleartext_sidecar_url_across_a_network_refuses_to_start() {
         "{error}"
     );
 }
+
+#[test]
+fn all_17_connector_controllers_are_fully_covered() {
+    use std::collections::BTreeSet;
+
+    const CONTROLLERS: &[&str] = &[
+        "AmexController",
+        "AmundiController",
+        "BanquePopulaireController",
+        "BnpController",
+        "BourseDirectController",
+        "BoursoController",
+        "CaisseEpargneController",
+        "CicController",
+        "CmesController",
+        "CorumController",
+        "DegiroController",
+        "FortuneoController",
+        "LbpController",
+        "NatixisController",
+        "RevolutController",
+        "SofidyController",
+        "TradeRepublicController",
+    ];
+    let var = regex::Regex::new(r"\{[^}]*\}").unwrap();
+    let normalize = |p: &str| var.replace_all(p, "{}").into_owned();
+
+    let tsv = include_str!("../../../scripts/java_endpoints.tsv");
+    let expected: BTreeSet<(String, String)> = tsv
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| {
+            let mut cols = l.split('\t');
+            let method = cols.next()?;
+            let path = cols.next()?;
+            let controller = cols.next()?;
+            CONTROLLERS
+                .contains(&controller)
+                .then(|| (method.to_owned(), normalize(path)))
+        })
+        .collect();
+    assert_eq!(expected.len(), 93);
+
+    let routes = picsou::routes::all();
+    let served: BTreeSet<(String, String)> = routes
+        .list()
+        .iter()
+        .map(|(m, p)| (m.to_string(), normalize(p)))
+        .collect();
+
+    let missing: Vec<_> = expected.difference(&served).collect();
+    assert!(missing.is_empty(), "T6 endpoints not served: {missing:?}");
+}
