@@ -83,7 +83,6 @@ public class AdminController {
         String appId = ebConfigProvider.applicationId().orElse("");
         String redirectUri = ebConfigProvider.redirectUri().orElse("");
 
-        // The stored choice, so a switch turned off reads back off (#666).
         Map<String, Boolean> integrations = new LinkedHashMap<>();
         for (String name : INTEGRATIONS) {
             integrations.put(name, integrationsService.isEnabled(name));

@@ -11,33 +11,25 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Toggles {@code integration.{key}.enabled} flags in {@code app_setting}: the
- * switches of the Admin page's Integrations tab, also written true by each setup
- * sub-step's success endpoint.
- *
- * <p>The flag is the admin's choice and nothing else: a missing row reads as
- * enabled (an install configured through {@code .env} never wrote one), and only
- * a stored {@code false} disables. A disabled integration is skipped by
- * {@link MemberSyncService}, the path of every scheduled, startup and assistant
- * sync; manual syncs and connections are not gated.
+ * Toggles {@code integration.{key}.enabled} flags in {@code app_setting}. A missing flag
+ * means enabled; a disabled integration is skipped by {@link MemberSyncService}.
  */
 @Service
 public class IntegrationsService {
 
     private static final Logger log = LoggerFactory.getLogger(IntegrationsService.class);
 
-    /** Sync source in {@link MemberSyncService} → the integration that owns it. */
-    private static final Map<String, String> INTEGRATION_BY_SOURCE = Map.ofEntries(
-        Map.entry("enable-banking", "enablebanking"),
-        Map.entry("enable-banking-retry", "enablebanking"),
-        Map.entry("trade-republic", "traderepublic"),
-        Map.entry("bourso", "boursobank"),
-        Map.entry("bourse-direct", "boursedirect"),
-        Map.entry("fortuneo", "fortuneo"),
-        Map.entry("lbp", "lbp"),
-        Map.entry("finary", "finary"),
-        Map.entry("crypto-exchanges", "crypto"),
-        Map.entry("wallets", "crypto")
+    private static final Map<String, String> INTEGRATION_BY_SOURCE = Map.of(
+        "enable-banking", "enablebanking",
+        "enable-banking-retry", "enablebanking",
+        "trade-republic", "traderepublic",
+        "bourso", "boursobank",
+        "bourse-direct", "boursedirect",
+        "fortuneo", "fortuneo",
+        "lbp", "lbp",
+        "finary", "finary",
+        "crypto-exchanges", "crypto",
+        "wallets", "crypto"
     );
 
     private final AppSettingRepository settingRepository;
@@ -46,7 +38,7 @@ public class IntegrationsService {
         this.settingRepository = settingRepository;
     }
 
-    /** The integration that owns a sync source; empty for a source no switch controls. */
+    /** The integration that owns a {@link MemberSyncService} source, if any. */
     public static Optional<String> integrationOf(String source) {
         return Optional.ofNullable(INTEGRATION_BY_SOURCE.get(source));
     }
@@ -65,7 +57,6 @@ public class IntegrationsService {
         log.info("setup.integration.disabled key={}", key);
     }
 
-    /** The stored choice; a missing flag reads as enabled. */
     @Transactional(readOnly = true)
     public boolean isEnabled(String key) {
         assertKnown(key);

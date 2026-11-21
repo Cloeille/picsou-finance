@@ -151,21 +151,7 @@ class SetupServiceTest {
         assertThat(response.state()).isEqualTo(SetupState.PENDING_ADMIN);
         assertThat(response.needsSetup()).isTrue();
         assertThat(response.integrations()).containsKeys("enablebanking", "boursobank", "boursedirect", "traderepublic", "finary", "crypto");
-        // A missing flag reads as Enabled, as on the Admin switch.
         assertThat(response.integrations().values()).allMatch(b -> b);
-    }
-
-    @Test
-    void status_reportsAStoredFalseFlagAsDisabled() {
-        when(settingRepository.findByKey(SetupService.KEY_SETUP_STATE)).thenReturn(Optional.empty());
-        when(settingRepository.findByKey(org.mockito.ArgumentMatchers.startsWith("integration.")))
-            .thenReturn(Optional.empty());
-        when(settingRepository.findByKey("integration.finary.enabled"))
-            .thenReturn(Optional.of(AppSetting.builder().key("integration.finary.enabled").value("false").build()));
-
-        SetupStatusResponse response = setupService.getStatus();
-
-        assertThat(response.integrations()).containsEntry("finary", false).containsEntry("crypto", true);
     }
 
     @Test

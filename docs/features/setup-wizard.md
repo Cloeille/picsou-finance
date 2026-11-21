@@ -204,11 +204,10 @@ Application ID and PEM form remains possible follow-up work.
   the in-memory credentials are lost; the Done screen then probes the existing session
   (the path an SSO admin always takes) and falls back to the login page if it is gone.
   setup.state is COMPLETE either way; no data is lost.
-- **The "pick integrations" step writes nothing to the DB.** A sub-step completion
-  endpoint (e.g., `/enablebanking/test` returning `ok: true`) writes the flag `true`.
-  The flag is the admin's on/off switch, not a "configured" marker: a missing flag
-  reads as Enabled (#666, see [admin-page.md](./admin-page.md)), so skipping a
-  sub-step leaves the integration Enabled but with nothing to sync.
+- **The "pick integrations" step writes nothing to the DB.** Flags only flip when the
+  corresponding sub-step completion endpoint is hit (e.g., `/enablebanking/test`
+  returning `ok: true`). This is deliberate: ticking EB but then skipping the substeps
+  should not leave the app thinking EB is configured.
 - **Client-side admin validation errors are i18n keys.** `setupAdminSchema` uses
   `auth.validation.*` messages; every new key must exist in both locale files or the
   wizard will show raw translation keys under the form fields. Inline errors should

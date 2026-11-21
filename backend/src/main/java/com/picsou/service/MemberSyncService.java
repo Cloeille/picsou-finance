@@ -170,9 +170,8 @@ public class MemberSyncService {
     }
 
     /**
-     * Runs one source and always returns a result: an unknown source, or one whose integration
-     * the admin disabled, is SKIPPED and an unexpected exception is FAILED, so one source never
-     * stops the others.
+     * Runs one source and always returns a result: an unknown or disabled source is SKIPPED and an
+     * unexpected exception is FAILED, so one source never stops the others.
      */
     private SourceSyncResult executeSource(String source, Long memberId) {
         try {

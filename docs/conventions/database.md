@@ -78,7 +78,6 @@ V{n}__description.sql
 | `V149__trade_republic_sidecar_session.sql` | Trade Republic joins `sidecar_session` (bank and error-code CHECKs widened, Banque Populaire kept); `trade_republic_session` dropped, members reconnect once |
 | `V150__bnp_sidecar_session.sql` | BNP Paribas / Hello bank! joins `sidecar_session` (bank and error-code CHECKs rebuilt from V149 with `BNP` added); no table of its own, so nothing to copy |
 | `V153__louve_invest_sync.sql` | `louve_connection` (one row per member: encrypted token set, status, grant generation, last sync, pending OAuth attempt), like `wise_connection`; `scpi_position.louve_fund_code` + per-member unique index; `LOUVE` provider and `UNSUPPORTED_OWNERSHIP` outcome on `scpi_provider_fund`. The instance's Louve client ids live in `app_setting` (`louve.client-id:<sha-256 of the redirect URI>`), not in a table |
-| `V156__reset_integration_off_switches.sql` | Deletes every `integration.%.enabled` row in `app_setting` not stored as `true`: the off switches V25, V62 and V95 seeded never took effect, and from now on a stored `false` stops that integration's own syncs. A missing row reads as Enabled |
 
 Note: V8 is absent by design (skipped — never rolled into another migration). Numbering after V32 is not contiguous (V33–V36 unused).
 

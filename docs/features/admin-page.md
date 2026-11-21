@@ -1,6 +1,6 @@
 # Feature: Admin Page (instance settings)
 
-> Last updated: 2026-11-21 (integration switch shows the stored choice and stops Picsou's own syncs, #666)
+> Last updated: 2026-11-21 (integration toggle shows the stored flag and gates automatic syncs)
 
 ## Context
 
@@ -145,19 +145,11 @@ On submit / toggle ──► PUT or PATCH ──► invalidate adminKeys.setting
   bypass the form and POST a single `[""]` you'll write back the literal empty value.
   `SetupService.writeSecurity` is the only safe writer; do not duplicate the CSV
   formatting elsewhere.
-- **The integration switch shows the stored choice, and Off stops Picsou's own syncs (#666).**
-  `getSettings` reports `IntegrationsService.isEnabled(key)`: the `app_setting` flag,
-  where a missing row means Enabled (an install configured through `.env` never wrote
-  one) and only an explicit `false` disables. Until #666 the switch reported the flag
-  ORed with a credentials/session probe, so a set-up integration always read back on,
-  and nothing that syncs read the flag. Now `MemberSyncService` skips the sources of a
-  Disabled integration (`IntegrationsService.integrationOf`) and reports them
-  `SKIPPED` "Disabled in Admin > Integrations": the 08:00 run, the startup catch-up
-  and the assistant's sync tools. Pressing Sync on a connection and connecting a new
-  one still work while Disabled. Sources without a switch (Revolut, Amundi, IBKR, …)
-  always run. `V156` deleted every stored `false` once, because V25/V62/V95 had seeded
-  them on every install and they had never taken effect. See
-  [the ADR](../decisions/2026-11-21-integration-switch-stops-own-syncs.md).
+- **The integration toggle shows the stored flag; Off skips that integration's
+  automatic syncs (#666).** A missing flag reads as on (installs configured through
+  `.env` never wrote one). `MemberSyncService` skips a disabled integration's sources
+  in the 08:00, startup and MCP syncs; pressing Sync still works. `V156` cleared the
+  `false` rows seeded by V25/V62/V95, which had never taken effect.
 - **Toggling an integration off does not delete its credentials** (TR session,
   Bourso session, EB requisitions, encrypted exchange API keys). It only flips the
   `app_setting` flag. Re-enabling restores prior connectivity. By design — flipping
@@ -191,16 +183,9 @@ On submit / toggle ──► PUT or PATCH ──► invalidate adminKeys.setting
 - `backend/src/test/java/com/picsou/controller/AdminControllerTest.java` —
   Mockito tests covering the four endpoints: `getSettings` aggregation,
   `updateSecurity` and `updateEnableBanking` delegation to `SetupService`,
-  `toggleIntegration` with `enabled=true/false`; the integrations map is
-  `IntegrationsService.isEnabled`. URL-level role gate is enforced by
+  `toggleIntegration` with `enabled=true/false`. URL-level role gate is enforced by
   Spring Security and not exercised by these unit tests; coverage relies on the
   `SecurityConfig` matcher being correct.
-- `IntegrationsServiceTest` — a missing flag reads Enabled, a stored `false` reads
-  back Disabled (the #666 regression), the source → integration map, and the writes.
-  `MemberSyncServiceTest` — a Disabled integration's sources are `SKIPPED` without
-  calling their service; a source without a switch never checks one.
-  `V156ResetIntegrationOffSwitchesMigrationTest` (Testcontainers) — `false`/`FALSE`
-  rows removed, `true`/`TRUE` rows and other keys kept.
 - `backend/src/test/java/com/picsou/service/FamilyServiceTest.java` — Mockito tests
   for the username derivation in `generateActivationToken`: simple slug, accent +
   space normalization (`Jean Dupont` → `jean.dupont`, `Élodie` → `elodie`),
@@ -217,9 +202,6 @@ On submit / toggle ──► PUT or PATCH ──► invalidate adminKeys.setting
 - Related ADR:
   [`docs/decisions/2026-04-25-admin-page-reuses-setup-writers.md`](../decisions/2026-04-25-admin-page-reuses-setup-writers.md)
   — why we reuse the wizard's writers behind a URL-level role gate.
-- Related ADR:
-  [`docs/decisions/2026-11-21-integration-switch-stops-own-syncs.md`](../decisions/2026-11-21-integration-switch-stops-own-syncs.md)
-  — the switch shows the stored choice and stops only Picsou's own syncs.
 - Sister feature (initial config): [`setup-wizard.md`](./setup-wizard.md) —
   same writers, different surface.
 - CORS / cookie semantics this page edits:

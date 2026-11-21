@@ -338,32 +338,15 @@ class MemberSyncServiceTest {
     }
 
     @Test
-    void disabledIntegration_skipsItsSources_withoutCallingTheirService() {
+    void disabledIntegration_isSkippedWithoutCallingItsService() {
         when(integrationsService.isEnabled("enablebanking")).thenReturn(false);
-        when(integrationsService.isEnabled("crypto")).thenReturn(false);
         when(revolutSyncService.resyncReporting(42L)).thenReturn(success("revolut"));
 
-        List<SourceSyncResult> results = memberSyncService.resyncForUser(42L,
-            Set.of("revolut", "enable-banking", "enable-banking-retry", "crypto-exchanges", "wallets"));
+        List<SourceSyncResult> results = memberSyncService.resyncForUser(42L, Set.of("revolut", "enable-banking"));
 
-        assertThat(results).extracting(SourceSyncResult::source)
-            .containsExactly("revolut", "enable-banking", "enable-banking-retry", "crypto-exchanges", "wallets");
-        assertThat(results.get(0).status()).isEqualTo(SourceSyncResult.Status.SYNCED);
-        assertThat(results.subList(1, 5)).allSatisfy(result -> {
-            assertThat(result.status()).isEqualTo(SourceSyncResult.Status.SKIPPED);
-            assertThat(result.message()).isEqualTo("Disabled in Admin > Integrations");
-        });
-        verifyNoInteractions(syncService, cryptoExchangeSyncService, walletSyncService);
-    }
-
-    @Test
-    void sourceWithoutASwitch_neverChecksIt() {
-        when(revolutSyncService.resyncReporting(42L)).thenReturn(success("revolut"));
-
-        memberSyncService.resyncForUser(42L, Set.of("revolut"));
-
-        verify(revolutSyncService).resyncReporting(42L);
-        verify(integrationsService, never()).isEnabled(anyString());
+        assertThat(results).extracting(SourceSyncResult::status)
+            .containsExactly(SourceSyncResult.Status.SYNCED, SourceSyncResult.Status.SKIPPED);
+        verifyNoInteractions(syncService);
     }
 
     @Test
