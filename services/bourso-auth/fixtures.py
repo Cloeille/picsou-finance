@@ -467,3 +467,108 @@ LIFE_INSURANCE_ROWS = (
                          "", "", "", "1 100,00 €", "")
 )
 LIFE_INSURANCE_HTML = life_insurance_page(LIFE_INSURANCE_ROWS)
+
+
+# ─── PER ───────────────────────────────────────────────────────────────────
+# Synthetic, shaped after the structure reported on #351 (no value was captured):
+# the card links to /compte/per/<id> with no trailing slash, in the trading
+# section; the positions page has a "Solde au" box and one supports table per
+# compartment, each ending with a two-cell "Total" row. A line has 7 cells --
+# Valeur, Quantité, Px. Revient, Cours, +/- Latentes, +/- %, Montant -- and a
+# payment not yet converted into units says "En cours" instead of its units.
+
+PER_ID = "70c0b19d3fd74474c13c86e0c906d4ff"
+
+PER_CARD = f"""
+                <li class="c-panel__item c-info-box__item" data-brs-filterable>
+                    <a class="c-info-box__link-wrapper" href="/compte/per/{PER_ID}"
+                        aria-label="Détails du compte PER BoursoBank - Solde : 2 230,00 €" title="PER BoursoBank">
+                        <span class="c-info-box__account">
+                            <span class="c-info-box__account-label"
+                                data-account-label="{PER_ID}" data-brs-list-item-label>
+                                PER BoursoBank
+                            </span>
+                            <span class="c-info-box__account-balance c-info-box__account-balance--positive">
+                                2 230,00 €
+                            </span>
+                        </span>
+                        <span class="c-info-box__account-sub-label" data-brs-list-item-label>
+                            BoursoBank
+                        </span>
+                    </a>
+                </li>
+"""
+
+
+def dashboard_with_per() -> str:
+    """The fixture dashboard with one PER listed after the PEA."""
+    pea = DASHBOARD_HTML.index("data-summary-trading>")
+    end = DASHBOARD_HTML.index("</li>", pea) + len("</li>")
+    return DASHBOARD_HTML[:end] + PER_CARD + DASHBOARD_HTML[end:]
+
+
+def _per_cell(content, css="c-table__cell--right"):
+    return (f'<td class="c-table__cell {css}"><div class="c-table__cell-wrapper">'
+            f'<div class="c-table__cell-content-wrapper">{content}</div></div></td>')
+
+
+def per_row(label, mention, symbol, quantity, buying, price, gain, pct, amount):
+    link = (
+        f'<a href="//bourse.boursobank.com/cours/{symbol}" class="c-link c-link--animated " target="_blank">'
+        f'<span class="c-link__label ">{label}</span></a>'
+        if symbol else f'<span class="c-link__label ">{label}</span>'
+    )
+    mention_html = f'<span class="c-table__mention">{mention}</span>' if mention else ""
+    return (
+        '<tr class="c-table__row " >'
+        + _per_cell(f'<div class="c-table__cell-content-wrapper">{link}</div>{mention_html}', "c-table__cell--left")
+        + "".join(_per_cell(f'<span class="u-ellipsis ">{value}</span>')
+                  for value in (quantity, buying, price, gain, pct, amount))
+        + "</tr>"
+    )
+
+
+def per_compartment(name, rows, total):
+    """One compartment's table; `total=None` leaves out its closing "Total" row."""
+    total_row = (f'<tr class="c-table__row ">{_per_cell("Total", "c-table__cell--left")}{_per_cell(total)}</tr>'
+                 if total is not None else "")
+    return f"""<h3 class="c-title">{name}</h3>
+<table class="c-table c-table--action c-table--full" data-table-trading-operations>
+<thead><tr class="c-table__row "><th>Valeur</th><th>Quantité</th><th>Px. Revient</th><th>Cours</th>
+<th>+/- Latentes</th><th>+/- %</th><th>Montant</th></tr></thead>
+<tbody>{rows}{total_row}</tbody>
+</table>"""
+
+
+def per_page(*compartments, solde="2 230,00 €"):
+    return f"""<html><body>
+<div class="c-summary-account-wrapper__item"><div class="c-card c-databox"><div class="c-card__content c-databox__content ">
+<div class="c-databox__name"> Solde au 12/11/2026 </div><div class="c-databox__value u-color-positive"> {solde} </div>
+</div></div></div>
+{"".join(compartments)}
+</body></html>"""
+
+
+WORLD_ROW = ("iShares MSCI World SRI UCITS ETF", "IE00BYX2JD69", "1rASUSW")
+EUROPE_ROW = ("Fonds Actions Europe A", "LU0123456789", "0P0000ABCD")
+
+# The world fund is held in two compartments; a fresh payment awaits conversion
+# in the third. 600 + 1 000 + 600 + 30 = 2 230, over 4 lines.
+PER_HTML = per_page(
+    per_compartment(
+        "Épargne Volontaire Déductible",
+        per_row(*WORLD_ROW, "50,0000", "10,00 €", "12,00 €", "100,00 €", "20,00 %", "600,00 €")
+        + per_row(*EUROPE_ROW, "40,0000", "26,00 €", "25,00 €", "−40,00 €", "−3,85 %", "1 000,00 €"),
+        "1 600,00 €",
+    ),
+    per_compartment(
+        "Épargne Volontaire non Déductible",
+        per_row(*WORLD_ROW, "50,0000", "8,00 €", "12,00 €", "200,00 €", "50,00 %", "600,00 €"),
+        "600,00 €",
+    ),
+    per_compartment(
+        "Épargne Retraite Obligatoire",
+        per_row(*WORLD_ROW, "En cours", "En cours", "12,00 €", "0,00 €", "En cours", "30,00 €"),
+        "30,00 €",
+    ),
+)

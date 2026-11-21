@@ -25,6 +25,7 @@ Picsou stores sensitive credentials in PostgreSQL: crypto exchange API keys/secr
 |------|--------|--------|-----------------|
 | Crypto exchange API key | `CryptoExchangeSession` | `api_key` | V15 (2026-04-08) |
 | Crypto exchange API secret | `CryptoExchangeSession` | `api_secret` | V9 (initial) |
+| Crypto exchange API passphrase | `CryptoExchangeSession` | `api_passphrase` | V155 (2026-11-21) |
 | Trade Republic session state (refresh and device cookies) | `SidecarSession` (bank `TRADE_REPUBLIC`) | `session_state` | V149 (2026-11); was `trade_republic_session.session_token` / `refresh_token` from V15 |
 | DEGIRO session blob | `DegiroSession` | `session_blob` | V71 (2026-08-10), `TEXT` since V86 |
 | SimpleFIN access URL | `SimplefinConnection` | `access_url` | V113 (2026-10-06) |
@@ -50,7 +51,7 @@ Picsou stores sensitive credentials in PostgreSQL: crypto exchange API keys/secr
 ### Key files
 
 - `backend/src/main/java/com/picsou/config/CryptoEncryption.java` -- AES-256-GCM encrypt/decrypt, key validation at startup
-- `backend/src/main/java/com/picsou/service/CryptoExchangeSyncService.java` -- Encrypts apiKey + apiSecret on store, decrypts on read
+- `backend/src/main/java/com/picsou/service/CryptoExchangeSyncService.java` encrypts the exchange API key, secret and passphrase on write and decrypts them on read.
 - `backend/src/main/java/com/picsou/service/TradeRepublicSyncService.java` -- Encrypts session/refresh tokens on store, decrypts on read
 - `backend/src/main/resources/db/migration/V15__widen_encrypted_columns.sql` -- Widens columns for encrypted values, truncates legacy plaintext
 
@@ -94,14 +95,13 @@ Read credential:
 - **Key is mandatory**: The app will not start without `CRYPTO_ENCRYPTION_KEY`. Generate with: `openssl rand -base64 32`.
 - **Lost key = re-enter credentials**: If the encryption key is lost, encrypted data cannot be recovered. The user must re-add crypto exchanges and re-authenticate Trade Republic.
 - **V15 truncates existing sessions**: After deploying V15, all crypto exchange sessions and TR sessions are cleared. Users must re-enter API keys and re-authenticate TR. This is a one-time migration cost.
-- **Column widths**: An encrypted value is `4 * ceil((n + 28) / 3)` characters for `n` plaintext bytes (Base64 of a 12-byte IV + ciphertext + 16-byte tag), so a `VARCHAR(2000)` silently caps the plaintext at 1472 bytes and a `VARCHAR(4000)` at 2972. That cap fails the INSERT *after* a successful login once a third party grows its token (#115), so the columns whose plaintext length a third party controls are `TEXT`: `degiro_session.session_blob` since V86, and `sidecar_session.session_state`, which holds every sidecar bank's state, Trade Republic included since V148. Only values bounded by a known format stay sized: `api_key` 500 and `api_secret` 500 (largest known exchange key ~230 chars, ~350 once encrypted). Do not reintroduce a `length` on a third-party token column.
+- **Column widths.** An encrypted value takes `4 * ceil((n + 28) / 3)` characters for `n` plaintext bytes. This includes the 12-byte IV and 16-byte tag. `VARCHAR(2000)` can hold up to 1472 plaintext bytes, and `VARCHAR(4000)` up to 2972. Third-party tokens can outgrow these limits after a successful login (#115), so `degiro_session.session_blob` (since V86) and `sidecar_session.session_state` use `TEXT`. The exchange columns `api_key`, `api_secret` and `api_passphrase` use `VARCHAR(500)`. The passphrase is limited to 200 characters and 347 UTF-8 bytes before authentication.
 - **No key rotation**: A single key is used for all encryption. If compromised, all secrets must be re-encrypted. No versioning mechanism exists yet.
 - **Decryption failure on corrupt data**: If a stored value is not valid AES-GCM ciphertext (e.g., legacy plaintext), `decrypt()` throws `RuntimeException`. Callers should handle this gracefully (crypto sync sets status to ERROR; TR treats it as expired session; CORUM clears stored credentials that no longer decrypt or parse and ends the run as `SESSION_EXPIRED`).
 
 ## Tests
 
-- No dedicated tests for the encryption-at-rest integration (CryptoEncryption is tested via `CryptoEncryptionTest` for roundtrip correctness)
-- Manual verification: add an exchange, inspect the `api_key` and `api_secret` columns in the database -- both should be Base64 strings, not readable keys
+- `CryptoEncryptionCiphertextGrowthTest` verifies ciphertext size at the `VARCHAR(500)` boundary. `CryptoExchangeSyncServiceTest` verifies passphrase encryption on add and decryption during sync.
 
 ## Links
 

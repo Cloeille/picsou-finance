@@ -470,7 +470,7 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
 SELECTOR = "changes"
 GATE = "ci-ok"
 PUBLISH = "docker"
-NON_BLOCKING = {"helm-chart"}
+NON_BLOCKING = {"helm-chart", "desktop"}
 # Path filters that select no job of their own.
 HELPER_FILTERS = {"workflows", "release-deps"}
 
@@ -641,6 +641,7 @@ class CiJobSelectionTest(unittest.TestCase):
                 "backend", "release-deployment", "workflow-inventory",
             },
             "charts/picsou/values.yaml": {"helm-chart"},
+            "desktop/src-tauri/src/supervisor.rs": {"desktop"},
             "charts/picsou/templates/sidecars.yaml": {"helm-chart"},
             "services/sofidy-auth/main.py": {"sidecar:sofidy-auth", "backend", "native-sidecars"} | services,
             "services/tr-auth/main.py": {"sidecar:tr-auth"} | services,
