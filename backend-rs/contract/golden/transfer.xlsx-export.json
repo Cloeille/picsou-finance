@@ -69,7 +69,7 @@
       "cookies": [],
       "headers": {
         "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
-        "content-disposition": "attachment; filename=\"<token:1>.xlsx\"",
+        "content-disposition": "attachment; filename=\"picsou-comptes-<compact-datetime>.xlsx\"",
         "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
         "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "expires": "0",

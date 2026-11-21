@@ -5,6 +5,7 @@ import { Normalizer } from "./normalize.ts";
 import type { RunResult, StepRecord } from "./runner.ts";
 import { monthEdge } from "./scenario.ts";
 import { totpAt } from "./totp.ts";
+import { CookieJar } from "./http.ts";
 
 const TODAY = "2026-11-21";
 
@@ -50,14 +51,15 @@ test("dates become offsets or month anchors, far dates stay literal", () => {
 test("tokens and secrets are hidden but keep their identity", () => {
   const n = new Normalizer(TODAY);
   const body = n.body(parse('{"secret":"JBSWY3DPEHPK3PXP","link":"/activate/aB3dE5gH7jK9mN1pQ3sT5vX7","again":"/activate/aB3dE5gH7jK9mN1pQ3sT5vX7","recoveryCodes":["12345678"]}'));
-  expect(body).toEqual({ secret: "<secret:1>", link: "/activate/<token:2>", again: "/activate/<token:2>", recoveryCodes: ["<secret:3>"] });
+  // Keys are walked sorted: again, link, recoveryCodes, secret.
+  expect(body).toEqual({ again: "/activate/<token:1>", link: "/activate/<token:1>", recoveryCodes: ["<secret:2>"], secret: "<secret:3>" });
   expect(n.text("Amundi MSCI World CW8.PA")).toBe("Amundi MSCI World CW8.PA");
 });
 
 test("cookies keep name and attributes, never the value", () => {
   const c = new Normalizer(TODAY).cookies(["b=xyz; Path=/; Max-Age=0; HttpOnly", "a=secret; Path=/api; SameSite=Lax; Expires=Sat, 21 Nov 2026 13:00:00 GMT"]);
   expect(c).toEqual([
-    { name: "a", value: "<set>", attributes: { path: "/api", samesite: "Lax", expires: "<http-date>" } },
+    { name: "a", value: "<set>", attributes: { path: "/api", samesite: "lax", expires: "<http-date>" } },
     { name: "b", value: "<set>", attributes: { path: "/", "max-age": "0", httponly: true } },
   ]);
 });
@@ -72,4 +74,37 @@ test("monthEdge lands on a month boundary", () => {
   const next = new Date(`${monthEdge(1, "last")}T00:00:00Z`);
   next.setUTCDate(next.getUTCDate() + 1);
   expect(next.toISOString().slice(0, 10)).toBe(monthEdge(2, "first"));
+});
+
+test("placeholder numbering does not depend on field order, and string ids stay distinct", () => {
+  const a = new Normalizer(TODAY).body(parse('{"id":7,"accountId":9}'));
+  const b = new Normalizer(TODAY).body(parse('{"accountId":9,"id":7}'));
+  expect(a).toEqual(b);
+  expect(diffRuns(run('{"id":5}'), run('{"id":"5"}')).length).toBe(1);
+});
+
+test("dashed file names keep their shape, their timestamp is masked", () => {
+  const n = new Normalizer(TODAY);
+  expect(n.text('attachment; filename="picsou-comptes-20261121-142530.xlsx"')).toBe('attachment; filename="picsou-comptes-<compact-datetime>.xlsx"');
+  expect(n.text("picsou-export-2026-11-21.zip")).toBe("picsou-export-<today>.zip");
+  expect(n.text("FR7630006000011234567890189")).toBe("FR7630006000011234567890189");
+  expect(n.text("2026-11-21T10:15+0100")).toBe("<offset-datetime:no-seconds:hhmm>");
+});
+
+test("a link's last segment is a token even without digits", () => {
+  const n = new Normalizer(TODAY);
+  expect(n.body(parse('{"resetLink":"/activate/abcdefghijklmnopqrstuv"}'))).toEqual({ resetLink: "/activate/<token:1>" });
+});
+
+test("duplicate keys are refused and __proto__ stays a member", () => {
+  expect(() => parse('{"a":1,"a":2}')).toThrow();
+  expect(Object.keys(parse('{"__proto__":{"x":1},"a":1}') as object)).toEqual(["__proto__", "a"]);
+});
+
+test("cookie jar scopes by path, defaults to the request directory, lets Max-Age win", () => {
+  const jar = new CookieJar();
+  jar.absorb(["rt=1; Path=/api/auth", "x=2", "keep=3; Max-Age=60; Expires=Thu, 01 Jan 1970 00:00:00 GMT"], "/api/auth/login");
+  jar.absorb(["rt=; Path=/; Max-Age=0"], "/api/auth/logout");
+  expect(jar.header("/api/auth/refresh")).toBe("rt=1; x=2; keep=3");
+  expect(jar.header("/api/accounts")).toBeUndefined();
 });

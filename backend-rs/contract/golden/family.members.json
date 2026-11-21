@@ -218,7 +218,7 @@
           "attributes": {
             "httponly": true,
             "path": "/",
-            "samesite": "Lax"
+            "samesite": "lax"
           },
           "name": "access_token",
           "value": "<set>"
@@ -227,7 +227,7 @@
           "attributes": {
             "httponly": true,
             "path": "/",
-            "samesite": "Lax"
+            "samesite": "lax"
           },
           "name": "refresh_token",
           "value": "<set>"

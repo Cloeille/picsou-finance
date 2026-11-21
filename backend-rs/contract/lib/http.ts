@@ -1,33 +1,40 @@
 import { parse, type Json } from "./json.ts";
 
-/** A browser-like cookie store: name and path matching, Max-Age=0 deletes. */
+/** A browser-like cookie store (RFC 6265): keyed by name and path, Max-Age before Expires. */
 export class CookieJar {
-  private readonly cookies = new Map<string, { value: string; path: string }>();
+  private readonly cookies = new Map<string, { name: string; value: string; path: string }>();
 
-  absorb(setCookies: string[]) {
+  absorb(setCookies: string[], requestPath: string) {
     for (const line of setCookies) {
       const [pair, ...attrs] = line.split(";").map((p) => p.trim());
       const eq = pair!.indexOf("=");
       const name = pair!.slice(0, eq);
       const value = pair!.slice(eq + 1);
-      let path = "/";
-      let expired = false;
+      // Default path: the request path's directory.
+      let path = requestPath.lastIndexOf("/") > 0 ? requestPath.slice(0, requestPath.lastIndexOf("/")) : "/";
+      let maxAge: number | undefined;
+      let expires: number | undefined;
       for (const a of attrs) {
-        const [k, v = ""] = a.split("=");
-        const key = k!.toLowerCase();
-        if (key === "path") path = v;
-        if (key === "max-age" && Number(v) <= 0) expired = true;
-        if (key === "expires" && Date.parse(v) < Date.now()) expired = true;
+        const i = a.indexOf("=");
+        const key = (i < 0 ? a : a.slice(0, i)).toLowerCase();
+        const v = i < 0 ? "" : a.slice(i + 1);
+        if (key === "path" && v.startsWith("/")) path = v;
+        if (key === "max-age") maxAge = Number(v);
+        if (key === "expires") expires = Date.parse(v);
       }
-      if (expired) this.cookies.delete(name);
-      else this.cookies.set(name, { value, path });
+      const expired = maxAge !== undefined ? maxAge <= 0 : expires !== undefined && expires < Date.now();
+      const id = `${name}\u0000${path}`;
+      if (expired) this.cookies.delete(id);
+      else this.cookies.set(id, { name, value, path });
     }
   }
 
   header(requestPath: string): string | undefined {
-    const parts = [...this.cookies]
-      .filter(([, c]) => requestPath === c.path || requestPath.startsWith(c.path.endsWith("/") ? c.path : c.path + "/"))
-      .map(([name, c]) => `${name}=${c.value}`);
+    const parts = [...this.cookies.values()]
+      .filter((c) => requestPath === c.path || requestPath.startsWith(c.path.endsWith("/") ? c.path : c.path + "/"))
+      // Longer paths first, as browsers send them.
+      .sort((a, b) => b.path.length - a.path.length)
+      .map((c) => `${c.name}=${c.value}`);
     return parts.length ? parts.join("; ") : undefined;
   }
 }
@@ -58,7 +65,8 @@ const DEFAULT_HEADERS: Record<string, string> = {
 
 export async function send(baseUrl: string, jar: CookieJar, spec: RequestSpec): Promise<RawResponse> {
   const headers: Record<string, string> = { ...DEFAULT_HEADERS, ...spec.headers };
-  const cookie = jar.header(spec.path.split("?")[0]!);
+  const pathOnly = spec.path.split("?")[0]!;
+  const cookie = jar.header(pathOnly);
   if (cookie) headers.cookie = cookie;
   const res = await fetch(baseUrl + spec.path, {
     method: spec.method,
@@ -67,7 +75,7 @@ export async function send(baseUrl: string, jar: CookieJar, spec: RequestSpec): 
     redirect: "manual",
   });
   const setCookies = res.headers.getSetCookie();
-  jar.absorb(setCookies);
+  jar.absorb(setCookies, pathOnly);
   const buf = new Uint8Array(await res.arrayBuffer());
   const type = res.headers.get("content-type") ?? "";
   const text = new TextDecoder().decode(buf);

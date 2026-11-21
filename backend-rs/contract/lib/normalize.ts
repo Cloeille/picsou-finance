@@ -1,4 +1,5 @@
 import { JNum, type Json } from "./json.ts";
+import { sentDateLabel } from "./scenario.ts";
 
 /**
  * Turns one run's raw responses into the comparable form. Stateful: ids and tokens get their
@@ -35,10 +36,13 @@ const JWT = /\beyJ[\w-]+\.[\w-]+\.[\w-]+/g;
 const UUID = /\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b/g;
 const DATA_URI = /^data:([\w.+-]+\/[\w.+-]+)(;[^,]*)?,.*$/s;
 const PEM = /-----BEGIN ([A-Z ]+)-----[\s\S]*?-----END \1-----/g;
-const DATETIME = /\b(\d{4}-\d\d-\d\d)[T ](\d\d:\d\d(?::\d\d(?:\.\d+)?)?)(Z|[+-]\d\d:?\d\d)?(?![\d:.])/g;
-const DATE = /(?<![\d-])(\d{4})-(\d\d)-(\d\d)(?![\d-])/g;
-const YEAR_MONTH = /(?<![\d-])(\d{4})-(\d\d)(?![\d-])/g;
+const DATETIME = /(?<!\d)\d{4}-\d\d-\d\d([T ])\d\d:\d\d(:\d\d(?:\.\d+)?)?(Z|[+-]\d\d(:?)\d\d)?(?![\d:.])/g;
+const COMPACT_DATETIME = /(?<!\d)\d{8}[-T_]?\d{6}(?!\d)/g;
+const DATE = /(?<!\d)(\d{4})-(\d\d)-(\d\d)(?!\d)/g;
+const YEAR_MONTH = /(?<!\d)(\d{4})-(\d\d)(?!-?\d)/g;
 const TOKENISH = /[A-Za-z0-9_+=-]{20,}/g;
+/** A link's last path segment is a token whatever it looks like (activation and reset links). */
+const LINK_KEY = /^.*(Link|Url)$/;
 const HTTP_DATE = /\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d\d [A-Z][a-z]{2} \d{4} \d\d:\d\d:\d\d GMT\b/g;
 
 const DAY_MS = 86_400_000;
@@ -83,8 +87,13 @@ export class Normalizer {
       return key && ID_KEY.test(key) && /^-?\d+$/.test(value.raw) ? this.id(value.raw) : value;
     }
     if (typeof value === "string") {
-      if (key && ID_KEY.test(key) && /^\d+$/.test(value)) return this.id(value);
+      // Distinct from a numeric id, so `"5"` against `5` stays a difference.
+      if (key && ID_KEY.test(key) && /^\d+$/.test(value)) return `${this.id(value)}:string`;
       if (key && SECRET_KEYS.test(key) && value !== "") return this.token(value, "secret");
+      if (key && LINK_KEY.test(key)) {
+        const m = /^(.*\/)([^/?#]{16,})$/.exec(value);
+        if (m) return this.text(m[1]!) + this.token(m[2]!);
+      }
       return this.text(value);
     }
     if (Array.isArray(value)) {
@@ -93,7 +102,9 @@ export class Normalizer {
     }
     if (value && typeof value === "object") {
       const out: { [k: string]: Json } = {};
-      for (const [k, v] of Object.entries(value)) {
+      // Sorted, so placeholder numbering does not depend on the order a serializer writes fields.
+      for (const k of Object.keys(value).sort()) {
+        const v = value[k]!;
         // Maps keyed by id (history's per-account points) carry the id in the key.
         const nk = /^\d+$/.test(k) ? this.id(k) : k;
         out[nk] = this.body(v, k);
@@ -112,9 +123,12 @@ export class Normalizer {
       .replace(JWT, "<jwt>")
       .replace(UUID, (u) => this.token(u.toLowerCase(), "uuid"))
       .replace(HTTP_DATE, "<http-date>")
-      .replace(DATETIME, (_m, _d, _t, zone: string | undefined) =>
-        zone === undefined ? "<local-datetime>" : zone === "Z" ? "<instant>" : "<offset-datetime>",
-      )
+      .replace(DATETIME, (_m, sep: string, seconds: string | undefined, zone: string | undefined, colon: string | undefined) => {
+        const base = zone === undefined ? "local-datetime" : zone === "Z" ? "instant" : "offset-datetime";
+        const shape = [sep === " " ? "space" : "", seconds ? "" : "no-seconds", zone && zone !== "Z" && colon === "" ? "hhmm" : ""];
+        return `<${[base, ...shape.filter(Boolean)].join(":")}>`;
+      })
+      .replace(COMPACT_DATETIME, "<compact-datetime>")
       .replace(DATE, (m, y: string, mo: string, d: string) => this.date(m, Number(y), Number(mo), Number(d)))
       .replace(YEAR_MONTH, (m, y: string, mo: string) => this.month(m, Number(y), Number(mo)))
       .replace(TOKENISH, (t) => (looksRandom(t) ? this.token(t) : t));
@@ -131,8 +145,10 @@ export class Normalizer {
   private date(literal: string, y: number, m: number, d: number): string {
     const t = Date.UTC(y, m - 1, d);
     if (Number.isNaN(t) || m < 1 || m > 12 || d < 1 || d > 31) return literal;
+    const sent = sentDateLabel(literal);
+    if (sent) return sent;
     const n = Math.round((t - this.todayUtc) / DAY_MS);
-    if (Math.abs(n) <= 3) return n === 0 ? "<today>" : `<today${signed(n)}>`;
+    if (n === 0) return "<today>";
     const k = this.monthDelta(y, m);
     const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
     if (Math.abs(k) <= 36 && d === 1) return `<month${k === 0 ? "" : signed(k)}:first>`;
@@ -172,7 +188,8 @@ export class Normalizer {
         if (!a) continue;
         const i = a.indexOf("=");
         const k = (i < 0 ? a : a.slice(0, i)).toLowerCase();
-        attributes[k] = i < 0 ? true : k === "expires" ? "<http-date>" : a.slice(i + 1);
+        // SameSite's value is case-insensitive for browsers.
+        attributes[k] = i < 0 ? true : k === "expires" ? "<http-date>" : k === "samesite" ? a.slice(i + 1).toLowerCase() : a.slice(i + 1);
       }
       return { name, value: value === "" || value === '""' ? "<empty>" : "<set>", attributes } as NormalizedCookie;
     });
@@ -185,11 +202,14 @@ function signed(n: number): string {
   return n >= 0 ? `+${n}` : String(n);
 }
 
-/** Generated tokens mix cases and digits; identifiers, enum names and words do not. */
+/**
+ * Generated tokens mix cases and digits (base64) or are long hex / base32 runs; identifiers, enum
+ * names, words and dashed file names are neither.
+ */
 function looksRandom(t: string): boolean {
-  const lower = /[a-z]/.test(t);
-  const upper = /[A-Z]/.test(t);
+  if (/[a-z]/.test(t) && /[A-Z]/.test(t) && /\d/.test(t)) return true;
   const digits = (t.match(/\d/g) ?? []).length;
-  if (lower && upper && digits >= 2) return true;
-  return t.length >= 26 && digits >= 4 && (upper || lower) && !/_/.test(t);
+  if (/^[0-9a-f]{26,}$/.test(t)) return digits >= 4;
+  // Base32 has letters throughout; an IBAN is two letters and digits.
+  return /^[0-9A-Z]{26,}$/.test(t) && digits >= 4 && (t.match(/[A-Z]/g) ?? []).length >= 8;
 }

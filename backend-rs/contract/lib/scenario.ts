@@ -133,6 +133,8 @@ export async function resolve<T>(value: Lazy<T>, vars: Vars): Promise<T> {
   return typeof value === "function" ? await (value as (v: Vars) => T | Promise<T>)(vars) : value;
 }
 
+const sentDates = new Map<string, string>();
+
 /**
  * The first or last day of the month `offsetMonths` from this one. Normalizes to a month anchor
  * (`<month+18:first>`), so a golden stays valid whatever day it is checked on.
@@ -141,11 +143,23 @@ export function monthEdge(offsetMonths: number, edge: "first" | "last", zone = "
   const [y, m] = day(0, zone).split("-").map(Number) as [number, number];
   const first = new Date(Date.UTC(y, m - 1 + offsetMonths, 1));
   const date = edge === "first" ? first : new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0));
-  return date.toISOString().slice(0, 10);
+  const iso = date.toISOString().slice(0, 10);
+  sentDates.set(iso, `<month${offsetMonths === 0 ? "" : offsetMonths > 0 ? `+${offsetMonths}` : offsetMonths}:${edge}>`);
+  return iso;
+}
+
+/**
+ * The label a date the scenario itself wrote normalizes to: `day(-1)` reads `<today-1>` every
+ * day, even on the day it is also the first of the month.
+ */
+export function sentDateLabel(date: string): string | undefined {
+  return sentDates.get(date);
 }
 
 /** Today in the instance's zone (APP_TIMEZONE), shifted by `offsetDays`, as YYYY-MM-DD. */
 export function day(offsetDays = 0, zone = "Europe/Paris"): string {
   const base = new Date(Date.now() + offsetDays * 86_400_000);
-  return new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).format(base);
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).format(base);
+  if (offsetDays !== 0) sentDates.set(date, `<today${offsetDays > 0 ? "+" : ""}${offsetDays}>`);
+  return date;
 }

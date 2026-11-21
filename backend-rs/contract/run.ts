@@ -168,14 +168,19 @@ async function runOne(scenario: Scenario, opts: Options, stub: StubServer): Prom
         await Bun.write(goldenPath(scenario.name), stringify(doc) + "\n");
       }
     } else if (opts.mode === "check") {
-      const [golden, r] = await Promise.all([readGolden(scenario.name), execute(opts.backend, scenario, opts, stub)]);
+      const golden = await readGolden(scenario.name);
+      const r = await execute(opts.backend, scenario, opts, stub);
       outcome.steps = r.steps.length;
       outcome.diffs = diffRuns(golden, r);
+      outcome.errors.push(...r.unmet.map((u) => `[${opts.backend}] ${u}`));
     } else {
-      const [l, r] = await Promise.all([execute(opts.left, scenario, opts, stub), execute(opts.right, scenario, opts, stub)]);
-      outcome.steps = r.steps.length;
-      outcome.diffs = diffRuns(l, r);
-      outcome.errors.push(...l.unmet.map((u) => `[${opts.left}] ${u}`));
+      // allSettled: when one side fails, the other still runs to its end and stops its instance.
+      const [l, r] = await Promise.allSettled([execute(opts.left, scenario, opts, stub), execute(opts.right, scenario, opts, stub)]);
+      if (l.status === "rejected") throw l.reason;
+      if (r.status === "rejected") throw r.reason;
+      outcome.steps = r.value.steps.length;
+      outcome.diffs = diffRuns(l.value, r.value);
+      outcome.errors.push(...l.value.unmet.map((u) => `[${opts.left}] ${u}`), ...r.value.unmet.map((u) => `[${opts.right}] ${u}`));
     }
   } catch (e) {
     outcome.errors.push((e as Error).message);
@@ -241,7 +246,10 @@ async function main() {
 }
 
 main().then(
-  (code) => process.exit(code),
+  async (code) => {
+    await stopAll();
+    process.exit(code);
+  },
   async (e) => {
     console.error((e as Error).message);
     await stopAll();

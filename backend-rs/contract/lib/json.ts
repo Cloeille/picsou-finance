@@ -33,7 +33,10 @@ export function parse(text: string): Json {
         const key = str();
         ws();
         if (text[i++] !== ":") fail("expected ':'");
-        obj[key] = value();
+        // A repeated key is a backend bug worth seeing, not a value to overwrite silently.
+        if (Object.hasOwn(obj, key)) fail(`duplicate key "${key}"`);
+        // defineProperty, so a "__proto__" member stays a member.
+        Object.defineProperty(obj, key, { value: value(), enumerable: true, writable: true, configurable: true });
         ws();
         const sep = text[i++];
         if (sep === "}") return obj;

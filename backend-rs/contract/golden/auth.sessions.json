@@ -102,7 +102,7 @@
             "httponly": true,
             "max-age": "0",
             "path": "/",
-            "samesite": "Lax"
+            "samesite": "lax"
           },
           "name": "access_token",
           "value": "<empty>"
@@ -112,7 +112,7 @@
             "httponly": true,
             "max-age": "0",
             "path": "/",
-            "samesite": "Lax"
+            "samesite": "lax"
           },
           "name": "mfa_challenge_token",
           "value": "<empty>"
@@ -122,7 +122,7 @@
             "httponly": true,
             "max-age": "0",
             "path": "/",
-            "samesite": "Lax"
+            "samesite": "lax"
           },
           "name": "persistent_token",
           "value": "<empty>"
@@ -132,7 +132,7 @@
             "httponly": true,
             "max-age": "0",
             "path": "/",
-            "samesite": "Lax"
+            "samesite": "lax"
           },
           "name": "reauth_proof",
           "value": "<empty>"
@@ -142,7 +142,7 @@
             "httponly": true,
             "max-age": "0",
             "path": "/",
-            "samesite": "Lax"
+            "samesite": "lax"
           },
           "name": "refresh_token",
           "value": "<empty>"

@@ -134,6 +134,8 @@ function command(kind: BackendKind, cfg: LaunchConfig, stub: StubServer): string
 }
 
 export async function launch(kind: BackendKind, label: string, cfg: LaunchConfig, stub: StubServer): Promise<Instance> {
+  // Resolved first: a missing binary must fail before a database exists to leak.
+  const argv = command(kind, cfg, stub);
   const suffix = randomBytes(4).toString("hex");
   const stem = `contract_${kind}_${label.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}`.slice(0, 50);
   const database = `${stem}_${suffix}`;
@@ -144,7 +146,7 @@ export async function launch(kind: BackendKind, label: string, cfg: LaunchConfig
   const workDir = await mkdtemp(join(tmpdir(), `picsou-contract-${kind}-`));
   const logPath = join(workDir, "backend.log");
   const port = await freePort();
-  const proc = Bun.spawn(command(kind, cfg, stub), {
+  const proc = Bun.spawn(argv, {
     cwd: workDir,
     env: environment(port, database, cfg, stub, workDir),
     stdout: Bun.file(logPath),
