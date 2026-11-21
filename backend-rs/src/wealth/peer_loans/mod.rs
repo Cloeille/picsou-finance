@@ -5,7 +5,7 @@
 
 mod dto;
 mod repo;
-mod service;
+pub mod service;
 
 use axum::extract::State;
 use axum::http::StatusCode;

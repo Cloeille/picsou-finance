@@ -412,7 +412,7 @@ pub struct ValuationHistoryEntry {
 }
 
 /// PropertyValuationService.history: the readable property's valuations, newest first.
-async fn valuations(
+pub async fn valuations(
     AxumState(state): AxumState<AppState>,
     auth: Auth,
     Path(account_id): Path<i64>,

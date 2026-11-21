@@ -6,7 +6,6 @@ use std::collections::HashMap;
 
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
 use serde::Deserialize;
 use sqlx::FromRow;
 
@@ -109,7 +108,7 @@ async fn search(
     ))
 }
 
-async fn uncategorized(
+pub async fn uncategorized(
     State(state): State<AppState>,
     auth: Auth,
 ) -> AppResult<axum::Json<Vec<TransactionResponse>>> {
@@ -201,12 +200,12 @@ async fn retro_apply(
     Ok(())
 }
 
-async fn categorize(
+pub async fn categorize(
     State(state): State<AppState>,
     auth: Auth,
     Path(id): Path<i64>,
     Json(req): Json<CategorizeRequest>,
-) -> AppResult<impl IntoResponse> {
+) -> AppResult<StatusCode> {
     let member_id = auth.member_id;
     let mut conn = state.db.begin().await?;
     let mut tx = transactions::find_by_id_and_member(&mut *conn, id, member_id)

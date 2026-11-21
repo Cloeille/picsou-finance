@@ -91,6 +91,8 @@ pub struct Inner {
     pub wealth: wealth::Wealth,
     /// Process-local scheduler state (track T8).
     pub jobs: jobs::JobsState,
+    /// The MCP server's active sessions (track T8).
+    pub mcp: mcp::Runtime,
 }
 
 impl Deref for AppState {
@@ -153,6 +155,7 @@ impl AppState {
             bearer_authenticators: identity::bearer_authenticators(),
             identity: identity::Runtime::default(),
             admin: admin::Runtime::default(),
+            mcp: mcp::Runtime::default(),
         };
         let state_ref = wiring::wire_all(&mut inner);
         let state = Self(Arc::new(inner));

@@ -487,11 +487,25 @@ async fn access_keys_authenticate_the_mcp_surface_only() {
             .as_str()
         )
     );
+    let authed = reqwest::Client::new()
+        .get(format!("{}/mcp", app.base_url))
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(
-        client.get("/mcp").bearer(&key).send().await.status,
-        StatusCode::NOT_FOUND,
-        "authenticated, no MCP route yet"
+        authed.status(),
+        StatusCode::OK,
+        "authenticated access key opens the MCP SSE endpoint"
     );
+    assert!(
+        authed
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|ct| ct.starts_with("text/event-stream"))
+    );
+    drop(authed);
     assert_eq!(
         client
             .get("/mcp")

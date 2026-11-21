@@ -230,7 +230,17 @@ pub async fn delete_account(
     auth: Auth,
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    let member_id = auth.member_id;
+    delete_account_with_impact(&state, auth.member_id, id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// AccountConnectionService.deleteAccount: soft-deletes the account, removes the underlying
+/// connection if no other live account uses it, and reports what was actually removed.
+pub async fn delete_account_with_impact(
+    state: &AppState,
+    member_id: i64,
+    id: i64,
+) -> AppResult<DeletionImpact> {
     let mut tx = state.db.begin().await?;
     let account = find_owned(&mut tx, id, member_id).await?;
     let mut links = scpi_links(&mut tx, member_id).await?;
@@ -257,6 +267,7 @@ pub async fn delete_account(
         state.clock.zone(),
     )
     .await?;
+    let mut impact = DeletionImpact::none();
     if let Some(connection) = connection
         && !has_other_live_account(&mut tx, &connection, id, member_id, &links).await?
     {
@@ -265,24 +276,35 @@ pub async fn delete_account(
             connection.kind,
             connection.discriminator
         );
-        if connection.kind == ConnectionKind::EnableBanking {
+        let connection_label = label(&mut tx, &connection, &account, member_id).await?;
+        let removed = if connection.kind == ConnectionKind::EnableBanking {
             if let Ok(requisition) = connection.discriminator.parse::<i64>() {
                 sqlx::query("DELETE FROM requisition WHERE id = $1 AND member_id = $2")
                     .bind(requisition)
                     .bind(member_id)
                     .execute(&mut *tx)
-                    .await?;
+                    .await?
+                    .rows_affected()
+                    > 0
+            } else {
+                false
             }
         } else {
             state
                 .accounts
                 .connections
                 .remove(&mut tx, &connection, member_id)
-                .await?;
+                .await?
+        };
+        if removed {
+            impact = DeletionImpact {
+                removes_connection: true,
+                connection_label: Some(connection_label),
+            };
         }
     }
     tx.commit().await?;
-    Ok(StatusCode::NO_CONTENT)
+    Ok(impact)
 }
 
 /// AccountService.delete: soft-deletes the row after detaching what still points at it.

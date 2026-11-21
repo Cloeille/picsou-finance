@@ -4,7 +4,6 @@
 
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -118,7 +117,7 @@ async fn response(
     })
 }
 
-async fn find_all(
+pub async fn find_all(
     State(state): State<AppState>,
     auth: Auth,
 ) -> AppResult<axum::Json<Vec<BudgetResponse>>> {
@@ -189,11 +188,11 @@ async fn assert_assignable(state: &AppState, category: &Category, member_id: i64
     Ok(())
 }
 
-async fn create(
+pub async fn create(
     State(state): State<AppState>,
     auth: Auth,
     Json(req): Json<BudgetRequest>,
-) -> AppResult<impl IntoResponse> {
+) -> AppResult<(StatusCode, axum::Json<BudgetResponse>)> {
     let member_id = auth.member_id;
     let category =
         categories::require(&state.db, req.category_id.unwrap_or_default(), member_id).await?;
@@ -230,7 +229,7 @@ async fn get_or_throw(state: &AppState, id: i64, member_id: i64) -> AppResult<Bu
     .ok_or_else(budget_not_found)
 }
 
-async fn update(
+pub async fn update(
     State(state): State<AppState>,
     auth: Auth,
     Path(id): Path<i64>,
@@ -265,7 +264,7 @@ async fn update(
     ))
 }
 
-async fn delete(
+pub async fn delete(
     State(state): State<AppState>,
     auth: Auth,
     Path(id): Path<i64>,

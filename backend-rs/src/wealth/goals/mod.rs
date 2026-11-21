@@ -53,7 +53,7 @@ pub fn register(routes: &mut Routes) {
 }
 
 /// A validated GoalRequest; @Future on the deadline reads the app clock.
-pub struct GoalBody(GoalRequest);
+pub struct GoalBody(pub GoalRequest);
 
 impl FromRequest<AppState> for GoalBody {
     type Rejection = AppError;
@@ -133,7 +133,7 @@ async fn apply_request(
     Ok(())
 }
 
-async fn find_all(
+pub async fn find_all(
     State(state): State<AppState>,
     auth: Auth,
 ) -> AppResult<axum::Json<Vec<GoalProgressResponse>>> {
@@ -164,7 +164,7 @@ pub async fn dashboard_summaries(
     Ok(out)
 }
 
-async fn find_by_id(
+pub async fn find_by_id(
     State(state): State<AppState>,
     auth: Auth,
     Path(id): Path<i64>,
@@ -176,7 +176,7 @@ async fn find_by_id(
     ))
 }
 
-async fn create(
+pub async fn create(
     State(state): State<AppState>,
     auth: Auth,
     GoalBody(req): GoalBody,
@@ -208,7 +208,7 @@ async fn create(
     Ok((StatusCode::CREATED, axum::Json(response)))
 }
 
-async fn update(
+pub async fn update(
     State(state): State<AppState>,
     auth: Auth,
     Path(id): Path<i64>,
@@ -226,7 +226,7 @@ async fn update(
     ))
 }
 
-async fn delete(
+pub async fn delete(
     State(state): State<AppState>,
     auth: Auth,
     Path(id): Path<i64>,
@@ -265,7 +265,7 @@ fn effective_start_month(ctx: &Ctx<'_>, goal: &Goal) -> YearMonth {
         .unwrap_or(created)
 }
 
-async fn monthly_entries(
+pub async fn monthly_entries(
     State(state): State<AppState>,
     auth: Auth,
     Path(id): Path<i64>,
@@ -427,7 +427,7 @@ async fn delete_month_override(
     ))
 }
 
-async fn set_manual_contribution(
+pub async fn set_manual_contribution(
     State(state): State<AppState>,
     auth: Auth,
     Path((id, year_month)): Path<(i64, String)>,

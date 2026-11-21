@@ -177,7 +177,7 @@ async fn contributions_of(
         .collect())
 }
 
-async fn dashboard(
+pub async fn dashboard(
     State(state): State<AppState>,
     auth: Auth,
 ) -> AppResult<axum::Json<FamilyDashboardResponse>> {
