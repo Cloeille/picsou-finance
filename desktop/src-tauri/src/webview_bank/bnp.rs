@@ -924,7 +924,7 @@ async fn webview_fetch_json(
     bnp_parsers::loads(&reply.text).map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, e.0))
 }
 
-fn unwrap_eval_string(raw: &str) -> Option<String> {
+pub(crate) fn unwrap_eval_string(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() || trimmed == "null" || trimmed == "\"\"" {
         return None;
@@ -1057,7 +1057,7 @@ pub fn cookie_sent_to(cookie: &StoredCookie, host: &str) -> bool {
         && (host == domain || (raw.starts_with('.') && host.ends_with(&format!(".{domain}"))))
 }
 
-fn build_cookie_header(cookies: &[StoredCookie], host: &str) -> String {
+pub(crate) fn build_cookie_header(cookies: &[StoredCookie], host: &str) -> String {
     let host_lower = host.to_ascii_lowercase();
     cookies
         .iter()
@@ -1067,7 +1067,7 @@ fn build_cookie_header(cookies: &[StoredCookie], host: &str) -> String {
         .join("; ")
 }
 
-fn merge_set_cookies(jar: &mut Vec<StoredCookie>, headers: &[String], default_host: &str) {
+pub(crate) fn merge_set_cookies(jar: &mut Vec<StoredCookie>, headers: &[String], default_host: &str) {
     for raw in headers {
         let mut parts = raw.split(';');
         let Some(first) = parts.next() else { continue };
@@ -1174,11 +1174,11 @@ pub fn decode_session_state(session_state: &str) -> Result<DecodedSession, ApiEr
     })
 }
 
-fn sha256_hex(input: &str) -> String {
+pub(crate) fn sha256_hex(input: &str) -> String {
     hex::encode(Sha256::digest(input.as_bytes()))
 }
 
-fn random_hex(num_bytes: usize) -> String {
+pub(crate) fn random_hex(num_bytes: usize) -> String {
     let mut bytes = vec![0u8; num_bytes];
     let _ = getrandom::fill(&mut bytes);
     hex::encode(bytes)

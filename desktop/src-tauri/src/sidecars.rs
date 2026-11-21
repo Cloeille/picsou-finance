@@ -386,11 +386,18 @@ mod tests {
         let _ports = crate::supervisor::TEST_PORTS.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("picsou-sidecars-unavailable-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("runtime")).unwrap();
-        std::fs::write(dir.join("runtime/sidecars-unavailable.json"), r#"["amex-auth","bnp-auth","../x"]"#).unwrap();
+        std::fs::write(
+            dir.join("runtime/sidecars-unavailable.json"),
+            r#"["amex-auth","bnp-auth","revolut-auth","future-bank-auth","../x"]"#,
+        )
+        .unwrap();
         let layout = Layout { runtime: dir.join("runtime"), data: dir.join("data") };
         let env = serve(&layout, &Shared::default(), "k", IDLE).unwrap();
         assert!(env.contains(&("PICSOU_DESKTOP".to_owned(), "true".to_owned())));
-        assert!(env.contains(&("PICSOU_DESKTOP_UNAVAILABLE".to_owned(), "amex-auth".to_owned())));
+        assert!(env.contains(&(
+            "PICSOU_DESKTOP_UNAVAILABLE".to_owned(),
+            "future-bank-auth".to_owned()
+        )));
     }
 
     #[test]
