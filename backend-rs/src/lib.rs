@@ -81,6 +81,8 @@ pub struct Inner {
     pub accounts: accounts::Seams,
     /// The import preview stores (track T7).
     pub transfer: transfer::Transfer,
+    /// The sync module's plug-in points (cross-track seams).
+    pub sync: sync::SyncHooks,
 }
 
 impl Deref for AppState {
@@ -110,6 +112,7 @@ impl AppState {
             ledger: ledger::Ledger::new(db.clone()),
             budget: budget::BudgetState::default(),
             accounts: accounts::Seams::default(),
+            sync: sync::SyncHooks::new(db.clone()),
             db,
             setup_complete: AtomicBool::new(false),
             login_timing: TimingEqualizer::default(),

@@ -238,10 +238,72 @@ pub struct Config {
     pub meria_base_url: String,
     /// The DuckDuckGo icon service Java hard-codes; overridable so tests can stub it.
     pub duckduckgo_icons_url: String,
+    /// Base URLs of the providers Java hard-codes (sync module), overridable for tests.
+    pub sync_urls: HashMap<&'static str, String>,
     pub startup_sync_enabled: bool,
     pub instrument_logos_enabled: bool,
     pub dev_profile: bool,
 }
+
+/// Provider name, its URL variable and the URL Java hard-codes. Java reads no variable for these;
+/// the override exists so tests can point a provider at a stub.
+pub const SYNC_URLS: &[(&str, &str, &str)] = &[
+    ("binance", "BINANCE_BASE_URL", "https://api.binance.com"),
+    ("wise", "WISE_API_URL", "https://api.wise.com"),
+    (
+        "ibkr-flex",
+        "IBKR_FLEX_URL",
+        "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService",
+    ),
+    ("louve", "LOUVE_ISSUER_URL", "https://app.louveinvest.com"),
+    (
+        "finary-clerk",
+        "FINARY_CLERK_URL",
+        "https://clerk.finary.com",
+    ),
+    ("finary-api", "FINARY_API_URL", "https://api.finary.com"),
+    ("bitcoin", "BITCOIN_API_URL", "https://blockstream.info"),
+    (
+        "solana",
+        "SOLANA_RPC_URL",
+        "https://api.mainnet-beta.solana.com",
+    ),
+    (
+        "evm-ethereum",
+        "EVM_ETHEREUM_RPC_URL",
+        "https://ethereum-rpc.publicnode.com",
+    ),
+    (
+        "evm-bnb",
+        "EVM_BNB_RPC_URL",
+        "https://bsc-rpc.publicnode.com",
+    ),
+    (
+        "evm-polygon",
+        "EVM_POLYGON_RPC_URL",
+        "https://polygon-bor-rpc.publicnode.com",
+    ),
+    (
+        "evm-arbitrum",
+        "EVM_ARBITRUM_RPC_URL",
+        "https://arbitrum-one-rpc.publicnode.com",
+    ),
+    (
+        "evm-optimism",
+        "EVM_OPTIMISM_RPC_URL",
+        "https://optimism-rpc.publicnode.com",
+    ),
+    (
+        "evm-base",
+        "EVM_BASE_RPC_URL",
+        "https://base-rpc.publicnode.com",
+    ),
+    (
+        "evm-avalanche",
+        "EVM_AVALANCHE_RPC_URL",
+        "https://avalanche-c-chain-rpc.publicnode.com",
+    ),
+];
 
 /// Sidecar compose service name, its URL variable, the production default and the dev default.
 pub const SIDECARS: &[(&str, &str, &str, &str)] = &[
@@ -668,10 +730,22 @@ impl Config {
             duckduckgo_icons_url: env
                 .or("DUCKDUCKGO_ICONS_URL", "https://icons.duckduckgo.com")
                 .to_owned(),
+            sync_urls: SYNC_URLS
+                .iter()
+                .map(|(name, var, default)| (*name, env.or(var, default).to_owned()))
+                .collect(),
             startup_sync_enabled: bool_or(env, "APP_STARTUP_SYNC_ENABLED", true)?,
             instrument_logos_enabled: bool_or(env, "INSTRUMENT_LOGOS_ENABLED", true)?,
             dev_profile: dev,
         })
+    }
+
+    /// The base URL of a sync provider by its SYNC_URLS name.
+    pub fn sync_url(&self, name: &str) -> &str {
+        self.sync_urls
+            .get(name)
+            .map(String::as_str)
+            .expect("a provider listed in SYNC_URLS")
     }
 
     /// The URL of a connector sidecar by its compose service name.
