@@ -30,6 +30,8 @@ pub enum MigrationError {
          change their external_account_id, then start again. See docs/features/docker-deployment.md#upgrading-a-10x-database-to-110"
     )]
     DuplicateExternalAccounts(i64),
+    #[error("Migration inventory is incomplete: {0}")]
+    Incomplete(String),
     #[error("Migration {script} failed: {source}")]
     Failed { script: String, source: sqlx::Error },
     #[error("database error: {0}")]
@@ -328,6 +330,26 @@ pub async fn pending(conn: &mut PgConnection) -> Result<Vec<String>, MigrationEr
         .into_iter()
         .map(|m| m.script.clone())
         .collect())
+}
+
+/// ReleaseMigrationCli verify: the history validates against the local scripts and every local
+/// script is applied. Nothing is written.
+pub async fn verify(conn: &mut PgConnection) -> Result<(), MigrationError> {
+    let local = migrations()?;
+    if !table_exists(conn, TABLE).await? {
+        return Err(MigrationError::Incomplete("no schema history".into()));
+    }
+    let applied = applied_rows(conn).await?;
+    validate(&local, &applied)?;
+    reject_high_baseline(&local, &applied)?;
+    match pending_of(&local, &applied).first() {
+        Some(m) => Err(MigrationError::Incomplete(format!(
+            "V{} ({}) is PENDING",
+            m.version.as_str(),
+            m.script
+        ))),
+        None => Ok(()),
+    }
 }
 
 fn pending_of<'a>(local: &'a [Migration], applied: &[Applied]) -> Vec<&'a Migration> {

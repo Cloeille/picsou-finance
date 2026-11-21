@@ -79,6 +79,54 @@ async fn pending_lists_the_scripts_not_yet_applied() {
     );
 }
 
+fn release_cli(command: &str, database: &TestDatabase) -> std::process::Output {
+    std::process::Command::new(env!("CARGO_BIN_EXE_picsou"))
+        .arg(command)
+        .env_clear()
+        .env(
+            "SPRING_DATASOURCE_URL",
+            format!("jdbc:postgresql://127.0.0.1:55432/{}", database.name()),
+        )
+        .env("SPRING_DATASOURCE_USERNAME", DB_USER)
+        .env("SPRING_DATASOURCE_PASSWORD", "trust-ignores-it")
+        .output()
+        .unwrap()
+}
+
+#[tokio::test]
+async fn the_release_cli_migrates_and_verifies_like_the_java_one() {
+    let db = fresh_database().await;
+    let migrate = release_cli("migrate", &db);
+    assert!(migrate.status.success(), "{migrate:?}");
+    let verify = release_cli("verify", &db);
+    assert!(verify.status.success(), "{verify:?}");
+
+    let mut conn = connect(&db).await;
+    let last: String = sqlx::query_scalar(
+        "DELETE FROM flyway_schema_history WHERE installed_rank = (SELECT max(installed_rank) FROM flyway_schema_history) RETURNING script",
+    )
+    .fetch_one(&mut conn)
+    .await
+    .unwrap();
+    let incomplete = release_cli("verify", &db);
+    let stderr = String::from_utf8_lossy(&incomplete.stderr);
+    assert_eq!(incomplete.status.code(), Some(1));
+    assert!(
+        stderr.contains("Migration inventory is incomplete") && stderr.contains(&last),
+        "{stderr}"
+    );
+
+    let unknown = release_cli("rollback", &db);
+    assert_eq!(unknown.status.code(), Some(1));
+    let missing = std::process::Command::new(env!("CARGO_BIN_EXE_picsou"))
+        .arg("verify")
+        .env_clear()
+        .output()
+        .unwrap();
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("SPRING_DATASOURCE_URL"));
+}
+
 #[tokio::test]
 async fn an_applied_version_this_binary_lacks_fails() {
     let db = fresh_database().await;
