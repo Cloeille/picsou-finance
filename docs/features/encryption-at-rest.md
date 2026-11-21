@@ -25,7 +25,7 @@ Picsou stores sensitive credentials in PostgreSQL: crypto exchange API keys/secr
 |------|--------|--------|-----------------|
 | Crypto exchange API key | `CryptoExchangeSession` | `api_key` | V15 (2026-04-08) |
 | Crypto exchange API secret | `CryptoExchangeSession` | `api_secret` | V9 (initial) |
-| Crypto exchange API passphrase | `CryptoExchangeSession` | `api_passphrase` | V154 (2026-11-20) |
+| Crypto exchange API passphrase | `CryptoExchangeSession` | `api_passphrase` | V155 (2026-11-21) |
 | Trade Republic session state (refresh and device cookies) | `SidecarSession` (bank `TRADE_REPUBLIC`) | `session_state` | V149 (2026-11); was `trade_republic_session.session_token` / `refresh_token` from V15 |
 | DEGIRO session blob | `DegiroSession` | `session_blob` | V71 (2026-08-10), `TEXT` since V86 |
 | SimpleFIN access URL | `SimplefinConnection` | `access_url` | V113 (2026-10-06) |

@@ -35,5 +35,5 @@ Adapter callers must construct the record. The schema gains two nullable columns
 
 ## Consequences
 
-V154 leaves both columns null on existing sessions. Future adapters can opt in with
+V155 leaves both columns null on existing sessions. Future adapters can opt in with
 `requiresApiPassphrase()` and `regions()`. The exchange status API exposes the selected region.

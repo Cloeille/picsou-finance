@@ -27,7 +27,7 @@ normalises blank fields to null, and preserves nonblank passphrases verbatim. It
 required fields, unexpected fields or unknown regions before any network call. Both adapter methods
 receive an `ExchangeCredentials` record with a redacted string representation.
 
-`CryptoEncryption` encrypts each supplied key, secret and passphrase separately with AES-256-GCM. V73 made `api_secret` nullable, and V154 adds the nullable `api_passphrase` and `region` columns. The region is stored in plaintext per connection and appears in the exchange status. Unused fields are stored as `NULL`. See [encryption at rest](./encryption-at-rest.md).
+`CryptoEncryption` encrypts each supplied key, secret and passphrase separately with AES-256-GCM. V73 made `api_secret` nullable, and V155 adds the nullable `api_passphrase` and `region` columns. The region is stored in plaintext per connection and appears in the exchange status. Unused fields are stored as `NULL`. See [encryption at rest](./encryption-at-rest.md).
 
 ### Binance adapter
 
