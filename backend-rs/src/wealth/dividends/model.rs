@@ -18,7 +18,12 @@ pub enum Cadence {
 }
 
 impl Cadence {
-    pub const ALL: [Cadence; 4] = [Self::Monthly, Self::Quarterly, Self::SemiAnnual, Self::Annual];
+    pub const ALL: [Cadence; 4] = [
+        Self::Monthly,
+        Self::Quarterly,
+        Self::SemiAnnual,
+        Self::Annual,
+    ];
 
     pub fn months(self) -> u32 {
         match self {
@@ -80,11 +85,12 @@ pub async fn sources_by_ticker(
     if upper.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(i64, String, Option<String>)> =
-        sqlx::query_as("SELECT id, ticker, currency FROM dividend_source WHERE ticker = ANY($1) ORDER BY id")
-            .bind(&upper)
-            .fetch_all(db)
-            .await?;
+    let rows: Vec<(i64, String, Option<String>)> = sqlx::query_as(
+        "SELECT id, ticker, currency FROM dividend_source WHERE ticker = ANY($1) ORDER BY id",
+    )
+    .bind(&upper)
+    .fetch_all(db)
+    .await?;
     let ids: Vec<i64> = rows.iter().map(|r| r.0).collect();
     let events: Vec<DividendEvent> = sqlx::query_as(
         "SELECT source_id, ex_date, amount, amount_eur, payment_date, declared FROM dividend_event \
@@ -99,7 +105,11 @@ pub async fn sources_by_ticker(
         if out.contains_key(&key) {
             continue;
         }
-        let source_events = events.iter().filter(|e| e.source_id == id).cloned().collect();
+        let source_events = events
+            .iter()
+            .filter(|e| e.source_id == id)
+            .cloned()
+            .collect();
         out.insert(
             key,
             DividendSource {

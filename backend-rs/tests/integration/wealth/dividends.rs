@@ -18,15 +18,19 @@ impl Fixture {
     async fn new() -> Self {
         let app = TestApp::with_admin().await;
         let admin = app.login_admin().await;
-        let member: i64 = sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
-            .fetch_one(&app.state.db)
-            .await
-            .unwrap();
+        let member: i64 =
+            sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+                .fetch_one(&app.state.db)
+                .await
+                .unwrap();
         Self { app, admin, member }
     }
 
     async fn sql(&self, statement: &str) {
-        sqlx::query(statement).execute(&self.app.state.db).await.unwrap();
+        sqlx::query(statement)
+            .execute(&self.app.state.db)
+            .await
+            .unwrap();
     }
 
     async fn cto(&self, name: &str, provider: Option<&str>) -> i64 {
@@ -75,7 +79,11 @@ impl Fixture {
     }
 
     async fn upcoming(&self, query: &str) -> Vec<Value> {
-        let response = self.admin.get(&format!("/api/dividends/upcoming{query}")).send().await;
+        let response = self
+            .admin
+            .get(&format!("/api/dividends/upcoming{query}"))
+            .send()
+            .await;
         assert_eq!(response.status, 200, "{}", response.text());
         response.json().as_array().unwrap().clone()
     }
@@ -97,7 +105,10 @@ async fn a_quarterly_payer_is_projected_and_an_announced_payment_replaces_its_pr
     )
     .await;
     let lines = f.upcoming("?horizonDays=200").await;
-    let dates: Vec<&str> = lines.iter().map(|l| l["expectedDate"].as_str().unwrap()).collect();
+    let dates: Vec<&str> = lines
+        .iter()
+        .map(|l| l["expectedDate"].as_str().unwrap())
+        .collect();
     assert_eq!(dates, ["2026-04-02", "2026-07-02"]);
     let first = &lines[0];
     assert_eq!(first["basis"], "HISTORY_CADENCE");
@@ -109,9 +120,11 @@ async fn a_quarterly_payer_is_projected_and_an_announced_payment_replaces_its_pr
     assert_eq!(first["countsInBudget"], true);
 
     // Clamped to 366 days, and an announced ex-date within 20 days replaces the projection.
-    f.sql("INSERT INTO dividend_event (source_id, ex_date, amount, amount_eur, declared) \
-           SELECT id, '2026-04-10', 0.9, 0.9, true FROM dividend_source WHERE ticker = 'TTE.PA'")
-        .await;
+    f.sql(
+        "INSERT INTO dividend_event (source_id, ex_date, amount, amount_eur, declared) \
+           SELECT id, '2026-04-10', 0.9, 0.9, true FROM dividend_source WHERE ticker = 'TTE.PA'",
+    )
+    .await;
     let lines = f.upcoming("?horizonDays=100").await;
     assert_eq!(lines.len(), 1);
     assert_eq!(lines[0]["basis"], "ANNOUNCED");
@@ -124,11 +137,36 @@ async fn a_stale_or_irregular_history_is_not_projected() {
     let f = Fixture::new().await;
     let cto = f.cto("CTO", None).await;
     f.holding(cto, "OLD", "Old Corp", "5").await;
-    f.source("OLD", &[("2024-03-01", "1", None, false), ("2025-03-01", "1", None, false)]).await;
+    f.source(
+        "OLD",
+        &[
+            ("2024-03-01", "1", None, false),
+            ("2025-03-01", "1", None, false),
+        ],
+    )
+    .await;
     f.holding(cto, "ODD", "Odd Corp", "5").await;
-    f.source("ODD", &[("2025-06-01", "1", None, false), ("2025-08-01", "1", None, false), ("2025-12-20", "1", None, false)]).await;
-    assert!(f.upcoming("?horizonDays=366").await.iter().all(|l| l["ticker"] != "ODD"));
-    let old: Vec<Value> = f.upcoming("?horizonDays=366").await.into_iter().filter(|l| l["ticker"] == "OLD").collect();
+    f.source(
+        "ODD",
+        &[
+            ("2025-06-01", "1", None, false),
+            ("2025-08-01", "1", None, false),
+            ("2025-12-20", "1", None, false),
+        ],
+    )
+    .await;
+    assert!(
+        f.upcoming("?horizonDays=366")
+            .await
+            .iter()
+            .all(|l| l["ticker"] != "ODD")
+    );
+    let old: Vec<Value> = f
+        .upcoming("?horizonDays=366")
+        .await
+        .into_iter()
+        .filter(|l| l["ticker"] == "OLD")
+        .collect();
     assert_eq!(old.len(), 1, "annual payer projected once: {old:?}");
     assert_eq!(old[0]["expectedDate"], "2026-03-01");
 }
@@ -149,21 +187,36 @@ async fn an_scpi_pays_its_declared_distribution_on_the_25th() {
     .await
     .unwrap();
     let lines = f.upcoming("?horizonDays=45").await;
-    let dates: Vec<&str> = lines.iter().map(|l| l["expectedDate"].as_str().unwrap()).collect();
+    let dates: Vec<&str> = lines
+        .iter()
+        .map(|l| l["expectedDate"].as_str().unwrap())
+        .collect();
     assert_eq!(dates, ["2026-01-25", "2026-02-25"]);
     assert_eq!(lines[0]["source"], "SCPI");
     assert_eq!(lines[0]["basis"], "SCPI_DECLARED");
     assert_eq!(lines[0]["amountPerShare"].to_string(), "1.00000000");
     assert_eq!(d(&lines[0]["amountEur"].to_string()), d("10"));
-    assert_eq!(lines[0]["id"], format!("SCPI:{scpi}:FR0000000001:2026-01-25"));
+    assert_eq!(
+        lines[0]["id"],
+        format!("SCPI:{scpi}:FR0000000001:2026-01-25")
+    );
 }
 
 #[tokio::test]
 async fn an_unreadable_account_is_a_404() {
     let f = Fixture::new().await;
     let (_, other) = f.app.create_member("other", "password-1234").await;
-    let foreign = account(&f.app, NewAccount::new(other, "CTO", AccountType::CompteTitres)).await.id;
-    let response = f.admin.get(&format!("/api/dividends/upcoming?accountId={foreign}")).send().await;
+    let foreign = account(
+        &f.app,
+        NewAccount::new(other, "CTO", AccountType::CompteTitres),
+    )
+    .await
+    .id;
+    let response = f
+        .admin
+        .get(&format!("/api/dividends/upcoming?accountId={foreign}"))
+        .send()
+        .await;
     assert_eq!(response.status, 404);
 }
 
@@ -172,7 +225,11 @@ async fn a_recent_credit_is_classified_once_then_listed_as_received() {
     let f = Fixture::new().await;
     let cto = f.cto("CTO", Some("Fortuneo")).await;
     f.holding(cto, "TTE.PA", "TotalEnergies", "10").await;
-    f.source("TTE.PA", &[("2026-01-02", "0.79", Some("2026-01-06"), false)]).await;
+    f.source(
+        "TTE.PA",
+        &[("2026-01-02", "0.79", Some("2026-01-06"), false)],
+    )
+    .await;
     let credit: i64 = sqlx::query_scalar(
         "INSERT INTO \"transaction\" (account_id, date, description, amount, native_currency, created_at, is_manual) \
          VALUES ($1, '2026-01-06', 'DIVIDENDE TOTALENERGIES', 7.90, 'EUR', now(), false) RETURNING id",
@@ -184,8 +241,20 @@ async fn a_recent_credit_is_classified_once_then_listed_as_received() {
     let today = f.app.state.clock.today();
     let now = f.app.state.clock.now();
     let classifier = f.app.state.ledger.dividends.clone();
-    assert_eq!(classifier.classify_recent(&f.app.state.db, f.member, today, now).await.unwrap(), 1);
-    assert_eq!(classifier.classify_recent(&f.app.state.db, f.member, today, now).await.unwrap(), 0);
+    assert_eq!(
+        classifier
+            .classify_recent(&f.app.state.db, f.member, today, now)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        classifier
+            .classify_recent(&f.app.state.db, f.member, today, now)
+            .await
+            .unwrap(),
+        0
+    );
     let (tx_type, ticker, slug): (String, String, String) = sqlx::query_as(
         "SELECT t.tx_type, t.ticker, c.slug FROM \"transaction\" t JOIN category c ON c.id = t.category_id WHERE t.id = $1",
     )
@@ -193,9 +262,17 @@ async fn a_recent_credit_is_classified_once_then_listed_as_received() {
     .fetch_one(&f.app.state.db)
     .await
     .unwrap();
-    assert_eq!((tx_type.as_str(), ticker.as_str(), slug.as_str()), ("DIVIDEND", "TTE.PA", "revenus-capital"));
+    assert_eq!(
+        (tx_type.as_str(), ticker.as_str(), slug.as_str()),
+        ("DIVIDEND", "TTE.PA", "revenus-capital")
+    );
 
-    let body = f.admin.get("/api/dividends/received?days=30").send().await.json();
+    let body = f
+        .admin
+        .get("/api/dividends/received?days=30")
+        .send()
+        .await
+        .json();
     let row = &body[0];
     assert_eq!(row["id"], format!("HOLDING:{cto}:TTE.PA:2026-01-02"));
     assert_eq!(row["transactionId"], credit);
@@ -209,7 +286,8 @@ async fn a_credit_that_does_not_fit_the_amount_is_left_alone() {
     let f = Fixture::new().await;
     let cto = f.cto("CTO", None).await;
     f.holding(cto, "TTE.PA", "TotalEnergies", "10").await;
-    f.source("TTE.PA", &[("2026-01-02", "0.79", None, false)]).await;
+    f.source("TTE.PA", &[("2026-01-02", "0.79", None, false)])
+        .await;
     f.sql(&format!(
         "INSERT INTO \"transaction\" (account_id, date, description, amount, native_currency, created_at, is_manual) \
          VALUES ({cto}, '2026-01-06', 'DIVIDENDE TOTALENERGIES', 20, 'EUR', now(), false)"
@@ -217,7 +295,12 @@ async fn a_credit_that_does_not_fit_the_amount_is_left_alone() {
     .await;
     let classifier = f.app.state.ledger.dividends.clone();
     let n = classifier
-        .classify_recent(&f.app.state.db, f.member, f.app.state.clock.today(), f.app.state.clock.now())
+        .classify_recent(
+            &f.app.state.db,
+            f.member,
+            f.app.state.clock.today(),
+            f.app.state.clock.now(),
+        )
         .await
         .unwrap();
     assert_eq!(n, 0);

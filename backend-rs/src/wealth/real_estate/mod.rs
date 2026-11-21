@@ -166,10 +166,15 @@ struct Metadata {
 impl Metadata {
     /// RealEstateMetadata.costBasis: price plus agency and notary fees and works.
     fn cost_basis(&self) -> Decimal {
-        [self.purchase_price, self.agency_fees, self.notary_fees, self.works_cost]
-            .into_iter()
-            .flatten()
-            .sum()
+        [
+            self.purchase_price,
+            self.agency_fees,
+            self.notary_fees,
+            self.works_cost,
+        ]
+        .into_iter()
+        .flatten()
+        .sum()
     }
 }
 
@@ -184,7 +189,11 @@ struct ScpiPosition {
 
 /// RealEstateSummaryService.summarize: hidden accounts included, every figure weighted by the
 /// member's share.
-pub async fn summarize(state: &AppState, member_id: i64, include_hidden: bool) -> AppResult<RealEstateSummaryResponse> {
+pub async fn summarize(
+    state: &AppState,
+    member_id: i64,
+    include_hidden: bool,
+) -> AppResult<RealEstateSummaryResponse> {
     let mut conn = state.db.acquire().await?;
     let mut readable = access::readable_accounts(&mut conn, member_id).await?;
     if !include_hidden {
@@ -201,11 +210,18 @@ pub async fn summarize(state: &AppState, member_id: i64, include_hidden: bool) -
     let mut paper = Vec::new();
 
     for account in &readable {
-        let Some(share) = shares.get(&account.id).copied().filter(|s| *s > Decimal::ZERO) else {
+        let Some(share) = shares
+            .get(&account.id)
+            .copied()
+            .filter(|s| *s > Decimal::ZERO)
+        else {
             continue;
         };
         if account.account_type == AccountType::Scpi {
-            let gross = access::weigh(valuation::live_balance_eur(&mut conn, prices, account, today).await?, share);
+            let gross = access::weigh(
+                valuation::live_balance_eur(&mut conn, prices, account, today).await?,
+                share,
+            );
             let position: Option<ScpiPosition> = sqlx::query_as(
                 "SELECT management_company, share_count, withdrawal_price_eur, subscription_price_eur, valuation_status \
                  FROM scpi_position WHERE account_id = $1 AND member_id = $2",
@@ -214,7 +230,8 @@ pub async fn summarize(state: &AppState, member_id: i64, include_hidden: bool) -
             .bind(account.member_id)
             .fetch_optional(&mut *conn)
             .await?;
-            let (debt, loans) = loans_for(&mut conn, account, member_id, today, include_hidden).await?;
+            let (debt, loans) =
+                loans_for(&mut conn, account, member_id, today, include_hidden).await?;
             paper.push(PaperLine {
                 account_id: account.id,
                 name: account.name.clone(),
@@ -237,7 +254,10 @@ pub async fn summarize(state: &AppState, member_id: i64, include_hidden: bool) -
         if account.account_type != AccountType::RealEstate {
             continue;
         }
-        let gross = access::weigh(valuation::live_balance_eur(&mut conn, prices, account, today).await?, share);
+        let gross = access::weigh(
+            valuation::live_balance_eur(&mut conn, prices, account, today).await?,
+            share,
+        );
         let metadata: Option<Metadata> = sqlx::query_as(
             "SELECT purchase_price, agency_fees, notary_fees, works_cost, property_type, category, city, \
              surface_area, rental_income, valuation_mode FROM real_estate_metadata WHERE account_id = $1",
@@ -245,10 +265,12 @@ pub async fn summarize(state: &AppState, member_id: i64, include_hidden: bool) -
         .bind(account.id)
         .fetch_optional(&mut *conn)
         .await?;
-        let cost_basis = metadata.as_ref().map_or(Decimal::ZERO, |m| access::weigh(m.cost_basis(), share));
-        let rent = metadata
+        let cost_basis = metadata
             .as_ref()
-            .map_or(Decimal::ZERO, |m| access::weigh(m.rental_income.unwrap_or_default(), share));
+            .map_or(Decimal::ZERO, |m| access::weigh(m.cost_basis(), share));
+        let rent = metadata.as_ref().map_or(Decimal::ZERO, |m| {
+            access::weigh(m.rental_income.unwrap_or_default(), share)
+        });
         let (debt, loans) = loans_for(&mut conn, account, member_id, today, include_hidden).await?;
         let latest: Option<(NaiveDate, Option<String>)> = sqlx::query_as(
             "SELECT valued_at, confidence FROM property_valuation WHERE account_id = $1 ORDER BY valued_at DESC LIMIT 1",
@@ -271,7 +293,9 @@ pub async fn summarize(state: &AppState, member_id: i64, include_hidden: bool) -
             unrealized_gain: scale(gross - cost_basis),
             surface_area: metadata.as_ref().and_then(|m| m.surface_area),
             rental_income: scale(rent),
-            valuation_mode: metadata.as_ref().map_or("ESTIMATED".to_owned(), |m| m.valuation_mode.clone()),
+            valuation_mode: metadata
+                .as_ref()
+                .map_or("ESTIMATED".to_owned(), |m| m.valuation_mode.clone()),
             last_valued_at: latest.as_ref().map(|l| l.0),
             last_confidence: latest.and_then(|l| l.1),
             loans,
@@ -290,8 +314,10 @@ pub async fn summarize(state: &AppState, member_id: i64, include_hidden: bool) -
         net_value: scale(gross_total - debt_total),
         cost_basis: scale(cost_total),
         unrealized_gain: scale(gain),
-        unrealized_gain_percent: (cost_total > Decimal::ZERO).then(|| divide(gain * hundred, cost_total, 2, HALF_UP)),
-        loan_to_value: (gross_total > Decimal::ZERO).then(|| divide(debt_total * hundred, gross_total, 2, HALF_UP)),
+        unrealized_gain_percent: (cost_total > Decimal::ZERO)
+            .then(|| divide(gain * hundred, cost_total, 2, HALF_UP)),
+        loan_to_value: (gross_total > Decimal::ZERO)
+            .then(|| divide(debt_total * hundred, gross_total, 2, HALF_UP)),
         monthly_rental_income: scale(rent_total),
         properties,
         paper_gross: scale(paper_gross),
@@ -354,8 +380,13 @@ async fn loans_for(
     Ok((total, lines))
 }
 
-async fn summary(AxumState(state): AxumState<AppState>, auth: Auth) -> AppResult<axum::Json<RealEstateSummaryResponse>> {
-    summarize(&state, auth.member_id, true).await.map(axum::Json)
+async fn summary(
+    AxumState(state): AxumState<AppState>,
+    auth: Auth,
+) -> AppResult<axum::Json<RealEstateSummaryResponse>> {
+    summarize(&state, auth.member_id, true)
+        .await
+        .map(axum::Json)
 }
 
 /// RealEstateController.ValuationHistoryEntry.
@@ -415,17 +446,30 @@ pub struct GeocodeSuggestion {
 
 /// Address suggestions; a query under three characters is answered empty without a call, and
 /// each member may ask 60 times a minute (then a bare 429).
-async fn geocode(AxumState(state): AxumState<AppState>, auth: Auth, query: Query) -> AppResult<Response> {
+async fn geocode(
+    AxumState(state): AxumState<AppState>,
+    auth: Auth,
+    query: Query,
+) -> AppResult<Response> {
     let q = params::required(&query, "q")?;
     let limit: Option<i64> = params::optional(&query, "limit")?;
     if q.trim().chars().count() < 3 {
         return Ok(axum::Json(Vec::<GeocodeSuggestion>::new()).into_response());
     }
-    if !state.limits.try_consume(&policies::GEOCODE, &auth.member_id.to_string()) {
+    if !state
+        .limits
+        .try_consume(&policies::GEOCODE, &auth.member_id.to_string())
+    {
         tracing::warn!("geocode.rate_limited memberId={}", auth.member_id);
         return Ok(StatusCode::TOO_MANY_REQUESTS.into_response());
     }
-    let results = geocoding::autocomplete(&state.http, &state.config.geocoding_api_url, q.trim(), limit.unwrap_or(5)).await;
+    let results = geocoding::autocomplete(
+        &state.http,
+        &state.config.geocoding_api_url,
+        q.trim(),
+        limit.unwrap_or(5),
+    )
+    .await;
     let suggestions: Vec<GeocodeSuggestion> = results
         .into_iter()
         .map(|r| GeocodeSuggestion {

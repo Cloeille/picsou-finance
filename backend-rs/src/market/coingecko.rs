@@ -24,7 +24,12 @@ pub struct CoinGecko {
 }
 
 impl CoinGecko {
-    pub fn new(http: reqwest::Client, base_url: &str, db: PgPool, cooldown: Arc<YahooCooldown>) -> Self {
+    pub fn new(
+        http: reqwest::Client,
+        base_url: &str,
+        db: PgPool,
+        cooldown: Arc<YahooCooldown>,
+    ) -> Self {
         Self {
             http,
             base_url: base_url.trim_end_matches('/').to_owned(),
@@ -90,11 +95,19 @@ impl CoinGecko {
         };
         let mut result = HashMap::new();
         for (ticker, id) in &ids {
-            if let Some(price) = body.get(id).and_then(|p| p.get("eur")).and_then(json_decimal) {
+            if let Some(price) = body
+                .get(id)
+                .and_then(|p| p.get("eur"))
+                .and_then(json_decimal)
+            {
                 result.insert(ticker.clone(), price);
             }
         }
-        let missing: Vec<String> = ids.keys().filter(|t| !result.contains_key(*t)).map(|t| safe(t)).collect();
+        let missing: Vec<String> = ids
+            .keys()
+            .filter(|t| !result.contains_key(*t))
+            .map(|t| safe(t))
+            .collect();
         if !missing.is_empty() {
             tracing::warn!("CoinGecko had no EUR price for {missing:?}");
         }

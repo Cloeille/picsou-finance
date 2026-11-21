@@ -75,12 +75,19 @@ impl GoalRequest {
         errors.size("name", self.name.as_deref(), 0, 200);
         decimal_min(errors, "targetAmount", self.target_amount, "0.01");
         if self.deadline.is_some_and(|d| d <= today) {
-            let message = errors.default_message("must be a future date", "doit être dans le futur");
+            let message =
+                errors.default_message("must be a future date", "doit être dans le futur");
             errors.add("deadline", message);
         }
         decimal_min(errors, "monthlyAmount", self.monthly_amount, "0.01");
         decimal_min(errors, "expectedReturn", self.expected_return, "-100.0");
-        decimal_max_msg(errors, "expectedReturn", self.expected_return, "100.0", None);
+        decimal_max_msg(
+            errors,
+            "expectedReturn",
+            self.expected_return,
+            "100.0",
+            None,
+        );
         for (i, line) in self.lines().iter().enumerate() {
             let ticker = format!("allocations[{i}].ticker");
             errors.not_blank(&ticker, line.ticker.as_deref());
@@ -128,7 +135,11 @@ impl GoalRequest {
                 "allocationWithinMonthlyAmount",
                 match self.monthly_amount {
                     Some(monthly) if !lines.is_empty() => {
-                        lines.iter().filter_map(|l| l.monthly_amount).sum::<Decimal>() <= monthly
+                        lines
+                            .iter()
+                            .filter_map(|l| l.monthly_amount)
+                            .sum::<Decimal>()
+                            <= monthly
                     }
                     _ => true,
                 },

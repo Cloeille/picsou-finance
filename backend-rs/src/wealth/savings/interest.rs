@@ -159,7 +159,12 @@ mod tests {
         s.parse().unwrap()
     }
 
-    fn config(product: SavingsProduct, rate: &str, basis: RateBasis, tax: Option<&str>) -> SavingsConfig {
+    fn config(
+        product: SavingsProduct,
+        rate: &str,
+        basis: RateBasis,
+        tax: Option<&str>,
+    ) -> SavingsConfig {
         SavingsConfig {
             account_id: 1,
             product,
@@ -184,7 +189,12 @@ mod tests {
     fn a_deposit_earns_from_the_next_quinzaine() {
         let c = config(SavingsProduct::LivretA, "2.4000", RateBasis::Net, None);
         // 12000 deposited on 2025-06-10 earns from 06-16: 13 quinzaines of 12000 * 2.4 / 2400.
-        let p = project(&c, Decimal::ZERO, &[(day("2025-06-10"), d("12000"))], day("2025-12-31"));
+        let p = project(
+            &c,
+            Decimal::ZERO,
+            &[(day("2025-06-10"), d("12000"))],
+            day("2025-12-31"),
+        );
         assert_eq!(p.projected_interest_full_year.to_string(), "156.00");
     }
 
@@ -192,16 +202,29 @@ mod tests {
     fn a_withdrawal_stops_earning_from_its_own_quinzaine() {
         let c = config(SavingsProduct::LivretA, "2.4000", RateBasis::Net, None);
         // 2400 withdrawn on 2025-06-20 stops earning from 06-16: 11 quinzaines lost of 2.40.
-        let p = project(&c, d("2400"), &[(day("2025-06-20"), d("-2400"))], day("2025-12-31"));
+        let p = project(
+            &c,
+            d("2400"),
+            &[(day("2025-06-20"), d("-2400"))],
+            day("2025-12-31"),
+        );
         assert_eq!(p.projected_interest_full_year.to_string(), "26.40");
     }
 
     #[test]
     fn commercial_gross_loses_the_flat_tax() {
-        let c = config(SavingsProduct::Commercial, "4.0000", RateBasis::Gross, Some("30.00"));
+        let c = config(
+            SavingsProduct::Commercial,
+            "4.0000",
+            RateBasis::Gross,
+            Some("30.00"),
+        );
         assert_eq!(effective_net_rate_pct(&c).to_string(), "2.8000000000");
         let defaulted = config(SavingsProduct::Commercial, "4.0000", RateBasis::Gross, None);
-        assert_eq!(effective_net_rate_pct(&defaulted).to_string(), "2.8000000000");
+        assert_eq!(
+            effective_net_rate_pct(&defaulted).to_string(),
+            "2.8000000000"
+        );
         let p = project(&c, d("10000"), &[], day("2025-12-31"));
         assert_eq!(p.projected_interest_full_year.to_string(), "280.00");
         assert!(!p.net_of_tax);
@@ -220,7 +243,11 @@ mod tests {
 
     #[test]
     fn regulated_books_refuse_a_gross_basis() {
-        for product in [SavingsProduct::LivretA, SavingsProduct::Ldds, SavingsProduct::Lep] {
+        for product in [
+            SavingsProduct::LivretA,
+            SavingsProduct::Ldds,
+            SavingsProduct::Lep,
+        ] {
             assert!(validate(product, RateBasis::Gross).is_err());
             assert!(validate(product, RateBasis::Net).is_ok());
         }

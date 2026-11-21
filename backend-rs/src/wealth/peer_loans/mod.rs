@@ -49,7 +49,9 @@ async fn get(
     auth: Auth,
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<PeerLoanDetailResponse>> {
-    service::get(&state, id, auth.member_id).await.map(axum::Json)
+    service::get(&state, id, auth.member_id)
+        .await
+        .map(axum::Json)
 }
 
 async fn save_terms(

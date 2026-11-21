@@ -34,7 +34,11 @@ pub fn register(routes: &mut Routes) {
 /// owner sees it. The savings-config upsert and every GoalProgressResponse embed it.
 #[async_trait]
 pub trait AccountResponses: Send + Sync {
-    async fn to_response(&self, state: &AppState, account: &Account) -> AppResult<serde_json::Value>;
+    async fn to_response(
+        &self,
+        state: &AppState,
+        account: &Account,
+    ) -> AppResult<serde_json::Value>;
 }
 
 /// The savings domain's state: the AccountResponses seam, wired once at start (until then the
@@ -131,7 +135,9 @@ async fn upsert_config(
     }
     // Columns the entity maps NOT NULL: Hibernate refuses the flush, a 500 in Java.
     let (Some(product), Some(annual_rate)) = (req.product, req.annual_rate) else {
-        return Err(AppError::internal("savings config without a product or a rate"));
+        return Err(AppError::internal(
+            "savings config without a product or a rate",
+        ));
     };
     let responder = state.wealth.savings.account_responses()?;
     model::upsert(
@@ -201,8 +207,16 @@ pub async fn configure_if_missing(
             RegulatedRates::LIVRET_A,
             RegulatedRates::LIVRET_A_CEILING,
         ),
-        AccountType::Ldds => (SavingsProduct::Ldds, RegulatedRates::LDDS, RegulatedRates::LDDS_CEILING),
-        AccountType::Lep => (SavingsProduct::Lep, RegulatedRates::LEP, RegulatedRates::LEP_CEILING),
+        AccountType::Ldds => (
+            SavingsProduct::Ldds,
+            RegulatedRates::LDDS,
+            RegulatedRates::LDDS_CEILING,
+        ),
+        AccountType::Lep => (
+            SavingsProduct::Lep,
+            RegulatedRates::LEP,
+            RegulatedRates::LEP_CEILING,
+        ),
         _ => return Ok(false),
     };
     model::insert_if_absent(

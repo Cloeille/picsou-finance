@@ -26,11 +26,21 @@ pub struct GeocodeResult {
 }
 
 /// autocomplete(query, limit): up to limit (clamped to 1..10) addresses.
-pub async fn autocomplete(http: &reqwest::Client, base_url: &str, query: &str, limit: i64) -> Vec<GeocodeResult> {
+pub async fn autocomplete(
+    http: &reqwest::Client,
+    base_url: &str,
+    query: &str,
+    limit: i64,
+) -> Vec<GeocodeResult> {
     search(http, base_url, query, limit.clamp(1, MAX_LIMIT)).await
 }
 
-async fn search(http: &reqwest::Client, base_url: &str, query: &str, limit: i64) -> Vec<GeocodeResult> {
+async fn search(
+    http: &reqwest::Client,
+    base_url: &str,
+    query: &str,
+    limit: i64,
+) -> Vec<GeocodeResult> {
     if query.trim().is_empty() {
         return Vec::new();
     }
@@ -39,15 +49,29 @@ async fn search(http: &reqwest::Client, base_url: &str, query: &str, limit: i64)
         base_url.trim_end_matches('/'),
         percent_encoding::utf8_percent_encode(query, QUERY_VALUE)
     );
-    let response = match http.get(url).header("Accept", "application/json").timeout(TIMEOUT).send().await {
+    let response = match http
+        .get(url)
+        .header("Accept", "application/json")
+        .timeout(TIMEOUT)
+        .send()
+        .await
+    {
         Ok(r) => r,
         Err(e) => {
-            tracing::warn!("Geocoding unreachable for '{}' ({})", safe(query), transport_message(&e));
+            tracing::warn!(
+                "Geocoding unreachable for '{}' ({})",
+                safe(query),
+                transport_message(&e)
+            );
             return Vec::new();
         }
     };
     if !response.status().is_success() {
-        tracing::warn!("Geocoding failed for '{}': HTTP {}", safe(query), response.status().as_u16());
+        tracing::warn!(
+            "Geocoding failed for '{}': HTTP {}",
+            safe(query),
+            response.status().as_u16()
+        );
         return Vec::new();
     }
     let Ok(body) = response.json::<Value>().await else {
@@ -61,7 +85,10 @@ async fn search(http: &reqwest::Client, base_url: &str, query: &str, limit: i64)
 }
 
 fn text(properties: &Value, key: &str) -> Option<String> {
-    properties.get(key).and_then(Value::as_str).map(str::to_owned)
+    properties
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::to_owned)
 }
 
 fn to_result(feature: &Value) -> Option<GeocodeResult> {

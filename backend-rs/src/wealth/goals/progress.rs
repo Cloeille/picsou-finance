@@ -54,7 +54,11 @@ pub struct Figures {
 }
 
 /// Signed live balances (a LOAN counts against the goal), weighted by the goal owner's share.
-async fn current_total(conn: &mut PgConnection, ctx: &Ctx<'_>, goal: &Goal) -> sqlx::Result<Decimal> {
+async fn current_total(
+    conn: &mut PgConnection,
+    ctx: &Ctx<'_>,
+    goal: &Goal,
+) -> sqlx::Result<Decimal> {
     let shares = access::shares_for(&mut *conn, &goal.accounts, goal.member_id).await?;
     let mut total = Decimal::ZERO;
     for account in &goal.accounts {
@@ -110,7 +114,11 @@ pub async fn figures(conn: &mut PgConnection, ctx: &Ctx<'_>, goal: &Goal) -> App
 }
 
 /// The month's objective before any override: (target - current) / months left.
-pub async fn monthly_needed(conn: &mut PgConnection, ctx: &Ctx<'_>, goal: &Goal) -> AppResult<Decimal> {
+pub async fn monthly_needed(
+    conn: &mut PgConnection,
+    ctx: &Ctx<'_>,
+    goal: &Goal,
+) -> AppResult<Decimal> {
     Ok(figures(conn, ctx, goal).await?.monthly_needed)
 }
 

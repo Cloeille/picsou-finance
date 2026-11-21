@@ -16,8 +16,7 @@ use crate::ledger::categorize::{self, CategorizationContext};
 use crate::ledger::decimal::{HALF_UP, set_scale};
 use crate::ledger::instrument::TickerResult;
 use crate::ledger::manual_transactions::{
-    ManualEntryContext, TransactionRequest, add_transaction, delete_transaction,
-    update_transaction,
+    ManualEntryContext, TransactionRequest, add_transaction, delete_transaction, update_transaction,
 };
 use crate::ledger::model::{
     Account, AccountType, PeerLoanRatePeriod, PeerLoanRepayment, PeerLoanRepaymentKind,
@@ -125,7 +124,11 @@ async fn no_instrument(isin: &str) -> TickerResult {
 
 // --- Reads ---
 
-pub async fn get(state: &AppState, account_id: i64, member_id: i64) -> AppResult<PeerLoanDetailResponse> {
+pub async fn get(
+    state: &AppState,
+    account_id: i64,
+    member_id: i64,
+) -> AppResult<PeerLoanDetailResponse> {
     let account = accounts::get_or_throw(&state.db, account_id, member_id).await?;
     require_type(&account)?;
     let mut conn = state.db.acquire().await?;
@@ -138,7 +141,8 @@ pub async fn get(state: &AppState, account_id: i64, member_id: i64) -> AppResult
 pub fn simulate(req: &PeerLoanSimulationRequest) -> AppResult<PeerLoanSimulationResponse> {
     let simulation = match (req.months, req.monthly_payment) {
         (Some(months), None) => {
-            let months = i32::try_from(months).map_err(|_| calc_error(PeerLoanError::TooManyMonths))?;
+            let months =
+                i32::try_from(months).map_err(|_| calc_error(PeerLoanError::TooManyMonths))?;
             peer_loans::simulate_by_months(req.principal, req.annual_rate, months)
         }
         (None, Some(payment)) => {
@@ -183,7 +187,11 @@ pub async fn open_loans(state: &AppState, member_id: i64) -> AppResult<Vec<PeerL
 
 /// Every configured peer loan as one view, with the total outstanding on each history point
 /// (HistoryService over the same accounts, so this and the net-worth chart cannot disagree).
-pub async fn overview(state: &AppState, member_id: i64, months: i32) -> AppResult<PeerLoansOverviewResponse> {
+pub async fn overview(
+    state: &AppState,
+    member_id: i64,
+    months: i32,
+) -> AppResult<PeerLoansOverviewResponse> {
     let today = state.clock.today();
     let mut total_outstanding = Decimal::ZERO;
     let mut interest_accrued = Decimal::ZERO;
@@ -216,7 +224,10 @@ pub async fn overview(state: &AppState, member_id: i64, months: i32) -> AppResul
             name: account.name.clone(),
             principal: terms.principal,
             principal_remaining: computed.principal_remaining,
-            repaid_pct: peer_loans::repaid_pct(Some(terms.principal), Some(computed.principal_paid)),
+            repaid_pct: peer_loans::repaid_pct(
+                Some(terms.principal),
+                Some(computed.principal_paid),
+            ),
             interest_accrued: computed.interest_accrued,
             interest_received: computed.interest_received,
             lent_at: terms.lent_at,
@@ -337,7 +348,14 @@ pub async fn create_from_transaction(
     transactions::update(&mut *tx, &transaction).await?;
 
     // The transaction is the lending event: a backdated row lands on its own date in history.
-    refresh_balance(&mut tx, &ctx, &mut account, &mut terms, Some(transaction.date)).await?;
+    refresh_balance(
+        &mut tx,
+        &ctx,
+        &mut account,
+        &mut terms,
+        Some(transaction.date),
+    )
+    .await?;
     let response = build(&mut tx, &account, &terms, today, &[]).await?;
     tx.commit().await?;
     Ok(response)
@@ -371,7 +389,9 @@ pub async fn save_terms(
         return Err(bad("The lending date is too far in the past"));
     }
     if req.expected_back.is_some_and(|back| back < lent_at) {
-        return Err(bad("The expected return date cannot precede the lending date"));
+        return Err(bad(
+            "The expected return date cannot precede the lending date",
+        ));
     }
     if linked_account_id == account_id {
         return Err(bad("A loan cannot be linked to itself"));
@@ -395,7 +415,10 @@ pub async fn save_terms(
     require_eur(&linked, "be linked to a peer loan")?;
 
     // The cash movement is a fact: once it exists, changing what it says would rewrite it.
-    if let Some(t) = existing.as_ref().filter(|t| t.lending_transaction_id.is_some()) {
+    if let Some(t) = existing
+        .as_ref()
+        .filter(|t| t.lending_transaction_id.is_some())
+    {
         if t.principal != principal {
             return Err(bad(
                 "The amount cannot change once the cash movement is recorded. Delete the loan and create it again.",
@@ -549,8 +572,15 @@ pub async fn add_repayment_from_transaction(
         return Err(bad("This transaction is already linked to a peer loan"));
     }
     require_completed_repayment_date(transaction.date, today)?;
-    validate_interest_repayment(&mut tx, &terms, kind, transaction.amount, transaction.date, None)
-        .await?;
+    validate_interest_repayment(
+        &mut tx,
+        &terms,
+        kind,
+        transaction.amount,
+        transaction.date,
+        None,
+    )
+    .await?;
     // No overpayment check: the transaction is already counted in net worth, so linking it
     // creates no money; the ledger clamps to what the loan can absorb.
 
@@ -576,7 +606,14 @@ pub async fn add_repayment_from_transaction(
     transaction.category_manual = true;
     transactions::update(&mut *tx, &transaction).await?;
 
-    refresh_balance(&mut tx, &ctx, &mut account, &mut terms, Some(transaction.date)).await?;
+    refresh_balance(
+        &mut tx,
+        &ctx,
+        &mut account,
+        &mut terms,
+        Some(transaction.date),
+    )
+    .await?;
     let response = build(&mut tx, &account, &terms, today, &[repayment]).await?;
     tx.commit().await?;
     Ok(response)
@@ -616,8 +653,15 @@ pub async fn update_repayment(
             "A write-off is recorded by closing the loan, not by editing a repayment",
         ));
     }
-    validate_interest_repayment(&mut tx, &terms, effective_kind, amount, paid_on, Some(repayment.id))
-        .await?;
+    validate_interest_repayment(
+        &mut tx,
+        &terms,
+        effective_kind,
+        amount,
+        paid_on,
+        Some(repayment.id),
+    )
+    .await?;
     validate_repayment_amount(&mut tx, &terms, amount, paid_on, Some(repayment.id)).await?;
 
     // Moving a repayment changes the balance from the earlier of its two dates.
@@ -952,10 +996,15 @@ fn repayment_not_found() -> AppError {
 
 /// The terms, locked until the transaction ends: the cap check reads the whole ledger, so two
 /// writers must not validate against the same state.
-async fn lock_configured_terms(conn: &mut PgConnection, account_id: i64) -> AppResult<PeerLoanTerms> {
+async fn lock_configured_terms(
+    conn: &mut PgConnection,
+    account_id: i64,
+) -> AppResult<PeerLoanTerms> {
     repo::find_terms_for_update(conn, account_id)
         .await?
-        .ok_or_else(|| AppError::NotFound("Peer loan terms are not set for this account".to_owned()))
+        .ok_or_else(|| {
+            AppError::NotFound("Peer loan terms are not set for this account".to_owned())
+        })
 }
 
 fn require_open(terms: &PeerLoanTerms) -> AppResult<()> {
@@ -1053,7 +1102,8 @@ async fn validate_repayment_amount(
     let mut with_candidate = others.clone();
     with_candidate.push(candidate);
     if unabsorbed(terms, &with_candidate, paid_on) > unabsorbed(terms, &others, paid_on) {
-        let interest = peer_loans::compute(terms, &up_to(&others, paid_on), paid_on).interest_accrued;
+        let interest =
+            peer_loans::compute(terms, &up_to(&others, paid_on), paid_on).interest_accrued;
         let remaining = peer_loans::compute(terms, &others, paid_on).principal_remaining;
         return Err(bad(format!(
             "A repayment cannot exceed {} EUR (accrued interest plus remaining capital)",
@@ -1103,7 +1153,10 @@ async fn counterparty(
     Ok(repo::counterparty_id(conn, member_id, normalized, now).await?)
 }
 
-fn beneficiary_name(requested: Option<&str>, transaction: &crate::ledger::model::Transaction) -> String {
+fn beneficiary_name(
+    requested: Option<&str>,
+    transaction: &crate::ledger::model::Transaction,
+) -> String {
     fn pick(value: Option<&str>) -> Option<&str> {
         value.filter(|v| !java_is_blank(v)).map(java_trim)
     }
@@ -1121,7 +1174,11 @@ fn beneficiary_name(requested: Option<&str>, transaction: &crate::ledger::model:
 
 /// String.CASE_INSENSITIVE_ORDER: per character, upper-cased then lower-cased.
 fn case_insensitive(a: &str, b: &str) -> Ordering {
-    let fold = |c: char| c.to_uppercase().flat_map(char::to_lowercase).collect::<String>();
+    let fold = |c: char| {
+        c.to_uppercase()
+            .flat_map(char::to_lowercase)
+            .collect::<String>()
+    };
     let left = a.chars().map(fold);
     let right = b.chars().map(fold);
     left.cmp(right)
@@ -1174,8 +1231,13 @@ async fn build(
         }
     }
     let computed = peer_loans::compute(terms, &repayments, as_of);
-    let plan = peer_loans::plan(terms, Some(computed.principal_remaining), as_of).map_err(calc_error)?;
-    let splits: HashMap<i64, _> = computed.splits.iter().map(|s| (s.repayment_id, s)).collect();
+    let plan =
+        peer_loans::plan(terms, Some(computed.principal_remaining), as_of).map_err(calc_error)?;
+    let splits: HashMap<i64, _> = computed
+        .splits
+        .iter()
+        .map(|s| (s.repayment_id, s))
+        .collect();
     let linked = match terms.linked_account_id {
         Some(id) => accounts::find_by_id(&mut *conn, id).await?,
         None => None,
@@ -1199,7 +1261,11 @@ async fn build(
         interest_accrued: computed.interest_accrued,
         interest_received: computed.interest_received,
         principal_repaid: computed.principal_paid,
-        total_repaid: set_scale(computed.principal_paid + computed.interest_received, 2, HALF_UP),
+        total_repaid: set_scale(
+            computed.principal_paid + computed.interest_received,
+            2,
+            HALF_UP,
+        ),
         written_off: computed.written_off,
         repaid_pct: peer_loans::repaid_pct(Some(terms.principal), Some(computed.principal_paid)),
         scheduled_remaining: plan.as_ref().map(|p| p.scheduled_remaining),
@@ -1249,7 +1315,8 @@ fn curve_point(
     date: NaiveDate,
 ) -> AppResult<CurvePoint> {
     let computed = peer_loans::compute(terms, &up_to(repayments, date), date);
-    let plan = peer_loans::plan(terms, Some(computed.principal_remaining), date).map_err(calc_error)?;
+    let plan =
+        peer_loans::plan(terms, Some(computed.principal_remaining), date).map_err(calc_error)?;
     Ok(CurvePoint {
         date,
         actual: computed.principal_remaining,

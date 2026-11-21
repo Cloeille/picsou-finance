@@ -102,7 +102,10 @@ pub async fn upsert(db: impl PgExecutor<'_>, config: &SavingsConfig) -> sqlx::Re
 
 /// insertIfAbsent: a concurrent or earlier configuration wins without raising. True when a
 /// row was created.
-pub async fn insert_if_absent(db: impl PgExecutor<'_>, config: &SavingsConfig) -> sqlx::Result<bool> {
+pub async fn insert_if_absent(
+    db: impl PgExecutor<'_>,
+    config: &SavingsConfig,
+) -> sqlx::Result<bool> {
     let result = sqlx::query(
         "INSERT INTO savings_interest_config (account_id, product, annual_rate, rate_basis, ceiling) \
          VALUES ($1, $2, $3, $4, $5) ON CONFLICT (account_id) DO NOTHING",

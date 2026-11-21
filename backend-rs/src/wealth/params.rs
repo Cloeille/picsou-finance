@@ -34,7 +34,8 @@ pub fn or_default<T: FromStr>(
 
 /// A required parameter.
 pub fn required(query: &HashMap<String, String>, name: &str) -> Result<String, AppError> {
-    query.get(name).cloned().ok_or_else(|| {
-        AppError::BadRequest(format!("Required parameter '{name}' is not present."))
-    })
+    query
+        .get(name)
+        .cloned()
+        .ok_or_else(|| AppError::BadRequest(format!("Required parameter '{name}' is not present.")))
 }

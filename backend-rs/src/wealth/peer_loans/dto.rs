@@ -101,7 +101,14 @@ impl Validate for PeerLoanRepaymentRequest {
             "0.01",
             Some("Amount must be greater than zero"),
         );
-        digits(errors, "amount", self.amount, 12, 2, Some("Amount is too large"));
+        digits(
+            errors,
+            "amount",
+            self.amount,
+            12,
+            2,
+            Some("Amount is too large"),
+        );
         errors.size("note", self.note.as_deref(), 0, 255);
     }
 }

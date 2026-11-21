@@ -9,7 +9,12 @@ use serde_json::json;
 use super::goals::Fixture;
 use super::support::{account, d, day};
 
-fn config(product: SavingsProduct, rate: &str, basis: RateBasis, tax: Option<&str>) -> SavingsConfig {
+fn config(
+    product: SavingsProduct,
+    rate: &str,
+    basis: RateBasis,
+    tax: Option<&str>,
+) -> SavingsConfig {
     SavingsConfig {
         account_id: 1,
         product,
@@ -22,7 +27,12 @@ fn config(product: SavingsProduct, rate: &str, basis: RateBasis, tax: Option<&st
 
 #[test]
 fn a_flat_year_at_three_percent_earns_three_hundred() {
-    let p = project(&config(SavingsProduct::LivretA, "3.00", RateBasis::Net, None), d("10000"), &[], day("2025-12-31"));
+    let p = project(
+        &config(SavingsProduct::LivretA, "3.00", RateBasis::Net, None),
+        d("10000"),
+        &[],
+        day("2025-12-31"),
+    );
     assert_eq!(p.estimated_interest_ytd, d("300.00"));
     assert_eq!(p.projected_interest_full_year, d("300.00"));
     assert_eq!(p.next_capitalization_date, day("2025-12-31"));
@@ -43,7 +53,12 @@ fn a_deposit_earns_from_the_next_quinzaine() {
 #[test]
 fn a_gross_commercial_rate_loses_the_flat_tax() {
     let p = project(
-        &config(SavingsProduct::Commercial, "4.00", RateBasis::Gross, Some("30.00")),
+        &config(
+            SavingsProduct::Commercial,
+            "4.00",
+            RateBasis::Gross,
+            Some("30.00"),
+        ),
         d("5000"),
         &[],
         day("2025-12-31"),
@@ -85,17 +100,24 @@ async fn the_config_is_upserted_retypes_the_account_and_is_member_scoped() {
     };
     let response = put(json!({"product": "LIVRET_A", "annualRate": 3, "rateBasis": "GROSS"})).await;
     assert_eq!(response.status, 400);
-    assert!(response.json()["detail"].as_str().unwrap().starts_with("Regulated savings products (LIVRET_A)"));
+    assert!(
+        response.json()["detail"]
+            .as_str()
+            .unwrap()
+            .starts_with("Regulated savings products (LIVRET_A)")
+    );
 
-    let response = put(json!({"product": "LEP", "annualRate": 4, "rateBasis": "NET", "ceiling": 10000})).await;
+    let response =
+        put(json!({"product": "LEP", "annualRate": 4, "rateBasis": "NET", "ceiling": 10000})).await;
     assert_eq!(response.status, 200, "{}", response.text());
     let response = put(json!({"product": "LEP", "annualRate": 3.5, "rateBasis": "NET"})).await;
     assert_eq!(response.status, 200);
-    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM savings_interest_config WHERE account_id = $1")
-        .bind(id)
-        .fetch_one(&f.app.state.db)
-        .await
-        .unwrap();
+    let rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM savings_interest_config WHERE account_id = $1")
+            .bind(id)
+            .fetch_one(&f.app.state.db)
+            .await
+            .unwrap();
     assert_eq!(rows, 1);
     let kind: String = sqlx::query_scalar("SELECT type::text FROM account WHERE id = $1")
         .bind(id)
@@ -104,17 +126,33 @@ async fn the_config_is_upserted_retypes_the_account_and_is_member_scoped() {
         .unwrap();
     assert_eq!(kind, "LEP");
 
-    let response = f.admin.get(&format!("/api/accounts/{id}/savings-interest")).send().await;
+    let response = f
+        .admin
+        .get(&format!("/api/accounts/{id}/savings-interest"))
+        .send()
+        .await;
     assert_eq!(response.status, 200, "{}", response.text());
     assert_eq!(response.json()["basis"], "NET");
 
-    let response = f.admin.delete(&format!("/api/accounts/{id}/savings-config")).send().await;
+    let response = f
+        .admin
+        .delete(&format!("/api/accounts/{id}/savings-config"))
+        .send()
+        .await;
     assert_eq!(response.status, 204);
-    let response = f.admin.get(&format!("/api/accounts/{id}/savings-interest")).send().await;
+    let response = f
+        .admin
+        .get(&format!("/api/accounts/{id}/savings-interest"))
+        .send()
+        .await;
     assert_eq!(response.status, 404);
 
     let (_, other) = f.app.create_member("other", "password-1234").await;
     let foreign = f.account(other, AccountType::Savings, "10").await;
-    let response = f.admin.delete(&format!("/api/accounts/{foreign}/savings-config")).send().await;
+    let response = f
+        .admin
+        .delete(&format!("/api/accounts/{foreign}/savings-config"))
+        .send()
+        .await;
     assert_eq!(response.status, 404);
 }

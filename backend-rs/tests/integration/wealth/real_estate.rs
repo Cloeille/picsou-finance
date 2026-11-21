@@ -84,7 +84,14 @@ async fn the_summary_weighs_properties_loans_and_scpi_by_the_members_share() {
     let body = other.get("/api/real-estate/summary").send().await.json();
     assert_eq!(body["properties"], json!([]));
     assert!(body.get("loanToValue").is_none());
-    assert_eq!(other.get(&format!("/api/real-estate/{flat}/valuations")).send().await.status, 404);
+    assert_eq!(
+        other
+            .get(&format!("/api/real-estate/{flat}/valuations"))
+            .send()
+            .await
+            .status,
+        404
+    );
 }
 
 #[tokio::test]
@@ -92,7 +99,12 @@ async fn the_valuation_history_is_newest_first() {
     let app = TestApp::with_admin().await;
     let admin = app.login_admin().await;
     let member = admin_member(&app).await;
-    let flat = account(&app, NewAccount::new(member, "Maison", AccountType::RealEstate)).await.id;
+    let flat = account(
+        &app,
+        NewAccount::new(member, "Maison", AccountType::RealEstate),
+    )
+    .await
+    .id;
     for (date, value) in [("2024-06-01", "200000"), ("2025-06-01", "210000")] {
         sqlx::query(
             "INSERT INTO property_valuation (account_id, member_id, valued_at, estimated_value, provider, confidence, sample_size) \
@@ -106,7 +118,11 @@ async fn the_valuation_history_is_newest_first() {
         .await
         .unwrap();
     }
-    let body = admin.get(&format!("/api/real-estate/{flat}/valuations")).send().await.json();
+    let body = admin
+        .get(&format!("/api/real-estate/{flat}/valuations"))
+        .send()
+        .await
+        .json();
     assert_eq!(body[0]["valuedAt"], "2025-06-01");
     assert_eq!(body[0]["estimatedValue"].to_string(), "210000.00000000");
     assert_eq!(body[0]["confidence"], "MEDIUM");
@@ -130,11 +146,22 @@ async fn geocoding_maps_features_skips_short_queries_and_is_rate_limited() {
         ))
         .mount(&server)
         .await;
-    let app = TestApp::builder().with_admin().env("GEOCODING_API_URL", server.uri()).spawn().await;
+    let app = TestApp::builder()
+        .with_admin()
+        .env("GEOCODING_API_URL", server.uri())
+        .spawn()
+        .await;
     let admin = app.login_admin().await;
 
-    assert_eq!(admin.get("/api/geocode?q=ab").send().await.json(), json!([]));
-    let body = admin.get("/api/geocode?q=%208%20bd%20du%20port%20&limit=50").send().await.json();
+    assert_eq!(
+        admin.get("/api/geocode?q=ab").send().await.json(),
+        json!([])
+    );
+    let body = admin
+        .get("/api/geocode?q=%208%20bd%20du%20port%20&limit=50")
+        .send()
+        .await
+        .json();
     assert_eq!(body.as_array().unwrap().len(), 1);
     assert_eq!(body[0]["inseeCode"], "80021");
     assert_eq!(body[0]["latitude"].to_string(), "49.897443");

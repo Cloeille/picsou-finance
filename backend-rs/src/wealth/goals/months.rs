@@ -96,7 +96,10 @@ mod tests {
         assert_eq!(jan.plus_months(-1).to_string(), "2025-12");
         assert_eq!(jan.plus_months(-13).to_string(), "2024-12");
         assert_eq!(jan.plus_months(12).to_string(), "2027-01");
-        assert_eq!(YearMonth::parse("2024-02").unwrap().at_end_of_month(), day("2024-02-29"));
+        assert_eq!(
+            YearMonth::parse("2024-02").unwrap().at_end_of_month(),
+            day("2024-02-29")
+        );
         assert!(YearMonth::parse("2026-13").is_none());
         assert!(YearMonth::parse("2026-1").is_none());
         assert!(YearMonth::parse("abc").is_none());

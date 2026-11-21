@@ -116,7 +116,8 @@ pub async fn upcoming(
         return Ok(Vec::new());
     }
     let shares = access::shares_for(&mut *conn, &scoped, member_id).await?;
-    let mut lines = holding_lines(state, &mut conn, &scoped, &readable, &shares, today, end).await?;
+    let mut lines =
+        holding_lines(state, &mut conn, &scoped, &readable, &shares, today, end).await?;
     lines.extend(scpi_lines(&mut conn, &scoped, &shares, today, end).await?);
     lines.sort_by(|a, b| {
         a.expected_date
@@ -149,7 +150,8 @@ async fn holding_lines(
         .iter()
         .filter(|a| {
             a.account_type != AccountType::Crypto
-                && (a.account_type.is_investment() || a.account_type == AccountType::EmployeeSavings)
+                && (a.account_type.is_investment()
+                    || a.account_type == AccountType::EmployeeSavings)
         })
         .map(|a| (a.id, a))
         .collect();
@@ -197,7 +199,13 @@ async fn holding_lines(
             .unwrap_or_else(|| holding.ticker.clone());
         let lag = payment_lag_days(account.id, &holding.ticker, &source.events, &cash_dates);
         let currency = source.currency.clone().unwrap_or_else(|| "EUR".to_owned());
-        let line = |date: NaiveDate, basis, per_share: Decimal, per_share_eur: Decimal, ex, payment, estimated| {
+        let line = |date: NaiveDate,
+                    basis,
+                    per_share: Decimal,
+                    per_share_eur: Decimal,
+                    ex,
+                    payment,
+                    estimated| {
             UpcomingDividendResponse {
                 id: id(Origin::Holding, account.id, Some(&holding.ticker), date),
                 source: Origin::Holding,
@@ -252,7 +260,8 @@ async fn holding_lines(
         let last_date = last.ex_date;
         let announced = future_announced_ex_dates(&source.events, today);
         for k in 1..=24u32 {
-            let Some(projected) = last_date.checked_add_months(Months::new(cadence.months() * k)) else {
+            let Some(projected) = last_date.checked_add_months(Months::new(cadence.months() * k))
+            else {
                 break;
             };
             let paid = lag.map(|l| projected + Days::new(l as u64));
@@ -317,7 +326,9 @@ async fn scpi_lines(
     let mut lines = Vec::new();
     for position in rows {
         let (Some(annual), Some(frequency)) = (
-            position.annual_distribution_per_share_eur.filter(|a| *a > Decimal::ZERO),
+            position
+                .annual_distribution_per_share_eur
+                .filter(|a| *a > Decimal::ZERO),
             position.distribution_frequency.as_deref(),
         ) else {
             continue;
@@ -329,13 +340,22 @@ async fn scpi_lines(
             continue;
         };
         let monthly = frequency == "MONTHLY";
-        let cadence = if monthly { Cadence::Monthly } else { Cadence::Quarterly };
+        let cadence = if monthly {
+            Cadence::Monthly
+        } else {
+            Cadence::Quarterly
+        };
         let periods = if monthly { 12 } else { 4 };
         let per_payment = divide(annual, Decimal::from(periods), MONEY_SCALE, HALF_UP);
         let reinvested = position.dividend_policy == "REINVEST";
-        let amount_eur = access::weigh(position.share_count * per_payment, share_of(shares, account.id));
+        let amount_eur = access::weigh(
+            position.share_count * per_payment,
+            share_of(shares, account.id),
+        );
         let ticker = account.ticker.clone().filter(|t| !t.trim().is_empty());
-        let key = ticker.clone().or_else(|| position.isin.clone().filter(|i| !i.trim().is_empty()));
+        let key = ticker
+            .clone()
+            .or_else(|| position.isin.clone().filter(|i| !i.trim().is_empty()));
         let mut month = today.with_day(1).unwrap_or(today);
         let last_month = end.with_day(1).unwrap_or(end);
         while month <= last_month {
@@ -409,7 +429,11 @@ pub fn is_stale(last_ex_date: NaiveDate, cadence: Cadence, today: NaiveDate) -> 
     limit.is_some_and(|l| l < today)
 }
 
-fn payable_in_horizon(events: &[DividendEvent], today: NaiveDate, end: NaiveDate) -> Vec<DividendEvent> {
+fn payable_in_horizon(
+    events: &[DividendEvent],
+    today: NaiveDate,
+    end: NaiveDate,
+) -> Vec<DividendEvent> {
     events
         .iter()
         .filter(|e| e.declared || e.ex_date > today || e.payment_date.is_some())
@@ -418,7 +442,12 @@ fn payable_in_horizon(events: &[DividendEvent], today: NaiveDate, end: NaiveDate
         .collect()
 }
 
-pub fn in_horizon(ex_date: NaiveDate, payment: Option<NaiveDate>, today: NaiveDate, end: NaiveDate) -> bool {
+pub fn in_horizon(
+    ex_date: NaiveDate,
+    payment: Option<NaiveDate>,
+    today: NaiveDate,
+    end: NaiveDate,
+) -> bool {
     let decisive = payment.unwrap_or(ex_date);
     decisive >= today && decisive <= end
 }
@@ -440,12 +469,18 @@ fn near_announced(projected: NaiveDate, announced: &[NaiveDate]) -> bool {
 /// A DIVIDEND row of a readable account: (account, ticker, date).
 type CashDate = (i64, String, NaiveDate);
 
-async fn dividend_cash_dates(conn: &mut PgConnection, accounts: &[Account], today: NaiveDate) -> AppResult<Vec<CashDate>> {
+async fn dividend_cash_dates(
+    conn: &mut PgConnection,
+    accounts: &[Account],
+    today: NaiveDate,
+) -> AppResult<Vec<CashDate>> {
     let ids: Vec<i64> = accounts.iter().map(|a| a.id).collect();
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let since = today.checked_sub_months(Months::new(CASH_LAG_LOOKBACK_MONTHS)).unwrap_or(today);
+    let since = today
+        .checked_sub_months(Months::new(CASH_LAG_LOOKBACK_MONTHS))
+        .unwrap_or(today);
     Ok(sqlx::query_as(
         "SELECT account_id, ticker, date FROM \"transaction\" WHERE account_id = ANY($1) \
          AND tx_type = 'DIVIDEND' AND ticker IS NOT NULL AND date >= $2",
@@ -458,7 +493,12 @@ async fn dividend_cash_dates(conn: &mut PgConnection, accounts: &[Account], toda
 
 /// Days from ex-date to payment: the stored payment dates' median, else the median lag of the
 /// account's own cash rows, else any readable account's.
-fn payment_lag_days(account_id: i64, ticker: &str, events: &[DividendEvent], cash: &[CashDate]) -> Option<i64> {
+fn payment_lag_days(
+    account_id: i64,
+    ticker: &str,
+    events: &[DividendEvent],
+    cash: &[CashDate],
+) -> Option<i64> {
     let stored: Vec<i64> = events
         .iter()
         .filter_map(|e| e.payment_date.map(|p| (p - e.ex_date).num_days()))
@@ -467,14 +507,21 @@ fn payment_lag_days(account_id: i64, ticker: &str, events: &[DividendEvent], cas
     if let Some(lag) = median(stored) {
         return Some(lag);
     }
-    let mut ex_dates: Vec<NaiveDate> = events.iter().map(|e| e.ex_date).collect::<HashSet<_>>().into_iter().collect();
+    let mut ex_dates: Vec<NaiveDate> = events
+        .iter()
+        .map(|e| e.ex_date)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
     ex_dates.sort();
     if ex_dates.is_empty() || cash.is_empty() {
         return None;
     }
     let paired = |same_account: bool| {
         cash.iter()
-            .filter(|(a, t, _)| t.eq_ignore_ascii_case(ticker) && (!same_account || *a == account_id))
+            .filter(|(a, t, _)| {
+                t.eq_ignore_ascii_case(ticker) && (!same_account || *a == account_id)
+            })
             .filter_map(|(_, _, date)| {
                 let matched = ex_dates.iter().take_while(|e| *e <= date).last()?;
                 let days = (*date - *matched).num_days();

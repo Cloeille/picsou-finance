@@ -23,4 +23,3 @@ pub async fn account(app: &TestApp, draft: NewAccount) -> Account {
         .await
         .expect("account")
 }
-

@@ -111,7 +111,10 @@ fn require_code(fund_code: &str) -> AppResult<String> {
     Ok(fund_code.trim().to_owned())
 }
 
-async fn list(State(state): State<AppState>, auth: Auth) -> AppResult<axum::Json<Vec<ScpiFundResponse>>> {
+async fn list(
+    State(state): State<AppState>,
+    auth: Auth,
+) -> AppResult<axum::Json<Vec<ScpiFundResponse>>> {
     let mut conn = state.db.acquire().await?;
     let rows: Vec<FundRow> = sqlx::query_as(
         "SELECT provider, fund_code, label, ignored, last_outcome, last_seen_at, last_synced_at \

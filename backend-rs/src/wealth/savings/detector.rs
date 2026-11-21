@@ -98,7 +98,10 @@ pub fn suggest(account_name: Option<&str>) -> Option<Suggestion> {
     if contains_token(&n, "LIVRET A") || contains_token(&n, "LIVRET_A") {
         return certain(SavingsProduct::LivretA, RegulatedRates::LIVRET_A);
     }
-    if contains_token(&n, "LDDS") || contains_token(&n, "LDD") || n.contains("DEVELOPPEMENT DURABLE") {
+    if contains_token(&n, "LDDS")
+        || contains_token(&n, "LDD")
+        || n.contains("DEVELOPPEMENT DURABLE")
+    {
         return certain(SavingsProduct::Ldds, RegulatedRates::LDDS);
     }
     if contains_token(&n, "LEP") || n.contains("EPARGNE POPULAIRE") {
@@ -125,7 +128,11 @@ mod tests {
     #[test]
     fn regulated_books_are_certain() {
         for name in ["Livret A", "LIVRET A", "livret a", "Mon Livret A BNP"] {
-            assert_eq!(product(name), Some((SavingsProduct::LivretA, false)), "{name}");
+            assert_eq!(
+                product(name),
+                Some((SavingsProduct::LivretA, false)),
+                "{name}"
+            );
         }
         for name in [
             "LDDS",
@@ -136,14 +143,24 @@ mod tests {
         ] {
             assert_eq!(product(name), Some((SavingsProduct::Ldds, false)), "{name}");
         }
-        for name in ["LEP", "Livret Épargne Populaire", "Livret epargne populaire"] {
+        for name in [
+            "LEP",
+            "Livret Épargne Populaire",
+            "Livret epargne populaire",
+        ] {
             assert_eq!(product(name), Some((SavingsProduct::Lep, false)), "{name}");
         }
     }
 
     #[test]
     fn a_generic_livret_is_an_uncertain_commercial_book() {
-        for name in ["Livret", "Mon livret", "CSL", "Compte sur livret", "COMPTE SUR LIVRET"] {
+        for name in [
+            "Livret",
+            "Mon livret",
+            "CSL",
+            "Compte sur livret",
+            "COMPTE SUR LIVRET",
+        ] {
             let s = suggest(Some(name)).expect(name);
             assert_eq!(s.product, SavingsProduct::Commercial);
             assert!(s.uncertain);
@@ -153,7 +170,15 @@ mod tests {
 
     #[test]
     fn other_names_and_embedded_tokens_suggest_nothing() {
-        for name in ["Compte courant", "Compte chèques", "PEA", "Assurance-vie", "Crypto BTC", "", "  "] {
+        for name in [
+            "Compte courant",
+            "Compte chèques",
+            "PEA",
+            "Assurance-vie",
+            "Crypto BTC",
+            "",
+            "  ",
+        ] {
             assert_eq!(product(name), None, "{name}");
         }
         assert_eq!(suggest(None), None);
@@ -163,7 +188,21 @@ mod tests {
 
     #[test]
     fn rates_keep_their_scale() {
-        assert_eq!(suggest(Some("Livret A")).unwrap().default_annual_rate.unwrap().to_string(), "2.40");
-        assert_eq!(suggest(Some("LEP")).unwrap().default_annual_rate.unwrap().to_string(), "3.50");
+        assert_eq!(
+            suggest(Some("Livret A"))
+                .unwrap()
+                .default_annual_rate
+                .unwrap()
+                .to_string(),
+            "2.40"
+        );
+        assert_eq!(
+            suggest(Some("LEP"))
+                .unwrap()
+                .default_annual_rate
+                .unwrap()
+                .to_string(),
+            "3.50"
+        );
     }
 }

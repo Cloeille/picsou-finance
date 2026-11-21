@@ -36,11 +36,20 @@ pub fn register(routes: &mut Routes) {
     routes.get("/api/goals/{id}/history", history);
     routes.get("/api/goals/{id}/months", monthly_entries);
     routes.post("/api/goals/{id}/history/extend", extend_history);
-    routes.post("/api/goals/{id}/history/extend/month", extend_history_by_month);
+    routes.post(
+        "/api/goals/{id}/history/extend/month",
+        extend_history_by_month,
+    );
     routes.put("/api/goals/{id}/months/{yearMonth}", set_month_override);
     routes.delete("/api/goals/{id}/months/{yearMonth}", delete_month_override);
-    routes.put("/api/goals/{id}/months/{yearMonth}/manual", set_manual_contribution);
-    routes.delete("/api/goals/{id}/months/{yearMonth}/manual", delete_manual_contribution);
+    routes.put(
+        "/api/goals/{id}/months/{yearMonth}/manual",
+        set_manual_contribution,
+    );
+    routes.delete(
+        "/api/goals/{id}/months/{yearMonth}/manual",
+        delete_manual_contribution,
+    );
 }
 
 /// A validated GoalRequest; @Future on the deadline reads the app clock.
@@ -87,7 +96,9 @@ async fn apply_request(
     let ids = req.ids();
     let owned = accounts::find_by_ids_and_member(&mut *conn, ids, goal.member_id).await?;
     if owned.len() != ids.len() {
-        return Err(AppError::BadRequest("One or more account IDs not found".to_owned()));
+        return Err(AppError::BadRequest(
+            "One or more account IDs not found".to_owned(),
+        ));
     }
     let mut allocations = Vec::new();
     if let Some(funded) = owned.first().filter(|_| !req.lines().is_empty()) {
@@ -144,7 +155,10 @@ pub async fn dashboard_summaries(
     let mut conn = state.db.acquire().await?;
     let goals = repo::find_all(&mut conn, member_id).await?;
     let mut out = Vec::new();
-    for goal in goals.iter().filter(|g| g.goal_type != GoalType::RecurringInvestment) {
+    for goal in goals
+        .iter()
+        .filter(|g| g.goal_type != GoalType::RecurringInvestment)
+    {
         out.push(progress::to_response(state, &mut conn, goal).await?);
     }
     Ok(out)
@@ -157,7 +171,9 @@ async fn find_by_id(
 ) -> AppResult<axum::Json<GoalProgressResponse>> {
     let mut conn = state.db.acquire().await?;
     let goal = get_or_throw(&mut conn, id, auth.member_id).await?;
-    Ok(axum::Json(progress::to_response(&state, &mut conn, &goal).await?))
+    Ok(axum::Json(
+        progress::to_response(&state, &mut conn, &goal).await?,
+    ))
 }
 
 async fn create(
@@ -205,7 +221,9 @@ async fn update(
     repo::update(&mut tx, &goal, state.clock.now()).await?;
     tx.commit().await?;
     let mut conn = state.db.acquire().await?;
-    Ok(axum::Json(progress::to_response(&state, &mut conn, &goal).await?))
+    Ok(axum::Json(
+        progress::to_response(&state, &mut conn, &goal).await?,
+    ))
 }
 
 async fn delete(
@@ -338,8 +356,15 @@ async fn change_month(
     }
     match change.amount {
         Some(amount) => {
-            repo::set_month_amount(&mut *conn, change.table, id, year_month, amount, auth.member_id)
-                .await?
+            repo::set_month_amount(
+                &mut *conn,
+                change.table,
+                id,
+                year_month,
+                amount,
+                auth.member_id,
+            )
+            .await?
         }
         None => repo::delete_month_amount(&mut *conn, change.table, id, year_month).await?,
     }
@@ -383,7 +408,9 @@ async fn set_month_override(
         table: MonthTable::Override,
         amount: req.amount,
     };
-    Ok(axum::Json(change_month(&state, &auth, id, &year_month, change).await?))
+    Ok(axum::Json(
+        change_month(&state, &auth, id, &year_month, change).await?,
+    ))
 }
 
 async fn delete_month_override(
@@ -395,7 +422,9 @@ async fn delete_month_override(
         table: MonthTable::Override,
         amount: None,
     };
-    Ok(axum::Json(change_month(&state, &auth, id, &year_month, change).await?))
+    Ok(axum::Json(
+        change_month(&state, &auth, id, &year_month, change).await?,
+    ))
 }
 
 async fn set_manual_contribution(
@@ -408,7 +437,9 @@ async fn set_manual_contribution(
         table: MonthTable::Manual,
         amount: req.amount,
     };
-    Ok(axum::Json(change_month(&state, &auth, id, &year_month, change).await?))
+    Ok(axum::Json(
+        change_month(&state, &auth, id, &year_month, change).await?,
+    ))
 }
 
 async fn delete_manual_contribution(
@@ -420,5 +451,7 @@ async fn delete_manual_contribution(
         table: MonthTable::Manual,
         amount: None,
     };
-    Ok(axum::Json(change_month(&state, &auth, id, &year_month, change).await?))
+    Ok(axum::Json(
+        change_month(&state, &auth, id, &year_month, change).await?,
+    ))
 }

@@ -66,6 +66,9 @@ pub(crate) const QUERY_VALUE: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'_')
     .remove(b'~');
 
+/// A rate or a miss, and when it was read.
+type CachedRate = (Option<Decimal>, DateTime<Utc>);
+
 /// A failed Yahoo call.
 #[derive(Debug, thiserror::Error)]
 pub enum YahooError {
@@ -121,7 +124,7 @@ pub struct YahooFinance {
     base_url: String,
     cooldown: Arc<YahooCooldown>,
     clock: AppClock,
-    fx_cache: Mutex<HashMap<String, (Option<Decimal>, DateTime<Utc>)>>,
+    fx_cache: Mutex<HashMap<String, CachedRate>>,
 }
 
 impl YahooFinance {
@@ -233,7 +236,10 @@ impl YahooFinance {
                     {
                         self.cooldown.arm(retry_after.as_deref());
                     }
-                    tracing::warn!("Yahoo Finance price fetch failed for {}: {e}", safe(&ticker));
+                    tracing::warn!(
+                        "Yahoo Finance price fetch failed for {}: {e}",
+                        safe(&ticker)
+                    );
                 }
             }
         }
@@ -269,7 +275,10 @@ impl YahooFinance {
     /// fetchDividendHistory: the dividends Yahoo published over the last two years, by ex-date.
     /// An event missing its amount or date is skipped. A transport failure, 429 included, is an
     /// error, and a 429 arms the cooldown so a weekly pass stops instead of asking forty times.
-    pub async fn fetch_dividend_history(&self, ticker: &str) -> Result<DividendHistory, YahooError> {
+    pub async fn fetch_dividend_history(
+        &self,
+        ticker: &str,
+    ) -> Result<DividendHistory, YahooError> {
         let chart = match self
             .fetch_chart(ticker, "range=2y&interval=1mo&events=div", SERIES_TIMEOUT)
             .await
@@ -427,7 +436,10 @@ impl YahooFinance {
         let quotes = match self.search(ticker).await {
             Ok(quotes) => quotes,
             Err(e) => {
-                tracing::debug!("Yahoo equity profile fetch failed for {}: {e}", safe(ticker));
+                tracing::debug!(
+                    "Yahoo equity profile fetch failed for {}: {e}",
+                    safe(ticker)
+                );
                 return None;
             }
         };
@@ -460,7 +472,10 @@ impl YahooFinance {
                 .filter(|s| !s.trim().is_empty())
                 .map(str::to_owned),
             Err(e) => {
-                tracing::debug!("Yahoo instrumentType fetch failed for {}: {e}", safe(ticker));
+                tracing::debug!(
+                    "Yahoo instrumentType fetch failed for {}: {e}",
+                    safe(ticker)
+                );
                 None
             }
         }
@@ -507,7 +522,10 @@ impl YahooFinance {
 
     async fn fetch_fx_rate(&self, currency: &str) -> Option<Decimal> {
         let pair = format!("{currency}EUR=X");
-        match self.fetch_chart(&pair, "range=1d&interval=1d", TIMEOUT).await {
+        match self
+            .fetch_chart(&pair, "range=1d&interval=1d", TIMEOUT)
+            .await
+        {
             Ok(chart) => chart
                 .as_ref()
                 .and_then(|c| c.get("meta"))
@@ -600,13 +618,19 @@ impl YahooFinance {
                     chart,
                     ticker,
                     "intraday",
-                    |epoch| DateTime::from_timestamp(epoch, 0).map(|t| t.with_timezone(&zone).naive_local()),
+                    |epoch| {
+                        DateTime::from_timestamp(epoch, 0)
+                            .map(|t| t.with_timezone(&zone).naive_local())
+                    },
                     |at| *at >= from && *at <= to,
                 )
                 .await
             }
             Err(e) => {
-                tracing::warn!("Yahoo intraday price fetch failed for {}: {e}", safe(ticker));
+                tracing::warn!(
+                    "Yahoo intraday price fetch failed for {}: {e}",
+                    safe(ticker)
+                );
                 Vec::new()
             }
         }
@@ -626,13 +650,17 @@ impl YahooFinance {
         let days = (to - from).num_days() + 1;
         let range = match days {
             ..=7 => "5d",
-            ..=30 => "1mo",
-            ..=90 => "3mo",
-            ..=365 => "1y",
+            8..=30 => "1mo",
+            31..=90 => "3mo",
+            91..=365 => "1y",
             _ => "5y",
         };
         match self
-            .fetch_chart(ticker, &format!("range={range}&interval=1d"), SERIES_TIMEOUT)
+            .fetch_chart(
+                ticker,
+                &format!("range={range}&interval=1d"),
+                SERIES_TIMEOUT,
+            )
             .await
         {
             Ok(chart) => {
@@ -641,13 +669,19 @@ impl YahooFinance {
                     chart,
                     ticker,
                     "historical",
-                    |epoch| DateTime::from_timestamp(epoch, 0).map(|t| t.with_timezone(&zone).date_naive()),
+                    |epoch| {
+                        DateTime::from_timestamp(epoch, 0)
+                            .map(|t| t.with_timezone(&zone).date_naive())
+                    },
                     |date| *date >= from && *date <= to,
                 )
                 .await
             }
             Err(e) => {
-                tracing::warn!("Yahoo historical price fetch failed for {}: {e}", safe(ticker));
+                tracing::warn!(
+                    "Yahoo historical price fetch failed for {}: {e}",
+                    safe(ticker)
+                );
                 Vec::new()
             }
         }

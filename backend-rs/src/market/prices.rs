@@ -26,16 +26,24 @@ const MISS_CACHE_TTL: chrono::Duration = chrono::Duration::seconds(60);
 /// A recorded series with a hole wider than this is fetched again by the backfill.
 const MAX_HISTORY_GAP_DAYS: i64 = 7;
 
+/// A price or a miss, and when it was fetched.
+type CachedPrice = (Option<Decimal>, DateTime<Utc>);
+
 pub struct PriceService {
     db: PgPool,
     clock: AppClock,
     yahoo: Arc<YahooFinance>,
     coingecko: Arc<CoinGecko>,
-    cache: Mutex<HashMap<String, (Option<Decimal>, DateTime<Utc>)>>,
+    cache: Mutex<HashMap<String, CachedPrice>>,
 }
 
 impl PriceService {
-    pub fn new(db: PgPool, clock: AppClock, yahoo: Arc<YahooFinance>, coingecko: Arc<CoinGecko>) -> Self {
+    pub fn new(
+        db: PgPool,
+        clock: AppClock,
+        yahoo: Arc<YahooFinance>,
+        coingecko: Arc<CoinGecko>,
+    ) -> Self {
         Self {
             db,
             clock,
@@ -50,7 +58,11 @@ impl PriceService {
         let now = self.clock.now();
         let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         cache.get(ticker).and_then(|(price, at)| {
-            let ttl = if price.is_some() { CACHE_TTL } else { MISS_CACHE_TTL };
+            let ttl = if price.is_some() {
+                CACHE_TTL
+            } else {
+                MISS_CACHE_TTL
+            };
             (now <= *at + ttl).then_some(*price)
         })
     }
@@ -113,7 +125,8 @@ impl PriceService {
         let today = self.clock.today();
         for (ticker, price) in &fetched {
             self.remember(ticker, Some(*price));
-            if let Err(e) = upsert_snapshot(&self.db, ticker, today, *price, self.clock.now()).await {
+            if let Err(e) = upsert_snapshot(&self.db, ticker, today, *price, self.clock.now()).await
+            {
                 tracing::warn!("Could not record the price of {ticker}: {e}");
             }
         }
@@ -123,9 +136,18 @@ impl PriceService {
 
     /// backfillHistoricalPrices: fills price_snapshot from the provider's daily series for every
     /// ticker whose recorded series has a hole wider than a week; returns the rows written.
-    pub async fn backfill_historical_prices(&self, tickers: &BTreeSet<String>, from: NaiveDate, crypto_only: bool) -> usize {
+    pub async fn backfill_historical_prices(
+        &self,
+        tickers: &BTreeSet<String>,
+        from: NaiveDate,
+        crypto_only: bool,
+    ) -> usize {
         let to = self.clock.today();
-        let upper: BTreeSet<String> = tickers.iter().map(|t| t.to_uppercase()).filter(|t| t != "EUR").collect();
+        let upper: BTreeSet<String> = tickers
+            .iter()
+            .map(|t| t.to_uppercase())
+            .filter(|t| t != "EUR")
+            .collect();
         let crypto = self.crypto_of(&upper).await;
         let mut saved = 0;
         for ticker in upper {
@@ -136,16 +158,22 @@ impl PriceService {
                 Ok(true) => continue,
                 Ok(false) => {}
                 Err(e) => {
-                    tracing::error!("Historical price backfill failed for {ticker} -- skipping it: {e}");
+                    tracing::error!(
+                        "Historical price backfill failed for {ticker} -- skipping it: {e}"
+                    );
                     continue;
                 }
             }
             let series = self.historical_prices(&ticker, &crypto, from, to).await;
             for (date, price) in &series {
-                match insert_snapshot_if_absent(&self.db, &ticker, *date, *price, self.clock.now()).await {
+                match insert_snapshot_if_absent(&self.db, &ticker, *date, *price, self.clock.now())
+                    .await
+                {
                     Ok(true) => saved += 1,
                     Ok(false) => {}
-                    Err(e) => tracing::error!("Could not record a historical price of {ticker}: {e}"),
+                    Err(e) => {
+                        tracing::error!("Could not record a historical price of {ticker}: {e}")
+                    }
                 }
             }
             tracing::info!("Backfilled {} prices for {ticker}", series.len());
@@ -167,7 +195,12 @@ impl PriceService {
         self.yahoo.historical_prices_eur(ticker, from, to).await
     }
 
-    async fn already_covered(&self, ticker: &str, from: NaiveDate, to: NaiveDate) -> sqlx::Result<bool> {
+    async fn already_covered(
+        &self,
+        ticker: &str,
+        from: NaiveDate,
+        to: NaiveDate,
+    ) -> sqlx::Result<bool> {
         let rows = prices::price_history(&self.db, &[ticker.to_owned()], from, to).await?;
         if rows.is_empty() {
             return Ok(false);
@@ -183,7 +216,12 @@ impl PriceService {
     }
 
     /// getIntradayPricesEur: the provider's hourly closes within [from, to].
-    pub async fn intraday_prices_eur(&self, ticker: &str, from: NaiveDateTime, to: NaiveDateTime) -> Vec<(NaiveDateTime, Decimal)> {
+    pub async fn intraday_prices_eur(
+        &self,
+        ticker: &str,
+        from: NaiveDateTime,
+        to: NaiveDateTime,
+    ) -> Vec<(NaiveDateTime, Decimal)> {
         if java_is_blank(ticker) || ticker.eq_ignore_ascii_case("EUR") {
             return Vec::new();
         }
@@ -198,13 +236,25 @@ impl PriceService {
 
 #[async_trait]
 impl PriceRead for PriceService {
-    async fn quotes(&self, tickers: &BTreeSet<String>, crypto_only: bool, today: NaiveDate) -> HashMap<String, Quote> {
+    async fn quotes(
+        &self,
+        tickers: &BTreeSet<String>,
+        crypto_only: bool,
+        today: NaiveDate,
+    ) -> HashMap<String, Quote> {
         let mut resolved = HashMap::new();
         let mut candidates = BTreeSet::new();
         for ticker in tickers.iter().filter(|t| !java_is_blank(t)) {
             let upper = ticker.to_uppercase();
             if upper == "EUR" {
-                resolved.insert(upper, Quote { price: Decimal::ONE, as_of: today, live: true });
+                resolved.insert(
+                    upper,
+                    Quote {
+                        price: Decimal::ONE,
+                        as_of: today,
+                        live: true,
+                    },
+                );
             } else {
                 candidates.insert(upper);
             }
@@ -217,7 +267,14 @@ impl PriceRead for PriceService {
         for ticker in candidates {
             match self.cached(&ticker) {
                 Some(Some(price)) => {
-                    resolved.insert(ticker, Quote { price, as_of: today, live: true });
+                    resolved.insert(
+                        ticker,
+                        Quote {
+                            price,
+                            as_of: today,
+                            live: true,
+                        },
+                    );
                 }
                 Some(None) => {
                     pending.insert(ticker);
@@ -237,19 +294,35 @@ impl PriceRead for PriceService {
                 let price = live.get(ticker).copied();
                 self.remember(ticker, price);
                 if let Some(price) = price {
-                    resolved.insert(ticker.clone(), Quote { price, as_of: today, live: true });
+                    resolved.insert(
+                        ticker.clone(),
+                        Quote {
+                            price,
+                            as_of: today,
+                            live: true,
+                        },
+                    );
                 }
             }
         }
-        let unresolved: BTreeSet<String> = pending.into_iter().filter(|t| !resolved.contains_key(t)).collect();
+        let unresolved: BTreeSet<String> = pending
+            .into_iter()
+            .filter(|t| !resolved.contains_key(t))
+            .collect();
         if unresolved.is_empty() {
             return resolved;
         }
         match prices::last_known_prices(&self.db, &unresolved, today).await {
             Ok(last_known) => {
-                let unknown: Vec<&String> = unresolved.iter().filter(|t| !last_known.contains_key(*t)).collect();
+                let unknown: Vec<&String> = unresolved
+                    .iter()
+                    .filter(|t| !last_known.contains_key(*t))
+                    .collect();
                 if !last_known.is_empty() {
-                    tracing::warn!("No live price for {:?} -- falling back to the last recorded one", last_known.keys());
+                    tracing::warn!(
+                        "No live price for {:?} -- falling back to the last recorded one",
+                        last_known.keys()
+                    );
                 }
                 if !unknown.is_empty() {
                     tracing::warn!(
@@ -257,7 +330,14 @@ impl PriceRead for PriceService {
                     );
                 }
                 for (ticker, snapshot) in last_known {
-                    resolved.insert(ticker, Quote { price: snapshot.price_eur, as_of: snapshot.date, live: false });
+                    resolved.insert(
+                        ticker,
+                        Quote {
+                            price: snapshot.price_eur,
+                            as_of: snapshot.date,
+                            live: false,
+                        },
+                    );
                 }
             }
             Err(e) => tracing::warn!("Could not read the recorded prices: {e}"),
@@ -270,35 +350,52 @@ impl PriceRead for PriceService {
     }
 }
 
-async fn upsert_snapshot(db: &PgPool, ticker: &str, date: NaiveDate, price: Decimal, now: DateTime<Utc>) -> sqlx::Result<()> {
-    let updated = sqlx::query("UPDATE price_snapshot SET price_eur = $3 WHERE ticker = $1 AND date = $2")
-        .bind(ticker)
-        .bind(date)
-        .bind(price)
-        .execute(db)
-        .await?
-        .rows_affected();
+async fn upsert_snapshot(
+    db: &PgPool,
+    ticker: &str,
+    date: NaiveDate,
+    price: Decimal,
+    now: DateTime<Utc>,
+) -> sqlx::Result<()> {
+    let updated =
+        sqlx::query("UPDATE price_snapshot SET price_eur = $3 WHERE ticker = $1 AND date = $2")
+            .bind(ticker)
+            .bind(date)
+            .bind(price)
+            .execute(db)
+            .await?
+            .rows_affected();
     if updated == 0 {
         insert_snapshot_if_absent(db, ticker, date, price, now).await?;
     }
     Ok(())
 }
 
-async fn insert_snapshot_if_absent(db: &PgPool, ticker: &str, date: NaiveDate, price: Decimal, now: DateTime<Utc>) -> sqlx::Result<bool> {
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM price_snapshot WHERE ticker = $1 AND date = $2)")
-        .bind(ticker)
-        .bind(date)
-        .fetch_one(db)
-        .await?;
+async fn insert_snapshot_if_absent(
+    db: &PgPool,
+    ticker: &str,
+    date: NaiveDate,
+    price: Decimal,
+    now: DateTime<Utc>,
+) -> sqlx::Result<bool> {
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM price_snapshot WHERE ticker = $1 AND date = $2)",
+    )
+    .bind(ticker)
+    .bind(date)
+    .fetch_one(db)
+    .await?;
     if exists {
         return Ok(false);
     }
-    sqlx::query("INSERT INTO price_snapshot (ticker, date, price_eur, created_at) VALUES ($1, $2, $3, $4)")
-        .bind(ticker)
-        .bind(date)
-        .bind(price)
-        .bind(now)
-        .execute(db)
-        .await?;
+    sqlx::query(
+        "INSERT INTO price_snapshot (ticker, date, price_eur, created_at) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(ticker)
+    .bind(date)
+    .bind(price)
+    .bind(now)
+    .execute(db)
+    .await?;
     Ok(true)
 }

@@ -27,9 +27,13 @@ pub async fn find_terms<'e>(
 
 /// sqlx decodes a NUMERIC zero without its scale; JDBC keeps the column's (0.000000).
 fn with_column_scale(mut terms: PeerLoanTerms) -> PeerLoanTerms {
-    terms.annual_rate = terms
-        .annual_rate
-        .map(|rate| if rate.is_zero() { set_scale(rate, 6, HALF_UP) } else { rate });
+    terms.annual_rate = terms.annual_rate.map(|rate| {
+        if rate.is_zero() {
+            set_scale(rate, 6, HALF_UP)
+        } else {
+            rate
+        }
+    });
     terms
 }
 

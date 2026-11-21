@@ -79,7 +79,10 @@ async fn get_prices_requires_its_tickers() {
     let admin = app.login_admin().await;
     let response = admin.get("/api/prices").send().await;
     assert_eq!(response.status, 400);
-    assert_eq!(response.json()["detail"], "Required parameter 'tickers' is not present.");
+    assert_eq!(
+        response.json()["detail"],
+        "Required parameter 'tickers' is not present."
+    );
     let response = admin.get("/api/prices/AAPL/history?months=x").send().await;
     assert_eq!(response.status, 400);
 }
@@ -121,7 +124,10 @@ async fn crypto_quotes_come_from_coingecko_and_never_from_an_equity_source() {
     Mock::given(method("GET"))
         .and(path("/simple/price"))
         .and(query_param("vs_currencies", "eur"))
-        .respond_with(ResponseTemplate::new(200).set_body_raw(r#"{"bitcoin":{"eur":50000.12}}"#, "application/json"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(r#"{"bitcoin":{"eur":50000.12}}"#, "application/json"),
+        )
         .mount(&coingecko)
         .await;
     let app = app(&yahoo, &coingecko).await;
@@ -169,7 +175,16 @@ async fn the_precious_metals_catalogue_is_listed_in_registry_order() {
     let yahoo = MockServer::start().await;
     let coingecko = MockServer::start().await;
     let app = app(&yahoo, &coingecko).await;
-    let body = app.login_admin().await.get("/api/prices/precious-metals").send().await.json();
+    let body = app
+        .login_admin()
+        .await
+        .get("/api/prices/precious-metals")
+        .send()
+        .await
+        .json();
     assert_eq!(body.as_array().unwrap().len(), 16);
-    assert_eq!(body[0], json!({"ticker": "GOLD:GRAM", "name": "Gold (fine gram)", "unit": "GRAM"}));
+    assert_eq!(
+        body[0],
+        json!({"ticker": "GOLD:GRAM", "name": "Gold (fine gram)", "unit": "GRAM"})
+    );
 }

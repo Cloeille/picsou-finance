@@ -66,7 +66,12 @@ impl Market {
             Arc::new(YahooCooldown::new(clock.clone())),
         ));
         Self {
-            prices: Arc::new(PriceService::new(db.clone(), clock.clone(), yahoo.clone(), coingecko)),
+            prices: Arc::new(PriceService::new(
+                db.clone(),
+                clock.clone(),
+                yahoo.clone(),
+                coingecko,
+            )),
             cooldown,
             yahoo,
         }
@@ -153,7 +158,11 @@ async fn intraday(
 ) -> axum::Json<Vec<Value>> {
     let to = state.clock.local_now();
     let from = to - chrono::Duration::hours(24);
-    let series = state.market.prices.intraday_prices_eur(&ticker, from, to).await;
+    let series = state
+        .market
+        .prices
+        .intraday_prices_eur(&ticker, from, to)
+        .await;
     axum::Json(
         series
             .into_iter()

@@ -32,12 +32,18 @@ pub struct Fixture {
 impl Fixture {
     pub async fn new() -> Self {
         let app = TestApp::with_admin().await;
-        assert!(app.state.wealth.savings.wire_account_responses(Arc::new(FakeResponses)));
+        assert!(
+            app.state
+                .wealth
+                .savings
+                .wire_account_responses(Arc::new(FakeResponses))
+        );
         let admin = app.login_admin().await;
-        let member: i64 = sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
-            .fetch_one(&app.state.db)
-            .await
-            .unwrap();
+        let member: i64 =
+            sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+                .fetch_one(&app.state.db)
+                .await
+                .unwrap();
         Self { app, admin, member }
     }
 
@@ -79,22 +85,32 @@ async fn goals_are_member_scoped_and_refuse_foreign_accounts() {
     let foreign = f.account(other, AccountType::Savings, "100").await;
     let response = f.goal(target(&[foreign], 1000, "2027-01-31")).await;
     assert_eq!(response.status, 400);
-    assert_eq!(response.json()["detail"], "One or more account IDs not found");
+    assert_eq!(
+        response.json()["detail"],
+        "One or more account IDs not found"
+    );
 
     let mine = f.account(f.member, AccountType::Savings, "100").await;
-    let id = f.goal(target(&[mine], 1000, "2027-01-31")).await.json()["id"].as_i64().unwrap();
+    let id = f.goal(target(&[mine], 1000, "2027-01-31")).await.json()["id"]
+        .as_i64()
+        .unwrap();
     let other_client = f.app.login("other", "password-1234").await;
     let response = other_client.get(&format!("/api/goals/{id}")).send().await;
     assert_eq!(response.status, 404);
     assert_eq!(response.json()["detail"], "Goal not found");
-    let response = other_client.delete(&format!("/api/goals/{id}/months/2026-02")).send().await;
+    let response = other_client
+        .delete(&format!("/api/goals/{id}/months/2026-02"))
+        .send()
+        .await;
     assert_eq!(response.status, 404);
 }
 
 #[tokio::test]
 async fn the_request_is_validated() {
     let f = Fixture::new().await;
-    let response = f.goal(json!({"type": "SAVINGS_TARGET", "accountIds": []})).await;
+    let response = f
+        .goal(json!({"type": "SAVINGS_TARGET", "accountIds": []}))
+        .await;
     assert_eq!(response.status, 422, "{}", response.text());
     assert!(response.json()["errors"]["name"].is_string());
 }
@@ -103,19 +119,41 @@ async fn the_request_is_validated() {
 async fn extending_the_history_moves_its_start_back_a_year_then_a_month() {
     let f = Fixture::new().await;
     let livret = f.account(f.member, AccountType::Savings, "100").await;
-    let id = f.goal(target(&[livret], 1000, "2027-01-31")).await.json()["id"].as_i64().unwrap();
-    let body = f.admin.post(&format!("/api/goals/{id}/history/extend")).send().await.json();
+    let id = f.goal(target(&[livret], 1000, "2027-01-31")).await.json()["id"]
+        .as_i64()
+        .unwrap();
+    let body = f
+        .admin
+        .post(&format!("/api/goals/{id}/history/extend"))
+        .send()
+        .await
+        .json();
     assert_eq!(body["historyStartMonth"], "2025-01");
-    let body = f.admin.post(&format!("/api/goals/{id}/history/extend/month")).send().await.json();
+    let body = f
+        .admin
+        .post(&format!("/api/goals/{id}/history/extend/month"))
+        .send()
+        .await
+        .json();
     assert_eq!(body["historyStartMonth"], "2024-12");
-    let months = f.admin.get(&format!("/api/goals/{id}/months")).send().await.json();
+    let months = f
+        .admin
+        .get(&format!("/api/goals/{id}/months"))
+        .send()
+        .await
+        .json();
     assert_eq!(months[0]["yearMonth"], "2024-12");
 }
 
 #[tokio::test]
 async fn an_objective_override_changes_the_objective_not_the_amount_saved() {
     let f = Fixture::new().await;
-    let id = f.goal(target(&[f.account(f.member, AccountType::Savings, "0").await], 1000, "2027-01-31"))
+    let id = f
+        .goal(target(
+            &[f.account(f.member, AccountType::Savings, "0").await],
+            1000,
+            "2027-01-31",
+        ))
         .await
         .json()["id"]
         .as_i64()
@@ -133,7 +171,12 @@ async fn an_objective_override_changes_the_objective_not_the_amount_saved() {
     assert_eq!(entry["objective"].to_string(), "83.33");
     assert_eq!(d(&entry["effective"].to_string()), d("200"));
 
-    let months = f.admin.get(&format!("/api/goals/{id}/months")).send().await.json();
+    let months = f
+        .admin
+        .get(&format!("/api/goals/{id}/months"))
+        .send()
+        .await
+        .json();
     let january = months
         .as_array()
         .unwrap()
@@ -144,7 +187,11 @@ async fn an_objective_override_changes_the_objective_not_the_amount_saved() {
     assert_eq!(d(&january["objective"].to_string()), d("200"));
     assert!(january.get("effective").is_none());
 
-    let response = f.admin.delete(&format!("/api/goals/{id}/months/2026-01")).send().await;
+    let response = f
+        .admin
+        .delete(&format!("/api/goals/{id}/months/2026-01"))
+        .send()
+        .await;
     assert_eq!(response.status, 200, "{}", response.text());
     assert!(response.json().get("override").is_none());
 }
@@ -160,8 +207,15 @@ async fn without_the_account_seam_writes_answer_501_and_write_nothing() {
     let mut draft = NewAccount::new(member, "Livret", AccountType::Savings);
     draft.is_manual = true;
     let livret = account(&app, draft).await.id;
-    let response = admin.post("/api/goals").json(&target(&[livret], 1000, "2027-01-31")).send().await;
+    let response = admin
+        .post("/api/goals")
+        .json(&target(&[livret], 1000, "2027-01-31"))
+        .send()
+        .await;
     assert_eq!(response.status, 501);
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM goal").fetch_one(&app.state.db).await.unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM goal")
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
     assert_eq!(count, 0);
 }
