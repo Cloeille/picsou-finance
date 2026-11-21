@@ -236,6 +236,8 @@ pub struct Config {
     pub geocoding_api_url: String,
     pub update_check_enabled: bool,
     pub meria_base_url: String,
+    /// The DuckDuckGo icon service Java hard-codes; overridable so tests can stub it.
+    pub duckduckgo_icons_url: String,
     pub startup_sync_enabled: bool,
     pub instrument_logos_enabled: bool,
     pub dev_profile: bool,
@@ -662,6 +664,9 @@ impl Config {
             update_check_enabled: bool_or(env, "APP_UPDATE_CHECK_ENABLED", true)?,
             meria_base_url: env
                 .or("MERIA_BASE_URL", "https://api.meria.com/v1")
+                .to_owned(),
+            duckduckgo_icons_url: env
+                .or("DUCKDUCKGO_ICONS_URL", "https://icons.duckduckgo.com")
                 .to_owned(),
             startup_sync_enabled: bool_or(env, "APP_STARTUP_SYNC_ENABLED", true)?,
             instrument_logos_enabled: bool_or(env, "INSTRUMENT_LOGOS_ENABLED", true)?,

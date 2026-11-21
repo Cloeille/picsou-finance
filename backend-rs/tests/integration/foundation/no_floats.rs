@@ -2,7 +2,11 @@ use std::path::Path;
 
 /// Files allowed to mention a binary float type, with the reason. Money, quantities, prices and
 /// rates are rust_decimal::Decimal end to end.
-const ALLOWED: &[&str] = &[];
+const ALLOWED: &[&str] = &[
+    // ProjectionService.monthlyRate: Java computes (1 + r)^(1/12) - 1 with Math.pow on a double
+    // and reads it back through BigDecimal.valueOf; only the same double reproduces its digits.
+    "src/accounts/analysis/projection.rs",
+];
 
 fn scan(dir: &Path, hits: &mut Vec<String>) {
     let float = regex::Regex::new(r"\bf(32|64)\b").unwrap();

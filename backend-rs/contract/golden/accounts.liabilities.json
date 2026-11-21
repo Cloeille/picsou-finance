@@ -1,0 +1,2897 @@
+{
+  "description": "Loan terms, schedule, credit card debt and real estate: dashboard totals keep assets and liabilities apart",
+  "scenario": "accounts.liabilities",
+  "steps": [
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 5000,
+        "currentBalanceEur": 5000,
+        "hidden": false,
+        "id": "<id:1>",
+        "isManual": true,
+        "listCollapsed": false,
+        "name": "Courant",
+        "type": "CHECKING"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "04 POST /api/accounts as admin"
+    },
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 0,
+        "currentBalanceEur": 0,
+        "hidden": false,
+        "id": "<id:2>",
+        "isManual": true,
+        "listCollapsed": false,
+        "name": "Maison",
+        "type": "REAL_ESTATE"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "05 POST /api/accounts as admin"
+    },
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 150000,
+        "currentBalanceEur": 150000,
+        "hidden": false,
+        "id": "<id:3>",
+        "isManual": true,
+        "listCollapsed": false,
+        "name": "Prêt immo",
+        "type": "LOAN"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "06 POST /api/accounts as admin"
+    },
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": -420.3,
+        "currentBalanceEur": -420.3,
+        "hidden": false,
+        "id": "<id:4>",
+        "isManual": true,
+        "listCollapsed": false,
+        "name": "Visa",
+        "type": "CREDIT_CARD"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "07 POST /api/accounts as admin"
+    },
+    {
+      "body": {
+        "detail": "Debt details not set for account",
+        "instance": "/api/accounts/<id:3>/loan-summary",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "08 GET /api/accounts/{loan}/loan-summary as admin"
+    },
+    {
+      "body": {
+        "detail": "Account is not a loan",
+        "instance": "/api/accounts/<id:1>/loan-summary",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "09 GET /api/accounts/{checking}/loan-summary as admin"
+    },
+    {
+      "body": {
+        "borrowedAmount": 200000,
+        "endDate": "2040-01-01",
+        "fileFees": 900,
+        "insuranceMonthly": 25.5,
+        "interestRate": 0.015,
+        "lenderName": "Banque",
+        "linkedAccountId": "<id:2>",
+        "linkedAccountName": "Maison",
+        "monthlyPayment": 1100,
+        "startDate": "2020-01-01"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "10 PUT /api/accounts/{loan}/debt as admin"
+    },
+    {
+      "body": {
+        "errors": {
+          "interestRate": "must be less than or equal to 1"
+        },
+        "instance": "/api/accounts/<id:3>/debt",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "11 PUT /api/accounts/{loan}/debt as admin"
+    },
+    {
+      "body": {
+        "detail": "Account not found",
+        "instance": "/api/accounts/<id:3>/debt",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "12 PUT /api/accounts/{loan}/debt as admin"
+    },
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 150000.00000000,
+        "currentBalanceEur": 128851.32,
+        "debt": {
+          "borrowedAmount": 200000.00000000,
+          "endDate": "2040-01-01",
+          "fileFees": 900.00000000,
+          "insuranceMonthly": 25.50000000,
+          "interestRate": 0.0150,
+          "lenderName": "Banque",
+          "linkedAccountId": "<id:2>",
+          "linkedAccountName": "Maison",
+          "monthlyPayment": 1100.00000000,
+          "startDate": "2020-01-01"
+        },
+        "hidden": false,
+        "id": "<id:3>",
+        "isManual": true,
+        "isOwner": true,
+        "listCollapsed": false,
+        "name": "Prêt immo",
+        "type": "LOAN"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "13 GET /api/accounts/{loan} as admin"
+    },
+    {
+      "body": {
+        "schedule": [
+          {
+            "capital": 824.50,
+            "date": "2020-02-01",
+            "insurance": 25.50,
+            "interest": 250.00,
+            "number": 1,
+            "remainingBalance": 199175.50,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 825.53,
+            "date": "2020-03-01",
+            "insurance": 25.50,
+            "interest": 248.97,
+            "number": 2,
+            "remainingBalance": 198349.97,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 826.56,
+            "date": "2020-04-01",
+            "insurance": 25.50,
+            "interest": 247.94,
+            "number": 3,
+            "remainingBalance": 197523.41,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 827.60,
+            "date": "2020-05-01",
+            "insurance": 25.50,
+            "interest": 246.90,
+            "number": 4,
+            "remainingBalance": 196695.81,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 828.63,
+            "date": "2020-06-01",
+            "insurance": 25.50,
+            "interest": 245.87,
+            "number": 5,
+            "remainingBalance": 195867.18,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 829.67,
+            "date": "2020-07-01",
+            "insurance": 25.50,
+            "interest": 244.83,
+            "number": 6,
+            "remainingBalance": 195037.51,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 830.70,
+            "date": "2020-08-01",
+            "insurance": 25.50,
+            "interest": 243.80,
+            "number": 7,
+            "remainingBalance": 194206.81,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 831.74,
+            "date": "2020-09-01",
+            "insurance": 25.50,
+            "interest": 242.76,
+            "number": 8,
+            "remainingBalance": 193375.07,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 832.78,
+            "date": "2020-10-01",
+            "insurance": 25.50,
+            "interest": 241.72,
+            "number": 9,
+            "remainingBalance": 192542.29,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 833.82,
+            "date": "2020-11-01",
+            "insurance": 25.50,
+            "interest": 240.68,
+            "number": 10,
+            "remainingBalance": 191708.47,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 834.86,
+            "date": "2020-12-01",
+            "insurance": 25.50,
+            "interest": 239.64,
+            "number": 11,
+            "remainingBalance": 190873.61,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 835.91,
+            "date": "2021-01-01",
+            "insurance": 25.50,
+            "interest": 238.59,
+            "number": 12,
+            "remainingBalance": 190037.70,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 836.95,
+            "date": "2021-02-01",
+            "insurance": 25.50,
+            "interest": 237.55,
+            "number": 13,
+            "remainingBalance": 189200.75,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 838.00,
+            "date": "2021-03-01",
+            "insurance": 25.50,
+            "interest": 236.50,
+            "number": 14,
+            "remainingBalance": 188362.75,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 839.05,
+            "date": "2021-04-01",
+            "insurance": 25.50,
+            "interest": 235.45,
+            "number": 15,
+            "remainingBalance": 187523.70,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 840.10,
+            "date": "2021-05-01",
+            "insurance": 25.50,
+            "interest": 234.40,
+            "number": 16,
+            "remainingBalance": 186683.60,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 841.15,
+            "date": "2021-06-01",
+            "insurance": 25.50,
+            "interest": 233.35,
+            "number": 17,
+            "remainingBalance": 185842.45,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 842.20,
+            "date": "2021-07-01",
+            "insurance": 25.50,
+            "interest": 232.30,
+            "number": 18,
+            "remainingBalance": 185000.25,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 843.25,
+            "date": "2021-08-01",
+            "insurance": 25.50,
+            "interest": 231.25,
+            "number": 19,
+            "remainingBalance": 184157.00,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 844.30,
+            "date": "2021-09-01",
+            "insurance": 25.50,
+            "interest": 230.20,
+            "number": 20,
+            "remainingBalance": 183312.70,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 845.36,
+            "date": "2021-10-01",
+            "insurance": 25.50,
+            "interest": 229.14,
+            "number": 21,
+            "remainingBalance": 182467.34,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 846.42,
+            "date": "2021-11-01",
+            "insurance": 25.50,
+            "interest": 228.08,
+            "number": 22,
+            "remainingBalance": 181620.92,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 847.47,
+            "date": "2021-12-01",
+            "insurance": 25.50,
+            "interest": 227.03,
+            "number": 23,
+            "remainingBalance": 180773.45,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 848.53,
+            "date": "2022-01-01",
+            "insurance": 25.50,
+            "interest": 225.97,
+            "number": 24,
+            "remainingBalance": 179924.92,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 849.59,
+            "date": "2022-02-01",
+            "insurance": 25.50,
+            "interest": 224.91,
+            "number": 25,
+            "remainingBalance": 179075.33,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 850.66,
+            "date": "2022-03-01",
+            "insurance": 25.50,
+            "interest": 223.84,
+            "number": 26,
+            "remainingBalance": 178224.67,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 851.72,
+            "date": "2022-04-01",
+            "insurance": 25.50,
+            "interest": 222.78,
+            "number": 27,
+            "remainingBalance": 177372.95,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 852.78,
+            "date": "2022-05-01",
+            "insurance": 25.50,
+            "interest": 221.72,
+            "number": 28,
+            "remainingBalance": 176520.17,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 853.85,
+            "date": "2022-06-01",
+            "insurance": 25.50,
+            "interest": 220.65,
+            "number": 29,
+            "remainingBalance": 175666.32,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 854.92,
+            "date": "2022-07-01",
+            "insurance": 25.50,
+            "interest": 219.58,
+            "number": 30,
+            "remainingBalance": 174811.40,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 855.99,
+            "date": "2022-08-01",
+            "insurance": 25.50,
+            "interest": 218.51,
+            "number": 31,
+            "remainingBalance": 173955.41,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 857.06,
+            "date": "2022-09-01",
+            "insurance": 25.50,
+            "interest": 217.44,
+            "number": 32,
+            "remainingBalance": 173098.35,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 858.13,
+            "date": "2022-10-01",
+            "insurance": 25.50,
+            "interest": 216.37,
+            "number": 33,
+            "remainingBalance": 172240.22,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 859.20,
+            "date": "2022-11-01",
+            "insurance": 25.50,
+            "interest": 215.30,
+            "number": 34,
+            "remainingBalance": 171381.02,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 860.27,
+            "date": "2022-12-01",
+            "insurance": 25.50,
+            "interest": 214.23,
+            "number": 35,
+            "remainingBalance": 170520.75,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 861.35,
+            "date": "2023-01-01",
+            "insurance": 25.50,
+            "interest": 213.15,
+            "number": 36,
+            "remainingBalance": 169659.40,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 862.43,
+            "date": "2023-02-01",
+            "insurance": 25.50,
+            "interest": 212.07,
+            "number": 37,
+            "remainingBalance": 168796.97,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 863.50,
+            "date": "2023-03-01",
+            "insurance": 25.50,
+            "interest": 211.00,
+            "number": 38,
+            "remainingBalance": 167933.47,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 864.58,
+            "date": "2023-04-01",
+            "insurance": 25.50,
+            "interest": 209.92,
+            "number": 39,
+            "remainingBalance": 167068.89,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 865.66,
+            "date": "2023-05-01",
+            "insurance": 25.50,
+            "interest": 208.84,
+            "number": 40,
+            "remainingBalance": 166203.23,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 866.75,
+            "date": "2023-06-01",
+            "insurance": 25.50,
+            "interest": 207.75,
+            "number": 41,
+            "remainingBalance": 165336.48,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 867.83,
+            "date": "2023-07-01",
+            "insurance": 25.50,
+            "interest": 206.67,
+            "number": 42,
+            "remainingBalance": 164468.65,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 868.91,
+            "date": "2023-08-01",
+            "insurance": 25.50,
+            "interest": 205.59,
+            "number": 43,
+            "remainingBalance": 163599.74,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 870.00,
+            "date": "2023-09-01",
+            "insurance": 25.50,
+            "interest": 204.50,
+            "number": 44,
+            "remainingBalance": 162729.74,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 871.09,
+            "date": "2023-10-01",
+            "insurance": 25.50,
+            "interest": 203.41,
+            "number": 45,
+            "remainingBalance": 161858.65,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 872.18,
+            "date": "<month-36:first>",
+            "insurance": 25.50,
+            "interest": 202.32,
+            "number": 46,
+            "remainingBalance": 160986.47,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 873.27,
+            "date": "<month-35:first>",
+            "insurance": 25.50,
+            "interest": 201.23,
+            "number": 47,
+            "remainingBalance": 160113.20,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 874.36,
+            "date": "<month-34:first>",
+            "insurance": 25.50,
+            "interest": 200.14,
+            "number": 48,
+            "remainingBalance": 159238.84,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 875.45,
+            "date": "<month-33:first>",
+            "insurance": 25.50,
+            "interest": 199.05,
+            "number": 49,
+            "remainingBalance": 158363.39,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 876.55,
+            "date": "<month-32:first>",
+            "insurance": 25.50,
+            "interest": 197.95,
+            "number": 50,
+            "remainingBalance": 157486.84,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 877.64,
+            "date": "<month-31:first>",
+            "insurance": 25.50,
+            "interest": 196.86,
+            "number": 51,
+            "remainingBalance": 156609.20,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 878.74,
+            "date": "<month-30:first>",
+            "insurance": 25.50,
+            "interest": 195.76,
+            "number": 52,
+            "remainingBalance": 155730.46,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 879.84,
+            "date": "<month-29:first>",
+            "insurance": 25.50,
+            "interest": 194.66,
+            "number": 53,
+            "remainingBalance": 154850.62,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 880.94,
+            "date": "<month-28:first>",
+            "insurance": 25.50,
+            "interest": 193.56,
+            "number": 54,
+            "remainingBalance": 153969.68,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 882.04,
+            "date": "<month-27:first>",
+            "insurance": 25.50,
+            "interest": 192.46,
+            "number": 55,
+            "remainingBalance": 153087.64,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 883.14,
+            "date": "<month-26:first>",
+            "insurance": 25.50,
+            "interest": 191.36,
+            "number": 56,
+            "remainingBalance": 152204.50,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 884.24,
+            "date": "<month-25:first>",
+            "insurance": 25.50,
+            "interest": 190.26,
+            "number": 57,
+            "remainingBalance": 151320.26,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 885.35,
+            "date": "<month-24:first>",
+            "insurance": 25.50,
+            "interest": 189.15,
+            "number": 58,
+            "remainingBalance": 150434.91,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 886.46,
+            "date": "<month-23:first>",
+            "insurance": 25.50,
+            "interest": 188.04,
+            "number": 59,
+            "remainingBalance": 149548.45,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 887.56,
+            "date": "<month-22:first>",
+            "insurance": 25.50,
+            "interest": 186.94,
+            "number": 60,
+            "remainingBalance": 148660.89,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 888.67,
+            "date": "<month-21:first>",
+            "insurance": 25.50,
+            "interest": 185.83,
+            "number": 61,
+            "remainingBalance": 147772.22,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 889.78,
+            "date": "<month-20:first>",
+            "insurance": 25.50,
+            "interest": 184.72,
+            "number": 62,
+            "remainingBalance": 146882.44,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 890.90,
+            "date": "<month-19:first>",
+            "insurance": 25.50,
+            "interest": 183.60,
+            "number": 63,
+            "remainingBalance": 145991.54,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 892.01,
+            "date": "<month-18:first>",
+            "insurance": 25.50,
+            "interest": 182.49,
+            "number": 64,
+            "remainingBalance": 145099.53,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 893.13,
+            "date": "<month-17:first>",
+            "insurance": 25.50,
+            "interest": 181.37,
+            "number": 65,
+            "remainingBalance": 144206.40,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 894.24,
+            "date": "<month-16:first>",
+            "insurance": 25.50,
+            "interest": 180.26,
+            "number": 66,
+            "remainingBalance": 143312.16,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 895.36,
+            "date": "<month-15:first>",
+            "insurance": 25.50,
+            "interest": 179.14,
+            "number": 67,
+            "remainingBalance": 142416.80,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 896.48,
+            "date": "<month-14:first>",
+            "insurance": 25.50,
+            "interest": 178.02,
+            "number": 68,
+            "remainingBalance": 141520.32,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 897.60,
+            "date": "<month-13:first>",
+            "insurance": 25.50,
+            "interest": 176.90,
+            "number": 69,
+            "remainingBalance": 140622.72,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 898.72,
+            "date": "<month-12:first>",
+            "insurance": 25.50,
+            "interest": 175.78,
+            "number": 70,
+            "remainingBalance": 139724.00,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 899.84,
+            "date": "<month-11:first>",
+            "insurance": 25.50,
+            "interest": 174.66,
+            "number": 71,
+            "remainingBalance": 138824.16,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 900.97,
+            "date": "<month-10:first>",
+            "insurance": 25.50,
+            "interest": 173.53,
+            "number": 72,
+            "remainingBalance": 137923.19,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 902.10,
+            "date": "<month-9:first>",
+            "insurance": 25.50,
+            "interest": 172.40,
+            "number": 73,
+            "remainingBalance": 137021.09,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 903.22,
+            "date": "<month-8:first>",
+            "insurance": 25.50,
+            "interest": 171.28,
+            "number": 74,
+            "remainingBalance": 136117.87,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 904.35,
+            "date": "<month-7:first>",
+            "insurance": 25.50,
+            "interest": 170.15,
+            "number": 75,
+            "remainingBalance": 135213.52,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 905.48,
+            "date": "<month-6:first>",
+            "insurance": 25.50,
+            "interest": 169.02,
+            "number": 76,
+            "remainingBalance": 134308.04,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 906.61,
+            "date": "<month-5:first>",
+            "insurance": 25.50,
+            "interest": 167.89,
+            "number": 77,
+            "remainingBalance": 133401.43,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 907.75,
+            "date": "<month-4:first>",
+            "insurance": 25.50,
+            "interest": 166.75,
+            "number": 78,
+            "remainingBalance": 132493.68,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 908.88,
+            "date": "<month-3:first>",
+            "insurance": 25.50,
+            "interest": 165.62,
+            "number": 79,
+            "remainingBalance": 131584.80,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 910.02,
+            "date": "<month-2:first>",
+            "insurance": 25.50,
+            "interest": 164.48,
+            "number": 80,
+            "remainingBalance": 130674.78,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 911.16,
+            "date": "<month-1:first>",
+            "insurance": 25.50,
+            "interest": 163.34,
+            "number": 81,
+            "remainingBalance": 129763.62,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 912.30,
+            "date": "<month:first>",
+            "insurance": 25.50,
+            "interest": 162.20,
+            "number": 82,
+            "remainingBalance": 128851.32,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 913.44,
+            "date": "<month+1:first>",
+            "insurance": 25.50,
+            "interest": 161.06,
+            "number": 83,
+            "remainingBalance": 127937.88,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 914.58,
+            "date": "<month+2:first>",
+            "insurance": 25.50,
+            "interest": 159.92,
+            "number": 84,
+            "remainingBalance": 127023.30,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 915.72,
+            "date": "<month+3:first>",
+            "insurance": 25.50,
+            "interest": 158.78,
+            "number": 85,
+            "remainingBalance": 126107.58,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 916.87,
+            "date": "<month+4:first>",
+            "insurance": 25.50,
+            "interest": 157.63,
+            "number": 86,
+            "remainingBalance": 125190.71,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 918.01,
+            "date": "<month+5:first>",
+            "insurance": 25.50,
+            "interest": 156.49,
+            "number": 87,
+            "remainingBalance": 124272.70,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 919.16,
+            "date": "<month+6:first>",
+            "insurance": 25.50,
+            "interest": 155.34,
+            "number": 88,
+            "remainingBalance": 123353.54,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 920.31,
+            "date": "<month+7:first>",
+            "insurance": 25.50,
+            "interest": 154.19,
+            "number": 89,
+            "remainingBalance": 122433.23,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 921.46,
+            "date": "<month+8:first>",
+            "insurance": 25.50,
+            "interest": 153.04,
+            "number": 90,
+            "remainingBalance": 121511.77,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 922.61,
+            "date": "<month+9:first>",
+            "insurance": 25.50,
+            "interest": 151.89,
+            "number": 91,
+            "remainingBalance": 120589.16,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 923.76,
+            "date": "<month+10:first>",
+            "insurance": 25.50,
+            "interest": 150.74,
+            "number": 92,
+            "remainingBalance": 119665.40,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 924.92,
+            "date": "<month+11:first>",
+            "insurance": 25.50,
+            "interest": 149.58,
+            "number": 93,
+            "remainingBalance": 118740.48,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 926.07,
+            "date": "<month+12:first>",
+            "insurance": 25.50,
+            "interest": 148.43,
+            "number": 94,
+            "remainingBalance": 117814.41,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 927.23,
+            "date": "<month+13:first>",
+            "insurance": 25.50,
+            "interest": 147.27,
+            "number": 95,
+            "remainingBalance": 116887.18,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 928.39,
+            "date": "<month+14:first>",
+            "insurance": 25.50,
+            "interest": 146.11,
+            "number": 96,
+            "remainingBalance": 115958.79,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 929.55,
+            "date": "<month+15:first>",
+            "insurance": 25.50,
+            "interest": 144.95,
+            "number": 97,
+            "remainingBalance": 115029.24,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 930.71,
+            "date": "<month+16:first>",
+            "insurance": 25.50,
+            "interest": 143.79,
+            "number": 98,
+            "remainingBalance": 114098.53,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 931.88,
+            "date": "<month+17:first>",
+            "insurance": 25.50,
+            "interest": 142.62,
+            "number": 99,
+            "remainingBalance": 113166.65,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 933.04,
+            "date": "<month+18:first>",
+            "insurance": 25.50,
+            "interest": 141.46,
+            "number": 100,
+            "remainingBalance": 112233.61,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 934.21,
+            "date": "<month+19:first>",
+            "insurance": 25.50,
+            "interest": 140.29,
+            "number": 101,
+            "remainingBalance": 111299.40,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 935.38,
+            "date": "<month+20:first>",
+            "insurance": 25.50,
+            "interest": 139.12,
+            "number": 102,
+            "remainingBalance": 110364.02,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 936.54,
+            "date": "<month+21:first>",
+            "insurance": 25.50,
+            "interest": 137.96,
+            "number": 103,
+            "remainingBalance": 109427.48,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 937.72,
+            "date": "<month+22:first>",
+            "insurance": 25.50,
+            "interest": 136.78,
+            "number": 104,
+            "remainingBalance": 108489.76,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 938.89,
+            "date": "<month+23:first>",
+            "insurance": 25.50,
+            "interest": 135.61,
+            "number": 105,
+            "remainingBalance": 107550.87,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 940.06,
+            "date": "<month+24:first>",
+            "insurance": 25.50,
+            "interest": 134.44,
+            "number": 106,
+            "remainingBalance": 106610.81,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 941.24,
+            "date": "<month+25:first>",
+            "insurance": 25.50,
+            "interest": 133.26,
+            "number": 107,
+            "remainingBalance": 105669.57,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 942.41,
+            "date": "<month+26:first>",
+            "insurance": 25.50,
+            "interest": 132.09,
+            "number": 108,
+            "remainingBalance": 104727.16,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 943.59,
+            "date": "<month+27:first>",
+            "insurance": 25.50,
+            "interest": 130.91,
+            "number": 109,
+            "remainingBalance": 103783.57,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 944.77,
+            "date": "<month+28:first>",
+            "insurance": 25.50,
+            "interest": 129.73,
+            "number": 110,
+            "remainingBalance": 102838.80,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 945.95,
+            "date": "<month+29:first>",
+            "insurance": 25.50,
+            "interest": 128.55,
+            "number": 111,
+            "remainingBalance": 101892.85,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 947.13,
+            "date": "<month+30:first>",
+            "insurance": 25.50,
+            "interest": 127.37,
+            "number": 112,
+            "remainingBalance": 100945.72,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 948.32,
+            "date": "<month+31:first>",
+            "insurance": 25.50,
+            "interest": 126.18,
+            "number": 113,
+            "remainingBalance": 99997.40,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 949.50,
+            "date": "<month+32:first>",
+            "insurance": 25.50,
+            "interest": 125.00,
+            "number": 114,
+            "remainingBalance": 99047.90,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 950.69,
+            "date": "<month+33:first>",
+            "insurance": 25.50,
+            "interest": 123.81,
+            "number": 115,
+            "remainingBalance": 98097.21,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 951.88,
+            "date": "<month+34:first>",
+            "insurance": 25.50,
+            "interest": 122.62,
+            "number": 116,
+            "remainingBalance": 97145.33,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 953.07,
+            "date": "<month+35:first>",
+            "insurance": 25.50,
+            "interest": 121.43,
+            "number": 117,
+            "remainingBalance": 96192.26,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 954.26,
+            "date": "<month+36:first>",
+            "insurance": 25.50,
+            "interest": 120.24,
+            "number": 118,
+            "remainingBalance": 95238.00,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 955.45,
+            "date": "2029-12-01",
+            "insurance": 25.50,
+            "interest": 119.05,
+            "number": 119,
+            "remainingBalance": 94282.55,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 956.65,
+            "date": "2030-01-01",
+            "insurance": 25.50,
+            "interest": 117.85,
+            "number": 120,
+            "remainingBalance": 93325.90,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 957.84,
+            "date": "2030-02-01",
+            "insurance": 25.50,
+            "interest": 116.66,
+            "number": 121,
+            "remainingBalance": 92368.06,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 959.04,
+            "date": "2030-03-01",
+            "insurance": 25.50,
+            "interest": 115.46,
+            "number": 122,
+            "remainingBalance": 91409.02,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 960.24,
+            "date": "2030-04-01",
+            "insurance": 25.50,
+            "interest": 114.26,
+            "number": 123,
+            "remainingBalance": 90448.78,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 961.44,
+            "date": "2030-05-01",
+            "insurance": 25.50,
+            "interest": 113.06,
+            "number": 124,
+            "remainingBalance": 89487.34,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 962.64,
+            "date": "2030-06-01",
+            "insurance": 25.50,
+            "interest": 111.86,
+            "number": 125,
+            "remainingBalance": 88524.70,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 963.84,
+            "date": "2030-07-01",
+            "insurance": 25.50,
+            "interest": 110.66,
+            "number": 126,
+            "remainingBalance": 87560.86,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 965.05,
+            "date": "2030-08-01",
+            "insurance": 25.50,
+            "interest": 109.45,
+            "number": 127,
+            "remainingBalance": 86595.81,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 966.26,
+            "date": "2030-09-01",
+            "insurance": 25.50,
+            "interest": 108.24,
+            "number": 128,
+            "remainingBalance": 85629.55,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 967.46,
+            "date": "2030-10-01",
+            "insurance": 25.50,
+            "interest": 107.04,
+            "number": 129,
+            "remainingBalance": 84662.09,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 968.67,
+            "date": "2030-11-01",
+            "insurance": 25.50,
+            "interest": 105.83,
+            "number": 130,
+            "remainingBalance": 83693.42,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 969.88,
+            "date": "2030-12-01",
+            "insurance": 25.50,
+            "interest": 104.62,
+            "number": 131,
+            "remainingBalance": 82723.54,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 971.10,
+            "date": "2031-01-01",
+            "insurance": 25.50,
+            "interest": 103.40,
+            "number": 132,
+            "remainingBalance": 81752.44,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 972.31,
+            "date": "2031-02-01",
+            "insurance": 25.50,
+            "interest": 102.19,
+            "number": 133,
+            "remainingBalance": 80780.13,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 973.52,
+            "date": "2031-03-01",
+            "insurance": 25.50,
+            "interest": 100.98,
+            "number": 134,
+            "remainingBalance": 79806.61,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 974.74,
+            "date": "2031-04-01",
+            "insurance": 25.50,
+            "interest": 99.76,
+            "number": 135,
+            "remainingBalance": 78831.87,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 975.96,
+            "date": "2031-05-01",
+            "insurance": 25.50,
+            "interest": 98.54,
+            "number": 136,
+            "remainingBalance": 77855.91,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 977.18,
+            "date": "2031-06-01",
+            "insurance": 25.50,
+            "interest": 97.32,
+            "number": 137,
+            "remainingBalance": 76878.73,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 978.40,
+            "date": "2031-07-01",
+            "insurance": 25.50,
+            "interest": 96.10,
+            "number": 138,
+            "remainingBalance": 75900.33,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 979.62,
+            "date": "2031-08-01",
+            "insurance": 25.50,
+            "interest": 94.88,
+            "number": 139,
+            "remainingBalance": 74920.71,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 980.85,
+            "date": "2031-09-01",
+            "insurance": 25.50,
+            "interest": 93.65,
+            "number": 140,
+            "remainingBalance": 73939.86,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 982.08,
+            "date": "2031-10-01",
+            "insurance": 25.50,
+            "interest": 92.42,
+            "number": 141,
+            "remainingBalance": 72957.78,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 983.30,
+            "date": "2031-11-01",
+            "insurance": 25.50,
+            "interest": 91.20,
+            "number": 142,
+            "remainingBalance": 71974.48,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 984.53,
+            "date": "2031-12-01",
+            "insurance": 25.50,
+            "interest": 89.97,
+            "number": 143,
+            "remainingBalance": 70989.95,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 985.76,
+            "date": "2032-01-01",
+            "insurance": 25.50,
+            "interest": 88.74,
+            "number": 144,
+            "remainingBalance": 70004.19,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 986.99,
+            "date": "2032-02-01",
+            "insurance": 25.50,
+            "interest": 87.51,
+            "number": 145,
+            "remainingBalance": 69017.20,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 988.23,
+            "date": "2032-03-01",
+            "insurance": 25.50,
+            "interest": 86.27,
+            "number": 146,
+            "remainingBalance": 68028.97,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 989.46,
+            "date": "2032-04-01",
+            "insurance": 25.50,
+            "interest": 85.04,
+            "number": 147,
+            "remainingBalance": 67039.51,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 990.70,
+            "date": "2032-05-01",
+            "insurance": 25.50,
+            "interest": 83.80,
+            "number": 148,
+            "remainingBalance": 66048.81,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 991.94,
+            "date": "2032-06-01",
+            "insurance": 25.50,
+            "interest": 82.56,
+            "number": 149,
+            "remainingBalance": 65056.87,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 993.18,
+            "date": "2032-07-01",
+            "insurance": 25.50,
+            "interest": 81.32,
+            "number": 150,
+            "remainingBalance": 64063.69,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 994.42,
+            "date": "2032-08-01",
+            "insurance": 25.50,
+            "interest": 80.08,
+            "number": 151,
+            "remainingBalance": 63069.27,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 995.66,
+            "date": "2032-09-01",
+            "insurance": 25.50,
+            "interest": 78.84,
+            "number": 152,
+            "remainingBalance": 62073.61,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 996.91,
+            "date": "2032-10-01",
+            "insurance": 25.50,
+            "interest": 77.59,
+            "number": 153,
+            "remainingBalance": 61076.70,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 998.15,
+            "date": "2032-11-01",
+            "insurance": 25.50,
+            "interest": 76.35,
+            "number": 154,
+            "remainingBalance": 60078.55,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 999.40,
+            "date": "2032-12-01",
+            "insurance": 25.50,
+            "interest": 75.10,
+            "number": 155,
+            "remainingBalance": 59079.15,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1000.65,
+            "date": "2033-01-01",
+            "insurance": 25.50,
+            "interest": 73.85,
+            "number": 156,
+            "remainingBalance": 58078.50,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1001.90,
+            "date": "2033-02-01",
+            "insurance": 25.50,
+            "interest": 72.60,
+            "number": 157,
+            "remainingBalance": 57076.60,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1003.15,
+            "date": "2033-03-01",
+            "insurance": 25.50,
+            "interest": 71.35,
+            "number": 158,
+            "remainingBalance": 56073.45,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1004.41,
+            "date": "2033-04-01",
+            "insurance": 25.50,
+            "interest": 70.09,
+            "number": 159,
+            "remainingBalance": 55069.04,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1005.66,
+            "date": "2033-05-01",
+            "insurance": 25.50,
+            "interest": 68.84,
+            "number": 160,
+            "remainingBalance": 54063.38,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1006.92,
+            "date": "2033-06-01",
+            "insurance": 25.50,
+            "interest": 67.58,
+            "number": 161,
+            "remainingBalance": 53056.46,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1008.18,
+            "date": "2033-07-01",
+            "insurance": 25.50,
+            "interest": 66.32,
+            "number": 162,
+            "remainingBalance": 52048.28,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1009.44,
+            "date": "2033-08-01",
+            "insurance": 25.50,
+            "interest": 65.06,
+            "number": 163,
+            "remainingBalance": 51038.84,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1010.70,
+            "date": "2033-09-01",
+            "insurance": 25.50,
+            "interest": 63.80,
+            "number": 164,
+            "remainingBalance": 50028.14,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1011.96,
+            "date": "2033-10-01",
+            "insurance": 25.50,
+            "interest": 62.54,
+            "number": 165,
+            "remainingBalance": 49016.18,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1013.23,
+            "date": "2033-11-01",
+            "insurance": 25.50,
+            "interest": 61.27,
+            "number": 166,
+            "remainingBalance": 48002.95,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1014.50,
+            "date": "2033-12-01",
+            "insurance": 25.50,
+            "interest": 60.00,
+            "number": 167,
+            "remainingBalance": 46988.45,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1015.76,
+            "date": "2034-01-01",
+            "insurance": 25.50,
+            "interest": 58.74,
+            "number": 168,
+            "remainingBalance": 45972.69,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1017.03,
+            "date": "2034-02-01",
+            "insurance": 25.50,
+            "interest": 57.47,
+            "number": 169,
+            "remainingBalance": 44955.66,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1018.31,
+            "date": "2034-03-01",
+            "insurance": 25.50,
+            "interest": 56.19,
+            "number": 170,
+            "remainingBalance": 43937.35,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1019.58,
+            "date": "2034-04-01",
+            "insurance": 25.50,
+            "interest": 54.92,
+            "number": 171,
+            "remainingBalance": 42917.77,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1020.85,
+            "date": "2034-05-01",
+            "insurance": 25.50,
+            "interest": 53.65,
+            "number": 172,
+            "remainingBalance": 41896.92,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1022.13,
+            "date": "2034-06-01",
+            "insurance": 25.50,
+            "interest": 52.37,
+            "number": 173,
+            "remainingBalance": 40874.79,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1023.41,
+            "date": "2034-07-01",
+            "insurance": 25.50,
+            "interest": 51.09,
+            "number": 174,
+            "remainingBalance": 39851.38,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1024.69,
+            "date": "2034-08-01",
+            "insurance": 25.50,
+            "interest": 49.81,
+            "number": 175,
+            "remainingBalance": 38826.69,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1025.97,
+            "date": "2034-09-01",
+            "insurance": 25.50,
+            "interest": 48.53,
+            "number": 176,
+            "remainingBalance": 37800.72,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1027.25,
+            "date": "2034-10-01",
+            "insurance": 25.50,
+            "interest": 47.25,
+            "number": 177,
+            "remainingBalance": 36773.47,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1028.53,
+            "date": "2034-11-01",
+            "insurance": 25.50,
+            "interest": 45.97,
+            "number": 178,
+            "remainingBalance": 35744.94,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1029.82,
+            "date": "2034-12-01",
+            "insurance": 25.50,
+            "interest": 44.68,
+            "number": 179,
+            "remainingBalance": 34715.12,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1031.11,
+            "date": "2035-01-01",
+            "insurance": 25.50,
+            "interest": 43.39,
+            "number": 180,
+            "remainingBalance": 33684.01,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1032.39,
+            "date": "2035-02-01",
+            "insurance": 25.50,
+            "interest": 42.11,
+            "number": 181,
+            "remainingBalance": 32651.62,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1033.69,
+            "date": "2035-03-01",
+            "insurance": 25.50,
+            "interest": 40.81,
+            "number": 182,
+            "remainingBalance": 31617.93,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1034.98,
+            "date": "2035-04-01",
+            "insurance": 25.50,
+            "interest": 39.52,
+            "number": 183,
+            "remainingBalance": 30582.95,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1036.27,
+            "date": "2035-05-01",
+            "insurance": 25.50,
+            "interest": 38.23,
+            "number": 184,
+            "remainingBalance": 29546.68,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1037.57,
+            "date": "2035-06-01",
+            "insurance": 25.50,
+            "interest": 36.93,
+            "number": 185,
+            "remainingBalance": 28509.11,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1038.86,
+            "date": "2035-07-01",
+            "insurance": 25.50,
+            "interest": 35.64,
+            "number": 186,
+            "remainingBalance": 27470.25,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1040.16,
+            "date": "2035-08-01",
+            "insurance": 25.50,
+            "interest": 34.34,
+            "number": 187,
+            "remainingBalance": 26430.09,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1041.46,
+            "date": "2035-09-01",
+            "insurance": 25.50,
+            "interest": 33.04,
+            "number": 188,
+            "remainingBalance": 25388.63,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1042.76,
+            "date": "2035-10-01",
+            "insurance": 25.50,
+            "interest": 31.74,
+            "number": 189,
+            "remainingBalance": 24345.87,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1044.07,
+            "date": "2035-11-01",
+            "insurance": 25.50,
+            "interest": 30.43,
+            "number": 190,
+            "remainingBalance": 23301.80,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1045.37,
+            "date": "2035-12-01",
+            "insurance": 25.50,
+            "interest": 29.13,
+            "number": 191,
+            "remainingBalance": 22256.43,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1046.68,
+            "date": "2036-01-01",
+            "insurance": 25.50,
+            "interest": 27.82,
+            "number": 192,
+            "remainingBalance": 21209.75,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1047.99,
+            "date": "2036-02-01",
+            "insurance": 25.50,
+            "interest": 26.51,
+            "number": 193,
+            "remainingBalance": 20161.76,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1049.30,
+            "date": "2036-03-01",
+            "insurance": 25.50,
+            "interest": 25.20,
+            "number": 194,
+            "remainingBalance": 19112.46,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1050.61,
+            "date": "2036-04-01",
+            "insurance": 25.50,
+            "interest": 23.89,
+            "number": 195,
+            "remainingBalance": 18061.85,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1051.92,
+            "date": "2036-05-01",
+            "insurance": 25.50,
+            "interest": 22.58,
+            "number": 196,
+            "remainingBalance": 17009.93,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1053.24,
+            "date": "2036-06-01",
+            "insurance": 25.50,
+            "interest": 21.26,
+            "number": 197,
+            "remainingBalance": 15956.69,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1054.55,
+            "date": "2036-07-01",
+            "insurance": 25.50,
+            "interest": 19.95,
+            "number": 198,
+            "remainingBalance": 14902.14,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1055.87,
+            "date": "2036-08-01",
+            "insurance": 25.50,
+            "interest": 18.63,
+            "number": 199,
+            "remainingBalance": 13846.27,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1057.19,
+            "date": "2036-09-01",
+            "insurance": 25.50,
+            "interest": 17.31,
+            "number": 200,
+            "remainingBalance": 12789.08,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1058.51,
+            "date": "2036-10-01",
+            "insurance": 25.50,
+            "interest": 15.99,
+            "number": 201,
+            "remainingBalance": 11730.57,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1059.84,
+            "date": "2036-11-01",
+            "insurance": 25.50,
+            "interest": 14.66,
+            "number": 202,
+            "remainingBalance": 10670.73,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1061.16,
+            "date": "2036-12-01",
+            "insurance": 25.50,
+            "interest": 13.34,
+            "number": 203,
+            "remainingBalance": 9609.57,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1062.49,
+            "date": "2037-01-01",
+            "insurance": 25.50,
+            "interest": 12.01,
+            "number": 204,
+            "remainingBalance": 8547.08,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1063.82,
+            "date": "2037-02-01",
+            "insurance": 25.50,
+            "interest": 10.68,
+            "number": 205,
+            "remainingBalance": 7483.26,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1065.15,
+            "date": "2037-03-01",
+            "insurance": 25.50,
+            "interest": 9.35,
+            "number": 206,
+            "remainingBalance": 6418.11,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1066.48,
+            "date": "2037-04-01",
+            "insurance": 25.50,
+            "interest": 8.02,
+            "number": 207,
+            "remainingBalance": 5351.63,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1067.81,
+            "date": "2037-05-01",
+            "insurance": 25.50,
+            "interest": 6.69,
+            "number": 208,
+            "remainingBalance": 4283.82,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1069.15,
+            "date": "2037-06-01",
+            "insurance": 25.50,
+            "interest": 5.35,
+            "number": 209,
+            "remainingBalance": 3214.67,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1070.48,
+            "date": "2037-07-01",
+            "insurance": 25.50,
+            "interest": 4.02,
+            "number": 210,
+            "remainingBalance": 2144.19,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1071.82,
+            "date": "2037-08-01",
+            "insurance": 25.50,
+            "interest": 2.68,
+            "number": 211,
+            "remainingBalance": 1072.37,
+            "totalPayment": 1100.00
+          },
+          {
+            "capital": 1072.37,
+            "date": "2037-09-01",
+            "insurance": 25.50,
+            "interest": 1.34,
+            "number": 212,
+            "remainingBalance": 0.00,
+            "totalPayment": 1099.21
+          },
+          {
+            "capital": 0.00,
+            "date": "2037-10-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 213,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2037-11-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 214,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2037-12-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 215,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2038-01-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 216,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2038-02-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 217,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2038-03-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 218,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2038-04-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 219,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2038-05-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 220,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2038-06-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 221,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2038-07-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 222,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2038-08-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 223,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2038-09-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 224,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2038-10-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 225,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2038-11-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 226,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2038-12-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 227,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2039-01-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 228,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2039-02-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 229,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2039-03-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 230,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2039-04-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 231,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2039-05-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 232,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2039-06-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 233,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2039-07-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 234,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2039-08-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 235,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2039-09-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 236,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2039-10-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 237,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2039-11-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 238,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2039-12-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 239,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          },
+          {
+            "capital": 0.00,
+            "date": "2040-01-01",
+            "insurance": 25.50,
+            "interest": 0.00,
+            "number": 240,
+            "remainingBalance": 0.00,
+            "totalPayment": 25.50
+          }
+        ],
+        "summary": {
+          "capitalRepaid": 71148.68,
+          "capitalRepaidPct": 35.57,
+          "endDate": "2040-01-01",
+          "fileFees": 900.00,
+          "insuranceRepaid": 2091.00,
+          "interestRepaid": 16960.32,
+          "monthlyCapital": 912.30,
+          "monthlyInsurance": 25.50,
+          "monthlyInterest": 162.20,
+          "monthlyPayment": 1100.00,
+          "paidInstallments": 82,
+          "remainingBalance": 128851.32,
+          "remainingInstallments": 158,
+          "totalCapitalCost": 200000.00,
+          "totalCost": 234813.21,
+          "totalInstallments": 240,
+          "totalInsuranceCost": 6120.00,
+          "totalInterestCost": 27793.21,
+          "totalRepaid": 90200.00
+        }
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "14 GET /api/accounts/{loan}/loan-summary as admin"
+    },
+    {
+      "body": {
+        "address": "1 rue de la Paix",
+        "agencyFees": 7000,
+        "category": "PRIMARY_RESIDENCE",
+        "city": "Paris",
+        "costBasis": 275000.5,
+        "country": "FR",
+        "energyClass": "C",
+        "garageCount": 1,
+        "hasBalcony": false,
+        "hasGarden": true,
+        "hasTerrace": false,
+        "notaryFees": 18000.5,
+        "parkingCount": 0,
+        "postalCode": "75002",
+        "propertyKind": "HOUSE",
+        "propertyType": "Maison",
+        "purchaseDate": "2019-06-01",
+        "purchasePrice": 250000,
+        "rentalIncome": 0,
+        "rooms": 4,
+        "surfaceArea": 92.5,
+        "valuationMode": "ESTIMATED"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "15 PUT /api/accounts/{house}/real-estate as admin"
+    },
+    {
+      "body": {
+        "errors": {
+          "constructionYear": "must be greater than or equal to 1000",
+          "energyClass": "must be a DPE class between A and G"
+        },
+        "instance": "/api/accounts/<id:2>/real-estate",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "16 PUT /api/accounts/{house}/real-estate as admin"
+    },
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 275000.50000000,
+        "currentBalanceEur": 275000.50000000,
+        "hidden": false,
+        "id": "<id:2>",
+        "isManual": true,
+        "isOwner": true,
+        "listCollapsed": false,
+        "name": "Maison",
+        "realEstate": {
+          "address": "1 rue de la Paix",
+          "agencyFees": 7000.00000000,
+          "category": "PRIMARY_RESIDENCE",
+          "city": "Paris",
+          "costBasis": 275000.50000000,
+          "country": "FR",
+          "energyClass": "C",
+          "garageCount": 1,
+          "hasBalcony": false,
+          "hasGarden": true,
+          "hasTerrace": false,
+          "notaryFees": 18000.50000000,
+          "parkingCount": 0,
+          "postalCode": "75002",
+          "propertyKind": "HOUSE",
+          "propertyType": "Maison",
+          "purchaseDate": "2019-06-01",
+          "purchasePrice": 250000.00000000,
+          "rentalIncome": 0E-8,
+          "rooms": 4,
+          "surfaceArea": 92.50,
+          "valuationMode": "ESTIMATED"
+        },
+        "type": "REAL_ESTATE"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "17 GET /api/accounts/{house} as admin"
+    },
+    {
+      "body": {
+        "adjustments": [],
+        "appliedToBalance": false,
+        "mode": "ESTIMATED",
+        "status": "PROVIDER_UNAVAILABLE"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "18 POST /api/accounts/{house}/valuation/refresh as admin"
+    },
+    {
+      "body": {
+        "detail": "Account is not a real estate account",
+        "instance": "/api/accounts/<id:1>/valuation/refresh",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "19 POST /api/accounts/{checking}/valuation/refresh as admin"
+    },
+    {
+      "body": {
+        "assets": [
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 5000.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Courant",
+            "percentage": 1.79
+          },
+          {
+            "accountId": "<id:2>",
+            "accountType": "REAL_ESTATE",
+            "balanceEur": 275000.50000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Maison",
+            "percentage": 98.21
+          }
+        ],
+        "distribution": [
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 5000.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Courant",
+            "percentage": 1.79
+          },
+          {
+            "accountId": "<id:2>",
+            "accountType": "REAL_ESTATE",
+            "balanceEur": 275000.50000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Maison",
+            "percentage": 98.21
+          }
+        ],
+        "goalSummaries": [],
+        "liabilities": [
+          {
+            "accountId": "<id:3>",
+            "accountType": "LOAN",
+            "balanceEur": 128851.32,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "monthlyPayment": 1100.00,
+            "name": "Prêt immo",
+            "percentPaid": 35.5743,
+            "percentage": 99.67
+          },
+          {
+            "accountId": "<id:4>",
+            "accountType": "CREDIT_CARD",
+            "balanceEur": 420.30000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Visa",
+            "percentage": 0.33
+          }
+        ],
+        "netWorthHistory": [
+          {
+            "date": "<today>",
+            "invested": 280000.50000000,
+            "pnl": 0E-8,
+            "total": 150728.88000000
+          }
+        ],
+        "totalLiabilities": 129271.62000000,
+        "totalMonthlyPayment": 1100.00,
+        "totalNetWorth": 150728.88000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "20 GET /api/dashboard as admin"
+    },
+    {
+      "body": {
+        "assets": [
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 5000.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Courant",
+            "percentage": 1.79
+          },
+          {
+            "accountId": "<id:2>",
+            "accountType": "REAL_ESTATE",
+            "balanceEur": 275000.50000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Maison",
+            "percentage": 98.21
+          }
+        ],
+        "distribution": [
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 5000.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Courant",
+            "percentage": 1.79
+          },
+          {
+            "accountId": "<id:2>",
+            "accountType": "REAL_ESTATE",
+            "balanceEur": 275000.50000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Maison",
+            "percentage": 98.21
+          }
+        ],
+        "goalSummaries": [],
+        "liabilities": [
+          {
+            "accountId": "<id:3>",
+            "accountType": "LOAN",
+            "balanceEur": 128851.32,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "monthlyPayment": 1100.00,
+            "name": "Prêt immo",
+            "percentPaid": 35.5743,
+            "percentage": 99.67
+          },
+          {
+            "accountId": "<id:4>",
+            "accountType": "CREDIT_CARD",
+            "balanceEur": 420.30000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Visa",
+            "percentage": 0.33
+          }
+        ],
+        "netWorthHistory": [
+          {
+            "date": "<today>",
+            "invested": 280000.50000000,
+            "pnl": 0E-8,
+            "total": 150728.88000000
+          }
+        ],
+        "totalLiabilities": 129271.62000000,
+        "totalMonthlyPayment": 1100.00,
+        "totalNetWorth": 150728.88000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "21 GET /api/dashboard?range=3M as admin"
+    },
+    {
+      "body": {
+        "invested": 280000.50000000,
+        "pnl": 0E-8,
+        "pnlPercent": 0.0,
+        "total": 151149.18000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "22 GET /api/history/pnl?accountIds={checking},{house},{loan} as admin"
+    },
+    {
+      "body": {
+        "removesConnection": false
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "23 GET /api/accounts/{loan}/deletion-impact as admin"
+    }
+  ]
+}

@@ -104,6 +104,11 @@ impl Errors {
         self
     }
 
+    /// The language default messages are written in, for a constraint without a helper here.
+    pub fn lang(&self) -> Lang {
+        self.lang
+    }
+
     pub fn has(&self, field: &str) -> bool {
         self.errors.contains_key(field)
     }

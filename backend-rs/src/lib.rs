@@ -76,6 +76,9 @@ pub struct Inner {
     pub admin: admin::Runtime,
     /// The budget module's plug-in points (AI categorizer, logo source) and job state.
     pub budget: budget::BudgetState,
+    /// Track T2's seams into the other tracks (goals, intraday prices, OpenFIGI, bank logos,
+    /// sync connections, property valuation).
+    pub accounts: accounts::Seams,
 }
 
 impl Deref for AppState {
@@ -103,6 +106,7 @@ impl AppState {
             config,
             ledger: ledger::Ledger::new(db.clone()),
             budget: budget::BudgetState::default(),
+            accounts: accounts::Seams::default(),
             db,
             setup_complete: AtomicBool::new(false),
             login_timing: TimingEqualizer::default(),

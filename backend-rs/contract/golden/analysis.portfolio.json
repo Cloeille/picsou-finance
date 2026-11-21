@@ -1,0 +1,1138 @@
+{
+  "description": "Pyramid, diversification, projection, allocation targets and expense estimate over one portfolio",
+  "scenario": "analysis.portfolio",
+  "steps": [
+    {
+      "body": {
+        "alternativePct": 10.00,
+        "cryptoPct": 10.00,
+        "equityPct": 50.00,
+        "realEstatePct": 30.00,
+        "safetyNetMonths": 6
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "12 GET /api/analysis/allocation-targets as admin"
+    },
+    {
+      "body": {
+        "alerts": [
+          {
+            "code": "SINGLE_ASSET_CONCENTRATION",
+            "label": "Appartement",
+            "percent": 210.97,
+            "valueEur": 250000.00
+          },
+          {
+            "code": "EMPTY_TIER",
+            "label": "ALTERNATIVE",
+            "percent": 0,
+            "valueEur": 0
+          }
+        ],
+        "allocatableEur": 109000.00,
+        "safetyNet": {
+          "dailyCashEur": 1500.00,
+          "excessEur": 0.00,
+          "known": false,
+          "valueEur": 8000.00
+        },
+        "score": {
+          "allocation": 38,
+          "cryptoPenalty": 0.00,
+          "global": 43,
+          "leverageBonus": 5.00,
+          "loanToValue": 60.00,
+          "misplacedPercent": 61.74
+        },
+        "tiers": [
+          {
+            "accounts": [
+              {
+                "accountId": "<id:1>",
+                "color": "#555555",
+                "name": "Appartement",
+                "valueEur": 250000.00000000
+              }
+            ],
+            "actualPercent": 91.74,
+            "gapPercent": 61.74,
+            "targetEur": 32700.00,
+            "targetPercent": 30.00,
+            "tier": "REAL_ESTATE",
+            "valueEur": 100000.00000000
+          },
+          {
+            "accounts": [
+              {
+                "accountId": "<id:2>",
+                "color": "#333333",
+                "name": "PEA",
+                "valueEur": 6000.0000000000000000
+              }
+            ],
+            "actualPercent": 5.50,
+            "gapPercent": -44.50,
+            "targetEur": 54500.00,
+            "targetPercent": 50.00,
+            "tier": "EQUITY",
+            "valueEur": 6000.0000000000000000
+          },
+          {
+            "accounts": [
+              {
+                "accountId": "<id:3>",
+                "color": "#999999",
+                "name": "Exchange",
+                "valueEur": 3000.00000000
+              }
+            ],
+            "actualPercent": 2.75,
+            "gapPercent": -7.25,
+            "targetEur": 10900.00,
+            "targetPercent": 10.00,
+            "tier": "CRYPTO",
+            "valueEur": 3000.00000000
+          },
+          {
+            "accounts": [],
+            "actualPercent": 0.00,
+            "gapPercent": -10.00,
+            "targetEur": 10900.00,
+            "targetPercent": 10.00,
+            "tier": "ALTERNATIVE",
+            "valueEur": 0
+          }
+        ],
+        "totalAssetsEur": 118500.00
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "13 GET /api/analysis/pyramid as admin"
+    },
+    {
+      "body": {
+        "ticker": "PSGOLD",
+        "wealthTier": "ALTERNATIVE"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "14 PUT /api/accounts/<id:2>/holdings/PSGOLD/classification as admin"
+    },
+    {
+      "body": {
+        "countryKey": "FR",
+        "ticker": "PSWORLD"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "15 PUT /api/accounts/<id:2>/holdings/PSWORLD/classification as admin"
+    },
+    {
+      "body": {
+        "alerts": [
+          {
+            "code": "SINGLE_ASSET_CONCENTRATION",
+            "label": "Appartement",
+            "percent": 210.97,
+            "valueEur": 250000.00
+          }
+        ],
+        "allocatableEur": 109000.00,
+        "safetyNet": {
+          "dailyCashEur": 1500.00,
+          "excessEur": 0.00,
+          "known": false,
+          "valueEur": 8000.00
+        },
+        "score": {
+          "allocation": 38,
+          "cryptoPenalty": 0.00,
+          "global": 43,
+          "leverageBonus": 5.00,
+          "loanToValue": 60.00,
+          "misplacedPercent": 61.74
+        },
+        "tiers": [
+          {
+            "accounts": [
+              {
+                "accountId": "<id:1>",
+                "color": "#555555",
+                "name": "Appartement",
+                "valueEur": 250000.00000000
+              }
+            ],
+            "actualPercent": 91.74,
+            "gapPercent": 61.74,
+            "targetEur": 32700.00,
+            "targetPercent": 30.00,
+            "tier": "REAL_ESTATE",
+            "valueEur": 100000.00000000
+          },
+          {
+            "accounts": [
+              {
+                "accountId": "<id:2>",
+                "color": "#333333",
+                "name": "PEA",
+                "valueEur": 5600.0000000000000000
+              }
+            ],
+            "actualPercent": 5.14,
+            "gapPercent": -44.86,
+            "targetEur": 54500.00,
+            "targetPercent": 50.00,
+            "tier": "EQUITY",
+            "valueEur": 5600.0000000000000000
+          },
+          {
+            "accounts": [
+              {
+                "accountId": "<id:3>",
+                "color": "#999999",
+                "name": "Exchange",
+                "valueEur": 3000.00000000
+              }
+            ],
+            "actualPercent": 2.75,
+            "gapPercent": -7.25,
+            "targetEur": 10900.00,
+            "targetPercent": 10.00,
+            "tier": "CRYPTO",
+            "valueEur": 3000.00000000
+          },
+          {
+            "accounts": [
+              {
+                "accountId": "<id:2>",
+                "color": "#333333",
+                "name": "PEA",
+                "valueEur": 400.0000000000000000
+              }
+            ],
+            "actualPercent": 0.37,
+            "gapPercent": -9.63,
+            "targetEur": 10900.00,
+            "targetPercent": 10.00,
+            "tier": "ALTERNATIVE",
+            "valueEur": 400.0000000000000000
+          }
+        ],
+        "totalAssetsEur": 118500.00
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "16 GET /api/analysis/pyramid as admin"
+    },
+    {
+      "body": {
+        "classifiedValueEur": 5580.00,
+        "countries": {
+          "basis": "MIXED",
+          "classifiedValueEur": 5580.00,
+          "coveragePercent": 100.00,
+          "effectiveCount": 1.45,
+          "score": 48,
+          "slices": [
+            {
+              "contributorCount": 1,
+              "contributors": [
+                {
+                  "sharePercent": 100.00,
+                  "ticker": "PSWORLD",
+                  "valueEur": 4500.00
+                }
+              ],
+              "label": "FR",
+              "percent": 80.65,
+              "valueEur": 4500.00
+            },
+            {
+              "contributorCount": 1,
+              "contributors": [
+                {
+                  "sharePercent": 100.00,
+                  "ticker": "PSAPPLE",
+                  "valueEur": 1080.00
+                }
+              ],
+              "label": "US",
+              "percent": 19.35,
+              "valueEur": 1080.00
+            }
+          ],
+          "targetCount": 3
+        },
+        "coveragePercent": 100.00,
+        "sectors": {
+          "basis": "MIXED",
+          "classifiedValueEur": 3555.00,
+          "coveragePercent": 63.71,
+          "effectiveCount": 2.19,
+          "score": 36,
+          "slices": [
+            {
+              "contributorCount": 2,
+              "contributors": [
+                {
+                  "sharePercent": 51.02,
+                  "ticker": "PSWORLD",
+                  "valueEur": 1125.00
+                },
+                {
+                  "sharePercent": 48.98,
+                  "ticker": "PSAPPLE",
+                  "valueEur": 1080.00
+                }
+              ],
+              "label": "technology",
+              "percent": 62.03,
+              "valueEur": 2205.00
+            },
+            {
+              "contributorCount": 1,
+              "contributors": [
+                {
+                  "sharePercent": 100.00,
+                  "ticker": "PSWORLD",
+                  "valueEur": 675.00
+                }
+              ],
+              "label": "financial_services",
+              "percent": 18.99,
+              "valueEur": 675.00
+            },
+            {
+              "contributorCount": 1,
+              "contributors": [
+                {
+                  "sharePercent": 100.00,
+                  "ticker": "PSWORLD",
+                  "valueEur": 675.00
+                }
+              ],
+              "label": "healthcare",
+              "percent": 18.99,
+              "valueEur": 675.00
+            }
+          ],
+          "targetCount": 6
+        },
+        "securities": [
+          {
+            "accountId": "<id:2>",
+            "name": "Amundi MSCI World",
+            "ticker": "PSWORLD",
+            "valueEur": 4500.00
+          },
+          {
+            "accountId": "<id:2>",
+            "name": "Apple",
+            "ticker": "PSAPPLE",
+            "valueEur": 1080.00
+          }
+        ],
+        "totalValueEur": 5580.00,
+        "unclassified": [],
+        "unclassifiedValueEur": 0.00
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "17 GET /api/analysis/diversification as admin"
+    },
+    {
+      "body": {
+        "estimate": 1056.23,
+        "excludedTransferCount": 2,
+        "monthsObserved": 2
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "18 GET /api/analysis/essential-expenses/estimate as admin"
+    },
+    {
+      "body": {
+        "errors": {
+          "summingToOneHundred": "allocation targets must sum to 100"
+        },
+        "instance": "/api/analysis/allocation-targets",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "19 PUT /api/analysis/allocation-targets as admin"
+    },
+    {
+      "body": {
+        "errors": {
+          "alternativePct": "must not be null",
+          "cryptoPct": "must not be null",
+          "equityPct": "must be greater than or equal to 0",
+          "safetyNetMonths": "must be less than or equal to 24"
+        },
+        "instance": "/api/analysis/allocation-targets",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "20 PUT /api/analysis/allocation-targets as admin"
+    },
+    {
+      "body": {
+        "alternativePct": 0,
+        "cryptoPct": 14.5,
+        "equityPct": 45.5,
+        "monthlyEssentialExpenses": 1500.5,
+        "realEstatePct": 40,
+        "safetyNetMonths": 3
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "21 PUT /api/analysis/allocation-targets as admin"
+    },
+    {
+      "body": {
+        "alternativePct": 0.00,
+        "cryptoPct": 14.50,
+        "equityPct": 45.50,
+        "monthlyEssentialExpenses": 1500.50,
+        "realEstatePct": 40.00,
+        "safetyNetMonths": 3
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "22 GET /api/analysis/allocation-targets as admin"
+    },
+    {
+      "body": {
+        "alerts": [
+          {
+            "code": "SINGLE_ASSET_CONCENTRATION",
+            "label": "Appartement",
+            "percent": 210.97,
+            "valueEur": 250000.00
+          },
+          {
+            "code": "CUSHION_OVERFUNDED",
+            "percent": 2.95,
+            "valueEur": 3498.50
+          }
+        ],
+        "allocatableEur": 109000.00,
+        "safetyNet": {
+          "coverage": 1.7772,
+          "dailyCashEur": 1500.00,
+          "excessEur": 3498.50,
+          "known": true,
+          "score": 98,
+          "targetEur": 4501.50,
+          "valueEur": 8000.00
+        },
+        "score": {
+          "allocation": 48,
+          "cryptoPenalty": 0.00,
+          "global": 73,
+          "leverageBonus": 5.00,
+          "loanToValue": 60.00,
+          "misplacedPercent": 52.11
+        },
+        "tiers": [
+          {
+            "accounts": [
+              {
+                "accountId": "<id:1>",
+                "color": "#555555",
+                "name": "Appartement",
+                "valueEur": 250000.00000000
+              }
+            ],
+            "actualPercent": 91.74,
+            "gapPercent": 51.74,
+            "targetEur": 43600.00,
+            "targetPercent": 40.00,
+            "tier": "REAL_ESTATE",
+            "valueEur": 100000.00000000
+          },
+          {
+            "accounts": [
+              {
+                "accountId": "<id:2>",
+                "color": "#333333",
+                "name": "PEA",
+                "valueEur": 5600.0000000000000000
+              }
+            ],
+            "actualPercent": 5.14,
+            "gapPercent": -40.36,
+            "targetEur": 49595.00,
+            "targetPercent": 45.50,
+            "tier": "EQUITY",
+            "valueEur": 5600.0000000000000000
+          },
+          {
+            "accounts": [
+              {
+                "accountId": "<id:3>",
+                "color": "#999999",
+                "name": "Exchange",
+                "valueEur": 3000.00000000
+              }
+            ],
+            "actualPercent": 2.75,
+            "gapPercent": -11.75,
+            "targetEur": 15805.00,
+            "targetPercent": 14.50,
+            "tier": "CRYPTO",
+            "valueEur": 3000.00000000
+          },
+          {
+            "accounts": [
+              {
+                "accountId": "<id:2>",
+                "color": "#333333",
+                "name": "PEA",
+                "valueEur": 400.0000000000000000
+              }
+            ],
+            "actualPercent": 0.37,
+            "gapPercent": 0.37,
+            "targetEur": 0.00,
+            "targetPercent": 0.00,
+            "tier": "ALTERNATIVE",
+            "valueEur": 400.0000000000000000
+          }
+        ],
+        "totalAssetsEur": 118500.00
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "23 GET /api/analysis/pyramid as admin"
+    },
+    {
+      "body": {
+        "allocation": [
+          {
+            "date": "<month:last>",
+            "tiers": [
+              {
+                "percent": 6.84,
+                "tier": "SAFETY_NET",
+                "valueEur": 8000.00
+              },
+              {
+                "percent": 85.47,
+                "targetPercent": 40.00,
+                "tier": "REAL_ESTATE",
+                "valueEur": 100000.00
+              },
+              {
+                "percent": 4.79,
+                "targetPercent": 45.50,
+                "tier": "EQUITY",
+                "valueEur": 5600.00
+              },
+              {
+                "percent": 2.56,
+                "targetPercent": 14.50,
+                "tier": "CRYPTO",
+                "valueEur": 3000.00
+              },
+              {
+                "percent": 0.34,
+                "targetPercent": 0.00,
+                "tier": "ALTERNATIVE",
+                "valueEur": 400.00
+              }
+            ]
+          },
+          {
+            "date": "<month+12:last>",
+            "tiers": [
+              {
+                "percent": 7.63,
+                "tier": "SAFETY_NET",
+                "valueEur": 9369.32
+              },
+              {
+                "percent": 81.48,
+                "targetPercent": 40.00,
+                "tier": "REAL_ESTATE",
+                "valueEur": 100000.00
+              },
+              {
+                "percent": 7.94,
+                "targetPercent": 45.50,
+                "tier": "EQUITY",
+                "valueEur": 9742.13
+              },
+              {
+                "percent": 2.63,
+                "targetPercent": 14.50,
+                "tier": "CRYPTO",
+                "valueEur": 3225.00
+              },
+              {
+                "percent": 0.33,
+                "targetPercent": 0.00,
+                "tier": "ALTERNATIVE",
+                "valueEur": 400.00
+              }
+            ]
+          },
+          {
+            "date": "<month+24:last>",
+            "tiers": [
+              {
+                "percent": 8.35,
+                "tier": "SAFETY_NET",
+                "valueEur": 10762.40
+              },
+              {
+                "percent": 77.63,
+                "targetPercent": 40.00,
+                "tier": "REAL_ESTATE",
+                "valueEur": 100000.00
+              },
+              {
+                "percent": 11.02,
+                "targetPercent": 45.50,
+                "tier": "EQUITY",
+                "valueEur": 14194.93
+              },
+              {
+                "percent": 2.69,
+                "targetPercent": 14.50,
+                "tier": "CRYPTO",
+                "valueEur": 3466.88
+              },
+              {
+                "percent": 0.31,
+                "targetPercent": 0.00,
+                "tier": "ALTERNATIVE",
+                "valueEur": 400.00
+              }
+            ]
+          },
+          {
+            "date": "<month+36:last>",
+            "tiers": [
+              {
+                "percent": 9.00,
+                "tier": "SAFETY_NET",
+                "valueEur": 12179.65
+              },
+              {
+                "percent": 73.92,
+                "targetPercent": 40.00,
+                "tier": "REAL_ESTATE",
+                "valueEur": 100000.00
+              },
+              {
+                "percent": 14.03,
+                "targetPercent": 45.50,
+                "tier": "EQUITY",
+                "valueEur": 18981.68
+              },
+              {
+                "percent": 2.75,
+                "targetPercent": 14.50,
+                "tier": "CRYPTO",
+                "valueEur": 3726.89
+              },
+              {
+                "percent": 0.30,
+                "targetPercent": 0.00,
+                "tier": "ALTERNATIVE",
+                "valueEur": 400.00
+              }
+            ]
+          }
+        ],
+        "baseValueEur": 16600.00,
+        "monthlyInflowEur": 400.00,
+        "scenarios": [
+          {
+            "annualPercent": 3.84,
+            "key": "PESSIMISTIC",
+            "points": [
+              {
+                "contributedEur": 16600.00,
+                "date": "<month:last>",
+                "valueEur": 16600.00
+              },
+              {
+                "contributedEur": 21400.00,
+                "date": "<month+12:last>",
+                "valueEur": 22081.09
+              },
+              {
+                "contributedEur": 26200.00,
+                "date": "<month+24:last>",
+                "valueEur": 27791.54
+              },
+              {
+                "contributedEur": 31000.00,
+                "date": "<month+36:last>",
+                "valueEur": 33742.02
+              }
+            ],
+            "riskyDelta": -2.5
+          },
+          {
+            "annualPercent": 4.78,
+            "key": "CAUTIOUS",
+            "points": [
+              {
+                "contributedEur": 16600.00,
+                "date": "<month:last>",
+                "valueEur": 16600.00
+              },
+              {
+                "contributedEur": 21400.00,
+                "date": "<month+12:last>",
+                "valueEur": 22234.35
+              },
+              {
+                "contributedEur": 26200.00,
+                "date": "<month+24:last>",
+                "valueEur": 28169.69
+              },
+              {
+                "contributedEur": 31000.00,
+                "date": "<month+36:last>",
+                "valueEur": 34424.45
+              }
+            ],
+            "riskyDelta": -1.0
+          },
+          {
+            "annualPercent": 5.41,
+            "key": "REFERENCE",
+            "points": [
+              {
+                "contributedEur": 16600.00,
+                "date": "<month:last>",
+                "valueEur": 16600.00
+              },
+              {
+                "contributedEur": 21400.00,
+                "date": "<month+12:last>",
+                "valueEur": 22336.46
+              },
+              {
+                "contributedEur": 26200.00,
+                "date": "<month+24:last>",
+                "valueEur": 28424.21
+              },
+              {
+                "contributedEur": 31000.00,
+                "date": "<month+36:last>",
+                "valueEur": 34888.23
+              }
+            ],
+            "riskyDelta": 0
+          },
+          {
+            "annualPercent": 6.97,
+            "key": "OPTIMISTIC",
+            "points": [
+              {
+                "contributedEur": 16600.00,
+                "date": "<month:last>",
+                "valueEur": 16600.00
+              },
+              {
+                "contributedEur": 21400.00,
+                "date": "<month+12:last>",
+                "valueEur": 22591.48
+              },
+              {
+                "contributedEur": 26200.00,
+                "date": "<month+24:last>",
+                "valueEur": 29068.94
+              },
+              {
+                "contributedEur": 31000.00,
+                "date": "<month+36:last>",
+                "valueEur": 36079.01
+              }
+            ],
+            "riskyDelta": 2.5
+          }
+        ],
+        "years": 3
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "24 GET /api/analysis/projection?years=3 as admin"
+    },
+    {
+      "body": {
+        "allocation": [
+          {
+            "date": "<month:last>",
+            "tiers": [
+              {
+                "percent": 6.84,
+                "tier": "SAFETY_NET",
+                "valueEur": 8000.00
+              },
+              {
+                "percent": 85.47,
+                "targetPercent": 40.00,
+                "tier": "REAL_ESTATE",
+                "valueEur": 100000.00
+              },
+              {
+                "percent": 4.79,
+                "targetPercent": 45.50,
+                "tier": "EQUITY",
+                "valueEur": 5600.00
+              },
+              {
+                "percent": 2.56,
+                "targetPercent": 14.50,
+                "tier": "CRYPTO",
+                "valueEur": 3000.00
+              },
+              {
+                "percent": 0.34,
+                "targetPercent": 0.00,
+                "tier": "ALTERNATIVE",
+                "valueEur": 400.00
+              }
+            ]
+          },
+          {
+            "date": "<month+12:last>",
+            "tiers": [
+              {
+                "percent": 7.63,
+                "tier": "SAFETY_NET",
+                "valueEur": 9369.32
+              },
+              {
+                "percent": 81.48,
+                "targetPercent": 40.00,
+                "tier": "REAL_ESTATE",
+                "valueEur": 100000.00
+              },
+              {
+                "percent": 7.94,
+                "targetPercent": 45.50,
+                "tier": "EQUITY",
+                "valueEur": 9742.13
+              },
+              {
+                "percent": 2.63,
+                "targetPercent": 14.50,
+                "tier": "CRYPTO",
+                "valueEur": 3225.00
+              },
+              {
+                "percent": 0.33,
+                "targetPercent": 0.00,
+                "tier": "ALTERNATIVE",
+                "valueEur": 400.00
+              }
+            ]
+          }
+        ],
+        "baseValueEur": 16600.00,
+        "monthlyInflowEur": 400.00,
+        "scenarios": [
+          {
+            "annualPercent": 3.69,
+            "key": "PESSIMISTIC",
+            "points": [
+              {
+                "contributedEur": 16600.00,
+                "date": "<month:last>",
+                "valueEur": 16600.00
+              },
+              {
+                "contributedEur": 21400.00,
+                "date": "<month+12:last>",
+                "valueEur": 22081.09
+              }
+            ],
+            "riskyDelta": -2.5
+          },
+          {
+            "annualPercent": 4.55,
+            "key": "CAUTIOUS",
+            "points": [
+              {
+                "contributedEur": 16600.00,
+                "date": "<month:last>",
+                "valueEur": 16600.00
+              },
+              {
+                "contributedEur": 21400.00,
+                "date": "<month+12:last>",
+                "valueEur": 22234.35
+              }
+            ],
+            "riskyDelta": -1.0
+          },
+          {
+            "annualPercent": 5.12,
+            "key": "REFERENCE",
+            "points": [
+              {
+                "contributedEur": 16600.00,
+                "date": "<month:last>",
+                "valueEur": 16600.00
+              },
+              {
+                "contributedEur": 21400.00,
+                "date": "<month+12:last>",
+                "valueEur": 22336.46
+              }
+            ],
+            "riskyDelta": 0
+          },
+          {
+            "annualPercent": 6.54,
+            "key": "OPTIMISTIC",
+            "points": [
+              {
+                "contributedEur": 16600.00,
+                "date": "<month:last>",
+                "valueEur": 16600.00
+              },
+              {
+                "contributedEur": 21400.00,
+                "date": "<month+12:last>",
+                "valueEur": 22591.48
+              }
+            ],
+            "riskyDelta": 2.5
+          }
+        ],
+        "years": 1
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "25 GET /api/analysis/projection?years=0 as admin"
+    },
+    {
+      "body": {
+        "detail": "Failed to convert 'years' with value: 'abc'",
+        "instance": "/api/analysis/projection",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "26 GET /api/analysis/projection?years=abc as admin"
+    },
+    {
+      "body": {
+        "alreadyRunning": false,
+        "queuedTickers": 6
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 202,
+      "step": "27 POST /api/analysis/security-profiles/refresh as admin"
+    }
+  ]
+}
