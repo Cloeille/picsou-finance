@@ -91,14 +91,21 @@ pub struct Profile {
 pub struct ProfileResponse {
     birth_date: Option<NaiveDate>,
     age: Option<i32>,
+    #[serde(with = "rust_decimal::serde::arbitrary_precision_option")]
     marginal_tax_rate: Option<Decimal>,
     household_status: Option<HouseholdStatus>,
+    #[serde(with = "rust_decimal::serde::arbitrary_precision_option")]
     tax_household_parts: Option<Decimal>,
     dependents: Option<i16>,
+    #[serde(with = "rust_decimal::serde::arbitrary_precision_option")]
     annual_gross_income: Option<Decimal>,
+    #[serde(with = "rust_decimal::serde::arbitrary_precision_option")]
     monthly_net_before_tax: Option<Decimal>,
+    #[serde(with = "rust_decimal::serde::arbitrary_precision_option")]
     withholding_tax_rate: Option<Decimal>,
+    #[serde(with = "rust_decimal::serde::arbitrary_precision_option")]
     monthly_net_income: Option<Decimal>,
+    #[serde(with = "rust_decimal::serde::arbitrary_precision_option")]
     monthly_savings_capacity: Option<Decimal>,
     target_retirement_age: Option<i16>,
     risk_profile: Option<RiskProfile>,

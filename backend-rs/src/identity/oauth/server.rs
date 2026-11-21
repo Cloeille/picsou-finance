@@ -416,25 +416,19 @@ async fn consent(
             authorized.push(scope.clone());
         }
     }
-    if authorized.is_empty() {
-        if previous.is_some() {
-            sqlx::query("DELETE FROM oauth2_authorization_consent WHERE registered_client_id = $1 AND principal_name = $2")
-                .bind(&client.id)
-                .bind(&user.username)
-                .execute(&state.db)
-                .await?;
-        }
-        sqlx::query("DELETE FROM oauth2_authorization WHERE id = $1")
-            .bind(&pending.id)
-            .execute(&state.db)
-            .await?;
-        return Ok(error_redirect(&redirect_uri, "access_denied", "client_id", AUTHZ_ERROR_URI, request.state.as_deref()));
-    }
     let mut authorities: Vec<String> = previous.unwrap_or_default();
     for scope in &authorized {
         if !authorities.contains(scope) {
             authorities.push(scope.clone());
         }
+    }
+    // Earlier consents count: only a client never consented to, approved nothing, is denied.
+    if authorities.is_empty() {
+        sqlx::query("DELETE FROM oauth2_authorization WHERE id = $1")
+            .bind(&pending.id)
+            .execute(&state.db)
+            .await?;
+        return Ok(error_redirect(&redirect_uri, "access_denied", "client_id", AUTHZ_ERROR_URI, request.state.as_deref()));
     }
     let authorities: Vec<String> = authorities.iter().map(|s| format!("SCOPE_{s}")).collect();
     sqlx::query(
