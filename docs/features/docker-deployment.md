@@ -64,28 +64,30 @@ On Kubernetes, the Helm chart in `charts/picsou` deploys the same images; the `c
 ### Main image — `docker/Dockerfile` (3-stage build, context: project root)
 
 1. **`frontend-build`** — `oven/bun:alpine`. `bun install --frozen-lockfile`, `bun run build`. Output: `dist/`.
-2. **`backend-build`** — `maven:3.9-eclipse-temurin-21-alpine`. `mvn dependency:go-offline` (layer cache), then `mvn package -DskipTests`. Output: fat JAR.
-3. **Runtime** — `eclipse-temurin:21-jre-jammy`, no extra package. Creates user and group `picsou` (uid/gid 1000, no login shell, home `/app`) and `/data` owned by it, copies `dist/` to `/app/spa` (served by Spring Boot, `SPA_LOCATION=/app/spa`) and the JAR, sets `APP_STARTUP_SYNC_ENABLED=false`, then runs as `USER 1000:1000` with an exec-form `ENTRYPOINT` `java -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -Djava.security.egd=file:/dev/./urandom -jar /app/app.jar`.
+2. **`backend-build`** — `rust:1.96-bookworm`. Copies `backend-rs/` and the migrations it embeds (`backend/src/main/resources/db/migration`), then `cargo build --release --locked --bin picsou` for the target's triple. Output: one binary linked against glibc, `picsou` (the backend, ADR [rust-backend](../decisions/2026-11-21-rust-backend.md)).
+3. **Runtime** — `debian:bookworm-slim` (the build stage's Debian release, so glibc matches), no extra package: TLS is rustls with built-in roots. Creates user and group `picsou` (uid/gid 1000, no login shell, home `/app`) and `/data` owned by it, copies `dist/` to `/app/spa` (served by the backend, `SPA_LOCATION=/app/spa`) and the binary to `/usr/local/bin/picsou`, sets `APP_STARTUP_SYNC_ENABLED=false`, then runs as `USER 1000:1000` with an exec-form `ENTRYPOINT ["picsou"]`. A shell and coreutils stay: Compose's `data-permissions` service runs `chown` in this image and the Helm migration job runs `picsou migrate` through `sh`. `picsou migrate` and `picsou verify` are the release migration check (below).
 
 Spring Boot serves the SPA, the API and every response header on port 8080, and resolves the client address and the public scheme/host/port itself. See [the SPA ADR](../decisions/2026-11-03-spring-serves-the-spa.md) and [the one-process ADR](../decisions/2026-11-03-one-non-root-process.md).
 
 SPA caching: files under `/assets/` (Vite's content-hashed output) are cached for a year (`immutable`); every other file, `index.html` and the client-route fallbacks included, is `no-cache` and revalidated by ETag, so a redeploy reaches browsers at once. The ETag of every one of those revalidated files is a digest of its content (`frontend/public` is about 47 KB in total, so reading them on every GET or HEAD costs nothing measurable, one read for the tag and one for the body); hashed assets use last-modified seconds and length, so a bundle is never read to build a tag.
 
-The two build stages run on `--platform=$BUILDPLATFORM`: `dist/` and the JAR are the same on
-every architecture, so the multi-platform publish builds them once, natively, and only the
-runtime stage runs per target (arm64 under QEMU). `APP_VERSION` and `VITE_*` are declared after
-the dependency installs, so a new `APP_VERSION` reuses the bun, Maven and apt layers (an edit to
+The two build stages run on `--platform=$BUILDPLATFORM`: `dist/` is the same on every
+architecture, and the backend is cross-compiled on the builder for `TARGETARCH` (Debian's
+`gcc-<arch>-linux-gnu` links it and builds `ring`'s C code), so no compiler runs under QEMU;
+only the runtime stage's `useradd` does. `APP_VERSION` and `VITE_*` are declared after
+the dependency installs, so a new `APP_VERSION` reuses the bun and cargo layers (an edit to
 `frontend/package.json` still reinstalls the bun dependencies). The
 Dockerfile therefore needs BuildKit (the default builder once `docker buildx` is installed);
 the legacy builder rejects the empty `$BUILDPLATFORM`.
 
-The main container runs **one** process: the JVM is PID 1, as uid 1000.
+The main container runs **one** process: the Rust backend `picsou` is PID 1, as uid 1000, and
+uses about 60 MB at rest (the JVM image needed a 1.5 GB limit; the chart now requests 128 Mi).
 
 | Process | Port | Role |
 |---------|------|------|
-| Java (Spring Boot) | 8080 | Serves the SPA, the API and every response header; Tomcat resolves the client address from the one trusted proxy; the public origin is applied from any peer |
+| `picsou` (Rust backend) | 8080 | Serves the SPA, the API and every response header; resolves the client address from the one trusted proxy; the public origin is applied from any peer |
 
-There is no supervisor: Docker (`restart: unless-stopped`) and Kubernetes restart the container when the JVM exits. Behaviour that nginx used to provide and that changed:
+There is no supervisor: Docker (`restart: unless-stopped`) and Kubernetes restart the container when the process exits. Behaviour that nginx used to provide and that changed:
 
 - **No proxy timeouts.** nginx cut requests at 60 s (90 s for the Caisse d'Epargne keypad, 180 s for the Caisse d'Epargne, CMES and CIC login completions). Tomcat has no response timeout, and the backend caps its own waits on third-party APIs and sidecars.
 - **`/mcp` streams** straight from Tomcat. The SSE keep-alive and `spring.mvc.async.request-timeout` settings are unchanged.
@@ -479,7 +481,7 @@ and HTTPS API response through the deployment script.
 - `services/tr-auth/Dockerfile` — tr-auth sidecar image
 - `services/bourse-direct-auth/Dockerfile` — Bourse Direct sidecar image
 - `services/fortuneo-auth/Dockerfile` — Fortuneo sidecar image
-- `docker/Dockerfile` — non-root runtime stage, JVM as PID 1 (secrets: `SecretBootstrap`, trusted proxy: `TrustedProxyBootstrap`)
+- `docker/Dockerfile` — non-root runtime stage, the Rust backend as PID 1 (secrets: `backend-rs/src/crypto`, trusted proxy: `backend-rs/src/config.rs`)
 
 ### Flow
 
@@ -789,7 +791,7 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 | Choice | Why | Rejected alternative |
 |--------|-----|----------------------|
 | Bun for frontend build | Project uses bun exclusively (`bun.lock`) | npm (would need a separate lock file) |
-| Browser connectors as separate containers | Keeps the main image slim (JRE only, no Python/Playwright) and isolates unofficial browser protocols | Embed browser automation in the main image via supervisord |
+| Browser connectors as separate containers | Keeps the main image slim (one binary, no Python/Playwright) and isolates unofficial browser protocols | Embed browser automation in the main image via supervisord |
 | `python:3.12-slim` + Chromium only | Only Chromium is used (`p.chromium.launch()`); base image is ~5× smaller than `mcr.microsoft.com/playwright/python` which pre-installs all three browsers | `mcr.microsoft.com/playwright/python:v1.44.0-jammy` — included Firefox + WebKit unnecessarily (+~1.5GB uncompressed) |
 | Auto-generated JWT and encryption keys on first boot | Zero-config install: user runs `docker compose up` with no pre-configuration | Require operator to set secrets manually before first boot |
 | Database password never generated by the app | The app cannot set the database's password, so a generated one could only mismatch it; Compose and Helm always pass one | Generating it like the other secrets, which broke bare-metal and standalone starts against an existing database |
@@ -825,12 +827,18 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 
 - `python3 -m pytest docker/tests/test_deploy.py -v` exercises deployment ordering and failure
   isolation against command doubles. CI runs it independently of the application tests.
-- `ReleaseMigrationCliTest` checks strict migration history and idempotency on real PostgreSQL.
+- `picsou migrate` and `picsou verify` replace the Java `ReleaseMigrationCli` in `deploy.sh`
+  and the Helm pre-upgrade job: the same strict history (validation, out of order, the high
+  baseline and duplicate-account checks, every local script applied for `verify`), then the
+  physical schema: every table, column and type and every enum label the migrations create must
+  exist (`backend-rs/src/db/schema.tsv`, kept current by a test). Output is limited to
+  migration names, our own messages and SQLSTATE codes. Tested in `backend-rs`
+  (`foundation::migrations`) on real PostgreSQL.
 - CI builds the release image and runs `test_deploy_integration.py` against real PostgreSQL,
-  the packaged JAR, the normal application entrypoint, and its API route. The build goes
+  the packaged binary, the normal application entrypoint, and its API route. The build goes
   through Buildx with the GitHub Actions layer cache (its own `release-smoke` scope, plus the
-  release build's `app` scope from `docker.yml`), so Maven Central and the npm registry are only
-  contacted when `backend/pom.xml`, `frontend/package.json` or `frontend/bun.lock` changes, or
+  release build's `app` scope from `docker.yml`), so crates.io and the npm registry are only
+  contacted when `backend-rs/Cargo.lock`, `frontend/package.json` or `frontend/bun.lock` changes, or
   when the cached layers are missing (evicted or cache unavailable). Cold builds from shared runners
   were rejected by Maven Central with `429 Too Many Requests`.
 - Build validation: `docker build -f docker/Dockerfile .`.

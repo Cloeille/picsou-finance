@@ -1,48 +1,72 @@
 # Feature: Desktop app (Linux shell)
 
-> Last updated: 2026-11-15
+> Last updated: 2026-11-21
 
 ## Context
 
 Issue #235: Picsou for people who never open a terminal. This first slice of #587 is the Tauri
 shell on Linux: it starts PostgreSQL and the backend locally, shows the app in a window, and
 keeps running in the tray. The choices are in
-the [ADR](../decisions/2026-11-15-desktop-app-tauri.md).
+the [ADR](../decisions/2026-11-15-desktop-app-tauri.md). Since the Rust backend
+([ADR](../decisions/2026-11-21-rust-backend.md), decision 7) the shell links `backend-rs` and runs
+it in its own process: no JRE, no `app.jar`, no backend child process.
 
 ## How it works
 
 1. One instance only: a second launch brings the running window forward
-   (`tauri-plugin-single-instance`). The window opens on `desktop/ui/index.html`
-   ("Starting Picsou"), except when the login item started the app with `--hidden`.
+   (`tauri-plugin-single-instance`). The window opens at once on `desktop/ui/index.html`, a
+   calm surface in DESIGN.md's canvas colours (light or dark, as the system), painted before the
+   page so it never flashes black, except when the login item started the app with `--hidden`.
+   A thin progress line appears only if the start takes longer than 0.8 s.
 2. A thread runs `supervisor::start`:
    - creates the app-data folder (`~/.local/share/com.picsou.desktop`) and `secrets/`, both 0700;
    - generates `secrets/postgres_password` (0600) once;
    - first start only: `initdb` into `postgres.init/`, `CREATE DATABASE picsou` in single-user
      mode, then renames it to `postgres/`, so an interrupted first start is redone, never reused;
    - starts `postgres` on `127.0.0.1` and a free port, no Unix socket;
-   - starts `java -jar app.jar` with `SERVER_ADDRESS=127.0.0.1`, the port of the last start when
-     still free (`desktop-port`, so the window keeps its origin and local storage), plain-HTTP
-     cookies, `PICSOU_SECRETS_DIR`, and the startup sync off (#585 catches up instead);
    - waits for PostgreSQL's "ready to accept connections" (an open port is not enough during
-     crash recovery), then for `/actuator/health/readiness`, then the window navigates to the backend.
+     crash recovery), polled every 20 ms;
+   - binds `127.0.0.1` on the port of the last start when still free (`desktop-port`, so the
+     window keeps its origin and local storage), builds the backend's `Config` from the process
+     environment plus plain-HTTP cookies, `PICSOU_SECRETS_DIR`, `APP_VERSION` (the shell's) and
+     the startup sync off (#585 catches up instead), and runs `picsou::start` (connect, migrate,
+     seed) on a tokio runtime of its own;
+   - once `start` returns, the backend is ready: no polling. The window navigates to it and the
+     thread serves (`picsou::run`) until Quit.
+   - The shell and the backend log to `logs/backend.log` (rolling, 10 MB, seven kept), with
+     "window shown", "PostgreSQL ready", "Started Picsou" and "the app page loaded" timings.
 3. The tray menu has Open Picsou, Launch at login and Quit Picsou. Closing the window hides
    it; only Quit stops the processes. Launch at login (`tauri-plugin-autostart`, an XDG
    autostart entry on Linux) is switched on at the first start only (`autostart-default`
    marker), so turning it off sticks. The check mark is read back from the OS entry.
-4. Quitting stops the backend (SIGTERM), then PostgreSQL with a fast shutdown (SIGINT). On Linux,
-   both children also die with the app if it crashes or is killed (`PR_SET_PDEATHSIG`).
+4. Quitting asks the backend to finish the requests in flight and close its pool (up to 20 s),
+   then stops PostgreSQL with a fast shutdown (SIGINT). On Linux, PostgreSQL and the sidecars
+   also die with the app if it crashes or is killed (`PR_SET_PDEATHSIG`).
+5. macOS: a click on the Dock icon while the window is closed (`RunEvent::Reopen`) shows it again.
+
+Measured on an Apple Silicon Mac (release bundle, 2026-11-21): window shown 0.2 s after launch;
+warm start: PostgreSQL ready 0.05 s later, the app page loaded 0.4 s after launch; first start
+(initdb and 151 migrations): 1.2 s. Idle: 40 MB physical footprint for the app process
+(124 MB RSS), 143 MB RSS for the 14 PostgreSQL processes.
 
 ### Updates and failed migrations (#588)
 
 - `app-version` in the data folder names the last version that reached the dashboard. It moves
-  only after the backend's readiness probe answers.
+  only once the backend started (its migrations applied).
+- Before the backend applies pending migrations to existing data (`picsou::db::flyway::pending`),
+  the shell runs the bundled `pg_dump` (custom format) to
+  `backups/<seconds>-before-<version>.dump` (0600). It is written as `*.dump.partial` and renamed
+  once `pg_dump` succeeded; the last three are kept. A failed dump stops the start: nothing is
+  migrated without it. Restore one by hand with the bundled `runtime/pgtools/bin/pg_restore`.
 - A start with another version copies `postgres/` and `secrets/` to
   `backups/<seconds>-<from>-to-<to>/` before PostgreSQL starts, so the copy is consistent. The
   copy is written to `*.partial` and renamed when complete. A retried update keeps the copy of
   its first try. The last two copies are kept.
 - An older version on newer data does not start PostgreSQL: the window names the version to
-  install and the data is untouched. Flyway's own refusal (#554) gives the same message.
-- A Flyway failure after an update shows its reason and a "Restore my data from before the
+  install and the data is untouched. The migrator's own refusal (#554, an applied migration this
+  version does not ship) gives the same message.
+- A migration failure after an update shows its reason (read from the backend's typed
+  `MigrationError`, no log parsing) and a "Restore my data from before the
   update" button. Restoring stops the processes, moves the failed `postgres/` and `secrets/`
   aside (`*.failed-<seconds>-<n>`, never deleted: delete them by hand once the restore works) and
   puts the backup in place. The copy is staged as `*.restoring` first, so a failed restore
@@ -55,7 +79,7 @@ the [ADR](../decisions/2026-11-15-desktop-app-tauri.md).
 ### Windows (#591, unsigned)
 
 - CI job `desktop-windows` builds an NSIS installer (`Picsou_<version>_x64-setup.exe`) from the
-  same jar and SPA, with the Windows Temurin JRE and zonky PostgreSQL
+  shell (which links the backend) and the SPA, with zonky PostgreSQL and theseus `pg_dump`
   (`fetch_runtime.py --target windows`), and uploads it as the `picsou-windows-installer`
   artifact. The job installs it silently, starts the installed app, waits for the readiness
   probe, checks that only loopback listens, kills the app hard and checks no process is left.
@@ -66,12 +90,13 @@ the [ADR](../decisions/2026-11-15-desktop-app-tauri.md).
 - PostgreSQL runs under `pg_ctl` (Windows has no signals): `pg_ctl start -w` and
   `pg_ctl stop -m fast`. `pg_ctl` also drops admin rights, which PostgreSQL requires.
 - A job object with "kill on close" holds Picsou and its children: a crash or a kill from the
-  Task Manager takes Java and PostgreSQL with it.
-- PostgreSQL carries the VC++ runtime DLLs copied from the JRE, and the shell links it
-  statically: a fresh Windows without the VC++ redistributable runs it.
+  Task Manager takes PostgreSQL and the sidecars with it.
+- PostgreSQL and `pg_dump` carry the VC++ runtime DLLs, copied from the build machine's
+  `System32` (so the Windows runtime is built on Windows), and the shell links it statically: a
+  fresh Windows without the VC++ redistributable runs it.
 - The cluster uses the `C` locale and initdb's own `postgres` database: creating another one
   needs single-user mode, which PostgreSQL refuses to an elevated user, or client tools the
-  bundle does not ship. Known gap: `lower()` and `ILIKE` fold ASCII only, so "É" and "é"
+  bundle does not ship (it has `pg_dump` and `pg_restore` only). Known gap: `lower()` and `ILIKE` fold ASCII only, so "É" and "é"
   differ on Windows; an ICU locale is the follow-up.
 - Secrets are not 0600: NTFS has no POSIX modes. They sit in the user's own `%LOCALAPPDATA%`; the
   backend logs a warning when it cannot chmod.
@@ -111,12 +136,12 @@ the [ADR](../decisions/2026-11-15-desktop-app-tauri.md).
   `PICSOU_DESKTOP_UNAVAILABLE` to the backend, which exposes them as `info.app.desktop` and
   `info.app.desktop-unavailable` on `/actuator/info`. The SPA greys those banks out in "Add
   account" with a "Not on desktop" badge, and their sync tab explains to use the Docker version.
-  Docker sets neither variable, so nothing changes there.
+  Docker sets neither variable: the info says `"desktop": "false"` and nothing changes there.
 
 ### macOS (#591, Apple Silicon, ad-hoc signed)
 
 - CI job `desktop-macos` builds `Picsou.app` and a `.dmg` on `macos-latest` (Apple Silicon)
-  with the macOS Temurin JRE, zonky PostgreSQL (`darwin-arm64v8`) and python-build-standalone
+  with zonky PostgreSQL (`darwin-arm64v8`), theseus `pg_dump` and python-build-standalone
   (`fetch_runtime.py --target macos`), and uploads the `.dmg` as the `picsou-macos-dmg`
   artifact. The job starts the app with `open`, then runs the Windows job's checks: ready,
   a sidecar on demand, Chromium prefetched, loopback only, nothing left after `kill -9`, and a
@@ -192,8 +217,8 @@ SmartScreen still warns on the first install (see Windows above).
 
 ### Key files
 
-- `desktop/src-tauri/src/supervisor.rs` — processes, ports, secrets, first start
-- `desktop/src-tauri/src/upgrade.rs` — version marker, backups, restore, Flyway failure reading
+- `desktop/src-tauri/src/supervisor.rs` — PostgreSQL, the in-process backend, ports, secrets, first start
+- `desktop/src-tauri/src/upgrade.rs` — version marker, copies, `pg_dump` backups, restore, migration failure reading
 - `desktop/src-tauri/src/main.rs` — the window and the startup thread
 - `desktop/src-tauri/src/sidecars.rs` — on-demand sidecars behind loopback ports
 - `desktop/scripts/fetch_runtime.py` — builds `desktop/runtime` from the Docker release pins (`--target linux|windows|macos`)
@@ -205,22 +230,25 @@ SmartScreen still warns on the first install (see Windows above).
 |--------|-----|----------------------|
 | Window loads the Spring URL | The SPA is not forked: same build as Docker | Bundling `dist` in Tauri, which would need a second API origin |
 | zonky PostgreSQL binaries | Relocatable, per-OS, checksummed on Maven Central | Distribution packages (not relocatable) |
-| Database created in single-user mode | The bundle has no client tools | Shipping `psql`/`createdb` |
+| Backend linked as a library, on its own tokio runtime | Readiness known in-process; no JRE (150 MB) or jar (132 MB); the window shows the app 0.4 s after launch | A backend child process polled over HTTP |
+| `pg_dump` and `pg_restore` from theseus-rs/postgresql-binaries | zonky ships the server only; theseus builds are relocatable (`@loader_path`, `$ORIGIN`) with a SHA-256 per archive | Mixing the tools into zonky's `lib/`, whose library builds differ |
+| Database created in single-user mode | The bundle has no `createdb` or `psql` | Shipping them |
 | Versions from `sidecars.py --desktop` | The desktop follows the Docker release with no copy | Pins in the desktop build |
 
 ## Gotchas / Pitfalls
 
 - **`PR_SET_PDEATHSIG` is per thread.** It fires when the thread that spawned the child ends.
-  The startup thread parks forever after `start`; a thread that returns kills PostgreSQL and the
-  backend half a second later (seen in the first real run).
+  The startup thread serves the backend, then parks forever; a thread that returns kills
+  PostgreSQL half a second later (seen in the first real run).
 - `initdb` refuses to run as root, so the app cannot either.
 - Windows has no parent-death signal: the job object ends the children. macOS uses a watcher
   per child (see macOS above).
 - A startup error can come before `ui/index.html` finished loading: it is kept and shown again
   from `on_page_load`.
-- Logs grow without rotation.
-- Logout and shutdown send SIGTERM to the app, which skips `RunEvent::Exit`; the children then
-  stop through `PR_SET_PDEATHSIG` (SIGINT for PostgreSQL, its fast shutdown).
+- `backend.log` rotates; `postgres.log` and the sidecar logs grow without rotation.
+- Logout and shutdown send SIGTERM to the app, which skips `RunEvent::Exit`: the backend ends
+  with the process, and the children stop through `PR_SET_PDEATHSIG` (SIGINT for PostgreSQL,
+  its fast shutdown).
 - If the tray cannot be made (`libayatana-appindicator3` missing), Picsou runs without it:
   the window always opens and closing it quits.
 - AppImage: Launch at login is greyed out and never defaulted, because the login item would
@@ -233,5 +261,7 @@ SmartScreen still warns on the first install (see Windows above).
 
 - `cargo test` in `desktop/src-tauri` (CI job `desktop`): hidden start only with `--hidden`,
   launch at login defaulted once, backend environment (loopback, data
-  paths), secret generated once and 0600, port reuse, quitting during startup.
+  paths), secret generated once and 0600, port reuse, quitting during startup, `pg_dump`
+  backups (complete only, 0600, three kept), migration failures told apart.
+- `backend-rs`: `flyway::pending` lists what `migrate` would apply (`foundation::migrations`).
 - Manual run: `make desktop`, or `PICSOU_DESKTOP_RUNTIME=../runtime cargo run` from `desktop/src-tauri`.
