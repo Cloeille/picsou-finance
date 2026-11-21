@@ -30,8 +30,8 @@ export interface HttpStep {
   json?: Lazy<unknown>;
   multipart?: Lazy<Record<string, string | FilePart>>;
   /** A body sent verbatim, for malformed-input cases. */
-  raw?: { contentType: string; body: string };
-  headers?: Record<string, string>;
+  raw?: { contentType: string; body: Lazy<string> };
+  headers?: Lazy<Record<string, string>>;
   /** Status the scenario expects. `record` refuses to write a golden that misses it. */
   expect?: number;
   capture?: Record<string, (r: Response) => unknown>;

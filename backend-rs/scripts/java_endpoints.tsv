@@ -1,4 +1,4 @@
-GET	/	ProtectedResourceMetadataController	metadata
+GET	/.well-known/oauth-protected-resource	ProtectedResourceMetadataController	metadata
 GET	/	AllocationController	allocation
 GET	/api/access-keys	AccessKeyController	list
 POST	/api/access-keys	AccessKeyController	create

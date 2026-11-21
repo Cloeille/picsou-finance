@@ -72,6 +72,10 @@ pub struct Inner {
     pub desktop_info: bool,
     /// The ledger's plug-in points (prices, connection locks, merchant knowledge base).
     pub ledger: ledger::Ledger,
+    /// The identity module's in-memory state (SSO discovery and handshakes).
+    pub identity: identity::Runtime,
+    /// The admin module's in-memory state (Enable Banking call log, release check cache).
+    pub admin: admin::Runtime,
 }
 
 impl Deref for AppState {
@@ -109,6 +113,8 @@ impl AppState {
             access_key_usage: UsageThrottle::default(),
             bearer_authenticators: identity::bearer_authenticators(),
             desktop_info,
+            identity: identity::Runtime::default(),
+            admin: admin::Runtime::default(),
         })))
     }
 }
@@ -166,6 +172,8 @@ pub async fn start(
     setup_auth::setup::seed_from_environment(&state)
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
+    identity::on_startup(&state).await?;
+    admin::on_startup(&state).await?;
     let timing = state.clone();
     tokio::spawn(async move {
         timing.login_timing.hash().await;

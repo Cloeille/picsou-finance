@@ -75,7 +75,10 @@ fn current_series(headers: &HeaderMap) -> Option<Uuid> {
 }
 
 /// SessionIssuer.currentSsoAt: the SSO sign-in time this browser's session carries, if any.
-async fn current_sso_at(state: &AppState, headers: &HeaderMap) -> AppResult<Option<DateTime<Utc>>> {
+pub async fn current_sso_at(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> AppResult<Option<DateTime<Utc>>> {
     if let Some(refresh) = cookies::read(headers, cookies::REFRESH).filter(|r| !r.trim().is_empty())
         && let Ok(claims) = state.jwt.parse(&refresh)
         && claims.is(TokenType::Refresh)

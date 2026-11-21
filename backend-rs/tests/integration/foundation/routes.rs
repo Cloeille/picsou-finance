@@ -4,12 +4,24 @@ use regex::Regex;
 
 const JAVA_ENDPOINTS: &str = include_str!("../../../scripts/java_endpoints.tsv");
 
-/// Spring Boot Actuator endpoints: served by the framework, not by a controller.
+/// Endpoints served by the framework, not by a controller: Spring Boot Actuator, the Spring
+/// Authorization Server endpoints and the OAuth2 login filter chain of SSO.
 const FRAMEWORK_ROUTES: &[(&str, &str)] = &[
     ("GET", "/actuator/health"),
     ("GET", "/actuator/health/liveness"),
     ("GET", "/actuator/health/readiness"),
     ("GET", "/actuator/info"),
+    ("GET", "/.well-known/oauth-authorization-server"),
+    ("GET", "/oauth2/authorize"),
+    ("POST", "/oauth2/authorize"),
+    ("POST", "/oauth2/token"),
+    ("POST", "/oauth2/revoke"),
+    ("POST", "/oauth2/introspect"),
+    ("POST", "/oauth2/device_authorization"),
+    ("GET", "/oauth2/device_verification"),
+    ("GET", "/oauth2/jwks"),
+    ("GET", "/oauth2/sso/{}"),
+    ("POST", "/oauth2/sso/{}"),
 ];
 
 /// Spring and axum share the {name} syntax; a regex constraint ({id:\d+}) and the variable name
