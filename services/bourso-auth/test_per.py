@@ -212,6 +212,46 @@ class PerPageTest(unittest.TestCase):
             parse_per(single(rows, "24,00 €", "24,00 €"))
         self.assertEqual(raised.exception.code, "INVALID_DATA")
 
+    def test_a_line_with_negative_units_is_refused(self):
+        rows = per_row(*WORLD_ROW, "-1,0000", "10,00 €", "12,00 €", "2,00 €", "20,00 %", "12,00 €")
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_per(single(rows, "12,00 €", "12,00 €"))
+        self.assertEqual(raised.exception.code, "INVALID_DATA")
+
+    def test_a_fund_cannot_net_to_zero_units_across_compartments(self):
+        # +1 and -1 unit would merge into a zero-unit position still worth 24 €.
+        compartments = (
+            per_compartment("A", per_row(*WORLD_ROW, "1,0000", "10,00 €", "12,00 €", "2,00 €", "20,00 %", "12,00 €"),
+                            "12,00 €"),
+            per_compartment("B", per_row(*WORLD_ROW, "−1,0000", "10,00 €", "12,00 €", "2,00 €", "20,00 %", "12,00 €"),
+                            "12,00 €"),
+        )
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_per(per_page(*compartments, solde="24,00 €"))
+        self.assertEqual(raised.exception.code, "INVALID_DATA")
+
+
+class PerDiagnosticsTest(unittest.TestCase):
+    """A refused reconciliation names the page's shape, never an amount (#624)."""
+
+    def assertShapeOnly(self, message, *expected):
+        for part in expected:
+            self.assertIn(part, message)
+        # No euro sign and no French-formatted amount: the ratio is the only number with decimals.
+        self.assertNotIn("€", message)
+        self.assertNotRegex(message, r"\d,\d{2}")
+
+    def test_a_compartment_gap_names_the_compartment_and_the_page_shape(self):
+        page = PER_HTML.replace("1 600,00 €", "1 700,00 €")
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_per(page)
+        self.assertShapeOnly(str(raised.exception), "compartment 1 of 3", "2 line(s), 0 pending")
+
+    def test_a_solde_gap_names_compartments_lines_and_pending_payments(self):
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_per(PER_HTML.replace("2 230,00 €", "2 330,00 €"))
+        self.assertShapeOnly(str(raised.exception), "3 compartment(s)", "4 line(s)", "1 pending")
+
 
 if __name__ == "__main__":
     unittest.main()

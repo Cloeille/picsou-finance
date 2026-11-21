@@ -1164,12 +1164,20 @@ def parse_per(html: str) -> dict[str, Any]:
     merged: dict[Any, dict[str, Any]] = {}
     cash = Decimal("0")
     line_count = 0
+    pending_lines = 0
     lines_sum = Decimal("0")
     totals = Decimal("0")
-    for table in tables:
+
+    def shape() -> str:
+        # What a refusal logs to explain itself (#624's intermittent Solde gap): the
+        # page's shape, never an amount.
+        return f"{len(tables)} compartment(s), {line_count} line(s), {pending_lines} pending"
+
+    for number, table in enumerate(tables, start=1):
         compartment_total: Decimal | None = None
         compartment_lines = Decimal("0")
         lines = 0
+        pending = 0
         for row in _LI_ROW_RE.finditer(table):
             cells = [cell.group("cell") for cell in _LI_CELL_RE.finditer(row.group("row"))]
             if not cells:
@@ -1194,6 +1202,7 @@ def parse_per(html: str) -> dict[str, Any]:
                 for index, field in ((2, "buying price"), (5, "gain percentage")):
                     if not _per_pending(cells[index]):
                         _per_amount(cells[index], field)
+                pending += 1
                 cash += value
                 continue
             label_match = _LI_LABEL_RE.search(cells[0])
@@ -1218,6 +1227,10 @@ def parse_per(html: str) -> dict[str, Any]:
                     cash += value
                     continue
                 raise AccountsFormatError(FORMAT_CHANGED, "PER line has no units and is not a euro fund")
+            if quantity < 0:
+                # Refused as on an assurance vie; it also keeps a fund merged across
+                # compartments from netting to zero units while still holding value.
+                raise AccountsFormatError(INVALID_DATA, "PER line reports a negative quantity")
             if not quantity:
                 if value != 0:
                     raise AccountsFormatError(FORMAT_CHANGED, "PER line has a value but no units")
@@ -1238,18 +1251,20 @@ def parse_per(html: str) -> dict[str, Any]:
         if not lines_close(compartment_lines, compartment_total, lines):
             raise AccountsFormatError(
                 INCOMPLETE,
-                f"PER compartment lines do not reconcile with its total "
-                f"({lines} line(s); lines vs total={relative_difference(compartment_lines, compartment_total)})",
+                f"PER compartment {number} of {len(tables)} does not reconcile with its total "
+                f"({lines} line(s), {pending} pending; "
+                f"lines vs total={relative_difference(compartment_lines, compartment_total)})",
             )
         totals += compartment_total
         line_count += lines
+        pending_lines += pending
         lines_sum += compartment_lines
 
     if not lines_close(totals, solde, len(tables)):
         raise AccountsFormatError(
             INCOMPLETE,
             f"PER compartment totals do not reconcile with the Solde "
-            f"({len(tables)} compartment(s); totals vs Solde={relative_difference(totals, solde)})",
+            f"({shape()}; totals vs Solde={relative_difference(totals, solde)})",
         )
     # Each check above has its own floor, so their gaps can add up past what the backend
     # allows: it checks every line against the Solde at once, and a refusal there fails
@@ -1258,7 +1273,7 @@ def parse_per(html: str) -> dict[str, Any]:
         raise AccountsFormatError(
             INCOMPLETE,
             f"PER lines do not reconcile with the Solde "
-            f"({line_count} line(s); lines vs Solde={relative_difference(lines_sum, solde)})",
+            f"({shape()}; lines vs Solde={relative_difference(lines_sum, solde)})",
         )
     positions = list(merged.values())
     # Each holding must own its ticker: two left unmerged on one ticker (a line without an

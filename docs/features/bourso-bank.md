@@ -690,7 +690,8 @@ Positions come from the server-rendered `/compte/per/<id>/positions` (`parse_per
   assurance-vie rule (no units, ISIN, quote link or price, a label naming the euro). Only its units, cost price and percentage may say
   "En cours"; "En cours" anywhere else, or any other unreadable cell, is refused.
 - A line with zero units and a zero amount is dropped; units missing, or zero with an amount, is
-  refused.
+  refused. Negative units are refused (`INVALID_DATA`), as on an assurance-vie, so a fund merged
+  across compartments can never net to zero units while still holding value.
 - `valuationLineCount` is the number of lines over all compartments, pending ones included. The
   backend accepts `PER` with the assurance-vie checks: line count required, per-line allowance.
 
@@ -698,10 +699,13 @@ Positions come from the server-rendered `/compte/per/<id>/positions` (`parse_per
 that answers another status than 200, does not parse (an amount out of range included), or does
 not reconcile drops this one
 account from the response: the other accounts still sync, the PER keeps its last stored values,
-and the sidecar logs the failing check (never an amount) and a count of skipped PERs. This
+and the sidecar logs the failing check and a count of skipped PERs, never an amount. A failed
+reconciliation names the page's shape: which compartment of how many, the number of lines and of
+pending payments, and the gap as a ratio. This
 follows ADR [Provisional kinds per bank](../decisions/2026-11-07-provisional-kinds-per-bank.md).
 An expired session (401/403, a login redirect) and an outage (429, 5xx) still end the sync,
 as on every other account: they say nothing about the page. A reporter saw the Solde
 reconciliation fail now and then with a gap of a few percent, then pass on the next sync; the
-check stays strict, and such a sync now only leaves the PER stale. The Sync tab does not show the
+check stays strict, and such a sync now only leaves the PER stale. The logged shape is there to
+explain that gap when it shows up again; three live syncs in a row (2026-11-21) did not hit it. The Sync tab does not show the
 skip yet: the sidecar response has no channel for it.
