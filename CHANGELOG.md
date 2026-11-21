@@ -42,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Profile photo upload now works under the production CSP.** `resizeProfilePhoto` read uploaded images via a `blob:` URL (`URL.createObjectURL`), which Spring Boot's production `Content-Security-Policy` (`img-src 'self' data: https:`) blocked — causing valid PNG, JPEG and WebP files to fail with an "invalid image" error. It now reads files through `FileReader.readAsDataURL` so uploads comply with the strict CSP without weakening it.
+- **Account reorder controls no longer overlap account type badges.** In `/accounts` reorder mode ("Réorganiser"), the move-up, move-down and collapse buttons floated over the top-right corner of each card and collided with badges like "Compte titres" or "Compte courant". They now sit inside an in-flow hairline `CardFooter` bar at the bottom of `AccountCard`, keeping titles, badges and card heights cleanly aligned across the grid.
 - **Trade Republic bonds are valued correctly again.** Bonds listed under Trade Republic's
   `bonds` category were not detected as bonds, and the nominal currency was not read, so their price
   could be off by a factor of 100 or left empty. A Polish IKE wrapper now syncs as a brokerage account
@@ -75,6 +77,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Goal cards no longer show an "On track" / "Behind" tag.** The cards and the goal detail keep
   the figures behind that verdict (required monthly pace, average contribution, months left), so the
   comparison stays readable without a coloured tag competing with the page's actions.
+- **Calmer peer loan page.** The summary card is titled "Loan summary" (the borrower is already
+  the page title) with the loan period in your language; the forecast card is hidden on a closed
+  loan that has nothing to forecast; the write-off note added when closing a loan is translated;
+  each repayment reads on two lines with Edit and Delete buttons. Dismiss buttons on alerts and a
+  few other text-only buttons now use the same icon buttons as the rest of the app.
 - **Trade Republic: native crypto gets its own `TR Crypto` account.** Coins bought on Trade Republic
   (Bitcoin and the like) moved out of `TR Titres` into a new `TR Crypto` account, so they show under
   Accounts > Crypto with live CoinGecko prices and coin logos. Crypto ETFs and ETCs stay in `TR Titres`.

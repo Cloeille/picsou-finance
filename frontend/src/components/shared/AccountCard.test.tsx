@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, waitFor } from '@testing-library/react'
+import { fireEvent, render, waitFor } from '@testing-library/react'
 import { AccountCard } from './AccountCard'
 import { StubImage } from '@/test/stubImage'
 import type { Account, RealEstateMetadata } from '@/types/api'
@@ -382,6 +382,24 @@ describe('AccountCard', () => {
       const { getByText } = render(<AccountCard account={account} closed />)
 
       expect(getByText('peerLoan.summary.closed')).toBeInTheDocument()
+    })
+
+    it('renders optional reorder footer controls inside CardFooter without triggering card navigation', () => {
+      const onCardClick = vi.fn()
+      const onActionClick = vi.fn()
+      const { container, getByRole } = render(
+        <AccountCard
+          account={baseAccount}
+          onClick={onCardClick}
+          footer={<button type="button" onClick={onActionClick}>Move up</button>}
+        />,
+      )
+
+      const footer = container.querySelector('[data-slot="card-footer"]')
+      expect(footer).toBeInTheDocument()
+      fireEvent.click(getByRole('button', { name: 'Move up' }))
+      expect(onActionClick).toHaveBeenCalledTimes(1)
+      expect(onCardClick).not.toHaveBeenCalled()
     })
   })
 })
