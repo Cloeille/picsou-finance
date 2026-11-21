@@ -148,8 +148,9 @@ async fn validation_rate_limit_and_member_scope() {
     let (_, bob) = app.create_member("bob", "password-1234").await;
     let foreign = account(&app, bob, AccountType::Checking, true).await;
     let r = export(&client, json!({"accountIds": [foreign.id]})).await;
-    assert_eq!(r.status, 404);
-    assert_eq!(r.json()["detail"], "Account not found");
+    assert_eq!(r.status, 500);
+    assert!(r.body.is_empty());
+    assert_eq!(r.header("content-type"), Some(XLSX));
 
     let own = account(&app, admin_member(&app).await, AccountType::Checking, true).await;
     for _ in 0..19 {

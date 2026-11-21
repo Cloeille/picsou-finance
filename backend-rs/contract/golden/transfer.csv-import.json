@@ -4,36 +4,6 @@
   "steps": [
     {
       "body": {
-        "color": "#6366f1",
-        "createdAt": "<instant>",
-        "currency": "EUR",
-        "currentBalance": 0,
-        "currentBalanceEur": 0,
-        "hidden": false,
-        "id": "<id:1>",
-        "isManual": true,
-        "listCollapsed": false,
-        "name": "Compte titres",
-        "type": "COMPTE_TITRES"
-      },
-      "bodyKind": "json",
-      "cookies": [],
-      "headers": {
-        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
-        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
-        "content-type": "application/json",
-        "expires": "0",
-        "permissions-policy": "camera=(), microphone=(), geolocation=()",
-        "pragma": "no-cache",
-        "referrer-policy": "strict-origin-when-cross-origin",
-        "x-content-type-options": "nosniff",
-        "x-frame-options": "DENY"
-      },
-      "status": 201,
-      "step": "04 POST /api/accounts as admin"
-    },
-    {
-      "body": {
         "detectedColumns": [
           "Date",
           "Sens",
@@ -81,6 +51,16 @@
             "350",
             "0",
             "EUR"
+          ],
+          [
+            "11/03/2020",
+            "VENTE",
+            "",
+            "Sans ticker",
+            "1",
+            "350",
+            "0",
+            "EUR"
           ]
         ],
         "suggestedMapping": {
@@ -93,7 +73,7 @@
           "tickerOrIsin": 2,
           "unitPrice": 5
         },
-        "totalRows": 3
+        "totalRows": 4
       },
       "bodyKind": "json",
       "cookies": [],
@@ -109,13 +89,18 @@
         "x-frame-options": "DENY"
       },
       "status": 200,
-      "step": "05 POST /api/accounts/{cto}/transactions/import/preview as admin"
+      "step": "06 POST /api/accounts/9001/transactions/import/preview as admin"
     },
     {
       "body": {
-        "errors": [],
+        "errors": [
+          {
+            "message": "Missing ticker/ISIN",
+            "rowNumber": 5
+          }
+        ],
         "imported": 3,
-        "skipped": 0
+        "skipped": 1
       },
       "bodyKind": "json",
       "cookies": [],
@@ -131,85 +116,12 @@
         "x-frame-options": "DENY"
       },
       "status": 201,
-      "step": "06 POST /api/accounts/{cto}/transactions/import as admin"
-    },
-    {
-      "body": [
-        {
-          "accountId": "<id:1>",
-          "accountName": "Compte titres",
-          "amount": 350.00000000,
-          "budgetNeutral": false,
-          "createdAt": "<instant>",
-          "date": "2020-03-10",
-          "description": "Amundi MSCI World",
-          "fees": 0E-8,
-          "id": "<id:2>",
-          "isManual": true,
-          "name": "Amundi MSCI World",
-          "nativeCurrency": "EUR",
-          "pricePerUnit": 350.00000000,
-          "quantity": 1.00000000,
-          "ticker": "CW8.PA",
-          "txType": "SELL"
-        },
-        {
-          "accountId": "<id:1>",
-          "accountName": "Compte titres",
-          "amount": -798.19000000,
-          "budgetNeutral": false,
-          "createdAt": "<instant>",
-          "date": "2020-02-20",
-          "description": "Amundi MSCI World",
-          "fees": 1.99000000,
-          "id": "<id:3>",
-          "isManual": true,
-          "name": "Amundi MSCI World",
-          "nativeCurrency": "EUR",
-          "pricePerUnit": 398.10000000,
-          "quantity": 2.00000000,
-          "ticker": "CW8.PA",
-          "txType": "BUY"
-        },
-        {
-          "accountId": "<id:1>",
-          "accountName": "Compte titres",
-          "amount": -1239.49000000,
-          "budgetNeutral": false,
-          "createdAt": "<instant>",
-          "date": "2020-01-15",
-          "description": "Amundi MSCI World",
-          "fees": 1.99000000,
-          "id": "<id:1>",
-          "isManual": true,
-          "name": "Amundi MSCI World",
-          "nativeCurrency": "EUR",
-          "pricePerUnit": 412.50000000,
-          "quantity": 3.00000000,
-          "ticker": "CW8.PA",
-          "txType": "BUY"
-        }
-      ],
-      "bodyKind": "json",
-      "cookies": [],
-      "headers": {
-        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
-        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
-        "content-type": "application/json",
-        "expires": "0",
-        "permissions-policy": "camera=(), microphone=(), geolocation=()",
-        "pragma": "no-cache",
-        "referrer-policy": "strict-origin-when-cross-origin",
-        "x-content-type-options": "nosniff",
-        "x-frame-options": "DENY"
-      },
-      "status": 200,
-      "step": "07 GET /api/accounts/{cto}/transactions as admin"
+      "step": "07 POST /api/accounts/9001/transactions/import as admin"
     },
     {
       "body": {
         "detail": "Preview expired or invalid -- please re-upload the file",
-        "instance": "/api/accounts/<id:1>/transactions/import",
+        "instance": "/api/accounts/9001/transactions/import",
         "status": 400,
         "title": "Bad Request",
         "type": "about:blank"
@@ -228,12 +140,64 @@
         "x-frame-options": "DENY"
       },
       "status": 400,
-      "step": "08 POST /api/accounts/{cto}/transactions/import as admin"
+      "step": "08 POST /api/accounts/9001/transactions/import as admin"
+    },
+    {
+      "body": {
+        "detail": "Preview expired or invalid -- please re-upload the file",
+        "instance": "/api/accounts/9001/transactions/import",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "09 POST /api/accounts/9001/transactions/import as admin"
+    },
+    {
+      "body": {
+        "errors": {
+          "dialect": "must not be null",
+          "fileToken": "<secret:2>",
+          "mapping": "must not be null"
+        },
+        "instance": "/api/accounts/9001/transactions/import",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "10 POST /api/accounts/9001/transactions/import as admin"
     },
     {
       "body": {
         "detail": "The file is empty",
-        "instance": "/api/accounts/<id:1>/transactions/import/preview",
+        "instance": "/api/accounts/9001/transactions/import/preview",
         "status": 400,
         "title": "Bad Request",
         "type": "about:blank"
@@ -252,7 +216,79 @@
         "x-frame-options": "DENY"
       },
       "status": 400,
-      "step": "09 POST /api/accounts/{cto}/transactions/import/preview as admin"
+      "step": "11 POST /api/accounts/9001/transactions/import/preview as admin"
+    },
+    {
+      "body": {
+        "detail": "CSV transaction import is only available for investment accounts (PEA, CTO, crypto)",
+        "instance": "/api/accounts/9002/transactions/import/preview",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "12 POST /api/accounts/9002/transactions/import/preview as admin"
+    },
+    {
+      "body": {
+        "detail": "Account not found",
+        "instance": "/api/accounts/424242/transactions/import/preview",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "13 POST /api/accounts/424242/transactions/import/preview as admin"
+    },
+    {
+      "body": {
+        "detail": "Required part 'file' is not present.",
+        "instance": "/api/accounts/9001/transactions/import/preview",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "14 POST /api/accounts/9001/transactions/import/preview as admin"
     }
   ]
 }

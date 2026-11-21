@@ -66,12 +66,20 @@ async fn export(
         ip.as_java_string()
     );
     let labels = SheetLabels::of(req.labels.as_ref());
-    let bytes = workbook::build(&state, &ids, auth.member_id, &labels).await?;
     let filename = format!(
         "picsou-comptes-{}.xlsx",
         state.clock.now().format("%Y%m%d-%H%M%S")
     );
-    let mut response = bytes.into_response();
+    // Java streams the workbook after the headers are written, so a failure while gathering
+    // (an account outside the perimeter included) reaches the client as an empty 500 that
+    // still carries the spreadsheet headers.
+    let mut response = match workbook::build(&state, &ids, auth.member_id, &labels).await {
+        Ok(bytes) => bytes.into_response(),
+        Err(e) => {
+            tracing::error!("accounts_export.stream_failed userId={user_id} msg={e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    };
     let headers = response.headers_mut();
     headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(XLSX_MIME));
     if let Ok(value) = HeaderValue::from_str(&format!("attachment; filename=\"{filename}\"")) {
