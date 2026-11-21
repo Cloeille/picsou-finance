@@ -806,6 +806,18 @@ async fn an_unreachable_idp_is_reported_and_backed_off() {
         response.header("location").unwrap(),
         format!("{}/login?ssoError=IDP_UNAVAILABLE", app.base_url)
     );
+    let discoveries = idp.received_requests().await.unwrap().len();
+    assert_eq!(discoveries, 1);
+    app.client()
+        .post(START)
+        .body("application/x-www-form-urlencoded", "intent=login")
+        .send()
+        .await;
+    assert_eq!(
+        idp.received_requests().await.unwrap().len(),
+        discoveries,
+        "a failed discovery is not retried for 60 s"
+    );
     let info = app.client().get("/api/auth/sso").send().await;
     assert_eq!(
         info.status,
