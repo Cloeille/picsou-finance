@@ -46,10 +46,12 @@ jobs:
             workflows: &workflows ['.github/**', 'Makefile']
             # Not a job: a change to the dependencies the release image downloads
             # makes the release smoke build refresh its cache.
-            release-deps: ['backend/pom.xml', 'frontend/package.json', 'frontend/bun.lock']
-            release-deployment: [*workflows, 'backend/**', 'frontend/**', 'docker/**', '.dockerignore']
+            release-deps: ['backend/pom.xml', 'backend-rs/Cargo.lock', 'frontend/package.json', 'frontend/bun.lock']
+            release-deployment: [*workflows, 'backend/**', 'backend-rs/**', 'frontend/**', 'docker/**', '.dockerignore']
             docker-compose: [*workflows, 'docker/**']
             backend: [*workflows, 'backend/**', 'services/base/**', 'services/sofidy-auth/**']
+            # The Rust backend embeds the Java migrations at build time.
+            backend-rs: &backend-rs [*workflows, 'backend-rs/**', 'backend/src/main/resources/db/migration/**']
             frontend: [*workflows, 'frontend/**']
             # The entrypoint tests read each Camoufox sidecar's runtime parameters.
             sidecar-base: [*workflows, 'services/base/**', 'services/*-auth/Dockerfile']
@@ -58,9 +60,10 @@ jobs:
             sidecar: [*workflows, 'services/base/**', 'services/*-auth/**']
             compose-sidecar-build: [*workflows, 'services/**', 'docker/docker-compose.yml']
             native-sidecars: [*workflows, 'services/base/**', 'services/*-auth/**']
-            desktop: [*workflows, 'desktop/**']
-            desktop-windows: [*workflows, 'desktop/**']
-            desktop-macos: [*workflows, 'desktop/**']
+            # The shell links the Rust backend.
+            desktop: [*backend-rs, 'desktop/**']
+            desktop-windows: [*backend-rs, 'desktop/**']
+            desktop-macos: [*backend-rs, 'desktop/**']
             workflow-inventory: [*workflows, 'services/**', 'backend/src/main/resources/application*.yml', '.env.example',
                                  'docker/.env.example', 'docker/docker-compose.yml', 'docker/Dockerfile',
                                  'backend/pom.xml', 'backend/src/test/**']
@@ -216,7 +219,7 @@ jobs:
           PICSOU_REQUIRE_DOCKER_TESTS: 'true'
           SHARD_INCLUDES: ${{ steps.shard.outputs.includes }}
           SHARD_EXCLUDES: ${{ steps.shard.outputs.excludes }}
-        run: make test-backend SOFIDY_PYTHON=python3
+        run: make test-backend-java SOFIDY_PYTHON=python3
       # A re-run of a failed shard uploads under the same name as its first attempt, which
       # stays in the run: overwrite it, or the upload fails with a 409 conflict.
       - name: Upload the test reports
@@ -230,6 +233,24 @@ jobs:
             backend/target/surefire-reports/*.txt
           if-no-files-found: error
           retention-days: 7
+
+  # The Rust backend (docs/decisions/2026-11-21-rust-backend.md): fmt, clippy, then every test,
+  # the route inventory against the Java endpoints included, on the PostgreSQL major it targets.
+  backend-rs:
+    needs: changes
+    if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'backend-rs')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: {POSTGRES_USER: picsou, POSTGRES_HOST_AUTH_METHOD: trust}
+        ports: ['127.0.0.1:55432:5432']
+        options: --health-cmd "pg_isready -U picsou" --health-interval 2s --health-timeout 5s --health-retries 30
+    steps:
+      - *checkout
+      - name: Format, lint and test the Rust backend
+        run: make test-backend
 
   frontend:
     name: frontend (${{ matrix.task }})
@@ -341,7 +362,7 @@ jobs:
           cargo test --locked
           cargo build --locked --release
 
-  # The unsigned Windows installer (#591): built from the same jar and SPA, installed silently,
+  # The unsigned Windows installer (#591): the shell, which links the backend, and the SPA, installed silently,
   # then the installed app must reach the dashboard on loopback and leave no process when killed.
   desktop-windows:
     needs: changes
@@ -351,19 +372,14 @@ jobs:
     steps:
       - *checkout
       - *python
-      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
-        with: {distribution: temurin, java-version: '21', cache: maven}
       - *bun
-      - name: Build the backend jar
-        working-directory: backend
-        run: mvn -B -q package -DskipTests
       - name: Build the SPA
         working-directory: frontend
         run: |
           bun install --frozen-lockfile
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           bun run build
-      - name: Assemble the Windows runtime (JRE, PostgreSQL)
+      - name: Assemble the Windows runtime (PostgreSQL, pg_dump, sidecars)
         run: python desktop/scripts/fetch_runtime.py --target windows
       - name: Build the installer
         working-directory: desktop/src-tauri
@@ -430,15 +446,15 @@ jobs:
           "corum first start: $([int]((Get-Date) - $t0).TotalSeconds) s"
           if (-not (Test-Path "$data/browsers/chromium_headless_shell-*")) { throw 'Chromium was not downloaded' }
           Get-Content "$data/logs/browser-download.log" -Tail 3
-          $pids = (Get-Process java, postgres, python -ErrorAction SilentlyContinue).Id
+          $pids = (Get-Process picsou-desktop, postgres, python -ErrorAction SilentlyContinue).Id
           $listening = Get-NetTCPConnection -State Listen | Where-Object { $pids -contains $_.OwningProcess }
           $listening | Format-Table LocalAddress, LocalPort, OwningProcess
-          if (@($listening).Count -lt 2) { throw 'expected PostgreSQL and Java to listen' }
+          if (@($listening).Count -lt 2) { throw 'expected PostgreSQL and the backend to listen' }
           if ($listening | Where-Object LocalAddress -notin '127.0.0.1', '::ffff:127.0.0.1') { throw 'a service listens beyond loopback' }
-          # A hard kill, like a crash: the job object must take PostgreSQL and Java with it.
+          # A hard kill, like a crash: the job object must take PostgreSQL and the sidecars with it.
           Stop-Process -Id $app.Id -Force
           Start-Sleep 10
-          $left = Get-Process java, postgres, pg_ctl, python -ErrorAction SilentlyContinue
+          $left = Get-Process postgres, pg_ctl, python -ErrorAction SilentlyContinue
           if ($left) { $left | Format-Table Name, Id; throw 'processes outlived the app' }
           'no process left'
           # An update (#588): data last opened by an older version is copied before it starts.
@@ -485,16 +501,11 @@ jobs:
     steps:
       - *checkout
       - *python
-      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
-        with: {distribution: temurin, java-version: '21', cache: maven}
       - *bun
-      - name: Build the backend jar
-        working-directory: backend
-        run: mvn -B -q package -DskipTests
       - name: Build the SPA
         working-directory: frontend
         run: bun install --frozen-lockfile && bun run build
-      - name: Assemble the macOS runtime (JRE, PostgreSQL, sidecars)
+      - name: Assemble the macOS runtime (PostgreSQL, pg_dump, sidecars)
         run: python desktop/scripts/fetch_runtime.py --target macos
       - name: Build the app and the disk image
         working-directory: desktop/src-tauri
@@ -540,10 +551,11 @@ jobs:
           corum=$(jq -r .CORUM_AUTH_URL "$data/sidecar-ports.json")
           for try in $(seq 1 60); do curl -fs --max-time 10 "$corum/health" >/dev/null && break; sleep 5; done
           curl -fs "$corum/health"; echo
-          pids=$(pgrep -f "$runtime/" | paste -sd, -)
+          # The backend runs in the app process itself.
+           pids=$({ pgrep -f "$runtime/"; pgrep -f "$app/Contents/MacOS/picsou-desktop"; } | paste -sd, -)
           listening=$(lsof -nP -iTCP -sTCP:LISTEN -a -p "$pids" | awk 'NR > 1 {print $9}' | sort -u)
           echo "$listening"
-          [ "$(echo "$listening" | wc -l)" -ge 2 ] || { echo '::error::expected PostgreSQL and Java to listen'; exit 1; }
+          [ "$(echo "$listening" | wc -l)" -ge 2 ] || { echo '::error::expected PostgreSQL and the backend to listen'; exit 1; }
           if echo "$listening" | grep -v '^127\.0\.0\.1:'; then echo '::error::a service listens beyond loopback'; exit 1; fi
           # A hard kill, like a crash: each child's watcher must end it (macOS has no PDEATHSIG).
           pkill -9 -f "$app/Contents/MacOS/picsou-desktop"
@@ -680,7 +692,7 @@ jobs:
   # prevent application images from being published.
   ci-ok:
     if: always()
-    needs: [changes, release-deployment, docker-compose, backend, frontend, e2e, sidecar-base, sidecar, native-sidecars, compose-sidecar-build, workflow-inventory]
+    needs: [changes, release-deployment, docker-compose, backend, backend-rs, frontend, e2e, sidecar-base, sidecar, native-sidecars, compose-sidecar-build, workflow-inventory]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -757,7 +769,7 @@ jobs:
   # Images are only published after every release-blocking CI job is green, and
   # only on a push to main or a version tag — not on pull requests or release branches.
   docker:
-    needs: [ci-ok, release-deployment, docker-compose, backend, frontend, e2e, sidecar-base, sidecar, native-sidecars, compose-sidecar-build, workflow-inventory]
+    needs: [ci-ok, release-deployment, docker-compose, backend, backend-rs, frontend, e2e, sidecar-base, sidecar, native-sidecars, compose-sidecar-build, workflow-inventory]
     if: github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/release/')
     uses: ./.github/workflows/docker.yml
     secrets: inherit

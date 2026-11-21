@@ -823,7 +823,8 @@ class CiJobSelectionTest(unittest.TestCase):
     def test_ci_runs_the_make_targets_contributors_run(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
         expected = {
-            "backend": "make test-backend SOFIDY_PYTHON=python3",
+            "backend": "make test-backend-java SOFIDY_PYTHON=python3",
+            "backend-rs": "make test-backend",
             "frontend": "make lint-frontend",
             "e2e": "make test-e2e",
             "sidecar-base": "make test-sidecar-base",
@@ -834,6 +835,18 @@ class CiJobSelectionTest(unittest.TestCase):
             with self.subTest(job=job):
                 lines = [line.strip() for step in jobs[job]["steps"] for line in step.get("run", "").splitlines()]
                 self.assertIn(command, lines)
+
+    def test_the_rust_backend_is_tested_on_the_postgres_major_it_ships_with_and_gates_ci(self):
+        jobs = _load(CI_WORKFLOW)["jobs"]
+        postgres = jobs["backend-rs"]["services"]["postgres"]
+        major = json.loads(_sidecars("--desktop"))["postgres"]
+
+        self.assertEqual(postgres["image"].split(":")[1].split("-")[0], major)
+        # The harness's fixed address (backend-rs/src/testing): trust auth, user picsou.
+        self.assertEqual(postgres["ports"], ["127.0.0.1:55432:5432"])
+        self.assertEqual(postgres["env"], {"POSTGRES_USER": "picsou", "POSTGRES_HOST_AUTH_METHOD": "trust"})
+        self.assertIn("backend-rs", jobs["ci-ok"]["needs"])
+        self.assertIn("backend-rs", jobs["docker"]["needs"])
 
     def test_browserless_sidecars_run_outside_a_container_on_macos_and_windows(self):
         job = _load(CI_WORKFLOW)["jobs"]["native-sidecars"]
@@ -1059,9 +1072,7 @@ class DesktopManifestTest(unittest.TestCase):
     def test_desktop_pins_are_read_from_the_docker_files(self):
         manifest = json.loads(_sidecars("--desktop"))
 
-        self.assertRegex(manifest["java"], r"^\d+$")
-        self.assertIn(f"eclipse-temurin:{manifest['java']}-jre",
-                      (ROOT / "docker/Dockerfile").read_text(encoding="utf-8"))
+        self.assertNotIn("java", manifest)
         self.assertRegex(manifest["postgres"], r"^\d+$")
         self.assertRegex(manifest["python"], r"^3\.\d+$")
         self.assertRegex(manifest["playwright"], r"^\d+\.\d+\.\d+$")
@@ -1088,13 +1099,11 @@ class DesktopManifestTest(unittest.TestCase):
 
     def test_a_moved_pin_fails_loudly_instead_of_shipping_a_stale_version(self):
         good = {
-            "backend/pom.xml": "<java.version>21</java.version>\n",
             "docker/docker-compose.yml": "services:\n  db:\n    image: postgres:16-alpine\n",
             "services/base/Dockerfile": "FROM python:3.12-slim AS python\n",
             "services/base/requirements-chromium.txt": "playwright==1.64.1\n",
         }
         broken = {
-            "backend/pom.xml": "<maven.compiler.release>21</maven.compiler.release>\n",
             "docker/docker-compose.yml": "services:\n  db:\n    image: mariadb:11\n",
             "services/base/Dockerfile": "FROM debian:bookworm AS python\n",
             "services/base/requirements-chromium.txt": "playwright>=1.64\n",

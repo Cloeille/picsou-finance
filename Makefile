@@ -5,14 +5,17 @@ COMPOSE  := docker compose -f docker/docker-compose.yml
 SIDECARS := $(patsubst services/%/Dockerfile,%,$(wildcard services/*-auth/Dockerfile))
 REMOTE   ?= origin
 
-.PHONY: help dev db dev-backend dev-frontend format deps test test-backend test-frontend lint-frontend unit-frontend test-e2e \
-        test-sidecars test-sidecar-base test-sidecar build desktop release
+.PHONY: help dev db dev-backend dev-backend-java dev-frontend format deps test test-backend test-backend-java \
+        test-frontend lint-frontend unit-frontend test-e2e test-sidecars test-sidecar-base test-sidecar build desktop release
 
 help:
 	@echo "make dev                       PostgreSQL in Docker, backend on :8080, Vite on :5173"
 	@echo "make format                    Prettier on the frontend sources"
-	@echo "make test                      backend, frontend (unit and e2e), every sidecar"
-	@echo "make test-backend [TEST=Class] backend Maven tests, or one class or method"
+	@echo "make test                      backends, frontend (unit and e2e), every sidecar"
+	@echo "make test-backend [TEST=name]  Rust backend: fmt, clippy, tests (PostgreSQL 16 on 127.0.0.1:55432, trust)"
+	@echo "make dev-backend-java          the Java backend on :8080 instead of the Rust one"
+	@echo "make test-backend-java [TEST=Class] Java backend Maven tests, or one class or method"
+	@echo "make desktop                   the desktop app bundle (Rust, Tauri CLI, bun)"
 	@echo "make test-frontend             lint, typecheck, Vitest"
 	@echo "make lint-frontend             ESLint (zero warnings) and TypeScript"
 	@echo "make unit-frontend [SHARD=i/n] Vitest, optionally one shard (VITEST_JSON=file writes a JSON report)"
@@ -49,7 +52,9 @@ db:
 	echo "If it was created with other settings, 'docker rm -f picsou-db' recreates it (its data is lost)."; \
 	exit 1
 
-# Values already in the environment win over the ones picsou-db holds.
+# Values already in the environment win over the ones picsou-db holds. DEV_BACKEND_RUN is the
+# command that starts the backend with them (dev-backend-java swaps in Maven).
+DEV_BACKEND_RUN ?= cd backend-rs && SPRING_PROFILES_ACTIVE=dev exec cargo run
 dev-backend:
 	@JWT_SECRET="$${JWT_SECRET:-$$(docker exec picsou-db printenv PICSOU_DEV_JWT_SECRET 2>/dev/null)}"; \
 	CRYPTO_ENCRYPTION_KEY="$${CRYPTO_ENCRYPTION_KEY:-$$(docker exec picsou-db printenv PICSOU_DEV_CRYPTO_ENCRYPTION_KEY 2>/dev/null)}"; \
@@ -63,7 +68,10 @@ dev-backend:
 	  exit 1; \
 	fi; \
 	export JWT_SECRET CRYPTO_ENCRYPTION_KEY; \
-	cd backend && exec mvn spring-boot:run -Dspring-boot.run.profiles=dev
+	$(DEV_BACKEND_RUN)
+
+dev-backend-java:
+	@$(MAKE) --no-print-directory dev-backend DEV_BACKEND_RUN='cd backend && exec mvn spring-boot:run -Dspring-boot.run.profiles=dev'
 
 dev-frontend: | frontend/node_modules
 	cd frontend && bun run dev
@@ -77,15 +85,20 @@ deps frontend/node_modules:
 
 # --- test --------------------------------------------------------------------
 
-test: test-backend test-frontend test-e2e test-sidecars
+test: test-backend test-backend-java test-frontend test-e2e test-sidecars
+
+# The Rust suite creates and drops its own databases on PostgreSQL 16 at 127.0.0.1:55432 with
+# trust authentication (backend-rs/README.md). TEST filters the test names.
+test-backend:
+	cd backend-rs && cargo fmt --check && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked $(TEST)
 
 # The suite never calls a real sidecar: any key will do. SOFIDY_PYTHON=python3 also
 # runs the Java/Python Sofidy contract test (needs `pip install -r services/base/requirements.txt`).
 # CI shards the suite with SHARD_INCLUDES or SHARD_EXCLUDES: an absolute surefire
 # includesFile or excludesFile (.github/scripts/backend_shards.py).
-test-backend: export APP_SIDECAR_API_KEY ?= test-only
-test-backend: export PYTHONPATH := $(CURDIR)/services/base
-test-backend:
+test-backend-java: export APP_SIDECAR_API_KEY ?= test-only
+test-backend-java: export PYTHONPATH := $(CURDIR)/services/base
+test-backend-java:
 	cd backend && mvn -B test $(if $(SOFIDY_PYTHON),-Dsofidy.contract.python=$(SOFIDY_PYTHON)) $(if $(TEST),-Dtest=$(TEST)) $(if $(SHARD_INCLUDES),-Dsurefire.includesFile=$(SHARD_INCLUDES)) $(if $(SHARD_EXCLUDES),-Dsurefire.excludesFile=$(SHARD_EXCLUDES))
 
 test-frontend: lint-frontend unit-frontend
@@ -131,11 +144,11 @@ test-sidecar:
 
 # --- build and release -------------------------------------------------------
 
-# The desktop app for Linux (#587): the backend jar and the SPA, the JRE and PostgreSQL of the
-# Docker release (desktop/scripts/fetch_runtime.py), then the Tauri bundles. Needs Rust,
-# the Tauri CLI (cargo install tauri-cli --version '^2') and the WebKitGTK 4.1 headers.
+# The desktop app for this machine (#587): the SPA, PostgreSQL and pg_dump of the Docker release's
+# major and the sidecars (desktop/scripts/fetch_runtime.py), then the Tauri bundles, whose shell
+# links backend-rs. Needs Rust, the Tauri CLI (cargo install tauri-cli --version '^2') and, on
+# Linux, the WebKitGTK 4.1 headers.
 desktop:
-	cd backend && mvn -q package -DskipTests
 	cd frontend && bun install --frozen-lockfile && bun run build
 	python3 desktop/scripts/fetch_runtime.py
 	cd desktop/src-tauri && cargo tauri build
