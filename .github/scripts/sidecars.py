@@ -40,7 +40,6 @@ def publish_matrix(repository):
         "context": ".",
         "dockerfile": "docker/Dockerfile.demo",
         "versioned": True,
-        "build_args": "VITE_DEMO_MODE=true",
     }
     return [app, demo] + [
         {

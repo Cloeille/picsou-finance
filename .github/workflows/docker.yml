@@ -265,12 +265,10 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Empty lines are dropped. A sidecar gets its base by digest, never a tag;
-          # build_args carries an entry's own fixed arguments (the demo's mode).
+          # Empty lines are dropped. A sidecar gets its base by digest, never a tag.
           build-args: |
             ${{ matrix.versioned && format('APP_VERSION={0}', needs.base.outputs.app-version) || '' }}
             ${{ matrix.base && format('SIDECAR_BASE={0}', needs.base.outputs[matrix.base]) || '' }}
-            ${{ matrix.build_args }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 

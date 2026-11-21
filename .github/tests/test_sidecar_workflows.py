@@ -215,7 +215,6 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         self.assertEqual(matrix[1], {
             "name": "demo", "image": "Owner/repo/demo", "context": ".",
             "dockerfile": "docker/Dockerfile.demo", "versioned": True,
-            "build_args": "VITE_DEMO_MODE=true",
         })
         for service in ("amex-auth", "degiro-auth"):
             with self.subTest(service=service):

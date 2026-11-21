@@ -1,6 +1,6 @@
 # Feature: Demo mode
 
-> Last updated: 2026-11-05
+> Last updated: 2026-11-21 (published demo image: nginx caching and 404 rules match the app)
 
 ## Context
 
@@ -15,6 +15,10 @@ The `VITE_DEMO_MODE=true` environment variable in `frontend/.env` enables the mo
 ### Published image
 
 CI publishes the demo as `ghcr.io/<owner>/picsou-finance/demo` (`docker/Dockerfile.demo`: the frontend built with `VITE_DEMO_MODE=true`, served by nginx on 8080). It uses the app image's tags (`nightly` on main, the semver on a release tag). Do not build it by hand for deployment.
+
+nginx applies the app's SPA rules (`SpaWebConfig`): files under `/assets/` are cached for a year (`immutable`), every other file and the `index.html` fallback of client routes are `no-cache`, and a missing static file (`.js`, `.css`, images, fonts) is a 404, never `index.html`. A tab still on the previous build after a redeploy therefore gets a 404 for a removed chunk instead of HTML.
+
+A new GHCR package may start private. After the first publication the repository owner must check that `picsou-finance/demo` is public, then check an anonymous pull (`DOCKER_CONFIG="$(mktemp -d)" docker pull ghcr.io/cloeille/picsou-finance/demo:nightly`).
 
 ### Request interception
 
