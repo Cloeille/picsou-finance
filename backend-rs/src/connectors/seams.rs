@@ -1,7 +1,8 @@
 //! The narrow calls the connectors make into services other tracks own. Each default is what
 //! Java does when that side has nothing; the coordinator swaps in the real implementation.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -9,7 +10,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::Serialize;
 use serde_json::Value;
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgPool};
 
 use crate::AppState;
 use crate::error::{AppError, AppResult};
@@ -246,6 +247,100 @@ impl BankLogos for NoBankLogos {
     }
 }
 
+/// ScpiProvider (track T4): a client space whose funds a sync maps onto SCPI accounts, stored by
+/// name in scpi_provider_fund. Louve Invest is left out: no connector of this track syncs it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScpiProvider {
+    Corum,
+    Sofidy,
+}
+
+impl ScpiProvider {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Corum => "CORUM",
+            Self::Sofidy => "SOFIDY",
+        }
+    }
+
+    /// What a synced account shows as its provider and management company.
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Corum => "CORUM",
+            Self::Sofidy => "Sofidy",
+        }
+    }
+}
+
+/// ScpiFundOutcome (track T4): what the latest sync did with one provider fund.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScpiFundOutcome {
+    Created,
+    Linked,
+    Updated,
+    PriceIncomplete,
+    Ambiguous,
+    Ignored,
+    MissingAtProvider,
+}
+
+impl ScpiFundOutcome {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Created => "CREATED",
+            Self::Linked => "LINKED",
+            Self::Updated => "UPDATED",
+            Self::PriceIncomplete => "PRICE_INCOMPLETE",
+            Self::Ambiguous => "AMBIGUOUS",
+            Self::Ignored => "IGNORED",
+            Self::MissingAtProvider => "MISSING_AT_PROVIDER",
+        }
+    }
+}
+
+impl fmt::Display for ScpiFundOutcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// ScpiFundReconciler.SyncedFund without the fields only Louve Invest publishes. A None
+/// subscription price leaves the stored one alone; a None withdrawal price keeps the balance.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SyncedFund {
+    pub fund_code: String,
+    pub label: Option<String>,
+    pub quantity: Decimal,
+    pub subscription_price: Option<Decimal>,
+    pub withdrawal_price: Option<Decimal>,
+}
+
+/// ScpiFundReconciler and ScpiPositionService.applySyncedPosition (track T4), as the CORUM and
+/// Sofidy syncs call them: in the sync's own transaction, after the member row lock.
+#[async_trait]
+pub trait ScpiFunds: Send + Sync {
+    /// reconcile: the outcome per fund code, in snapshot order, then the funds no longer listed.
+    async fn reconcile(
+        &self,
+        conn: &mut PgConnection,
+        member_id: i64,
+        provider: ScpiProvider,
+        funds: &[SyncedFund],
+        synced_at: DateTime<Utc>,
+    ) -> AppResult<Vec<(String, ScpiFundOutcome)>>;
+
+    /// SofidySyncService.reconcileSoldFunds: every position linked to a fund of `provider` that
+    /// `listed` lacks is closed at zero shares, its account kept; how many were closed.
+    async fn close_unlisted(
+        &self,
+        conn: &mut PgConnection,
+        member_id: i64,
+        provider: ScpiProvider,
+        listed: &HashSet<String>,
+        now: DateTime<Utc>,
+    ) -> AppResult<usize>;
+}
+
 /// The connectors' plug-in points, held by state.connectors.seams.
 pub struct Seams {
     pub isin: Arc<dyn IsinResolver>,
@@ -254,6 +349,7 @@ pub struct Seams {
     pub price_backfill: Arc<dyn PriceBackfill>,
     pub symbol_catalog: Arc<dyn SymbolCatalog>,
     pub bank_logos: Arc<dyn BankLogos>,
+    pub scpi_funds: Arc<dyn ScpiFunds>,
 }
 
 impl Seams {
@@ -265,6 +361,7 @@ impl Seams {
             price_backfill: Arc::new(NoPriceBackfill),
             symbol_catalog: Arc::new(NoSymbolCatalog),
             bank_logos: Arc::new(NoBankLogos),
+            scpi_funds: Arc::new(super::corum::scpi_funds::RecordedScpiFunds),
         }
     }
 }
