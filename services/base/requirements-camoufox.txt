@@ -4,5 +4,8 @@
 # Camoufox 0.5.x needs a coordinated installer and fingerprint migration.
 # Versions 0.5.8 and 0.5.9 require Playwright <1.63, while this target pins
 # 1.64.1; .github/dependabot.yml ignores camoufox >= 0.5 until that migration.
+# Playwright 1.65 sends a Juggler field (downloadOptions.legacyInterceptor) the
+# pinned Firefox rejects, so smoke_camoufox.py fails: this target stays on 1.64.1
+# while the chromium target (requirements-chromium.txt) moves on.
 camoufox[geoip]==0.4.11
-playwright==1.65.2
+playwright==1.64.1
