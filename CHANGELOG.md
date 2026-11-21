@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **American Express: log in when AMEX asks for an approval in the AMEX app.** Some accounts confirm
+  the login with a push notification instead of a code by SMS or e-mail. The verify page then has no
+  channel to pick and the sync failed with "The Amex website format changed". The connector now waits
+  for the approval on the phone and completes the login on its own. An approval not given in time
+  ends with "The Amex authentication attempt expired". The verify page diagnostic now logs which known
+  keywords the page's headings and buttons contain, never their text.
+
 ## [1.2.2] — 2026-11-21
 
 ### Added
