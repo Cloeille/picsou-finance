@@ -27,7 +27,7 @@ for source in sorted(ROOT.rglob("*.java")):
     text = source.read_text()
     if "@RestController" not in text and "@Controller" not in text:
         continue
-    head = text.split(" class ", 1)
+    head = re.split(r"^(?:public\s+|final\s+|abstract\s+)*class\s", text, maxsplit=1, flags=re.M)
     prefixes = [""]
     class_part = head[0]
     for m in MAPPING.finditer(class_part):

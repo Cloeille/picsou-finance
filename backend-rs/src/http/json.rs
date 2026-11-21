@@ -156,6 +156,46 @@ impl Errors {
         self
     }
 
+    /// @Min on an integer; null is valid.
+    pub fn min(&mut self, field: &str, value: Option<i64>, min: i64) -> &mut Self {
+        if value.is_some_and(|v| v < min) {
+            let message = self.default_message(
+                &format!("must be greater than or equal to {min}"),
+                &format!("doit être supérieur ou égal à {min}"),
+            );
+            self.add(field, message);
+        }
+        self
+    }
+
+    /// @Max on an integer; null is valid.
+    pub fn max(&mut self, field: &str, value: Option<i64>, max: i64) -> &mut Self {
+        if value.is_some_and(|v| v > max) {
+            let message = self.default_message(
+                &format!("must be less than or equal to {max}"),
+                &format!("doit être inférieur ou égal à {max}"),
+            );
+            self.add(field, message);
+        }
+        self
+    }
+
+    /// @PositiveOrZero on a number; null is valid.
+    pub fn positive_or_zero(
+        &mut self,
+        field: &str,
+        value: Option<&rust_decimal::Decimal>,
+    ) -> &mut Self {
+        if value.is_some_and(|v| v.is_sign_negative() && !v.is_zero()) {
+            let message = self.default_message(
+                "must be greater than or equal to 0",
+                "doit être supérieur ou égal à 0",
+            );
+            self.add(field, message);
+        }
+        self
+    }
+
     /// @AssertTrue
     pub fn assert_true(&mut self, field: &str, value: bool) -> &mut Self {
         if !value {

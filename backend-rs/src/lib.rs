@@ -72,6 +72,8 @@ pub struct Inner {
     pub desktop_info: bool,
     /// The ledger's plug-in points (prices, connection locks, merchant knowledge base).
     pub ledger: ledger::Ledger,
+    /// The budget module's plug-in points (AI categorizer, logo source) and job state.
+    pub budget: budget::BudgetState,
 }
 
 impl Deref for AppState {
@@ -103,6 +105,7 @@ impl AppState {
             clock,
             config,
             ledger: ledger::Ledger::new(db.clone()),
+            budget: budget::BudgetState::default(),
             db,
             setup_complete: AtomicBool::new(false),
             login_timing: TimingEqualizer::default(),
