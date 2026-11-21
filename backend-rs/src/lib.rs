@@ -85,6 +85,10 @@ pub struct Inner {
     pub sync: sync::SyncHooks,
     /// The sidecar connectors' base URLs, shared key, sync executors and cross-track seams.
     pub connectors: connectors::Connectors,
+    /// Price, FX and instrument data providers with their caches (track T4).
+    pub market: market::Market,
+    /// The wealth domain's state and cross-track seams (track T4).
+    pub wealth: wealth::Wealth,
 }
 
 impl Deref for AppState {
@@ -104,6 +108,11 @@ impl AppState {
             .user_agent(concat!("picsou/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(std::time::Duration::from_secs(10))
             .build()?;
+        let market = market::Market::new(&config, &db, &http, &clock);
+        let wealth = wealth::Wealth::new(&config, &db, &http, &clock);
+        let mut ledger = ledger::Ledger::new(db.clone());
+        ledger.prices = market.price_read();
+        ledger.dividends = wealth.dividends.classifier();
         Ok(Self(Arc::new(Inner {
             jwt: Jwt::new(&config.jwt, clock.clone())?,
             limits: RateLimiter::new(clock.clone()),
@@ -112,7 +121,9 @@ impl AppState {
             http,
             clock,
             config,
-            ledger: ledger::Ledger::new(db.clone()),
+            ledger,
+            market,
+            wealth,
             budget: budget::BudgetState::default(),
             accounts: accounts::Seams::default(),
             sync: sync::SyncHooks::new(db.clone()),

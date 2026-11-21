@@ -24,6 +24,8 @@ pub const JWT_SECRET: &str = "test-jwt-secret-0123456789-abcdefghijklmnopqrstu";
 pub const CRYPTO_KEY: &str = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
 pub const ADMIN_USERNAME: &str = "admin";
 pub const ADMIN_PASSWORD: &str = "correct-horse-battery";
+/// The discard port on loopback: a connection there is refused at once.
+const UNREACHABLE: &str = "http://127.0.0.1:9";
 
 static TEMPLATE: OnceCell<String> = OnceCell::const_new();
 static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -241,6 +243,16 @@ impl TestApp {
                 ("APP_STARTUP_SYNC_ENABLED", "false"),
                 ("APP_UPDATE_CHECK_ENABLED", "false"),
                 ("INSTRUMENT_LOGOS_ENABLED", "false"),
+                // Price and market-data hosts: refused unless a test points them at a stub.
+                ("YAHOO_FINANCE_BASE_URL", UNREACHABLE),
+                ("COINGECKO_BASE_URL", UNREACHABLE),
+                ("PRECIOUS_METALS_BASE_URL", UNREACHABLE),
+                ("OPENFIGI_BASE_URL", UNREACHABLE),
+                ("JUSTETF_BASE_URL", UNREACHABLE),
+                ("NASDAQ_BASE_URL", UNREACHABLE),
+                ("CEREMA_API_URL", UNREACHABLE),
+                ("INSEE_API_URL", UNREACHABLE),
+                ("GEOCODING_API_URL", UNREACHABLE),
             ]),
             seed_admin: false,
         }
