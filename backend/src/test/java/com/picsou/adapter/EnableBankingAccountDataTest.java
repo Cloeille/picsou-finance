@@ -1188,4 +1188,93 @@ class EnableBankingAccountDataTest {
                 tuple("uid-current", "120.00"),
                 tuple("uid-savings", "5000.00"));
     }
+
+    // ─── Card accounts (#664), synthetic Boursorama-like shapes ───────────────
+
+    @ParameterizedTest
+    @CsvSource({
+        "immediat_debit, Carte bancaire à débit immédiat, IMMEDIATE_DEBIT",
+        "DELAYED_DEBIT, Carte bancaire à débit différé, DEFERRED_DEBIT",
+        "monthly_card, Carte bancaire, ''"
+    })
+    void fetchBalances_cardResource_isACardNamedAfterTheHolderLabel(String token, String product, String nature) {
+        // A named ASPSP makes the balances account-scoped, as on the live Boursorama requisition.
+        responses.put("/sessions/session", """
+            {"accounts": ["uid-operations"], "aspsp": {"name": "Synthetic Bank", "country": "FR"}}
+            """);
+        responses.put("/accounts/uid-operations/details", """
+            {"account_id": {"iban": null, "other": {"identification": "SYNTHETIC-ID", "scheme_name": "BANK"}},
+             "name": "Carte Visa Synthetic Holder", "details": "%s", "product": "%s",
+             "cash_account_type": "CARD", "usage": "PRIV", "currency": "XXX"}
+            """.formatted(token, product));
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [
+              {"name": "Balance", "balance_type": "OTHR", "balance_amount": {"currency": "EUR", "amount": "-67.41"}},
+              {"name": "Balance temps réel", "balance_type": "XPCD",
+               "balance_amount": {"currency": "EUR", "amount": "-581.81"}}
+            ]}
+            """);
+
+        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
+            assertThat(account.type()).isEqualTo(com.picsou.model.AccountType.CREDIT_CARD);
+            assertThat(account.cardNature()).isEqualTo(
+                nature.isEmpty() ? null : com.picsou.model.CardNature.valueOf(nature));
+            assertThat(account.name()).isEqualTo("Carte Visa Synthetic Holder");
+            assertThat(account.legacyName()).isEqualTo(token);
+            assertThat(account.iban()).isNull();
+            assertThat(account.currency()).isEqualTo("EUR");
+            assertThat(account.balance()).isEqualByComparingTo("-581.81");
+        });
+    }
+
+    @Test
+    void fetchBalances_cardWithoutHolderLabel_fallsBackToProduct() {
+        responses.put("/accounts/uid-operations/details", """
+            {"name": " ", "details": "immediat_debit", "product": "Carte bancaire à débit immédiat",
+             "cash_account_type": "card"}
+            """);
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [{"name": "Balance", "balance_type": "OTHR",
+              "balance_amount": {"currency": "EUR", "amount": "0.00"}}]}
+            """);
+
+        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
+            assertThat(account.type()).isEqualTo(com.picsou.model.AccountType.CREDIT_CARD);
+            assertThat(account.name()).isEqualTo("Carte bancaire à débit immédiat");
+            assertThat(account.legacyName()).isEqualTo("immediat_debit");
+        });
+    }
+
+    @Test
+    void fetchBalances_currentAccount_keepsItsTypeAndNameOrder() {
+        responses.put("/accounts/uid-operations/details", """
+            {"account_id": {"iban": "FR00SYNTHETICCURRENT"}, "name": "Synthetic Holder", "details": "",
+             "product": "CAV - SYNTHETIC", "cash_account_type": "CACC", "currency": "EUR"}
+            """);
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [{"name": "Balance", "balance_type": "CLBD",
+              "balance_amount": {"currency": "EUR", "amount": "826.80"}}]}
+            """);
+
+        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
+            assertThat(account.type()).isEqualTo(com.picsou.model.AccountType.CHECKING);
+            assertThat(account.cardNature()).isNull();
+            assertThat(account.name()).isEqualTo("CAV - SYNTHETIC");
+            assertThat(account.legacyName()).isNull();
+        });
+    }
+
+    @Test
+    void fetchBalances_noCurrencyCode_isNeverStored() {
+        responses.put("/accounts/uid-operations/details", """
+            {"name": "Synthetic card", "cash_account_type": "CARD", "currency": "XXX"}
+            """);
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [{"name": "Balance", "balance_type": "OTHR",
+              "balance_amount": {"currency": "XXX", "amount": "0.00"}}]}
+            """);
+
+        assertThat(connector.fetchBalances("session")).singleElement()
+            .satisfies(account -> assertThat(account.currency()).isEqualTo("EUR"));
+    }
 }

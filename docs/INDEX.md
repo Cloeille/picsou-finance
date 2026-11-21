@@ -13,6 +13,7 @@
 ## Architecture
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) -- Overview, modules, data flows
+- [GLOSSARY.md](../GLOSSARY.md) -- Domain language (cards, card nature, settlement, current account)
 - The IEEE-style 1.0.0 documents (SRS, SDD, SDS, STP, user manual) live in the `1.0.0` git tag:
   `git show 1.0.0:docs/release/1.0.0/README.md`.
 

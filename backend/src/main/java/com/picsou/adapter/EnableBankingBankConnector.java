@@ -3,6 +3,8 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.picsou.config.EnableBankingConfigProvider;
 import com.picsou.exception.SyncException;
+import com.picsou.model.AccountType;
+import com.picsou.model.CardNature;
 import com.picsou.port.BankConnectorPort;
 import com.picsou.util.LogSanitizer;
 import io.jsonwebtoken.Jwts;
@@ -27,6 +29,7 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
@@ -57,6 +60,9 @@ public class EnableBankingBankConnector implements BankConnectorPort {
     private static final int MAX_CATEGORY_LENGTH = 100;
     /** {@code account.name} is VARCHAR(100). */
     private static final int MAX_ACCOUNT_NAME_LENGTH = 100;
+    /** ISO 20022 cash account type of a card account, as Enable Banking relays it. */
+    private static final String CARD_CASH_ACCOUNT_TYPE = "CARD";
+    private static final String NO_CURRENCY = "XXX";
     private static final List<String> BALANCE_TYPE_PRIORITY = List.of("CLBD", "XPCD", "ITBD", "ITAV", "CLAV");
 
     private final EnableBankingConfigProvider configProvider;
@@ -742,14 +748,41 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         var selected = selectBalance(accountId, response, ownership);
         AccountDetailsResponse details = response.details();
         BigDecimal balance = new BigDecimal(selected.balanceAmount().amount().trim());
-        String currency = firstNonBlank(selected.balanceAmount().currency(),
-            details != null ? details.currency() : null, "EUR");
-        String name = details != null
-            ? firstNonBlank(details.details(), details.product(), details.name(), "Account") : "Account";
+        String currency = firstNonBlank(realCurrency(selected.balanceAmount().currency()),
+            details != null ? realCurrency(details.currency()) : null, "EUR");
         String iban = details != null && details.accountId() != null
             ? firstNonBlank(details.accountId().iban()) : null;
+        if (details == null) {
+            return new AccountData(accountId, "Account", iban, currency, balance);
+        }
+        // Earlier releases named every account this way; a card gets its own order (see below).
+        String accountName = truncate(firstNonBlank(details.details(), details.product(), details.name(), "Account"),
+            MAX_ACCOUNT_NAME_LENGTH);
+        if (!CARD_CASH_ACCOUNT_TYPE.equalsIgnoreCase(nullToEmpty(details.cashAccountType()).trim())) {
+            return new AccountData(accountId, accountName, iban, currency, balance);
+        }
+        // A card's `details` is a technical token on some ASPSPs (Boursorama: `immediat_debit`), while
+        // `name` is the label the holder sees in the bank's app, e.g. the brand and holder.
+        String cardName = truncate(firstNonBlank(details.name(), details.product(), details.details(), "Card"),
+            MAX_ACCOUNT_NAME_LENGTH);
+        return new AccountData(accountId, cardName, iban, currency, balance, AccountType.CREDIT_CARD,
+            cardNatureOf(details.details()), accountName.equals(cardName) ? null : accountName);
+    }
 
-        return new AccountData(accountId, truncate(name, MAX_ACCOUNT_NAME_LENGTH), iban, currency, balance);
+    /** ISO 4217 {@code XXX} means "no currency" (Boursorama sends it on cards): treat it as absent. */
+    private static String realCurrency(String currency) {
+        String value = firstNonBlank(currency);
+        return value == null || NO_CURRENCY.equalsIgnoreCase(value) ? null : value;
+    }
+
+    /** Only the exact tokens seen on an ASPSP are mapped; a token we don't know leaves the nature unknown. */
+    private static CardNature cardNatureOf(String token) {
+        String value = nullToEmpty(token).trim().toLowerCase(Locale.ROOT);
+        return switch (value) {
+            case "immediat_debit" -> CardNature.IMMEDIATE_DEBIT;
+            case "delayed_debit" -> CardNature.DEFERRED_DEBIT;
+            default -> null;
+        };
     }
 
     private static BalancesResponse.BalanceItem selectBalance(String accountId, AccountBalanceCandidates response,
@@ -899,7 +932,8 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         String name,
         String details,
         String product,
-        String currency
+        String currency,
+        @com.fasterxml.jackson.annotation.JsonProperty("cash_account_type") String cashAccountType
     ) {
         @JsonIgnoreProperties(ignoreUnknown = true)
         record AccountIdentification(String iban) {}

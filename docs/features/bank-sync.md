@@ -94,10 +94,18 @@ Picsou now handles this with a two-pronged strategy:
 The adapter reads the IBAN from `account_id.iban`. The display name is the first
 nonblank value in `details`, `product`, and `name`, with `Account` as the fallback.
 `name` identifies the holder, so it is less useful than the account description.
+A card (`cash_account_type = CARD`) is the exception: its order is `name`, `product`,
+`details`, with `Card` as the fallback, because some ASPSPs put a technical token in a
+card's `details` (Boursorama: `immediat_debit`, `delayed_debit`) while `name` is the label
+the holder sees, which also tells apart two cards of one joint account (#664).
+A currency of `XXX` (ISO 4217 "no currency", sent by Boursorama on cards) counts as absent.
 After balance selection, the adapter truncates the display name to 100 characters
 to fit `account.name`. Balance matching always uses the full account description,
 so descriptions that share the first 100 characters remain distinct matching keys.
-Existing-account names remain unchanged on sync to preserve user edits. An existing
+Existing-account names remain unchanged on sync to preserve user edits, with one
+exception: a card whose stored name is still exactly the one the earlier order produced
+(`AccountData.legacyName`, e.g. `delayed_debit`) takes the card name, since the user never
+chose it. An existing
 generic `Account` label can be renamed in the account form. Balances and IBANs refresh
 through the usual upsert path, including currency-aware IBAN matching after a uid rotation.
 
@@ -314,9 +322,27 @@ Every public method of `EnableBankingBankConnector` maps **all** provider failur
 
 ### Account type detection
 
-`SyncService.detectType()` maps provider metadata (product name, cash account type) to the `AccountType` enum. Keywords like "pea", "lep", "livret", "titre" in the product string are matched case-insensitively. The `cashAccountType` field (e.g. "SVGS") is used as a fallback. Default is `CHECKING`.
+The connector reports the type in `AccountData.type`. Enable Banking maps only the ISO 20022
+`cash_account_type` `CARD` to `CREDIT_CARD`; every other value (`CACC`, `SVGS`, `LOAN`…) and
+every Powens account stay `CHECKING`. Mapping the other codes would retype accounts for every
+Enable Banking user and is a separate change. There is no `detectType()`: the dual-bank-providers
+ADR describes an earlier intent.
 
-> **Known gap (pre-existing, not addressed by the country picker above):** as of this writing, no `detectType()` method actually exists in `SyncService` — `upsertAccount()` hardcodes `AccountType.CHECKING` for every new account. This section (and the matching description in `docs/ARCHITECTURE.md` / the dual-bank-providers ADR) describes intended/previous behavior that doesn't currently match the code. Flagging it here since widening bank search to more countries makes correct type detection more relevant, not less — but fixing it is a separate task from this one.
+A card's nature comes from its `details` token, case-insensitive: `immediat_debit` is
+`IMMEDIATE_DEBIT`, `delayed_debit` is `DEFERRED_DEBIT`, anything else leaves it unknown. Enable
+Banking has no standard field for it.
+
+On an existing account, `SyncService.refreshCardIdentity()` turns a still-`CHECKING` account into a
+card when the bank says `CARD` and fills in an unknown card nature. A type or nature the user set
+is never changed. Accounts are never turned back from a card into `CHECKING`.
+
+Known gaps (#664 follow-ups):
+- **Immediate-debit purchases count twice in the budget.** Boursorama lists each purchase both on
+  the immediate-debit card and on the current account (observed: 177 of 178 rows). This predates
+  #664; typing the account as a card does not change it (#667).
+- **Deferred-debit cards** have no `paymentDueAmount` / `paymentDueDate`, no link to their current
+  account and no settlement tagging: Enable Banking says neither which account a card is debited
+  from nor when (#668). The card's balance is its `XPCD` balance (the real-time amount still owed).
 
 ### Key files
 
@@ -430,7 +456,7 @@ Because the text fields (Application ID + Redirect URI) live in Postgres while t
 - **OAuth `state` correlation**: each initiation stores a random single-use nonce on the requisition; the callback resolves the requisition by it (member derived from the row — this is what makes admin-impersonated connections complete correctly). See [ADR 2026-07-08](../decisions/2026-07-08-oauth-state-requisition-correlation.md).
 - **Session identifiers stay out of logs**: Enable Banking session ids are opaque references that still identify a long-lived PSD2 consent. Use the internal requisition id and institution name for log correlation; never print the raw session id.
 - **One bank-status query key**: bank-sync feature hooks own `syncKeys.banks()`, and every complete/retry/reconnect/delete mutation invalidates it. Components must use those hooks rather than introducing a parallel key such as `['sync', 'connections']`, or another sync surface can remain stale until its polling interval elapses.
-- **Type upgrade on resync**: If the user has not customized an account's type, `upsertAccount()` will upgrade it from CHECKING to the detected type on the next sync. Manual user changes are preserved (only CHECKING is auto-upgraded).
+- **Type upgrade on resync**: an account the bank reports as a card is upgraded from `CHECKING` to `CREDIT_CARD` on the next sync. Manual user changes are preserved (only `CHECKING` is upgraded), so an account the user set back to `CHECKING` by hand is upgraded again.
 - **Both providers are optional**: The app starts fine without either. No `BankConnectorPort` bean is required at startup.
 - **Enable Banking uid instability.** EB 0.16.4 changed the account uid derivation for ASPSPs that
   don't expose per-account currency. Picsou first matches the current uid, then uses currency-aware
@@ -452,7 +478,9 @@ Because the text fields (Application ID + Redirect URI) live in Postgres while t
 
 ## Tests
 
-- `SyncServiceTest` -- unit tests for type detection, upsert logic, retry flow, checkpoint ordering on fetch/upsert failures, and logo matching for both the current and the legacy institution id format
+- `SyncServiceCardAccountTest` -- a new card is created as one with its nature and name; an account imported as `CHECKING` becomes a card and loses its technical name; a type, nature or name the user chose is kept
+- `EnableBankingAccountDataTest` -- card resources (type, nature per `details` token, name order, `legacyName`, `XXX` currency); a current account keeps its type and name order
+- `SyncServiceTest` -- unit tests for upsert logic, retry flow, checkpoint ordering on fetch/upsert failures, and logo matching for both the current and the legacy institution id format
 - `RequisitionLifecycleWriterTest` -- session/nonce transitions and `REQUIRES_NEW` propagation invariant
 - `AddAccountModal.test.tsx` -- the Pro badge shows for a business-only institution, and not for a retail one nor for an unrecognised PSU type
 - `EnableBankingConfigProviderTest` -- DB/env resolution precedence, and `keyId()` falling back to the Application ID vs honoring an explicitly-configured value

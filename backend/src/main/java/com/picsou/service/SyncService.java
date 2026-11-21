@@ -523,11 +523,13 @@ public class SyncService {
             // Also on the update path, so accounts that predate V76 and the ones its
             // name-matching backfill had to leave NULL get linked on their next sync.
             account.setRequisitionId(requisition.getId());
+            refreshCardIdentity(account, data);
         } else {
             account = Account.builder()
                 .member(member)
                 .name(data.name() != null ? data.name() : "Account")
-                .type(AccountType.CHECKING)
+                .type(data.type())
+                .cardNature(data.type() == AccountType.CREDIT_CARD ? data.cardNature() : null)
                 .provider(requisition.getInstitutionName())
                 .currency(currency)
                 .currentBalance(data.balance())
@@ -550,6 +552,27 @@ public class SyncService {
         bankTransactionImportService.importFor(account, sessionId);
 
         return Optional.of(accountService.toResponse(account));
+    }
+
+    /**
+     * Brings an account synced before the provider's card type was read up to date (#664), without
+     * overriding what the user chose: only a still-{@code CHECKING} account becomes a card, a card
+     * nature is only filled in when unknown, and only a name still equal to the one an earlier
+     * release generated is replaced.
+     */
+    private static void refreshCardIdentity(Account account, BankConnectorPort.AccountData data) {
+        if (data.type() != AccountType.CREDIT_CARD) {
+            return;
+        }
+        if (account.getType() == AccountType.CHECKING) {
+            account.setType(AccountType.CREDIT_CARD);
+        }
+        if (account.getType() == AccountType.CREDIT_CARD && account.getCardNature() == null) {
+            account.setCardNature(data.cardNature());
+        }
+        if (data.legacyName() != null && data.legacyName().equals(account.getName())) {
+            account.setName(data.name());
+        }
     }
 
     /**
