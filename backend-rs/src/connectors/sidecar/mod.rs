@@ -6,6 +6,7 @@ pub mod client;
 pub mod error;
 pub mod flow;
 pub mod jobs;
+pub mod keypad;
 pub mod pending;
 pub mod plans;
 pub mod portfolio;

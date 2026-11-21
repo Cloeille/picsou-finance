@@ -341,6 +341,56 @@ pub trait ScpiFunds: Send + Sync {
     ) -> AppResult<usize>;
 }
 
+/// SavingsAutoConfigService.configureIfMissing (savings track, track T4): the default interest
+/// configuration of a regulated livret a bank sync imported, written in the sync's transaction.
+#[async_trait]
+pub trait SavingsAutoConfig: Send + Sync {
+    /// Whether a configuration was created; one the user saved is never overwritten.
+    async fn configure_if_missing(
+        &self,
+        conn: &mut PgConnection,
+        account_id: i64,
+        account_type: AccountType,
+    ) -> sqlx::Result<bool>;
+}
+
+/// SavingsAutoConfigService itself: the legal product, rate (RegulatedRates, NET) and ceiling of
+/// a Livret A, LDDS or LEP; every other type stays manual.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct RegulatedSavingsDefaults;
+
+#[async_trait]
+impl SavingsAutoConfig for RegulatedSavingsDefaults {
+    async fn configure_if_missing(
+        &self,
+        conn: &mut PgConnection,
+        account_id: i64,
+        account_type: AccountType,
+    ) -> sqlx::Result<bool> {
+        let (product, rate, ceiling) = match account_type {
+            AccountType::LivretA => ("LIVRET_A", "2.40", "22950.00"),
+            AccountType::Ldds => ("LDDS", "2.40", "12000.00"),
+            AccountType::Lep => ("LEP", "3.50", "10000.00"),
+            _ => return Ok(false),
+        };
+        let decimal = |v: &str| v.parse::<Decimal>().expect("regulated rate literal");
+        // ON CONFLICT, not insert-and-catch: a violation would abort the sync's transaction.
+        let inserted = sqlx::query(
+            "INSERT INTO savings_interest_config (account_id, product, annual_rate, rate_basis, ceiling) \
+             VALUES ($1, CAST($2 AS savings_product), $3, CAST('NET' AS rate_basis), $4) \
+             ON CONFLICT (account_id) DO NOTHING",
+        )
+        .bind(account_id)
+        .bind(product)
+        .bind(decimal(rate))
+        .bind(decimal(ceiling))
+        .execute(conn)
+        .await?
+        .rows_affected();
+        Ok(inserted > 0)
+    }
+}
+
 /// The connectors' plug-in points, held by state.connectors.seams.
 pub struct Seams {
     pub isin: Arc<dyn IsinResolver>,
@@ -352,6 +402,7 @@ pub struct Seams {
     pub scpi_funds: Arc<dyn ScpiFunds>,
     /// SyncProgressService of the Revolut discovery (RevolutController).
     pub revolut_progress: Arc<crate::connectors::revolut::RevolutProgress>,
+    pub savings: Arc<dyn SavingsAutoConfig>,
 }
 
 impl Seams {
@@ -365,6 +416,7 @@ impl Seams {
             bank_logos: Arc::new(NoBankLogos),
             scpi_funds: Arc::new(super::corum::scpi_funds::RecordedScpiFunds),
             revolut_progress: Arc::default(),
+            savings: Arc::new(RegulatedSavingsDefaults),
         }
     }
 }

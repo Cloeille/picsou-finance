@@ -1,6 +1,7 @@
 //! The sync executors: one bounded queue per bank (SyncExecutorConfig), and a count of the jobs
 //! still running so a caller (a test, a shutdown) can wait for them.
 
+use std::any::Any;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -39,6 +40,7 @@ pub struct Jobs {
     executors: Mutex<HashMap<&'static str, Arc<Executor>>>,
     running: Arc<AtomicUsize>,
     idle: Arc<Notify>,
+    locals: Mutex<HashMap<&'static str, Arc<dyn Any + Send + Sync>>>,
 }
 
 struct Running {
@@ -96,6 +98,20 @@ impl Jobs {
             job.await;
         });
         Ok(())
+    }
+
+    /// Process-local state a connector keeps beside its jobs (logins waiting for their second
+    /// factor), one value per name, created on first use. Like the executors it lives as long as
+    /// the app: a restart forgets it, as Java's in-memory maps.
+    pub fn local<T: Default + Send + Sync + 'static>(&self, name: &'static str) -> Arc<T> {
+        self.locals
+            .lock()
+            .expect("local state registry")
+            .entry(name)
+            .or_insert_with(|| Arc::new(T::default()))
+            .clone()
+            .downcast::<T>()
+            .unwrap_or_else(|_| panic!("local state {name} holds another type"))
     }
 
     /// Resolves once no submitted job is queued or running.
