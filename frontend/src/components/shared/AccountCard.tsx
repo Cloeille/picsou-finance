@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMoney } from '@/hooks/use-money'
 import { Warning } from '@phosphor-icons/react'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import type { Account, PropertyKind } from '@/types/api'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { AccountTypeBadge } from '@/components/shared/AccountTypeBadge'
@@ -27,6 +27,8 @@ interface AccountCardProps {
   account: Account
   /** A closed peer loan: still in the list under Receivables, but no longer active. */
   closed?: boolean
+  /** Optional in-flow action bar (e.g. reorder/collapse controls), never overlapping the header. */
+  footer?: ReactNode
   onClick?: () => void
 }
 
@@ -83,7 +85,7 @@ function PropertyAvatar({ kind, color }: { kind: PropertyKind; color: string }) 
   )
 }
 
-export function AccountCard({ account, closed = false, onClick }: AccountCardProps) {
+export function AccountCard({ account, closed = false, footer, onClick }: AccountCardProps) {
   const { t } = useTranslation()
   const money = useMoney()
   const institutionLogoUrl = useInstitutionLogoUrl()
@@ -132,10 +134,10 @@ export function AccountCard({ account, closed = false, onClick }: AccountCardPro
 
   return (
     <Card
-      className={`cursor-pointer transition-colors hover:bg-muted/20 ${closed ? 'opacity-70' : ''}`}
+      className={`h-full cursor-pointer transition-colors hover:bg-muted/20 ${closed ? 'opacity-70' : ''}`}
       onClick={onClick}
     >
-      <CardContent className="flex items-start gap-3">
+      <CardContent className="flex flex-1 items-start gap-3">
         {propertyKind ? (
           <PropertyAvatar kind={propertyKind} color={account.color} />
         ) : (
@@ -195,6 +197,14 @@ export function AccountCard({ account, closed = false, onClick }: AccountCardPro
           )}
         </div>
       </CardContent>
+      {footer && (
+        <CardFooter
+          className="justify-end gap-1 border-t border-border/60 pt-3"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {footer}
+        </CardFooter>
+      )}
     </Card>
   )
 }

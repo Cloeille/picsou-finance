@@ -42,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Profile photo upload now works under the production CSP.** `resizeProfilePhoto` read uploaded images via a `blob:` URL (`URL.createObjectURL`), which Spring Boot's production `Content-Security-Policy` (`img-src 'self' data: https:`) blocked — causing valid PNG, JPEG and WebP files to fail with an "invalid image" error. It now reads files through `FileReader.readAsDataURL` so uploads comply with the strict CSP without weakening it.
+- **Account reorder controls no longer overlap account type badges.** In `/accounts` reorder mode ("Réorganiser"), the move-up, move-down and collapse buttons floated over the top-right corner of each card and collided with badges like "Compte titres" or "Compte courant". They now sit inside an in-flow hairline `CardFooter` bar at the bottom of `AccountCard`, keeping titles, badges and card heights cleanly aligned across the grid.
 - **Trade Republic bonds are valued correctly again.** Bonds listed under Trade Republic's
   `bonds` category were not detected as bonds, and the nominal currency was not read, so their price
   could be off by a factor of 100 or left empty. A Polish IKE wrapper now syncs as a brokerage account
