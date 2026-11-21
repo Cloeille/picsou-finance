@@ -1,4 +1,4 @@
-import { BriefcaseBusiness } from "lucide-react"
+import { Briefcase } from '@phosphor-icons/react'
 import { SidecarSessionPanel } from "@/components/sync/SidecarSessionPanel"
 
 interface BourseDirectPanelProps {
@@ -11,7 +11,7 @@ export function BourseDirectPanel({ onConnected }: BourseDirectPanelProps = {}) 
       provider="bourseDirect"
       translationPrefix="sync.bourseDirect"
       fieldIdPrefix="bourse-direct"
-      loginIcon={BriefcaseBusiness}
+      loginIcon={Briefcase}
       onConnected={onConnected}
     />
   )

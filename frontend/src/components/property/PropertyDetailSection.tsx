@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Pencil } from 'lucide-react'
+import { PencilSimple } from '@phosphor-icons/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
@@ -85,7 +85,7 @@ export function PropertyDetailSection({ account }: PropertyDetailSectionProps) {
           <CardTitle className="text-base">{t('property.details.title')}</CardTitle>
           {isOwner && (
             <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-              <Pencil className="size-4" />
+              <PencilSimple className="size-4" />
               {t('common.edit')}
             </Button>
           )}

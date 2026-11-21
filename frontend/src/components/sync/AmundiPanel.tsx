@@ -1,4 +1,4 @@
-import { PiggyBank } from "lucide-react"
+import { PiggyBank } from '@phosphor-icons/react'
 import { SidecarSessionPanel } from "@/components/sync/SidecarSessionPanel"
 
 interface AmundiPanelProps {

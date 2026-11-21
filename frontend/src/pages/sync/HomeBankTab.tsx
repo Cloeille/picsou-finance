@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
-import { CheckCircle2, Loader2, Upload, X } from 'lucide-react'
+import { CheckCircle, CircleNotch, UploadSimple, X } from '@phosphor-icons/react'
 import { useImportHomeBank, usePreviewHomeBank } from '@/features/homebank/hooks'
 import type { HomeBankAccountMapping, HomeBankCategoryMapping, HomeBankCategoryPreview, HomeBankPreviewResponse } from '@/features/homebank/types'
 import type { AccountType } from '@/types/api'
@@ -158,13 +158,13 @@ export function HomeBankTab() {
         <div className={`flex flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed p-10 text-center ${dragOver ? 'border-primary bg-primary/5' : 'border-muted-foreground/25'}`}
           onDragOver={event => { event.preventDefault(); setDragOver(true) }} onDragLeave={() => setDragOver(false)}
           onDrop={event => { event.preventDefault(); setDragOver(false); if (!busy) selectFile(event.dataTransfer.files[0]) }}>
-          <Upload className="size-6 text-muted-foreground" /><div><p className="font-medium">{t('sync.homebank.upload')}</p><p className="mt-1 text-sm text-muted-foreground">{t('sync.homebank.uploadHint')}</p></div>
-          <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={busy}><Upload />{t('sync.homebank.chooseFile')}</Button>
+          <UploadSimple className="size-6 text-muted-foreground" /><div><p className="font-medium">{t('sync.homebank.upload')}</p><p className="mt-1 text-sm text-muted-foreground">{t('sync.homebank.uploadHint')}</p></div>
+          <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={busy}><UploadSimple />{t('sync.homebank.chooseFile')}</Button>
           <input ref={fileInputRef} aria-label={t('sync.homebank.file')} type="file" accept=".hbk,.hbexport,.qif" className="hidden" disabled={busy} onChange={event => selectFile(event.target.files?.[0])} />
         </div>
         {file && <p className="text-sm text-muted-foreground">{file.name}</p>}
         {isQif ? <><div className="space-y-2"><Label htmlFor="homebank-currency">{t('sync.homebank.currency')}</Label><Input id="homebank-currency" aria-label={t('sync.homebank.currency')} required maxLength={3} autoComplete="off" placeholder={t('sync.homebank.currencyPlaceholder')} value={currency} onChange={event => setCurrency(event.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3))} /></div><p className="rounded-lg bg-muted px-4 py-3 text-sm text-muted-foreground">{t('sync.homebank.qifLimitations')}</p></> : <div className="space-y-2"><Label htmlFor="homebank-password">{t('sync.homebank.password')}</Label><Input id="homebank-password" type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /></div>}
-        <Button className="w-full" onClick={handlePreview} disabled={!file || busy || (isQif && !qifCurrencyValid)}>{previewMutation.isPending && <Loader2 className="size-4 animate-spin" />}{t('sync.homebank.preview')}</Button>
+        <Button className="w-full" onClick={handlePreview} disabled={!file || busy || (isQif && !qifCurrencyValid)}>{previewMutation.isPending && <CircleNotch className="size-4 animate-spin" />}{t('sync.homebank.preview')}</Button>
       </div>}
 
       {preview && !result && <div className="space-y-5">
@@ -194,7 +194,7 @@ export function HomeBankTab() {
         <section className="space-y-3"><h3 className="font-semibold">{t('sync.homebank.sampleTransactions')}</h3>{preview.sampleTransactions.map(transaction => <Card key={transaction.sourceId} size="sm"><CardContent className="grid gap-1 pt-0 sm:grid-cols-[1fr_auto]"><div><p className="font-medium">{transaction.payee || t('sync.homebank.noPayee')}</p>{transaction.notes && <p className="text-sm text-muted-foreground">{transaction.notes}</p>}<p className="text-xs text-muted-foreground">{formatDate(transaction.date)} · {transaction.currency}{transaction.transfer ? ` · ${t('sync.homebank.transfer')}` : ''}</p></div><p className="text-sm sm:text-right">{money.amount(transaction.amount, transaction.currency)}</p></CardContent></Card>)}</section>
       </div>}
 
-      {result && <div className="mx-auto max-w-lg space-y-5"><div className="grid grid-cols-2 gap-3">{(['accountsCreated', 'accountsMapped', 'accountsSkipped', 'categoriesCreated', 'transactionsImported', 'transactionsSkipped'] as const).map(key => <div key={key} className="rounded-xl bg-muted/50 p-4 text-center"><p className="text-2xl font-semibold">{result[key]}</p><p className="mt-1 text-sm text-muted-foreground">{t(`sync.homebank.${key}`)}</p></div>)}</div><div className="flex justify-center"><Button onClick={resetWizard}><CheckCircle2 />{t('sync.homebank.done')}</Button></div></div>}
+      {result && <div className="mx-auto max-w-lg space-y-5"><div className="grid grid-cols-2 gap-3">{(['accountsCreated', 'accountsMapped', 'accountsSkipped', 'categoriesCreated', 'transactionsImported', 'transactionsSkipped'] as const).map(key => <div key={key} className="rounded-xl bg-muted/50 p-4 text-center"><p className="text-2xl font-semibold">{result[key]}</p><p className="mt-1 text-sm text-muted-foreground">{t(`sync.homebank.${key}`)}</p></div>)}</div><div className="flex justify-center"><Button onClick={resetWizard}><CheckCircle />{t('sync.homebank.done')}</Button></div></div>}
 
       <ConfirmDialog open={confirmOpen} onOpenChange={setConfirmOpen} title={t('sync.homebank.confirmTitle')} description={t('sync.homebank.confirmDescription')} confirmLabel={t('common.confirm')} onConfirm={executeImport} loading={importMutation.isPending} variant="default" />
     </div>

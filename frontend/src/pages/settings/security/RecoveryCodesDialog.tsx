@@ -11,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Loader2 } from 'lucide-react'
+import { CircleNotch } from '@phosphor-icons/react'
 import { useRegenerateRecoveryCodes } from '@/features/mfa/hooks'
 import { RecoveryCodesView } from './RecoveryCodesView'
 import { formatApiError, safeBackendMessage, getErrorStatus } from '@/lib/errors'
@@ -103,7 +103,7 @@ export function RecoveryCodesDialog({
                 {t('settings.mfaCancel')}
               </Button>
               <Button type="submit" disabled={regenerate.isPending || code.length !== 6}>
-                {regenerate.isPending && <Loader2 size={14} className=".5 animate-spin" />}
+                {regenerate.isPending && <CircleNotch size={14} className=".5 animate-spin" />}
                 {t('settings.mfaRegenerate')}
               </Button>
             </DialogFooter>

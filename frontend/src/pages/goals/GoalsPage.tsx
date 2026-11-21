@@ -31,16 +31,22 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
   Target,
   Plus,
-  Pencil,
-  Trash2,
-  Calendar,
-  ChevronDown,
-  Loader2,
-  TrendingUp,
-  TrendingDown,
-} from 'lucide-react'
+  PencilSimple,
+  Trash,
+  DotsThree,
+  CaretDown,
+  CircleNotch,
+  TrendUp,
+  TrendDown,
+} from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import type { GoalProgress, GoalType } from '@/types/api'
 
@@ -220,15 +226,12 @@ export function GoalsPage() {
       ) : (
         <div className="flex flex-col gap-8">
           {savingsTargets.length > 0 && (
-            <section className="flex flex-col gap-4">
+            <section className="flex flex-col gap-3">
               <h2 className="text-sm text-muted-foreground">{t('goals.sections.savings')}</h2>
               {savingsTargets.map((goal) => (
                 <GoalCard
                   key={goal.id}
                   goal={goal}
-                  onEdit={() => openEdit(goal)}
-                  onDelete={() => setDeleteId(goal.id)}
-                  onCalendar={() => navigate(`/goals/${goal.id}/calendar`)}
                   onOpenDetail={() => setDetailGoalId(goal.id)}
                 />
               ))}
@@ -236,7 +239,7 @@ export function GoalsPage() {
           )}
 
           {recurringPlans.length > 0 && (
-            <section className="flex flex-col gap-4">
+            <section className="flex flex-col gap-3">
               <h2 className="text-sm text-muted-foreground">{t('goals.sections.recurring')}</h2>
               <SavingsRateCard
                 plans={recurringPlans}
@@ -261,6 +264,33 @@ export function GoalsPage() {
       <GoalDetailModal
         goalId={detailGoalId}
         onClose={() => setDetailGoalId(null)}
+        onEdit={
+          detailGoalId != null
+            ? () => {
+                const target = goalList.find((g) => g.id === detailGoalId)
+                setDetailGoalId(null)
+                if (target) openEdit(target)
+              }
+            : undefined
+        }
+        onCalendar={
+          detailGoalId != null
+            ? () => {
+                const id = detailGoalId
+                setDetailGoalId(null)
+                navigate(`/goals/${id}/calendar`)
+              }
+            : undefined
+        }
+        onDelete={
+          detailGoalId != null
+            ? () => {
+                const id = detailGoalId
+                setDetailGoalId(null)
+                setDeleteId(id)
+              }
+            : undefined
+        }
       />
 
       {/* Create / Edit dialog */}
@@ -420,7 +450,7 @@ export function GoalsPage() {
                 }
               >
                 {(createGoal.isPending || updateGoal.isPending) && (
-                  <Loader2
+                  <CircleNotch
                     className="size-4 animate-spin" />
                 )}
                 {t('common.save')}
@@ -470,8 +500,8 @@ function RecurringPlanCard({
   const unallocated = monthlyAmount - allocated
 
   return (
-    <Card>
-      <CardContent className="flex flex-col gap-3 py-4">
+    <Card className="py-3.5">
+      <CardContent className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-2">
             {detailed && (
@@ -482,14 +512,14 @@ function RecurringPlanCard({
                 aria-expanded={open}
                 aria-label={t('goals.allocation.toggle')}
               >
-                <ChevronDown
+                <CaretDown
                   className={cn('size-4 transition-transform', open && 'rotate-180')}
                 />
               </Button>
             )}
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="truncate text-foreground">{goal.name}</span>
+                <span className="truncate font-medium text-foreground">{goal.name}</span>
                 {account && <Badge variant="secondary">{account.name}</Badge>}
                 {goal.endDate && (
                   <Badge variant="outline">
@@ -503,21 +533,38 @@ function RecurringPlanCard({
             </div>
           </div>
 
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4">
             <div className="text-right">
               <p className="mb-0.5 text-xs text-muted-foreground">{t('goals.monthlyAmount')}</p>
-              <p className="text-sm font-semibold">
+              <p className="text-sm font-semibold tabular-nums">
                 <CurrencyDisplay value={monthlyAmount} />
               </p>
             </div>
-            <div className="flex gap-1">
-              <Button variant="ghost" size="icon" onClick={onEdit} aria-label={t('common.edit')}>
-                <Pencil className="size-4" />
-              </Button>
-              <Button variant="ghost" size="icon" onClick={onDelete} aria-label={t('common.delete')}>
-                <Trash2 className="size-4" />
-              </Button>
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 text-muted-foreground hover:text-foreground"
+                  aria-label={t('common.edit')}
+                >
+                  <DotsThree className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={onEdit}>
+                  <PencilSimple className="size-4" aria-hidden="true" />
+                  {t('common.edit')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onSelect={onDelete}
+                >
+                  <Trash className="size-4" aria-hidden="true" />
+                  {t('common.delete')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -555,20 +602,17 @@ function RecurringPlanCard({
 
 interface GoalCardProps {
   goal: GoalProgress
-  onEdit: () => void
-  onDelete: () => void
-  onCalendar: () => void
   onOpenDetail: () => void
 }
 
-function GoalCard({ goal, onEdit, onDelete, onCalendar, onOpenDetail }: GoalCardProps) {
+function GoalCard({ goal, onOpenDetail }: GoalCardProps) {
   const { t } = useTranslation()
 
   const statusBadge = (() => {
     if ((goal.monthlyNeeded ?? 0) <= 0) {
       return (
         <Badge className="gap-1">
-          <TrendingUp className="size-3" />
+          <TrendUp className="size-3" />
           {t('goals.achieved')}
         </Badge>
       )
@@ -583,14 +627,14 @@ function GoalCard({ goal, onEdit, onDelete, onCalendar, onOpenDetail }: GoalCard
     if (goal.isOnTrack) {
       return (
         <Badge className="gap-1">
-          <TrendingUp className="size-3" />
+          <TrendUp className="size-3" />
           {t('goals.onTrack')}
         </Badge>
       )
     }
     return (
       <Badge variant="destructive" className="gap-1">
-        <TrendingDown className="size-3" />
+        <TrendDown className="size-3" />
         {t('goals.behind')}
       </Badge>
     )
@@ -598,35 +642,24 @@ function GoalCard({ goal, onEdit, onDelete, onCalendar, onOpenDetail }: GoalCard
 
   return (
     <Card
-      className="cursor-pointer transition-colors hover:bg-accent/50"
+      role="button"
+      tabIndex={0}
+      className="cursor-pointer py-4 transition-colors hover:border-foreground/20 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       onClick={onOpenDetail}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onOpenDetail()
+        }
+      }}
     >
-      <CardContent className="p-4">
-        {/* Header: name + status + actions */}
-        <div className="flex items-start justify-between gap-2 mb-3">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="cn-font-heading line-clamp-2 break-words text-sm font-semibold text-foreground">
-              {goal.name}
-            </span>
-            {statusBadge}
-          </div>
-          <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-            <Button variant="ghost" size="icon" onClick={onEdit} aria-label={t('common.edit')}>
-              <Pencil className="size-4" />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={onCalendar} aria-label={t('goals.viewCalendar')}>
-              <Calendar className="size-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-muted-foreground hover:text-destructive"
-              onClick={onDelete}
-              aria-label={t('goals.deleteGoal')}
-            >
-              <Trash2 className="size-4" />
-            </Button>
-          </div>
+      <CardContent>
+        {/* Header: name + status */}
+        <div className="mb-2.5 flex items-center justify-between gap-2">
+          <span className="cn-font-heading line-clamp-2 break-words text-sm font-semibold text-foreground">
+            {goal.name}
+          </span>
+          {statusBadge}
         </div>
 
         {/* Current total */}
@@ -638,7 +671,7 @@ function GoalCard({ goal, onEdit, onDelete, onCalendar, onOpenDetail }: GoalCard
         {/* Progress bar */}
         <Progress
           value={goal.percentComplete}
-          className="h-2.5 mt-3 [&_[data-slot=progress-indicator]]:bg-emerald-500"
+          className="mt-3 [&_[data-slot=progress-indicator]]:bg-emerald-500"
         />
 
         {/* Footer: percent + target */}

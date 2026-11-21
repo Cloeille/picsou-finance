@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { BankCountrySelect, DEFAULT_BANK_COUNTRY } from '@/components/shared/BankCountrySelect'
-import { Landmark, Loader2, Search } from 'lucide-react'
+import { Bank, CircleNotch, MagnifyingGlass } from '@phosphor-icons/react'
 import { extractErrorMessage, formatApiError } from '@/lib/errors'
 import { useSearchInstitutions } from '@/features/sync/hooks'
 
@@ -23,7 +23,7 @@ function InstitutionLogo({ logoUrl }: { logoUrl?: string | null }) {
     <Avatar className="size-4 shrink-0 rounded-sm after:rounded-sm">
       {logoUrl && <AvatarImage src={logoUrl} alt="" className="rounded-sm object-contain" />}
       <AvatarFallback className="rounded-sm bg-transparent">
-        <Landmark className="size-4 text-muted-foreground" />
+        <Bank className="size-4 text-muted-foreground" />
       </AvatarFallback>
     </Avatar>
   )
@@ -80,9 +80,9 @@ export function InstitutionSearch({ onConnect, connecting, layout }: Institution
     }
     return (
       <Card key={inst.id} size="sm">
-        <CardContent className="grid grid-cols-[minmax(0,1fr)_2.5rem_auto] items-center gap-4 py-2">
+        <CardContent className="grid grid-cols-[minmax(0,1fr)_2.5rem_auto] items-center gap-4">
           <div className="flex min-w-0 items-center gap-3">
-            <Landmark className="size-5 shrink-0 text-muted-foreground" />
+            <Bank className="size-5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 text-sm font-medium leading-5">{inst.name}</span>
             {proBadge}
           </div>
@@ -98,7 +98,7 @@ export function InstitutionSearch({ onConnect, connecting, layout }: Institution
       {!modal && <label className="text-sm font-medium">{t('sync.banks.search')}</label>}
       <div className="flex items-start gap-2">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <MagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
           <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -113,7 +113,7 @@ export function InstitutionSearch({ onConnect, connecting, layout }: Institution
       {searchLoading && (
         modal ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
+            <CircleNotch className="size-4 animate-spin" />
             {t('common.loading')}
           </div>
         ) : (

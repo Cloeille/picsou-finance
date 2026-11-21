@@ -9,7 +9,7 @@ import { useTableSort, type SortColumns } from '@/hooks/use-table-sort'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { cn, formatPercent } from '@/lib/utils'
-import { Pencil, Trash2 } from 'lucide-react'
+import { PencilSimple, Trash } from '@phosphor-icons/react'
 import {
   Table,
   TableBody,
@@ -118,7 +118,7 @@ export function HoldingsTable({ holdings, onEdit, onDelete }: HoldingsTableProps
                           className="text-muted-foreground hover:text-foreground"
                           onClick={() => onEdit(h)}
                         >
-                          <Pencil className="size-4" />
+                          <PencilSimple className="size-4" />
                         </Button>
                       )}
                       {onDelete && (
@@ -128,7 +128,7 @@ export function HoldingsTable({ holdings, onEdit, onDelete }: HoldingsTableProps
                           className="text-muted-foreground hover:text-destructive"
                           onClick={() => onDelete(h)}
                         >
-                          <Trash2 className="size-4" />
+                          <Trash className="size-4" />
                         </Button>
                       )}
                     </div>

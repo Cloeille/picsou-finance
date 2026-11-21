@@ -28,7 +28,20 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Plus, Wallet, TrendingUp, TrendingDown, Download, Eye, EyeOff, ChevronUp, ChevronDown, ArrowUpDown, Check, PiggyBank } from 'lucide-react'
+import {
+  Plus,
+  Wallet,
+  TrendUp,
+  TrendDown,
+  DownloadSimple,
+  Eye,
+  EyeSlash,
+  CaretUp,
+  CaretDown,
+  ArrowsDownUp,
+  Check,
+  PiggyBank,
+} from '@phosphor-icons/react'
 import { cn, formatPercent } from '@/lib/utils'
 import { HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES } from '@/lib/constants'
 import { accountInvestedAt, accountPnlAt, hasMeasurableGain } from '@/features/accounts/pnl'
@@ -100,7 +113,7 @@ function PocketCard({ account, onClick }: { account: Account; onClick?: () => vo
       className="cursor-pointer transition-shadow hover:shadow-md"
       onClick={onClick}
     >
-      <CardContent className="flex items-start gap-3 p-3 sm:p-4">
+      <CardContent className="flex items-start gap-3">
         <div
           className="mt-1 h-8 w-1 shrink-0 rounded-full"
           style={{ backgroundColor: account.color }}
@@ -450,7 +463,7 @@ export function AccountsPage() {
                 variant="outline"
                 disabled={!accounts || accounts.length === 0}
               >
-                <Download className="size-4" />
+                <DownloadSimple className="size-4" />
                 {t('accounts.export.button')}
               </Button>
             )}
@@ -465,7 +478,7 @@ export function AccountsPage() {
                 variant={reorderActive ? 'secondary' : 'outline'}
                 aria-pressed={reorderActive}
               >
-                <ArrowUpDown className="size-4" />
+                <ArrowsDownUp className="size-4" />
                 {t(reorderActive ? 'accounts.doneReordering' : 'accounts.reorder')}
               </Button>
             )}
@@ -492,7 +505,7 @@ export function AccountsPage() {
                 variant={showClosed ? 'default' : 'outline'}
                 aria-pressed={showClosed}
               >
-                {showClosed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                {showClosed ? <EyeSlash className="size-4" /> : <Eye className="size-4" />}
                 {t(showClosed ? 'accounts.hideClosedLoans' : 'accounts.showClosedLoans')}
               </Button>
             )}
@@ -569,7 +582,7 @@ export function AccountsPage() {
                           ? t(`accounts.filters.${filter}`)
                           : t('accounts.filters.more')}
                       </span>
-                      <ChevronDown className="size-3.5 opacity-75" />
+                      <CaretDown className="size-3.5 opacity-75" />
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="min-w-44">
@@ -617,10 +630,14 @@ export function AccountsPage() {
               <CardTitle>{t('accounts.total')}</CardTitle>
               <CurrencyDisplay value={totalBalance} className="text-4xl font-bold" />
               {hasPnl && pnl !== null && totalInvested !== null && totalInvested > 0 && (
-                <div className="mt-3 flex items-center gap-2">
+                <div
+                  className="mt-3 flex items-center gap-2"
+                  data-testid="portfolio-performance"
+                  aria-label={t('dashboard.portfolioPerformance')}
+                >
                   {pnlPositive
-                    ? <TrendingUp className="text-emerald-500" size={18} />
-                    : <TrendingDown className="text-red-500" size={18} />}
+                    ? <TrendUp className="text-emerald-500" size={18} />
+                    : <TrendDown className="text-red-500" size={18} />}
                   <span className={`text-sm font-medium ${pnlPositive ? 'text-emerald-500' : 'text-red-500'}`}>
                     <CurrencyDisplay value={pnl} showSign />
                     {pnlPct !== null && (
@@ -629,7 +646,6 @@ export function AccountsPage() {
                       </span>
                     )}
                   </span>
-                  <span className="text-sm text-muted-foreground">{t('dashboard.portfolioPerformance')}</span>
                 </div>
               )}
             </CardContent>
@@ -697,7 +713,7 @@ export function AccountsPage() {
                         moveWalletGroup(wIndex, -1)
                       }}
                     >
-                      <ChevronUp className="size-3.5" />
+                      <CaretUp className="size-3.5" />
                     </Button>
                     <Button
                       variant="ghost"
@@ -710,7 +726,7 @@ export function AccountsPage() {
                         moveWalletGroup(wIndex, 1)
                       }}
                     >
-                      <ChevronDown className="size-3.5" />
+                      <CaretDown className="size-3.5" />
                     </Button>
                     <Button
                       variant="ghost"
@@ -724,7 +740,7 @@ export function AccountsPage() {
                         setListCollapsed.mutate({ id: wallet.id, collapsed: !wallet.listCollapsed })
                       }}
                     >
-                      {wallet.listCollapsed ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                      {wallet.listCollapsed ? <EyeSlash className="size-3.5" /> : <Eye className="size-3.5" />}
                     </Button>
                   </div>
                 )}
@@ -771,7 +787,7 @@ export function AccountsPage() {
                           moveStandalone(sIndex, -1)
                         }}
                       >
-                        <ChevronUp className="size-3.5" />
+                        <CaretUp className="size-3.5" />
                       </Button>
                       <Button
                         variant="ghost"
@@ -784,7 +800,7 @@ export function AccountsPage() {
                           moveStandalone(sIndex, 1)
                         }}
                       >
-                        <ChevronDown className="size-3.5" />
+                        <CaretDown className="size-3.5" />
                       </Button>
                       <Button
                         variant="ghost"
@@ -798,7 +814,7 @@ export function AccountsPage() {
                           setListCollapsed.mutate({ id: account.id, collapsed: !account.listCollapsed })
                         }}
                       >
-                        {account.listCollapsed ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                        {account.listCollapsed ? <EyeSlash className="size-3.5" /> : <Eye className="size-3.5" />}
                       </Button>
                     </div>
                   )}
@@ -809,9 +825,9 @@ export function AccountsPage() {
 
           {/* Collapsed recap: hidden cards stay counted in every total and chart */}
           {filter === 'ALL' && !reorderActive && collapsedCount > 0 && (
-            <Card>
-              <CardContent className="flex flex-wrap items-center gap-x-3 gap-y-1 py-3 text-sm">
-                <EyeOff className="size-4 text-muted-foreground" />
+            <Card size="sm">
+              <CardContent className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                <EyeSlash className="size-4 text-muted-foreground" />
                 <span className="font-medium">
                   {t('accounts.collapsedRecap', { count: collapsedCount })}
                 </span>

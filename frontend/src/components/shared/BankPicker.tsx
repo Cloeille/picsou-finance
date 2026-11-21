@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Landmark } from 'lucide-react'
+import { Bank } from '@phosphor-icons/react'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { BankCountrySelect, DEFAULT_BANK_COUNTRY } from '@/components/shared/BankCountrySelect'
@@ -77,7 +77,7 @@ export function BankPicker({ id, value, placeholder, onChange }: BankPickerProps
                     <AvatarImage src={institution.logoUrl} alt="" className="rounded-sm object-contain" />
                   )}
                   <AvatarFallback className="rounded-sm bg-transparent">
-                    <Landmark className="size-4 text-muted-foreground" />
+                    <Bank className="size-4 text-muted-foreground" />
                   </AvatarFallback>
                 </Avatar>
                 <span className="min-w-0 truncate">{institution.name}</span>

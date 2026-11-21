@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { CheckCircle2, CircleAlert, Info, Loader2, Zap } from 'lucide-react'
+import { CheckCircle, WarningCircle, Info, CircleNotch } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { EBSubstepShell } from './EBSubstepShell'
 import { useTestEnableBanking } from '@/features/setup/hooks'
@@ -68,11 +68,6 @@ export function EBStep5Test({ onBack }: Props) {
   return (
     <EBSubstepShell current={5} total={5}>
       <div className="space-y-6">
-        <div className="flex justify-center">
-          <span className="inline-flex size-10 items-center justify-center text-foreground">
-            <Zap className="h-6 w-6" />
-          </span>
-        </div>
         <div className="text-center space-y-2">
           <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight">
             {t('setup.enablebanking.test.title')}
@@ -104,14 +99,14 @@ export function EBStep5Test({ onBack }: Props) {
 
         {phase === 'running' && (
           <div className="flex flex-col items-center gap-2 py-6 text-muted-foreground">
-            <Loader2 className="h-6 w-6 animate-spin" />
+            <CircleNotch className="h-6 w-6 animate-spin" />
             <p className="text-sm">{t('setup.enablebanking.test.running')}</p>
           </div>
         )}
 
         {phase === 'ok' && (
           <div role="status" className="space-y-4 rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-6 text-center">
-            <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-500" />
+            <CheckCircle className="mx-auto h-10 w-10 text-emerald-500" />
             <p className="text-lg font-medium">{t('setup.enablebanking.test.success')}</p>
             <p className="text-sm text-muted-foreground">{t('setup.enablebanking.test.successBody')}</p>
             <Button
@@ -129,7 +124,7 @@ export function EBStep5Test({ onBack }: Props) {
             className="space-y-4 rounded-xl border border-destructive/40 bg-destructive/5 p-6"
           >
             <div className="flex items-start gap-3">
-              <CircleAlert className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+              <WarningCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
               <p className="text-sm text-destructive">{failureMessage}</p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">

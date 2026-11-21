@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useConnectivityStore } from '@/stores/connectivity-store'
-import { WifiOff, X } from 'lucide-react'
+import { WifiSlash, X } from '@phosphor-icons/react'
 
 /**
  * Gate: render the banner only while we're genuinely offline. When the
@@ -25,7 +25,7 @@ function OfflineBanner() {
 
   return (
     <div className="bg-destructive/10 border-b border-destructive/20 px-4 py-2 flex items-center justify-center gap-3">
-      <WifiOff className="size-4 text-destructive shrink-0" />
+      <WifiSlash className="size-4 text-destructive shrink-0" />
       <p className="text-sm text-destructive font-medium">{t('error.degradedMode')}</p>
       <button
         onClick={() => setDismissed(true)}

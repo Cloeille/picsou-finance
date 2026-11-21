@@ -10,7 +10,7 @@ import { DateInput } from '@/components/shared/DateInput'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { useIgnoreScpiFund, useUpdateScpiPosition } from '@/features/accounts/hooks'
-import { ChevronDown } from 'lucide-react'
+import { CaretDown } from '@phosphor-icons/react'
 import { formatApiError } from '@/lib/errors'
 import { cn, parseAmount } from '@/lib/utils'
 import type { Account, DistributionFrequency, DividendPolicy, ScpiPositionRequest, ScpiProvider } from '@/types/api'
@@ -220,7 +220,7 @@ export function ScpiDetailSection({ account }: { account: Account }) {
                 className="flex w-full cursor-pointer items-center justify-between gap-2 px-3.5 py-2.5 text-left text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
               >
                 <span>{t('scpi.advancedLinks')}</span>
-                <ChevronDown
+                <CaretDown
                   className={cn(
                     'size-4 shrink-0 text-muted-foreground transition-transform duration-150',
                     showAdvanced && 'rotate-180',

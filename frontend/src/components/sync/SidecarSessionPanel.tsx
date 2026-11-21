@@ -3,14 +3,14 @@ import { NativeSelect } from '@/components/shared/NativeSelect'
 import type { ReactNode } from "react"
 import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query"
 import {
-  AlertTriangle,
+  Warning,
   Lock,
-  LogOut,
-  RefreshCw,
+  SignOut,
+  ArrowsClockwise,
   ShieldCheck,
-  Smartphone,
-  type LucideIcon,
-} from "lucide-react"
+  DeviceMobile,
+  type Icon as LucideIcon,
+} from '@phosphor-icons/react'
 import { useTranslation } from "react-i18next"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -342,7 +342,7 @@ export function SidecarSessionPanel({
   return (
     <div className="space-y-6">
       <Card size="sm">
-        <CardContent className="py-4">
+        <CardContent>
           <Badge
             className={
               connected
@@ -378,8 +378,8 @@ export function SidecarSessionPanel({
 
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3 py-4">
-            <AlertTriangle className="size-5 shrink-0 text-destructive" />
+          <CardContent className="flex items-center gap-3">
+            <Warning className="size-5 shrink-0 text-destructive" />
             <p className="flex-1 text-sm text-destructive">{visibleError}</p>
             {(error || statusError) && (
               <Button
@@ -400,7 +400,7 @@ export function SidecarSessionPanel({
 
       {connected && recoveryAction && (
         <Card size="sm" className="border-border/60">
-          <CardContent className="flex flex-col gap-2 py-4 sm:flex-row sm:items-center">
+          <CardContent className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <p className="flex-1 text-sm text-muted-foreground">{recoveryAction.description}</p>
             <Button variant="outline" size="sm" disabled={recoveryAction.busy || requestingSync} onClick={recoveryAction.onRun}>
               {recoveryAction.busy ? recoveryAction.busyLabel : recoveryAction.label}
@@ -420,7 +420,7 @@ export function SidecarSessionPanel({
             }}
             disabled={requestingSync}
           >
-            <RefreshCw
+            <ArrowsClockwise
               className={requestingSync ? "animate-spin" : undefined}
             />
             {requestingSync ? t(key("syncing")) : t(key("sync"))}
@@ -439,7 +439,7 @@ export function SidecarSessionPanel({
             }}
             disabled={logout.isPending}
           >
-            <LogOut />
+            <SignOut />
             {t(key("clearSession"))}
           </Button>
         </div>
@@ -447,7 +447,7 @@ export function SidecarSessionPanel({
 
       {!connected && authState === "IDLE" && canReconnect && (
         <Card size="sm">
-          <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center">
+          <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <p className="flex-1 text-sm text-muted-foreground">{t(key("reconnectHint"))}</p>
             <Button
               disabled={reconnect.isPending}
@@ -456,7 +456,7 @@ export function SidecarSessionPanel({
                 startReconnect()
               }}
             >
-              <RefreshCw className={reconnect.isPending ? "animate-spin" : undefined} />
+              <ArrowsClockwise className={reconnect.isPending ? "animate-spin" : undefined} />
               {reconnect.isPending ? t(key("connecting")) : t(key("reconnect"))}
             </Button>
           </CardContent>
@@ -481,7 +481,7 @@ export function SidecarSessionPanel({
           }}
         >
           <Card size="sm">
-            <CardContent className="space-y-4 py-4">
+            <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor={`${fieldIdPrefix}-login`}>
                   <LoginIcon className="mr-1 inline-block size-4" />
@@ -540,7 +540,7 @@ export function SidecarSessionPanel({
                 </label>
               )}
               <Button type="submit" disabled={initiate.isPending}>
-                {initiate.isPending && <RefreshCw className="animate-spin" />}
+                {initiate.isPending && <ArrowsClockwise className="animate-spin" />}
                 {initiate.isPending
                   ? t(key("connecting"))
                   : t(key("connect"))}
@@ -552,15 +552,15 @@ export function SidecarSessionPanel({
 
       {!connected && authState === "AWAITING_APP" && (
         <Card size="sm">
-          <CardContent className="flex items-center gap-3 py-4">
-            <Smartphone className="size-5 shrink-0 text-muted-foreground" />
+          <CardContent className="flex items-center gap-3">
+            <DeviceMobile className="size-5 shrink-0 text-muted-foreground" />
             <div className="flex-1 space-y-1">
               <p className="text-sm">{t(key("appValidationPrompt"))}</p>
               <p className="text-sm text-muted-foreground">
                 {t(key("appValidationHint"))}
               </p>
             </div>
-            <RefreshCw className="size-4 shrink-0 animate-spin text-muted-foreground" />
+            <ArrowsClockwise className="size-4 shrink-0 animate-spin text-muted-foreground" />
           </CardContent>
         </Card>
       )}
@@ -574,7 +574,7 @@ export function SidecarSessionPanel({
           }}
         >
           <Card size="sm">
-            <CardContent className="space-y-4 py-4">
+            <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 {t(key("otpPrompt"))}
               </p>
@@ -600,7 +600,7 @@ export function SidecarSessionPanel({
                 type="submit"
                 disabled={complete.isPending || code.length < 4}
               >
-                {complete.isPending && <RefreshCw className="animate-spin" />}
+                {complete.isPending && <ArrowsClockwise className="animate-spin" />}
                 {complete.isPending
                   ? t(key("validating"))
                   : t(key("validate"))}

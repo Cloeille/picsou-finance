@@ -161,15 +161,22 @@ In dark mode the same logic holds: the card surface lifts one tonal step (`oklch
 - **Modals (`DialogContent`):** single-column grid (`grid-cols-1 *:min-w-0`), viewport-bounded (`max-h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-3rem)]`), scrolling vertically inside (`overflow-y-auto overflow-x-hidden overscroll-contain`).
 - **Selects & Disclosures:** always Radix `Select` / `NativeSelect` and custom Lucide `ChevronDown` disclosure buttons — never OS-native `<select>` or `<details>` elements.
 - **Empty states:** framed inside a `Card` with compact `py-8` padding and no duplicate primary CTA when the page header already provides one.
+- **Progress bars:** unified `h-2 w-full rounded-full bg-muted` pill track (`Progress` default) across goals, envelopes, loans, liabilities, budget breakdown, and analysis panels. Only fixed viewport top-edge setup bars use `h-1 rounded-none`.
 - **Z-index tiers:** `MobileBottomNav` (`z-40`) < `Dialog`/`Sheet` (`z-50`) < `DropdownMenu`/`Select` (`z-[60]`, `collisionPadding={16}`) < `Tooltip` (`z-[70]`).
 
 ### Navigation
 - **Sidebar (desktop):** single full-height sidebar (`w-64`), compact navigation items, "What's new" + GitHub star card above one unified bottom account menu (Settings, Sync, Hide/show amounts, Admin, Logout).
 - **Mobile bottom nav:** fixed `z-40` bottom bar on small screens.
-- **Tab bars:** unified bordered segmented bar (`rounded-lg border border-border/60 bg-background/80 p-1`) with solid `bg-primary text-primary-foreground` active pill. When categories exceed 5 active items, overflow and empty categories collapse into a right-aligned custom "More" dropdown.
+- **Tab bars:** unified bordered segmented bar (`rounded-lg border border-border/60 bg-background/80 p-1`) with solid `bg-primary text-primary-foreground` active pill. Tabs are text-only across every section (no leading icons). When categories exceed 5 active items, overflow and empty categories collapse into a right-aligned custom "More" dropdown.
+
+### Icons (Phosphor Icons, macOS restraint)
+- **Library & weights:** `@phosphor-icons/react` exclusively (`weight="regular"` globally via `IconContext.Provider`), switching to `weight="fill"` on the active primary navigation destination (`AppSidebar`, `MobileBottomNav`) for macOS/iOS SF Symbols clarity.
+- **Where icons belong:** primary navigation (`AppSidebar`, `MobileBottomNav`), command dropdown menus (`DropdownMenuItem` for actions, not plain value pickers), icon-only utility buttons (close, password/privacy eye, copy, search, `⋯`, back arrow, external link, primary `+` CTA), functional status indicators (loading spinners, sync/setup success/error/warning), centered `EmptyState` glyphs, and bank/provider logos.
+- **Where icons do not belong:** horizontal tab bars (`TabsTrigger` and section nav bars), card titles (`CardTitle`), modal titles (`DialogTitle`), section headings (`h1`–`h3`), KPI card labels, and decorative onboarding header icons. Enforced in CI via `design-guardrails.test.ts`.
 
 ### Charts
 - **Series colors:** the Growth Green family, lightened for fills, deepened for primary lines.
+- **Curves:** smooth, dot-free curves at rest (`dot={false}` required on every Recharts `<Area>` and `<Line>` series; use `activeDot` on hover only). Enforced in CI via `design-guardrails.test.ts`.
 - **Grid:** hairline, low-contrast — the data owns the chart, the grid only orients.
 - **Tooltips:** popover surface, Card Light, hairline ring, no decorative shadow.
 

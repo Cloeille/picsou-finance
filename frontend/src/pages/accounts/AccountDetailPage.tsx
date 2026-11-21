@@ -49,7 +49,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ArrowLeft, Calendar, Pencil, Trash2, TrendingUp, TrendingDown, Upload } from 'lucide-react'
+import {
+  ArrowLeft,
+  CalendarBlank,
+  PencilSimple,
+  Trash,
+  TrendUp,
+  TrendDown,
+  UploadSimple,
+} from '@phosphor-icons/react'
 import { formatLocalDate, formatNumber, formatPercent, localeFromLanguage } from '@/lib/utils'
 import { accountTypeLabelKey, CASH_ACCOUNT_TYPES, HOLDING_ACCOUNT_TYPES } from '@/lib/constants'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
@@ -297,7 +305,7 @@ export function AccountDetailPage() {
               )}
               {showHoldings && (
                 <Button size="sm" variant="outline" onClick={() => setShowImport(true)}>
-                  <Upload className=".5 size-4" />
+                  <UploadSimple className=".5 size-4" />
                   {t('import.importCsv')}
                 </Button>
               )}
@@ -369,7 +377,7 @@ export function AccountDetailPage() {
                   size="sm"
                   onClick={() => setShowEditForm(true)}
                 >
-                  <Pencil className="size-3.5" aria-hidden="true" />
+                  <PencilSimple className="size-3.5" aria-hidden="true" />
                   {t('common.edit')}
                 </Button>
                 <Button
@@ -378,7 +386,7 @@ export function AccountDetailPage() {
                   className="text-destructive hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive"
                   onClick={() => setShowDeleteConfirm(true)}
                 >
-                  <Trash2 className="size-3.5" aria-hidden="true" />
+                  <Trash className="size-3.5" aria-hidden="true" />
                   {t('common.delete')}
                 </Button>
               </>
@@ -387,7 +395,7 @@ export function AccountDetailPage() {
               size="sm"
               onClick={() => setShowHistory(true)}
             >
-              <Calendar size={14} className=".5" />
+              <CalendarBlank size={14} className=".5" />
               {t('accounts.snapshots')}
             </Button>
           </div>
@@ -449,10 +457,14 @@ export function AccountDetailPage() {
               </p>
             )}
             {showHoldings && pnl !== null && (
-              <div className="mt-3 flex items-center gap-2">
+              <div
+                className="mt-3 flex items-center gap-2"
+                data-testid="portfolio-performance"
+                aria-label={t('dashboard.portfolioPerformance')}
+              >
                 {pnlPositive
-                  ? <TrendingUp className="text-emerald-500" size={16} />
-                  : <TrendingDown className="text-red-500" size={16} />}
+                  ? <TrendUp className="text-emerald-500" size={16} />
+                  : <TrendDown className="text-red-500" size={16} />}
                 <span className={`text-sm font-medium ${pnlPositive ? 'text-emerald-500' : 'text-red-500'}`}>
                   <CurrencyDisplay value={pnl} />
                   {pnlPct !== null && (
@@ -461,7 +473,6 @@ export function AccountDetailPage() {
                     </span>
                   )}
                 </span>
-                <span className="text-sm text-muted-foreground">{t('dashboard.portfolioPerformance')}</span>
               </div>
             )}
           </>

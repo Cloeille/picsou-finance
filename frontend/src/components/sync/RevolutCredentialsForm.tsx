@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { InputOTP, InputOTPGroup } from '@/components/ui/input-otp'
 import { MaskedOTPSlot } from '@/components/sync/MaskedOTPSlot'
-import { Loader2, Lock, Smartphone } from 'lucide-react'
+import { CircleNotch, Lock, DeviceMobile } from '@phosphor-icons/react'
 
 export interface RevolutCredentials {
   phoneNumber: string
@@ -31,7 +31,7 @@ export function RevolutCredentialsForm({ value, onChange, onSubmit, busy, varian
     <>
       <div className="space-y-2">
         <Label htmlFor="revolut-phone">
-          <Smartphone className="size-4 inline-block mr-1" />
+          <DeviceMobile className="size-4 inline-block mr-1" />
           {t('sync.revolut.phone')}
         </Label>
         <Input
@@ -88,7 +88,7 @@ export function RevolutCredentialsForm({ value, onChange, onSubmit, busy, varian
       </label>
 
       <Button type="submit" disabled={busy} className="w-full">
-        {busy && <Loader2 className="size-4 animate-spin" />}
+        {busy && <CircleNotch className="size-4 animate-spin" />}
         {busy ? t('sync.revolut.syncing') : t('sync.revolut.sync')}
       </Button>
     </>
@@ -98,7 +98,7 @@ export function RevolutCredentialsForm({ value, onChange, onSubmit, busy, varian
     <form onSubmit={onSubmit} className="space-y-4">
       {modal ? fields : (
         <Card size="sm">
-          <CardContent className="space-y-4 py-4">{fields}</CardContent>
+          <CardContent className="space-y-4">{fields}</CardContent>
         </Card>
       )}
     </form>

@@ -1,6 +1,5 @@
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Activity } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import {
   Card,
@@ -28,8 +27,7 @@ export function TelemetrySection({ settings }: { settings: TelemetrySettings }) 
   return (
     <Card className="rounded-xl bg-card">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base font-semibold">
-          <Activity className="size-4 shrink-0 text-muted-foreground" />
+        <CardTitle className="text-base font-semibold">
           {t('telemetry.section.title')}
         </CardTitle>
         <CardDescription>{t('telemetry.section.description')}</CardDescription>

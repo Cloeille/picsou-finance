@@ -6,7 +6,7 @@ import { ErrorState } from '@/components/shared/ErrorState'
 import { LoadingSkeleton } from '@/components/shared/LoadingSkeleton'
 import { useFamilyDashboard } from '@/features/family/hooks'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Wallet, Target, Users } from 'lucide-react'
+import { Wallet, Target, Users } from '@phosphor-icons/react'
 
 export function FamilyDashboardPage() {
   const money = useMoney()
@@ -53,8 +53,7 @@ export function FamilyDashboardPage() {
 
       {/* Shared accounts */}
       <div>
-        <h2 className="mb-3 text-lg font-semibold flex items-center gap-2">
-          <Wallet className="size-5" />
+        <h2 className="mb-3 text-lg font-semibold">
           {t('family.dashboard.sharedAccounts')}
         </h2>
         {dashboard.sharedAccounts.length === 0 ? (
@@ -96,8 +95,7 @@ export function FamilyDashboardPage() {
 
       {/* Shared goals */}
       <div>
-        <h2 className="mb-3 text-lg font-semibold flex items-center gap-2">
-          <Target className="size-5" />
+        <h2 className="mb-3 text-lg font-semibold">
           {t('family.dashboard.sharedGoals')}
         </h2>
         {dashboard.sharedGoals.length === 0 ? (
@@ -131,7 +129,7 @@ export function FamilyDashboardPage() {
                         <span>{money.amount(goal.currentTotal)}</span>
                         <span className="text-muted-foreground">{money.amount(goal.targetAmount)}</span>
                       </div>
-                      <div className="h-2 rounded-full bg-muted overflow-hidden">
+                      <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
                         <div
                           className="h-full rounded-full bg-primary transition-[width]"
                           style={{ width: `${progress}%` }}

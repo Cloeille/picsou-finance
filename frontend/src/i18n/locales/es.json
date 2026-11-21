@@ -425,7 +425,8 @@
         "PESSIMISTIC": "Pesimista ({{value}})",
         "CAUTIOUS": "Prudente ({{value}})",
         "REFERENCE": "Referencia ({{value}})",
-        "OPTIMISTIC": "Optimista ({{value}})"
+        "OPTIMISTIC": "Optimista ({{value}})",
+        "CUSTOM": "Personalizado ({{value}})"
       },
       "contributed": "Sus aportaciones",
       "views": {
@@ -438,7 +439,12 @@
       "today": "Hoy",
       "atHorizon": "En {{count}} años",
       "atAge": "{{age}} años",
-      "referenceAt": "Proyección a {{count}} años (referencia)"
+      "referenceAt": "Proyección a {{count}} años (referencia)",
+      "customRateLabel": "Tasa personalizada",
+      "customRateHint": "Introduce una tasa anual (p. ej. 12 %) para simular tu propio rendimiento.",
+      "customRateResult": "En {{count}} años ({{value}}):",
+      "customRateGains": "de ganancias",
+      "customRateClear": "Borrar la tasa personalizada"
     },
     "classification": {
       "title": "Clasificar este valor",
@@ -3673,6 +3679,7 @@
     "howToUpdate": "Cómo actualizar",
     "updateInstructions": "Para actualizar tu instancia de Docker, ejecuta:",
     "copied": "Copiado",
-    "copy": "Copiar"
+    "copy": "Copiar",
+    "cardTitle": "Descubre Picsou {{version}}"
   }
 }

@@ -5,7 +5,7 @@ import { SortableTableHead } from '@/components/shared/SortableTableHead'
 import { useTableSort, type SortColumns } from '@/hooks/use-table-sort'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn, localeFromLanguage } from '@/lib/utils'
-import { TrendingDown, TrendingUp } from 'lucide-react'
+import { TrendDown, TrendUp } from '@phosphor-icons/react'
 import {
   Table,
   TableBody,
@@ -74,7 +74,7 @@ export function RealizedPnlSection({ accountId, enabled = true }: RealizedPnlSec
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <CardTitle className="text-base">{t('realized.title')}</CardTitle>
         <div className={cn('flex items-center gap-1.5 font-medium', positive ? 'text-emerald-500' : 'text-red-500')}>
-          {positive ? <TrendingUp className="size-4" /> : <TrendingDown className="size-4" />}
+          {positive ? <TrendUp className="size-4" /> : <TrendDown className="size-4" />}
           <CurrencyDisplay value={realizedTotal} currency={currency} showSign />
         </div>
       </CardHeader>

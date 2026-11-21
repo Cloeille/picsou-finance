@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Eye, EyeOff } from 'lucide-react'
+import { Eye, EyeSlash } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -180,7 +180,7 @@ function AdminPasswordForm() {
             )}
           >
             {showPassword ? (
-              <EyeOff className="size-4" aria-hidden="true" />
+              <EyeSlash className="size-4" aria-hidden="true" />
             ) : (
               <Eye className="size-4" aria-hidden="true" />
             )}

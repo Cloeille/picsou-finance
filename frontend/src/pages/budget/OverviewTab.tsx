@@ -1,7 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { ArrowRight, CalendarClock, Coins, Inbox, PiggyBank, TrendingUp, Wallet } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+import { ArrowRight, Tray } from '@phosphor-icons/react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -21,8 +20,7 @@ import { ColorDot } from './budget-utils'
 import { PeriodNavigator } from './PeriodNavigator'
 import { useBudgetPeriod } from './BudgetPeriodContext'
 
-function RecapCard({ icon: Icon, label, children, onClick, index = 0 }: {
-  icon: LucideIcon
+function RecapCard({ label, children, onClick, index = 0 }: {
   label: string
   children: React.ReactNode
   onClick: () => void
@@ -38,10 +36,7 @@ function RecapCard({ icon: Icon, label, children, onClick, index = 0 }: {
     >
       <Card className="h-full py-3.5 transition-colors hover:bg-muted/50">
         <CardContent className="flex h-full flex-col justify-start">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Icon className="size-4 shrink-0" aria-hidden="true" />
-            <span className="truncate">{label}</span>
-          </div>
+          <span className="truncate text-sm text-muted-foreground">{label}</span>
           <div className="mt-1.5">{children}</div>
         </CardContent>
       </Card>
@@ -71,10 +66,9 @@ function CapitalIncomeAhead() {
   return (
     <Card role="region" aria-labelledby="capital-income-heading">
       <CardContent>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Coins className="size-4" />
-          <span id="capital-income-heading">{t('budget.overview.capitalIncome')}</span>
-        </div>
+        <span id="capital-income-heading" className="text-sm text-muted-foreground">
+          {t('budget.overview.capitalIncome')}
+        </span>
         {dividendsQ.isLoading ? (
           <Skeleton className="mt-2 h-8 w-32" />
         ) : dividendsQ.isError ? (
@@ -186,7 +180,7 @@ export function OverviewTab() {
       ) : (
       <>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <RecapCard icon={TrendingUp} label={t('budget.overview.netThisCycle')} index={0}
+        <RecapCard label={t('budget.overview.netThisCycle')} index={0}
           onClick={() => navigate('spending')}>
           <p className={`text-2xl font-bold ${
             (cashflow?.net ?? 0) >= 0
@@ -202,7 +196,7 @@ export function OverviewTab() {
         </RecapCard>
 
         {!viewingPast && (
-        <RecapCard icon={Wallet} label={t('budget.overview.envelopes')} index={1}
+        <RecapCard label={t('budget.overview.envelopes')} index={1}
           onClick={() => navigate('envelopes')}>
           <p className="text-2xl font-bold">
             <CurrencyDisplay value={totalSpent} /> <span className="text-sm text-muted-foreground">/ <CurrencyDisplay value={totalLimit} /></span>
@@ -216,7 +210,7 @@ export function OverviewTab() {
         )}
 
         {!viewingPast && (
-        <RecapCard icon={CalendarClock} label={t('budget.overview.upcoming30')} index={2}
+        <RecapCard label={t('budget.overview.upcoming30')} index={2}
           onClick={() => navigate('subscriptions')}>
           <p className="text-2xl font-bold">
             <CurrencyDisplay value={upcomingTotal} showSign />
@@ -227,7 +221,7 @@ export function OverviewTab() {
         </RecapCard>
         )}
 
-        <RecapCard icon={PiggyBank} label={t('budget.overview.investable')} index={3}
+        <RecapCard label={t('budget.overview.investable')} index={3}
           onClick={() => navigate('envelopes')}>
           <p className="text-2xl font-bold">
             <CurrencyDisplay value={allocation?.totalStock ?? 0} />
@@ -246,10 +240,10 @@ export function OverviewTab() {
       {/* To-categorize nudge */}
       {(uncategorized?.length ?? 0) > 0 && (
         <button type="button" onClick={() => navigate('review')} className="block w-full text-left">
-          <Card className="border-border/80 bg-card transition-colors hover:bg-muted/40">
-            <CardContent className="flex items-center gap-3 py-4">
+          <Card className="border-border/80 bg-card py-3 transition-colors hover:bg-muted/40">
+            <CardContent className="flex items-center gap-3">
               <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
-                <Inbox className="size-4" />
+                <Tray className="size-4" />
               </span>
               <span className="text-sm font-medium">
                 {t('budget.overview.toCategorize', { count: uncategorized!.length })}
@@ -273,11 +267,11 @@ export function OverviewTab() {
                     <span className="truncate">{b.categoryName}</span>
                     <span className="ml-auto tabular-nums text-muted-foreground">{formatPercent(b.percent, { fractionDigits: 0 })}</span>
                   </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-md bg-muted"
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted"
                     role="progressbar" aria-label={b.categoryName}
                     aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(b.percent, 100)}
                     aria-valuetext={formatPercent(b.percent, { fractionDigits: 0 })}>
-                    <div className={`h-full rounded-md ${
+                    <div className={`h-full rounded-full ${
                       b.overBudget ? 'bg-destructive' : b.percent >= 80 ? 'bg-foreground/75' : 'bg-primary'}`}
                       style={{ width: `${Math.min(b.percent, 100)}%` }} />
                   </div>

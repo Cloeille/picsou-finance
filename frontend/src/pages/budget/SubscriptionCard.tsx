@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { ArrowDownLeft, ArrowUpRight, Check, Trash2, TrendingUp, X } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, Check, Trash, TrendUp, X } from '@phosphor-icons/react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
@@ -89,12 +89,14 @@ export function SubscriptionCard({ series }: { series: RecurringSeries }) {
         )}
 
         {showPriceChange && (
-          <p className="mt-1 inline-flex items-center gap-1.5 text-sm text-rose-600 dark:text-rose-400">
-            <TrendingUp className="size-3.5 shrink-0" aria-hidden="true" />
-            {t('budget.recurring.priceFromTo', {
-              from: money.amount(Math.abs(series.previousAmount!)),
-              to: money.amount(Math.abs(series.expectedAmount)),
-            })}
+          <p className="mt-1 inline-flex items-center gap-1.5 text-sm text-rose-600 dark:text-rose-400 [word-spacing:normal]">
+            <TrendUp className="size-3.5 shrink-0" aria-hidden="true" />
+            <span>
+              {t('budget.recurring.priceFromTo', {
+                from: money.amount(Math.abs(series.previousAmount!)),
+                to: money.amount(Math.abs(series.expectedAmount)),
+              })}
+            </span>
           </p>
         )}
       </div>
@@ -142,7 +144,7 @@ export function SubscriptionCard({ series }: { series: RecurringSeries }) {
             aria-label={t('budget.a11y.delete', { name: series.label })}
             onClick={() => remove.mutate(series.id)}
           >
-            <Trash2 className="size-4" />
+            <Trash className="size-4" />
           </Button>
         </div>
       </div>
