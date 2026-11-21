@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2] — 2026-11-21
+
 ### Added
 
 - **Account list display order and collapse (Tout tab).** A "Réorganiser" mode on
@@ -39,42 +41,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of the allowed origins in Administration > Security (HTTPS, or `localhost` for development).
   The encrypted OAuth tokens are stored by `V153`; the instance's Louve client registration is
   kept in the application settings. See `docs/features/louve-invest.md`.
-
-### Fixed
-
-- **Profile photo upload now works under the production CSP.** `resizeProfilePhoto` read uploaded images via a `blob:` URL (`URL.createObjectURL`), which Spring Boot's production `Content-Security-Policy` (`img-src 'self' data: https:`) blocked — causing valid PNG, JPEG and WebP files to fail with an "invalid image" error. It now reads files through `FileReader.readAsDataURL` so uploads comply with the strict CSP without weakening it.
-- **Account reorder controls no longer overlap account type badges.** In `/accounts` reorder mode ("Réorganiser"), the move-up, move-down and collapse buttons floated over the top-right corner of each card and collided with badges like "Compte titres" or "Compte courant". They now sit inside an in-flow hairline `CardFooter` bar at the bottom of `AccountCard`, keeping titles, badges and card heights cleanly aligned across the grid.
-- **Trade Republic bonds are valued correctly again.** Bonds listed under Trade Republic's
-  `bonds` category were not detected as bonds, and the nominal currency was not read, so their price
-  could be off by a factor of 100 or left empty. A Polish IKE wrapper now syncs as a brokerage account
-  (`TR IKE`), for accounts created from now on.
-- **BoursoBank syncs a PER.** A PER on the dashboard was read as a securities account, its
-  trading-board lookup answered 404, and the whole sync failed with `UPSTREAM_FORMAT_CHANGED`,
-  so no account was imported. The PER is now read from its own page: one position per fund,
-  merged across compartments, and a payment not yet invested as cash. If that page cannot be
-  read, the PER keeps its last values and the other accounts still sync; for now only the
-  sidecar log says so. (#351, #624)
-- **BoursoBank: a notice shown instead of the dashboard no longer breaks the sync.** When the bank
-  parks the dashboard behind a notice it lets you postpone (a card renewal offer, for instance),
-  the connector now follows its "Voir plus tard" link and reads the accounts. A notice that cannot
-  be postponed is reported by name instead of `Dashboard carried no account section`.
-- **Deleting a property no longer breaks the loan linked to it.** A loan or peer loan still linked
-  to a deleted account could not be read, and the accounts page failed with an error. Deleting an
-  account now unlinks them, and the upgrade repairs the loans already in that state (`V154`).
-- **American Express login no longer stalls behind the cookie banner.** When the consent banner
-  showed up after the login form, it blocked the sign-in click and the connection failed with
-  "Impossible de joindre American Express". It is now declined whenever it appears (#568).
-- **BoursoBank syncs a PEA-PME holding unlisted instruments.** Crowdfunding lines
-  (Homunity) have an ISIN but no ticker, and one such line failed the whole sync
-  with `UPSTREAM_FORMAT_CHANGED`, so no account was imported. The line now syncs
-  under its ISIN; a line with neither ticker nor valid ISIN is still refused.
-- **An account or transaction name containing `$t(` no longer freezes the page.** i18next before
-  26.4.4 backtracked exponentially on such a value inside a translated sentence: a name of about
-  35 characters blocked the browser tab for minutes. i18next is now 26.7.2.
-- **Bank search explains when Enable Banking is not set up.** Instead of a misleading "showing France
-  only" error, bank search now says Enable Banking is not configured: an admin gets a link to
-  Administration, a member is asked to contact the administrator. The country-list error no longer
-  wraps inside the narrow country selector.
 
 ### Changed
 
@@ -113,6 +79,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Redesigned sidebar What's New card.** Simplified `SidebarWhatsNewCard` into a single neutral gray card (`bg-muted/50`) with a squared `rounded-md` version tag, diagonal `ArrowUpRight` indicator, and clean title/summary hierarchy, removing the bolted-on GitHub star footer row from the sidebar (kept inside the What's New dialog and Settings > About).
 - **Eliminated double vertical padding on Card banners and cards site-wide.** Removed redundant `py-*` / `p-*` vertical padding on 86 `<CardContent>` instances across 27 files (Budget overview nudge banner, AccountCard, PocketCard, SavingsRateCard, GoalCalendarPage, and all Sync status/login cards) since `<Card>` already provides symmetric `py-4` / `py-3`, and upgraded `design-guardrails.test.ts` to block future regressions.
 - **Removed static point markers on all chart curves site-wide.** Removed the `24H` / `7D` dot markers in `NetWorthChart` and explicitly enforced `dot={false}` on every Recharts `<Area>` and `<Line>` curve (`PropertyValuationChart`, `BalanceHistoryChart`, etc.), backed by `DESIGN.md` and a CI guardrail in `design-guardrails.test.ts`.
+
+### Fixed
+
+- **Profile photo upload now works under the production CSP.** `resizeProfilePhoto` read uploaded images via a `blob:` URL (`URL.createObjectURL`), which Spring Boot's production `Content-Security-Policy` (`img-src 'self' data: https:`) blocked — causing valid PNG, JPEG and WebP files to fail with an "invalid image" error. It now reads files through `FileReader.readAsDataURL` so uploads comply with the strict CSP without weakening it.
+- **Account reorder controls no longer overlap account type badges.** In `/accounts` reorder mode ("Réorganiser"), the move-up, move-down and collapse buttons floated over the top-right corner of each card and collided with badges like "Compte titres" or "Compte courant". They now sit inside an in-flow hairline `CardFooter` bar at the bottom of `AccountCard`, keeping titles, badges and card heights cleanly aligned across the grid.
+- **Trade Republic bonds are valued correctly again.** Bonds listed under Trade Republic's
+  `bonds` category were not detected as bonds, and the nominal currency was not read, so their price
+  could be off by a factor of 100 or left empty. A Polish IKE wrapper now syncs as a brokerage account
+  (`TR IKE`), for accounts created from now on.
+- **BoursoBank syncs a PER.** A PER on the dashboard was read as a securities account, its
+  trading-board lookup answered 404, and the whole sync failed with `UPSTREAM_FORMAT_CHANGED`,
+  so no account was imported. The PER is now read from its own page: one position per fund,
+  merged across compartments, and a payment not yet invested as cash. If that page cannot be
+  read, the PER keeps its last values and the other accounts still sync; for now only the
+  sidecar log says so. (#351, #624)
+- **BoursoBank: a notice shown instead of the dashboard no longer breaks the sync.** When the bank
+  parks the dashboard behind a notice it lets you postpone (a card renewal offer, for instance),
+  the connector now follows its "Voir plus tard" link and reads the accounts. A notice that cannot
+  be postponed is reported by name instead of `Dashboard carried no account section`.
+- **Deleting a property no longer breaks the loan linked to it.** A loan or peer loan still linked
+  to a deleted account could not be read, and the accounts page failed with an error. Deleting an
+  account now unlinks them, and the upgrade repairs the loans already in that state (`V154`).
+- **American Express login no longer stalls behind the cookie banner.** When the consent banner
+  showed up after the login form, it blocked the sign-in click and the connection failed with
+  "Impossible de joindre American Express". It is now declined whenever it appears (#568).
+- **BoursoBank syncs a PEA-PME holding unlisted instruments.** Crowdfunding lines
+  (Homunity) have an ISIN but no ticker, and one such line failed the whole sync
+  with `UPSTREAM_FORMAT_CHANGED`, so no account was imported. The line now syncs
+  under its ISIN; a line with neither ticker nor valid ISIN is still refused.
+- **An account or transaction name containing `$t(` no longer freezes the page.** i18next before
+  26.4.4 backtracked exponentially on such a value inside a translated sentence: a name of about
+  35 characters blocked the browser tab for minutes. i18next is now 26.7.2.
+- **Bank search explains when Enable Banking is not set up.** Instead of a misleading "showing France
+  only" error, bank search now says Enable Banking is not configured: an admin gets a link to
+  Administration, a member is asked to contact the administrator. The country-list error no longer
+  wraps inside the narrow country selector.
 
 ## [1.2.1] — 2026-11-20
 
