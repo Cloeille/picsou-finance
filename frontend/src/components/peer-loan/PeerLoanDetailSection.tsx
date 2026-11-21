@@ -274,7 +274,7 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
                     label={t('peerLoan.forecast.scheduled')}
                     value={data.scheduledRemaining != null
                       ? <CurrencyDisplay value={data.scheduledRemaining} />
-                      : '-'}
+                      : '—'}
                   />
                   <Stat
                     label={t('peerLoan.forecast.actual')}
@@ -284,7 +284,7 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
                     label={t('peerLoan.forecast.plannedInterest')}
                     value={data.plannedInterest != null
                       ? <CurrencyDisplay value={data.plannedInterest} />
-                      : '-'}
+                      : '—'}
                   />
                   <Stat
                     label={t('peerLoan.summary.interestCalculated')}
@@ -323,6 +323,8 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
           ) : (
             <div className="divide-y divide-border/60">
               {ledger.map(repayment => {
+                // 'Closure write-off' is PeerLoanService.CLOSURE_NOTE, the note the backend stores on the
+                // write-off it creates when a loan is closed: shown in the reader's language instead.
                 const noteText = repayment.kind === 'WRITE_OFF' && repayment.note === 'Closure write-off'
                   ? t('peerLoan.ledger.closureWriteOffNote')
                   : repayment.note

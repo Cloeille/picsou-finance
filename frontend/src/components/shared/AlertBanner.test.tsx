@@ -3,6 +3,10 @@ import { describe, it, expect, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { AlertBanner } from './AlertBanner'
 
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key }),
+}))
+
 describe('AlertBanner', () => {
   it('renders the message with the default inline classes', () => {
     render(<AlertBanner>Something broke</AlertBanner>)
@@ -17,7 +21,7 @@ describe('AlertBanner', () => {
   it('calls onDismiss from the x button', () => {
     const onDismiss = vi.fn()
     render(<AlertBanner onDismiss={onDismiss}>Oops</AlertBanner>)
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'common.close' }))
     expect(onDismiss).toHaveBeenCalledTimes(1)
   })
 

@@ -72,7 +72,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Peer loan detail redesign and site-wide action button consistency.** Simplified `PeerLoanDetailSection` to remove the duplicated borrower title, drop the arrow separator in favor of localized date periods, hide the empty forecast card on closed loans with no plan, localize the system `"Closure write-off"` note across all four locales, and restructure repayment rows into a calm two-line layout with proper bordered Edit and destructive Delete buttons (`PencilSimple` / `Trash`). Harmonized remaining unstyled plain-text ghost buttons and raw text close marks across `ScpiDetailSection`, `GoalCalendarPage`, `AlertBanner`, `BankSyncTab`, and `AccountsPage`.
+- **Calmer peer loan page.** The summary card is titled "Loan summary" (the borrower is already
+  the page title) with the loan period in your language; the forecast card is hidden on a closed
+  loan that has nothing to forecast; the write-off note added when closing a loan is translated;
+  each repayment reads on two lines with Edit and Delete buttons. Dismiss buttons on alerts and a
+  few other text-only buttons now use the same icon buttons as the rest of the app.
 - **Trade Republic: native crypto gets its own `TR Crypto` account.** Coins bought on Trade Republic
   (Bitcoin and the like) moved out of `TR Titres` into a new `TR Crypto` account, so they show under
   Accounts > Crypto with live CoinGecko prices and coin logos. Crypto ETFs and ETCs stay in `TR Titres`.

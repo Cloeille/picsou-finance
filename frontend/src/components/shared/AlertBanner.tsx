@@ -1,4 +1,5 @@
 import { X } from '@phosphor-icons/react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -39,6 +40,7 @@ export function AlertBanner({
   action,
   className,
 }: AlertBannerProps) {
+  const { t } = useTranslation()
   const classes = cn(VARIANTS[variant], className)
   if (variant === 'bordered' || variant === 'plain' || variant === 'prominent') {
     return (
@@ -52,7 +54,7 @@ export function AlertBanner({
       {icon}
       <span className="flex-1">{children}</span>
       {onDismiss && (
-        <Button variant="ghost" size="icon-sm" aria-label="Close" onClick={onDismiss}>
+        <Button variant="ghost" size="icon-sm" aria-label={t('common.close')} onClick={onDismiss}>
           <X className="size-4" aria-hidden="true" />
         </Button>
       )}
