@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { NativeSelect } from '@/components/shared/NativeSelect'
 import { useTranslation } from 'react-i18next'
-import { CheckCircle2, Loader2, Upload, X } from 'lucide-react'
+import { CheckCircle, CircleNotch, UploadSimple, X } from '@phosphor-icons/react'
 import { useMoney } from '@/hooks/use-money'
 import { ACCOUNT_COLORS, ACCOUNT_TYPES, NON_LEDGER_ACCOUNT_TYPES, SUPPORTED_CURRENCIES } from '@/lib/constants'
 import { extractErrorMessage } from '@/lib/errors'
@@ -239,13 +239,13 @@ export function ActualBudgetTab() {
             onDragLeave={() => setDragOver(false)}
             onDrop={(event) => { event.preventDefault(); setDragOver(false); selectFile(event.dataTransfer.files[0]) }}
           >
-            <Upload className="size-6 text-muted-foreground" />
+            <UploadSimple className="size-6 text-muted-foreground" />
             <div>
               <p className="font-medium">{t('sync.actual.upload')}</p>
               <p className="mt-1 text-sm text-muted-foreground">{t('sync.actual.uploadHint')}</p>
             </div>
             <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={busy}>
-              <Upload />
+              <UploadSimple />
               {t('sync.actual.chooseFile')}
             </Button>
             <input
@@ -260,7 +260,7 @@ export function ActualBudgetTab() {
           </div>
           {file && <p className="text-sm text-muted-foreground">{file.name}</p>}
           <Button className="w-full" onClick={handlePreview} disabled={!file || busy}>
-            {previewMutation.isPending && <Loader2 className="size-4 animate-spin" />}
+            {previewMutation.isPending && <CircleNotch className="size-4 animate-spin" />}
             {t('sync.actual.preview')}
           </Button>
         </div>
@@ -279,7 +279,7 @@ export function ActualBudgetTab() {
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={reset} disabled={busy}>{t('sync.actual.restart')}</Button>
               <Button onClick={reviewImport} disabled={busy || !hasWork || !mappingsValid}>
-                {planMutation.isPending && <Loader2 className="size-4 animate-spin" />}
+                {planMutation.isPending && <CircleNotch className="size-4 animate-spin" />}
                 {t('sync.actual.import')}
               </Button>
             </div>
@@ -480,7 +480,7 @@ export function ActualBudgetTab() {
           ))}
           <div className="flex justify-center">
             <Button onClick={reset}>
-              <CheckCircle2 />
+              <CheckCircle />
               {t('sync.actual.done')}
             </Button>
           </div>

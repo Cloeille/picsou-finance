@@ -1,6 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, RefreshCw } from 'lucide-react'
+import { Warning, ArrowsClockwise } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { captureException } from '@/lib/telemetry'
 import picsouLogo from '@/assets/horizontal-white-picsou.svg'
@@ -20,11 +20,11 @@ function CrashFallback() {
     <div className="min-h-screen bg-background flex items-center justify-center">
       <div className="flex flex-col items-center gap-6 text-center max-w-sm mx-4">
         <img src={picsouLogo} alt="Picsou" className="h-8 w-auto opacity-90 brightness-0 dark:invert" />
-        <AlertTriangle className="size-10 text-destructive" />
+        <Warning className="size-10 text-destructive" />
         <h1 className="text-lg font-semibold">{t('error.crashTitle')}</h1>
         <p className="text-sm text-muted-foreground">{t('error.crashDesc')}</p>
         <Button onClick={() => window.location.reload()}>
-          <RefreshCw className="size-4" />
+          <ArrowsClockwise className="size-4" />
           {t('error.reload')}
         </Button>
       </div>

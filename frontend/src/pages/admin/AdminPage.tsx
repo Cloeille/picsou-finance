@@ -1,6 +1,5 @@
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
-import { Activity, Blocks, Shield, Sparkles, type LucideIcon } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { LoadingSkeleton } from '@/components/shared/LoadingSkeleton'
 import { ErrorState } from '@/components/shared/ErrorState'
@@ -33,11 +32,11 @@ export function AdminPage() {
     setSearchParams(tab === 'members' ? {} : { tab }, { replace: true })
   }
 
-  const tabs: Array<{ id: AdminTab; label: string; icon: LucideIcon }> = [
-    { id: 'members', label: t('admin.tabs.members'), icon: Shield },
-    { id: 'integrations', label: t('admin.tabs.integrations'), icon: Blocks },
-    { id: 'ai', label: t('admin.tabs.ai'), icon: Sparkles },
-    { id: 'system', label: t('admin.tabs.system'), icon: Activity },
+  const tabs: Array<{ id: AdminTab; label: string }> = [
+    { id: 'members', label: t('admin.tabs.members') },
+    { id: 'integrations', label: t('admin.tabs.integrations') },
+    { id: 'ai', label: t('admin.tabs.ai') },
+    { id: 'system', label: t('admin.tabs.system') },
   ]
 
   if (isLoading) return <LoadingSkeleton />
@@ -57,7 +56,7 @@ export function AdminPage() {
             aria-label={t('admin.title')}
             className="flex w-full flex-wrap items-center gap-1 rounded-lg border border-border/60 bg-background/80 p-1"
           >
-            {tabs.map(({ id, label, icon: Icon }) => {
+            {tabs.map(({ id, label }) => {
               const active = activeTab === id
               return (
                 <button
@@ -73,7 +72,6 @@ export function AdminPage() {
                       : 'text-muted-foreground hover:text-foreground'
                   )}
                 >
-                  <Icon className="size-4 shrink-0" aria-hidden="true" />
                   <span>{label}</span>
                 </button>
               )

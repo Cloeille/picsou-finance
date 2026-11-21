@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
-  AlertTriangle,
-  Landmark,
-  LogOut,
-  RefreshCw,
-  Smartphone,
-} from "lucide-react"
+  Warning,
+  Bank,
+  SignOut,
+  ArrowsClockwise,
+  DeviceMobile,
+} from '@phosphor-icons/react'
 import { useTranslation } from "react-i18next"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -473,7 +473,7 @@ export function BpceSessionPanel({
   return (
     <div className="space-y-6">
       <Card size="sm">
-        <CardContent className="py-4">
+        <CardContent>
           <Badge
             className={
               connected ? "bg-green-500/10 text-green-600 dark:text-green-400" : undefined
@@ -509,8 +509,8 @@ export function BpceSessionPanel({
 
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3 py-4">
-            <AlertTriangle className="size-5 shrink-0 text-destructive" />
+          <CardContent className="flex items-center gap-3">
+            <Warning className="size-5 shrink-0 text-destructive" />
             <p className="flex-1 text-sm text-destructive">{visibleError}</p>
             {statusError && !error && (
               <Button variant="outline" size="sm" onClick={() => void status.refetch()}>
@@ -533,7 +533,7 @@ export function BpceSessionPanel({
               }}
               disabled={requestingSync}
             >
-              <RefreshCw className={requestingSync ? "animate-spin" : undefined} />
+              <ArrowsClockwise className={requestingSync ? "animate-spin" : undefined} />
               {requestingSync ? t(key("syncing")) : t(key("sync"))}
             </Button>
             {!confirmingDisconnect && (
@@ -542,7 +542,7 @@ export function BpceSessionPanel({
                 onClick={() => setConfirmingDisconnect(true)}
                 disabled={logout.isPending}
               >
-                <LogOut />
+                <SignOut />
                 {t(key("clearSession"))}
               </Button>
             )}
@@ -550,7 +550,7 @@ export function BpceSessionPanel({
 
           {confirmingDisconnect && (
             <Card size="sm" className="border-destructive/30">
-              <CardContent className="space-y-3 py-4">
+              <CardContent className="space-y-3">
                 <p className="text-sm">{t(key("disconnectConfirm"))}</p>
                 <div className="flex flex-wrap gap-3">
                   <Button
@@ -570,7 +570,7 @@ export function BpceSessionPanel({
                       })
                     }}
                   >
-                    <LogOut />
+                    <SignOut />
                     {t(key("disconnectConfirmAction"))}
                   </Button>
                   <Button variant="outline" onClick={() => setConfirmingDisconnect(false)}>
@@ -583,7 +583,7 @@ export function BpceSessionPanel({
 
           {unsupportedCount > 0 && (
             <Card size="sm">
-              <CardContent className="space-y-2 py-4">
+              <CardContent className="space-y-2">
                 <p className="text-sm font-medium">{t(key("unsupportedTitle"))}</p>
                 <p className="text-sm text-muted-foreground">
                   {t(key("unsupportedHint"))}
@@ -619,7 +619,7 @@ export function BpceSessionPanel({
           }}
         >
           <Card size="sm">
-            <CardContent className="space-y-4 py-4">
+            <CardContent className="space-y-4">
               {regions && !useRememberedIdentifier && (
                 <div className="space-y-2">
                   <Label htmlFor={`${fieldIdPrefix}-region`}>{t(key("region"))}</Label>
@@ -644,7 +644,7 @@ export function BpceSessionPanel({
                 {useRememberedIdentifier ? (
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="flex items-center text-sm">
-                      <Landmark className="mr-1 inline-block size-4" />
+                      <Bank className="mr-1 inline-block size-4" />
                       {t(key("rememberedIdentifier"))}
                     </p>
                     <Button
@@ -659,7 +659,7 @@ export function BpceSessionPanel({
                 ) : (
                   <>
                 <Label htmlFor={`${fieldIdPrefix}-customer-id`}>
-                  <Landmark className="mr-1 inline-block size-4" />
+                  <Bank className="mr-1 inline-block size-4" />
                   {t(key("customerId"))}
                 </Label>
                 <Input
@@ -690,7 +690,7 @@ export function BpceSessionPanel({
                 )}
               </div>
               <Button type="submit" disabled={pending || incomplete}>
-                {pending && <RefreshCw className="animate-spin" />}
+                {pending && <ArrowsClockwise className="animate-spin" />}
                 {pending ? t(key("connecting")) : t(key("connect"))}
               </Button>
             </CardContent>
@@ -700,8 +700,8 @@ export function BpceSessionPanel({
 
       {!connected && authState === "AWAITING_APP" && (
         <Card size="sm">
-          <CardContent className="flex items-center gap-3 py-4">
-            <Smartphone className="size-5 shrink-0 text-muted-foreground" />
+          <CardContent className="flex items-center gap-3">
+            <DeviceMobile className="size-5 shrink-0 text-muted-foreground" />
             <div className="flex-1 space-y-1">
               <p className="text-sm">{t(key("securPassPrompt"))}</p>
               <p className="text-sm text-muted-foreground">
@@ -714,7 +714,7 @@ export function BpceSessionPanel({
                 </span>
               </p>
             </div>
-            <RefreshCw className="size-4 shrink-0 animate-spin text-muted-foreground" />
+            <ArrowsClockwise className="size-4 shrink-0 animate-spin text-muted-foreground" />
           </CardContent>
         </Card>
       )}

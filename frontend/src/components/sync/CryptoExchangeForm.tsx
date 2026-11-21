@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { AlertBanner } from '@/components/shared/AlertBanner'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Eye, EyeOff, Loader2 } from 'lucide-react'
+import { Eye, EyeSlash, CircleNotch } from '@phosphor-icons/react'
 import type { ExchangeType } from '@/types/api'
 import { SUPPORTED_EXCHANGES, exchangeRequiresApiSecret } from '@/types/api'
 import { useAddCryptoExchange } from '@/features/sync/hooks'
@@ -126,7 +126,7 @@ export function CryptoExchangeForm({ onSuccess, onCancel, variant }: CryptoExcha
                 aria-label={t(showSecret ? 'sync.exchanges.hideSecret' : 'sync.exchanges.showSecret')}
                 className="absolute top-1/2 right-3 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
-                {showSecret ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                {showSecret ? <EyeSlash className="size-4" /> : <Eye className="size-4" />}
               </button>
             </div>
           </div>
@@ -143,7 +143,7 @@ export function CryptoExchangeForm({ onSuccess, onCancel, variant }: CryptoExcha
           </div>
         ) : (
           <Button type="submit" disabled={addMutation.isPending} className="w-full">
-            {addMutation.isPending && <Loader2 className="size-4 animate-spin" />}
+            {addMutation.isPending && <CircleNotch className="size-4 animate-spin" />}
             {t('sync.exchanges.connect')}
           </Button>
         )}

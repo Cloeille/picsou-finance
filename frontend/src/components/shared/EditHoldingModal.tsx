@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label'
 import { parseAmount } from '@/lib/utils'
 import { formatApiError } from '@/lib/errors'
 import { totalFromAvg, avgFromTotal } from '@/features/accounts/cost-basis'
-import { Loader2 } from 'lucide-react'
+import { CircleNotch } from '@phosphor-icons/react'
 import type { HoldingResponse } from '@/types/api'
 
 interface EditHoldingModalProps {
@@ -166,7 +166,7 @@ function HoldingForm({ holding, onOpenChange, onSubmit, isLoading, quantityReadO
       <DialogFooter>
         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
         <Button type="submit" disabled={isLoading}>
-          {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+          {isLoading && <CircleNotch className="h-4 w-4 animate-spin" />}
           {t('common.save')}
         </Button>
       </DialogFooter>

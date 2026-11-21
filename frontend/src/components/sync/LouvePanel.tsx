@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
-import { AlertTriangle, Building2, Loader2, LogOut, RefreshCw } from 'lucide-react'
+import { Warning, Buildings, CircleNotch, SignOut, ArrowsClockwise } from '@phosphor-icons/react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -159,8 +159,8 @@ export function LouvePanel({ onConnected }: LouvePanelProps = {}) {
       <p className="mx-auto max-w-lg text-sm text-muted-foreground">{t('sync.louve.intro')}</p>
 
       <Card size="sm">
-        <CardContent className="flex flex-wrap items-center gap-3 py-4">
-          <Building2 className="size-5 text-muted-foreground" />
+        <CardContent className="flex flex-wrap items-center gap-3">
+          <Buildings className="size-5 text-muted-foreground" />
           {isActive ? (
             <Badge className="bg-green-500/10 text-green-600 dark:text-green-400">{t('sync.louve.connected')}</Badge>
           ) : needsReconnect ? (
@@ -184,8 +184,8 @@ export function LouvePanel({ onConnected }: LouvePanelProps = {}) {
 
       {(error || needsReconnect || lastFailed) && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3 py-4">
-            <AlertTriangle className="size-5 shrink-0 text-destructive" />
+          <CardContent className="flex items-center gap-3">
+            <Warning className="size-5 shrink-0 text-destructive" />
             <p className="flex-1 text-sm text-destructive">
               {error ?? t(needsReconnect ? 'sync.louve.errors.sessionExpired' : 'sync.louve.errors.lastSyncFailed')}
             </p>
@@ -203,25 +203,25 @@ export function LouvePanel({ onConnected }: LouvePanelProps = {}) {
               })}
               disabled={running}
             >
-              {running ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+              {running ? <CircleNotch className="size-4 animate-spin" /> : <ArrowsClockwise className="size-4" />}
               {running ? t('sync.louve.syncing') : t('sync.louve.sync')}
             </Button>
             <Button variant="destructive" onClick={() => setConfirmDisconnect(true)} disabled={clear.isPending}>
-              <LogOut className="size-4" />
+              <SignOut className="size-4" />
               {t('sync.louve.disconnect')}
             </Button>
           </>
         ) : (
           <>
             <Button onClick={handleConnect} disabled={start.isPending || completing}>
-              {(start.isPending || completing) && <Loader2 className="size-4 animate-spin" />}
+              {(start.isPending || completing) && <CircleNotch className="size-4 animate-spin" />}
               {completing
                 ? t('sync.louve.completing')
                 : needsReconnect ? t('sync.louve.reconnect') : t('sync.louve.connect')}
             </Button>
             {needsReconnect && (
               <Button variant="destructive" onClick={() => setConfirmDisconnect(true)} disabled={clear.isPending}>
-                <LogOut className="size-4" />
+                <SignOut className="size-4" />
                 {t('sync.louve.disconnect')}
               </Button>
             )}

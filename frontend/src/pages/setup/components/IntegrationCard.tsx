@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react'
-import { Check } from 'lucide-react'
+import { Check } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 
 interface IntegrationCardProps {
@@ -66,7 +66,7 @@ export function IntegrationCard({
           )}
           aria-hidden="true"
         >
-          {checked && <Check className="size-3.5 stroke-[2.5]" />}
+          {checked && <Check className="size-3.5" weight="bold" />}
         </span>
       </div>
       <p className="mt-2.5 text-sm leading-relaxed text-muted-foreground">

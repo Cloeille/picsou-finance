@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2 } from 'lucide-react'
+import { CircleNotch } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
@@ -214,7 +214,7 @@ export function RuleWordPicker({
                 ? t('budget.rule.previewLoading')
                 : t('budget.rule.previewCount', { count: totalCount })}
             </p>
-            {isPending && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
+            {isPending && <CircleNotch className="size-3.5 animate-spin text-muted-foreground" />}
           </div>
           {!isPending && previewMutation.data && previewMutation.data.transactions.length > 0 && (
             <div className="max-h-48 overflow-x-hidden overflow-y-auto rounded-md border divide-y text-sm">

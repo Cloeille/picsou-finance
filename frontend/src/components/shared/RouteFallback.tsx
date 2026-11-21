@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2 } from 'lucide-react'
+import { CircleNotch } from '@phosphor-icons/react'
 import { Skeleton } from '@/components/ui/skeleton'
 
 // Most chunks and session checks settle well under this, so fast loads paint nothing at all
@@ -37,7 +37,7 @@ export function RouteSpinner() {
   if (!useRevealAfterDelay()) return null
   return (
     <div role="status" aria-label={t('common.loading')} className="flex min-h-dvh items-center justify-center bg-background">
-      <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      <CircleNotch className="size-6 animate-spin text-muted-foreground" />
     </div>
   )
 }

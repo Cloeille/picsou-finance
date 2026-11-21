@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { NativeSelect } from '@/components/shared/NativeSelect'
 import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
-import { ArrowDownLeft, Coins, Pencil, Trash2 } from 'lucide-react'
+import { ArrowDownLeft, Coins, PencilSimple, Trash } from '@phosphor-icons/react'
 import type { Category, Transaction } from '@/types/api'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { MerchantAvatar } from '@/components/shared/MerchantAvatar'
@@ -227,13 +227,13 @@ export function TransactionDetailSheet({
           <div className="flex gap-2">
             {onEdit && (
               <Button variant="outline" size="sm" className="flex-1" onClick={() => { onEdit(tx); onClose() }}>
-                <Pencil size={14} className=".5" />
+                <PencilSimple size={14} className=".5" />
                 {t('common.edit')}
               </Button>
             )}
             {onDelete && (
               <Button variant="outline" size="sm" className="flex-1 text-destructive hover:text-destructive" onClick={() => { onDelete(tx.id); onClose() }}>
-                <Trash2 size={14} className=".5" />
+                <Trash size={14} className=".5" />
                 {t('common.delete')}
               </Button>
             )}

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 import { extractErrorMessage } from '@/lib/errors'
-import { Loader2, Upload, CheckCircle2, AlertCircle } from 'lucide-react'
+import { CircleNotch, UploadSimple, CheckCircle, WarningCircle } from '@phosphor-icons/react'
 import type {
   ColumnMappingDto,
   CsvDialectDto,
@@ -103,13 +103,13 @@ function ImportWizard({ accountId, onOpenChange }: { accountId: number; onOpenCh
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-2 text-emerald-500">
-          <CheckCircle2 className="size-5" />
+          <CheckCircle className="size-5" />
           <span className="font-medium">{t('import.rowsImported', { count: result.imported })}</span>
         </div>
         {result.skipped > 0 && (
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-red-500">
-              <AlertCircle className="size-5" />
+              <WarningCircle className="size-5" />
               <span className="font-medium">{t('import.rowsSkipped', { count: result.skipped })}</span>
             </div>
             <ul className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-border bg-muted/40 p-2 text-sm">
@@ -146,7 +146,7 @@ function ImportWizard({ accountId, onOpenChange }: { accountId: number; onOpenCh
             if (file) handleFile(file)
           }}
         >
-          <Upload className="size-8 text-muted-foreground" />
+          <UploadSimple className="size-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">{t('import.uploadHint')}</p>
           <input
             ref={fileInputRef}
@@ -165,7 +165,7 @@ function ImportWizard({ accountId, onOpenChange }: { accountId: number; onOpenCh
             disabled={previewMutation.isPending}
             onClick={() => fileInputRef.current?.click()}
           >
-            {previewMutation.isPending && <Loader2 className="size-4 animate-spin" />}
+            {previewMutation.isPending && <CircleNotch className="size-4 animate-spin" />}
             {t('import.chooseFile')}
           </Button>
         </div>
@@ -277,7 +277,7 @@ function ImportWizard({ accountId, onOpenChange }: { accountId: number; onOpenCh
       <DialogFooter>
         <Button type="button" variant="outline" onClick={() => setPreview(null)}>{t('import.back')}</Button>
         <Button type="button" onClick={handleImport} disabled={executeMutation.isPending}>
-          {executeMutation.isPending && <Loader2 className="size-4 animate-spin" />}
+          {executeMutation.isPending && <CircleNotch className="size-4 animate-spin" />}
           {t('import.import')}
         </Button>
       </DialogFooter>

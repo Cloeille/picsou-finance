@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { RefreshCw, LogOut, Loader2, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { ArrowsClockwise, SignOut, CircleNotch, Warning, CheckCircle } from '@phosphor-icons/react'
 import {
   useRevolutStatus,
   useForgetRevolut,
@@ -78,7 +78,7 @@ export function RevolutTab() {
     <div className="space-y-6">
       {/* Session status card */}
       <Card size="sm">
-        <CardContent className="py-4">
+        <CardContent>
           <div className="flex flex-wrap items-center gap-3">
             {remembered ? (
               <Badge className="bg-green-500/10 text-green-600 dark:text-green-400">
@@ -99,9 +99,9 @@ export function RevolutTab() {
       {/* Error state */}
       {errorMsg && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="py-4">
+          <CardContent>
             <div className="flex items-center gap-3">
-              <AlertTriangle className="size-5 text-destructive shrink-0" />
+              <Warning className="size-5 text-destructive shrink-0" />
               <p className="text-sm text-destructive flex-1">{errorMsg}</p>
               <Button size="sm" variant="outline" onClick={() => setErrorMsg(null)}>
                 {t('sync.banks.retry')}
@@ -116,8 +116,8 @@ export function RevolutTab() {
           harvesting accounts) instead of a single static spinner. */}
       {isSyncing && (
         <Card size="sm">
-          <CardContent className="flex items-center gap-3 py-4">
-            <Loader2 className="size-5 animate-spin text-muted-foreground shrink-0" />
+          <CardContent className="flex items-center gap-3">
+            <CircleNotch className="size-5 animate-spin text-muted-foreground shrink-0" />
             <p className="text-sm text-muted-foreground">{revolutPhaseLabel(t, progress.data)}</p>
           </CardContent>
         </Card>
@@ -126,8 +126,8 @@ export function RevolutTab() {
       {/* Discovery done: auto-persisting the refresh + any new pocket, no selection step here. */}
       {confirmSync.isPending && (
         <Card size="sm">
-          <CardContent className="flex items-center gap-3 py-4">
-            <Loader2 className="size-5 animate-spin text-muted-foreground shrink-0" />
+          <CardContent className="flex items-center gap-3">
+            <CircleNotch className="size-5 animate-spin text-muted-foreground shrink-0" />
             <p className="text-sm text-muted-foreground">{t('sync.revolut.selection.importing')}</p>
           </CardContent>
         </Card>
@@ -135,8 +135,8 @@ export function RevolutTab() {
 
       {justSynced && !busy && !errorMsg && (
         <Card size="sm" className="border-green-500/30">
-          <CardContent className="flex items-center gap-3 py-4">
-            <CheckCircle2 className="size-5 text-green-500 shrink-0" />
+          <CardContent className="flex items-center gap-3">
+            <CheckCircle className="size-5 text-green-500 shrink-0" />
             <p className="text-sm text-muted-foreground">{t('sync.revolut.syncSuccess')}</p>
           </CardContent>
         </Card>
@@ -145,12 +145,12 @@ export function RevolutTab() {
       {remembered ? (
         <div className="flex flex-wrap gap-3">
           <Button onClick={handleQuickSync} disabled={busy}>
-            {busy ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+            {busy ? <CircleNotch className="animate-spin" /> : <ArrowsClockwise />}
             {busy ? t('sync.revolut.syncing') : t('sync.revolut.sync')}
           </Button>
 
           <Button variant="destructive" onClick={handleForget} disabled={busy || forgetMutation.isPending}>
-            <LogOut />
+            <SignOut />
             {t('sync.revolut.forget')}
           </Button>
         </div>

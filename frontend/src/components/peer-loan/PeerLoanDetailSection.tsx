@@ -185,7 +185,7 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
               </div>
 
               <div className="space-y-2">
-                <Progress value={pct} className="h-2" />
+                <Progress value={pct} />
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                   <span className="text-emerald-500">
                     {t('common.labelColon', { label: t('peerLoan.summary.principalRepaid') })} <CurrencyDisplay value={data.principalRepaid} />

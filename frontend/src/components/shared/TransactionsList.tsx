@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Receipt } from 'lucide-react'
+import { Receipt } from '@phosphor-icons/react'
 import type { Category, Transaction } from '@/types/api'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { TransactionRow } from '@/components/shared/TransactionRow'

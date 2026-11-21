@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
-import { KeyRound } from 'lucide-react'
+import { Key } from '@phosphor-icons/react'
 import { authApi } from '@/features/auth/api'
 import { ssoErrorMessage } from '@/features/sso/errors'
 import { useSsoInfo } from '@/features/sso/hooks'
@@ -136,7 +136,7 @@ export function ActivationPage() {
                   onClick={() => submitSsoStart({ intent: 'activate', token, ack: true })}
                   className="h-auto min-h-10 w-full whitespace-normal rounded-lg px-4 py-2.5 text-sm font-medium"
                 >
-                  <KeyRound className="size-4" aria-hidden="true" />
+                  <Key className="size-4" aria-hidden="true" />
                   {t('activation.ssoButton', { provider: sso.providerName })}
                 </Button>
                 <div className="flex items-center gap-3">

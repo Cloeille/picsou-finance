@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
-import { KeyRound, Loader2 } from 'lucide-react'
+import { Key, CircleNotch } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -87,7 +87,7 @@ function RemovePasswordSteps({ resumed, onDone }: { resumed: boolean; onDone: ()
           onClick={() => void handleConfirm()}
           disabled={removePassword.isPending}
         >
-          {removePassword.isPending ? <Loader2 className="animate-spin" /> : <KeyRound />}
+          {removePassword.isPending ? <CircleNotch className="animate-spin" /> : <Key />}
           {t('settings.signInMethods.turnOff')}
         </Button>
       </DialogFooter>

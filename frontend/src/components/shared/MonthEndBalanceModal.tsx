@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
 } from '@/components/ui/dialog'
-import { Loader2 } from 'lucide-react'
+import { CircleNotch } from '@phosphor-icons/react'
 import type { BalanceSnapshot } from '@/types/api'
 
 function getLast12Months(locale: string) {
@@ -169,7 +169,7 @@ function MonthEndForm({ accountId, history, amountOwed, onClose }: MonthEndFormP
           disabled={saving || modified.size === 0}
         >
           {saving && (
-            <Loader2 size={12} className=".5 animate-spin" />
+            <CircleNotch size={12} className=".5 animate-spin" />
           )}
           {t('accounts.addSnapshot')}
           {modified.size > 0 && ` (${modified.size})`}

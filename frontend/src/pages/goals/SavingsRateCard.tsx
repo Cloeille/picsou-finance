@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Info } from 'lucide-react'
+import { Info } from '@phosphor-icons/react'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -53,7 +53,7 @@ export function SavingsRateCard({
   if (monthlyNetIncome == null || monthlyNetIncome <= 0) {
     return (
       <Card>
-        <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
+        <CardContent className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">{t('goals.savingsRate.needsIncome')}</p>
           <Button type="button" variant="outline" size="sm" onClick={onOpenSettings}>
             {t('goals.savingsRate.goToSettings')}
@@ -67,7 +67,7 @@ export function SavingsRateCard({
 
   return (
     <Card>
-      <CardContent className="flex flex-wrap items-center justify-between gap-4 py-4">
+      <CardContent className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
             <p className="text-xs text-muted-foreground">{t('goals.savingsRate.title')}</p>

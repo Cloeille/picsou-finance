@@ -2,11 +2,11 @@ import { useMemo, useState, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useSearchParams } from 'react-router'
 import {
-  Building2,
+  Buildings,
   Eye,
-  Search,
+  MagnifyingGlass,
   X,
-} from 'lucide-react'
+} from '@phosphor-icons/react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { ScrollStrip } from '@/components/shared/ScrollStrip'
 import { Input } from '@/components/ui/input'
@@ -106,7 +106,7 @@ const CONNECTORS: ConnectorDef[] = [
   { id: 'wallets', category: 'cryptoAndWealth', labelKey: 'sync.wallets.title', icon: EthereumLogo, keywords: 'bitcoin ethereum solana evm wallet' },
   { id: 'corum', category: 'cryptoAndWealth', labelKey: 'sync.corum.title', icon: CorumLogo, keywords: 'corum scpi assurance vie' },
   { id: 'sofidy', category: 'cryptoAndWealth', labelKey: 'sync.sofidy.title', icon: SofidyLogo, keywords: 'sofidy scpi immobilier' },
-  { id: 'louve', category: 'cryptoAndWealth', labelKey: 'sync.louve.title', icon: Building2, keywords: 'louve invest scpi immobilier' },
+  { id: 'louve', category: 'cryptoAndWealth', labelKey: 'sync.louve.title', icon: Buildings, keywords: 'louve invest scpi immobilier' },
   { id: 'finary', category: 'cryptoAndWealth', labelKey: 'sync.finary.title', icon: FinaryLogo, keywords: 'finary agregateur patrimoine' },
 
   { id: 'actual', category: 'imports', labelKey: 'sync.actual.title', icon: ActualBudgetLogo, keywords: 'actual budget import sqlite' },
@@ -188,7 +188,7 @@ export function SyncPage() {
 
       <div className="space-y-3">
         <div className="relative">
-          <Search
+          <MagnifyingGlass
             className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
             aria-hidden="true"
           />

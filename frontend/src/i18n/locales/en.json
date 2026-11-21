@@ -436,7 +436,8 @@
         "PESSIMISTIC": "Pessimistic ({{value}})",
         "CAUTIOUS": "Cautious ({{value}})",
         "REFERENCE": "Reference ({{value}})",
-        "OPTIMISTIC": "Optimistic ({{value}})"
+        "OPTIMISTIC": "Optimistic ({{value}})",
+        "CUSTOM": "Custom ({{value}})"
       },
       "contributed": "Your contributions",
       "views": {
@@ -449,7 +450,12 @@
       "today": "Today",
       "atHorizon": "In {{count}} years",
       "atAge": "age {{age}}",
-      "referenceAt": "Projected at {{count}} years (reference)"
+      "referenceAt": "Projected at {{count}} years (reference)",
+      "customRateLabel": "Custom rate",
+      "customRateHint": "Enter an annual rate (e.g. 12%) to simulate your own return.",
+      "customRateResult": "In {{count}} years ({{value}}):",
+      "customRateGains": "in gains",
+      "customRateClear": "Clear custom rate"
     },
     "classification": {
       "title": "Classify this security",
@@ -3673,6 +3679,7 @@
     "howToUpdate": "How to update",
     "updateInstructions": "To update your Docker instance, run:",
     "copied": "Copied",
-    "copy": "Copy"
+    "copy": "Copy",
+    "cardTitle": "Discover Picsou {{version}}"
   }
 }

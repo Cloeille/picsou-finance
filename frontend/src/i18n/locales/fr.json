@@ -436,7 +436,8 @@
         "PESSIMISTIC": "Pessimiste ({{value}})",
         "CAUTIOUS": "Prudent ({{value}})",
         "REFERENCE": "Référence ({{value}})",
-        "OPTIMISTIC": "Optimiste ({{value}})"
+        "OPTIMISTIC": "Optimiste ({{value}})",
+        "CUSTOM": "Personnalisé ({{value}})"
       },
       "contributed": "Vos versements",
       "views": {
@@ -449,7 +450,12 @@
       "today": "Aujourd'hui",
       "atHorizon": "À {{count}} ans",
       "atAge": "{{age}} ans",
-      "referenceAt": "Projection à {{count}} ans (référence)"
+      "referenceAt": "Projection à {{count}} ans (référence)",
+      "customRateLabel": "Taux personnalisé",
+      "customRateHint": "Saisissez un taux annuel (ex. 12 %) pour simuler votre propre rendement.",
+      "customRateResult": "À {{count}} ans ({{value}}) :",
+      "customRateGains": "de gains",
+      "customRateClear": "Effacer le taux personnalisé"
     },
     "classification": {
       "title": "Classer ce titre",
@@ -3673,6 +3679,7 @@
     "howToUpdate": "Mettre à jour",
     "updateInstructions": "Pour mettre à jour votre instance Docker, exécutez :",
     "copied": "Copié",
-    "copy": "Copier"
+    "copy": "Copier",
+    "cardTitle": "Découvrez Picsou {{version}}"
   }
 }

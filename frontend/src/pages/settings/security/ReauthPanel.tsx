@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { KeyRound, Loader2, ShieldCheck } from 'lucide-react'
+import { Key, CircleNotch, ShieldCheck } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -36,7 +36,7 @@ export function ReauthPanel({ action, onConfirmed, expired = false }: ReauthPane
   if (methods.isPending) {
     return (
       <div className="flex justify-center py-4">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        <CircleNotch className="size-5 animate-spin text-muted-foreground" />
       </div>
     )
   }
@@ -122,7 +122,7 @@ function PasswordConfirmation({
       <PanelAlert message={error ?? notice} />
       <DialogFooter>
         <Button type="submit" disabled={reauth.isPending}>
-          {reauth.isPending ? <Loader2 className="animate-spin" /> : <ShieldCheck />}
+          {reauth.isPending ? <CircleNotch className="animate-spin" /> : <ShieldCheck />}
           {t('reauth.confirm')}
         </Button>
       </DialogFooter>
@@ -177,7 +177,7 @@ function ProviderConfirmation({
       <PanelAlert message={error ?? notice} />
       <DialogFooter>
         <Button type="button" onClick={() => void confirm()} disabled={redirecting}>
-          {redirecting ? <Loader2 className="animate-spin" /> : <KeyRound />}
+          {redirecting ? <CircleNotch className="animate-spin" /> : <Key />}
           {t('reauth.confirmWith', { provider: providerName })}
         </Button>
       </DialogFooter>

@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp'
-import { AlertTriangle, Loader2, Lock, ShieldCheck, Smartphone } from 'lucide-react'
+import { Warning, CircleNotch, Lock, ShieldCheck, DeviceMobile } from '@phosphor-icons/react'
 import { useInitiateTrAuth, useCompleteTrAuth, useReconnectTrAuth } from '@/features/sync/hooks'
 import { TrAppConfirmation } from '@/components/sync/TrAppConfirmation'
 import { formatTrAuthError, isTrAttemptOverError, isTrInvalidSessionStateError } from '@/lib/errors'
@@ -134,7 +134,7 @@ export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }:
   const phoneField = reconnecting ? (
     <div className="space-y-1">
       <p className="text-sm text-muted-foreground">
-        <Smartphone className="size-4 inline-block mr-1" />
+        <DeviceMobile className="size-4 inline-block mr-1" />
         {t('sync.tr.reconnectPhone')}
       </p>
       <p className="font-mono text-sm" data-testid="tr-masked-phone">{maskedPhone}</p>
@@ -142,7 +142,7 @@ export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }:
   ) : (
     <div className="space-y-2">
       <Label htmlFor="tr-phone">
-        <Smartphone className="size-4 inline-block mr-1" />
+        <DeviceMobile className="size-4 inline-block mr-1" />
         {t('sync.tr.phone')}
       </Label>
       <Input
@@ -220,7 +220,7 @@ export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }:
   const initiatePending = initiateMutation.isPending || reconnectMutation.isPending
   const initiateSubmit = (
     <Button type="submit" disabled={initiatePending} className="w-full">
-      {modal && initiatePending && <Loader2 className="size-4 animate-spin" />}
+      {modal && initiatePending && <CircleNotch className="size-4 animate-spin" />}
       {t('sync.tr.connect')}
     </Button>
   )
@@ -230,7 +230,7 @@ export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }:
       disabled={completeMutation.isPending || tan.length !== codeLength}
       className="w-full"
     >
-      {modal && completeMutation.isPending && <Loader2 className="size-4 animate-spin" />}
+      {modal && completeMutation.isPending && <CircleNotch className="size-4 animate-spin" />}
       {t('sync.tr.connect')}
     </Button>
   )
@@ -265,9 +265,9 @@ export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }:
     </div>
   ) : (
     <Card size="sm" className="border-destructive/30">
-      <CardContent className="py-4">
+      <CardContent>
         <div className="flex items-center gap-3">
-          <AlertTriangle className="size-5 text-destructive shrink-0" />
+          <Warning className="size-5 text-destructive shrink-0" />
           <p className="text-sm text-destructive flex-1">{errorMsg}</p>
           <Button size="sm" variant="outline" onClick={dismissError}>
             {t('sync.banks.retry')}
@@ -282,7 +282,7 @@ export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }:
       <TrAppConfirmation countdownInSeconds={countdown} />
     ) : (
       <Card size="sm">
-        <CardContent className="py-4">
+        <CardContent>
           <TrAppConfirmation countdownInSeconds={countdown} />
         </CardContent>
       </Card>
@@ -296,7 +296,7 @@ export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }:
         </>
       ) : (
         <Card size="sm">
-          <CardContent className="space-y-4 py-4">
+          <CardContent className="space-y-4">
             {tanField}
             {tanSubmit}
           </CardContent>
@@ -314,7 +314,7 @@ export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }:
         </>
       ) : (
         <Card size="sm">
-          <CardContent className="space-y-4 py-4">
+          <CardContent className="space-y-4">
             {phoneField}
             {pinField}
             {initiateSubmit}

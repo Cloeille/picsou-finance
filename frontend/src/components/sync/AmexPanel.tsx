@@ -1,4 +1,4 @@
-import { CreditCard } from "lucide-react"
+import { CreditCard } from '@phosphor-icons/react'
 import { useTranslation } from "react-i18next"
 import { SidecarSessionPanel } from "@/components/sync/SidecarSessionPanel"
 import { useRecoverAmexHistory } from "@/features/sync/hooks"

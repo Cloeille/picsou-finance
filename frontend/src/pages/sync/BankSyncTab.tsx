@@ -8,15 +8,15 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { InstitutionSearch } from '@/components/sync/InstitutionSearch'
 import {
-  RefreshCw,
-  Trash2,
-  Landmark,
-  Loader2,
+  ArrowsClockwise,
+  Trash,
+  Bank,
+  CircleNotch,
   CheckCircle,
-  AlertTriangle,
-  ExternalLink,
+  Warning,
+  ArrowSquareOut,
   PiggyBank,
-} from 'lucide-react'
+} from '@phosphor-icons/react'
 import { extractErrorMessage, formatApiError } from '@/lib/errors'
 import {
   useBankSyncStatus,
@@ -198,15 +198,15 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
           callbackStatus === 'error' ? 'border-destructive/30 bg-destructive/5' :
           'border-border/60 bg-muted/40'
         }>
-          <CardContent className="flex items-center gap-3 py-3">
+          <CardContent className="flex items-center gap-3">
             {callbackStatus === 'completing' && (
-              <Loader2 className="size-4 animate-spin text-primary" />
+              <CircleNotch className="size-4 animate-spin text-primary" />
             )}
             {callbackStatus === 'done' && (
               <CheckCircle className="size-4 text-emerald-600 dark:text-emerald-400" />
             )}
             {callbackStatus === 'error' && (
-              <AlertTriangle className="size-4 text-destructive" />
+              <Warning className="size-4 text-destructive" />
             )}
             <span className="text-sm font-medium">
               {callbackStatus === 'completing' && t('sync.banks.callbackCompleting')}
@@ -220,8 +220,8 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
       {/* Initiate error */}
       {initiateError && (
         <Card className="border-destructive/30 bg-destructive/5">
-          <CardContent className="flex items-center gap-3 py-3">
-            <AlertTriangle className="size-4 shrink-0 text-destructive" />
+          <CardContent className="flex items-center gap-3">
+            <Warning className="size-4 shrink-0 text-destructive" />
             <span className="flex-1 text-sm font-medium text-destructive">{initiateError}</span>
             <Button variant="ghost" size="sm" onClick={() => setInitiateError(null)}>
               {t('common.close')}
@@ -233,8 +233,8 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
       {/* Retry error */}
       {retryError && (
         <Card className="border-destructive/30 bg-destructive/5">
-          <CardContent className="flex items-center gap-3 py-3">
-            <AlertTriangle className="size-4 shrink-0 text-destructive" />
+          <CardContent className="flex items-center gap-3">
+            <Warning className="size-4 shrink-0 text-destructive" />
             <span className="flex-1 text-sm font-medium text-destructive">{retryError}</span>
             <Button variant="ghost" size="sm" onClick={() => setRetryError(null)}>
               {t('common.close')}
@@ -261,7 +261,7 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
               <EmptyState
                 className="py-8"
                 title={t('sync.banks.noConnections')}
-                icon={<Landmark className="size-10" />}
+                icon={<Bank className="size-10" />}
               />
             </CardContent>
           </Card>
@@ -279,7 +279,7 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
 
               return <div key={conn.id} className="space-y-2">
                 <Card size="sm">
-                  <CardContent className="flex items-center justify-between py-2">
+                  <CardContent className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-medium">{conn.institutionName}</span>
                       <Badge
@@ -300,8 +300,8 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
                             disabled={isRetrying || isReconnecting}
                           >
                             {isRetrying
-                              ? <Loader2 className="size-4 animate-spin" />
-                              : <RefreshCw className="size-4" />}
+                              ? <CircleNotch className="size-4 animate-spin" />
+                              : <ArrowsClockwise className="size-4" />}
                           </Button>
                           <Button
                             size="icon-sm"
@@ -311,8 +311,8 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
                             disabled={isRetrying || isReconnecting}
                           >
                             {isReconnecting
-                              ? <Loader2 className="size-4 animate-spin" />
-                              : <ExternalLink className="size-4" />}
+                              ? <CircleNotch className="size-4 animate-spin" />
+                              : <ArrowSquareOut className="size-4" />}
                           </Button>
                         </>
                       )}
@@ -321,7 +321,7 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
                         variant="ghost"
                         onClick={() => setDeleteId(conn.id)}
                       >
-                        <Trash2 className="size-4 text-destructive" />
+                        <Trash className="size-4 text-destructive" />
                       </Button>
                     </div>
                   </CardContent>

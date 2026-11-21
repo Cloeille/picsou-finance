@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
-import { Copy, Check, Download } from 'lucide-react'
+import { Copy, Check, DownloadSimple } from '@phosphor-icons/react'
 
 /**
  * Displays a fresh set of recovery codes once. Codes are unmasked, formatted
@@ -60,7 +60,7 @@ export function RecoveryCodesView({
           {copied ? t('settings.mfaCopied') : t('settings.mfaCopy')}
         </Button>
         <Button type="button" variant="outline" size="sm" onClick={handleDownload} className="flex-1">
-          <Download size={14} className=".5" />
+          <DownloadSimple size={14} className=".5" />
           {t('settings.mfaDownload')}
         </Button>
       </div>

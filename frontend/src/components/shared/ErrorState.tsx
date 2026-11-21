@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle } from 'lucide-react'
+import { Warning } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 
 interface ErrorStateProps {
@@ -15,7 +15,7 @@ export function ErrorState({ title, message, onRetry, messageOnly }: ErrorStateP
   const { t } = useTranslation()
   return (
     <div className="flex flex-col items-center justify-center py-12 text-center">
-      {!messageOnly && <AlertTriangle className="size-10 text-destructive mb-4" />}
+      {!messageOnly && <Warning className="size-10 text-destructive mb-4" />}
       {!messageOnly && <h3 className="text-lg font-medium">{title ?? t('common.errorTitle')}</h3>}
       {message && (
         <p className={messageOnly ? 'text-sm text-muted-foreground' : 'mt-1 text-sm text-muted-foreground'}>{message}</p>

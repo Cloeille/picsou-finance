@@ -425,7 +425,8 @@
         "PESSIMISTIC": "Pessimistisch ({{value}})",
         "CAUTIOUS": "Vorsichtig ({{value}})",
         "REFERENCE": "Referenz ({{value}})",
-        "OPTIMISTIC": "Optimistisch ({{value}})"
+        "OPTIMISTIC": "Optimistisch ({{value}})",
+        "CUSTOM": "Benutzerdefiniert ({{value}})"
       },
       "contributed": "Ihre Einzahlungen",
       "views": {
@@ -438,7 +439,12 @@
       "today": "Heute",
       "atHorizon": "In {{count}} Jahren",
       "atAge": "{{age}} Jahre",
-      "referenceAt": "Prognose in {{count}} Jahren (Referenz)"
+      "referenceAt": "Prognose in {{count}} Jahren (Referenz)",
+      "customRateLabel": "Eigener Zinssatz",
+      "customRateHint": "Geben Sie einen jährlichen Zinssatz (z. B. 12 %) für eine eigene Simulation ein.",
+      "customRateResult": "In {{count}} Jahren ({{value}}):",
+      "customRateGains": "Gewinn",
+      "customRateClear": "Eigenen Zinssatz löschen"
     },
     "classification": {
       "title": "Wertpapier einordnen",
@@ -3673,6 +3679,7 @@
     "howToUpdate": "Aktualisieren",
     "updateInstructions": "Um deine Docker-Instanz zu aktualisieren, führe aus:",
     "copied": "Kopiert",
-    "copy": "Kopieren"
+    "copy": "Kopieren",
+    "cardTitle": "Entdecke Picsou {{version}}"
   }
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Loader2, Smartphone } from 'lucide-react'
+import { CircleNotch, DeviceMobile } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
 function formatCountdown(totalSeconds: number): string {
@@ -31,7 +31,7 @@ export function TrAppConfirmation({ countdownInSeconds, className }: TrAppConfir
 
   return (
     <div className={`flex items-center gap-3 ${className ?? ''}`} data-testid="tr-app-confirmation">
-      <Smartphone className="size-5 shrink-0 text-muted-foreground" />
+      <DeviceMobile className="size-5 shrink-0 text-muted-foreground" />
       <div className="flex-1 space-y-1">
         <p className="text-sm">{t('sync.tr.appConfirmPrompt')}</p>
         <p className="text-sm text-muted-foreground">
@@ -41,7 +41,7 @@ export function TrAppConfirmation({ countdownInSeconds, className }: TrAppConfir
           </span>
         </p>
       </div>
-      <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+      <CircleNotch className="size-4 shrink-0 animate-spin text-muted-foreground" />
     </div>
   )
 }
