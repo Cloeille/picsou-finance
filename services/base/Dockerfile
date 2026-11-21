@@ -44,8 +44,9 @@ ENV PICSOU_SIDECAR_BASE=sidecar-chromium
 # WebKit, which no sidecar uses. Playwright's own `--with-deps` option would pull
 # Ubuntu-only font packages that do not exist on Debian, hence the explicit list.
 # openssl is the TLS fixture tool for corum-auth's navigation security test.
+# libatomic1 is for the Node.js binary of the Playwright driver (1.65.1 and later).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+        libatomic1 libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
         libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
         libxrandr2 libgbm1 libasound2 libpango-1.0-0 libcairo2 \
         libx11-6 libx11-xcb1 libxcb1 libxext6 \
