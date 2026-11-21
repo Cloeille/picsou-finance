@@ -1,0 +1,1 @@
+//! SimpleFIN Bridge sync tests.

@@ -72,6 +72,8 @@ pub struct Inner {
     pub desktop_info: bool,
     /// The ledger's plug-in points (prices, connection locks, merchant knowledge base).
     pub ledger: ledger::Ledger,
+    /// The sync module's plug-in points (cross-track seams).
+    pub sync: sync::SyncHooks,
 }
 
 impl Deref for AppState {
@@ -103,6 +105,7 @@ impl AppState {
             clock,
             config,
             ledger: ledger::Ledger::new(db.clone()),
+            sync: sync::SyncHooks::new(db.clone()),
             db,
             setup_complete: AtomicBool::new(false),
             login_timing: TimingEqualizer::default(),

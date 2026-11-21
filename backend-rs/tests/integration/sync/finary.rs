@@ -1,0 +1,1 @@
+//! Finary API sync tests.
