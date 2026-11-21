@@ -210,6 +210,24 @@ was stored and displayed as `LIVRET D&#039;EPARGNE`. Existing rows need no
 migration: `upsertAccount` rewrites `account.name` on every sync, so the next
 sync cleans them.
 
+#### A notice in place of the dashboard
+
+BoursoBank can park the dashboard behind a notice under `/infos-profil/` (a
+card renewal offer, for instance), served again on every login until the account
+holder answers it on the website. The dashboard request then answers
+`302 → /infos-profil/`, which redirects to `/infos-profil/{notice}/{id}/{step}`.
+When the notice can be postponed, its "Voir plus tard" link points to
+`/ignorer-bloquante/{notice}`, which leads back to the home page.
+
+The sidecar follows that link once per `/accounts` call, same origin only, then
+requests the dashboard again. It never follows any other link of the notice (the
+offer itself). A notice without a link under `/ignorer-bloquante/` (the
+fraud-prevention notice is a legal acknowledgment, see `FRAUD_ACK_REQUIRED`), or
+one served again after postponing, fails with `UPSTREAM_FORMAT_CHANGED` and a
+message naming the notice, instead of `Dashboard carried no account section`.
+The page shape comes from a real card renewal notice; the tests use a synthetic
+one.
+
 #### Several identities on one access
 
 An access that holds a personal and a business identity (a sole trader, for
