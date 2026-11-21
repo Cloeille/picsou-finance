@@ -12,6 +12,7 @@ mod manual_ledger;
 mod manual_transactions;
 mod merchants;
 mod peer_loans;
+mod prices;
 mod sidecar;
 mod sidecar_import;
 mod support;

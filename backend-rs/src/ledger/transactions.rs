@@ -30,7 +30,7 @@ pub async fn find_by_id_and_member<'e>(
     member_id: i64,
 ) -> sqlx::Result<Option<Transaction>> {
     sqlx::query_as(&select(
-        "t.id = $1 AND EXISTS (SELECT 1 FROM account a WHERE a.id = t.account_id AND a.member_id = $2)",
+        "t.id = $1 AND EXISTS (SELECT 1 FROM account a WHERE a.id = t.account_id AND a.member_id = $2 AND a.deleted_at IS NULL)",
     ))
     .bind(id)
     .bind(member_id)
@@ -46,7 +46,7 @@ pub async fn find_by_ids_and_member<'e>(
     sqlx::query_as(&format!(
         "{} ORDER BY t.id",
         select(
-            "t.id = ANY($1) AND EXISTS (SELECT 1 FROM account a WHERE a.id = t.account_id AND a.member_id = $2)"
+            "t.id = ANY($1) AND EXISTS (SELECT 1 FROM account a WHERE a.id = t.account_id AND a.member_id = $2 AND a.deleted_at IS NULL)"
         )
     ))
     .bind(ids)
@@ -205,7 +205,7 @@ pub async fn stored_external_ids<'e>(
 ) -> sqlx::Result<Vec<StoredExternalId>> {
     sqlx::query_as(
         "SELECT t.id, t.external_id, t.account_id FROM \"transaction\" t JOIN account a ON a.id = t.account_id \
-         WHERE a.member_id = $1 AND t.external_id = ANY($2) ORDER BY t.id",
+         WHERE a.member_id = $1 AND a.deleted_at IS NULL AND t.external_id = ANY($2) ORDER BY t.id",
     )
     .bind(member_id)
     .bind(external_ids)

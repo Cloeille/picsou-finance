@@ -51,7 +51,9 @@ impl TransactionRequest {
             .not_null("amount", self.amount.as_ref());
         Some(Required {
             date: self.date?,
-            description: description.filter(|d| !d.trim().is_empty())?.to_owned(),
+            description: description
+                .filter(|d| !crate::ledger::sync_values::java_trim(d).is_empty())?
+                .to_owned(),
             amount: self.amount?,
         })
     }

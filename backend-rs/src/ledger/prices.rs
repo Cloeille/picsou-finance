@@ -10,6 +10,7 @@ use rust_decimal::Decimal;
 use sqlx::{PgExecutor, PgPool};
 
 use super::model::PriceSnapshot;
+use super::sync_values::java_is_blank;
 
 /// How old a recorded price may be and still stand in for a live one.
 pub const MAX_FALLBACK_AGE_DAYS: u64 = 7;
@@ -40,7 +41,7 @@ pub trait PriceRead: Send + Sync {
 
     /// getQuote / getCryptoQuote: one ticker; a blank ticker or EUR is worth one euro.
     async fn quote(&self, ticker: &str, crypto_only: bool, today: NaiveDate) -> Option<Quote> {
-        if ticker.trim().is_empty() || ticker.eq_ignore_ascii_case("EUR") {
+        if java_is_blank(ticker) || ticker.eq_ignore_ascii_case("EUR") {
             return Some(Quote {
                 price: Decimal::ONE,
                 as_of: today,
@@ -66,7 +67,7 @@ pub trait PriceRead: Send + Sync {
         let Some(balance) = balance else {
             return Decimal::ZERO;
         };
-        let ticker = ticker.filter(|t| !t.trim().is_empty());
+        let ticker = ticker.filter(|t| !java_is_blank(t));
         let Some(ticker) = ticker else {
             if currency.eq_ignore_ascii_case("EUR") {
                 return balance;
@@ -95,8 +96,8 @@ pub trait PriceRead: Send + Sync {
     }
 }
 
-/// Prices from price_snapshot only: no provider, so no live quote, no FX rate, and no crypto
-/// price (no source maps a coin).
+/// Prices from price_snapshot only, as PriceService answers when every provider is down: no live
+/// quote, no FX rate, and a crypto price only for a coin the registry knows.
 #[derive(Debug, Clone)]
 pub struct RecordedPrices {
     db: PgPool,
@@ -118,7 +119,7 @@ impl PriceRead for RecordedPrices {
     ) -> HashMap<String, Quote> {
         let mut resolved = HashMap::new();
         let mut pending = BTreeSet::new();
-        for ticker in tickers.iter().filter(|t| !t.trim().is_empty()) {
+        for ticker in tickers.iter().filter(|t| !java_is_blank(t)) {
             let upper = ticker.to_uppercase();
             if upper == "EUR" {
                 resolved.insert(
@@ -129,9 +130,20 @@ impl PriceRead for RecordedPrices {
                         live: true,
                     },
                 );
-            } else if !crypto_only {
+            } else {
                 pending.insert(upper);
             }
+        }
+        if crypto_only && !pending.is_empty() {
+            // Only a coin the registry maps is crypto-priced; anything else must never read a
+            // row a stock of the same symbol wrote.
+            pending = match registered_coins(&self.db, &pending).await {
+                Ok(coins) => coins,
+                Err(e) => {
+                    tracing::warn!("Could not read the crypto registry: {e}");
+                    BTreeSet::new()
+                }
+            };
         }
         if pending.is_empty() {
             return resolved;
@@ -157,6 +169,21 @@ impl PriceRead for RecordedPrices {
     async fn fx_rate_eur(&self, _currency: &str) -> Option<Decimal> {
         None
     }
+}
+
+/// The tickers among the upper-cased ones the crypto registry (crypto_asset) maps to a coin.
+pub async fn registered_coins<'e>(
+    db: impl PgExecutor<'e>,
+    tickers: &BTreeSet<String>,
+) -> sqlx::Result<BTreeSet<String>> {
+    let tickers: Vec<&str> = tickers.iter().map(String::as_str).collect();
+    let rows: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT upper(ticker) FROM crypto_asset WHERE upper(ticker) = ANY($1)",
+    )
+    .bind(&tickers)
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().collect())
 }
 
 /// The newest price_snapshot row of each ticker dated within the fallback window ending today.

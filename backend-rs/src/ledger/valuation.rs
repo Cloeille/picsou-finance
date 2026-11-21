@@ -13,6 +13,7 @@ use sqlx::PgConnection;
 use super::liabilities;
 use super::model::{Account, AccountHolding, AccountType, BalanceSnapshot, SnapshotSource};
 use super::prices::{PriceRead, Quote};
+use super::sync_values::java_is_blank;
 use super::{holdings, loans, peer_loans, providers, snapshots};
 
 /// What an account is worth and what it cost.
@@ -160,7 +161,7 @@ fn value_holdings(
     let insurer = providers::is_insurer_contract(account);
 
     for h in holdings {
-        let has_ticker = !h.ticker.trim().is_empty();
+        let has_ticker = !java_is_blank(&h.ticker);
         let quote = has_ticker
             .then(|| quotes.get(&h.ticker.to_uppercase()))
             .flatten();
@@ -288,7 +289,7 @@ pub fn provider_cost_basis_eur(holding: &AccountHolding) -> Option<Decimal> {
 pub fn tickers_of(holdings: &[AccountHolding]) -> BTreeSet<String> {
     holdings
         .iter()
-        .filter(|h| !h.ticker.trim().is_empty())
+        .filter(|h| !java_is_blank(&h.ticker))
         .map(|h| h.ticker.to_uppercase())
         .collect()
 }

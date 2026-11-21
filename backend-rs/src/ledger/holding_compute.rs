@@ -37,7 +37,11 @@ struct Accumulator {
 pub fn net_positions(trades: &[Transaction]) -> BTreeMap<String, NetPosition> {
     let mut by_ticker: HashMap<&str, Accumulator> = HashMap::new();
     for tx in trades {
-        let Some(ticker) = tx.ticker.as_deref().filter(|t| !t.trim().is_empty()) else {
+        let Some(ticker) = tx
+            .ticker
+            .as_deref()
+            .filter(|t| !crate::ledger::sync_values::java_is_blank(t))
+        else {
             continue;
         };
         let acc = by_ticker.entry(ticker).or_default();

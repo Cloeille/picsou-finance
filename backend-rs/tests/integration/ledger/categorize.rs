@@ -75,20 +75,21 @@ async fn find_or_create_default_recreates_a_deleted_default_at_the_end_and_refus
         .await
         .unwrap();
 
-    let recreated = categorize::find_or_create_default(&app.state.db, alice, "epargne", now())
+    let mut conn = app.state.db.acquire().await.unwrap();
+    let recreated = categorize::find_or_create_default(&mut conn, alice, "epargne", now())
         .await
         .unwrap()
         .unwrap();
     assert_eq!(recreated.sort_order, 20);
     assert_eq!(recreated.kind, CategoryKind::Transfer);
     assert!(
-        categorize::find_or_create_default(&app.state.db, alice, "voyages", now())
+        categorize::find_or_create_default(&mut conn, alice, "voyages", now())
             .await
             .unwrap()
             .is_none()
     );
     assert!(
-        categorize::find_or_create_default(&app.state.db, alice, "unknown", now())
+        categorize::find_or_create_default(&mut conn, alice, "unknown", now())
             .await
             .unwrap()
             .is_none()
@@ -173,4 +174,23 @@ async fn budget_settings_are_absent_until_saved() {
         .unwrap();
     assert_eq!(settings.cycle_start_day, 25);
     assert_eq!(settings.ai_confidence_threshold, 75);
+}
+
+#[tokio::test]
+async fn find_or_create_default_rolls_back_with_the_callers_transaction() {
+    let app = TestApp::spawn().await;
+    let alice = member(&app, "alice").await;
+    let mut tx = app.state.db.begin().await.unwrap();
+    let created = categorize::find_or_create_default(&mut tx, alice, "epargne", now())
+        .await
+        .unwrap();
+    assert!(created.is_some());
+    tx.rollback().await.unwrap();
+
+    assert!(
+        categorize::categories_of_member(&app.state.db, alice, true)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }

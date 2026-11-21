@@ -6,13 +6,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use sqlx::{PgExecutor, PgPool};
+use sqlx::{PgConnection, PgExecutor, PgPool};
 
 use super::merchants::{self, KnowledgeBase};
 use super::model::{
     BudgetSettings, CATEGORY_COLUMNS, CategorizationRule, Category, CategoryKind, NewTransaction,
     RuleMatchType, Transaction,
 };
+use super::sync_values::java_is_blank;
 
 struct DefaultCategory {
     slug: &'static str,
@@ -242,24 +243,34 @@ async fn insert_default<'e>(
 /// transaction of its own (REQUIRES_NEW) so the seed survives the caller's rollback.
 pub async fn ensure_seeded(db: &PgPool, member_id: i64, now: DateTime<Utc>) -> sqlx::Result<()> {
     let mut tx = db.begin().await?;
+    seed_if_empty(&mut tx, member_id, now).await?;
+    tx.commit().await
+}
+
+async fn seed_if_empty(
+    conn: &mut PgConnection,
+    member_id: i64,
+    now: DateTime<Utc>,
+) -> sqlx::Result<()> {
     let exists: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM category WHERE member_id = $1)")
             .bind(member_id)
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut *conn)
             .await?;
-    if exists {
-        return Ok(());
+    if !exists {
+        for (order, d) in (0..).zip(DEFAULTS) {
+            insert_default(&mut *conn, member_id, d, order, now).await?;
+        }
     }
-    for (order, d) in (0..).zip(DEFAULTS) {
-        insert_default(&mut *tx, member_id, d, order, now).await?;
-    }
-    tx.commit().await
+    Ok(())
 }
 
 /// CategoryService.findOrCreateDefault: the member's category of a default slug, recreated at
 /// the end of the list if the member deleted it; None for an unknown slug or an archived one.
+/// Everything happens in the caller's transaction: Java's inner ensureSeeded call is a
+/// self-invocation, so its REQUIRES_NEW never applies there.
 pub async fn find_or_create_default(
-    db: &PgPool,
+    conn: &mut PgConnection,
     member_id: i64,
     slug: &str,
     now: DateTime<Utc>,
@@ -267,14 +278,14 @@ pub async fn find_or_create_default(
     let Some(wanted) = DEFAULTS.iter().find(|d| d.slug == slug) else {
         return Ok(None);
     };
-    ensure_seeded(db, member_id, now).await?;
-    let existing = categories_of_member(db, member_id, true).await?;
+    seed_if_empty(&mut *conn, member_id, now).await?;
+    let existing = categories_of_member(&mut *conn, member_id, true).await?;
     if let Some(found) = existing.iter().find(|c| c.slug.as_deref() == Some(slug)) {
         return Ok((!found.archived).then(|| found.clone()));
     }
     let sort_order = existing.iter().map(|c| c.sort_order).max().unwrap_or(-1) + 1;
     Ok(Some(
-        insert_default(db, member_id, wanted, sort_order, now).await?,
+        insert_default(conn, member_id, wanted, sort_order, now).await?,
     ))
 }
 
@@ -288,7 +299,7 @@ pub async fn categories_by_slug(
     ensure_seeded(db, member_id, now).await?;
     let mut by_slug = HashMap::new();
     for category in categories_of_member(db, member_id, false).await? {
-        if let Some(slug) = category.slug.clone().filter(|s| !s.trim().is_empty()) {
+        if let Some(slug) = category.slug.clone().filter(|s| !java_is_blank(s)) {
             by_slug.entry(slug).or_insert(category);
         }
     }

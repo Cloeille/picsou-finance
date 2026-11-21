@@ -9,7 +9,7 @@ use chrono::{DateTime, Days, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use sqlx::PgConnection;
+use sqlx::{Connection, PgConnection};
 
 use super::decimal::{HALF_UP, set_scale};
 use super::model::{Account, NewTransaction, Transaction};
@@ -122,9 +122,12 @@ async fn save_all(
         );
         return Ok(0);
     }
+    // saveAll: all rows or none (a savepoint inside the caller's transaction).
+    let mut batch = conn.begin().await?;
     for row in rows {
-        transactions::insert(&mut *conn, row, now).await?;
+        transactions::insert(&mut *batch, row, now).await?;
     }
+    batch.commit().await?;
     tracing::info!(
         "Imported {} new transactions for account {} ({fetched} fetched since {since})",
         rows.len(),

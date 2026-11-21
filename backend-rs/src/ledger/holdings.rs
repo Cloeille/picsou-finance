@@ -74,7 +74,7 @@ pub async fn exists_for_readable_account<'e>(
 ) -> sqlx::Result<bool> {
     sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM account_holding h JOIN account a ON a.id = h.account_id \
-         WHERE h.account_id = $1 AND (a.member_id = $2 OR EXISTS (SELECT 1 FROM account_ownership o \
+         WHERE h.account_id = $1 AND a.deleted_at IS NULL AND (a.member_id = $2 OR EXISTS (SELECT 1 FROM account_ownership o \
          WHERE o.account_id = $1 AND o.member_id = $2)))",
     )
     .bind(account_id)
