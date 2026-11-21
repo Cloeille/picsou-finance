@@ -508,8 +508,6 @@ public class SyncService {
             // A balance left as is keeps the currency it was stored in.
             if (data.balance() != null) {
                 account.setCurrency(currency);
-            }
-            if (data.balance() != null) {
                 account.setCurrentBalance(data.balance());
             }
             account.setLastSyncedAt(Instant.now());
@@ -573,13 +571,11 @@ public class SyncService {
         if (data.type() != AccountType.CREDIT_CARD) {
             return;
         }
-        if (account.getType() == AccountType.CHECKING) {
+        // Kept as is (no readable balance), a positive figure from the current-account days is
+        // credit left, not owed: as a card it would read as a negative debt, so wait for one.
+        boolean staleCredit = data.balance() == null && account.getCurrentBalance().signum() > 0;
+        if (account.getType() == AccountType.CHECKING && !staleCredit) {
             account.setType(AccountType.CREDIT_CARD);
-            // Kept as is (no readable balance), a positive figure from the current-account days is
-            // credit left, not owed: as a card it would read as a negative debt.
-            if (data.balance() == null && account.getCurrentBalance().signum() > 0) {
-                account.setCurrentBalance(BigDecimal.ZERO);
-            }
         }
         if (account.getType() == AccountType.CREDIT_CARD && account.getCardNature() == null) {
             account.setCardNature(data.cardNature());

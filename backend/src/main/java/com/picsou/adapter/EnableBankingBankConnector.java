@@ -748,7 +748,9 @@ public class EnableBankingBankConnector implements BankConnectorPort {
 
     AccountData fetchAccountData(String accountId, AccountBalanceCandidates response, BalanceOwnership ownership) {
         AccountDetailsResponse details = response.details();
-        if (details != null && CARD_CASH_ACCOUNT_TYPE.equalsIgnoreCase(nullToEmpty(details.cashAccountType()).trim())) {
+        // A shared balance list (fallback) cannot say which balance a card owes: imported as before.
+        if (details != null && response.selection() != BalanceSelection.FALLBACK
+            && CARD_CASH_ACCOUNT_TYPE.equalsIgnoreCase(nullToEmpty(details.cashAccountType()).trim())) {
             return fetchCardData(accountId, response, ownership);
         }
         var selected = selectBalance(accountId, response, ownership);
@@ -767,15 +769,12 @@ public class EnableBankingBankConnector implements BankConnectorPort {
      */
     private AccountData fetchCardData(String accountId, AccountBalanceCandidates response, BalanceOwnership ownership) {
         AccountDetailsResponse details = response.details();
-        // In the fallback path, the ownership check needs the whole list: filtering first would let
-        // a shared list with mixed labels pass as this card's own.
-        List<BalancesResponse.BalanceItem> owed = response.selection() == BalanceSelection.FALLBACK
-            ? response.candidates()
-            : response.candidates().stream().filter(item -> !isAvailableBalance(item)).toList();
+        List<BalancesResponse.BalanceItem> owed = response.candidates().stream()
+            .filter(item -> !isAvailableBalance(item)).toList();
         BalancesResponse.BalanceItem selected = owed.isEmpty() ? null
             : selectBalance(accountId, new AccountBalanceCandidates(details, owed, response.selection()), ownership);
         BigDecimal balance = selected != null ? new BigDecimal(selected.balanceAmount().amount().trim()) : null;
-        if (selected == null || isAvailableBalance(selected) || balance.signum() > 0) {
+        if (selected == null || balance.signum() > 0) {
             log.warn("Enable Banking card {} sent no balance readable as an amount owed; its balance is left as is",
                 LogSanitizer.fingerprint(accountId));
             balance = null;

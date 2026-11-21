@@ -1199,10 +1199,7 @@ class EnableBankingAccountDataTest {
     })
     void fetchBalances_cardResource_isACard(String token, String product, String nature, String expectedName,
                                             String expectedLegacyName) {
-        // A named ASPSP makes the balances account-scoped, as on the live Boursorama requisition.
-        responses.put("/sessions/session", """
-            {"accounts": ["uid-operations"], "aspsp": {"name": "Synthetic Bank", "country": "FR"}}
-            """);
+        accountScopedSession();
         responses.put("/accounts/uid-operations/details", """
             {"account_id": {"iban": null, "other": {"identification": "SYNTHETIC-ID", "scheme_name": "BANK"}},
              "name": "Carte Visa Synthetic Holder", "details": "%s", "product": "%s",
@@ -1230,6 +1227,7 @@ class EnableBankingAccountDataTest {
 
     @Test
     void fetchBalances_cardWithoutHolderLabel_fallsBackToProduct() {
+        accountScopedSession();
         responses.put("/accounts/uid-operations/details", """
             {"name": " ", "details": "immediat_debit", "product": "Carte bancaire à débit immédiat",
              "cash_account_type": "card"}
@@ -1267,6 +1265,7 @@ class EnableBankingAccountDataTest {
 
     @Test
     void fetchBalances_noCurrencyCode_isNeverStored() {
+        accountScopedSession();
         responses.put("/accounts/uid-operations/details", """
             {"name": "Synthetic card", "cash_account_type": "CARD", "currency": "XXX"}
             """);
@@ -1282,6 +1281,7 @@ class EnableBankingAccountDataTest {
     @ParameterizedTest
     @CsvSource({"CLAV, 2000.00", "ITAV, -10.00"})
     void fetchBalances_cardWithOnlyAnAvailableBalance_staysACardWithoutBalance(String type, String amount) {
+        accountScopedSession();
         responses.put("/accounts/uid-operations/details", """
             {"name": "Carte Visa Synthetic Holder", "details": "delayed_debit", "cash_account_type": "CARD",
              "currency": "XXX"}
@@ -1300,6 +1300,7 @@ class EnableBankingAccountDataTest {
 
     @Test
     void fetchBalances_cardWithAPositiveBalance_staysACardWithoutBalance() {
+        accountScopedSession();
         responses.put("/accounts/uid-operations/details", """
             {"name": "Carte Visa Synthetic Holder", "details": "delayed_debit", "cash_account_type": "CARD"}
             """);
@@ -1348,5 +1349,28 @@ class EnableBankingAccountDataTest {
 
         assertThat(connector.fetchBalances("session")).singleElement()
             .satisfies(account -> assertThat(account.balance()).isEqualByComparingTo("-120.00"));
+    }
+
+    @Test
+    void fetchBalances_cardInASharedList_isImportedAsBefore() {
+        responses.put("/accounts/uid-operations/details", """
+            {"name": "Carte Visa Synthetic Holder", "details": "delayed_debit", "cash_account_type": "CARD"}
+            """);
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [{"name": "Balance", "balance_type": "OTHR",
+              "balance_amount": {"currency": "EUR", "amount": "-50.00"}}]}
+            """);
+
+        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
+            assertThat(account.type()).isEqualTo(com.picsou.model.AccountType.CHECKING);
+            assertThat(account.name()).isEqualTo("delayed_debit");
+        });
+    }
+
+    /** A named ASPSP makes the balances account-scoped, as on the live Boursorama requisition. */
+    private void accountScopedSession() {
+        responses.put("/sessions/session", """
+            {"accounts": ["uid-operations"], "aspsp": {"name": "Synthetic Bank", "country": "FR"}}
+            """);
     }
 }

@@ -87,14 +87,7 @@ class SyncServiceCardAccountTest {
 
     @Test
     void newCard_isCreatedAsCardWithItsNature() {
-        AccountData card = deferredCard();
-        when(bankConnector.fetchBalances(SESSION)).thenReturn(List.of(card));
-        when(accountRepository.findByExternalAccountIdAndMemberId(card.externalId(), MEMBER_ID))
-            .thenReturn(Optional.empty());
-
-        syncService.resyncAll(MEMBER_ID);
-
-        Account saved = savedAccount();
+        Account saved = sync(null, deferredCard());
         assertThat(saved.getType()).isEqualTo(AccountType.CREDIT_CARD);
         assertThat(saved.getCardNature()).isEqualTo(CardNature.DEFERRED_DEBIT);
         assertThat(saved.getName()).isEqualTo("Carte Visa Synthetic Holder");
@@ -102,15 +95,8 @@ class SyncServiceCardAccountTest {
 
     @Test
     void newCurrentAccount_staysCheckingWithoutNature() {
-        AccountData current = new AccountData("uid-current", "Synthetic current account", "FR00SYNTHETIC",
-            "EUR", new BigDecimal("826.80"));
-        when(bankConnector.fetchBalances(SESSION)).thenReturn(List.of(current));
-        when(accountRepository.findByExternalAccountIdAndMemberId("uid-current", MEMBER_ID))
-            .thenReturn(Optional.empty());
-
-        syncService.resyncAll(MEMBER_ID);
-
-        Account saved = savedAccount();
+        Account saved = sync(null, new AccountData("uid-current", "Synthetic current account", "FR00SYNTHETIC",
+            "EUR", new BigDecimal("826.80")));
         assertThat(saved.getType()).isEqualTo(AccountType.CHECKING);
         assertThat(saved.getCardNature()).isNull();
     }
@@ -118,14 +104,7 @@ class SyncServiceCardAccountTest {
     @Test
     void cardImportedAsCurrentAccount_becomesCardAndLosesItsTechnicalName() {
         Account stored = storedAccount(AccountType.CHECKING, "delayed_debit");
-        AccountData card = deferredCard();
-        when(bankConnector.fetchBalances(SESSION)).thenReturn(List.of(card));
-        when(accountRepository.findByExternalAccountIdAndMemberId(card.externalId(), MEMBER_ID))
-            .thenReturn(Optional.of(stored));
-
-        syncService.resyncAll(MEMBER_ID);
-
-        Account saved = savedAccount();
+        Account saved = sync(stored, deferredCard());
         assertThat(saved.getType()).isEqualTo(AccountType.CREDIT_CARD);
         assertThat(saved.getCardNature()).isEqualTo(CardNature.DEFERRED_DEBIT);
         assertThat(saved.getName()).isEqualTo("Carte Visa Synthetic Holder");
@@ -134,14 +113,7 @@ class SyncServiceCardAccountTest {
     @Test
     void userChoices_areKept() {
         Account stored = storedAccount(AccountType.OTHER, "My card");
-        AccountData card = deferredCard();
-        when(bankConnector.fetchBalances(SESSION)).thenReturn(List.of(card));
-        when(accountRepository.findByExternalAccountIdAndMemberId(card.externalId(), MEMBER_ID))
-            .thenReturn(Optional.of(stored));
-
-        syncService.resyncAll(MEMBER_ID);
-
-        Account saved = savedAccount();
+        Account saved = sync(stored, deferredCard());
         assertThat(saved.getType()).isEqualTo(AccountType.OTHER);
         assertThat(saved.getCardNature()).isNull();
         assertThat(saved.getName()).isEqualTo("My card");
@@ -150,14 +122,7 @@ class SyncServiceCardAccountTest {
     @Test
     void technicalName_isReplacedEvenWhenTheUserChangedTheType() {
         Account stored = storedAccount(AccountType.OTHER, "delayed_debit");
-        AccountData card = deferredCard();
-        when(bankConnector.fetchBalances(SESSION)).thenReturn(List.of(card));
-        when(accountRepository.findByExternalAccountIdAndMemberId(card.externalId(), MEMBER_ID))
-            .thenReturn(Optional.of(stored));
-
-        syncService.resyncAll(MEMBER_ID);
-
-        Account saved = savedAccount();
+        Account saved = sync(stored, deferredCard());
         assertThat(saved.getType()).isEqualTo(AccountType.OTHER);
         assertThat(saved.getName()).isEqualTo("Carte Visa Synthetic Holder");
     }
@@ -165,14 +130,7 @@ class SyncServiceCardAccountTest {
     @Test
     void cardWithoutReadableBalance_keepsItsStoredBalanceAndWritesNoSnapshot() {
         Account stored = storedAccount(AccountType.CHECKING, "delayed_debit");
-        AccountData card = cardWithoutBalance();
-        when(bankConnector.fetchBalances(SESSION)).thenReturn(List.of(card));
-        when(accountRepository.findByExternalAccountIdAndMemberId(card.externalId(), MEMBER_ID))
-            .thenReturn(Optional.of(stored));
-
-        syncService.resyncAll(MEMBER_ID);
-
-        Account saved = savedAccount();
+        Account saved = sync(stored, cardWithoutBalance());
         assertThat(saved.getType()).isEqualTo(AccountType.CREDIT_CARD);
         assertThat(saved.getCurrentBalance()).isEqualByComparingTo("-474.87");
         verify(accountService, never()).upsertSnapshotFromNative(any(), any(), any());
@@ -180,32 +138,20 @@ class SyncServiceCardAccountTest {
     }
 
     @Test
-    void creditLeftStoredAsCash_isResetWhenTheAccountBecomesACardWithoutReadableBalance() {
+    void creditLeftStoredAsCash_waitsForAReadableBalanceBeforeBecomingACard() {
         Account stored = storedAccount(AccountType.CHECKING, "delayed_debit");
         stored.setCurrentBalance(new BigDecimal("2000.00"));
         stored.setCurrency("USD");
-        AccountData card = cardWithoutBalance();
-        when(bankConnector.fetchBalances(SESSION)).thenReturn(List.of(card));
-        when(accountRepository.findByExternalAccountIdAndMemberId(card.externalId(), MEMBER_ID))
-            .thenReturn(Optional.of(stored));
-
-        syncService.resyncAll(MEMBER_ID);
-
-        Account saved = savedAccount();
-        assertThat(saved.getCurrentBalance()).isEqualByComparingTo("0");
+        Account saved = sync(stored, cardWithoutBalance());
+        assertThat(saved.getType()).isEqualTo(AccountType.CHECKING);
+        assertThat(saved.getCurrentBalance()).isEqualByComparingTo("2000.00");
         assertThat(saved.getCurrency()).isEqualTo("USD");
     }
 
     @Test
     void newCardWithoutReadableBalance_startsAtZero() {
-        AccountData card = cardWithoutBalance();
-        when(bankConnector.fetchBalances(SESSION)).thenReturn(List.of(card));
-        when(accountRepository.findByExternalAccountIdAndMemberId(card.externalId(), MEMBER_ID))
-            .thenReturn(Optional.empty());
-
-        syncService.resyncAll(MEMBER_ID);
-
-        assertThat(savedAccount().getCurrentBalance()).isEqualByComparingTo("0");
+        Account saved = sync(null, cardWithoutBalance());
+        assertThat(saved.getCurrentBalance()).isEqualByComparingTo("0");
         verify(accountService, never()).upsertSnapshotFromNative(any(), any(), any());
     }
 
@@ -213,14 +159,8 @@ class SyncServiceCardAccountTest {
     void knownCardNature_isNotOverwritten() {
         Account stored = storedAccount(AccountType.CREDIT_CARD, "Carte Visa Synthetic Holder");
         stored.setCardNature(CardNature.CREDIT);
-        AccountData card = deferredCard();
-        when(bankConnector.fetchBalances(SESSION)).thenReturn(List.of(card));
-        when(accountRepository.findByExternalAccountIdAndMemberId(card.externalId(), MEMBER_ID))
-            .thenReturn(Optional.of(stored));
-
-        syncService.resyncAll(MEMBER_ID);
-
-        assertThat(savedAccount().getCardNature()).isEqualTo(CardNature.CREDIT);
+        Account saved = sync(stored, deferredCard());
+        assertThat(saved.getCardNature()).isEqualTo(CardNature.CREDIT);
     }
 
     private static AccountData deferredCard() {
@@ -245,6 +185,15 @@ class SyncServiceCardAccountTest {
             .isManual(false)
             .requisitionId(requisition.getId())
             .build();
+    }
+
+    /** Syncs {@code data} against {@code stored} (null: no account yet) and returns what was saved. */
+    private Account sync(Account stored, AccountData data) {
+        when(bankConnector.fetchBalances(SESSION)).thenReturn(List.of(data));
+        when(accountRepository.findByExternalAccountIdAndMemberId(data.externalId(), MEMBER_ID))
+            .thenReturn(Optional.ofNullable(stored));
+        syncService.resyncAll(MEMBER_ID);
+        return savedAccount();
     }
 
     /** Also checks the sync itself succeeded: {@code resyncAll} swallows a failure into FAILED. */
