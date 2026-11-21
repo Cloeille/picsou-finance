@@ -58,6 +58,20 @@ pub mod option {
     }
 }
 
+/// BigDecimal.multiply: the exact product, at the sum of the scales (rust_decimal drops the
+/// scale of a zero product).
+pub fn multiply(a: Decimal, b: Decimal) -> Decimal {
+    let product = a * b;
+    let scale = a.scale() + b.scale();
+    if product.scale() == scale || scale > 28 {
+        product
+    } else {
+        let mut padded = product;
+        padded.rescale(scale);
+        padded
+    }
+}
+
 /// -x without the negative zero rust_decimal keeps (BigDecimal.negate of a zero is a zero).
 pub fn negate(value: Decimal) -> Decimal {
     if value.is_zero() {

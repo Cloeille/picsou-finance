@@ -96,7 +96,7 @@ async fn response(
     let signed = repo::sum_by_categories_between(&state.db, &ids, cycle.start, cycle.end).await?;
     let spent = jdec::negate(signed);
     let percent = if limit > Decimal::ZERO {
-        divide(spent, limit, 4, HALF_UP) * Decimal::ONE_HUNDRED
+        jdec::multiply(divide(spent, limit, 4, HALF_UP), Decimal::ONE_HUNDRED)
     } else {
         Decimal::ZERO
     };
