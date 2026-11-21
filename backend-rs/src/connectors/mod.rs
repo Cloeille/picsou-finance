@@ -64,6 +64,8 @@ pub struct Connectors {
     pub cic_logins: PendingLogins,
     /// Natixis logins waiting for their code (no credentials are kept).
     pub natixis_logins: PendingLogins,
+    /// Trade Republic's WebSocket endpoint and the login generations a disconnect bumps.
+    pub trade_republic: trade_republic::Runtime,
 }
 
 impl Connectors {
@@ -87,6 +89,7 @@ impl Connectors {
             cmes_logins: PendingLogins::default(),
             cic_logins: PendingLogins::default(),
             natixis_logins: PendingLogins::default(),
+            trade_republic: trade_republic::Runtime::default(),
         })
     }
 
