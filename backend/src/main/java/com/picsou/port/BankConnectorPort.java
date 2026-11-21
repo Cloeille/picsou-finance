@@ -1,5 +1,7 @@
 package com.picsou.port;
 
+import com.picsou.model.AccountType;
+import com.picsou.model.CardNature;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -99,13 +101,34 @@ public interface BankConnectorPort {
         String category
     ) {}
 
+    /**
+     * @param balance    null when the provider sent none that can be trusted: the stored balance is
+     *                   then left as is (a new account starts at zero)
+     * @param type       what the provider says the account is; never null, {@code CHECKING} when it
+     *                   says nothing more precise
+     * @param cardNature how a card is debited, when the provider says so; null for any other account
+     * @param legacyName the name an earlier release would have given this account, when it differs
+     *                   from {@code name}: a stored name still equal to it was never chosen by the user
+     *                   and may be replaced
+     */
     record AccountData(
         String externalId,
         String name,
         String iban,
         String currency,
-        BigDecimal balance
-    ) {}
+        BigDecimal balance,
+        AccountType type,
+        CardNature cardNature,
+        String legacyName
+    ) {
+        public AccountData {
+            type = type != null ? type : AccountType.CHECKING;
+        }
+
+        public AccountData(String externalId, String name, String iban, String currency, BigDecimal balance) {
+            this(externalId, name, iban, currency, balance, AccountType.CHECKING, null, null);
+        }
+    }
 
     /**
      * @param id       opaque round-trip token; the Enable Banking adapter encodes
