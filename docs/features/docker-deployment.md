@@ -81,7 +81,8 @@ Dockerfile therefore needs BuildKit (the default builder once `docker buildx` is
 the legacy builder rejects the empty `$BUILDPLATFORM`.
 
 The main container runs **one** process: the Rust backend `picsou` is PID 1, as uid 1000, and
-uses about 60 MB at rest (the JVM image needed a 1.5 GB limit; the chart now requests 128 Mi).
+uses about 10 MB at rest (10.5 MB RSS measured on macOS; the JVM image needed a 1.5 GB limit,
+the chart now requests 128 Mi).
 
 | Process | Port | Role |
 |---------|------|------|

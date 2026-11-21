@@ -127,7 +127,7 @@ app:
     port: 8080
     annotations: {}
 
-  # One native process: about 60 MiB at rest. The limit leaves room for large imports and exports.
+  # One native process: about 10 MiB resident at rest. The limit leaves room for large imports and exports.
   resources:
     requests:
       cpu: 100m
