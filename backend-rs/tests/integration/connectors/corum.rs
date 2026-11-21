@@ -1,0 +1,1 @@
+//! corum connector tests.

@@ -1,0 +1,1 @@
+//! degiro connector tests.

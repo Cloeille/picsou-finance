@@ -72,6 +72,8 @@ pub struct Inner {
     pub desktop_info: bool,
     /// The ledger's plug-in points (prices, connection locks, merchant knowledge base).
     pub ledger: ledger::Ledger,
+    /// The sidecar connectors' base URLs, shared key, sync executors and cross-track seams.
+    pub connectors: connectors::Connectors,
 }
 
 impl Deref for AppState {
@@ -90,6 +92,7 @@ impl AppState {
         desktop_info: bool,
     ) -> anyhow::Result<Self> {
         let clock = AppClock::new(clock, config.timezone);
+        let connectors = connectors::Connectors::new(&config, db.clone())?;
         let crypto = CryptoEncryption::new(&config.crypto_key)?;
         let http = reqwest::Client::builder()
             .user_agent(concat!("picsou/", env!("CARGO_PKG_VERSION")))
@@ -103,6 +106,7 @@ impl AppState {
             clock,
             config,
             ledger: ledger::Ledger::new(db.clone()),
+            connectors,
             db,
             setup_complete: AtomicBool::new(false),
             login_timing: TimingEqualizer::default(),

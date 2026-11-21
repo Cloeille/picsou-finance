@@ -225,6 +225,8 @@ pub struct Config {
     pub sso: SsoConfig,
     pub enablebanking: EnableBankingConfig,
     pub sidecars: HashMap<&'static str, String>,
+    /// APP_SIDECAR_API_KEY (app.sidecar.api-key), trimmed; None when blank.
+    pub sidecar_api_key: Option<String>,
     pub mcp_enabled: bool,
     pub mcp_protocol: String,
     pub mcp_keep_alive_interval: String,
@@ -644,6 +646,7 @@ impl Config {
                     .to_owned(),
             },
             sidecars,
+            sidecar_api_key: env.non_blank("APP_SIDECAR_API_KEY"),
             mcp_enabled: bool_or(env, "MCP_ENABLED", true)?,
             mcp_protocol: env.or("MCP_PROTOCOL", "SSE").to_owned(),
             mcp_keep_alive_interval: env.or("MCP_KEEP_ALIVE_INTERVAL", "60s").to_owned(),

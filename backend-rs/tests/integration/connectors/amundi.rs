@@ -1,0 +1,1 @@
+//! amundi connector tests.

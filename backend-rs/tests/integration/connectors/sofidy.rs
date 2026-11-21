@@ -1,0 +1,1 @@
+//! sofidy connector tests.

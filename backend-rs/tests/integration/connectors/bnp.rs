@@ -1,0 +1,1 @@
+//! bnp connector tests.

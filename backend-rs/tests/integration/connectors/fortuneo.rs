@@ -1,0 +1,1 @@
+//! fortuneo connector tests.

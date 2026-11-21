@@ -156,6 +156,26 @@ impl Errors {
         self
     }
 
+    /// @Pattern without a message: Hibernate Validator's default, quoting `regexp` as declared.
+    pub fn pattern_default(
+        &mut self,
+        field: &str,
+        value: Option<&str>,
+        regex: &regex::Regex,
+        regexp: &str,
+    ) -> &mut Self {
+        if let Some(v) = value
+            && !regex.is_match(v)
+        {
+            let message = self.default_message(
+                &format!("must match \"{regexp}\""),
+                &format!("doit correspondre à \"{regexp}\""),
+            );
+            self.add(field, message);
+        }
+        self
+    }
+
     /// @AssertTrue
     pub fn assert_true(&mut self, field: &str, value: bool) -> &mut Self {
         if !value {

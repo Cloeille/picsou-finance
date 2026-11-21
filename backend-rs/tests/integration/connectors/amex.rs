@@ -1,0 +1,1 @@
+//! amex connector tests.
