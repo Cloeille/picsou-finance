@@ -3,7 +3,7 @@ import { diffRuns } from "./diff.ts";
 import { parse, stringify } from "./json.ts";
 import { Normalizer } from "./normalize.ts";
 import type { RunResult, StepRecord } from "./runner.ts";
-import { monthEdge } from "./scenario.ts";
+import { day, monthEdge } from "./scenario.ts";
 import { totpAt } from "./totp.ts";
 import { CookieJar } from "./http.ts";
 
@@ -99,6 +99,15 @@ test("a link's last segment is a token even without digits", () => {
 test("duplicate keys are refused and __proto__ stays a member", () => {
   expect(() => parse('{"a":1,"a":2}')).toThrow();
   expect(Object.keys(parse('{"__proto__":{"x":1},"a":1}') as object)).toEqual(["__proto__", "a"]);
+});
+
+test("sent date labels stay scoped to the scenario that sent them", () => {
+  const tenDays = day(10);
+  const isolated = new Normalizer(TODAY);
+  expect(isolated.text("2026-12-01")).toBe("<month+1:first>");
+  const sender = new Normalizer(TODAY);
+  sender.observeSent(`dueDate=${tenDays}`);
+  expect(sender.text(tenDays)).toBe("<today+10>");
 });
 
 test("cookie jar scopes by path, defaults to the request directory, lets Max-Age win", () => {

@@ -260,16 +260,27 @@ pub async fn read_json<T: DeserializeOwned, S: Send + Sync>(
     request: Request,
     state: &S,
 ) -> Result<T, AppError> {
-    let content_type = request
+    let raw_content_type = request
         .headers()
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("application/octet-stream")
-        .to_owned();
-    if !is_json(&content_type) {
+        .map(str::to_owned);
+    let content_type = raw_content_type
+        .as_deref()
+        .unwrap_or("application/octet-stream");
+    if !is_json(content_type) {
+        // Spring Boot's CharacterEncodingFilter sets UTF-8 on ServletRequest so
+        // ServletServerHttpRequest attaches `;charset=UTF-8` to an explicit Content-Type without one.
+        let reported = match raw_content_type {
+            Some(ct) if !ct.to_ascii_lowercase().contains("charset") => {
+                format!("{ct};charset=UTF-8")
+            }
+            Some(ct) => ct,
+            None => "application/octet-stream".to_owned(),
+        };
         return Err(AppError::status(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            format!("Content-Type '{content_type}' is not supported."),
+            format!("Content-Type '{reported}' is not supported."),
         ));
     }
     let body = Bytes::from_request(request, state)

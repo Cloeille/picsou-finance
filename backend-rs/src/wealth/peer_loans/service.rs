@@ -1189,7 +1189,7 @@ fn unconfigured(account: &Account) -> PeerLoanDetailResponse {
         account_id: account.id,
         account_name: account.name.clone(),
         configured: false,
-        principal: account.current_balance,
+        principal: crate::accounts::scale::column(account.current_balance, 8),
         lent_at: Some(account.created_at.date_naive()),
         expected_back: None,
         annual_rate: None,

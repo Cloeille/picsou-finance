@@ -170,21 +170,84 @@ async fn cors_follows_the_allow_list() {
     );
 }
 
+async fn raw_http_exchange(base_url: &str, request: &[u8]) -> (String, String) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let addr = base_url
+        .strip_prefix("http://")
+        .expect("http base_url for TestApp");
+    let mut stream = tokio::net::TcpStream::connect(addr)
+        .await
+        .expect("connect to TestApp");
+    stream.write_all(request).await.expect("write raw request");
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        match stream.read(&mut chunk).await {
+            Ok(0) => break,
+            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+            // Hyper closes with `Connection: close` without draining unread body bytes; on macOS
+            // loopback that can emit ECONNRESET after the full 413 response has been delivered.
+            Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset && !buf.is_empty() => break,
+            Err(e) => panic!("read raw response: {e}"),
+        }
+    }
+    let raw = String::from_utf8(buf).expect("UTF-8 HTTP response");
+    let (head, body) = raw
+        .split_once("\r\n\r\n")
+        .expect("HTTP response header/body separator");
+    (head.to_owned(), body.to_owned())
+}
+
 #[tokio::test]
 async fn anonymous_bodies_are_capped() {
     let app = TestApp::with_admin().await;
-    let big = format!("{{\"username\":\"{}\"}}", "x".repeat(1024 * 1024 + 10));
-    let response = app
-        .client()
-        .post("/api/auth/login")
-        .body("application/json", big)
-        .send()
-        .await;
-    assert_eq!(response.status, StatusCode::PAYLOAD_TOO_LARGE);
-    assert_eq!(
-        response.text(),
-        "{\"status\":413,\"title\":\"Payload Too Large\",\"code\":\"payload_too_large\"}\n"
+    let expected_body =
+        "{\"status\":413,\"title\":\"Payload Too Large\",\"code\":\"payload_too_large\"}\n";
+
+    // Oversized Content-Length: rejected on headers with 413 + Connection: close before draining.
+    let (head, body) = raw_http_exchange(
+        &app.base_url,
+        b"POST /api/auth/login HTTP/1.1\r\n\
+          Host: localhost\r\n\
+          Content-Type: application/json\r\n\
+          Content-Length: 1048599\r\n\
+          \r\n\
+          {\"username\":\"partial",
+    )
+    .await;
+    assert!(
+        head.starts_with("HTTP/1.1 413 Payload Too Large\r\n"),
+        "unexpected status line: {head}"
     );
+    assert!(
+        head.lines()
+            .any(|l| l.eq_ignore_ascii_case("connection: close")),
+        "missing Connection: close header: {head}"
+    );
+    assert_eq!(body, expected_body);
+
+    // Chunked Transfer-Encoding on anonymous endpoints is also rejected with 413.
+    let (head, body) = raw_http_exchange(
+        &app.base_url,
+        b"POST /api/auth/login HTTP/1.1\r\n\
+          Host: localhost\r\n\
+          Content-Type: application/json\r\n\
+          Transfer-Encoding: chunked\r\n\
+          \r\n\
+          2\r\n{}\r\n0\r\n\r\n",
+    )
+    .await;
+    assert!(
+        head.starts_with("HTTP/1.1 413 Payload Too Large\r\n"),
+        "unexpected status line for chunked: {head}"
+    );
+    assert!(
+        head.lines()
+            .any(|l| l.eq_ignore_ascii_case("connection: close")),
+        "missing Connection: close header for chunked: {head}"
+    );
+    assert_eq!(body, expected_body);
 }
 
 #[tokio::test]

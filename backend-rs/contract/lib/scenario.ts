@@ -158,8 +158,16 @@ export function sentDateLabel(date: string): string | undefined {
 
 /** Today in the instance's zone (APP_TIMEZONE), shifted by `offsetDays`, as YYYY-MM-DD. */
 export function day(offsetDays = 0, zone = "Europe/Paris"): string {
-  const base = new Date(Date.now() + offsetDays * 86_400_000);
-  const date = new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).format(base);
-  if (offsetDays !== 0) sentDates.set(date, `<today${offsetDays > 0 ? "+" : ""}${offsetDays}>`);
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: zone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  if (offsetDays === 0) return today;
+  const [y, m, d] = today.split("-").map(Number) as [number, number, number];
+  // Calendar-day arithmetic in UTC so crossing a DST boundary late at night never shifts by 1 day.
+  const date = new Date(Date.UTC(y, m - 1, d + offsetDays)).toISOString().slice(0, 10);
+  sentDates.set(date, `<today${offsetDays > 0 ? "+" : ""}${offsetDays}>`);
   return date;
 }

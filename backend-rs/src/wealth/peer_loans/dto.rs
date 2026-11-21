@@ -189,7 +189,7 @@ pub struct PeerLoanDetailResponse {
     pub account_id: i64,
     pub account_name: String,
     pub configured: bool,
-    #[serde(with = "rust_decimal::serde::arbitrary_precision")]
+    #[serde(with = "crate::accounts::jdecimal")]
     pub principal: Decimal,
     pub lent_at: Option<NaiveDate>,
     pub expected_back: Option<NaiveDate>,

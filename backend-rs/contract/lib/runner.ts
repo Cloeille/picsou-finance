@@ -63,10 +63,11 @@ export async function runScenario(scenario: Scenario, instance: Instance): Promi
     for (const [i, step] of scenario.steps.entries()) {
       if (step.kind === "sql") {
         db ??= new SQL(instance.databaseUrl);
-        await db.unsafe(await resolve(step.sql, vars));
+        const query = await resolve(step.sql, vars);
+        norm.observeSent(query);
+        await db.unsafe(query);
         continue;
       }
-      const label = stepLabel(i, step, norm);
       let jar = jars.get(step.as);
       if (!jar) {
         jar = new CookieJar();
@@ -74,6 +75,15 @@ export async function runScenario(scenario: Scenario, instance: Instance): Promi
       }
       const { body, headers } = await buildBody(step, vars);
       const path = vars.fill(step.path);
+      norm.observeSent(path);
+      for (const v of Object.values(headers)) norm.observeSent(v);
+      if (typeof body === "string") norm.observeSent(body);
+      else if (body instanceof FormData) {
+        for (const v of body.values()) {
+          if (typeof v === "string") norm.observeSent(v);
+        }
+      }
+      const label = stepLabel(i, step, norm);
       const res = await send(instance.baseUrl, jar, { method: step.method, path, headers, body });
       if (step.expect !== undefined && res.status !== step.expect) {
         unmet.push(`${label}: expected ${step.expect}, got ${res.status} ${res.text.slice(0, 300)}`);

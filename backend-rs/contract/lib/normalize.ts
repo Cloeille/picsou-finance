@@ -56,10 +56,18 @@ export interface NormalizedCookie {
 export class Normalizer {
   private readonly ids = new Map<string, string>();
   private readonly tokens = new Map<string, string>();
+  private readonly sent = new Set<string>();
   private readonly todayUtc: number;
 
   constructor(today: string) {
     this.todayUtc = Date.parse(`${today}T00:00:00Z`);
+  }
+
+  /** Records ISO dates sent by this scenario so `day(n)` / `monthEdge(k, edge)` labels never leak across scenarios. */
+  observeSent(text: string): void {
+    for (const m of text.matchAll(DATE)) {
+      this.sent.add(m[0]);
+    }
   }
 
   /** Registers an id seen outside a JSON body (a capture), so later paths and bodies map it. */
@@ -145,8 +153,10 @@ export class Normalizer {
   private date(literal: string, y: number, m: number, d: number): string {
     const t = Date.UTC(y, m - 1, d);
     if (Number.isNaN(t) || m < 1 || m > 12 || d < 1 || d > 31) return literal;
-    const sent = sentDateLabel(literal);
-    if (sent) return sent;
+    if (this.sent.has(literal)) {
+      const sent = sentDateLabel(literal);
+      if (sent) return sent;
+    }
     const n = Math.round((t - this.todayUtc) / DAY_MS);
     if (n === 0) return "<today>";
     const k = this.monthDelta(y, m);

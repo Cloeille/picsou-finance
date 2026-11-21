@@ -133,7 +133,7 @@ async fn unreadable_bodies() {
     assert_eq!(wrong_type.status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
     assert_eq!(
         wrong_type.json()["detail"],
-        "Content-Type 'text/plain' is not supported."
+        "Content-Type 'text/plain;charset=UTF-8' is not supported."
     );
 }
 
