@@ -63,6 +63,8 @@ public class EnableBankingBankConnector implements BankConnectorPort {
     /** ISO 20022 cash account type of a card account, as Enable Banking relays it. */
     private static final String CARD_CASH_ACCOUNT_TYPE = "CARD";
     private static final String NO_CURRENCY = "XXX";
+    /** ISO 20022 balance types that state credit still available, not an amount owed. */
+    private static final java.util.Set<String> AVAILABLE_BALANCE_TYPES = java.util.Set.of("ITAV", "CLAV");
     private static final List<String> BALANCE_TYPE_PRIORITY = List.of("CLBD", "XPCD", "ITBD", "ITAV", "CLAV");
 
     private final EnableBankingConfigProvider configProvider;
@@ -748,8 +750,8 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         var selected = selectBalance(accountId, response, ownership);
         AccountDetailsResponse details = response.details();
         BigDecimal balance = new BigDecimal(selected.balanceAmount().amount().trim());
-        String currency = firstNonBlank(realCurrency(selected.balanceAmount().currency()),
-            details != null ? realCurrency(details.currency()) : null, "EUR");
+        String currency = firstNonBlank(selected.balanceAmount().currency(),
+            details != null ? details.currency() : null, "EUR");
         String iban = details != null && details.accountId() != null
             ? firstNonBlank(details.accountId().iban()) : null;
         if (details == null) {
@@ -761,11 +763,23 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         if (!CARD_CASH_ACCOUNT_TYPE.equalsIgnoreCase(nullToEmpty(details.cashAccountType()).trim())) {
             return new AccountData(accountId, accountName, iban, currency, balance);
         }
+        // A card stores what is owed, signed negative. An "available" balance (credit left) or a
+        // positive one cannot be read as that without guessing the ASPSP's convention, so such a
+        // card is imported as before rather than turned into a negative debt.
+        String balanceType = nullToEmpty(selected.balanceType()).trim().toUpperCase(Locale.ROOT);
+        if (balance.signum() > 0 || AVAILABLE_BALANCE_TYPES.contains(balanceType)) {
+            log.warn("Enable Banking card resource kept as a current account: balance type {}, sign {}",
+                balanceType.isEmpty() ? "none" : balanceType, balance.signum());
+            return new AccountData(accountId, accountName, iban, currency, balance);
+        }
+        // ISO 4217 "XXX" (no currency) is what Boursorama declares on its cards.
+        String cardCurrency = firstNonBlank(realCurrency(selected.balanceAmount().currency()),
+            realCurrency(details.currency()), "EUR");
         // A card's `details` is a technical token on some ASPSPs (Boursorama: `immediat_debit`), while
         // `name` is the label the holder sees in the bank's app, e.g. the brand and holder.
         String cardName = truncate(firstNonBlank(details.name(), details.product(), details.details(), "Card"),
             MAX_ACCOUNT_NAME_LENGTH);
-        return new AccountData(accountId, cardName, iban, currency, balance, AccountType.CREDIT_CARD,
+        return new AccountData(accountId, cardName, iban, cardCurrency, balance, AccountType.CREDIT_CARD,
             cardNatureOf(details.details()), accountName.equals(cardName) ? null : accountName);
     }
 

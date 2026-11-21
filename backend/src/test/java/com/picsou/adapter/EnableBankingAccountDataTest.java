@@ -1277,4 +1277,38 @@ class EnableBankingAccountDataTest {
         assertThat(connector.fetchBalances("session")).singleElement()
             .satisfies(account -> assertThat(account.currency()).isEqualTo("EUR"));
     }
+
+    @ParameterizedTest
+    @CsvSource({"OTHR, 12.50", "CLAV, 2000.00", "ITAV, -10.00"})
+    void fetchBalances_cardBalanceNotReadableAsDebt_keepsTheCurrentAccountShape(String type, String amount) {
+        responses.put("/accounts/uid-operations/details", """
+            {"name": "Carte Visa Synthetic Holder", "details": "delayed_debit", "cash_account_type": "CARD",
+             "currency": "XXX"}
+            """);
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [{"name": "Balance", "balance_type": "%s",
+              "balance_amount": {"currency": "EUR", "amount": "%s"}}]}
+            """.formatted(type, amount));
+
+        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
+            assertThat(account.type()).isEqualTo(com.picsou.model.AccountType.CHECKING);
+            assertThat(account.cardNature()).isNull();
+            assertThat(account.name()).isEqualTo("delayed_debit");
+            assertThat(account.legacyName()).isNull();
+        });
+    }
+
+    @Test
+    void fetchBalances_nonCardWithNoCurrencyCode_isUnchanged() {
+        responses.put("/accounts/uid-operations/details", """
+            {"name": "Synthetic account", "cash_account_type": "CACC", "currency": "XXX"}
+            """);
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [{"name": "Balance", "balance_type": "CLBD",
+              "balance_amount": {"amount": "1.00"}}]}
+            """);
+
+        assertThat(connector.fetchBalances("session")).singleElement()
+            .satisfies(account -> assertThat(account.currency()).isEqualTo("XXX"));
+    }
 }

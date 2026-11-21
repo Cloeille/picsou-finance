@@ -98,7 +98,10 @@ A card (`cash_account_type = CARD`) is the exception: its order is `name`, `prod
 `details`, with `Card` as the fallback, because some ASPSPs put a technical token in a
 card's `details` (Boursorama: `immediat_debit`, `delayed_debit`) while `name` is the label
 the holder sees, which also tells apart two cards of one joint account (#664).
-A currency of `XXX` (ISO 4217 "no currency", sent by Boursorama on cards) counts as absent.
+On a card, a currency of `XXX` (ISO 4217 "no currency", sent by Boursorama) counts as absent.
+A card whose selected balance is positive, or of an "available" type (`ITAV`, `CLAV`: credit
+left, not an amount owed), is imported as before (`CHECKING`, old name) with a warning, since
+reading it as a debt would need the ASPSP's sign convention.
 After balance selection, the adapter truncates the display name to 100 characters
 to fit `account.name`. Balance matching always uses the full account description,
 so descriptions that share the first 100 characters remain distinct matching keys.

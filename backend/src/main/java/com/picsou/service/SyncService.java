@@ -555,10 +555,11 @@ public class SyncService {
     }
 
     /**
-     * Brings an account synced before the provider's card type was read up to date (#664), without
-     * overriding what the user chose: only a still-{@code CHECKING} account becomes a card, a card
-     * nature is only filled in when unknown, and only a name still equal to the one an earlier
-     * release generated is replaced.
+     * Brings an account synced before the provider's card type was read up to date (#664): a
+     * still-{@code CHECKING} account becomes a card, a card nature is only filled in when unknown, and
+     * only a name still equal to the one an earlier release generated is replaced. A type other than
+     * {@code CHECKING} and a name the user typed are kept; {@code CHECKING} itself cannot be told apart
+     * from the old default, so a card set back to it by hand is upgraded again.
      */
     private static void refreshCardIdentity(Account account, BankConnectorPort.AccountData data) {
         if (data.type() != AccountType.CREDIT_CARD) {
