@@ -7,9 +7,19 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { BankCountrySelect, DEFAULT_BANK_COUNTRY } from '@/components/shared/BankCountrySelect'
-import { Landmark, Loader2, Search } from 'lucide-react'
-import { extractErrorMessage, formatApiError } from '@/lib/errors'
-import { useSearchInstitutions } from '@/features/sync/hooks'
+import { Bank, CircleNotch, MagnifyingGlass } from '@phosphor-icons/react'
+import { extractErrorMessage, formatApiError, getErrorCode, getErrorDetail } from '@/lib/errors'
+import { useBankCountries, useSearchInstitutions } from '@/features/sync/hooks'
+import { useAuthStore } from '@/stores/auth-store'
+
+function isEnableBankingNotConfigured(err: unknown): boolean {
+  if (getErrorCode(err) === 'ENABLE_BANKING_NOT_CONFIGURED') return true
+  const detail = getErrorDetail(err) ?? ''
+  return (
+    detail.includes('Enable Banking is not fully configured') ||
+    detail.includes('Enable Banking private key is missing')
+  )
+}
 
 interface InstitutionSearchProps {
   onConnect: (institutionId: string, institutionName: string) => void
@@ -23,7 +33,7 @@ function InstitutionLogo({ logoUrl }: { logoUrl?: string | null }) {
     <Avatar className="size-4 shrink-0 rounded-sm after:rounded-sm">
       {logoUrl && <AvatarImage src={logoUrl} alt="" className="rounded-sm object-contain" />}
       <AvatarFallback className="rounded-sm bg-transparent">
-        <Landmark className="size-4 text-muted-foreground" />
+        <Bank className="size-4 text-muted-foreground" />
       </AvatarFallback>
     </Avatar>
   )
@@ -32,8 +42,22 @@ function InstitutionLogo({ logoUrl }: { logoUrl?: string | null }) {
 export function InstitutionSearch({ onConnect, connecting, layout }: InstitutionSearchProps) {
   const { t } = useTranslation()
   const modal = layout === 'modal'
+  const isAdmin = useAuthStore((s) => s.user?.role) === 'ADMIN'
   const [searchQuery, setSearchQuery] = useState('')
   const [country, setCountry] = useState(DEFAULT_BANK_COUNTRY)
+
+  const {
+    data: countries,
+    isError: countriesFailed,
+    isSuccess: countriesLoaded,
+    error: countriesError,
+  } = useBankCountries()
+
+  const hasCountries = !!countries && countries.length > 0
+  const enableBankingNotConfigured =
+    !hasCountries && countriesFailed && isEnableBankingNotConfigured(countriesError)
+  const showCountriesLoadError =
+    !hasCountries && !enableBankingNotConfigured && (countriesFailed || countriesLoaded)
 
   const {
     data: institutions,
@@ -80,9 +104,9 @@ export function InstitutionSearch({ onConnect, connecting, layout }: Institution
     }
     return (
       <Card key={inst.id} size="sm">
-        <CardContent className="grid grid-cols-[minmax(0,1fr)_2.5rem_auto] items-center gap-4 py-2">
+        <CardContent className="grid grid-cols-[minmax(0,1fr)_2.5rem_auto] items-center gap-4">
           <div className="flex min-w-0 items-center gap-3">
-            <Landmark className="size-5 shrink-0 text-muted-foreground" />
+            <Bank className="size-5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 text-sm font-medium leading-5">{inst.name}</span>
             {proBadge}
           </div>
@@ -98,7 +122,7 @@ export function InstitutionSearch({ onConnect, connecting, layout }: Institution
       {!modal && <label className="text-sm font-medium">{t('sync.banks.search')}</label>}
       <div className="flex items-start gap-2">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <MagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
           <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -107,13 +131,41 @@ export function InstitutionSearch({ onConnect, connecting, layout }: Institution
             autoFocus={modal}
           />
         </div>
-        <BankCountrySelect value={country} onChange={setCountry} />
+        <BankCountrySelect value={country} onChange={setCountry} silentFallback />
       </div>
+
+      {enableBankingNotConfigured && (
+        <AlertBanner
+          variant="roomy"
+          role="alert"
+          className="gap-3"
+          action={
+            isAdmin ? (
+              <Button
+                variant="outline"
+                size="sm"
+                asChild
+                className="shrink-0 bg-background text-foreground hover:bg-muted"
+              >
+                <a href="/admin?tab=integrations">{t('sync.banks.configureEnableBanking')}</a>
+              </Button>
+            ) : undefined
+          }
+        >
+          {t(isAdmin ? 'sync.banks.notConfigured' : 'sync.banks.notConfiguredMember')}
+        </AlertBanner>
+      )}
+
+      {showCountriesLoadError && (
+        <p role="alert" className="text-xs leading-snug text-destructive">
+          {t('sync.banks.countriesLoadError')}
+        </p>
+      )}
 
       {searchLoading && (
         modal ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
+            <CircleNotch className="size-4 animate-spin" />
             {t('common.loading')}
           </div>
         ) : (
@@ -121,7 +173,7 @@ export function InstitutionSearch({ onConnect, connecting, layout }: Institution
         )
       )}
 
-      {searchEnabled && searchFailed && !searchLoading && (
+      {searchEnabled && searchFailed && !searchLoading && !(enableBankingNotConfigured && isEnableBankingNotConfigured(searchError)) && (
         <AlertBanner>
           {modal
             ? extractErrorMessage(searchError, t('sync.banks.searchError'))

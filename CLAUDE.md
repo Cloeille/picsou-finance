@@ -73,7 +73,7 @@ Before opening or updating a pull request, read [`CONTRIBUTING.md`](CONTRIBUTING
 
 ## Release flow
 
-Maintainers only (1.2.1 and 1.3.0 stand for the open patch and minor versions): merge `release/1.2.1` into `main` and run `make release VERSION=1.2.1`, then merge `main` into `release/1.3.0` (merge, not rebase) so the fixes reach it; later merge `release/1.3.0` into `main` and tag 1.3.0. After each release, cut the next branches from `main`, delete the released one and update the names here. Details: [`CONTRIBUTING.md`](CONTRIBUTING.md#release-branches).
+Maintainers only (1.2.3 and 1.3.0 stand for the open patch and minor versions): merge `release/1.2.3` into `main` and run `make release VERSION=1.2.3`, then merge `main` into `release/1.3.0` (merge, not rebase) so the fixes reach it; later merge `release/1.3.0` into `main` and tag 1.3.0. After each release, cut the next branches from `main`, delete the released one and update the names here. Details: [`CONTRIBUTING.md`](CONTRIBUTING.md#release-branches).
 
 ## Design Context
 

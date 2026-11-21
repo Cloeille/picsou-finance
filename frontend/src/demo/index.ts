@@ -238,26 +238,44 @@ handlers.set(key('PUT', '/accounts/:id/holdings/:ticker/classification'), (confi
 
 // Accounts
 handlers.set(key('GET', '/accounts'), () => _demoAccounts)
-for (let i = 1; i <= mockAccounts.length; i++) {
-  handlers.set(key('GET', `/accounts/${i}`), () => mockAccounts[i - 1])
-}
-
-// Individual account lookups (extends the loop above for accounts 8–10).
-// Uses _demoAccounts so renames are reflected immediately after refetch.
-for (let i = 8; i <= 10; i++) {
-  handlers.set(key('GET', `/accounts/${i}`), () => _demoAccounts[i - 1])
+// Individual account lookups read the mutable copy (not the static fixtures),
+// so renames, display prefs and SCPI edits are reflected immediately after refetch.
+for (const account of mockAccounts) {
+  handlers.set(key('GET', `/accounts/${account.id}`), () => _demoAccounts.find(a => a.id === account.id))
 }
 
 handlers.set(key('GET', '/accounts/:id/deletion-impact'), () => ({
   removesConnection: false, connectionLabel: null,
 }))
 
-// SCPI funds seen by a sync: the demo has no CORUM/Sofidy connection.
+// Display prefs (Tout tab order + collapse). Held in the mutable demo copy like
+// renames: the mutations invalidate ['accounts'], so a PUT that only echoed its
+// body back would be undone by the refetch that follows it.
+handlers.set(key('PUT', '/accounts/:id/display'), (config, { id }) => {
+  const body = typeof config.data === 'string' ? JSON.parse(config.data) : {}
+  const accountId = Number(id)
+  _demoAccounts = _demoAccounts.map(a => a.id === accountId
+    ? { ...a, listCollapsed: body.collapsed ?? a.listCollapsed }
+    : a)
+  return _demoAccounts.find(a => a.id === accountId)
+})
+handlers.set(key('PUT', '/accounts/display-order'), (config) => {
+  const body = typeof config.data === 'string' ? JSON.parse(config.data) : {}
+  const ids: number[] = body.accountIds ?? []
+  const rank = new Map<number, number>()
+  ids.forEach((accountId, index) => rank.set(accountId, index))
+  _demoAccounts = _demoAccounts.map(a => ({
+    ...a,
+    listPosition: rank.has(a.id) ? rank.get(a.id)! : null,
+  }))
+  return _demoAccounts
+})
+
+// SCPI funds seen by a sync: the demo has no CORUM/Sofidy/Louve Invest connection.
 handlers.set(key('GET', '/scpi/funds'), () => [])
 
 // Account CRUD
 for (const account of mockAccounts.filter(account => account.type === 'SCPI')) {
-  handlers.set(key('GET', `/accounts/${account.id}`), () => _demoAccounts.find(a => a.id === account.id))
   handlers.set(key('PUT', `/accounts/${account.id}/scpi`), config => {
     const data: ScpiPositionRequest = JSON.parse(config.data || '{}')
     const current = _demoAccounts.find(a => a.id === account.id)!
@@ -267,6 +285,7 @@ for (const account of mockAccounts.filter(account => account.type === 'SCPI')) {
       managementCompany: data.managementCompany?.trim() || null,
       corumFundCode: data.corumFundCode == null ? current.scpi?.corumFundCode ?? null : data.corumFundCode.trim() || null,
       sofidyFundCode: data.sofidyFundCode == null ? current.scpi?.sofidyFundCode ?? null : data.sofidyFundCode.trim() || null,
+      louveFundCode: data.louveFundCode == null ? current.scpi?.louveFundCode ?? null : data.louveFundCode.trim() || null,
       shareCount: data.shareCount,
       subscriptionPriceEur: data.subscriptionPriceEur ?? null,
       withdrawalPriceEur: data.withdrawalPriceEur ?? null,
@@ -1621,6 +1640,7 @@ handlers.set(key('GET', '/bourse-direct/status'), () => ({ ...demoIdleSidecar, e
 handlers.set(key('GET', '/amex/status'), () => demoIdleSidecar)
 handlers.set(key('GET', '/corum/status'), () => demoIdleSidecar)
 handlers.set(key('GET', '/sofidy/status'), () => demoIdleSidecar)
+handlers.set(key('GET', '/louve/status'), () => ({ connected: false, status: null, lastSyncedAt: null }))
 handlers.set(key('GET', '/degiro/status'), () => ({ isActive: false, status: null, lastSyncedAt: null }))
 handlers.set(key('GET', '/finary/status'), () => ({
   connected: false, sessionId: null, status: null, lastSyncedAt: null, maskedEmail: null,

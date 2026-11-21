@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { Loader2, Download } from 'lucide-react'
+import { CircleNotch, DownloadSimple } from '@phosphor-icons/react'
 import { useMfaStatus } from '@/features/mfa/hooks'
 import { useExportData } from '@/features/export/hooks'
 import { formatSsoApiError } from '@/features/sso/errors'
@@ -108,7 +108,7 @@ export function ExportDataDialog({
 
         {step === 'loading' && (
           <div className="flex justify-center py-4">
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+            <CircleNotch className="size-5 animate-spin text-muted-foreground" />
           </div>
         )}
 
@@ -183,9 +183,9 @@ export function ExportDataDialog({
               </Button>
               <Button type="submit" disabled={exportMutation.isPending}>
                 {exportMutation.isPending ? (
-                  <Loader2 size={14} className=".5 animate-spin" />
+                  <CircleNotch size={14} className=".5 animate-spin" />
                 ) : (
-                  <Download size={14} className=".5" />
+                  <DownloadSimple size={14} className=".5" />
                 )}
                 {t('settings.exportDownload')}
               </Button>

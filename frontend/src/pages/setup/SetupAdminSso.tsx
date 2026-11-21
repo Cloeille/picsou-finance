@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { KeyRound } from 'lucide-react'
+import { Key } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import type { SetupSsoInfo } from '@/features/setup/api'
 import { submitSsoStart } from '@/features/sso/start'
@@ -26,7 +26,7 @@ export function SetupAdminSso({ sso }: { sso: SetupSsoInfo }) {
         onClick={() => submitSsoStart({ intent: 'setup' })}
         className="h-auto min-h-10 w-full whitespace-normal rounded-lg py-2"
       >
-        <KeyRound aria-hidden="true" />
+        <Key aria-hidden="true" />
         {t('setup.admin.ssoContinue', { provider: sso.providerName })}
       </Button>
     </div>

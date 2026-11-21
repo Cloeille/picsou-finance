@@ -209,6 +209,7 @@ export interface ScpiPosition {
   managementCompany: string | null
   corumFundCode: string | null
   sofidyFundCode: string | null
+  louveFundCode: string | null
   shareCount: number
   subscriptionPriceEur: number | null
   withdrawalPriceEur: number | null
@@ -222,7 +223,7 @@ export interface ScpiPosition {
   distributionFrequency: DistributionFrequency | null
 }
 
-/** What the latest CORUM or Sofidy sync did with one fund (GH issue #232). */
+/** What the latest CORUM, Sofidy or Louve Invest sync did with one fund (GH issue #232). */
 export type ScpiFundOutcome =
   | 'CREATED'
   | 'LINKED'
@@ -231,8 +232,10 @@ export type ScpiFundOutcome =
   | 'AMBIGUOUS'
   | 'IGNORED'
   | 'MISSING_AT_PROVIDER'
+  /** Louve Invest: a nue-propriété or usufruct line, not valued as full ownership. */
+  | 'UNSUPPORTED_OWNERSHIP'
 
-export type ScpiProvider = 'CORUM' | 'SOFIDY'
+export type ScpiProvider = 'CORUM' | 'SOFIDY' | 'LOUVE'
 
 /** A fund a sync has seen. `accountId` is null when no account is linked to it. */
 export interface ScpiFund {
@@ -255,6 +258,8 @@ export interface ScpiPositionRequest {
   corumFundCode?: string | null
   /** Links this account to one fund of a Sofidy portfolio, so a sync can fill it. */
   sofidyFundCode?: string | null
+  /** Links this account to one Louve Invest fund (its `scpiUrlId`), so a sync can fill it. */
+  louveFundCode?: string | null
   shareCount: number
   subscriptionPriceEur?: number | null
   withdrawalPriceEur?: number | null
@@ -395,6 +400,10 @@ export interface Account {
   institution?: { name: string; hasLogo: boolean } | null
   /** Display-only visibility flag; hidden account still syncs normally. */
   hidden: boolean
+  /** Member-defined position in the account list; null keeps natural order. Display-only. */
+  listPosition: number | null
+  /** Collapsed in the account list only; still counted in every total, budget and chart. */
+  listCollapsed: boolean
   /** Set only when the member owns less than all of it — the co-ownership badge signal. */
   sharePercent?: number | null
   /** Whether the viewer administers the account. Holding a share does not grant write access. */
@@ -970,25 +979,36 @@ export interface SecurityInsight {
  *
  * Mirrors the backend `com.picsou.model.ExchangeType` enum *and* its `CryptoExchangePort` beans —
  * there is no codegen between them, so adding an exchange means editing both sides in the same
- * change. `requiresApiSecret` mirrors `CryptoExchangePort.requiresApiSecret()`: Meria authenticates
- * with a single read-only API key, and `CryptoExchangeSyncService` returns 400 both for a missing
- * secret where one is needed and for a stray secret where none is — so getting this wrong is a
- * loud error, not a silent bug.
+ * change. The credential flags and region codes mirror the adapter's requirements.
+ * `CryptoExchangeSyncService` returns 400 for missing or unexpected credentials.
  *
  * KRAKEN is listed but has no backend adapter yet: picking it returns 422 "This exchange isn't
  * supported yet."
  */
 export const SUPPORTED_EXCHANGES = [
-  { type: 'BINANCE', requiresApiSecret: true },
-  { type: 'KRAKEN', requiresApiSecret: true },
-  { type: 'MERIA', requiresApiSecret: false },
+  { type: 'BINANCE', requiresApiSecret: true, requiresApiPassphrase: false, regions: [] as readonly string[] },
+  { type: 'KRAKEN', requiresApiSecret: true, requiresApiPassphrase: false, regions: [] as readonly string[] },
+  { type: 'MERIA', requiresApiSecret: false, requiresApiPassphrase: false, regions: [] as readonly string[] },
 ] as const
 
 export type ExchangeType = (typeof SUPPORTED_EXCHANGES)[number]['type']
 
+export interface AddCryptoExchangeRequest {
+  type: ExchangeType
+  apiKey: string
+  apiSecret?: string
+  apiPassphrase?: string
+  region?: string
+}
+
 /** Whether the exchange needs an API secret on top of its API key. */
 export function exchangeRequiresApiSecret(type: ExchangeType): boolean {
   return SUPPORTED_EXCHANGES.find(exchange => exchange.type === type)?.requiresApiSecret ?? true
+}
+
+/** Whether the exchange needs an API passphrase. */
+export function exchangeRequiresApiPassphrase(type: ExchangeType): boolean {
+  return SUPPORTED_EXCHANGES.find(exchange => exchange.type === type)?.requiresApiPassphrase ?? false
 }
 /**
  * On-chain wallet chains, in the order the pickers show them.
@@ -1030,6 +1050,7 @@ export interface ExchangePositionResponse {
 export interface ExchangeStatus {
   id: number
   exchangeType: ExchangeType
+  region?: string
   status: string
   lastSyncedAt: string | null
 }
@@ -1598,6 +1619,41 @@ export type SofidySessionStatus = SidecarSessionStatusOf<SofidyErrorCode>
  * then work without a change here. No push variant: `mfaType` is null today.
  */
 export type SofidyAuthInitResponse = SidecarAuthInitResponse<'EMAIL'>
+
+/** The codes the Louve Invest endpoints attach to a failure. */
+export type LouveErrorCode =
+  | 'AUTH_ATTEMPT_EXPIRED'
+  | 'SESSION_EXPIRED'
+  | 'INVALID_SESSION_STATE'
+  | 'RATE_LIMITED'
+  | 'PORTFOLIO_INCOMPLETE'
+  | 'UPSTREAM_FORMAT_CHANGED'
+  | 'INVALID_DATA'
+  | 'UPSTREAM_UNAVAILABLE'
+  | 'INTERNAL_ERROR'
+
+/**
+ * Shaped like `WiseConnectionStatus`: `connected` once a token set is stored. `REAUTH_REQUIRED`
+ * means Louve refused the grant and only a new consent helps; `PENDING`, a first consent not
+ * given yet.
+ */
+export interface LouveConnectionStatus {
+  connected: boolean
+  status: 'PENDING' | 'CONNECTED' | 'ERROR' | 'REAUTH_REQUIRED' | null
+  lastSyncedAt: string | null
+}
+
+/** Louve's consent page, where the browser goes next. */
+export interface LouveStartResponse {
+  authorizeUrl: string
+}
+
+/** What Louve appended to the callback URL, posted back as is. */
+export interface LouveCallback {
+  code: string
+  state: string
+  iss: string
+}
 
 export type CorumErrorCode =
   | 'INVALID_CREDENTIALS'

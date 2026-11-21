@@ -6,7 +6,7 @@ SIDECARS := $(patsubst services/%/Dockerfile,%,$(wildcard services/*-auth/Docker
 REMOTE   ?= origin
 
 .PHONY: help dev db dev-backend dev-frontend format deps test test-backend test-frontend lint-frontend unit-frontend test-e2e \
-        test-sidecars test-sidecar-base test-sidecar build release
+        test-sidecars test-sidecar-base test-sidecar build desktop release
 
 help:
 	@echo "make dev                       PostgreSQL in Docker, backend on :8080, Vite on :5173"
@@ -130,6 +130,15 @@ test-sidecar:
 	  --volume "$(CURDIR)/services:/src/services:ro" --workdir /src/services/$(SIDECAR) $(IMAGE) -m unittest discover -v
 
 # --- build and release -------------------------------------------------------
+
+# The desktop app for Linux (#587): the backend jar and the SPA, the JRE and PostgreSQL of the
+# Docker release (desktop/scripts/fetch_runtime.py), then the Tauri bundles. Needs Rust,
+# the Tauri CLI (cargo install tauri-cli --version '^2') and the WebKitGTK 4.1 headers.
+desktop:
+	cd backend && mvn -q package -DskipTests
+	cd frontend && bun install --frozen-lockfile && bun run build
+	python3 desktop/scripts/fetch_runtime.py
+	cd desktop/src-tauri && cargo tauri build
 
 # Every image Compose builds (app, sidecars and their bases), or only SERVICES, resolved
 # without a profile as a user's install does (the bases are build-only services).

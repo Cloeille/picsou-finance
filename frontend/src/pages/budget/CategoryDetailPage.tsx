@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ChevronRight } from 'lucide-react'
+import { ArrowLeft, CaretRight } from '@phosphor-icons/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
@@ -43,7 +43,7 @@ function SubcategoryRow({ child }: { child: ChildSpend }) {
         </span>
         <CurrencyDisplay value={child.total} className="shrink-0 text-sm font-semibold tabular-nums" />
       </div>
-      <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+      <CaretRight className="size-4 shrink-0 text-muted-foreground" />
     </Link>
   )
 }

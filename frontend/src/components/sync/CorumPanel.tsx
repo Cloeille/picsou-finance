@@ -1,4 +1,4 @@
-import { Building2 } from "lucide-react"
+import { Buildings } from '@phosphor-icons/react'
 import { SidecarSessionPanel } from "@/components/sync/SidecarSessionPanel"
 import { ScpiSyncSummary } from "@/components/scpi/ScpiSyncSummary"
 import { lifeRun } from "@/components/scpi/scpi-sync-run"
@@ -32,7 +32,7 @@ export function CorumPanel({ onConnected }: CorumPanelProps = {}) {
       provider="corum"
       translationPrefix="sync.corum"
       fieldIdPrefix="corum"
-      loginIcon={Building2}
+      loginIcon={Buildings}
       rememberCredentials
       onConnected={onConnected}
       successSummary={

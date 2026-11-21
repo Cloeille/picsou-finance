@@ -1,4 +1,4 @@
-import { Briefcase } from "lucide-react"
+import { Briefcase } from '@phosphor-icons/react'
 import { SidecarSessionPanel } from "@/components/sync/SidecarSessionPanel"
 
 interface CmesPanelProps {

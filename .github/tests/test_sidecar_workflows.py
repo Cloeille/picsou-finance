@@ -470,7 +470,7 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
 SELECTOR = "changes"
 GATE = "ci-ok"
 PUBLISH = "docker"
-NON_BLOCKING = {"helm-chart"}
+NON_BLOCKING = {"helm-chart", "desktop"}
 # Path filters that select no job of their own.
 HELPER_FILTERS = {"workflows", "release-deps"}
 
@@ -625,6 +625,11 @@ class CiJobSelectionTest(unittest.TestCase):
             "CHANGELOG.md": set(),
             "frontend/src/App.tsx": {"frontend", "e2e", "release-deployment"},
             "backend/src/main/java/com/picsou/App.java": {"backend", "release-deployment"},
+            # DesktopManifestTest reads the Java pin and the Testcontainers PostgreSQL images.
+            "backend/pom.xml": {"backend", "release-deployment", "workflow-inventory"},
+            "backend/src/test/java/com/picsou/support/PostgresContainers.java": {
+                "backend", "release-deployment", "workflow-inventory",
+            },
             "docker/deploy.sh": {"docker-compose", "release-deployment"},
             ".env.example": {"workflow-inventory"},
             "docker/Dockerfile": {"docker-compose", "release-deployment", "workflow-inventory"},
@@ -636,8 +641,9 @@ class CiJobSelectionTest(unittest.TestCase):
                 "backend", "release-deployment", "workflow-inventory",
             },
             "charts/picsou/values.yaml": {"helm-chart"},
+            "desktop/src-tauri/src/supervisor.rs": {"desktop"},
             "charts/picsou/templates/sidecars.yaml": {"helm-chart"},
-            "services/sofidy-auth/main.py": {"sidecar:sofidy-auth", "backend"} | services,
+            "services/sofidy-auth/main.py": {"sidecar:sofidy-auth", "backend", "native-sidecars"} | services,
             "services/tr-auth/main.py": {"sidecar:tr-auth"} | services,
             "services/amex-auth/main.py": {"sidecar:amex-auth", "sidecar:amex-auth:arm64"}
             | services,
@@ -647,10 +653,10 @@ class CiJobSelectionTest(unittest.TestCase):
             | services,
             "services/new-bank-auth/main.py": services,
             "services/base/requirements.txt": sidecars
-            | {"backend", "sidecar-base"}
+            | {"backend", "sidecar-base", "native-sidecars"}
             | services,
             "services/base/picsou_sidecar/app.py": sidecars
-            | {"backend", "sidecar-base"}
+            | {"backend", "sidecar-base", "native-sidecars"}
             | services,
             ".github/workflows/ci.yml": everything,
             ".github/tests/test_sidecar_workflows.py": everything,
@@ -828,6 +834,23 @@ class CiJobSelectionTest(unittest.TestCase):
             with self.subTest(job=job):
                 lines = [line.strip() for step in jobs[job]["steps"] for line in step.get("run", "").splitlines()]
                 self.assertIn(command, lines)
+
+    def test_browserless_sidecars_run_outside_a_container_on_macos_and_windows(self):
+        job = _load(CI_WORKFLOW)["jobs"]["native-sidecars"]
+        self.assertEqual(job["strategy"]["matrix"]["os"], ["macos-latest", "windows-latest"])
+        self.assertEqual(job["runs-on"], "${{ matrix.os }}")
+        run = " ".join(next(step["run"] for step in job["steps"] if "native_sidecars.py" in step.get("run", "")).split())
+        base = re.search(r"(?m)^FROM python:(\d+\.\d+)-", (ROOT / BASE_DOCKERFILE).read_text(encoding="utf-8"))
+        # The image's minor on uv's managed builds: the runners' toolcache lags its patch release.
+        self.assertIn(f"--managed-python --python {base.group(1)} ", run)
+        self.assertIn("--with-requirements services/base/requirements.txt", run)
+        self.assertTrue(run.endswith("python .github/scripts/native_sidecars.py"))
+
+    def test_native_script_rejects_a_sidecar_that_needs_a_browser(self):
+        result = subprocess.run([sys.executable, str(ROOT / ".github/scripts/native_sidecars.py"), "tr-auth"],
+                                capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not a browserless sidecar: tr-auth", result.stderr)
 
     def test_frontend_ci_splits_lint_and_sharded_unit_tests(self):
         job = _load(CI_WORKFLOW)["jobs"]["frontend"]
@@ -1026,6 +1049,66 @@ class SharedSidecarBaseTest(unittest.TestCase):
                         build["additional_contexts"][f"sidecar-{target}"],
                         f"service:sidecar-{target}",
                     )
+
+
+class DesktopManifestTest(unittest.TestCase):
+    def test_desktop_pins_are_read_from_the_docker_files(self):
+        manifest = json.loads(_sidecars("--desktop"))
+
+        self.assertRegex(manifest["java"], r"^\d+$")
+        self.assertIn(f"eclipse-temurin:{manifest['java']}-jre",
+                      (ROOT / "docker/Dockerfile").read_text(encoding="utf-8"))
+        self.assertRegex(manifest["postgres"], r"^\d+$")
+        self.assertRegex(manifest["python"], r"^3\.\d+$")
+        self.assertRegex(manifest["playwright"], r"^\d+\.\d+\.\d+$")
+        self.assertIn(f"playwright=={manifest['playwright']}\n",
+                      (ROOT / "services/base/requirements-chromium.txt").read_text(encoding="utf-8"))
+
+    def test_every_sidecar_is_listed_and_only_camoufox_ones_are_left_out(self):
+        manifest = json.loads(_sidecars("--desktop"))
+
+        self.assertEqual([(s["service"], s["base"]) for s in manifest["sidecars"]],
+                         [(s["service"], s["base"]) for s in _inventory()])
+        for sidecar in manifest["sidecars"]:
+            with self.subTest(sidecar=sidecar["service"]):
+                self.assertEqual(sidecar["desktop"], sidecar["base"] != "camoufox")
+
+    def test_backend_tests_run_on_the_postgres_major_the_desktop_bundles(self):
+        major = json.loads(_sidecars("--desktop"))["postgres"]
+        images = set()
+        for path in (ROOT / "backend/src/test").rglob("*.java"):
+            images |= set(re.findall(r'"(postgres:[^"]+)"', path.read_text(encoding="utf-8")))
+
+        self.assertTrue(images)
+        self.assertEqual({image.split(":")[1].split("-")[0] for image in images}, {major})
+
+    def test_a_moved_pin_fails_loudly_instead_of_shipping_a_stale_version(self):
+        good = {
+            "backend/pom.xml": "<java.version>21</java.version>\n",
+            "docker/docker-compose.yml": "services:\n  db:\n    image: postgres:16-alpine\n",
+            "services/base/Dockerfile": "FROM python:3.12-slim AS python\n",
+            "services/base/requirements-chromium.txt": "playwright==1.64.1\n",
+        }
+        broken = {
+            "backend/pom.xml": "<maven.compiler.release>21</maven.compiler.release>\n",
+            "docker/docker-compose.yml": "services:\n  db:\n    image: mariadb:11\n",
+            "services/base/Dockerfile": "FROM debian:bookworm AS python\n",
+            "services/base/requirements-chromium.txt": "playwright>=1.64\n",
+        }
+        for path in good:
+            with self.subTest(pin=path), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / ".github/scripts").mkdir(parents=True)
+                (root / ".github/scripts/sidecars.py").write_text(SIDECARS_SCRIPT.read_text(encoding="utf-8"))
+                (root / "services").mkdir()
+                for name, text in {**good, path: broken[path]}.items():
+                    (root / name).parent.mkdir(parents=True, exist_ok=True)
+                    (root / name).write_text(text)
+                result = subprocess.run([sys.executable, str(root / ".github/scripts/sidecars.py"), "--desktop"],
+                                        capture_output=True, text=True)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"{path} no longer matches", result.stderr)
 
 
 if __name__ == "__main__":

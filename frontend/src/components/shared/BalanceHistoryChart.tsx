@@ -46,7 +46,14 @@ export function BalanceHistoryChart({ data }: BalanceHistoryChartProps) {
         <ChartTooltip
           content={<ChartTooltipContent formatter={(value) => money.amount(value as number)} />}
         />
-        <Area dataKey="balance" type="monotone" fill="url(#fillBalance)" stroke="var(--color-balance)" strokeWidth={2} />
+        <Area
+          dataKey="balance"
+          type="monotone"
+          fill="url(#fillBalance)"
+          stroke="var(--color-balance)"
+          strokeWidth={2}
+          dot={false}
+        />
       </AreaChart>
     </ChartContainer>
   )

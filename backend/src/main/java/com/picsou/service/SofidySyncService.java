@@ -302,7 +302,8 @@ public class SofidySyncService {
                 holding.label(),
                 holding.quantity(),
                 null,
-                holding.withdrawalPrice()
+                holding.withdrawalPrice(),
+                null, null, null, null // management company, ISIN, distribution: Louve Invest only
             ))
             .toList();
         Map<String, ScpiFundOutcome> outcomes =

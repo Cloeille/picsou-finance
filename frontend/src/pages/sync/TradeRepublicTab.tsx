@@ -4,11 +4,11 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import {
-  AlertTriangle,
-  RefreshCw,
-  Upload,
-  LogOut,
-} from 'lucide-react'
+  Warning,
+  ArrowsClockwise,
+  UploadSimple,
+  SignOut,
+} from '@phosphor-icons/react'
 import {
   useClearTrSession,
   useImportTrCsv,
@@ -76,7 +76,7 @@ export function TradeRepublicTab() {
     <div className="space-y-6">
       {/* Session status card */}
       <Card size="sm">
-        <CardContent className="py-4">
+        <CardContent>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               {isConnected ? (
@@ -105,8 +105,8 @@ export function TradeRepublicTab() {
 
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3 py-4">
-            <AlertTriangle className="size-5 shrink-0 text-destructive" />
+          <CardContent className="flex items-center gap-3">
+            <Warning className="size-5 shrink-0 text-destructive" />
             <p className="flex-1 text-sm text-destructive">{visibleError}</p>
             {error && (
               <Button size="sm" variant="outline" onClick={() => setError(null)}>
@@ -121,17 +121,17 @@ export function TradeRepublicTab() {
       {isConnected && (
         <div className="flex flex-wrap gap-3">
           <Button onClick={handleSync} disabled={requestingSync}>
-            <RefreshCw className={requestingSync ? 'animate-spin' : undefined} />
+            <ArrowsClockwise className={requestingSync ? 'animate-spin' : undefined} />
             {requestingSync ? t('sync.tr.syncing') : t('sync.tr.sync')}
           </Button>
 
           <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={importCsvMutation.isPending}>
-            <Upload />
+            <UploadSimple />
             {t('sync.tr.importCsv')}
           </Button>
 
           <Button variant="destructive" onClick={handleClear} disabled={logoutMutation.isPending}>
-            <LogOut />
+            <SignOut />
             {t('sync.tr.clearSession')}
           </Button>
 

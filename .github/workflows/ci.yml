@@ -57,8 +57,11 @@ jobs:
             # one under services/<name>-auth only that one (sidecars.py --select).
             sidecar: [*workflows, 'services/base/**', 'services/*-auth/**']
             compose-sidecar-build: [*workflows, 'services/**', 'docker/docker-compose.yml']
+            native-sidecars: [*workflows, 'services/base/**', 'services/*-auth/**']
+            desktop: [*workflows, 'desktop/**']
             workflow-inventory: [*workflows, 'services/**', 'backend/src/main/resources/application*.yml', '.env.example',
-                                 'docker/.env.example', 'docker/docker-compose.yml', 'docker/Dockerfile']
+                                 'docker/.env.example', 'docker/docker-compose.yml', 'docker/Dockerfile',
+                                 'backend/pom.xml', 'backend/src/test/**']
             helm-chart: [*workflows, 'charts/**', 'backend/src/main/resources/application.yml', 'docker/docker-compose.yml']
             e2e: [*workflows, 'frontend/**']
       - name: Select the jobs and the sidecar matrix
@@ -289,6 +292,53 @@ jobs:
       - name: Build and test the ${{ matrix.service }} image
         run: make test-sidecar SIDECAR=${{ matrix.service }} ARCH=${{ matrix.arch }}
 
+  # The browserless sidecars outside a container, on the systems the desktop app targets
+  # (#235): their tests, then a start on 127.0.0.1 and one /health call.
+  native-sidecars:
+    needs: changes
+    if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'native-sidecars')
+    name: native-sidecars (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - *checkout
+      # CPython 3.12 security releases ship no installers, so setup-python stops at 3.12.10,
+      # whose html.parser fails a cic-auth guard the base image (3.12.16) passes. uv runs the
+      # python-build-standalone build of the latest patch, the runtime the desktop app bundles.
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Test and start each browserless sidecar
+        run: >-
+          uv run --no-project --managed-python --python 3.12
+          --with-requirements services/base/requirements.txt
+          python .github/scripts/native_sidecars.py
+
+  # The desktop shell (#235): the supervisor's unit tests and a locked release build.
+  # Not in ci-ok: a crates.io or apt outage must not hold back the image publish.
+  desktop:
+    needs: changes
+    if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'desktop')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run: {working-directory: desktop/src-tauri}
+    steps:
+      - *checkout
+      - name: Install the webview build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev
+      - name: Test and build the shell
+        env:
+          # Release LTO only slows CI; the bundles keep it.
+          CARGO_PROFILE_RELEASE_LTO: 'off'
+        run: |
+          # bundle.resources points at the gitignored runtime, which tauri-build requires to exist.
+          mkdir -p ../runtime
+          cargo test --locked
+          cargo build --locked --release
+
   compose-sidecar-build:
     needs: changes
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'compose-sidecar-build')
@@ -335,7 +385,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - *checkout
-      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
         with: {version: v4.3.1}
       - name: Lint the chart
         run: helm lint --strict charts/picsou
@@ -393,11 +443,12 @@ jobs:
         with: {name: playwright-report, path: frontend/playwright-report/, retention-days: 7}
 
   # Green only when every release-blocking job the change selected passed and no
-  # such job failed or was cancelled. Helm validation remains an independent check:
-  # chart failures must not prevent application images from being published.
+  # such job failed or was cancelled. Helm validation and the desktop build remain
+  # independent checks: neither ships in the images, so their failures must not
+  # prevent application images from being published.
   ci-ok:
     if: always()
-    needs: [changes, release-deployment, docker-compose, backend, frontend, e2e, sidecar-base, sidecar, compose-sidecar-build, workflow-inventory]
+    needs: [changes, release-deployment, docker-compose, backend, frontend, e2e, sidecar-base, sidecar, native-sidecars, compose-sidecar-build, workflow-inventory]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -446,6 +497,8 @@ jobs:
           config.SsoHandshakeSessionRaceIntegrationTest
           adapter.sidecar.SidecarBankCodesTest
           service.PeerLoanTransactionLinksPostgresTest
+          service.LouveConnectionPostgresTest
+          service.LouveClientRegistryPostgresTest
           migration.V142SidecarSessionMigrationTest
           migration.V146NatixisSidecarSessionMigrationTest
           migration.V149TradeRepublicSidecarSessionMigrationTest
@@ -472,7 +525,7 @@ jobs:
   # Images are only published after every release-blocking CI job is green, and
   # only on a push to main or a version tag — not on pull requests or release branches.
   docker:
-    needs: [ci-ok, release-deployment, docker-compose, backend, frontend, e2e, sidecar-base, sidecar, compose-sidecar-build, workflow-inventory]
+    needs: [ci-ok, release-deployment, docker-compose, backend, frontend, e2e, sidecar-base, sidecar, native-sidecars, compose-sidecar-build, workflow-inventory]
     if: github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/release/')
     uses: ./.github/workflows/docker.yml
     secrets: inherit

@@ -56,7 +56,9 @@ class EnableBankingBankConnectorTest {
 
         assertThatThrownBy(() -> connector().searchInstitutions("ci", "FR"))
             .isInstanceOf(SyncException.class)
-            .hasMessageContaining("private key");
+            .hasMessageContaining("private key")
+            .extracting("code")
+            .isEqualTo(EnableBankingBankConnector.ERROR_CODE_NOT_CONFIGURED);
     }
 
     @Test
@@ -66,7 +68,20 @@ class EnableBankingBankConnectorTest {
 
         assertThatThrownBy(() -> connector().searchInstitutions("ci", "FR"))
             .isInstanceOf(SyncException.class)
-            .hasMessageContaining("Application ID");
+            .hasMessageContaining("Application ID")
+            .extracting("code")
+            .isEqualTo(EnableBankingBankConnector.ERROR_CODE_NOT_CONFIGURED);
+    }
+
+    @Test
+    void listCountries_missingKeyId_exposesNotConfiguredErrorCode() {
+        when(configProvider.keyId()).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> connector().listCountries())
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("Key ID")
+            .extracting("code")
+            .isEqualTo(EnableBankingBankConnector.ERROR_CODE_NOT_CONFIGURED);
     }
 
     // ─── fetchBalances: per-account error isolation ────────────────────────────

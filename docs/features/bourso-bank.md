@@ -1,6 +1,6 @@
 # Feature: BoursoBank sync
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-20
 > Status: ✅ **Validated end-to-end against a live BoursoBank account**
 > (2026-08-11) — login, dashboard, PEA with 9 positions, reconciled exactly.
 > See "Verification boundaries" for what that run did and did not exercise.
@@ -36,6 +36,7 @@ why.
 | PEA, PEA-PME → `PEA` | Securities-account transactions |
 | Compte-titres → `COMPTE_TITRES`, with positions | Orders, statements |
 | Assurance-vie → `ASSURANCE_VIE`, unit-linked supports as positions, euro fund as cash | |
+| PER → `PER`, supports as positions (merged across compartments), pending payments as cash; an unreadable PER is skipped, not fatal | |
 
 **PEA-PME folds into `PEA`**: Picsou has no separate envelope for it, and the
 two share a tax regime and a reporting shape.
@@ -209,6 +210,24 @@ was stored and displayed as `LIVRET D&#039;EPARGNE`. Existing rows need no
 migration: `upsertAccount` rewrites `account.name` on every sync, so the next
 sync cleans them.
 
+#### A notice in place of the dashboard
+
+BoursoBank can park the dashboard behind a notice under `/infos-profil/` (a
+card renewal offer, for instance), served again on every login until the account
+holder answers it on the website. The dashboard request then answers
+`302 → /infos-profil/`, which redirects to `/infos-profil/{notice}/{id}/{step}`.
+When the notice can be postponed, its "Voir plus tard" link points to
+`/ignorer-bloquante/{notice}`, which leads back to the home page.
+
+The sidecar follows that link once per `/accounts` call, same origin only, then
+requests the dashboard again. It never follows any other link of the notice (the
+offer itself). A notice without a link under `/ignorer-bloquante/` (the
+fraud-prevention notice is a legal acknowledgment, see `FRAUD_ACK_REQUIRED`), or
+one served again after postponing, fails with `UPSTREAM_FORMAT_CHANGED` and a
+message naming the notice, instead of `Dashboard carried no account section`.
+The page shape comes from a real card renewal notice; the tests use a synthetic
+one.
+
 #### Several identities on one access
 
 An access that holds a personal and a business identity (a sole trader, for
@@ -380,6 +399,12 @@ account, so it cannot creep back.
 
 A missing or malformed ISIN is **not** fatal: the position keeps its BoursoBank
 symbol as its ticker.
+
+The reverse also holds. An unlisted instrument (real-estate crowdfunding on a
+PEA-PME) comes with `symbol` and `exchangeCode` set to `null` but a valid
+`isin`. The sidecar then uses the upper-cased ISIN as the line's symbol, and the
+reconciliation against the account valuation still applies. A line with neither
+a symbol nor a valid ISIN is still refused as `UPSTREAM_FORMAT_CHANGED`.
 
 That is what puts `BoursoBank` in `AccountService.PROVIDER_VALUED`. A line with
 no resolvable ticker is unpriceable *by construction* here rather than by
@@ -641,3 +666,64 @@ The digest depends on the label alone, never on the
 position in the list, so the ticker is the same at every sync (the backend keys holdings by ticker)
 and two labels sharing only a prefix stay apart. Two identical labels are still refused by
 `guard_symbol_collisions`.
+
+## PER (2026-11-20, #351)
+
+**Vocabulary.**
+
+- **PER** (*plan d'épargne retraite*, individual retirement plan): a locked investment
+  wrapper, typed `PER` in Picsou like the BNP, BPCE and Caisse d'Epargne ones.
+- **Compartment** (*compartiment*): a PER holds up to three, by origin of the money and its
+  tax treatment — Épargne Volontaire Déductible, Épargne Volontaire non Déductible, Épargne
+  Retraite Obligatoire. Picsou does not model them: they exist only while the page is parsed.
+- **Pending payment** (*En cours*): money paid into the plan that BoursoBank has not converted
+  into units yet. It shows a `Montant` but "En cours" for its units, cost price and percentage.
+
+A PER card sits in `data-summary-trading` and links to `/compte/per/<id>` with no trailing slash,
+like an assurance-vie. Before 1.2.2 it was typed `COMPTE_TITRES`, sent to the trading board, which
+answers 404 for a PER, and that 404 failed the whole sync. It is now typed `PER` from its link
+and never touches the trading board.
+
+Positions come from the server-rendered `/compte/per/<id>/positions` (`parse_per`):
+
+- A "Solde au <date>" box gives the total. It is read from the page's whitespace-normalised
+  text (a `−` sign is read); if it appears more than once, every copy must show the same amount.
+- One `table[data-table-trading-operations]` per compartment, told apart by its 7 column
+  headers (another table with the attribute is left out), 7 cells per line: Valeur (label,
+  ISIN in `.c-table__mention`, quote link), Quantité, Px. Revient, Cours, +/- Latentes, +/- %,
+  Montant. Each table ends with a `Total` row: a first cell reading "Total" or "Total :" alone,
+  the amount in its last cell, whatever its cell count. No row may follow it.
+- The lines of a compartment must reconcile with its `Total`, the totals with the Solde, and
+  all lines with the Solde, within a cent per line (floor 0.05 €) — the assurance-vie rule, for
+  the same reason. The last check is the backend's own: without it, the gaps of the first two
+  could add up past it, and a backend refusal fails every account.
+- A fund held in several compartments becomes **one position**: lines merge on their ISIN alone,
+  units and amounts added, cost price weighted by units and rounded to 8 decimals (the backend's
+  scale), gain added when every line has one. A line without an ISIN never merges, as in the
+  backend. Tickers follow the assurance-vie order, and two holdings left on one ticker are
+  refused (`INVALID_DATA`) in the sidecar, so that only the PER is skipped: the backend would
+  refuse them for the whole sync. This only covers the sidecar's tickers: two ISINs that the
+  backend resolves to one ticker still fail the whole sync, as on an assurance-vie.
+- A **pending payment** goes to `cashBalance`, and so does a euro fund, told apart by the
+  assurance-vie rule (no units, ISIN, quote link or price, a label naming the euro). Only its units, cost price and percentage may say
+  "En cours"; "En cours" anywhere else, or any other unreadable cell, is refused.
+- A line with zero units and a zero amount is dropped; units missing, or zero with an amount, is
+  refused. Negative units are refused (`INVALID_DATA`), as on a single-fund contract, so a fund merged
+  across compartments can never net to zero units while still holding value.
+- `valuationLineCount` is the number of lines over all compartments, pending ones included. The
+  backend accepts `PER` with the assurance-vie checks: line count required, per-line allowance.
+
+**An unreadable PER is skipped, not fatal.** Only one live layout backs this reader, so a page
+that answers another status than 200, does not parse (an amount out of range included), or does
+not reconcile drops this one
+account from the response: the other accounts still sync, the PER keeps its last stored values,
+and the sidecar logs the failing check and a count of skipped PERs, never an amount. A failed
+reconciliation names the page's shape: which compartment of how many, the number of lines and of
+pending payments, and the gap as a ratio. This
+follows ADR [Provisional kinds per bank](../decisions/2026-11-07-provisional-kinds-per-bank.md).
+An expired session (401/403, a login redirect) and an outage (429, 5xx) still end the sync,
+as on every other account: they say nothing about the page. A reporter saw the Solde
+reconciliation fail now and then with a gap of a few percent, then pass on the next sync; the
+check stays strict, and such a sync now only leaves the PER stale. The logged shape is there to
+explain that gap when it shows up again; three live syncs in a row (2026-11-21) did not hit it. The Sync tab does not show the
+skip yet: the sidecar response has no channel for it.

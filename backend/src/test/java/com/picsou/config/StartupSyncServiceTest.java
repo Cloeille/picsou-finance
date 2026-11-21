@@ -1,6 +1,6 @@
 package com.picsou.config;
 
-import com.picsou.service.SchedulerService;
+import com.picsou.service.CatchUpScheduler;
 import org.junit.jupiter.api.Test;
 
 import static org.mockito.Mockito.mock;
@@ -11,21 +11,21 @@ class StartupSyncServiceTest {
 
     @Test
     void run_skipsInitialSyncWhenDisabled() {
-        SchedulerService scheduler = mock(SchedulerService.class);
+        CatchUpScheduler scheduler = mock(CatchUpScheduler.class);
         StartupSyncService service = new StartupSyncService(scheduler, false);
 
         service.run(null);
 
-        verify(scheduler, never()).dailyBankSync();
+        verify(scheduler, never()).runNow(CatchUpScheduler.DAILY_BANK_SYNC);
     }
 
     @Test
     void run_startsInitialSyncWhenEnabled() {
-        SchedulerService scheduler = mock(SchedulerService.class);
+        CatchUpScheduler scheduler = mock(CatchUpScheduler.class);
         StartupSyncService service = new StartupSyncService(scheduler, true);
 
         service.run(null);
 
-        verify(scheduler).dailyBankSync();
+        verify(scheduler).runNow(CatchUpScheduler.DAILY_BANK_SYNC);
     }
 }

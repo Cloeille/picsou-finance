@@ -38,17 +38,17 @@ public class BinanceAdapter implements CryptoExchangePort {
     }
 
     @Override
-    public List<ExchangePosition> fetchPositions(String apiKey, String apiSecret) {
+    public List<ExchangePosition> fetchPositions(ExchangeCredentials credentials) {
         long timestamp = System.currentTimeMillis();
         String queryString = "timestamp=" + timestamp;
-        String signature = hmacSha256(apiSecret, queryString);
+        String signature = hmacSha256(credentials.apiSecret(), queryString);
 
         JsonNode response = webClient.get()
             .uri(uriBuilder -> uriBuilder
                 .path("/api/v3/account")
                 .query(queryString + "&signature=" + signature)
                 .build())
-            .header("X-MBX-APIKEY", apiKey)
+            .header("X-MBX-APIKEY", credentials.apiKey())
             .retrieve()
             .bodyToMono(JsonNode.class)
             .timeout(TIMEOUT)
@@ -81,18 +81,18 @@ public class BinanceAdapter implements CryptoExchangePort {
     }
 
     @Override
-    public boolean testConnection(String apiKey, String apiSecret) {
+    public boolean testConnection(ExchangeCredentials credentials) {
         try {
             long timestamp = System.currentTimeMillis();
             String queryString = "timestamp=" + timestamp;
-            String signature = hmacSha256(apiSecret, queryString);
+            String signature = hmacSha256(credentials.apiSecret(), queryString);
 
             webClient.get()
                 .uri(uriBuilder -> uriBuilder
                     .path("/api/v3/account")
                     .query(queryString + "&signature=" + signature)
                     .build())
-                .header("X-MBX-APIKEY", apiKey)
+                .header("X-MBX-APIKEY", credentials.apiKey())
                 .retrieve()
                 .bodyToMono(JsonNode.class)
                 .timeout(TIMEOUT)

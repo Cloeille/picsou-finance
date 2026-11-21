@@ -7,6 +7,10 @@ import type { NetWorthPoint } from '@/features/history/api'
 const useAccounts = vi.fn()
 const useHistory = vi.fn()
 const usePeerLoansOverview = vi.fn<() => { data: PeerLoansOverview | undefined }>(() => ({ data: undefined }))
+const useSavingsSuggestions = vi.fn<() => { data: Array<{ accountId: number; accountName: string; suggestedProduct: string; defaultAnnualRate: number }> | undefined }>(() => ({ data: undefined }))
+const navigateMock = vi.fn()
+const orderMutate = vi.fn()
+const collapseMutate = vi.fn()
 
 vi.mock('@/features/accounts/hooks', async (importActual) => ({
   // useAccountTree is a pure useMemo over the accounts handed in -- it groups Revolut pockets
@@ -20,11 +24,13 @@ vi.mock('@/features/accounts/hooks', async (importActual) => ({
   useUpdateAccount: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteAccount: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateDebtMetadata: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetDisplayOrder: () => ({ mutate: orderMutate, isPending: false }),
+  useSetListCollapsed: () => ({ mutate: collapseMutate, isPending: false }),
 }))
 
 // The savings-suggestion banner is a query of its own and has nothing to say about gain/loss.
 vi.mock('@/features/savings/hooks', () => ({
-  useSavingsSuggestions: () => ({ data: undefined }),
+  useSavingsSuggestions: () => useSavingsSuggestions(),
 }))
 
 vi.mock('@/features/history/hooks', () => ({
@@ -47,7 +53,7 @@ vi.mock('@/components/shared/AccountsStackedChart', () => ({
   ),
 }))
 
-vi.mock('react-router', () => ({ useNavigate: () => vi.fn() }))
+vi.mock('react-router', () => ({ useNavigate: () => navigateMock }))
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -134,7 +140,7 @@ describe('AccountsPage - Immobilier gain / loss', () => {
     selectRealEstate()
 
     // 300 000 - 250 000 = +50 000, i.e. +20.0 %
-    expect(screen.getByText('dashboard.portfolioPerformance')).toBeInTheDocument()
+    expect(screen.getByTestId('portfolio-performance')).toBeInTheDocument()
     expect(screen.getByText('(+20.0%)')).toBeInTheDocument()
   })
 
@@ -158,7 +164,7 @@ describe('AccountsPage - Immobilier gain / loss', () => {
     render(<AccountsPage />)
     selectRealEstate()
 
-    expect(screen.queryByText('dashboard.portfolioPerformance')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('portfolio-performance')).not.toBeInTheDocument()
     expect(screen.queryByTestId('pnl-chart')).not.toBeInTheDocument()
   })
 
@@ -194,7 +200,7 @@ describe('AccountsPage - Immobilier gain / loss', () => {
 
     render(<AccountsPage />)
 
-    expect(screen.queryByText('dashboard.portfolioPerformance')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('portfolio-performance')).not.toBeInTheDocument()
     const chartData = JSON.parse(screen.getByTestId('pnl-chart').getAttribute('data-chart') ?? '[]') as Array<Record<string, string | number>>
     expect(chartData[0]).not.toHaveProperty('STOCKS')
   })
@@ -264,6 +270,8 @@ describe('AccountsPage - closed peer loans', () => {
       logoKey: null,
       createdAt: '2026-01-01T00:00:00Z',
       hidden: false,
+      listPosition: null,
+      listCollapsed: false,
     }
     useAccounts.mockReturnValue({ data: [closedLoan], isLoading: false })
     useHistory.mockReturnValue({ data: history([closedLoan]), isLoading: false })
@@ -351,5 +359,84 @@ describe('AccountsPage — Métaux and Autre filters', () => {
 
     // The trigger now displays the selected overflow category in active state
     expect(screen.getByRole('button', { name: 'accounts.filters.CRYPTO' })).toHaveAttribute('aria-pressed', 'true')
+  })
+})
+
+describe('AccountsPage - reorder covers co-owned accounts', () => {
+  beforeEach(() => {
+    useAccounts.mockReset()
+    useHistory.mockReset()
+    orderMutate.mockReset()
+    collapseMutate.mockReset()
+  })
+
+  function checking(id: number, extra: Partial<Account> = {}): Account {
+    return {
+      id,
+      name: `Compte ${id}`,
+      type: 'CHECKING',
+      provider: 'Example',
+      currency: 'EUR',
+      currentBalance: 100,
+      currentBalanceEur: 100,
+      lastSyncedAt: null,
+      isManual: true,
+      color: '#6366f1',
+      ticker: null,
+      logoUrl: null,
+      logoKey: null,
+      createdAt: '2026-01-01T00:00:00Z',
+      hidden: false,
+      listPosition: null,
+      listCollapsed: false,
+      ...extra,
+    } as Account
+  }
+
+  it('shows arrange controls on shared cards and sends every visible id', () => {
+    const accounts = [checking(1, { isOwner: true }), checking(2, { isOwner: false })]
+    useAccounts.mockReturnValue({ data: accounts, isLoading: false })
+    useHistory.mockReturnValue({ data: [], isLoading: false })
+
+    render(<AccountsPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'accounts.reorder' }))
+
+    // Both cards can be arranged: prefs are per viewer, owned or shared.
+    expect(screen.getAllByRole('button', { name: 'accounts.moveUp' })).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: 'accounts.moveDown' })).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: 'accounts.collapseAccount' })).toHaveLength(2)
+
+    // Moving the owned card down keeps the shared one in the saved order.
+    fireEvent.click(screen.getAllByRole('button', { name: 'accounts.moveDown' })[0])
+    expect(orderMutate).toHaveBeenCalledWith([2, 1])
+    expect(collapseMutate).not.toHaveBeenCalled()
+  })
+
+  it('opens the savings configuration tab directly when clicking Configure on the suggestions banner', () => {
+    navigateMock.mockReset()
+    useSavingsSuggestions.mockReturnValue({
+      data: [{ accountId: 99, accountName: 'Livret A', suggestedProduct: 'LIVRET_A', defaultAnnualRate: 2.4 }],
+    })
+    useAccounts.mockReturnValue({ data: [checking(99)], isLoading: false })
+    useHistory.mockReturnValue({ data: [], isLoading: false })
+
+    const { container } = render(<AccountsPage />)
+    expect(container.querySelector('.bg-emerald-50')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'savings.configureSavings' }))
+    expect(navigateMock).toHaveBeenCalledWith('/accounts/99?tab=config')
+    useSavingsSuggestions.mockReturnValue({ data: undefined })
+  })
+
+  it('keeps one filled primary button while reordering', () => {
+    useAccounts.mockReturnValue({ data: [checking(1, { isOwner: true })], isLoading: false })
+    useHistory.mockReturnValue({ data: [], isLoading: false })
+
+    const { container } = render(<AccountsPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'accounts.reorder' }))
+
+    const done = screen.getByRole('button', { name: 'accounts.doneReordering' })
+    expect(done).toHaveAttribute('aria-pressed', 'true')
+    expect(container.querySelectorAll('[data-slot="button"][data-variant="default"]')).toHaveLength(1)
   })
 })

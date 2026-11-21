@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronsUpDown, ChevronUp } from 'lucide-react'
+import { CaretDown, CaretUpDown, CaretUp } from '@phosphor-icons/react'
 import { TableHead } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 import type { SortState } from '@/hooks/use-table-sort'
@@ -36,7 +36,7 @@ export function SortableTableHead<K extends string>({
   children,
 }: SortableTableHeadProps<K>) {
   const active = sort.key === sortKey
-  const Icon = !active ? ChevronsUpDown : sort.direction === 'asc' ? ChevronUp : ChevronDown
+  const Icon = !active ? CaretUpDown : sort.direction === 'asc' ? CaretUp : CaretDown
 
   return (
     <TableHead

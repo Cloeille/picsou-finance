@@ -6,6 +6,7 @@ import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.exception.SyncException;
 import com.picsou.model.ExchangeType;
+import com.picsou.port.CryptoExchangePort.ExchangeCredentials;
 import com.picsou.port.CryptoExchangePort.ExchangePosition;
 import com.picsou.port.CryptoExchangePort.Product;
 import org.junit.jupiter.api.AfterEach;
@@ -49,6 +50,7 @@ class MeriaAdapterTest {
 
     private static final String BASE_URL = "https://api.meria.test/v1";
     private static final String API_KEY = "meria-read-only-key";
+    private static final ExchangeCredentials CREDENTIALS = new ExchangeCredentials(API_KEY, null, null, null);
     private static final String EMPTY = "{\"success\":true,\"data\":[]}";
 
     private final List<ClientRequest> requests = new ArrayList<>();
@@ -90,7 +92,7 @@ class MeriaAdapterTest {
             ]}"""
         );
 
-        List<ExchangePosition> holdings = adapter.fetchPositions(API_KEY, null);
+        List<ExchangePosition> holdings = adapter.fetchPositions(CREDENTIALS);
 
         // ETH is held twice — in spot and staked — and stays two lines: merging them is exactly
         // the distinction the account page exists to show. The caller sums per asset for the
@@ -118,7 +120,7 @@ class MeriaAdapterTest {
             ]}""",
             EMPTY);
 
-        List<ExchangePosition> positions = adapter.fetchPositions(API_KEY, null);
+        List<ExchangePosition> positions = adapter.fetchPositions(CREDENTIALS);
 
         ExchangePosition atom = positionOf(positions, Product.STAKING, "ATOM");
         assertThat(atom.quantity()).isEqualByComparingTo("33.154");
@@ -141,7 +143,7 @@ class MeriaAdapterTest {
             ]}""",
             EMPTY);
 
-        List<ExchangePosition> positions = adapter.fetchPositions(API_KEY, null);
+        List<ExchangePosition> positions = adapter.fetchPositions(CREDENTIALS);
 
         ExchangePosition atom = positionOf(positions, Product.STAKING, "ATOM");
         assertThat(atom.quantity()).isEqualByComparingTo("10");
@@ -166,7 +168,7 @@ class MeriaAdapterTest {
             ]}""",
             EMPTY);
 
-        ExchangePosition atom = positionOf(adapter.fetchPositions(API_KEY, null), Product.STAKING, "ATOM");
+        ExchangePosition atom = positionOf(adapter.fetchPositions(CREDENTIALS), Product.STAKING, "ATOM");
 
         assertThat(atom.quantity()).isEqualByComparingTo("20");
         assertThat(atom.interest()).isNull();
@@ -179,7 +181,7 @@ class MeriaAdapterTest {
             "{\"success\":true,\"data\":[{\"currencyCode\":\"XTZ\",\"amount\":42}]}",
             EMPTY);
 
-        assertThat(quantityOf(adapter.fetchPositions(API_KEY, null), "XTZ"))
+        assertThat(quantityOf(adapter.fetchPositions(CREDENTIALS), "XTZ"))
             .isEqualByComparingTo("42");
     }
 
@@ -194,7 +196,7 @@ class MeriaAdapterTest {
             ]}""",
             EMPTY, EMPTY);
 
-        assertThat(adapter.fetchPositions(API_KEY, null))
+        assertThat(adapter.fetchPositions(CREDENTIALS))
             .extracting(ExchangePosition::symbol).containsExactly("ETH");
     }
 
@@ -209,7 +211,7 @@ class MeriaAdapterTest {
                 "{\"success\":true,\"data\":[{\"currencyCode\":\" inj \",\"balance\":3}]}",
                 EMPTY, EMPTY);
 
-            assertThat(adapter.fetchPositions(API_KEY, null))
+            assertThat(adapter.fetchPositions(CREDENTIALS))
                 .extracting(ExchangePosition::symbol).containsExactly("INJ");
         } finally {
             Locale.setDefault(original);
@@ -221,7 +223,7 @@ class MeriaAdapterTest {
         // The "user holds no stakings and no lendings" case: empty, not an error.
         MeriaAdapter adapter = adapterWith(EMPTY, EMPTY, EMPTY);
 
-        assertThat(adapter.fetchPositions(API_KEY, null)).isEmpty();
+        assertThat(adapter.fetchPositions(CREDENTIALS)).isEmpty();
     }
 
     // ── All or nothing ────────────────────────────────────────────────────────
@@ -249,7 +251,7 @@ class MeriaAdapterTest {
             case 429 -> "rate-limited";
             default -> "answered HTTP " + status;
         };
-        assertThatThrownBy(() -> adapter.fetchPositions(API_KEY, null))
+        assertThatThrownBy(() -> adapter.fetchPositions(CREDENTIALS))
             .isInstanceOfSatisfying(SyncException.class, error -> {
                 assertThat(error.getMessage()).contains(expected);
                 assertThat(error.getMessage()).doesNotContain(API_KEY);
@@ -265,7 +267,7 @@ class MeriaAdapterTest {
             "{\"success\":false,\"error\":{\"code\":403,\"message\":\"UNAUTHORIZED\"}}",
             EMPTY, EMPTY);
 
-        assertThatThrownBy(() -> adapter.fetchPositions(API_KEY, null))
+        assertThatThrownBy(() -> adapter.fetchPositions(CREDENTIALS))
             .isInstanceOf(SyncException.class)
             .hasMessageContaining("UNAUTHORIZED");
     }
@@ -279,7 +281,7 @@ class MeriaAdapterTest {
             {"success":true,"data":[{"currencyCode":"ETH","balance":0.5}]}""",
             "", "");
 
-        assertThat(adapter.fetchPositions(API_KEY, null))
+        assertThat(adapter.fetchPositions(CREDENTIALS))
             .extracting(ExchangePosition::symbol).containsExactly("ETH");
     }
 
@@ -295,7 +297,7 @@ class MeriaAdapterTest {
             default -> Mono.just(ClientResponse.create(HttpStatus.OK, MeriaAdapter.STRATEGIES).build());
         });
 
-        assertThat(adapter.fetchPositions(API_KEY, null))
+        assertThat(adapter.fetchPositions(CREDENTIALS))
             .extracting(ExchangePosition::symbol).containsExactly("ETH");
     }
 
@@ -308,7 +310,7 @@ class MeriaAdapterTest {
                 : EMPTY)
             .build()));
 
-        assertThat(adapter.fetchPositions(API_KEY, null))
+        assertThat(adapter.fetchPositions(CREDENTIALS))
             .extracting(ExchangePosition::symbol).containsExactly("BTC");
     }
 
@@ -331,7 +333,7 @@ class MeriaAdapterTest {
 
         MeriaAdapter adapter = adapterWith(EMPTY, stakings, EMPTY);
 
-        assertThat(quantityOf(adapter.fetchPositions(API_KEY, null), "ATOM"))
+        assertThat(quantityOf(adapter.fetchPositions(CREDENTIALS), "ATOM"))
             .isEqualByComparingTo("100");
     }
 
@@ -339,7 +341,7 @@ class MeriaAdapterTest {
     void fetchPositions_stillFailsWhenTheBodyIsUnparseableRatherThanEmpty() {
         MeriaAdapter adapter = adapterRouting(path -> response(HttpStatus.OK, "{not json"));
 
-        assertThatThrownBy(() -> adapter.fetchPositions(API_KEY, null))
+        assertThatThrownBy(() -> adapter.fetchPositions(CREDENTIALS))
             .isInstanceOf(SyncException.class);
     }
 
@@ -352,7 +354,7 @@ class MeriaAdapterTest {
                 .exchangeFunction(request -> Mono.never()).build(),
             new ObjectMapper(), Duration.ofMillis(20));
 
-        assertThatThrownBy(() -> adapter.fetchPositions(API_KEY, null))
+        assertThatThrownBy(() -> adapter.fetchPositions(CREDENTIALS))
             .isInstanceOf(SyncException.class)
             .hasMessageContaining("too long");
         assertThat(eventsAt(Level.WARN)).anySatisfy(event ->
@@ -368,7 +370,7 @@ class MeriaAdapterTest {
             .body("<html><body>Vérification de votre identité</body></html>")
             .build()));
 
-        assertThatThrownBy(() -> adapter.fetchPositions(API_KEY, null))
+        assertThatThrownBy(() -> adapter.fetchPositions(CREDENTIALS))
             .isInstanceOf(SyncException.class);
         assertThat(eventsAt(Level.WARN)).anySatisfy(event ->
             assertThat(event.getFormattedMessage()).contains("<html>"));
@@ -380,7 +382,7 @@ class MeriaAdapterTest {
         // stays distinguishable instead of reading as "Meria was down".
         MeriaAdapter adapter = adapterRouting(path -> Mono.error(new IllegalStateException("a real bug")));
 
-        assertThatThrownBy(() -> adapter.fetchPositions(API_KEY, null))
+        assertThatThrownBy(() -> adapter.fetchPositions(CREDENTIALS))
             .isInstanceOf(SyncException.class);
         // The event this defect produced, not merely some ERROR: isNotEmpty() was satisfied by
         // any unrelated error the adapter happened to log, which is no evidence that a bug on our
@@ -398,7 +400,7 @@ class MeriaAdapterTest {
 
     @Test
     void fetchPositions_authenticatesWithTheApiKeyHeaderAndNothingElse() {
-        adapterWith(EMPTY, EMPTY, EMPTY).fetchPositions(API_KEY, null);
+        adapterWith(EMPTY, EMPTY, EMPTY).fetchPositions(CREDENTIALS);
 
         assertThat(requests).hasSize(3).allSatisfy(request -> {
             assertThat(request.headers().getFirst("API-KEY")).isEqualTo(API_KEY);
@@ -413,7 +415,7 @@ class MeriaAdapterTest {
 
     @Test
     void fetchPositions_ignoresTheApiSecretArgument() {
-        adapterWith(EMPTY, EMPTY, EMPTY).fetchPositions(API_KEY, "leaked-secret");
+        adapterWith(EMPTY, EMPTY, EMPTY).fetchPositions(new ExchangeCredentials(API_KEY, "leaked-secret", null, null));
 
         assertThat(requests).allSatisfy(request ->
             assertThat(request.headers().toSingleValueMap().values())
@@ -424,7 +426,7 @@ class MeriaAdapterTest {
 
     @Test
     void testConnection_probesStatusAndAcceptsASuccessfulEnvelope() {
-        assertThat(adapterWith(EMPTY, EMPTY, EMPTY).testConnection(API_KEY, null)).isTrue();
+        assertThat(adapterWith(EMPTY, EMPTY, EMPTY).testConnection(CREDENTIALS)).isTrue();
         assertThat(requests).singleElement()
             .satisfies(request -> assertThat(request.url().getPath()).isEqualTo("/v1/status"));
     }
@@ -434,14 +436,14 @@ class MeriaAdapterTest {
         MeriaAdapter adapter = adapterRouting(path -> response(HttpStatus.FORBIDDEN,
             "{\"success\":false,\"error\":{\"code\":403,\"message\":\"UNAUTHORIZED\"}}"));
 
-        assertThat(adapter.testConnection("wrong-key", null)).isFalse();
+        assertThat(adapter.testConnection(new ExchangeCredentials("wrong-key", null, null, null))).isFalse();
     }
 
     @Test
     void testConnection_rejectsASuccessFalseEnvelope() {
         MeriaAdapter adapter = adapterRouting(path -> response(HttpStatus.OK, "{\"success\":false}"));
 
-        assertThat(adapter.testConnection(API_KEY, null)).isFalse();
+        assertThat(adapter.testConnection(CREDENTIALS)).isFalse();
     }
 
     @Test
@@ -451,7 +453,7 @@ class MeriaAdapterTest {
                 .exchangeFunction(request -> Mono.never()).build(),
             new ObjectMapper(), Duration.ofMillis(20));
 
-        assertThat(adapter.testConnection(API_KEY, null)).isFalse();
+        assertThat(adapter.testConnection(CREDENTIALS)).isFalse();
     }
 
     // ── Wiring contract ───────────────────────────────────────────────────────

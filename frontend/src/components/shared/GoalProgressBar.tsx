@@ -22,9 +22,8 @@ export function GoalProgressBar({ goal }: GoalProgressBarProps) {
         <span className="font-medium">{goal.name}</span>
         <span className="text-muted-foreground">{formatPercent(percentComplete, { fractionDigits: 0 })}</span>
       </div>
-      <Progress value={percentComplete} className="h-2" />
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>{goal.isOnTrack ? t('goals.onTrack') : t('goals.behind')}</span>
+      <Progress value={percentComplete} />
+      <div className="flex items-center justify-end text-xs text-muted-foreground">
         <span>
           {goal.monthsLeft} {t('goals.monthsLeft')}
         </span>

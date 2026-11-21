@@ -66,7 +66,7 @@ def summary(cash="100.00", valuation="900.00", total="1000.00", positions=None):
     ]
 
 
-def position(symbol="1rTCW8", quantity="10", amount="900.00", currency="EUR", **overrides):
+def position(symbol: str | None = "1rTCW8", quantity="10", amount="900.00", currency="EUR", **overrides):
     raw = {
         "symbol": symbol,
         "label": "Amundi MSCI World",
@@ -141,7 +141,7 @@ class AccountTypeTest(unittest.TestCase):
         checker, so the annotation alone would not have caught it; this does.
         """
         emitted = {kind for kind, _ in _SAVINGS_PATTERNS}
-        emitted.update({"CHECKING", "SAVINGS", "PEA", "COMPTE_TITRES", "ASSURANCE_VIE"})
+        emitted.update({"CHECKING", "SAVINGS", "PEA", "COMPTE_TITRES", "ASSURANCE_VIE", "PER"})
         self.assertEqual(emitted, set(get_args(AccountKind)))
 
 
@@ -396,6 +396,36 @@ class TradingSummaryTest(unittest.TestCase):
             parsed = parse_trading_summary(summary(positions=[position(isin=broken)]), "acc")
             self.assertIsNone(parsed["positions"][0]["isin"])
             self.assertEqual(parsed["positions"][0]["currentValueEur"], Decimal("900.00"))
+
+    def test_an_unlisted_line_without_a_symbol_syncs_under_its_isin(self):
+        # Crowdfunding lines on a PEA-PME have an ISIN but no ticker (#573).
+        unlisted = position(
+            symbol=None, exchangeCode=None, isin="fr0013505062", amount="400.00",
+            label="Homunity Projet A",
+        )
+        listed = position(amount="500.00")
+        parsed = parse_trading_summary(summary(positions=[listed, unlisted]), "acc")
+
+        line = parsed["positions"][1]
+        self.assertEqual(line["symbol"], "FR0013505062")
+        self.assertEqual(line["isin"], "FR0013505062")
+        self.assertEqual(line["currentValueEur"], Decimal("400.00"))
+        self.assertEqual(parsed["positions"][0]["symbol"], "1rTCW8")
+
+    def test_an_unlisted_line_still_has_to_reconcile(self):
+        unlisted = position(symbol=None, isin="FR0013505062", amount="300.00")
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(summary(positions=[position(amount="500.00"), unlisted]), "acc")
+        self.assertEqual(raised.exception.code, INCOMPLETE)
+
+    def test_a_line_with_neither_symbol_nor_usable_isin_is_refused(self):
+        for symbol in (None, ""):
+            for isin in (None, "", "NOT-AN-ISIN"):
+                with self.assertRaises(AccountsFormatError) as raised:
+                    parse_trading_summary(
+                        summary(positions=[position(symbol=symbol, isin=isin)]), "acc"
+                    )
+                self.assertEqual(raised.exception.code, FORMAT_CHANGED)
 
     def test_finds_the_lines_whichever_section_carries_them(self):
         reordered = list(reversed(summary()))

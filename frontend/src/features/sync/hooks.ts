@@ -16,6 +16,7 @@ import {
   ibkrApi,
   simplefinApi,
   wiseApi,
+  louveApi,
 } from './api'
 import { ACCOUNT_VIEWS, syncKeys } from './keys'
 import { sidecarProviders } from './providers'
@@ -31,10 +32,10 @@ import type {
   SidecarProviderId,
 } from './providers'
 import type {
-  ExchangeType,
   ChainType,
   FinaryAccountMapping,
   FinaryImportRequest,
+  LouveCallback,
   SidecarAuthInitResponse,
 } from '@/types/api'
 
@@ -296,6 +297,58 @@ export function useProviderSession<I extends PanelProviderId>(id: I) {
 }
 
 // ---------------------------------------------------------------------------
+// Louve Invest (OAuth, shaped like Wise)
+// ---------------------------------------------------------------------------
+
+/** Views a Louve sync writes: the SCPI accounts and what feeds on them. */
+const LOUVE_VIEWS = [...ACCOUNT_VIEWS, ['real-estate'], ['analysis'], ['scpi-funds']] as const
+
+export function useLouveStatus() {
+  return useQuery({
+    queryKey: syncKeys.louve(),
+    queryFn: louveApi.getStatus,
+    staleTime: QUERY_STALE_TIMES.sync,
+  })
+}
+
+/**
+ * Reserves a connection attempt and answers Louve's consent URL. The caller sends the browser
+ * there; the status refetches when the callback completes.
+ */
+export function useStartLouveConnection() {
+  return useInvalidatingMutation({
+    mutationFn: () => louveApi.start(),
+    invalidates: [syncKeys.louve()],
+  })
+}
+
+/** Posts the callback once: the code is single use, so never retried. */
+export function useCompleteLouveConnection() {
+  return useInvalidatingMutation({
+    mutationFn: (callback: LouveCallback) => louveApi.complete(callback),
+    retry: false,
+    when: 'settled',
+    invalidates: [syncKeys.louve(), ...LOUVE_VIEWS],
+  })
+}
+
+export function useSyncLouve() {
+  return useInvalidatingMutation({
+    mutationFn: louveApi.sync,
+    // A failed sync stores ERROR or REAUTH_REQUIRED on the connection, so refresh either way.
+    when: 'settled',
+    invalidates: [syncKeys.louve(), ...LOUVE_VIEWS],
+  })
+}
+
+export function useDisconnectLouve() {
+  return useInvalidatingMutation({
+    mutationFn: louveApi.disconnect,
+    invalidates: [syncKeys.louve(), ['accounts']],
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Revolut (on-demand phone+passcode sync)
 // ---------------------------------------------------------------------------
 
@@ -532,8 +585,7 @@ export function useCryptoExchangeStatuses() {
 
 export function useAddCryptoExchange() {
   return useInvalidatingMutation({
-    mutationFn: ({ type, apiKey, apiSecret }: { type: ExchangeType; apiKey: string; apiSecret?: string }) =>
-      cryptoExchangeApi.add(type, apiKey, apiSecret),
+    mutationFn: cryptoExchangeApi.add,
     invalidates: [syncKeys.exchanges(), ...ACCOUNT_VIEWS],
   })
 }

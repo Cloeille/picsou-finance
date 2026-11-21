@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { CheckCircle2, Loader2 } from 'lucide-react'
+import { CheckCircle, CircleNotch } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Confetti } from './components/Confetti'
 import { INTEGRATION_LOGOS } from './components/IntegrationLogos'
@@ -104,7 +104,7 @@ export function SetupStepComplete() {
         <div className="space-y-2 text-center">
           <div className="flex justify-center">
             <span className="inline-flex size-12 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-              <CheckCircle2 className="size-6" />
+              <CheckCircle className="size-6" />
             </span>
           </div>
           <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
@@ -131,13 +131,13 @@ export function SetupStepComplete() {
                       {BrandLogo ? (
                         <BrandLogo className="size-4" />
                       ) : (
-                        <CheckCircle2 className="size-4" />
+                        <CheckCircle className="size-4" />
                       )}
                     </span>
                     <span className="min-w-0 flex-1 truncate">
                       {t(`setup.integrations.cards.${key}.title`)}
                     </span>
-                    <CheckCircle2 className="size-4 shrink-0 text-emerald-500" aria-hidden="true" />
+                    <CheckCircle className="size-4 shrink-0 text-emerald-500" aria-hidden="true" />
                   </li>
                 )
               })}
@@ -151,14 +151,14 @@ export function SetupStepComplete() {
 
         {complete.isPending && (
           <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
+            <CircleNotch className="size-4 animate-spin" />
             {t('setup.complete.completing')}
           </div>
         )}
 
         {autoLogin === 'attempting' && (
           <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
+            <CircleNotch className="size-4 animate-spin" />
             {t('setup.complete.loggingIn')}
           </div>
         )}

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { AlertBanner } from '@/components/shared/AlertBanner'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Loader2, Wallet } from 'lucide-react'
+import { CircleNotch, Wallet } from '@phosphor-icons/react'
 import type { ChainType } from '@/types/api'
 import { SUPPORTED_CHAINS } from '@/types/api'
 import { useAddCryptoWallet } from '@/features/sync/hooks'
@@ -99,7 +99,7 @@ export function CryptoWalletForm({ onSuccess, onCancel, variant }: CryptoWalletF
 
         {modal ? (
           <Button type="submit" disabled={addMutation.isPending} className="w-full">
-            {addMutation.isPending && <Loader2 className="size-4 animate-spin" />}
+            {addMutation.isPending && <CircleNotch className="size-4 animate-spin" />}
             <Wallet className="size-4" />
             {t('sync.wallets.track')}
           </Button>

@@ -58,6 +58,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -156,6 +157,27 @@ public class TradeRepublicSyncService {
         @Override
         public void commit(SidecarSyncJob job, Prepared prepared, Instant syncedAt) {
             prepared.accounts().forEach(data -> upsertAccount(data, job.memberId(), prepared.tickers()));
+            // Native TR crypto lives inside the default securities portfolio. If default answered
+            // authoritatively (tr_securities is present) with no native crypto positions left,
+            // clear an existing TR Crypto account so selling every coin does not leave stale
+            // holdings behind — while never creating an empty TR Crypto for members who never held any.
+            boolean defaultPortfolioAnswered = prepared.accounts().stream()
+                .anyMatch(a -> TradeRepublicAdapter.EXTERNAL_ID_SECURITIES.equals(a.externalId()));
+            boolean cryptoReturned = prepared.accounts().stream()
+                .anyMatch(a -> TradeRepublicAdapter.EXTERNAL_ID_CRYPTO.equals(a.externalId()));
+            if (defaultPortfolioAnswered && !cryptoReturned) {
+                accountRepository.findByExternalAccountIdAndMemberId(
+                        TradeRepublicAdapter.EXTERNAL_ID_CRYPTO, job.memberId())
+                    .ifPresent(existingCrypto -> upsertAccount(
+                        new TrAccountData(
+                            TradeRepublicAdapter.EXTERNAL_ID_CRYPTO,
+                            existingCrypto.getName(),
+                            AccountType.CRYPTO,
+                            BigDecimal.ZERO,
+                            List.of()),
+                        job.memberId(),
+                        prepared.tickers()));
+            }
         }
 
         /**
@@ -415,10 +437,25 @@ public class TradeRepublicSyncService {
         Account trCash = trAccounts.stream().filter(a -> a.getType() == AccountType.CHECKING).findFirst().orElse(null);
         Account trPea = trAccounts.stream().filter(a -> a.getType() == AccountType.PEA).findFirst().orElse(null);
         Account trTitres = trAccounts.stream().filter(a -> a.getType() == AccountType.COMPTE_TITRES).findFirst().orElse(null);
+        Account trCrypto = trAccounts.stream().filter(a -> a.getType() == AccountType.CRYPTO).findFirst().orElse(null);
 
         if (trCash == null) {
             log.warn("TR CSV Import: No CHECKING account (TR Cash) found for member {}. Create TR accounts first by syncing or importing the accounts CSV.", memberId);
             return new ImportResult(0, 0, 0);
+        }
+
+        // Known native-crypto holding names/tickers on TR Crypto, used only when a CSV row has no
+        // ISIN column (or blank ISIN) and account_type is DEFAULT.
+        Set<String> cryptoAssetNames = new HashSet<>();
+        if (trCrypto != null) {
+            for (AccountHolding holding : holdingRepository.findByAccount_Id(trCrypto.getId())) {
+                if (holding.getName() != null && !holding.getName().isBlank()) {
+                    cryptoAssetNames.add(holding.getName().trim().toLowerCase(Locale.ROOT));
+                }
+                if (holding.getTicker() != null && !holding.getTicker().isBlank()) {
+                    cryptoAssetNames.add(holding.getTicker().trim().toLowerCase(Locale.ROOT));
+                }
+            }
         }
 
         // Investment leg → seeded "investissement" TRANSFER category: excluded from cashflow (so
@@ -440,6 +477,7 @@ public class TradeRepublicSyncService {
         int skippedCount = 0;
         int nonEurCount = 0;
         int currencyColumn = -1;
+        int isinColumn = -1;
 
         while ((line = reader.readLine()) != null) {
             line = line.trim();
@@ -448,7 +486,9 @@ public class TradeRepublicSyncService {
             if (firstLine) {
                 firstLine = false;
                 if (line.toLowerCase().contains("datetime") || line.toLowerCase().startsWith("\"datetime\"")) {
-                    currencyColumn = parseCsvLine(line.toLowerCase()).indexOf("currency");
+                    List<String> headers = parseCsvLine(line.toLowerCase());
+                    currencyColumn = headers.indexOf("currency");
+                    isinColumn = headers.indexOf("isin");
                     if (currencyColumn < 0) {
                         log.warn("TR CSV import: no currency column in the header, amounts read as EUR");
                     }
@@ -465,6 +505,7 @@ public class TradeRepublicSyncService {
             String accountTypeStr = parts.get(2);
             String category = parts.get(3);
             String type = parts.get(4);
+            String isin = (isinColumn >= 0 && isinColumn < parts.size()) ? parts.get(isinColumn) : "";
             String stockName = parts.get(6);
             String amountStr = parts.get(10);
             String description = parts.get(17);
@@ -555,10 +596,25 @@ public class TradeRepublicSyncService {
 
             // --- Investment leg (only for TRADING rows, opposite sign on the target account) ---
             if (isTrading) {
-                Account targetInvestmentAccount = "PEA".equalsIgnoreCase(accountTypeStr) ? trPea : trTitres;
+                Account targetInvestmentAccount;
+                if ("PEA".equalsIgnoreCase(accountTypeStr)) {
+                    targetInvestmentAccount = trPea;
+                } else if (isCryptoTradingRow(accountTypeStr, isin, stockName, cryptoAssetNames)) {
+                    targetInvestmentAccount = trCrypto != null ? trCrypto : trTitres;
+                } else {
+                    targetInvestmentAccount = trTitres;
+                }
 
                 if (targetInvestmentAccount != null) {
-                    if (!transactionRepository.existsByAccountIdAndExternalId(targetInvestmentAccount.getId(), externalId + "_inv")) {
+                    String invExternalId = externalId + "_inv";
+                    // Avoid duplicating a historical crypto leg that already lives on TR Titres
+                    // from before TR Crypto was separated.
+                    boolean alreadyExists = transactionRepository.existsByAccountIdAndExternalId(
+                            targetInvestmentAccount.getId(), invExternalId)
+                        || (targetInvestmentAccount == trCrypto
+                            && trTitres != null
+                            && transactionRepository.existsByAccountIdAndExternalId(trTitres.getId(), invExternalId));
+                    if (!alreadyExists) {
                         // Double-entry: the investment leg is the mirror of the cash leg, so it
                         // carries the opposite sign. BUY (cash −) → money enters investments:
                         // DEPOSIT +amount. SELL (cash +) → money leaves investments: WITHDRAWAL
@@ -578,7 +634,7 @@ public class TradeRepublicSyncService {
                             .category(category)
                             .categoryRef(investmentTransferCategory)
                             .txType(txTypeInv)
-                            .externalId(externalId + "_inv")
+                            .externalId(invExternalId)
                             .nativeCurrency("EUR")
                             .build();
                         transactionRepository.save(txInv);
@@ -620,6 +676,20 @@ public class TradeRepublicSyncService {
             .build());
         log.info("TR CSV Import: created the 'Investissement' expense category for member {}.", memberId);
         return created;
+    }
+
+    private static boolean isCryptoTradingRow(
+            String accountTypeStr, String isin, String stockName, Set<String> cryptoAssetNames) {
+        if ("CRYPTO".equalsIgnoreCase(accountTypeStr) || "CRYPTO_WALLET".equalsIgnoreCase(accountTypeStr)) {
+            return true;
+        }
+        if (isin != null && !isin.isBlank()) {
+            // An explicit ISIN is authoritative: native TR crypto uses XF000..., whereas a crypto
+            // ETF/ETC carries a market ISIN (CH..., DE..., IE...) and must stay on TR Titres.
+            return OpenFigiIsinConverter.isTrCryptoIsin(isin);
+        }
+        return stockName != null && !stockName.isBlank()
+            && cryptoAssetNames.contains(stockName.trim().toLowerCase(Locale.ROOT));
     }
 
     private static List<String> parseCsvLine(String line) {
@@ -755,6 +825,19 @@ public class TradeRepublicSyncService {
             accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(data.externalId(), memberId)) {
             log.info("TR: skipping resurrection of soft-deleted account externalId={} member={}",
                 data.externalId(), memberId);
+            return Optional.empty();
+        }
+
+        // Do not create a brand-new empty TR Titres account when a member holds only native
+        // crypto (or only PEA/cash). An existing TR Titres still updates to 0 EUR and clears its
+        // migrated holdings while preserving its historical transactions and snapshots.
+        if (existing.isEmpty()
+            && replaceHoldings
+            && TradeRepublicAdapter.EXTERNAL_ID_SECURITIES.equals(data.externalId())
+            && data.positions().isEmpty()
+            && data.balanceEur().signum() == 0
+            && data.cashEur() == null) {
+            log.info("TR: skipping creation of empty TR Titres account for member {}", memberId);
             return Optional.empty();
         }
 

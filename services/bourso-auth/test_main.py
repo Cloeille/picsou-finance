@@ -16,7 +16,7 @@ import httpx
 from fastapi import HTTPException
 
 from accounts_parser import AccountsFormatError
-from fixtures import DASHBOARD_HTML, MOVEMENTS_HTML, RIB_HTML
+from fixtures import DASHBOARD_HTML, MOVEMENTS_HTML, PER_HTML, PER_ID, RIB_HTML, dashboard_with_per
 from main import (
     BASE_URL,
     AccountsRequest,
@@ -26,7 +26,9 @@ from main import (
     extract_brs_config,
     extract_form_token,
     is_fraud_education_page,
+    notice_dismiss_link,
     redirects_to_identity_selector,
+    redirects_to_profile_notice,
     restore_cookies,
     serialize_cookies,
 )
@@ -500,6 +502,77 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.code, "PORTFOLIO_INCOMPLETE")
 
 
+def per_handler(*, page=PER_HTML, status=200):
+    """The default dashboard plus one PER, whose positions page answers `status`."""
+    fallback = default_handler(dashboard=dashboard_with_per())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == f"/compte/per/{PER_ID}/positions":
+            return httpx.Response(status, text=page if status == 200 else "upstream error")
+        if PER_ID in path:
+            # Neither the trading board (it 404s on a PER) nor a history page.
+            raise AssertionError(f"unexpected request for the PER: {request.url}")
+        return fallback(request)
+
+    return handler
+
+
+class PerCollectTest(unittest.IsolatedAsyncioTestCase):
+    async def test_a_per_is_read_from_its_positions_page(self):
+        async with build_client(per_handler()) as client:
+            accounts = await _collect_accounts(client)
+
+        plan = next(account for account in accounts if account.type == "PER")
+        self.assertEqual(plan.externalId, f"bourso_{PER_ID}")
+        self.assertEqual(plan.balanceEur, Decimal("2230.00"))
+        self.assertEqual(plan.cashBalance, Decimal("30.00"))
+        self.assertEqual(len(plan.positions), 2)
+        self.assertEqual(plan.valuationLineCount, 4)
+        self.assertEqual(plan.transactions, [])
+
+    async def test_an_unreadable_per_is_skipped_and_the_other_accounts_still_sync(self):
+        page = PER_HTML.replace("2 230,00 €", "9 999,99 €")
+        with self.assertLogs("bourso-auth", level="WARNING") as logs:
+            async with build_client(per_handler(page=page)) as client:
+                accounts = await _collect_accounts(client)
+
+        self.assertNotIn("PER", [account.type for account in accounts])
+        self.assertEqual({"CHECKING", "LDDS", "PEA"}, {account.type for account in accounts})
+        self.assertTrue(any("PER" in line and "skipped" in line for line in logs.output))
+        # The log names the failure, never an amount.
+        self.assertFalse(any("9 999" in line or "2 230" in line for line in logs.output))
+
+    async def test_an_amount_out_of_range_skips_the_per_rather_than_the_sync(self):
+        with mock.patch("main.parse_per", side_effect=ArithmeticError):
+            async with build_client(per_handler()) as client:
+                accounts = await _collect_accounts(client)
+
+        self.assertNotIn("PER", [account.type for account in accounts])
+        self.assertIn("PEA", [account.type for account in accounts])
+
+    async def test_a_per_page_that_is_gone_is_skipped(self):
+        async with build_client(per_handler(status=404)) as client:
+            accounts = await _collect_accounts(client)
+
+        self.assertNotIn("PER", [account.type for account in accounts])
+        self.assertIn("PEA", [account.type for account in accounts])
+
+    async def test_a_per_page_outage_fails_the_whole_sync(self):
+        # An outage is "try again later", not "this page cannot be read": skipping
+        # it would hide a BoursoBank outage behind stale values.
+        async with build_client(per_handler(status=503)) as client:
+            with self.assertRaises(HTTPException) as raised:
+                await _collect_accounts(client)
+        self.assertEqual(raised.exception.detail, "UPSTREAM_UNAVAILABLE")
+
+    async def test_a_per_page_401_expires_the_session(self):
+        async with build_client(per_handler(status=401)) as client:
+            with self.assertRaises(HTTPException) as raised:
+                await _collect_accounts(client)
+        self.assertEqual(raised.exception.detail, "SESSION_EXPIRED")
+
+
 def multi_identity_handler(selector, requested, *, switch_sticks=True):
     """The #153 flow: the dashboard 302s to the selector until the switch link,
     which chains through /feature-redirect, has picked an identity."""
@@ -609,6 +682,96 @@ class IdentitySelectorFlowTest(unittest.IsolatedAsyncioTestCase):
             redirects_to_identity_selector(redirect("https://evil.example/connexion/lister-identites"))
         )
         self.assertFalse(redirects_to_identity_selector(httpx.Response(200, text="<html></html>")))
+
+
+NOTICE_PATH = "/infos-profil/renouvellement-carte-exemple/0a1b2c3d4e5f6/1"
+DISMISS_PATH = "/ignorer-bloquante/renouvellement-carte-exemple"
+
+
+def notice_html(*, postponable=True):
+    later = f'<a class="c-button" href="{DISMISS_PATH}">Voir plus tard</a>' if postponable else ""
+    return (
+        "<html><body><h1>Votre carte arrive à échéance</h1>"
+        f'<a class="c-button" href="/cartes/commande">Continuer</a>{later}</body></html>'
+    )
+
+
+def profile_notice_handler(page, requested, *, dismiss_sticks=True):
+    """The dashboard 302s to a notice under /infos-profil/ until its "later" link
+    has been followed, which redirects to the home page."""
+    dismissed = []
+    fallback = default_handler()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        requested.append(path)
+        if path == "/dashboard/liste-comptes" and not dismissed:
+            return httpx.Response(302, headers={"Location": "/infos-profil/"})
+        if path == "/infos-profil/":
+            return httpx.Response(302, headers={"Location": NOTICE_PATH})
+        if path == NOTICE_PATH:
+            return httpx.Response(200, text=page)
+        if path == DISMISS_PATH:
+            if dismiss_sticks:
+                dismissed.append(path)
+            return httpx.Response(302, headers={"Location": "/"})
+        return fallback(request)
+
+    return handler
+
+
+class ProfileNoticeFlowTest(unittest.IsolatedAsyncioTestCase):
+    async def test_postpones_the_notice_then_reads_the_dashboard(self):
+        requested = []
+        async with build_client(profile_notice_handler(notice_html(), requested)) as client:
+            accounts = await _collect_accounts(client)
+
+        self.assertEqual(len(accounts), 3)
+        self.assertEqual(
+            requested[:7],
+            ["/", "/dashboard/liste-comptes", "/infos-profil/", NOTICE_PATH, DISMISS_PATH, "/",
+             "/dashboard/liste-comptes"],
+        )
+        self.assertNotIn("/cartes/commande", requested)
+
+    async def test_a_notice_without_a_later_link_is_reported_not_clicked_through(self):
+        requested = []
+        page = notice_html(postponable=False)
+        async with build_client(profile_notice_handler(page, requested)) as client:
+            with self.assertRaises(AccountsFormatError) as raised:
+                await _collect_accounts(client)
+
+        self.assertEqual(raised.exception.code, "UPSTREAM_FORMAT_CHANGED")
+        self.assertIn("renouvellement-carte-exemple", str(raised.exception))
+        self.assertNotIn("/cartes/commande", requested)
+
+    async def test_a_notice_that_comes_back_after_postponing_is_not_retried(self):
+        requested = []
+        handler = profile_notice_handler(notice_html(), requested, dismiss_sticks=False)
+        async with build_client(handler) as client:
+            with self.assertRaises(AccountsFormatError) as raised:
+                await _collect_accounts(client)
+
+        self.assertEqual(raised.exception.code, "UPSTREAM_FORMAT_CHANGED")
+        self.assertEqual(requested.count(DISMISS_PATH), 1)
+
+    def test_only_a_same_origin_redirect_under_infos_profil_counts_as_a_notice(self):
+        def redirect(location):
+            return httpx.Response(302, headers={"Location": location})
+
+        self.assertTrue(redirects_to_profile_notice(redirect("/infos-profil/")))
+        self.assertTrue(redirects_to_profile_notice(redirect(f"https://clients.boursobank.com{NOTICE_PATH}")))
+        self.assertFalse(redirects_to_profile_notice(redirect("/connexion/lister-identites")))
+        self.assertFalse(redirects_to_profile_notice(redirect("https://evil.example/infos-profil/")))
+        self.assertFalse(redirects_to_profile_notice(httpx.Response(200, text="<html></html>")))
+
+    def test_the_later_link_is_found_whatever_its_quotes_and_entities(self):
+        self.assertEqual(notice_dismiss_link(notice_html()), DISMISS_PATH)
+        self.assertEqual(
+            notice_dismiss_link("<a href='/ignorer-bloquante/x?a=1&amp;b=2'>Plus tard</a>"),
+            "/ignorer-bloquante/x?a=1&b=2",
+        )
+        self.assertIsNone(notice_dismiss_link(notice_html(postponable=False)))
 
 
 class FraudEducationPageTest(unittest.TestCase):

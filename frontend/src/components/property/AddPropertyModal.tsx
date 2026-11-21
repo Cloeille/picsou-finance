@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { NativeSelect } from '@/components/shared/NativeSelect'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft } from '@phosphor-icons/react'
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'

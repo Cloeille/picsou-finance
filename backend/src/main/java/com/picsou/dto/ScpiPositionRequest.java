@@ -36,6 +36,8 @@ public record ScpiPositionRequest(
     @Size(max = 40) String corumFundCode,
     /** Links this account to one fund of a Sofidy portfolio so a sync can fill it. */
     @Size(max = 40) String sofidyFundCode,
+    /** Links this account to one Louve Invest fund ({@code scpiUrlId}) so a sync can fill it. */
+    @Size(max = 40) String louveFundCode,
     @NotNull @DecimalMin("0") BigDecimal shareCount,
     @DecimalMin("0") BigDecimal subscriptionPriceEur,
     @DecimalMin("0") BigDecimal withdrawalPriceEur,
@@ -58,6 +60,7 @@ public record ScpiPositionRequest(
         String managementCompany,
         String corumFundCode,
         String sofidyFundCode,
+        String louveFundCode,
         BigDecimal shareCount,
         BigDecimal subscriptionPriceEur,
         BigDecimal withdrawalPriceEur,
@@ -66,7 +69,7 @@ public record ScpiPositionRequest(
         BigDecimal annualDistributionPerShareEur,
         DistributionFrequency distributionFrequency
     ) {
-        this(isin, managementCompany, corumFundCode, sofidyFundCode, shareCount,
+        this(isin, managementCompany, corumFundCode, sofidyFundCode, louveFundCode, shareCount,
             subscriptionPriceEur, withdrawalPriceEur, dividendPolicy, jouissanceDate,
             annualDistributionPerShareEur, distributionFrequency, false, false);
     }
@@ -82,6 +85,7 @@ public record ScpiPositionRequest(
                 text(node, "managementCompany"),
                 text(node, "corumFundCode"),
                 text(node, "sofidyFundCode"),
+                text(node, "louveFundCode"),
                 decimal(node, "shareCount"),
                 decimal(node, "subscriptionPriceEur"),
                 decimal(node, "withdrawalPriceEur"),

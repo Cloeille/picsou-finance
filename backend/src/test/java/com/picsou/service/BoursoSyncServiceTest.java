@@ -1,5 +1,6 @@
 package com.picsou.service;
 
+import com.picsou.service.budget.InternalTransferPairingService;
 import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.adapter.OpenFigiIsinConverter;
 import com.picsou.config.CryptoEncryption;
@@ -70,6 +71,7 @@ class BoursoSyncServiceTest {
     @Mock TransactionTemplate txTemplate;
     @Mock TransactionStatus transactionStatus;
     @Mock DividendReceiptService dividendReceiptService;
+    @Mock InternalTransferPairingService transferPairingService;
     @Captor ArgumentCaptor<Account> accountCaptor;
     @Captor ArgumentCaptor<List<AccountHolding>> holdingsCaptor;
 
@@ -413,6 +415,77 @@ class BoursoSyncServiceTest {
         SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(lifeInsurance("3300.00", "1100.00", null,
+            position("IE00BYX2JD69", "1rASUSW", "iShares MSCI World SRI",
+                "100", "10.00", "12.00", "2200.00", "200.00"))));
+
+        service.queueSync(7L);
+
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
+        verify(accountRepository, never()).save(any());
+    }
+
+    @Test
+    void queueSync_importsAPerWithItsSupportsAndPendingPayment() {
+        arrangeCommittableSync(retirementPlan("2230.00", "30.00", 4,
+            position("IE00BYX2JD69", "1rASUSW", "iShares MSCI World SRI",
+                "100", "10.00", "12.00", "1200.00", "200.00"),
+            position("LU0123456789", "0P0000ABCD", "Fonds Actions Europe A",
+                "40", "26.00", "25.00", "1000.00", "-40.00")));
+
+        service.queueSync(7L);
+
+        verify(accountRepository).save(accountCaptor.capture());
+        Account saved = accountCaptor.getValue();
+        assertThat(saved.getType()).isEqualTo(AccountType.PER);
+        assertThat(saved.getCurrentBalance()).isEqualByComparingTo("2230.00");
+        // A payment not yet converted into units rides in the cash leg.
+        assertThat(saved.getCashBalance()).isEqualByComparingTo("30.00");
+        assertThat(saved.getColor()).isEqualTo("#8b5cf6");
+        verify(holdingRepository).saveAll(holdingsCaptor.capture());
+        assertThat(holdingsCaptor.getValue()).hasSize(2);
+    }
+
+    /**
+     * A PER rounds each compartment line to the cent before one fund's lines merge
+     * across compartments, so it gets the per-line allowance of an assurance vie.
+     */
+    @Test
+    void queueSync_acceptsTheRoundingOfPerLinesMergedAcrossCompartments() {
+        BoursoAdapter.Position[] rows = new BoursoAdapter.Position[12];
+        // 1 unit at a 1000.005 NAV, shown as 1000.01: 12 lines overshoot by 0.06,
+        // more than the 0.05 floor of the relative tolerance.
+        Arrays.fill(rows, position("IE00BYX2JD69", "1rASUSW", "iShares MSCI World SRI",
+            "1", "1000.00", "1000.005", "1000.01", "0.01"));
+        arrangeCommittableSync(retirementPlan("12000.06", "0.00", 12, rows));
+
+        service.queueSync(7L);
+
+        verify(holdingRepository).saveAll(holdingsCaptor.capture());
+        assertThat(holdingsCaptor.getValue()).singleElement()
+            .satisfies(holding -> assertThat(holding.getQuantity()).isEqualByComparingTo("12"));
+    }
+
+    @Test
+    void queueSync_refusesAPerWhoseSupportsFallShortOfItsBalance() {
+        SidecarSession session = activeSession(owner());
+        arrangeQueuedSession(session);
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(
+            retirementPlan("100000.00", "1000.00", 2,
+                position("IE00BYX2JD69", "1rASUSW", "iShares MSCI World SRI",
+                    "100", "10.00", "12.00", "98910.00", "200.00"))
+        ));
+
+        service.queueSync(7L);
+
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
+        verify(accountRepository, never()).save(any());
+    }
+
+    @Test
+    void queueSync_refusesAPerWithoutItsValuationLineCount() {
+        SidecarSession session = activeSession(owner());
+        arrangeQueuedSession(session);
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(retirementPlan("2230.00", "30.00", null,
             position("IE00BYX2JD69", "1rASUSW", "iShares MSCI World SRI",
                 "100", "10.00", "12.00", "2200.00", "200.00"))));
 
@@ -841,7 +914,7 @@ class BoursoSyncServiceTest {
             encryption,
             txTemplate,
             executor,
-            new ReceivedDividendClassifier(dividendReceiptService)
+            new ReceivedDividendClassifier(dividendReceiptService, transferPairingService)
         );
     }
 
@@ -896,10 +969,26 @@ class BoursoSyncServiceTest {
     private BoursoAdapter.AccountData lifeInsurance(
         String balanceEur, String cashBalance, Integer valuationLineCount, BoursoAdapter.Position... positions
     ) {
+        return lineValued("bourso_0a1b2c3d4e5f60718293a4b5c6d7e8f9", "Contrat N° 12345678",
+            AccountType.ASSURANCE_VIE, balanceEur, cashBalance, valuationLineCount, positions);
+    }
+
+    /** A PER, read from its server-rendered page like an assurance vie; the cash leg holds pending payments. */
+    private BoursoAdapter.AccountData retirementPlan(
+        String balanceEur, String cashBalance, Integer valuationLineCount, BoursoAdapter.Position... positions
+    ) {
+        return lineValued("bourso_70c0b19d3fd74474c13c86e0c906d4ff", "PER Bourso",
+            AccountType.PER, balanceEur, cashBalance, valuationLineCount, positions);
+    }
+
+    private BoursoAdapter.AccountData lineValued(
+        String externalId, String name, AccountType type, String balanceEur, String cashBalance,
+        Integer valuationLineCount, BoursoAdapter.Position... positions
+    ) {
         return new BoursoAdapter.AccountData(
-            "bourso_0a1b2c3d4e5f60718293a4b5c6d7e8f9",
-            "Contrat N° 12345678",
-            AccountType.ASSURANCE_VIE,
+            externalId,
+            name,
+            type,
             new BigDecimal(balanceEur),
             new BigDecimal(cashBalance),
             List.of(positions),

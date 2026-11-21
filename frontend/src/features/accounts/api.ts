@@ -78,6 +78,12 @@ export const accountsApi = {
   listAll: () => api.get<Account[]>('/accounts', { params: { includeHidden: true } }).then(r => r.data),
   setVisibility: (id: number, hidden: boolean) =>
     api.put<Account>(`/accounts/${id}/visibility`, { hidden }).then(r => r.data),
+  /** Display-only collapse; the account stays in every total, budget and chart. */
+  setListCollapsed: (id: number, collapsed: boolean) =>
+    api.put<Account>(`/accounts/${id}/display`, { collapsed }).then(r => r.data),
+  /** Replace the member's whole manual order; an empty list clears all positions. */
+  setDisplayOrder: (accountIds: number[]) =>
+    api.put<Account[]>(`/accounts/display-order`, { accountIds }).then(r => r.data),
   /**
    * Always resolves: a non-OK `status` in the body explains why no figure could be produced
    * (uncovered area, missing living area) and is information to render, not an error.

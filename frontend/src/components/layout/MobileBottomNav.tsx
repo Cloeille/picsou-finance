@@ -1,6 +1,6 @@
 import { NavLink, useLocation } from 'react-router'
 import { useTranslation } from 'react-i18next'
-import type { LucideIcon } from 'lucide-react'
+import type { Icon as LucideIcon } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { SETTINGS_NAV_ITEM, FAMILY_NAV_ITEM, NAV_ITEMS } from './sidebar-nav-items'
 
@@ -43,7 +43,7 @@ function MobileNavItem({
         isActive && 'ring-1 ring-border bg-muted text-foreground',
       )}
     >
-      <Icon className="size-5" aria-hidden="true" />
+      <Icon className="size-5" weight={isActive ? 'fill' : 'regular'} aria-hidden="true" />
     </NavLink>
   )
 }

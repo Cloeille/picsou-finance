@@ -3,16 +3,14 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import {
   Archive,
-  ArchiveRestore,
-  ChevronRight,
-  CornerDownRight,
-  Pencil,
+  ArrowCounterClockwise,
+  CaretRight,
+  ArrowElbowDownRight,
+  PencilSimple,
   Plus,
-  Settings,
-  SlidersHorizontal,
-  Tags,
-  Trash2,
-} from 'lucide-react'
+  GearSix,
+  Trash,
+} from '@phosphor-icons/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -90,8 +88,7 @@ function BudgetPreferencesCard() {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Settings className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <CardTitle className="text-base">
           {t('settings.title')}
         </CardTitle>
       </CardHeader>
@@ -157,7 +154,7 @@ function BudgetPreferencesCard() {
                       variant="outline"
                       onClick={() => navigate('/admin?tab=ai')}
                     >
-                      <Settings className="size-3.5" aria-hidden="true" />
+                      <GearSix className="size-3.5" aria-hidden="true" />
                       {t('budget.categorize.aiSettings')}
                     </Button>
                   )}
@@ -356,7 +353,7 @@ function CategoriesCard() {
         key={c.id}
         className={`flex items-center gap-3 py-2.5 transition-colors hover:bg-muted/25 ${child ? 'pl-6 sm:pl-8' : ''}`}
       >
-        {child && <CornerDownRight className="-ml-2 size-3.5 shrink-0 text-muted-foreground/60" aria-hidden="true" />}
+        {child && <ArrowElbowDownRight className="-ml-2 size-3.5 shrink-0 text-muted-foreground/60" aria-hidden="true" />}
         <ColorDot color={c.color} className="size-3 shrink-0 rounded-full" />
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1">
           <span className={`max-w-full truncate text-sm font-medium ${c.archived ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
@@ -382,7 +379,7 @@ function CategoriesCard() {
             onClick={() => open(c)}
             aria-label={t('budget.a11y.edit', { name: c.name })}
           >
-            <Pencil className="size-4" />
+            <PencilSimple className="size-4" />
           </Button>
           {c.archived ? (
             <Button
@@ -392,7 +389,7 @@ function CategoriesCard() {
               disabled={unarchive.isPending}
               onClick={() => unarchive.mutate(c.id)}
             >
-              <ArchiveRestore className="size-4" />
+              <ArrowCounterClockwise className="size-4" />
             </Button>
           ) : (
             <Button
@@ -414,7 +411,6 @@ function CategoriesCard() {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
         <CardTitle className="flex items-center gap-2 text-base">
-          <Tags className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           {t('budget.category.title')}
           {categories && (
             <Badge variant="secondary" className="tabular-nums">{categories.length}</Badge>
@@ -535,7 +531,6 @@ function RulesCard() {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
         <CardTitle className="flex items-center gap-2 text-base">
-          <SlidersHorizontal className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           {t('budget.rule.title')}
           {rules && rules.length > 0 && (
             <Badge variant="secondary" className="tabular-nums">{rules.length}</Badge>
@@ -567,7 +562,7 @@ function RulesCard() {
                   >
                     {r.pattern}
                   </span>
-                  <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <CaretRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
                   <span className="truncate font-medium text-foreground">{r.categoryName}</span>
                   {r.source === 'AUTO' && (
                     <Badge variant="secondary" className="h-5 px-1.5 text-xs">
@@ -583,7 +578,7 @@ function RulesCard() {
                   disabled={deleteRule.isPending}
                   onClick={() => deleteRule.mutate(r.id)}
                 >
-                  <Trash2 className="size-4" />
+                  <Trash className="size-4" />
                 </Button>
               </div>
             ))}

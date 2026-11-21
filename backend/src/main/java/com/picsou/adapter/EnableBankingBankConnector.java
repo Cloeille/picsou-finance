@@ -81,19 +81,21 @@ public class EnableBankingBankConnector implements BankConnectorPort {
             .build();
     }
 
+    static final String ERROR_CODE_NOT_CONFIGURED = "ENABLE_BANKING_NOT_CONFIGURED";
+
     private String applicationId() {
         return configProvider.applicationId()
-            .orElseThrow(() -> new SyncException(ebMissingMessage("Application ID")));
+            .orElseThrow(() -> new SyncException(ebMissingMessage("Application ID"), null, ERROR_CODE_NOT_CONFIGURED));
     }
 
     private String keyId() {
         return configProvider.keyId()
-            .orElseThrow(() -> new SyncException(ebMissingMessage("Key ID")));
+            .orElseThrow(() -> new SyncException(ebMissingMessage("Key ID"), null, ERROR_CODE_NOT_CONFIGURED));
     }
 
     private String redirectUri() {
         return configProvider.redirectUri()
-            .orElseThrow(() -> new SyncException(ebMissingMessage("redirect URL")));
+            .orElseThrow(() -> new SyncException(ebMissingMessage("redirect URL"), null, ERROR_CODE_NOT_CONFIGURED));
     }
 
     private PrivateKey privateKey() {
@@ -101,7 +103,9 @@ public class EnableBankingBankConnector implements BankConnectorPort {
             .orElseThrow(() -> new SyncException(
                 "Enable Banking private key is missing on the server. Open Settings → Integrations → " +
                 "Enable Banking and generate or import the key pair (the Application ID, Key ID and " +
-                "redirect URL are not enough — a private key is also required)."));
+                "redirect URL are not enough — a private key is also required).",
+                null,
+                ERROR_CODE_NOT_CONFIGURED));
     }
 
     /**

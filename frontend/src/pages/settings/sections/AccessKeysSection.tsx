@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, Copy, Check, Server } from 'lucide-react'
+import { Plus, Trash, Copy, Check, HardDrives } from '@phosphor-icons/react'
 import {
   Dialog,
   DialogContent,
@@ -214,7 +214,7 @@ export function AccessKeysSection() {
                     className="shrink-0 text-destructive hover:text-destructive"
                     onClick={() => setRevokingId(k.id)}
                   >
-                    <Trash2 className="size-3.5" />
+                    <Trash className="size-3.5" />
                     {t('accessKeys.revoke')}
                   </Button>
                 )}
@@ -227,7 +227,7 @@ export function AccessKeysSection() {
       {/* Connect your MCP client -------------------------------------------- */}
       <div className="space-y-4 rounded-xl border bg-muted/40 p-4">
         <div className="flex items-center gap-2 text-base font-medium">
-          <Server className="size-4 text-muted-foreground" />
+          <HardDrives className="size-4 text-muted-foreground" />
           {t('accessKeys.connectTitle')}
         </div>
         <p className="text-sm text-muted-foreground">{t('accessKeys.connectIntro')}</p>

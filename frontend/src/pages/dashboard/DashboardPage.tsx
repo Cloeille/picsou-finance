@@ -39,7 +39,7 @@ import {
 } from '@/components/ui/item'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { TrendingUp, TrendingDown, Plus, RefreshCw, ChevronDown, AlertTriangle } from 'lucide-react'
+import { TrendUp, TrendDown, Plus, ArrowsClockwise, CaretDown, Warning } from '@phosphor-icons/react'
 import { GoalDetailModal } from '@/pages/goals/GoalDetailModal'
 import { formatPercent } from '@/lib/utils'
 
@@ -189,7 +189,7 @@ export function DashboardPage() {
             className="h-10 min-w-44 px-6 text-sm"
             onClick={() => setShowSyncModal(true)}
           >
-            <RefreshCw className="size-4" />
+            <ArrowsClockwise className="size-4" />
             {t('dashboard.syncAccounts')}
           </Button>
         }
@@ -199,7 +199,7 @@ export function DashboardPage() {
       {failedBanks.length > 0 && (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3">
           <div className="flex items-center gap-3">
-            <AlertTriangle className="size-4 shrink-0 text-destructive" />
+            <Warning className="size-4 shrink-0 text-destructive" />
             <p className="text-sm font-medium text-destructive">
               {t('dashboard.bankSyncFailed', {
                 count: failedBanks.length,
@@ -226,7 +226,7 @@ export function DashboardPage() {
               <DropdownMenuTrigger asChild>
                 <button className="inline-flex items-center gap-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
                   {t(`dashboard.${wealthModeOptions.find(m => m.value === wealthMode)!.key}`)}
-                  <ChevronDown className="size-3.5" />
+                  <CaretDown className="size-3.5" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent
@@ -248,25 +248,33 @@ export function DashboardPage() {
           <CurrencyDisplay value={wealthValue} className="text-4xl font-bold" />
 
           {(data.totalLiabilities ?? 0) > 0 && wealthMode === 'net' && (
-            <div className="mt-2 flex items-center gap-4 text-sm">
-              <span className="text-muted-foreground">
-                {t('common.labelColon', { label: t('dashboard.totalAssets') })}
+            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm tabular-nums">
+              <span>
+                <span className="text-muted-foreground">
+                  {t('common.labelColon', { label: t('dashboard.totalAssets') })}{' '}
+                </span>
+                <CurrencyDisplay value={data.totalNetWorth + (data.totalLiabilities ?? 0)} />
               </span>
-              <CurrencyDisplay value={data.totalNetWorth + (data.totalLiabilities ?? 0)} />
-              <span className="text-red-500">-</span>
-              <span className="text-muted-foreground">
-                {t('common.labelColon', { label: t('dashboard.totalLiabilities') })}
+              <span className="text-red-500" aria-hidden="true">-</span>
+              <span>
+                <span className="text-muted-foreground">
+                  {t('common.labelColon', { label: t('dashboard.totalLiabilities') })}{' '}
+                </span>
+                <CurrencyDisplay value={data.totalLiabilities ?? 0} className="text-red-500" />
               </span>
-              <CurrencyDisplay value={data.totalLiabilities ?? 0} className="text-red-500" />
             </div>
           )}
 
-          <div className="mt-3 flex items-center gap-2">
+          <div
+            className="mt-3 flex items-center gap-2"
+            data-testid="portfolio-performance"
+          >
+            <span className="sr-only">{t('dashboard.portfolioPerformance')}</span>
             {pnl != null ? (
               <>
                 {pnlPositive
-                  ? <TrendingUp className="text-emerald-500" size={18} />
-                  : <TrendingDown className="text-red-500" size={18} />}
+                  ? <TrendUp className="text-emerald-500" size={18} />
+                  : <TrendDown className="text-red-500" size={18} />}
                 <span
                   className={`text-sm font-medium ${pnlPositive ? 'text-emerald-500' : 'text-red-500'}`}
                 >
@@ -281,7 +289,6 @@ export function DashboardPage() {
             ) : (
               <span className="text-sm font-medium text-muted-foreground">{t('goals.noData')}</span>
             )}
-            <span className="text-sm text-muted-foreground">{t('dashboard.portfolioPerformance')}</span>
           </div>
         </CardContent>
       </Card>
@@ -347,7 +354,7 @@ export function DashboardPage() {
                       value={goal.currentTotal}
                       className="text-3xl font-semibold tabular-nums"
                     />
-                    <Progress value={goal.percentComplete ?? 0} className="h-2.5 [&_[data-slot=progress-indicator]]:bg-emerald-500" />
+                    <Progress value={goal.percentComplete ?? 0} className="[&_[data-slot=progress-indicator]]:bg-emerald-500" />
                   </ItemContent>
                   <ItemFooter>
                     <span className="text-sm text-muted-foreground">

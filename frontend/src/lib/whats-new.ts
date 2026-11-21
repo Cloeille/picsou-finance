@@ -18,6 +18,46 @@ export const PICSOU_UPDATE_COMMAND = 'docker compose pull && docker compose up -
  */
 export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [
   {
+    version: '1.2.2',
+    date: '2026-11-21',
+    summary: {
+      fr: 'Louve Invest, crypto Trade Republic à part, PER BoursoBank et finitions du design.',
+      en: 'Louve Invest, Trade Republic crypto on its own, BoursoBank PER, and design polish.',
+      de: 'Louve Invest, Trade-Republic-Krypto als eigenes Konto, BoursoBank-PER und Design-Feinschliff.',
+      es: 'Louve Invest, cripto de Trade Republic aparte, PER de BoursoBank y pulido del diseño.',
+    },
+    highlights: {
+      fr: [
+        'Nouvelle synchronisation Louve Invest : vos parts de SCPI importées chaque jour, sans mot de passe stocké.',
+        'Trade Republic : vos cryptos dans un compte TR Crypto avec cours et logos, et des obligations correctement valorisées.',
+        'Banques : PER BoursoBank, prêts Banque Populaire, contrats non importés nommés chez BPCE, connexion American Express plus fiable.',
+        'Budget : virements entre vos propres comptes reconnus, page des paiements récurrents repensée, synchronisation manquée rattrapée au démarrage.',
+        'Design : nouvelles icônes, cartes plus compactes, réorganisation des comptes, simulateur de rendement dans la projection.',
+      ],
+      en: [
+        'New Louve Invest sync: your SCPI shares imported daily, with no password stored.',
+        'Trade Republic: your crypto in a TR Crypto account with prices and logos, and bonds valued correctly.',
+        'Banks: BoursoBank PER, Banque Populaire loans, BPCE contracts not imported are named, more reliable American Express login.',
+        'Budget: transfers between your own accounts recognised, redesigned recurring payments page, a missed sync made up at startup.',
+        'Design: new icons, more compact cards, account reordering, and a return-rate simulator in the projection.',
+      ],
+      de: [
+        'Neue Louve-Invest-Synchronisierung: Ihre SCPI-Anteile täglich importiert, ohne gespeichertes Passwort.',
+        'Trade Republic: Ihre Kryptowährungen in einem eigenen TR-Crypto-Konto mit Kursen und Logos, Anleihen korrekt bewertet.',
+        'Banken: BoursoBank-PER, Kredite der Banque Populaire, nicht importierte BPCE-Verträge benannt, zuverlässigere American-Express-Anmeldung.',
+        'Budget: Überweisungen zwischen eigenen Konten erkannt, neu gestaltete Seite für wiederkehrende Zahlungen, verpasste Synchronisierung beim Start nachgeholt.',
+        'Design: neue Symbole, kompaktere Karten, Konten neu anordnen und ein Renditesimulator in der Prognose.',
+      ],
+      es: [
+        'Nueva sincronización de Louve Invest: tus participaciones en SCPI importadas cada día, sin guardar contraseña.',
+        'Trade Republic: tus criptomonedas en una cuenta TR Crypto con cotizaciones y logotipos, y bonos bien valorados.',
+        'Bancos: PER de BoursoBank, préstamos de Banque Populaire, contratos BPCE no importados identificados, inicio de sesión de American Express más fiable.',
+        'Presupuesto: transferencias entre tus propias cuentas reconocidas, página de pagos recurrentes rediseñada, sincronización perdida recuperada al arrancar.',
+        'Diseño: iconos nuevos, tarjetas más compactas, reordenación de cuentas y un simulador de rentabilidad en la proyección.',
+      ],
+    },
+  },
+  {
     version: '1.2.1',
     date: '2026-11-20',
     summary: {

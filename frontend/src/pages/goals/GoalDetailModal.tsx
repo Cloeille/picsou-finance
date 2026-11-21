@@ -4,23 +4,33 @@ import { useGoal } from '@/features/goals/hooks'
 import { useHistory } from '@/features/history/hooks'
 import { NetWorthChart } from '@/components/shared/NetWorthChart'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
-import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { TrendingUp, TrendingDown, Loader2 } from 'lucide-react'
+import { CalendarBlank, PencilSimple, Trash, CircleNotch } from '@phosphor-icons/react'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
 import { formatPercent } from '@/lib/utils'
 
 interface GoalDetailModalProps {
   goalId: number | null
   onClose: () => void
+  onEdit?: () => void
+  onCalendar?: () => void
+  onDelete?: () => void
 }
 
-export function GoalDetailModal({ goalId, onClose }: GoalDetailModalProps) {
+export function GoalDetailModal({
+  goalId,
+  onClose,
+  onEdit,
+  onCalendar,
+  onDelete,
+}: GoalDetailModalProps) {
   const { t } = useTranslation()
   const [range, setRange] = useState<TimeRange>('ALL')
 
@@ -35,7 +45,7 @@ export function GoalDetailModal({ goalId, onClose }: GoalDetailModalProps) {
   // is drawn in the same reference frame as the live area (which starts from
   // the linked accounts' pre-goal balance, not from zero). Without it, the
   // dashed target line floats far below the data and the chart looks rosy
-  // even when the "behind" badge fires.
+  // even when the goal is behind its required monthly pace.
   const baseline = useMemo(() => {
     if (!goal || !history?.length) return 0
     const createdMs = new Date(goal.createdAt).getTime()
@@ -68,47 +78,17 @@ export function GoalDetailModal({ goalId, onClose }: GoalDetailModalProps) {
     }
   }, [goal, t, todayMs])
 
-  const statusBadge = goal
-    ? (() => {
-        if ((goal.monthlyNeeded ?? 0) <= 0) {
-          return (
-            <Badge className="gap-1">
-              <TrendingUp className="size-3" />
-              {t('goals.achieved')}
-            </Badge>
-          )
-        }
-        if (goal.isOnTrack) {
-          return (
-            <Badge className="gap-1">
-              <TrendingUp className="size-3" />
-              {t('goals.onTrack')}
-            </Badge>
-          )
-        }
-        return (
-          <Badge variant="destructive" className="gap-1">
-            <TrendingDown className="size-3" />
-            {t('goals.behind')}
-          </Badge>
-        )
-      })()
-    : null
-
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
       <DialogContent className="sm:max-w-[95vw] max-h-[90vh] overflow-y-auto" aria-describedby={undefined}>
         {isLoading || !goal ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="size-6 animate-spin text-muted-foreground" />
+            <CircleNotch className="size-6 animate-spin text-muted-foreground" />
           </div>
         ) : (
           <>
             <DialogHeader>
-              <div className="flex items-center gap-3">
-                <DialogTitle className="text-lg">{goal.name}</DialogTitle>
-                {statusBadge}
-              </div>
+              <DialogTitle className="text-lg">{goal.name}</DialogTitle>
             </DialogHeader>
 
             <div className="space-y-6 mt-2">
@@ -205,6 +185,38 @@ export function GoalDetailModal({ goalId, onClose }: GoalDetailModalProps) {
                 </div>
               )}
             </div>
+
+            {(onDelete || onCalendar || onEdit) && (
+              <DialogFooter className="mt-4 gap-2 border-t pt-4 sm:justify-between">
+                {onDelete ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="text-destructive hover:text-destructive sm:mr-auto"
+                    onClick={onDelete}
+                  >
+                    <Trash className="size-4" aria-hidden="true" />
+                    {t('common.delete')}
+                  </Button>
+                ) : (
+                  <span />
+                )}
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {onCalendar && (
+                    <Button type="button" variant="outline" onClick={onCalendar}>
+                      <CalendarBlank className="size-4" aria-hidden="true" />
+                      {t('goals.viewCalendar')}
+                    </Button>
+                  )}
+                  {onEdit && (
+                    <Button type="button" variant="outline" onClick={onEdit}>
+                      <PencilSimple className="size-4" aria-hidden="true" />
+                      {t('common.edit')}
+                    </Button>
+                  )}
+                </div>
+              </DialogFooter>
+            )}
           </>
         )}
       </DialogContent>

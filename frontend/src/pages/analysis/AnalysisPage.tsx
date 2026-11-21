@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { LineChart, PieChart, Pyramid, SlidersHorizontal, type LucideIcon } from 'lucide-react'
+import { Triangle, SlidersHorizontal } from '@phosphor-icons/react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ErrorState } from '@/components/shared/ErrorState'
@@ -26,10 +26,10 @@ export function AnalysisPage() {
 
   const hasWealth = (pyramid.data?.totalAssetsEur ?? 0) !== 0
 
-  const tabs: Array<{ id: AnalysisTab; label: string; icon: LucideIcon }> = [
-    { id: 'pyramid', label: t('analysis.tabs.pyramid'), icon: Pyramid },
-    { id: 'diversification', label: t('analysis.tabs.diversification'), icon: PieChart },
-    { id: 'projection', label: t('analysis.tabs.projection'), icon: LineChart },
+  const tabs: Array<{ id: AnalysisTab; label: string }> = [
+    { id: 'pyramid', label: t('analysis.tabs.pyramid') },
+    { id: 'diversification', label: t('analysis.tabs.diversification') },
+    { id: 'projection', label: t('analysis.tabs.projection') },
   ]
 
   return (
@@ -63,7 +63,7 @@ export function AnalysisPage() {
           <CardContent>
             <EmptyState
               className="py-8"
-              icon={<Pyramid className="size-10" />}
+              icon={<Triangle className="size-10" />}
               title={t('analysis.empty.title')}
               description={t('analysis.empty.description')}
             />
@@ -78,7 +78,7 @@ export function AnalysisPage() {
             aria-label={t('analysis.title')}
             className="flex w-full flex-wrap items-center gap-1 rounded-lg border border-border/60 bg-background/80 p-1"
           >
-            {tabs.map(({ id, label, icon: Icon }) => {
+            {tabs.map(({ id, label }) => {
               const active = activeTab === id
               return (
                 <button
@@ -88,13 +88,12 @@ export function AnalysisPage() {
                   aria-selected={active}
                   onClick={() => setActiveTab(id)}
                   className={cn(
-                    'inline-flex h-8 flex-auto items-center justify-center gap-2 rounded-md px-3.5 text-sm font-medium whitespace-nowrap transition-[background-color,color]',
+                    'inline-flex h-8 flex-auto items-center justify-center rounded-md px-3.5 text-sm font-medium whitespace-nowrap transition-[background-color,color]',
                     active
                       ? 'bg-primary text-primary-foreground'
                       : 'text-muted-foreground hover:text-foreground'
                   )}
                 >
-                  <Icon className="size-4 shrink-0" aria-hidden="true" />
                   <span>{label}</span>
                 </button>
               )

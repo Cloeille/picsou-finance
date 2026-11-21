@@ -31,7 +31,7 @@ function FlowBarRow({ bar, sideTotal, t }: { bar: FlowBar; sideTotal: number; t:
         <CurrencyDisplay value={bar.value} className="shrink-0 font-medium tabular-nums" />
       </div>
       <div
-        className="mt-1 h-2 overflow-hidden rounded-full bg-muted"
+        className="mt-1 h-2 w-full overflow-hidden rounded-full bg-muted"
         role="progressbar"
         aria-label={label}
         aria-valuemin={0}

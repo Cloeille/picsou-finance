@@ -44,7 +44,7 @@ export function PropertyFinancingCard({ line }: PropertyFinancingCardProps) {
         </div>
 
         <div className="space-y-2">
-          <Progress value={equityPct} className="h-2" />
+          <Progress value={equityPct} />
           <p className="text-xs text-muted-foreground">
             {t('property.financing.equityShare', { pct: formatPercent(equityPct, { fractionDigits: 0 }, locale) })}
           </p>

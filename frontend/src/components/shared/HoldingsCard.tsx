@@ -21,7 +21,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Search, TrendingUp, TrendingDown } from 'lucide-react'
+import { MagnifyingGlass, TrendUp, TrendDown } from '@phosphor-icons/react'
 import { cn, formatPercent, formatQuantity } from '@/lib/utils'
 import { HOLDINGS_CASH_ACCOUNT_TYPES, accountTypeLabelKey } from '@/lib/constants'
 import { ErrorState } from '@/components/shared/ErrorState'
@@ -101,8 +101,8 @@ function HoldingsItem({ line, onClick }: { line: PortfolioLine; onClick?: () => 
               )}
             >
               {line.pnlPercent >= 0
-                ? <TrendingUp className="size-3" />
-                : <TrendingDown className="size-3" />}
+                ? <TrendUp className="size-3" />
+                : <TrendDown className="size-3" />}
               {formatPercent(line.pnlPercent, { signed: true })}
             </span>
           )}
@@ -188,7 +188,7 @@ export function HoldingsCard() {
         <CardTitle>{t('dashboard.holdings')}</CardTitle>
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative max-w-sm flex-1">
-            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <MagnifyingGlass className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder={t('dashboard.searchHoldings')}
               value={search}
