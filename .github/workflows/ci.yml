@@ -317,6 +317,7 @@ jobs:
           python .github/scripts/native_sidecars.py
 
   # The desktop shell (#235): the supervisor's unit tests and a locked release build.
+  # Not in ci-ok: a crates.io or apt outage must not hold back the image publish.
   desktop:
     needs: changes
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'desktop')
@@ -442,11 +443,12 @@ jobs:
         with: {name: playwright-report, path: frontend/playwright-report/, retention-days: 7}
 
   # Green only when every release-blocking job the change selected passed and no
-  # such job failed or was cancelled. Helm validation remains an independent check:
-  # chart failures must not prevent application images from being published.
+  # such job failed or was cancelled. Helm validation and the desktop build remain
+  # independent checks: neither ships in the images, so their failures must not
+  # prevent application images from being published.
   ci-ok:
     if: always()
-    needs: [changes, release-deployment, docker-compose, backend, frontend, e2e, sidecar-base, sidecar, native-sidecars, compose-sidecar-build, desktop, workflow-inventory]
+    needs: [changes, release-deployment, docker-compose, backend, frontend, e2e, sidecar-base, sidecar, native-sidecars, compose-sidecar-build, workflow-inventory]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

@@ -470,7 +470,7 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
 SELECTOR = "changes"
 GATE = "ci-ok"
 PUBLISH = "docker"
-NON_BLOCKING = {"helm-chart"}
+NON_BLOCKING = {"helm-chart", "desktop"}
 # Path filters that select no job of their own.
 HELPER_FILTERS = {"workflows", "release-deps"}
 
