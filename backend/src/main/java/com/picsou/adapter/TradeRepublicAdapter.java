@@ -64,6 +64,10 @@ public class TradeRepublicAdapter {
     private static final int    WS_VERSION = 31;
     // Lang & Schwarz Exchange, TR's home venue for equities and ETFs (GH #23).
     private static final String DEFAULT_EXCHANGE = "LSX";
+    public static final String EXTERNAL_ID_SECURITIES = "tr_securities";
+    public static final String EXTERNAL_ID_CRYPTO = "tr_crypto";
+    public static final String EXTERNAL_ID_PEA = "tr_pea";
+    public static final String EXTERNAL_ID_CASH = "tr_cash";
     private static final Duration DEFAULT_AUTH_TIMEOUT = Duration.ofSeconds(45);
     /**
      * An in-app confirmation waits on a human unlocking their phone. The sidecar caps that wait at
@@ -269,6 +273,11 @@ public class TradeRepublicAdapter {
         AtomicReference<String> cashJson = new AtomicReference<>();
         ConcurrentHashMap<String, String> scopedCashJsonByAccount = new ConcurrentHashMap<>();
         ConcurrentHashMap<String, ConcurrentHashMap<String, JsonNode>> positionsByAccount = new ConcurrentHashMap<>();
+        // Trade Republic stores native crypto under the default secAccNo, distinguished by
+        // categoryType="cryptos" or instrumentType="crypto" (confirmed via REA on live payload and
+        // web bundle). Keeping them in their own map splits them cleanly into TR Crypto (CRYPTO)
+        // without ever moving crypto ETFs/ETCs (categoryType="stocksAndETFs", instrumentType="fund").
+        ConcurrentHashMap<String, JsonNode> cryptoPositionsByIsin = new ConcurrentHashMap<>();
         ConcurrentHashMap<String, BigDecimal> tickerPrices = new ConcurrentHashMap<>();
         Set<String> bondIsins = ConcurrentHashMap.newKeySet();
         Set<String> unpricedBondIsins = ConcurrentHashMap.newKeySet();
@@ -390,14 +399,16 @@ public class TradeRepublicAdapter {
                                         JsonNode root = objectMapper.readTree(payload);
 
                                         // compactPortfolioByType (since 2026-06-21):
-                                        //   {"categories":[{"positions":[{"isin":"...","netSize":"...","averageBuyIn":"..."}]}]}
+                                        //   {"categories":[{"categoryType":"...","positions":[{"isin":"...","netSize":"...","averageBuyIn":"..."}]}]}
                                         // Legacy compactPortfolio:
                                         //   [{"instrumentId":"...","netSize":"...","averageBuyIn":"..."}]
-                                        List<JsonNode> positions = new ArrayList<>();
+                                        record CategorizedPosition(String categoryType, JsonNode position) {}
+                                        List<CategorizedPosition> positions = new ArrayList<>();
                                         JsonNode categories = root.path("categories");
                                         if (!categories.isMissingNode() && categories.isArray()) {
                                             for (JsonNode cat : categories) {
-                                                boolean bondCategory = isBond(cat.path("categoryType").asText(""));
+                                                String categoryType = cat.path("categoryType").asText("");
+                                                boolean bondCategory = isBond(categoryType);
                                                 for (JsonNode position : cat.path("positions")) {
                                                     if (bondCategory) {
                                                         String isin = position.path("isin").asText(
@@ -406,25 +417,25 @@ public class TradeRepublicAdapter {
                                                             bondIsins.add(isin);
                                                         }
                                                     }
-                                                    positions.add(position);
+                                                    positions.add(new CategorizedPosition(categoryType, position));
                                                 }
                                             }
                                         } else {
                                             JsonNode posArray = root.isArray() ? root : root.path("positions");
-                                            if (posArray.isArray()) posArray.forEach(positions::add);
+                                            if (posArray.isArray()) {
+                                                posArray.forEach(p -> positions.add(new CategorizedPosition("", p)));
+                                            }
                                         }
 
                                         if (!positions.isEmpty()) {
+                                            boolean splitNativeCrypto = "default".equals(account.wrapper());
                                             List<String> instrumentMsgs = new ArrayList<>();
-                                            for (JsonNode pos : positions) {
+                                            for (CategorizedPosition entry : positions) {
+                                                JsonNode pos = entry.position();
                                                 // new API: "isin"; legacy: "instrumentId"
                                                 String isin = pos.path("isin").asText(
                                                         pos.path("instrumentId").asText(""));
                                                 if (!isin.isEmpty()) {
-                                                    positionsByAccount
-                                                        .computeIfAbsent(account.externalId(), key -> new ConcurrentHashMap<>())
-                                                        .put(isin, pos);
-
                                                     // Private equity funds (instrumentType "privateFund") are
                                                     // not publicly traded — TR never sends a price tick for them.
                                                     // Private equity funds don't have live tickers and will cause the websocket
@@ -432,6 +443,13 @@ public class TradeRepublicAdapter {
                                                     String instrumentType = pos.path("instrumentType").asText("");
                                                     if (isBond(instrumentType)) {
                                                         bondIsins.add(isin);
+                                                    }
+                                                    if (splitNativeCrypto && isNativeCrypto(entry.categoryType(), instrumentType)) {
+                                                        cryptoPositionsByIsin.put(isin, pos);
+                                                    } else {
+                                                        positionsByAccount
+                                                            .computeIfAbsent(account.externalId(), key -> new ConcurrentHashMap<>())
+                                                            .put(isin, pos);
                                                     }
                                                     if ("privateFund".equals(instrumentType)) {
                                                         log.info("TR compactPortfolioByType [{}]: skipping ticker subscription for privateFund {}", account.name(), isin);
@@ -553,53 +571,14 @@ public class TradeRepublicAdapter {
                 ? scopedCashJsonByAccount.get(secAccount.externalId())
                 : null;
             BigDecimal peaCash = peaCashJson != null ? parseCashValue(peaCashJson) : null;
-            BigDecimal totalPortfolioValue = peaCash != null ? peaCash : BigDecimal.ZERO;
-            int priced = 0;
-            for (var entry : positionsByIsin.entrySet()) {
-                String isin = entry.getKey();
-                JsonNode pos = entry.getValue();
-                BigDecimal size = new BigDecimal(pos.path("netSize").asText("0"));
-                BigDecimal price = tickerPrices.get(isin);
-
-                if (size.compareTo(BigDecimal.ZERO) <= 0) continue;
-
-                if (price != null && price.compareTo(BigDecimal.ZERO) > 0) {
-                    totalPortfolioValue = totalPortfolioValue.add(
-                            price.multiply(size).setScale(2, RoundingMode.HALF_UP));
-                    priced++;
-                } else {
-                    BigDecimal avgBuyIn = new BigDecimal(pos.path("averageBuyIn").asText("0"));
-                    if (avgBuyIn.compareTo(BigDecimal.ZERO) > 0) {
-                        totalPortfolioValue = totalPortfolioValue.add(
-                                avgBuyIn.multiply(size).setScale(2, RoundingMode.HALF_UP));
-                        log.warn("TR price unavailable for {}: counted at averageBuyIn in the account total, "
-                            + "its current price left empty", isin);
-                    }
-                }
-            }
+            ValuedPortfolio valued = valuePortfolio(positionsByIsin, tickerPrices, peaCash);
 
             log.info("TR portfolio [{}]: {} positions, {} with live prices",
-                     secAccount.name(), positionsByIsin.size(), priced);
-
-            List<TrPosition> positions = new ArrayList<>();
-            for (var entry : positionsByIsin.entrySet()) {
-                String isin = entry.getKey();
-                JsonNode pos = entry.getValue();
-                BigDecimal size = new BigDecimal(pos.path("netSize").asText("0"));
-
-                if (size.compareTo(BigDecimal.ZERO) <= 0) continue;
-
-                BigDecimal averageBuyIn = new BigDecimal(pos.path("averageBuyIn").asText("0"));
-                // Null when TR sent no price: the buy-in stored as the current price read as a
-                // market value with zero gain.
-                BigDecimal currentPrice = tickerPrices.get(isin);
-
-                positions.add(new TrPosition(isin, size, averageBuyIn, currentPrice));
-            }
+                     secAccount.name(), positionsByIsin.size(), valued.priced());
 
             boolean answered = receivedPortfolioIds.contains(secAccount.externalId());
             boolean errored = erroredPortfolioIds.contains(secAccount.externalId());
-            if (!shouldPersist(totalPortfolioValue, positions.isEmpty(), answered, errored)) {
+            if (!shouldPersist(valued.totalEur(), valued.positions().isEmpty(), answered, errored)) {
                 if (errored) {
                     log.warn("TR portfolio [{}]: no usable portfolio answer this sync -- "
                         + "the account keeps its previous holdings and balance", secAccount.name());
@@ -610,13 +589,28 @@ public class TradeRepublicAdapter {
                 secAccount.externalId(),
                 secAccount.name(),
                 secAccount.type(),
-                totalPortfolioValue,
-                positions,
+                valued.totalEur(),
+                valued.positions(),
                 peaCash));
         }
 
+        if (!cryptoPositionsByIsin.isEmpty()) {
+            ValuedPortfolio cryptoValued = valuePortfolio(cryptoPositionsByIsin, tickerPrices, null);
+            log.info("TR portfolio [TR Crypto]: {} positions, {} with live prices",
+                     cryptoPositionsByIsin.size(), cryptoValued.priced());
+            if (!cryptoValued.positions().isEmpty()) {
+                accounts.add(new TrAccountData(
+                    EXTERNAL_ID_CRYPTO,
+                    "TR Crypto",
+                    AccountType.CRYPTO,
+                    cryptoValued.totalEur(),
+                    cryptoValued.positions(),
+                    null));
+            }
+        }
+
         if (cashJson.get() != null
-                && accounts.stream().noneMatch(a -> "tr_cash".equals(a.externalId()))) {
+                && accounts.stream().noneMatch(a -> EXTERNAL_ID_CASH.equals(a.externalId()))) {
             accounts.addAll(parseCashJson(cashJson.get()));
         }
 
@@ -680,24 +674,80 @@ public class TradeRepublicAdapter {
         return second < 0 ? text.substring(first + 1) : text.substring(first + 1, second);
     }
 
+    private record ValuedPortfolio(BigDecimal totalEur, List<TrPosition> positions, int priced) {}
+
+    private ValuedPortfolio valuePortfolio(
+            Map<String, JsonNode> positionsByIsin,
+            Map<String, BigDecimal> tickerPrices,
+            BigDecimal cashPocket) {
+        BigDecimal total = cashPocket != null ? cashPocket : BigDecimal.ZERO;
+        List<TrPosition> positions = new ArrayList<>();
+        int priced = 0;
+
+        for (var entry : positionsByIsin.entrySet()) {
+            String isin = entry.getKey();
+            JsonNode pos = entry.getValue();
+            BigDecimal size = decimalOf(pos.path("netSize"));
+            if (size.compareTo(BigDecimal.ZERO) <= 0) continue;
+
+            BigDecimal averageBuyIn = decimalOf(pos.path("averageBuyIn"));
+            // Null when TR sent no price: the buy-in stored as the current price read as a
+            // market value with zero gain.
+            BigDecimal currentPrice = tickerPrices.get(isin);
+            if (currentPrice != null && currentPrice.compareTo(BigDecimal.ZERO) > 0) {
+                total = total.add(currentPrice.multiply(size).setScale(2, RoundingMode.HALF_UP));
+                priced++;
+            } else if (averageBuyIn.compareTo(BigDecimal.ZERO) > 0) {
+                total = total.add(averageBuyIn.multiply(size).setScale(2, RoundingMode.HALF_UP));
+                log.warn("TR price unavailable for {}: counted at averageBuyIn in the account total, "
+                    + "its current price left empty", isin);
+            }
+            positions.add(new TrPosition(isin, size, averageBuyIn, currentPrice));
+        }
+
+        return new ValuedPortfolio(total, positions, priced);
+    }
+
+    /** Reads a decimal from either a scalar value (v1) or {@code {"value": ...}} (v2). */
+    private static BigDecimal decimalOf(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) return BigDecimal.ZERO;
+        String text = node.isObject() ? node.path("value").asText("0") : node.asText("0");
+        return text == null || text.isBlank() ? BigDecimal.ZERO : new BigDecimal(text);
+    }
+
     /**
-     * Exact match on TR's type value (an {@code instrumentType} or a {@code categoryType}),
-     * never a substring: a bond ETF or bond fund is quoted per unit in EUR and must not be scaled.
-     * NOTE: "bond" is the value assumed from TR's naming, not yet confirmed on a real payload.
+     * Exact match on TR's native crypto classification, mirroring TR's web client ({@code Re()} in
+     * the web bundle, confirmed on live {@code compactPortfolioByType} payloads): category
+     * {@code "cryptos"} or position {@code instrumentType="crypto"}. Crypto ETFs/ETCs arrive under
+     * {@code categoryType="stocksAndETFs"} with {@code instrumentType="fund"} and stay in CTO.
+     */
+    static boolean isNativeCrypto(String categoryType, String instrumentType) {
+        return "cryptos".equalsIgnoreCase(categoryType) || "crypto".equalsIgnoreCase(instrumentType);
+    }
+
+    /**
+     * Exact match on TR's bond classification ({@code instrumentType="bond"} or enclosing
+     * {@code categoryType="bonds"}, plus legacy singular {@code "bond"}), never a substring:
+     * a bond ETF or bond fund is quoted per unit in EUR and must not be scaled.
      */
     static boolean isBond(String type) {
-        return "bond".equalsIgnoreCase(type);
+        return "bond".equalsIgnoreCase(type) || "bonds".equalsIgnoreCase(type);
     }
 
     /**
      * True only when TR's {@code instrument} answer names EUR as the instrument currency, so an
      * absent or different currency fails closed (the price is left empty rather than a USD
-     * percentage stored as EUR). Looks at {@code currencyId}, {@code currency} and
+     * percentage stored as EUR). Reads {@code bondInfo.currency} (confirmed on live bond
+     * {@code instrument} payloads) as well as {@code currencyId}, {@code currency} and
      * {@code currencies[]}.
      */
     boolean isEurNominal(String instrumentPayload) {
         try {
             JsonNode root = objectMapper.readTree(instrumentPayload);
+            JsonNode bondCurrency = root.path("bondInfo").path("currency");
+            if (bondCurrency.isTextual() && !bondCurrency.asText().isBlank()) {
+                return "EUR".equalsIgnoreCase(bondCurrency.asText());
+            }
             for (String field : List.of("currencyId", "currency")) {
                 if (root.hasNonNull(field)) return "EUR".equalsIgnoreCase(root.path(field).asText());
             }
@@ -896,13 +946,17 @@ public class TradeRepublicAdapter {
     }
 
     private AccountType accountTypeForWrapper(String wrapper) {
-        return "tax_wrapper_fr".equals(wrapper) ? AccountType.PEA : AccountType.COMPTE_TITRES;
+        return switch (wrapper) {
+            case "tax_wrapper_fr" -> AccountType.PEA;
+            case "tax_wrapper_pl_ike" -> AccountType.BROKERAGE;
+            default -> AccountType.COMPTE_TITRES;
+        };
     }
 
     private String externalIdForWrapper(String wrapper) {
         return switch (wrapper) {
-            case "default" -> "tr_securities";
-            case "tax_wrapper_fr" -> "tr_pea";
+            case "default" -> EXTERNAL_ID_SECURITIES;
+            case "tax_wrapper_fr" -> EXTERNAL_ID_PEA;
             default -> "tr_" + wrapper.replaceAll("[^a-zA-Z0-9]+", "_").toLowerCase();
         };
     }
@@ -911,6 +965,7 @@ public class TradeRepublicAdapter {
         return switch (wrapper) {
             case "default" -> "TR Titres";
             case "tax_wrapper_fr" -> "TR PEA";
+            case "tax_wrapper_pl_ike" -> "TR IKE";
             default -> "TR Titres";
         };
     }
@@ -919,7 +974,7 @@ public class TradeRepublicAdapter {
         List<TrAccountData> accounts = new ArrayList<>();
         BigDecimal value = parseCashValue(json);
         if (value.compareTo(BigDecimal.ZERO) >= 0) {
-            accounts.add(new TrAccountData("tr_cash", "TR Cash", AccountType.CHECKING, value, List.of()));
+            accounts.add(new TrAccountData(EXTERNAL_ID_CASH, "TR Cash", AccountType.CHECKING, value, List.of()));
         }
         return accounts;
     }

@@ -77,7 +77,8 @@ public class BoursoSyncService {
         AccountType.CEL,
         AccountType.PEA,
         AccountType.COMPTE_TITRES,
-        AccountType.ASSURANCE_VIE
+        AccountType.ASSURANCE_VIE,
+        AccountType.PER
     );
 
     private final BoursoAdapter port;
@@ -339,7 +340,7 @@ public class BoursoSyncService {
                     .map(PreparedPosition::currentValueEur)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
                 BigDecimal expectedValue = account.balanceEur().subtract(cashBalance);
-                boolean reconciled = account.type() == AccountType.ASSURANCE_VIE
+                boolean reconciled = isLineValued(account.type())
                     ? SyncValues.linesClose(positionValue, expectedValue, valuationLineCount(account))
                     : moneyClose(positionValue, expectedValue);
                 if (!reconciled) {
@@ -624,7 +625,7 @@ public class BoursoSyncService {
         return switch (type) {
             case PEA -> "#10b981";
             case COMPTE_TITRES -> "#3b82f6";
-            case ASSURANCE_VIE -> "#8b5cf6";
+            case ASSURANCE_VIE, PER -> "#8b5cf6";
             case SAVINGS, LEP, LIVRET_A, LDDS, LIVRET_JEUNE, PEL, CEL -> "#f59e0b";
             default -> "#ec4899";
         };
@@ -728,15 +729,25 @@ public class BoursoSyncService {
     }
 
     /**
-     * The rows an assurance-vie allowance is counted on, as the sidecar counted them:
+     * An assurance vie and a PER are read from a server-rendered page that rounds each
+     * support line to the cent on its own, so they reconcile within a cent per line
+     * rather than within the relative tolerance of a trading-board envelope.
+     */
+    private static boolean isLineValued(AccountType type) {
+        return type == AccountType.ASSURANCE_VIE || type == AccountType.PER;
+    }
+
+    /**
+     * The rows a line-valued allowance is counted on, as the sidecar counted them:
      * each was rounded to the cent on its own, before rows of one fund merge into a
-     * single holding, zero-unit rows are dropped and euro-fund rows are summed into
-     * the cash leg. Fewer rows than positions received cannot be true.
+     * single holding (across a PER's compartments too), zero-unit rows are dropped and
+     * euro-fund or pending-payment rows are summed into the cash leg. Fewer rows than
+     * positions received cannot be true.
      */
     private int valuationLineCount(BoursoAdapter.AccountData account) {
         Integer lines = account.valuationLineCount();
         if (lines == null || lines < account.positions().size()) {
-            throw error(SidecarErrorCode.INVALID_DATA, "BoursoBank returned no valid line count for an assurance vie", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "BoursoBank returned no valid line count for a line-valued account", null);
         }
         return lines;
     }
