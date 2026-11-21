@@ -1,5 +1,6 @@
 {
   "common": {
+    "actions": "Acciones",
     "loading": "Cargando...",
     "add": "Añadir",
     "save": "Guardar",

@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Screen readers no longer read out every icon.** Since the switch to Phosphor icons, decorative
+  icons were exposed to assistive technology, and the "Portfolio performance" label of the
+  performance row was no longer announced. Icons are hidden from screen readers again by default,
+  the row is named again, and the goals' recurring plan menu is labelled "Actions" instead of "Edit".
 - **Deleting a property no longer breaks the loan linked to it.** A loan or peer loan still linked
   to a deleted account could not be read, and the accounts page failed with an error. Deleting an
   account now unlinks them, and the upgrade repairs the loans already in that state (`V154`).

@@ -157,9 +157,10 @@ is rejected with the matching rule and expected pattern.
   or `NativeSelect` (`@/components/shared/NativeSelect`, which renders Radix Select under the hood).
   *(Enforced in CI.)*
 - **Collapsible / advanced sections**: never use raw HTML `<details>`/`<summary>` or raw Unicode
-  triangle glyphs (`▶`, `▼`). Build collapsible blocks with a button (`aria-expanded`), Lucide
-  `ChevronDown` with `rotate-180`, and a clean bordered container. *(Enforced in CI.)*
-- **Icons**: always use icons from `lucide-react`, sized consistently (`size-4` in buttons and
+  triangle glyphs (`▶`, `▼`). Build collapsible blocks with a button (`aria-expanded`), Phosphor
+  `CaretDown` with `rotate-180`, and a clean bordered container. *(Enforced in CI.)*
+- **Icons**: always use icons from `@phosphor-icons/react` (regular weight and hidden from screen
+  readers by default, set in `lib/icon-defaults.ts`; `lucide-react` is refused in CI), sized consistently (`size-4` in buttons and
   headers, `size-3.5` in compact controls, `size-5` in nav items, `size-10` in empty states).
 
 ### 7. Empty states & card actions

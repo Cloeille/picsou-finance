@@ -140,7 +140,7 @@ GoalService.setMonthOverride(goalId, yearMonth, amount)
 - **Account chips** use `<Badge variant="secondary">` — theme-aware, no per-account color. The `ACCOUNT_COLORS` palette is still used elsewhere (ColorPicker, DistributionPie, AccountCard, FinaryTab) but not in goal cards.
 - **Status badges**: achieved/on track use `variant="default"` (primary), behind uses `variant="destructive"`, waiting uses `variant="secondary"`.
 - **Calendar badges**: "manu." uses `variant="secondary"`, "modif." uses `variant="outline"` — no raw Tailwind color overrides.
-- **Icons**: `TrendingUp`/`TrendingDown` come from `lucide-react` (not HugeIcons) in the goals pages.
+- **Icons**: `TrendUp`/`TrendDown` come from `@phosphor-icons/react` in the goals pages.
 - **Goal detail chart**: `GoalDetailModal` reuses the shared `NetWorthChart` with the optional `target`, `projection`, and `todayMs` props. The chart draws:
   - A dashed `var(--chart-3)` ideal trajectory from `(goal.createdAt, balanceAtCreation)` to `(goal.deadline, goal.targetAmount)`, where `balanceAtCreation` is the first history point at or after `goal.createdAt`. Using the baseline (not zero) keeps the trajectory in the same reference frame as the live area, so the visual matches the "behind/on track" badge.
   - A dotted `var(--muted-foreground)` "at current pace" projection from `(today, currentTotal)` to `(goal.deadline, currentTotal + avgMonthlyContribution * monthsLeft)`, rendered as an `Area` with a faint left→right gradient so the chart fades into the future rather than cutting net at today. Skipped when `avgMonthlyContribution` is null (no history yet).
