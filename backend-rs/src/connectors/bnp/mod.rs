@@ -9,7 +9,7 @@ mod sync;
 use std::sync::LazyLock;
 
 use axum::Json as AxumJson;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use regex::Regex;
@@ -35,6 +35,9 @@ pub fn register(routes: &mut Routes) {
         .post("/api/bnp/auth/initiate", initiate)
         .post("/api/bnp/auth/keypad", keypad)
         .post("/api/bnp/auth/complete", complete)
+        .post("/api/bnp/webview/start", webview_start)
+        .get("/api/bnp/webview/status/{processId}", webview_status)
+        .post("/api/bnp/webview/cancel/{processId}", webview_cancel)
         .post("/api/bnp/sync", sync_now)
         .get("/api/bnp/status", status)
         .delete("/api/bnp/session", clear);
@@ -136,6 +139,77 @@ async fn complete(
     };
     Ok(no_store(
         sync::complete_auth(&state, process_id, code, auth.member_id).await?,
+    ))
+}
+
+/// Opens an interactive OS WebView login on Picsou Desktop (never handles credentials).
+async fn webview_start(
+    State(state): State<AppState>,
+    auth: Auth,
+    ip: ClientIp,
+    body: axum::body::Bytes,
+) -> AppResult<Response> {
+    let brand = if body.iter().all(u8::is_ascii_whitespace) {
+        "bnp".to_owned()
+    } else {
+        let raw: Value = serde_json::from_slice(&body)
+            .map_err(|_| crate::error::AppError::BadRequest(INVALID_BODY.to_owned()))?;
+        let strict = StrictBody::new(&raw, INVALID_BODY, &["brand"])?;
+        let chosen = match strict.get("brand") {
+            Some(_) => strict.text("brand")?,
+            None => "bnp",
+        };
+        if !BRANDS.contains(&chosen) {
+            return Err(strict.invalid());
+        }
+        chosen.to_owned()
+    };
+    if let Some(refused) = spend_token(
+        &state,
+        &policies::BNP_WEBVIEW,
+        &ip,
+        "Too many BNP Paribas sign-in attempts. Please wait before retrying.",
+    ) {
+        return Ok(refused);
+    }
+    Ok(no_store(
+        sync::start_webview(&state, &brand, auth.member_id).await?,
+    ))
+}
+
+async fn webview_status(
+    State(state): State<AppState>,
+    auth: Auth,
+    Path(process_id): Path<String>,
+) -> AppResult<Response> {
+    if process_id.is_empty()
+        || process_id.len() > 128
+        || !process_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        return Err(crate::error::AppError::BadRequest(INVALID_BODY.to_owned()));
+    }
+    Ok(no_store(
+        sync::poll_webview_status(&state, &process_id, auth.member_id).await?,
+    ))
+}
+
+async fn webview_cancel(
+    State(state): State<AppState>,
+    auth: Auth,
+    Path(process_id): Path<String>,
+) -> AppResult<Response> {
+    if process_id.is_empty()
+        || process_id.len() > 128
+        || !process_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        return Err(crate::error::AppError::BadRequest(INVALID_BODY.to_owned()));
+    }
+    Ok(no_store(
+        sync::cancel_webview(&state, &process_id, auth.member_id).await?,
     ))
 }
 

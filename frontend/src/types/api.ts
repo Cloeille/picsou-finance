@@ -1412,6 +1412,23 @@ export interface BnpSessionStatus {
   lastSyncError: BnpErrorCode | null
   unsupported: BnpUnsupportedProduct[]
   unsupportedCount: number
+  /** Present and true on Picsou Desktop where native OS WebView login is available. */
+  webviewLoginSupported?: boolean
+}
+
+export interface BnpWebviewStartResponse {
+  processId: string
+  status: 'WAITING_LOGIN'
+}
+
+export interface BnpWebviewStatusResponse {
+  status: 'WAITING_LOGIN' | 'FETCHING' | 'SYNCING' | 'DONE' | 'CANCELLED' | 'FAILED'
+  errorCode?: BnpErrorCode
+  session?: BnpSessionStatus
+}
+
+export interface BnpWebviewCancelResponse {
+  cancelled: boolean
 }
 
 /**

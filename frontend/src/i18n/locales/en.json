@@ -2331,6 +2331,14 @@
         "cancel": "Cancel",
         "clear": "Clear",
         "validate": "Validate"
+      },
+      "webview": {
+        "hint": "Sign in directly on your bank's official portal in a dedicated window. Picsou never sees your credentials.",
+        "connect": "Sign in to {{brand}}",
+        "reconnect": "Reconnect {{brand}}",
+        "waiting": "Sign in using the {{brand}} window that just opened…",
+        "waitingHint": "Enter your credentials and approve Clé Digitale directly on the bank's site. The window closes automatically once signed in.",
+        "fetching": "Signed in — fetching your accounts…"
       }
     },
     "searchPlaceholder": "Search a bank, broker, or import...",

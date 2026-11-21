@@ -2029,6 +2029,14 @@
         "cancel": "Abbrechen",
         "clear": "Löschen",
         "validate": "Bestätigen"
+      },
+      "webview": {
+        "hint": "Melde Dich direkt im offiziellen Portal Deiner Bank in einem eigenen Fenster an. Picsou sieht Deine Zugangsdaten nie.",
+        "connect": "Bei {{brand}} anmelden",
+        "reconnect": "{{brand}} erneut verbinden",
+        "waiting": "Melde Dich im gerade geöffneten {{brand}}-Fenster an…",
+        "waitingHint": "Gib Deine Zugangsdaten ein und bestätige Clé Digitale direkt auf der Website der Bank. Das Fenster schließt sich automatisch nach der Anmeldung.",
+        "fetching": "Angemeldet — Konten werden abgerufen…"
       }
     },
     "searchPlaceholder": "Bank, Broker oder Import suchen...",

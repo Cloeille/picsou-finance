@@ -2331,6 +2331,14 @@
         "cancel": "Annuler",
         "clear": "Effacer",
         "validate": "Valider"
+      },
+      "webview": {
+        "hint": "Connectez-vous directement sur le portail officiel de la banque dans une fenêtre dédiée. Picsou ne voit jamais vos identifiants.",
+        "connect": "Se connecter sur {{brand}}",
+        "reconnect": "Reconnecter {{brand}}",
+        "waiting": "Connectez-vous dans la fenêtre {{brand}} qui vient de s'ouvrir…",
+        "waitingHint": "Saisissez vos identifiants et validez votre Clé Digitale directement sur le site de la banque. La fenêtre se fermera automatiquement une fois la connexion établie.",
+        "fetching": "Connexion réussie, récupération de vos comptes…"
       }
     },
     "searchPlaceholder": "Rechercher une banque, un courtier ou un import...",

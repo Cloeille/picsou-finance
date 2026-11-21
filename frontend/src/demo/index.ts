@@ -1518,6 +1518,18 @@ handlers.set(key('POST', '/bnp/auth/complete'), () => {
   demoBnpAuthenticated = true
   return demoBnpStatus()
 })
+handlers.set(key('POST', '/bnp/webview/start'), () => ({
+  processId: 'demo',
+  status: 'WAITING_LOGIN',
+}))
+handlers.set(key('GET', '/bnp/webview/status/:processId'), () => {
+  demoBnpAuthenticated = true
+  demoBnpSynced = true
+  return { status: 'SYNCING', session: demoBnpStatus() }
+})
+handlers.set(key('POST', '/bnp/webview/cancel/:processId'), () => ({
+  cancelled: true,
+}))
 handlers.set(key('POST', '/bnp/sync'), () => {
   demoBnpAuthenticated = true
   demoBnpSynced = true

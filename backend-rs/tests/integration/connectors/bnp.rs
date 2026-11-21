@@ -474,3 +474,174 @@ async fn invalid_snapshots_refuse_whole_and_expired_session_reports_needs_reauth
         "AUTH_ATTEMPT_EXPIRED"
     );
 }
+
+#[tokio::test]
+async fn webview_endpoints_are_desktop_only_and_drive_full_sync_on_desktop() {
+    // Web/Docker mode (PICSOU_DESKTOP unset): status omits webviewLoginSupported and routes 404.
+    let sidecar = MockServer::start().await;
+    let web_app = app_with_sidecar(URL, &sidecar).await;
+    let (web_client, _) = admin(&web_app).await;
+    let web_st = status(&web_client).await;
+    assert!(web_st.get("webviewLoginSupported").is_none());
+    assert_eq!(
+        web_client
+            .post("/api/bnp/webview/start")
+            .json(&json!({ "brand": "bnp" }))
+            .send()
+            .await
+            .status,
+        404
+    );
+
+    // Desktop mode (PICSOU_DESKTOP=true): status advertises webviewLoginSupported = true.
+    let desktop_app = picsou::testing::TestApp::builder()
+        .with_admin()
+        .env(URL, sidecar.uri())
+        .env("PICSOU_DESKTOP", "true")
+        .spawn()
+        .await;
+    let (client, member_id) = admin(&desktop_app).await;
+    let (other, _) = member(&desktop_app, "other-member").await;
+    assert_eq!(status(&client).await["webviewLoginSupported"], true);
+
+    // Invalid brand is rejected before calling the bridge.
+    assert_eq!(
+        client
+            .post("/api/bnp/webview/start")
+            .json(&json!({ "brand": "unknown" }))
+            .send()
+            .await
+            .status,
+        400
+    );
+
+    answer(
+        &sidecar,
+        "/webview/start",
+        json!({ "processId": "wv-1", "status": "WAITING_LOGIN" }),
+    )
+    .await;
+    let started = client
+        .post("/api/bnp/webview/start")
+        .json(&json!({ "brand": "bnp" }))
+        .send()
+        .await;
+    assert_eq!(started.status, 200, "{}", started.text());
+    assert_eq!(started.header("cache-control"), Some("no-store"));
+    assert_eq!(started.json()["processId"], "wv-1");
+
+    // Another member cannot poll or cancel the attempt.
+    assert_eq!(
+        other
+            .get("/api/bnp/webview/status/wv-1")
+            .send()
+            .await
+            .json()["code"],
+        "AUTH_ATTEMPT_EXPIRED"
+    );
+    assert_eq!(
+        other
+            .post("/api/bnp/webview/cancel/wv-1")
+            .send()
+            .await
+            .json()["cancelled"],
+        false
+    );
+
+    // Bridge reports WAITING_LOGIN, then FETCHING, then DONE with sessionState.
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/webview/status/wv-1"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(json!({ "status": "WAITING_LOGIN" })),
+        )
+        .up_to_n_times(1)
+        .mount(&sidecar)
+        .await;
+    assert_eq!(
+        client
+            .get("/api/bnp/webview/status/wv-1")
+            .send()
+            .await
+            .json()["status"],
+        "WAITING_LOGIN"
+    );
+
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/webview/status/wv-1"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+            "status": "DONE",
+            "sessionState": "desktop-jar-1"
+        })))
+        .mount(&sidecar)
+        .await;
+    answer(
+        &sidecar,
+        "/accounts",
+        json!({
+            "brand": "bnp",
+            "accounts": [acct("w1", "CURRENT_ACCOUNT", "Compte WebView", "250.00", None, None, vec![])],
+            "unsupported": [],
+            "sessionState": "desktop-jar-1"
+        }),
+    )
+    .await;
+
+    let done = client.get("/api/bnp/webview/status/wv-1").send().await;
+    assert_eq!(done.status, 200, "{}", done.text());
+    let done_json = done.json();
+    assert_eq!(done_json["status"], "SYNCING");
+    // Session state is never echoed back to the browser.
+    assert!(done_json.get("sessionState").is_none());
+
+    settle(&desktop_app).await;
+    let final_st = status(&client).await;
+    assert_eq!(final_st["isActive"], true);
+    assert_eq!(final_st["syncStatus"], "SUCCESS");
+    assert_eq!(final_st["webviewLoginSupported"], true);
+
+    let row = session_of(&desktop_app, BANK, member_id).await.unwrap();
+    assert_eq!(
+        desktop_app
+            .state
+            .crypto
+            .decrypt(&row.session_state)
+            .unwrap(),
+        "desktop-jar-1"
+    );
+
+    // Cancel flow removes pending login and calls bridge cancel.
+    sidecar.reset().await;
+    answer(
+        &sidecar,
+        "/webview/start",
+        json!({ "processId": "wv-2", "status": "WAITING_LOGIN" }),
+    )
+    .await;
+    answer(
+        &sidecar,
+        "/webview/cancel/wv-2",
+        json!({ "cancelled": true }),
+    )
+    .await;
+    assert_eq!(
+        client
+            .post("/api/bnp/webview/start")
+            .json(&json!({ "brand": "hellobank" }))
+            .send()
+            .await
+            .status,
+        200
+    );
+    let cancelled = client.post("/api/bnp/webview/cancel/wv-2").send().await;
+    assert_eq!(cancelled.status, 200);
+    assert_eq!(cancelled.json()["cancelled"], true);
+    assert_eq!(
+        client
+            .get("/api/bnp/webview/status/wv-2")
+            .send()
+            .await
+            .json()["code"],
+        "AUTH_ATTEMPT_EXPIRED"
+    );
+}

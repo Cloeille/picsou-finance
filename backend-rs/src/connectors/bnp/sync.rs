@@ -22,7 +22,8 @@ use crate::connectors::sidecar::keypad::{Keypad, RawKeypad, safe_keypad};
 use crate::connectors::sidecar::session::{self, SidecarSession, SidecarSyncStatus};
 use crate::connectors::sidecar::template::SessionView;
 use crate::connectors::sidecar::{
-    JobResult, SidecarClient, SidecarSessionState, SyncError, SyncJob, SyncStrategy, SyncTemplate,
+    JobResult, SidecarClient, SidecarHttp, SidecarSessionState, SyncError, SyncJob, SyncStrategy,
+    SyncTemplate,
 };
 use crate::error::{AppError, AppResult};
 use crate::ledger::accounts::{self, NewAccount};
@@ -48,8 +49,14 @@ const ACCOUNTS_TIMEOUT: Duration = Duration::from_secs(180);
 const INITIATE_TIMEOUT: Duration = Duration::from_secs(120);
 const KEYPAD_TIMEOUT: Duration = Duration::from_secs(90);
 const COMPLETE_TIMEOUT: Duration = Duration::from_secs(200);
+const WEBVIEW_TIMEOUT: Duration = Duration::from_secs(30);
+const WEBVIEW_ATTEMPT_SECONDS: i64 = 360;
 const APPROVAL_PENDING: &str = "APPROVAL_PENDING";
 const CODE_REQUIRED: &str = "CODE_REQUIRED";
+
+pub fn webview_supported(state: &AppState) -> bool {
+    state.config.desktop.eq_ignore_ascii_case("true")
+}
 
 static ISIN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new("^[A-Z]{2}[A-Z0-9]{9}[0-9]$").expect("regex"));
@@ -63,6 +70,7 @@ enum Stage {
     Keypad,
     Approval,
     Code,
+    Webview,
 }
 
 /// A login in flight: its owner, its deadline and its step. Nothing the member typed is kept.
@@ -205,10 +213,12 @@ pub struct SessionStatusResponse {
     pub last_sync_error: Option<SidecarErrorCode>,
     pub unsupported: Vec<UnsupportedProduct>,
     pub unsupported_count: usize,
+    /// Present and `true` only on Picsou Desktop where the native WebView bridge is available.
+    pub webview_login_supported: Option<bool>,
 }
 
 impl SessionStatusResponse {
-    fn inactive() -> Self {
+    fn inactive(webview_login_supported: Option<bool>) -> Self {
         Self {
             is_active: false,
             sync_status: SidecarSyncStatus::Idle,
@@ -217,6 +227,7 @@ impl SessionStatusResponse {
             last_sync_error: None,
             unsupported: Vec::new(),
             unsupported_count: 0,
+            webview_login_supported,
         }
     }
 }
@@ -245,7 +256,30 @@ fn to_status(state: &AppState, session: &SidecarSession) -> SessionStatusRespons
         last_sync_error: session.last_sync_error,
         unsupported_count: unsupported.len(),
         unsupported,
+        webview_login_supported: webview_supported(state).then_some(true),
     }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebviewStartResponse {
+    pub process_id: String,
+    pub status: String,
+}
+
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebviewStatusResponse {
+    pub status: String,
+    pub error_code: Option<SidecarErrorCode>,
+    pub session: Option<SessionStatusResponse>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebviewCancelResponse {
+    pub cancelled: bool,
 }
 
 // --- adapter -----------------------------------------------------------------------
@@ -579,6 +613,215 @@ pub async fn complete_auth(
     let status = get_status(state, member_id).await?;
     template.submit(state, job)?;
     Ok(status)
+}
+
+// --- webview login (Picsou Desktop) ----------------------------------------------------
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct BridgeWebviewStart {
+    process_id: Option<String>,
+    status: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct BridgeWebviewStatus {
+    status: Option<String>,
+    session_state: Option<String>,
+    error_code: Option<String>,
+}
+
+fn require_webview(state: &AppState) -> AppResult<()> {
+    if webview_supported(state) {
+        Ok(())
+    } else {
+        Err(AppError::NotFound(
+            "BNP Paribas interactive WebView login is only available in Picsou Desktop".to_owned(),
+        ))
+    }
+}
+
+pub async fn start_webview(
+    state: &AppState,
+    brand: &str,
+    member_id: i64,
+) -> AppResult<WebviewStartResponse> {
+    require_webview(state)?;
+    let logins = logins(state);
+    let generation = logins.generation(member_id);
+    let started: BridgeWebviewStart = auth_post(
+        state,
+        "/webview/start",
+        &json!({ "brand": brand }),
+        WEBVIEW_TIMEOUT,
+        "Could not start the BNP Paribas WebView login",
+        SidecarErrorCode::UpstreamUnavailable,
+        SidecarErrorCode::UpstreamUnavailable,
+    )
+    .await?;
+    let Some(process_id) = started.process_id.filter(|s| clean(Some(s)).is_some()) else {
+        return Err(error(
+            SidecarErrorCode::UpstreamFormatChanged,
+            "BNP Paribas WebView bridge did not return a process identifier",
+        )
+        .into());
+    };
+    let status = started.status.unwrap_or_else(|| "WAITING_LOGIN".to_owned());
+    let now = state.clock.now();
+    {
+        let _write = logins.write.lock().await;
+        logins.require_generation(member_id, generation)?;
+        logins.evict_expired(now);
+        logins.maps().pending.insert(
+            process_id.clone(),
+            PendingLogin {
+                member_id,
+                deadline: now + chrono::Duration::seconds(WEBVIEW_ATTEMPT_SECONDS),
+                generation,
+                stage: Stage::Webview,
+            },
+        );
+    }
+    Ok(WebviewStartResponse { process_id, status })
+}
+
+pub async fn poll_webview_status(
+    state: &AppState,
+    process_id: &str,
+    member_id: i64,
+) -> AppResult<WebviewStatusResponse> {
+    require_webview(state)?;
+    let logins = logins(state);
+    let current = logins.owned_attempt(process_id, member_id, state.clock.now())?;
+    if current.stage != Stage::Webview {
+        return Err(error(
+            SidecarErrorCode::AuthAttemptExpired,
+            "BNP Paribas WebView sign-in attempt expired",
+        )
+        .into());
+    }
+    let client = SidecarClient::new(state, BANK, SidecarErrorCode::AuthAttemptExpired);
+    let http = SidecarHttp::new(state, BANK.service_name(), BANK.label());
+    let path = format!("/webview/status/{process_id}");
+    let raw = http
+        .send::<()>(http::Method::GET, &path, None, WEBVIEW_TIMEOUT)
+        .await
+        .map_err(|e| client.map_call_error("Could not read BNP Paribas WebView status", e))?;
+    if !raw.is_success() {
+        let mapped = client.map_status("Could not read BNP Paribas WebView status", &raw, None);
+        if raw.status == http::StatusCode::GONE || raw.status == http::StatusCode::NOT_FOUND {
+            logins.remove(process_id);
+        }
+        return Err(mapped.into());
+    }
+    let bridge: BridgeWebviewStatus = client
+        .decode("Could not decode BNP Paribas WebView status", &raw)?
+        .ok_or_else(|| {
+            client.coded(
+                SidecarErrorCode::UpstreamUnavailable,
+                "Could not decode BNP Paribas WebView status",
+            )
+        })?;
+    let status = bridge.status.unwrap_or_else(|| "FAILED".to_owned());
+    match status.as_str() {
+        "WAITING_LOGIN" | "FETCHING" => Ok(WebviewStatusResponse {
+            status,
+            error_code: None,
+            session: None,
+        }),
+        "CANCELLED" => {
+            logins.remove(process_id);
+            Ok(WebviewStatusResponse {
+                status,
+                error_code: None,
+                session: None,
+            })
+        }
+        "FAILED" => {
+            logins.remove(process_id);
+            let error_code = Some(
+                BANK.parse(bridge.error_code.as_deref())
+                    .unwrap_or(SidecarErrorCode::UpstreamUnavailable),
+            );
+            Ok(WebviewStatusResponse {
+                status,
+                error_code,
+                session: None,
+            })
+        }
+        "DONE" => {
+            let Some(plain_state) = bridge.session_state.filter(|s| clean(Some(s)).is_some())
+            else {
+                logins.remove(process_id);
+                return Err(error(
+                    SidecarErrorCode::InvalidData,
+                    "BNP Paribas WebView login did not return a session",
+                )
+                .into());
+            };
+            let template = template();
+            let job = {
+                let _write = logins.write.lock().await;
+                // Ensure only one concurrent poll persists the session & starts the sync.
+                let still_pending = logins.maps().pending.remove(process_id);
+                if still_pending.is_none() {
+                    let session = get_status(state, member_id).await?;
+                    return Ok(WebviewStatusResponse {
+                        status: "SYNCING".to_owned(),
+                        error_code: None,
+                        session: Some(session),
+                    });
+                }
+                logins.require_generation(member_id, current.generation)?;
+                let mut tx = state.db.begin().await?;
+                let job = template
+                    .insert_queued(state, &mut tx, member_id, plain_state, false, |_| Ok(()))
+                    .await?;
+                tx.commit().await?;
+                job
+            };
+            let session = get_status(state, member_id).await?;
+            template.submit(state, job)?;
+            Ok(WebviewStatusResponse {
+                status: "SYNCING".to_owned(),
+                error_code: None,
+                session: Some(session),
+            })
+        }
+        _ => {
+            logins.remove(process_id);
+            Err(error(
+                SidecarErrorCode::UpstreamFormatChanged,
+                "BNP Paribas WebView bridge returned an unexpected status",
+            )
+            .into())
+        }
+    }
+}
+
+pub async fn cancel_webview(
+    state: &AppState,
+    process_id: &str,
+    member_id: i64,
+) -> AppResult<WebviewCancelResponse> {
+    require_webview(state)?;
+    let logins = logins(state);
+    let owned = logins
+        .maps()
+        .pending
+        .get(process_id)
+        .is_some_and(|p| p.member_id == member_id && p.stage == Stage::Webview);
+    if !owned {
+        return Ok(WebviewCancelResponse { cancelled: false });
+    }
+    logins.remove(process_id);
+    let http = SidecarHttp::new(state, BANK.service_name(), BANK.label());
+    let path = format!("/webview/cancel/{process_id}");
+    let _ = http
+        .send::<Value>(http::Method::POST, &path, Some(&json!({})), WEBVIEW_TIMEOUT)
+        .await;
+    Ok(WebviewCancelResponse { cancelled: true })
 }
 
 // --- sync ------------------------------------------------------------------------------
@@ -1198,10 +1441,11 @@ fn prefixed(cleaned: &str) -> String {
 // --- status ----------------------------------------------------------------------------
 
 pub async fn get_status(state: &AppState, member_id: i64) -> AppResult<SessionStatusResponse> {
-    Ok(template()
-        .find(state, member_id)
-        .await?
-        .map_or_else(SessionStatusResponse::inactive, |s| to_status(state, &s)))
+    let webview = webview_supported(state).then_some(true);
+    Ok(template().find(state, member_id).await?.map_or_else(
+        || SessionStatusResponse::inactive(webview),
+        |s| to_status(state, &s),
+    ))
 }
 
 /// Forgets the stored session in Picsou only and cancels any login in flight.
