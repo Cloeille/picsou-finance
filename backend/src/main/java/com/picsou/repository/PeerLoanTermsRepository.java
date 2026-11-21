@@ -4,6 +4,7 @@ import com.picsou.model.PeerLoanTerms;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -38,4 +39,9 @@ public interface PeerLoanTermsRepository extends JpaRepository<PeerLoanTerms, Lo
 
     /** The GDPR export needs every loan of one member, not one account at a time. */
     List<PeerLoanTerms> findAllByAccountMemberIdOrderByLentAtAscIdAsc(Long memberId);
+
+    /** Unlinks every peer loan from an account about to be soft-deleted (see AccountService#delete). */
+    @Modifying(flushAutomatically = true)
+    @Query("UPDATE PeerLoanTerms t SET t.linkedAccount = null WHERE t.linkedAccount.id = :accountId")
+    int unlinkAccount(@Param("accountId") Long accountId);
 }
