@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **BoursoBank: a notice shown instead of the dashboard no longer breaks the sync.** When the bank
+  parks the dashboard behind a notice it lets you postpone (a card renewal offer, for instance),
+  the connector now follows its "Voir plus tard" link and reads the accounts. A notice that cannot
+  be postponed is reported by name instead of `Dashboard carried no account section`.
 - **American Express login no longer stalls behind the cookie banner.** When the consent banner
   showed up after the login form, it blocked the sign-in click and the connection failed with
   "Impossible de joindre American Express". It is now declined whenever it appears (#568).
