@@ -120,6 +120,29 @@ On submit / toggle ──► PUT or PATCH ──► invalidate adminKeys.setting
                                           ──► sections re-render with fresh data
 ```
 
+## Enable Banking call log
+
+The admin page's "Diagnostic API Enable Banking" card (`EnableBankingDebugSection.tsx`) opens
+the raw HTTP exchanges with Enable Banking, so a maintainer can ask a user for the provider's
+actual answers when a sync goes wrong (`GET` / `DELETE /api/admin/enablebanking/call-log`,
+admin role only).
+
+- **Recording is always on.** `EnableBankingCallLogger.filter()` is applied to the connector's
+  WebClient and records every response it receives, whatever its status: time, method, URL,
+  status and body. A call that gets no response (timeout, refused connection) is not recorded;
+  the sync error reports those.
+- **Memory only, bounded.** The 200 newest calls, newest first, lost on restart and cleared by
+  "Vider". Each stored body is capped at 256 K characters and ends with
+  `…[truncated, N bytes in total]` past it, so the multi-megabyte bank catalog cannot fill the
+  heap. The connector itself still reads the whole body.
+- **Request bodies are not captured** (stored as `""`): in a WebClient filter they are opaque
+  body inserters, and only `POST /auth` and `POST /sessions` send one. The responses are what
+  diagnose a sync.
+- **Raw, not masked.** IBANs, holder names, balances, transactions and session ids stay as the
+  bank sent them, because they are what is being debugged (matching a card to its account needs
+  the IBAN). The dialog states it, and the `.txt` export (`ebCallLogExport.ts`) opens with an
+  English warning to review the file before sharing it publicly.
+
 ## Technical choices
 
 | Choice | Why | Rejected alternative |
@@ -202,8 +225,15 @@ On submit / toggle ──► PUT or PATCH ──► invalidate adminKeys.setting
 - No dedicated integration test for the role gate (manual verification — same
   approach as `security-cors-cookies.md`). A future MockMvc slice test asserting a
   USER-role request is rejected with 403 would close the gap.
-- Frontend coverage is `make test-frontend` (typecheck) + manual flow only;
-  no Vitest component tests for the admin sections yet.
+- `backend/src/test/java/com/picsou/service/EnableBankingCallLoggerTest.java` — the call-log
+  filter records successful and error responses, hands the caller the same body, caps a stored
+  body and keeps the 200 newest calls.
+- `EnableBankingAccountDataTest.everyProviderCall_landsInTheAdminCallLog` — pins the
+  connector's wiring against a local HTTP server. The writer was once dropped by a merge
+  conflict resolution and the panel stayed empty for months without a failing test.
+- `frontend/src/pages/admin/sections/EnableBankingDebugSection.test.tsx` — the raw-data warning
+  in the dialog and at the top of the export.
+- Other admin sections: `make test-frontend` plus their own Vitest files where present.
 
 ## Links
 

@@ -19,6 +19,7 @@ import {
 import { useEbCallLog, useClearEbCallLog } from '@/features/admin/hooks'
 import { localeFromLanguage } from '@/lib/utils'
 import type { EbCallEntry } from '@/features/admin/api'
+import { buildEbCallLogExport, tryPretty } from './ebCallLogExport'
 
 function StatusBadge({ status }: { status: number }) {
   const ok = status >= 200 && status < 300
@@ -36,14 +37,7 @@ function StatusBadge({ status }: { status: number }) {
 }
 
 function exportTxt(entries: EbCallEntry[]) {
-  const lines = entries.map((e, i) => [
-    `── [${i + 1}] ${new Date(e.timestamp).toISOString()} ──────────────────────────────`,
-    `${e.method} ${e.url}`,
-    `HTTP ${e.responseStatus}`,
-    e.requestBody ? `\n>>> REQUEST BODY\n${tryPretty(e.requestBody)}` : '',
-    `\n<<< RESPONSE BODY\n${tryPretty(e.responseBody)}`,
-  ].filter(Boolean).join('\n'))
-  const blob = new Blob([lines.join('\n\n')], { type: 'text/plain' })
+  const blob = new Blob([buildEbCallLogExport(entries)], { type: 'text/plain' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -52,10 +46,6 @@ function exportTxt(entries: EbCallEntry[]) {
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
-}
-
-function tryPretty(json: string) {
-  try { return JSON.stringify(JSON.parse(json), null, 2) } catch { return json }
 }
 
 function EbCallLogDialog() {
@@ -93,6 +83,11 @@ function EbCallLogDialog() {
           </Button>
         </div>
       </div>
+
+      <p role="note" className="text-xs text-foreground">
+        Ces réponses sont brutes : IBAN, titulaires, soldes et transactions. Relisez et retirez les données
+        personnelles avant de partager l’export publiquement.
+      </p>
 
       {isLoading && (
         <p className="py-8 text-center text-sm text-muted-foreground animate-pulse">Chargement…</p>

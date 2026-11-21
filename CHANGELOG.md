@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Enable Banking call log records calls again.** The admin page's "Diagnostic API Enable
+  Banking" panel stayed empty because the connector no longer wrote to it. Every response from
+  Enable Banking is recorded again, in memory only (200 newest calls, bodies capped at 256 KB).
+  The panel and the `.txt` export now warn that they hold raw bank data to review before
+  sharing. (#665)
+
 ## [1.2.2] — 2026-11-21
 
 ### Added
