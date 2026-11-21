@@ -2,22 +2,77 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="color-scheme" content="light dark" />
     <title>Picsou</title>
     <style>
-      body { margin: 0; height: 100vh; display: grid; place-items: center; font: 15px system-ui, sans-serif; background: #0f1115; color: #e6e6e6; }
-      main { max-width: 32rem; text-align: center; }
-      #error { display: none; color: #ff8a80; white-space: pre-wrap; }
+      /* DESIGN.md: Vault Light canvas, Ledger Ink, Quiet Slate, Coffre Blue on the one control. */
+      :root {
+        --canvas: oklch(1 0 0);
+        --ink: oklch(0.145 0 0);
+        --slate: oklch(0.45 0 0);
+        --ring: oklch(0.145 0 0 / 10%);
+        --track: oklch(0.97 0 0);
+        --primary: oklch(0.488 0.243 264.376);
+        --primary-ink: oklch(0.97 0.014 254.604);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --canvas: oklch(0.145 0 0);
+          --ink: oklch(0.985 0 0);
+          --slate: oklch(0.708 0 0);
+          --ring: oklch(1 0 0 / 10%);
+          --track: oklch(0.269 0 0);
+          --primary: oklch(0.707 0.165 254.624);
+          --primary-ink: oklch(0.19 0.06 267.935);
+        }
+      }
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: grid; place-items: center; background: var(--canvas); color: var(--ink);
+        font: 0.875rem/1.5 "Geist Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+        -webkit-font-smoothing: antialiased; cursor: default; user-select: none;
+      }
+      main { width: min(24rem, calc(100% - 3rem)); text-align: center; }
+      h1 { margin: 0 0 0.25rem; font-size: 1rem; font-weight: 700; letter-spacing: -0.01em; }
+      p { margin: 0; color: var(--slate); }
+      /* Shown only when the start takes long enough to notice: a fast start never flashes it. */
+      .progress {
+        width: 8rem; height: 2px; margin: 1.25rem auto 0; overflow: hidden; border-radius: 1px;
+        background: var(--track); opacity: 0; animation: appear 0.2s ease-out 0.8s forwards;
+      }
+      .progress::after {
+        content: ""; display: block; width: 40%; height: 100%; border-radius: 1px;
+        background: var(--primary); animation: slide 1.4s ease-in-out infinite;
+      }
+      @keyframes appear { to { opacity: 1; } }
+      @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+      @media (prefers-reduced-motion: reduce) {
+        .progress { animation: none; opacity: 1; }
+        .progress::after { animation: none; width: 100%; opacity: 0.35; }
+      }
+      #error {
+        display: none; margin-top: 1rem; padding: 1rem; border-radius: 0.5rem; text-align: left;
+        color: var(--ink); white-space: pre-wrap; user-select: text; box-shadow: 0 0 0 1px var(--ring);
+      }
       body.failed #error { display: block; }
-      body.failed #waiting { display: none; }
-      button { display: none; margin-top: 1rem; padding: .5rem 1rem; font: inherit; }
-      body.restorable button { display: inline-block; }
+      body.failed #waiting, body.failed .progress { display: none; }
+      button {
+        display: none; margin: 1rem auto 0; height: 2.25rem; padding: 0 1rem; border: 0;
+        border-radius: 0.5rem; background: var(--primary); color: var(--primary-ink);
+        font: inherit; font-weight: 500; cursor: pointer; transition: transform 0.1s ease-out;
+      }
+      button:active { transform: scale(0.98); }
+      button:disabled { opacity: 0.5; cursor: default; }
+      button:focus-visible { outline: 2px solid var(--slate); outline-offset: 2px; }
+      body.restorable button { display: block; }
     </style>
   </head>
   <body>
     <main>
       <h1>Picsou</h1>
-      <p id="waiting">Starting Picsou. The first start prepares the database and takes up to a minute.</p>
-      <p id="error"></p>
+      <p id="waiting">Opening your data</p>
+      <div class="progress" aria-hidden="true"></div>
+      <p id="error" role="alert"></p>
       <button id="restore" type="button">Restore my data from before the update</button>
     </main>
     <script>

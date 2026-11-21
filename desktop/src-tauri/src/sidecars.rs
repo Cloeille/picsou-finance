@@ -378,6 +378,7 @@ mod tests {
 
     #[test]
     fn the_unavailable_sidecars_reach_the_backend_info() {
+        let _ports = crate::supervisor::TEST_PORTS.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("picsou-sidecars-unavailable-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("runtime")).unwrap();
         std::fs::write(dir.join("runtime/sidecars-unavailable.json"), r#"["amex-auth","bnp-auth","../x"]"#).unwrap();
@@ -467,6 +468,7 @@ http.server.HTTPServer(("127.0.0.1", port), H).serve_forever()
     #[cfg(unix)]
     #[test]
     fn a_sidecar_runs_only_while_it_is_used() {
+        let _ports = crate::supervisor::TEST_PORTS.lock().unwrap_or_else(|e| e.into_inner());
         let layout = fake_runtime("idle");
         let stack = Shared::default();
         let env = serve(&layout, &stack, "k3y", Duration::from_secs(1)).unwrap();
@@ -494,6 +496,7 @@ http.server.HTTPServer(("127.0.0.1", port), H).serve_forever()
     #[cfg(unix)]
     #[test]
     fn a_slow_idle_stop_does_not_hold_the_next_call() {
+        let _ports = crate::supervisor::TEST_PORTS.lock().unwrap_or_else(|e| e.into_inner());
         // A sidecar that ignores SIGTERM keeps `end` waiting STOP_TIMEOUT (20 s) before SIGKILL.
         let layout = fake_runtime("stubborn");
         std::fs::write(layout.runtime.join("sidecars/cic-auth/stubborn"), "").unwrap();

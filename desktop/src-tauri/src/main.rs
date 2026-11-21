@@ -10,10 +10,12 @@ use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use supervisor::{Failed, Layout, Shared};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::webview::PageLoadEvent;
+use tauri::window::Color;
 use tauri::{Manager, RunEvent, Url, WindowEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
@@ -68,6 +70,19 @@ fn first_start(marker: &Path) -> std::io::Result<bool> {
         Ok(_) => Ok(true),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
         Err(e) => Err(e),
+    }
+}
+
+fn since_launch() -> u128 {
+    picsou::PROCESS_START.get().map_or(0, |t| t.elapsed().as_millis())
+}
+
+/// The canvas of the loading page (DESIGN.md: Vault Light, or the dark canvas), so the window
+/// never flashes black or white before the page paints.
+fn paint_canvas(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let dark = matches!(window.theme(), Ok(tauri::Theme::Dark));
+        let _ = window.set_background_color(Some(if dark { Color(10, 10, 10, 255) } else { Color(255, 255, 255, 255) }));
     }
 }
 
@@ -140,6 +155,7 @@ fn show_error(app: &tauri::AppHandle, failed: Failed) {
 }
 
 fn main() {
+    let _ = picsou::PROCESS_START.set(Instant::now());
     #[cfg(windows)]
     supervisor::kill_children_with_the_app();
     let stack: Shared = Default::default();
@@ -170,6 +186,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![restore_backup])
         .on_page_load(|webview, payload| {
             if payload.event() == PageLoadEvent::Finished {
+                if payload.url().scheme() == "http" {
+                    tracing::info!("the app page loaded {} ms after launch", since_launch());
+                }
                 let state = webview.state::<Failure>();
                 let failure = state.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(failed) = failure.as_ref() {
@@ -178,6 +197,11 @@ fn main() {
             }
         })
         .setup(|app| {
+            let handle = app.handle().clone();
+            let layout = layout(&handle)?;
+            // The shell and the linked backend log to the same rolling file.
+            picsou::logging::init(Some(&layout.data.join("logs").join("backend.log")));
+            paint_canvas(&handle);
             // libappindicator panics when its library is missing: the app then runs without a tray.
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tray(app))) {
                 Ok(Ok(())) => {}
@@ -186,22 +210,22 @@ fn main() {
             }
             if !started_hidden(std::env::args()) || !TRAY_OK.load(Ordering::SeqCst) {
                 show_window(app.handle());
+                tracing::info!("window shown {} ms after launch", since_launch());
             }
             if update::enabled(app.config()) {
                 app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
             }
-            let handle = app.handle().clone();
-            let layout = layout(&handle)?;
             let stack = handle.state::<Shared>().inner().clone();
-            // Startup takes tens of seconds (migrations); the window shows ui/index.html meanwhile.
+            // The window shows ui/index.html while PostgreSQL starts, then the app.
             std::thread::spawn(move || {
                 match supervisor::start(&layout, &stack) {
-                    Ok(url) => match (handle.get_webview_window("main"), Url::parse(&url)) {
+                    Ok(ready) => match (handle.get_webview_window("main"), Url::parse(&ready.url)) {
                         (Some(window), Ok(url)) => {
                             let _ = window.navigate(url);
                             if update::enabled(handle.config()) {
                                 update::watch(&handle);
                             }
+                            ready.serve();
                         }
                         _ => show_error(&handle, Failed::from("The window is gone.".to_owned())),
                     },
@@ -219,9 +243,13 @@ fn main() {
         .expect("Picsou could not start its window");
 
     // Quit, logout and shutdown all end here or in a signal; PR_SET_PDEATHSIG covers the signal.
-    app.run(move |_, event| {
-        if let RunEvent::Exit = event {
-            supervisor::stop(&stack);
+    app.run(move |app, event| match event {
+        RunEvent::Exit => supervisor::stop(&stack),
+        // macOS: a click on the Dock icon of a running Picsou whose window is closed.
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { has_visible_windows: false, .. } => show_window(app),
+        _ => {
+            let _ = app;
         }
     });
 }

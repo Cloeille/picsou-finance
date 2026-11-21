@@ -1,9 +1,10 @@
 """Assembles desktop/runtime from the Docker release, for `cargo tauri build` to bundle.
 
-  runtime/jre/        Temurin JRE, the Java major of backend/pom.xml (Adoptium API)
-  runtime/postgres/   PostgreSQL binaries, the Compose major (zonky embedded-postgres)
-  runtime/app.jar     backend/target/*.jar   (build it first: make desktop does)
-  runtime/spa/        frontend/dist
+The backend is not here: the shell links it (backend-rs) and runs it in its own process.
+
+  runtime/postgres/   PostgreSQL server binaries, the Compose major (zonky embedded-postgres)
+  runtime/pgtools/    pg_dump and pg_restore of the same major and their libraries (theseus-rs)
+  runtime/spa/        frontend/dist          (build it first: make desktop does)
   runtime/python/     CPython of the sidecar base image's minor (python-build-standalone)
   runtime/sidecars/   the browserless sidecars, the shared lib/ and their packages in site/
 
@@ -29,23 +30,35 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME = ROOT / "desktop/runtime"
-ADOPTIUM = "https://api.adoptium.net/v3/assets/latest/{java}/hotspot?os={os}&architecture={arch}&image_type=jre"
 ZONKY = "https://repo1.maven.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-{artifact}"
-# Pinned, like the JRE and PostgreSQL are by their manifests: a rebuild of the same commit fetches
+# Pinned, like PostgreSQL is by its manifest: a rebuild of the same commit fetches
 # the same CPython, and no GitHub API call (60 per hour unauthenticated) is needed. Bump by hand.
 PYTHON_BUILD = "20261110"
 PYTHON_RELEASE = f"https://github.com/astral-sh/python-build-standalone/releases/download/{PYTHON_BUILD}"
-# Per target: the OS family, Adoptium's OS and architecture, zonky's artifact and the archive inside
-# its jar, the CPython triple, and the sys.platform that can install its wheels.
+# zonky ships no client tools: pg_dump (the backup before a migration) and pg_restore come from
+# theseus-rs/postgresql-binaries, pinned like CPython. Its major must be the Compose one. Bump by hand.
+PG_TOOLS = "16.16.0"
+PG_TOOLS_RELEASE = f"https://github.com/theseus-rs/postgresql-binaries/releases/download/{PG_TOOLS}"
+# Per target: the OS family, zonky's artifact and the archive inside its jar, the triple of the
+# CPython and PostgreSQL builds, the sys.platform that can install its wheels, and the libraries
+# pg_dump and pg_restore load (their closure in the theseus build, read with otool, ELF and PE
+# headers; a native build checks it by running pg_dump).
 TARGETS = {
-    "linux": {"os": "linux", "jre": ("linux", "x64"), "artifact": "linux-amd64",
-              "archive": "postgres-linux-x86_64.txz", "python": "x86_64-unknown-linux-gnu", "platform": "linux"},
-    "windows": {"os": "windows", "jre": ("windows", "x64"), "artifact": "windows-amd64",
-                "archive": "postgres-windows-x86_64.txz", "python": "x86_64-pc-windows-msvc", "platform": "win32"},
+    "linux": {"os": "linux", "artifact": "linux-amd64", "archive": "postgres-linux-x86_64.txz",
+              "triple": "x86_64-unknown-linux-gnu", "platform": "linux",
+              "pg_libs": ("libpq.so.5", "libssl.so.3", "libcrypto.so.3", "libgssapi_krb5.so.2", "libkrb5.so.3",
+                          "libk5crypto.so.3", "libkrb5support.so.0", "libcom_err.so.2", "libkeyutils.so.1",
+                          "libzstd.so.1", "liblz4.so.1", "libz.so.1")},
+    "windows": {"os": "windows", "artifact": "windows-amd64", "archive": "postgres-windows-x86_64.txz",
+                "triple": "x86_64-pc-windows-msvc", "platform": "win32",
+                "pg_libs": ("libpq.dll", "libssl-3-x64.dll", "libcrypto-3-x64.dll", "zstd.dll", "lz4.dll", "z.dll")},
     # Apple Silicon only: Intel Macs are no longer sold, and a second build doubles the release.
-    "macos": {"os": "macos", "jre": ("mac", "aarch64"), "artifact": "darwin-arm64v8",
-              "archive": "postgres-darwin-arm_64.txz", "python": "aarch64-apple-darwin", "platform": "darwin"},
+    "macos": {"os": "macos", "artifact": "darwin-arm64v8", "archive": "postgres-darwin-arm_64.txz",
+              "triple": "aarch64-apple-darwin", "platform": "darwin",
+              "pg_libs": ("libpq.5.dylib", "libssl.3.dylib", "libcrypto.3.dylib", "libzstd.1.dylib", "liblz4.1.dylib")},
 }
+# The MSVC runtime zonky's and theseus' Windows binaries import, which a fresh Windows may lack.
+VC_RUNTIME = ("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll")
 # The shared packages of services/base, as the image's site-packages has them.
 SHARED_LIBS = ("picsou_sidecar", "euro_information", "bpce")
 
@@ -87,7 +100,7 @@ def latest_postgres(zonky, major):
 def extract(archive, target, strip_top=False):
     shutil.rmtree(target, ignore_errors=True)
     target.mkdir(parents=True)
-    if archive[:2] == b"PK":  # Adoptium ships Windows JREs as zip
+    if archive[:2] == b"PK":
         with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
             for info in zipped.infolist():
                 parts = Path(info.filename).parts[1 if strip_top else 0:]
@@ -155,7 +168,7 @@ def image_files(dockerfile):
 
 def sidecars(manifest, target):
     """CPython, the browserless sidecars and their pinned packages, with sidecars.json."""
-    url, sha256 = python_asset(manifest["python"], target["python"])
+    url, sha256 = python_asset(manifest["python"], target["triple"])
     extract(download(url, sha256), RUNTIME / "python", strip_top=True)
     python = RUNTIME / "python" / ("python.exe" if target["os"] == "windows" else "bin/python3")
     out = RUNTIME / "sidecars"
@@ -192,56 +205,81 @@ def sidecars(manifest, target):
     return [s["service"] for s in shipped]
 
 
+def pg_tools(manifest, target, native):
+    """pg_dump and pg_restore with the libraries they load, in pgtools/bin and pgtools/lib."""
+    if PG_TOOLS.split(".")[0] != manifest["postgres"]:
+        sys.exit(f"PG_TOOLS {PG_TOOLS} is not PostgreSQL {manifest['postgres']}: bump it")
+    top = f"postgresql-{PG_TOOLS}-{target['triple']}"
+    url = f"{PG_TOOLS_RELEASE}/{top}.tar.gz"
+    out = RUNTIME / "pgtools"
+    shutil.rmtree(out, ignore_errors=True)
+    windows = target["os"] == "windows"
+    exe = ".exe" if windows else ""
+    # Windows finds DLLs next to the program; the others use the build's ../lib rpath.
+    lib_dir = "bin" if windows else "lib"
+    wanted = [f"bin/pg_dump{exe}", f"bin/pg_restore{exe}"] + [f"{lib_dir}/{lib}" for lib in target["pg_libs"]]
+    with tarfile.open(fileobj=io.BytesIO(download(url, text(f"{url}.sha256")))) as tar:
+        for path in wanted:
+            # extractfile follows the archive's versioned symlinks: the bundle holds plain files.
+            body = tar.extractfile(f"{top}/{path}").read()
+            target_path = out / path
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path.write_bytes(body)
+            target_path.chmod(0o755)
+    if native:
+        subprocess.run([str(out / "bin" / f"pg_dump{exe}"), "--version"], check=True)
+
+
+def vc_runtime(folders):
+    """Windows: the MSVC runtime from this machine's System32, next to each PostgreSQL program."""
+    system32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
+    for dll in VC_RUNTIME:
+        found = system32 / dll
+        if not found.exists():
+            sys.exit(f"{found} is missing: install the VC++ redistributable on the build machine")
+        for folder in folders:
+            shutil.copy2(found, folder / dll)
+
+
 def main():
     parser = argparse.ArgumentParser()
     here = next(name for name, t in TARGETS.items() if t["platform"] == sys.platform) if sys.platform in ("linux", "win32", "darwin") else "linux"
     parser.add_argument("--target", choices=TARGETS, default=here)
     target = TARGETS[parser.parse_args().target]
     manifest = pins()
-    if not (ROOT / "frontend/dist/index.html").exists() or not list((ROOT / "backend/target").glob("*.jar")):
-        sys.exit("build the backend jar and frontend/dist first (make desktop)")
-
-    jre_os, jre_arch = target["jre"]
-    jre = json.loads(text(ADOPTIUM.format(java=manifest["java"], os=jre_os, arch=jre_arch)))[0]["binary"]["package"]
-    extract(download(jre["link"], jre["checksum"]), RUNTIME / "jre", strip_top=True)
-    if (RUNTIME / "jre/Contents/Home").is_dir():
-        # macOS JREs are a bundle (Contents/Home/bin/java): lift Home so jre/bin/java holds everywhere.
-        home = RUNTIME / "jre.home"
-        shutil.move(RUNTIME / "jre/Contents/Home", home)
-        shutil.rmtree(RUNTIME / "jre")
-        home.rename(RUNTIME / "jre")
+    if not (ROOT / "frontend/dist/index.html").exists():
+        sys.exit("build frontend/dist first (make desktop)")
+    native = target["platform"] == sys.platform
+    if target["os"] == "windows" and not native:
+        sys.exit("build the Windows runtime on Windows: the VC++ runtime comes from its System32")
+    # A runtime assembled by an older version of this script: the shell no longer runs a JRE.
+    for gone in ("jre", "app.jar"):
+        path = RUNTIME / gone
+        if path.is_dir():
+            shutil.rmtree(path)
+        elif path.exists():
+            path.unlink()
 
     zonky = ZONKY.format(artifact=target["artifact"])
     version = latest_postgres(zonky, manifest["postgres"])
     jar_url = f"{zonky}/{version}/embedded-postgres-binaries-{target['artifact']}-{version}.jar"
     jar = zipfile.ZipFile(io.BytesIO(download(jar_url, text(f"{jar_url}.sha256"))))
     extract(jar.read(target["archive"]), RUNTIME / "postgres")
-    if target["os"] == "linux":
-        # The backend runs headless: the JRE's X11, sound and splash libraries are never loaded,
-        # and their libasound/libX11 dependencies would make linuxdeploy (AppImage) fail.
-        for name in ("libjsound.so", "libawt_xawt.so", "libjawt.so", "libsplashscreen.so"):
-            (RUNTIME / "jre" / "lib" / name).unlink(missing_ok=True)
     # The procedural languages link a system Python 3.6, Perl 5.26 and Tcl that no desktop has, and
     # linuxdeploy (AppImage) refuses a library whose dependency is missing. Picsou uses none of them.
     for module in (RUNTIME / "postgres").rglob("*"):
         if module.is_file() and module.name.split(".")[0].startswith(("plpython", "plperl", "pltcl", "hstore_pl", "jsonb_pl", "ltree_pl", "bool_pl")):
             module.unlink()
+    pg_tools(manifest, target, native)
     if target["os"] == "windows":
-        # zonky's binaries import the MSVC runtime, which a fresh Windows may lack; the JRE ships it.
-        for dll in ("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"):
-            found = next((RUNTIME / "jre" / "bin").glob(dll, case_sensitive=False), None)
-            if found is None:
-                sys.exit(f"{dll} is missing from the JRE: PostgreSQL would not start without the VC++ runtime")
-            shutil.copy2(found, RUNTIME / "postgres" / "bin" / dll)
+        vc_runtime([RUNTIME / "postgres" / "bin", RUNTIME / "pgtools" / "bin"])
 
-    shutil.copy2(next((ROOT / "backend/target").glob("picsou-backend-*.jar")), RUNTIME / "app.jar")
     shutil.rmtree(RUNTIME / "spa", ignore_errors=True)
     shutil.copytree(ROOT / "frontend/dist", RUNTIME / "spa")
-    native = target["platform"] == sys.platform
     if not native:
         print(f"warning: no sidecars, a {target['os']} runtime built elsewhere cannot install their wheels", file=sys.stderr)
     served = sidecars(manifest, target) if native else []
-    print(f"runtime ready: JRE {jre['name']}, PostgreSQL {version}, sidecars: {', '.join(served) or 'none'}")
+    print(f"runtime ready: PostgreSQL {version}, pg_dump {PG_TOOLS}, sidecars: {', '.join(served) or 'none'}")
 
 
 if __name__ == "__main__":

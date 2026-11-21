@@ -1,17 +1,22 @@
-//! Keeps a copy of the data before a new version migrates it, and reads why a start failed.
+//! Keeps a copy of the data before a new version migrates it, and tells why a start failed.
 //!
 //! `app-version` in the data folder names the last version that reached the dashboard. A start
 //! with another version copies `postgres/` and `secrets/` to `backups/<seconds>-<from>-to-<to>/`
-//! first, while PostgreSQL is stopped, and keeps the last two copies.
+//! first, while PostgreSQL is stopped, and keeps the last two copies. A start that finds pending
+//! migrations also takes a `pg_dump` to `backups/<seconds>-before-<version>.dump` before the
+//! backend applies them, and keeps the last three.
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::process::ExitStatus;
 
+use picsou::db::flyway::MigrationError;
 use semver::Version;
 
 const MARKER: &str = "app-version";
 const KEPT: usize = 2;
+const DUMPS_KEPT: usize = 3;
 const COPIED: [&str; 2] = ["postgres", "secrets"];
 /// Runtime files of a running cluster: PostgreSQL recreates them, a copy must not carry them.
 const SKIPPED: [&str; 2] = ["postmaster.pid", "postmaster.opts"];
@@ -28,7 +33,7 @@ pub enum Before {
 
 #[derive(Debug, PartialEq)]
 pub enum Failure {
-    /// Flyway found migrations this version does not ship (#554).
+    /// The database has migrations this version does not ship (#554).
     NewerData,
     Migration(String),
 }
@@ -177,21 +182,55 @@ pub fn restore(data: &Path, copy: &Path, now_secs: u64) -> io::Result<()> {
     Ok(())
 }
 
-/// Why the backend stopped, read from the part of `backend.log` written by this start.
-pub fn classify(log: &str) -> Option<Failure> {
-    if log.contains("Detected applied migration not resolved locally") {
-        return Some(Failure::NewerData);
+/// Runs `pg_dump` (given the file to write) into `backups/<seconds>-before-<version>.dump`, where
+/// `first_pending` is the first migration script the backend will apply. The file appears only
+/// once the dump succeeded, and only the last DUMPS_KEPT dumps are kept.
+pub fn dump(data: &Path, first_pending: &str, now_secs: u64, pg_dump: impl FnOnce(&Path) -> io::Result<ExitStatus>) -> io::Result<PathBuf> {
+    let dir = backups_dir(data)?;
+    for stale in fs::read_dir(&dir)?.flatten().filter(|e| e.file_name().to_string_lossy().ends_with(".dump.partial")) {
+        let _ = fs::remove_file(stale.path());
     }
-    let line = log.lines().find(|l| l.contains("org.flywaydb") && l.contains("Exception: "))?;
-    // Flyway joins its lines with '?' in the log; its advice lines end with a docs URL, not a reason.
-    let message = line.split_once("Exception: ").map_or(line, |(_, m)| m);
-    let reason: Vec<&str> = message
-        .split(['?', '\n'])
-        .map(str::trim)
-        .take_while(|part| !part.starts_with("Either") && !part.starts_with("Need more") && !part.contains("https://"))
-        .filter(|part| !part.is_empty() && !part.starts_with("->"))
-        .take(2)
+    let version = first_pending.split("__").next().unwrap_or(first_pending);
+    let target = dir.join(format!("{now_secs:012}-before-{version}.dump"));
+    let partial = dir.join(format!("{now_secs:012}-before-{version}.dump.partial"));
+    let dumped = pg_dump(&partial).and_then(|status| {
+        if status.success() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&partial, fs::Permissions::from_mode(0o600))?;
+            }
+            fs::rename(&partial, &target)
+        } else {
+            Err(io::Error::other(format!("pg_dump failed ({status})")))
+        }
+    });
+    if let Err(e) = dumped {
+        let _ = fs::remove_file(&partial);
+        return Err(e);
+    }
+    let mut dumps: Vec<PathBuf> = fs::read_dir(&dir)?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && p.to_string_lossy().ends_with(".dump"))
         .collect();
+    dumps.sort();
+    for old in &dumps[..dumps.len().saturating_sub(DUMPS_KEPT)] {
+        let _ = fs::remove_file(old);
+    }
+    Ok(target)
+}
+
+/// Why the backend did not start, when its migrations are the reason.
+pub fn classify(error: &anyhow::Error) -> Option<Failure> {
+    let migration = error.chain().find_map(|e| e.downcast_ref::<MigrationError>())?;
+    if let MigrationError::Validation(problems) = migration {
+        if problems.contains("Detected applied migration not resolved locally") {
+            return Some(Failure::NewerData);
+        }
+    }
+    let text = migration.to_string();
+    let reason: Vec<&str> = text.lines().map(str::trim).filter(|line| !line.is_empty()).take(2).collect();
     Some(Failure::Migration(reason.join(". ").chars().take(300).collect()))
 }
 
@@ -309,21 +348,48 @@ mod tests {
     }
 
     #[test]
-    fn flyway_failures_are_told_apart() {
-        let newer = "ERROR o.s.boot.SpringApplication : Application run failed\n\
-            org.flywaydb.core.api.exception.FlywayValidateException: Validate failed: Migrations have failed validation\n\
-            Detected applied migration not resolved locally: 146.";
-        let failed = "WARN x\nCaused by: org.flywaydb.core.internal.command.DbMigrate$FlywayMigrateException: Migration V150__x.sql failed";
+    fn migration_failures_are_told_apart() {
+        let newer = anyhow::Error::from(MigrationError::Validation(
+            "Detected applied migration not resolved locally: 146. If you removed this migration intentionally, run repair to mark the migration as deleted.".into(),
+        ));
+        let checksum = anyhow::Error::from(MigrationError::Validation("Migration checksum mismatch for migration version 2".into()));
+        let baseline = anyhow::Error::from(MigrationError::HighBaseline("200".into())).context("startup");
 
-        assert_eq!(classify(newer), Some(Failure::NewerData));
-        assert_eq!(classify(failed), Some(Failure::Migration("Migration V150__x.sql failed".into())));
-        let checksum = "Caused by: org.flywaydb.core.api.exception.FlywayValidateException: Validate failed: Migrations have failed validation?\
-            Migration checksum mismatch for migration version 2?-> Applied to database : -1?-> Resolved locally : -2?\
-            Either revert the changes to the migration, or run repair?Need more flexibility with validation rules? Learn more: https://rd.gt/3AbJUZE";
+        assert_eq!(classify(&newer), Some(Failure::NewerData));
         assert_eq!(
-            classify(checksum),
+            classify(&checksum),
             Some(Failure::Migration("Validate failed: Migrations have failed validation. Migration checksum mismatch for migration version 2".into()))
         );
-        assert_eq!(classify("Tomcat started on port 8080"), None);
+        assert_eq!(classify(&baseline), Some(Failure::Migration("Schema baseline 200 is newer than the available migrations".into())));
+        assert_eq!(classify(&anyhow::anyhow!("connection refused")), None);
+    }
+
+    fn exited(code: i32) -> ExitStatus {
+        #[cfg(unix)]
+        return std::os::unix::process::ExitStatusExt::from_raw(code << 8);
+        #[cfg(windows)]
+        return std::os::windows::process::ExitStatusExt::from_raw(code as u32);
+    }
+
+    #[test]
+    fn a_dump_appears_only_once_complete_and_the_last_three_are_kept() {
+        let data = scratch("dump");
+        for (now, script) in [(1, "V150__a.sql"), (2, "V151__b.sql"), (3, "V152__c.sql"), (4, "V153__d.sql")] {
+            dump(&data, script, now, |target| fs::write(target, "dump").map(|_| exited(0))).unwrap();
+        }
+        let failed = dump(&data, "V154__e.sql", 5, |target| fs::write(target, "half").map(|_| exited(1)));
+
+        assert!(failed.is_err());
+        let mut names: Vec<_> = fs::read_dir(data.join("backups")).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        assert_eq!(names, ["000000000002-before-V151.dump", "000000000003-before-V152.dump", "000000000004-before-V153.dump"]);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(data.join("backups").join(&names[2])).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        // A dump is not a copy the restore button could pick.
+        assert_eq!(latest_backup(&data, "1.3.0"), None);
     }
 }

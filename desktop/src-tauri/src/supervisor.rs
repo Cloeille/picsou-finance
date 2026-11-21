@@ -1,16 +1,22 @@
-//! Starts PostgreSQL and the backend as child processes on 127.0.0.1, and stops them.
+//! Starts PostgreSQL as a child process on 127.0.0.1, then the backend (`picsou`, linked in) on
+//! its own tokio runtime in this process, and stops both.
 //!
-//! The runtime directory holds what `desktop/scripts/fetch_runtime.py` assembled from the
-//! Docker release: `jre/`, `postgres/`, `app.jar` and `spa/`. The data directory is the OS
-//! app-data folder: `postgres/` (the cluster), `secrets/` (0600 files), `logs/`.
+//! The runtime directory holds what `desktop/scripts/fetch_runtime.py` assembled: `postgres/`,
+//! `pgtools/` (`pg_dump`, `pg_restore`), `spa/` and the sidecars. The data directory is the OS
+//! app-data folder: `postgres/` (the cluster), `secrets/` (0600 files), `backups/`, `logs/`.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::io::{self, Write};
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::{mpsc, Arc};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+
+use picsou::clock::SystemClock;
+use picsou::config::{Config, Env};
+use tokio::sync::oneshot;
 
 use crate::{sidecars, upgrade};
 
@@ -59,7 +65,7 @@ impl Layout {
 #[derive(Default)]
 pub struct Stack {
     postgres: Option<Child>,
-    backend: Option<Child>,
+    backend: Option<Backend>,
     /// Windows: PostgreSQL runs under `pg_ctl` (program, cluster), which also stops it.
     pg_ctl: Option<(PathBuf, PathBuf)>,
     /// Bank sidecars running right now, by service; `sidecars.rs` starts and stops them.
@@ -69,7 +75,12 @@ pub struct Stack {
 
 pub type Shared = std::sync::Arc<std::sync::Mutex<Stack>>;
 
-/// The version the backend jar and this shell are built from (Cargo.toml follows backend/pom.xml).
+/// Held by the tests that free a port and expect it back, and by those that start sidecars on
+/// ports they just freed: run together, one could take the other's port.
+#[cfg(test)]
+pub static TEST_PORTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The version this shell and its linked backend are built from (Cargo.toml follows backend/pom.xml).
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// A start that did not reach the dashboard. `can_restore` offers the copy taken before the update.
@@ -90,7 +101,7 @@ impl From<String> for Failed {
 /// tied to the spawning thread, so `start` must run on a thread that lives as long as the app.
 pub fn child(program: PathBuf, on_parent_death: Signal) -> Command {
     #[cfg(target_os = "macos")]
-    let mut command = guarded(program, on_parent_death);
+    let command = guarded(program, on_parent_death);
     #[cfg(not(target_os = "macos"))]
     let mut command = Command::new(program);
     #[cfg(target_os = "linux")]
@@ -133,7 +144,7 @@ static JOB: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::
 
 /// Windows: puts Picsou in a job object that kills every process in it when the last handle
 /// closes, which the system does when Picsou exits, crashes or is killed. Children (pg_ctl,
-/// PostgreSQL, Java) inherit the job, so none outlives the app.
+/// PostgreSQL, the sidecars) inherit the job, so none outlives the app.
 #[cfg(windows)]
 pub fn kill_children_with_the_app() {
     use windows_sys::Win32::System::JobObjects::{
@@ -144,7 +155,7 @@ pub fn kill_children_with_the_app() {
     unsafe {
         let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
         if job.is_null() {
-            eprintln!("picsou: no job object, PostgreSQL and Java may outlive a crash: {}", std::io::Error::last_os_error());
+            eprintln!("picsou: no job object, PostgreSQL may outlive a crash: {}", std::io::Error::last_os_error());
             return;
         }
         let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
@@ -157,7 +168,7 @@ pub fn kill_children_with_the_app() {
         );
         // The handle is never closed on purpose: it lives exactly as long as the process.
         if limited == 0 || AssignProcessToJobObject(job, GetCurrentProcess()) == 0 {
-            eprintln!("picsou: no job object, PostgreSQL and Java may outlive a crash: {}", std::io::Error::last_os_error());
+            eprintln!("picsou: no job object, PostgreSQL may outlive a crash: {}", std::io::Error::last_os_error());
             return;
         }
         JOB.store(job, std::sync::atomic::Ordering::SeqCst);
@@ -191,14 +202,51 @@ pub fn let_the_installer_outlive_the_app() {
     }
 }
 
-/// Starts both processes and returns the URL the window loads once the backend is ready.
-pub fn start(layout: &Layout, stack: &Shared) -> Result<String, Failed> {
+/// The backend, started and ready to serve: the window can load `url` now.
+pub struct Ready {
+    pub url: String,
+    runtime: tokio::runtime::Runtime,
+    state: picsou::AppState,
+    listener: TcpListener,
+    shutdown: oneshot::Receiver<()>,
+    stopped: mpsc::Sender<()>,
+}
+
+impl Ready {
+    /// Serves on the calling thread until `stop`, then tells `stop` the backend is gone.
+    pub fn serve(self) {
+        let Ready { runtime, state, listener, shutdown, stopped, .. } = self;
+        let served = runtime.block_on(async move {
+            listener.set_nonblocking(true)?;
+            let listener = tokio::net::TcpListener::from_std(listener)?;
+            picsou::run(state, listener, async {
+                let _ = shutdown.await;
+            })
+            .await
+        });
+        if let Err(e) = served {
+            tracing::error!("the backend stopped: {e:#}");
+        }
+        runtime.shutdown_timeout(Duration::from_secs(2));
+        let _ = stopped.send(());
+    }
+}
+
+/// The in-process backend as `stop` sees it: a signal to finish, and word that it has.
+struct Backend {
+    shutdown: oneshot::Sender<()>,
+    stopped: mpsc::Receiver<()>,
+}
+
+/// Starts PostgreSQL, then the backend in this process, and returns once the backend is ready.
+pub fn start(layout: &Layout, stack: &Shared) -> Result<Ready, Failed> {
     let secrets = layout.secrets();
     private_dir(&layout.data).and_then(|_| private_dir(&secrets)).map_err(|e| format!("data folder: {e}"))?;
     let password = secret(&secrets.join("postgres_password")).map_err(|e| format!("database password: {e}"))?;
     let sidecar_key = secret(&secrets.join("sidecar_api_key")).map_err(|e| format!("sidecar key: {e}"))?;
+    let fresh = !layout.cluster().join("PG_VERSION").exists();
     let upgrade_from = match upgrade::compare(upgrade::recorded(&layout.data).as_deref(), APP_VERSION) {
-        _ if !layout.cluster().join("PG_VERSION").exists() => {
+        _ if fresh => {
             init_cluster(layout)?;
             None
         }
@@ -213,33 +261,78 @@ pub fn start(layout: &Layout, stack: &Shared) -> Result<String, Failed> {
     };
 
     let db_port = free_port().map_err(|e| format!("no free port: {e}"))?;
+    let postgres_started = Instant::now();
     start_postgres(layout, stack, db_port)?;
+    tracing::info!("PostgreSQL ready in {} ms", postgres_started.elapsed().as_millis());
 
-    let backend_log = layout.log_path("backend.log");
-    let backend_log_start = fs::metadata(&backend_log).map(|m| m.len() as usize).unwrap_or(0);
-    let port = preferred_port(&layout.data.join("desktop-port")).map_err(|e| format!("no free port: {e}"))?;
-    let backend = child(layout.exe("jre", "java"), Signal::Terminate)
-        // ponytail: fixed heap, sized for one household; read it from settings if users hit it.
-        .args(["-Xmx768m", "-XX:+UseSerialGC", "-jar"])
-        .arg(layout.runtime.join("app.jar"))
-        .envs(backend_env(layout, db_port, port, &password))
-        .envs(sidecars::serve(layout, stack, &sidecar_key, sidecars::IDLE).map_err(|e| format!("sidecar ports: {e}"))?)
-        .stdin(Stdio::null())
-        .stdout(layout.log("backend.log").map_err(|e| e.to_string())?)
-        .stderr(layout.log("backend.log").map_err(|e| e.to_string())?)
-        .spawn()
+    let listener = preferred_listener(&layout.data.join("desktop-port")).map_err(|e| format!("no free port: {e}"))?;
+    let port = listener.local_addr().map_err(|e| format!("no free port: {e}"))?.port();
+    let mut env: Vec<(String, String)> = std::env::vars().collect();
+    env.extend(backend_env(layout, db_port, port, &password));
+    env.extend(sidecars::serve(layout, stack, &sidecar_key, sidecars::IDLE).map_err(|e| format!("sidecar ports: {e}"))?);
+    let config = Config::load(&Env::from_map(env)).map_err(|e| format!("the backend settings are invalid: {e}"))?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_name("picsou-backend")
+        .build()
         .map_err(|e| format!("the backend did not start: {e}"))?;
-    keep(stack, backend, Signal::Terminate, |s| &mut s.backend)?;
-    if let Err(message) = wait_until(|| http_ok(port, "/actuator/health/readiness"), "The backend", stack, |s| &mut s.backend) {
-        let log = fs::read(&backend_log).unwrap_or_default();
-        let new = String::from_utf8_lossy(log.get(backend_log_start..).unwrap_or_default()).into_owned();
-        return Err(explain(&message, upgrade::classify(&new), upgrade_from.as_deref()));
+    if !fresh {
+        let pending = runtime.block_on(pending_migrations(&config)).map_err(|e| {
+            tracing::error!("could not read the migration history: {e:#}");
+            "Picsou could not read your data. See the logs folder.".to_owned()
+        })?;
+        if let Some(first) = pending.first() {
+            backup_database(layout, db_port, &password, first)?;
+        }
     }
+    let state = runtime.block_on(picsou::start(config, Arc::new(SystemClock))).map_err(|e| {
+        tracing::error!("the backend did not start: {e:#}");
+        explain("The backend did not start. See the logs folder.", upgrade::classify(&e), upgrade_from.as_deref())
+    })?;
     // Only a start that reached the dashboard moves the recorded version.
     upgrade::record(&layout.data, APP_VERSION).map_err(|e| format!("data folder: {e}"))?;
+    let (shutdown_tx, shutdown) = oneshot::channel();
+    let (stopped_tx, stopped) = mpsc::channel();
+    {
+        let mut s = stack.lock().unwrap_or_else(|e| e.into_inner());
+        if s.stopping {
+            return Err("Picsou is quitting".to_owned().into());
+        }
+        s.backend = Some(Backend { shutdown: shutdown_tx, stopped });
+    }
     // After readiness, so the download never slows the start; before any sync can need it.
     sidecars::prefetch_browser(layout, stack);
-    Ok(format!("http://{LOOPBACK}:{port}/"))
+    Ok(Ready { url: format!("http://{LOOPBACK}:{port}/"), runtime, state, listener, shutdown, stopped: stopped_tx })
+}
+
+async fn pending_migrations(config: &Config) -> anyhow::Result<Vec<String>> {
+    let pool = picsou::db::connect(&config.datasource).await?;
+    let pending = {
+        let mut conn = pool.acquire().await?;
+        picsou::db::flyway::pending(&mut conn).await?
+    };
+    pool.close().await;
+    Ok(pending)
+}
+
+/// A `pg_dump` of the database before the backend applies `first_pending` and the ones after it.
+fn backup_database(layout: &Layout, db_port: u16, password: &str, first_pending: &str) -> Result<(), Failed> {
+    let started = Instant::now();
+    let log = || layout.log("pg_dump.log").map_err(io::Error::other);
+    let dump = upgrade::dump(&layout.data, first_pending, now_secs(), |target| {
+        child(layout.exe("pgtools", "pg_dump"), Signal::Terminate)
+            .args(["--host", LOOPBACK, "--port", &db_port.to_string(), "--username", DB_USER, "--dbname", DB_NAME])
+            .args(["--format=custom", "--no-password", "--file"])
+            .arg(target)
+            .env("PGPASSWORD", password)
+            .stdin(Stdio::null())
+            .stdout(log()?)
+            .stderr(log()?)
+            .status()
+    })
+    .map_err(|e| format!("Picsou could not back up your data before updating it, so it did not start: {e}. See the logs folder."))?;
+    tracing::info!("database backed up to {} in {} ms, before {first_pending}", dump.display(), started.elapsed().as_millis());
+    Ok(())
 }
 
 #[cfg(not(windows))]
@@ -305,7 +398,7 @@ fn newer_data(from: &str) -> String {
     )
 }
 
-/// The message for a backend that stopped, from what Flyway logged.
+/// The message for a backend that did not start, from why its migrations failed.
 pub fn explain(stopped: &str, failure: Option<upgrade::Failure>, upgrade_from: Option<&str>) -> Failed {
     match (failure, upgrade_from) {
         (Some(upgrade::Failure::NewerData), _) => newer_data("a newer version").into(),
@@ -346,6 +439,7 @@ pub fn backend_env(layout: &Layout, db_port: u16, port: u16, password: &str) -> 
         ("APP_CRYPTO_KEY_PATH", path(layout.secrets().join("crypto_key"))),
         ("ENABLEBANKING_PRIVATE_KEY_PATH", path(layout.secrets().join("enablebanking-private.pem"))),
         ("SPA_LOCATION", path(layout.runtime.join("spa"))),
+        ("APP_VERSION", APP_VERSION.to_owned()),
         ("SECURE_COOKIES", "false".to_owned()),
         ("APP_STARTUP_SYNC_ENABLED", "false".to_owned()),
     ]
@@ -354,7 +448,8 @@ pub fn backend_env(layout: &Layout, db_port: u16, port: u16, password: &str) -> 
     .collect()
 }
 
-/// Stops the backend, then PostgreSQL with a fast shutdown, so the next start needs no recovery.
+/// Stops the backend once its requests in flight are answered, then PostgreSQL with a fast
+/// shutdown, so the next start needs no recovery.
 pub fn stop(stack: &Shared) {
     let (backend, postgres, pg_ctl, running) = {
         let mut s = stack.lock().unwrap_or_else(|e| e.into_inner());
@@ -366,8 +461,9 @@ pub fn stop(stack: &Shared) {
     for handle in ending {
         let _ = handle.join();
     }
-    if let Some(child) = backend {
-        end(child, Signal::Terminate);
+    if let Some(Backend { shutdown, stopped }) = backend {
+        let _ = shutdown.send(());
+        let _ = stopped.recv_timeout(STOP_TIMEOUT);
     }
     if let Some(child) = postgres {
         // SIGINT is PostgreSQL's fast shutdown: SIGTERM would wait for every client to leave.
@@ -416,7 +512,8 @@ fn wait_until(
                 return Err(format!("{what} stopped ({status}). See the logs folder."));
             }
         }
-        sleep(Duration::from_millis(250));
+        // Short: the window shows the loading page until PostgreSQL answers, and it starts in about a second.
+        sleep(Duration::from_millis(20));
     }
     Err(format!("{what} did not answer within {} s. See the logs folder.", STARTUP_TIMEOUT.as_secs()))
 }
@@ -496,29 +593,16 @@ pub fn free_port() -> std::io::Result<u16> {
     Ok(TcpListener::bind((LOOPBACK, 0))?.local_addr()?.port())
 }
 
-/// The port of the last start when it is still free, so the window keeps its origin
-/// (and its local storage) across launches; a new free one otherwise.
-pub fn preferred_port(file: &Path) -> std::io::Result<u16> {
+/// A listener on the port of the last start when it is still free, so the window keeps its
+/// origin (and its local storage) across launches; on a new free port otherwise.
+pub fn preferred_listener(file: &Path) -> std::io::Result<TcpListener> {
     let saved = fs::read_to_string(file).ok().and_then(|s| s.trim().parse::<u16>().ok());
-    if let Some(port) = saved.filter(|p| TcpListener::bind((LOOPBACK, *p)).is_ok()) {
-        return Ok(port);
+    if let Some(listener) = saved.and_then(|p| TcpListener::bind((LOOPBACK, p)).ok()) {
+        return Ok(listener);
     }
-    let port = free_port()?;
-    fs::write(file, port.to_string())?;
-    Ok(port)
-}
-
-fn http_ok(port: u16, path: &str) -> bool {
-    let address = SocketAddr::from(([127, 0, 0, 1], port));
-    let Ok(mut stream) = TcpStream::connect_timeout(&address, Duration::from_secs(2)) else {
-        return false;
-    };
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-    let request = format!("GET {path} HTTP/1.1\r\nHost: {LOOPBACK}:{port}\r\nConnection: close\r\n\r\n");
-    let mut head = [0u8; 12];
-    stream.write_all(request.as_bytes()).is_ok()
-        && stream.read_exact(&mut head).is_ok()
-        && head.starts_with(b"HTTP/1.1 200")
+    let listener = TcpListener::bind((LOOPBACK, 0))?;
+    fs::write(file, listener.local_addr()?.port().to_string())?;
+    Ok(listener)
 }
 
 #[derive(Clone, Copy)]
@@ -544,7 +628,7 @@ pub fn end(mut child: Child, signal: Signal) {
     }
     #[cfg(not(unix))]
     {
-        // Java and the sidecars come here on Windows: neither keeps state; pg_ctl stops PostgreSQL.
+        // The sidecars come here on Windows: they keep no state; pg_ctl stops PostgreSQL.
         let _ = signal;
         let _ = child.kill();
     }
@@ -603,6 +687,7 @@ mod tests {
         assert_eq!(PathBuf::from(&env["SPA_LOCATION"]), root.join("runtime").join("spa"));
         assert_eq!(env["SECURE_COOKIES"], "false");
         assert_eq!(env["APP_STARTUP_SYNC_ENABLED"], "false");
+        assert_eq!(env["APP_VERSION"], APP_VERSION);
         assert!(env.values().all(|v| !v.contains("0.0.0.0") && !v.starts_with("/data")));
     }
 
@@ -622,13 +707,15 @@ mod tests {
 
     #[test]
     fn the_last_port_is_reused_while_free_and_replaced_once_taken() {
+        let _ports = TEST_PORTS.lock().unwrap_or_else(|e| e.into_inner());
         let dir = scratch("port");
         let file = dir.join("desktop-port");
-        let first = preferred_port(&file).unwrap();
-        assert_eq!(preferred_port(&file).unwrap(), first);
+        let port = |l: TcpListener| l.local_addr().unwrap().port();
+        let first = port(preferred_listener(&file).unwrap());
+        assert_eq!(port(preferred_listener(&file).unwrap()), first);
 
         let taken = TcpListener::bind((LOOPBACK, first)).unwrap();
-        let second = preferred_port(&file).unwrap();
+        let second = port(preferred_listener(&file).unwrap());
         drop(taken);
 
         assert_ne!(second, first);
@@ -643,8 +730,8 @@ mod tests {
         let sleeper = Command::new("sleep").arg("30").spawn().unwrap();
         let pid = sleeper.id() as libc::pid_t;
 
-        assert_eq!(keep(&stack, sleeper, Signal::Terminate, |s| &mut s.backend), Err("Picsou is quitting".to_owned()));
-        assert!(stack.lock().unwrap().backend.is_none());
+        assert_eq!(keep(&stack, sleeper, Signal::Terminate, |s| &mut s.postgres), Err("Picsou is quitting".to_owned()));
+        assert!(stack.lock().unwrap().postgres.is_none());
         // Reaped by `end`: the pid no longer exists.
         assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
     }
