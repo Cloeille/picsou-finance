@@ -2,6 +2,7 @@
 //! DividendForecastService, DividendReceiptService).
 
 pub mod forecast;
+pub mod history;
 pub mod model;
 pub mod receipt;
 

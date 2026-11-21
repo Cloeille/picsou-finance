@@ -42,7 +42,7 @@ static ISIN_SHAPE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Z]{2}[A-Z0-9]{9}[A-Z0-9]$").expect("regex"));
 
 /// What Spring's URI template encoding escapes in a path variable.
-const PATH_SEGMENT: &AsciiSet = &CONTROLS
+pub(crate) const PATH_SEGMENT: &AsciiSet = &CONTROLS
     .add(b' ')
     .add(b'"')
     .add(b'#')

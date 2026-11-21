@@ -282,6 +282,111 @@ async fn a_recent_credit_is_classified_once_then_listed_as_received() {
 }
 
 #[tokio::test]
+async fn the_history_refresh_stores_yahoo_events_in_eur_with_nasdaqs_declared_dividend() {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let yahoo = MockServer::start().await;
+    let nasdaq = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/KO"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            r#"{"chart":{"result":[{"meta":{"currency":"USD","regularMarketPrice":60.0},
+               "events":{"dividends":{"1":{"amount":0.485,"date":1757289600},"2":{"amount":0.51,"date":1764892800}}}}]}}"#,
+            "application/json",
+        ))
+        .mount(&yahoo)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/USDEUR=X"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            r#"{"chart":{"result":[{"meta":{"currency":"EUR","regularMarketPrice":0.9}}]}}"#,
+            "application/json",
+        ))
+        .mount(&yahoo)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/FAIL.PA"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&yahoo)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/quote/KO/dividends"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            r#"{"data":{"dividends":{"rows":[
+                {"exOrEffDate":"12/05/2025","paymentDate":"12/15/2025","amount":"$0.51","currency":"USD"},
+                {"exOrEffDate":"03/02/2026","paymentDate":"04/01/2026","amount":"$0.53","currency":"USD"}]}},"status":{"rCode":200}}"#,
+            "application/json",
+        ))
+        .mount(&nasdaq)
+        .await;
+    let app = TestApp::builder()
+        .with_admin()
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .env("NASDAQ_BASE_URL", nasdaq.uri())
+        .spawn()
+        .await;
+    let tickers = vec![
+        "ko".to_owned(),
+        "FAIL.PA".to_owned(),
+        "GOLD:GRAM".to_owned(),
+    ];
+    let refreshed = picsou::wealth::dividends::history::refresh_stale(&app.state, &tickers, 10)
+        .await
+        .unwrap();
+    assert_eq!(refreshed, 1);
+    let rows: Vec<(String, String, Option<String>, bool)> = sqlx::query_as(
+        "SELECT e.ex_date::text, e.amount_eur::text, e.payment_date::text, e.declared FROM dividend_event e \
+         JOIN dividend_source s ON s.id = e.source_id WHERE s.ticker = 'KO' ORDER BY e.ex_date",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            (
+                "2025-09-08".to_owned(),
+                "0.43650000".to_owned(),
+                None,
+                false
+            ),
+            (
+                "2025-12-05".to_owned(),
+                "0.45900000".to_owned(),
+                Some("2025-12-15".to_owned()),
+                false
+            ),
+            (
+                "2026-03-02".to_owned(),
+                "0.47700000".to_owned(),
+                Some("2026-04-01".to_owned()),
+                true
+            ),
+        ]
+    );
+    let statuses: Vec<(String, String)> =
+        sqlx::query_as("SELECT ticker, status FROM dividend_source ORDER BY ticker")
+            .fetch_all(&app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(
+        statuses,
+        vec![
+            ("FAIL.PA".to_owned(), "FAILED".to_owned()),
+            ("KO".to_owned(), "OK".to_owned())
+        ]
+    );
+    // Fresh sources are not asked again.
+    assert_eq!(
+        picsou::wealth::dividends::history::refresh_stale(&app.state, &tickers, 10)
+            .await
+            .unwrap(),
+        0
+    );
+}
+
+#[tokio::test]
 async fn a_credit_that_does_not_fit_the_amount_is_left_alone() {
     let f = Fixture::new().await;
     let cto = f.cto("CTO", None).await;
