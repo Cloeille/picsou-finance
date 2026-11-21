@@ -5,8 +5,16 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
+use rust_decimal::Decimal;
+use serde::Serialize;
+use serde_json::Value;
 use sqlx::PgPool;
+
+use crate::AppState;
+use crate::error::{AppError, AppResult};
+use crate::ledger::model::{Account, AccountType, CardNature};
+use crate::ledger::valuation;
 
 use crate::ledger::instrument::{TickerResult, is_isin};
 use crate::ledger::sync_values::clean;
@@ -95,10 +103,96 @@ impl SecurityIdentities for RecordedSecurityIdentities {
     }
 }
 
+/// AccountService.toResponse (track T2): the AccountResponse a sync endpoint answers with.
+#[async_trait]
+pub trait AccountResponses: Send + Sync {
+    async fn to_response(&self, state: &AppState, account: &Account) -> AppResult<Value>;
+}
+
+/// The AccountResponse fields the account row alone decides (no real-estate, debt, savings, SCPI,
+/// contract, institution or display-preference overlays, which track T2 owns).
+#[derive(Debug, Default, Clone, Copy)]
+pub struct AccountRowResponses;
+
+#[serde_with::skip_serializing_none]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AccountRow<'a> {
+    id: i64,
+    name: &'a str,
+    #[serde(rename = "type")]
+    account_type: AccountType,
+    provider: Option<&'a str>,
+    currency: &'a str,
+    #[serde(with = "rust_decimal::serde::arbitrary_precision")]
+    current_balance: Decimal,
+    #[serde(with = "rust_decimal::serde::arbitrary_precision")]
+    current_balance_eur: Decimal,
+    #[serde(with = "rust_decimal::serde::arbitrary_precision_option")]
+    cash_balance: Option<Decimal>,
+    last_synced_at: Option<DateTime<Utc>>,
+    is_manual: bool,
+    color: &'a str,
+    ticker: Option<&'a str>,
+    logo_url: Option<&'a str>,
+    logo_key: Option<&'a str>,
+    created_at: DateTime<Utc>,
+    opened_at: Option<NaiveDate>,
+    #[serde(with = "rust_decimal::serde::arbitrary_precision_option")]
+    payment_due_amount: Option<Decimal>,
+    payment_due_date: Option<NaiveDate>,
+    reward_points: Option<i64>,
+    parent_account_id: Option<i64>,
+    hidden: bool,
+    list_collapsed: bool,
+    card_nature: Option<CardNature>,
+}
+
+#[async_trait]
+impl AccountResponses for AccountRowResponses {
+    async fn to_response(&self, state: &AppState, account: &Account) -> AppResult<Value> {
+        let mut conn = state.db.acquire().await?;
+        let eur = valuation::signed_live_balance_eur(
+            &mut conn,
+            &*state.ledger.prices,
+            account,
+            state.clock.today(),
+        )
+        .await?;
+        let row = AccountRow {
+            id: account.id,
+            name: &account.name,
+            account_type: account.account_type,
+            provider: account.provider.as_deref(),
+            currency: &account.currency,
+            current_balance: account.current_balance,
+            current_balance_eur: eur,
+            cash_balance: account.cash_balance,
+            last_synced_at: account.last_synced_at,
+            is_manual: account.is_manual,
+            color: &account.color,
+            ticker: account.ticker.as_deref(),
+            logo_url: account.logo_url.as_deref(),
+            logo_key: account.logo_key.as_deref(),
+            created_at: account.created_at,
+            opened_at: account.opened_at,
+            payment_due_amount: account.payment_due_amount,
+            payment_due_date: account.payment_due_date,
+            reward_points: account.reward_points,
+            parent_account_id: account.parent_account_id,
+            hidden: account.hidden,
+            list_collapsed: false,
+            card_nature: account.card_nature,
+        };
+        serde_json::to_value(row).map_err(AppError::internal)
+    }
+}
+
 /// The connectors' plug-in points, held by state.connectors.seams.
 pub struct Seams {
     pub isin: Arc<dyn IsinResolver>,
     pub security_identities: Arc<dyn SecurityIdentities>,
+    pub accounts: Arc<dyn AccountResponses>,
 }
 
 impl Seams {
@@ -106,6 +200,7 @@ impl Seams {
         Self {
             isin: Arc::new(UnresolvedIsins),
             security_identities: Arc::new(RecordedSecurityIdentities::new(db)),
+            accounts: Arc::new(AccountRowResponses),
         }
     }
 }
