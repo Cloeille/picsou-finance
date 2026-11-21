@@ -56,6 +56,30 @@ async fn a_migrated_database_needs_nothing() {
 }
 
 #[tokio::test]
+async fn pending_lists_the_scripts_not_yet_applied() {
+    let db = fresh_database().await;
+    let mut conn = connect(&db).await;
+    assert!(flyway::pending(&mut conn).await.unwrap().is_empty());
+
+    let last: String = sqlx::query_scalar(
+        "DELETE FROM flyway_schema_history WHERE installed_rank = (SELECT max(installed_rank) FROM flyway_schema_history) RETURNING script",
+    )
+    .fetch_one(&mut conn)
+    .await
+    .unwrap();
+    assert_eq!(flyway::pending(&mut conn).await.unwrap(), [last]);
+
+    sqlx::query("DROP TABLE flyway_schema_history")
+        .execute(&mut conn)
+        .await
+        .unwrap();
+    assert_eq!(
+        flyway::pending(&mut conn).await.unwrap().len(),
+        flyway::migrations().unwrap().len()
+    );
+}
+
+#[tokio::test]
 async fn an_applied_version_this_binary_lacks_fails() {
     let db = fresh_database().await;
     let mut conn = connect(&db).await;

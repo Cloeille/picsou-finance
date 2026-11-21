@@ -68,8 +68,6 @@ pub struct Inner {
     pub login_timing: TimingEqualizer,
     pub access_key_usage: UsageThrottle,
     pub bearer_authenticators: Vec<Arc<dyn BearerAuthenticator>>,
-    /// Whether the desktop shell set PICSOU_DESKTOP, which adds its keys to /actuator/info.
-    pub desktop_info: bool,
 }
 
 impl Deref for AppState {
@@ -81,12 +79,7 @@ impl Deref for AppState {
 }
 
 impl AppState {
-    pub fn new(
-        config: Config,
-        db: PgPool,
-        clock: Arc<dyn Clock>,
-        desktop_info: bool,
-    ) -> anyhow::Result<Self> {
+    pub fn new(config: Config, db: PgPool, clock: Arc<dyn Clock>) -> anyhow::Result<Self> {
         let clock = AppClock::new(clock, config.timezone);
         let crypto = CryptoEncryption::new(&config.crypto_key)?;
         let http = reqwest::Client::builder()
@@ -105,7 +98,6 @@ impl AppState {
             login_timing: TimingEqualizer::default(),
             access_key_usage: UsageThrottle::default(),
             bearer_authenticators: identity::bearer_authenticators(),
-            desktop_info,
         })))
     }
 }
@@ -126,10 +118,20 @@ pub async fn serve_with_shutdown(
     clock: Arc<dyn Clock>,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> anyhow::Result<()> {
+    let state = start(config, clock).await?;
+    run(state, listener, shutdown).await
+}
+
+/// Serves a started state until `shutdown` resolves, then closes the database pool. The desktop
+/// app calls it after `start`, so it knows the backend is ready without polling it.
+pub async fn run(
+    state: AppState,
+    listener: TcpListener,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+) -> anyhow::Result<()> {
     let started = PROCESS_START.get().copied().unwrap_or_else(Instant::now);
-    let desktop_info = std::env::var_os("PICSOU_DESKTOP").is_some_and(|v| !v.is_empty());
-    let state = start(config, clock, desktop_info).await?;
     let addr = listener.local_addr()?;
+    let db = state.db.clone();
     let app = app(state);
     tracing::info!(
         "Started Picsou on {addr}: ready {} ms after process start",
@@ -141,16 +143,13 @@ pub async fn serve_with_shutdown(
     )
     .with_graceful_shutdown(shutdown)
     .await?;
+    db.close().await;
     tracing::info!("Picsou stopped");
     Ok(())
 }
 
 /// Connects to the database, applies the migrations and builds the state.
-pub async fn start(
-    config: Config,
-    clock: Arc<dyn Clock>,
-    desktop_info: bool,
-) -> anyhow::Result<AppState> {
+pub async fn start(config: Config, clock: Arc<dyn Clock>) -> anyhow::Result<AppState> {
     let db = db::connect(&config.datasource).await?;
     {
         let mut conn = db.acquire().await?;
@@ -159,7 +158,7 @@ pub async fn start(
             tracing::info!("Successfully applied {applied} migrations to schema \"public\"");
         }
     }
-    let state = AppState::new(config, db, clock, desktop_info)?;
+    let state = AppState::new(config, db, clock)?;
     setup_auth::setup::seed_from_environment(&state)
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;

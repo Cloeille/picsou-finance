@@ -304,6 +304,33 @@ async fn migrate_locked(conn: &mut PgConnection) -> Result<usize, MigrationError
     validate(&local, &applied)?;
     reject_high_baseline(&local, &applied)?;
 
+    let pending = pending_of(&local, &applied);
+
+    let installed_by: String = sqlx::query_scalar("SELECT current_user::text")
+        .fetch_one(&mut *conn)
+        .await?;
+    for migration in &pending {
+        apply(conn, migration, &installed_by).await?;
+    }
+    Ok(pending.len())
+}
+
+/// The scripts `migrate` would apply, read without the lock or any write: the desktop app backs the
+/// data up first when there are any. A database without a history table has every script pending.
+pub async fn pending(conn: &mut PgConnection) -> Result<Vec<String>, MigrationError> {
+    let local = migrations()?;
+    let applied = if table_exists(conn, TABLE).await? {
+        applied_rows(conn).await?
+    } else {
+        Vec::new()
+    };
+    Ok(pending_of(&local, &applied)
+        .into_iter()
+        .map(|m| m.script.clone())
+        .collect())
+}
+
+fn pending_of<'a>(local: &'a [Migration], applied: &[Applied]) -> Vec<&'a Migration> {
     let baseline = applied
         .iter()
         .filter(|a| a.kind == "BASELINE")
@@ -314,19 +341,11 @@ async fn migrate_locked(conn: &mut PgConnection) -> Result<usize, MigrationError
         .filter(|a| a.success)
         .filter_map(|a| a.version.as_deref().and_then(Version::parse))
         .collect();
-    let pending: Vec<&Migration> = local
+    local
         .iter()
         .filter(|m| !applied_versions.contains(&m.version))
         .filter(|m| baseline.as_ref().is_none_or(|b| m.version > *b))
-        .collect();
-
-    let installed_by: String = sqlx::query_scalar("SELECT current_user::text")
-        .fetch_one(&mut *conn)
-        .await?;
-    for migration in &pending {
-        apply(conn, migration, &installed_by).await?;
-    }
-    Ok(pending.len())
+        .collect()
 }
 
 async fn ensure_history_table(conn: &mut PgConnection) -> Result<(), MigrationError> {

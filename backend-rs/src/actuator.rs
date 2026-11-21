@@ -54,15 +54,13 @@ async fn info(State(state): State<AppState>, headers: HeaderMap) -> Response {
         "version".into(),
         Value::from(state.config.app_version.clone()),
     );
-    // Set by the desktop shell (info.app.desktop / info.app.desktop-unavailable): the SPA marks the
-    // banks the desktop bundle does not ship as unavailable.
-    if state.desktop_info {
-        app.insert("desktop".into(), Value::from(state.config.desktop.clone()));
-        app.insert(
-            "desktop-unavailable".into(),
-            Value::from(state.config.desktop_unavailable.clone()),
-        );
-    }
+    // Always present, as strings, like Spring's info.app.* properties: the SPA marks the banks the
+    // desktop bundle does not ship as unavailable when desktop is "true".
+    app.insert("desktop".into(), Value::from(state.config.desktop.clone()));
+    app.insert(
+        "desktop-unavailable".into(),
+        Value::from(state.config.desktop_unavailable.clone()),
+    );
     actuator_json(&headers, StatusCode::OK, json!({ "app": app }))
 }
 

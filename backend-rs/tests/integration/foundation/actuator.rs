@@ -25,7 +25,16 @@ async fn probes_answer_like_spring_boot() {
     );
     assert_eq!(
         client.get("/actuator/info").send().await.text(),
-        r#"{"app":{"name":"picsou","version":"dev"}}"#
+        r#"{"app":{"name":"picsou","version":"dev","desktop":"false","desktop-unavailable":""}}"#
+    );
+    let desktop = TestApp::builder()
+        .env("PICSOU_DESKTOP", "true")
+        .env("PICSOU_DESKTOP_UNAVAILABLE", "amex-auth,lbp-auth")
+        .spawn()
+        .await;
+    assert_eq!(
+        desktop.client().get("/actuator/info").send().await.text(),
+        r#"{"app":{"name":"picsou","version":"dev","desktop":"true","desktop-unavailable":"amex-auth,lbp-auth"}}"#
     );
     let json = client
         .get("/actuator/info")
