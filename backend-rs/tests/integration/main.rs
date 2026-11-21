@@ -14,6 +14,7 @@ mod ledger;
 mod market;
 mod mcp;
 mod native_sidecars_a;
+mod native_sidecars_b;
 mod sync;
 mod transfer;
 mod wealth;

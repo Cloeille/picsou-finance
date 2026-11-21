@@ -1,4 +1,5 @@
-//! Native in-process Rust implementations of Picsou's pure-HTTP bank sidecars.
+//! Native in-process Rust implementations of Picsou's 6 pure-HTTP bank sidecars
+//! (DEGIRO, CMES, Sofidy, CIC, Natixis Interépargne, and BoursoBank).
 //!
 //! Each sidecar implements [`NativeSidecar`], matching the exact HTTP routes, JSON payloads,
 //! status codes, and `{"detail": "..."}` error contract of its Python FastAPI counterpart.
@@ -6,11 +7,13 @@
 //! [`crate::connectors::sidecar::SidecarHttp`] dispatches directly in-process with zero
 //! network hop.
 
+pub mod bourso;
 pub mod cic;
 pub mod cmes;
 pub mod common;
 pub mod degiro;
 pub mod euro_info;
+pub mod natixis;
 pub mod sofidy;
 
 use std::collections::HashMap;
@@ -22,12 +25,37 @@ use serde_json::{Value, json};
 
 use crate::config::Config;
 
+/// Successful JSON response from a native sidecar route.
+#[derive(Debug, Clone)]
+pub struct NativeResponse {
+    pub status: StatusCode,
+    pub body: Value,
+}
+
+impl NativeResponse {
+    pub fn ok(body: Value) -> Self {
+        Self {
+            status: StatusCode::OK,
+            body,
+        }
+    }
+
+    pub fn no_content() -> Self {
+        Self {
+            status: StatusCode::NO_CONTENT,
+            body: Value::Null,
+        }
+    }
+}
+
 /// An error returned by a native sidecar, matching FastAPI's HTTPException status + `{"detail": "..."}`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeSidecarError {
     pub status: StatusCode,
     pub detail: String,
 }
+
+pub type NativeError = NativeSidecarError;
 
 impl NativeSidecarError {
     pub fn new(status: StatusCode, detail: impl Into<String>) -> Self {
@@ -37,9 +65,39 @@ impl NativeSidecarError {
         }
     }
 
+    pub fn into_tuple(self) -> (StatusCode, String) {
+        (self.status, self.detail)
+    }
+
     pub fn to_json_body(&self) -> Value {
         json!({ "detail": self.detail })
     }
+
+    pub fn json_body(&self) -> Value {
+        self.to_json_body()
+    }
+}
+
+impl From<NativeSidecarError> for (StatusCode, String) {
+    fn from(value: NativeSidecarError) -> Self {
+        value.into_tuple()
+    }
+}
+
+/// Common dispatch result for native sidecars.
+pub type NativeCallResult = Result<Value, (StatusCode, String)>;
+
+/// Standard error when a known path is called with an unsupported HTTP method.
+pub fn method_not_allowed(_method: &Method) -> (StatusCode, String) {
+    (
+        StatusCode::METHOD_NOT_ALLOWED,
+        "METHOD_NOT_ALLOWED".to_owned(),
+    )
+}
+
+/// Standard error when an unknown path is called on a native sidecar.
+pub fn not_found() -> (StatusCode, String) {
+    (StatusCode::NOT_FOUND, "NOT_FOUND".to_owned())
 }
 
 /// Dispatch interface implemented by every native in-process bank sidecar.
@@ -51,6 +109,32 @@ pub trait NativeSidecar: Send + Sync {
         path: &str,
         body: Value,
     ) -> Result<Value, NativeSidecarError>;
+}
+
+#[async_trait]
+impl NativeSidecar for natixis::NativeNatixis {
+    async fn call(
+        &self,
+        method: Method,
+        path: &str,
+        body: Value,
+    ) -> Result<Value, NativeSidecarError> {
+        let opt = if body.is_null() { None } else { Some(body) };
+        self.call_raw(method, path, opt).await.map(|r| r.body)
+    }
+}
+
+#[async_trait]
+impl NativeSidecar for bourso::NativeBourso {
+    async fn call(
+        &self,
+        method: Method,
+        path: &str,
+        body: Value,
+    ) -> Result<Value, NativeSidecarError> {
+        let opt = if body.is_null() { None } else { Some(body) };
+        self.call_raw(method, path, opt).await.map(|r| r.body)
+    }
 }
 
 /// Process-local registry of native sidecar instances (holding each bank's pending MFA store).
@@ -86,6 +170,8 @@ impl NativeSidecars {
                 config.native_sidecar_url("cic"),
             )),
         );
+        registry.register("natixis-auth", Arc::new(natixis::NativeNatixis::new()));
+        registry.register("bourso-auth", Arc::new(bourso::NativeBourso::new()));
         registry
     }
 
