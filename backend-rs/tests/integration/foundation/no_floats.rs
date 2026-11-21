@@ -2,7 +2,10 @@ use std::path::Path;
 
 /// Files allowed to mention a binary float type, with the reason. Money, quantities, prices and
 /// rates are rust_decimal::Decimal end to end.
-const ALLOWED: &[&str] = &[];
+const ALLOWED: &[&str] = &[
+    // An XLSX numeric cell is an IEEE double (POI's BigDecimal.doubleValue()); written, never read.
+    "src/transfer/account_export/cell.rs",
+];
 
 fn scan(dir: &Path, hits: &mut Vec<String>) {
     let float = regex::Regex::new(r"\bf(32|64)\b").unwrap();

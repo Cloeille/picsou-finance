@@ -437,8 +437,15 @@ fn digits(
     text.parse().ok()
 }
 
+/// A non-blank cell the date pattern does not read.
+#[derive(Debug)]
+pub struct InvalidDate;
+
 /// CsvValueParser.parseDate: None for a blank cell, Err for one the pattern does not read.
-pub fn parse_date(raw: Option<&str>, pattern: &DatePattern) -> Result<Option<NaiveDate>, ()> {
+pub fn parse_date(
+    raw: Option<&str>,
+    pattern: &DatePattern,
+) -> Result<Option<NaiveDate>, InvalidDate> {
     let Some(raw) = raw else {
         return Ok(None);
     };
@@ -446,7 +453,7 @@ pub fn parse_date(raw: Option<&str>, pattern: &DatePattern) -> Result<Option<Nai
     if s.is_empty() {
         return Ok(None);
     }
-    pattern.parse(s).map(Some).ok_or(())
+    pattern.parse(s).map(Some).ok_or(InvalidDate)
 }
 
 #[cfg(test)]

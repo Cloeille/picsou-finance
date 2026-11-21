@@ -79,6 +79,7 @@ flate2 = "1.1.11"
 [dev-dependencies]
 wiremock = "0.6.5"
 picsou = { path = ".", features = ["testing"] }
+calamine = "0.38.0"
 
 [profile.dev.package."*"]
 opt-level = 2

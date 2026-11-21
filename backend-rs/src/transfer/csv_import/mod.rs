@@ -248,8 +248,8 @@ async fn import_rows(
         .collect();
     let mut to_save = Vec::new();
     let mut errors = Vec::new();
-    let mut row_number = if req.has_header_row { 2 } else { 1 };
-    for row in data_rows {
+    let first_row = if req.has_header_row { 2 } else { 1 };
+    for (row_number, row) in (first_row..).zip(data_rows) {
         match map_row(
             state,
             row,
@@ -267,7 +267,6 @@ async fn import_rows(
                 message,
             }),
         }
-        row_number += 1;
     }
     if !to_save.is_empty() {
         let now = state.clock.now();
@@ -432,7 +431,7 @@ async fn map_row(
     )?;
     let date_raw = cell(row, mapping.date);
     let date: NaiveDate = csv::parse_date(date_raw.as_deref(), &dialect.date_format)
-        .map_err(|()| format!("Invalid date '{}'", date_raw.as_deref().unwrap_or("null")))?
+        .map_err(|_| format!("Invalid date '{}'", date_raw.as_deref().unwrap_or("null")))?
         .ok_or("Missing date")?;
     let quantity = decimal_cell(cell(row, mapping.quantity).as_deref(), dialect, "quantity")?
         .filter(|q| *q > Decimal::ZERO)
