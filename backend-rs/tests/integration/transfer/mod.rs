@@ -1,6 +1,8 @@
 //! Integration tests of the transfer module.
 
 mod account_export;
+mod actual;
 mod csv_import;
 mod finary;
+mod me_export;
 mod support;
