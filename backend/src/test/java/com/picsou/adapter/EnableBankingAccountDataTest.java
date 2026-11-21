@@ -1352,6 +1352,26 @@ class EnableBankingAccountDataTest {
     }
 
     @Test
+    void fetchBalances_cardWithTiedOwedBalances_staysACardWithoutBalance() {
+        accountScopedSession();
+        responses.put("/accounts/uid-operations/details", """
+            {"name": "Carte Visa Synthetic Holder", "details": "delayed_debit", "cash_account_type": "CARD"}
+            """);
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [
+              {"name": "Balance", "balance_type": "OTHR", "balance_amount": {"currency": "EUR", "amount": "-50.00"}},
+              {"name": "Balance", "balance_type": "OTHR", "balance_amount": {"currency": "EUR", "amount": "-60.00"}},
+              {"name": "Balance", "balance_type": "CLAV", "balance_amount": {"currency": "EUR", "amount": "2000.00"}}
+            ]}
+            """);
+
+        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
+            assertThat(account.type()).isEqualTo(com.picsou.model.AccountType.CREDIT_CARD);
+            assertThat(account.balance()).isNull();
+        });
+    }
+
+    @Test
     void fetchBalances_cardInASharedList_isImportedAsBefore() {
         responses.put("/accounts/uid-operations/details", """
             {"name": "Carte Visa Synthetic Holder", "details": "delayed_debit", "cash_account_type": "CARD"}

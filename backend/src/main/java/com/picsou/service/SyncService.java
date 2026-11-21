@@ -502,13 +502,16 @@ public class SyncService {
             }
         }
 
+        // A card never takes a positive balance: whatever the path, that figure is credit left, not owed.
+        BigDecimal balance = existing.isPresent() && existing.get().getType() == AccountType.CREDIT_CARD
+            && data.balance() != null && data.balance().signum() > 0 ? null : data.balance();
         Account account;
         if (existing.isPresent()) {
             account = existing.get();
             // A balance left as is keeps the currency it was stored in.
-            if (data.balance() != null) {
+            if (balance != null) {
                 account.setCurrency(currency);
-                account.setCurrentBalance(data.balance());
+                account.setCurrentBalance(balance);
             }
             account.setLastSyncedAt(Instant.now());
             // Refresh uid in case the provider rotated it (EB v0.16.4 Boursorama case)
@@ -536,7 +539,7 @@ public class SyncService {
                 .cardNature(data.type() == AccountType.CREDIT_CARD ? data.cardNature() : null)
                 .provider(requisition.getInstitutionName())
                 .currency(currency)
-                .currentBalance(data.balance() != null ? data.balance() : BigDecimal.ZERO)
+                .currentBalance(balance != null ? balance : BigDecimal.ZERO)
                 .lastSyncedAt(Instant.now())
                 .externalAccountId(data.externalId())
                 .iban(data.iban())
@@ -548,8 +551,8 @@ public class SyncService {
         }
 
         account = accountRepository.save(account);
-        if (data.balance() != null) {
-            accountService.upsertSnapshotFromNative(account, data.balance(), LocalDate.now());
+        if (balance != null) {
+            accountService.upsertSnapshotFromNative(account, balance, LocalDate.now());
         }
 
         // Balances first, transactions after, and never the other way round: the import
@@ -573,8 +576,10 @@ public class SyncService {
         }
         // Kept as is (no readable balance), a positive figure from the current-account days is
         // credit left, not owed: as a card it would read as a negative debt, so wait for one.
-        boolean staleCredit = data.balance() == null && account.getCurrentBalance().signum() > 0;
-        if (account.getType() == AccountType.CHECKING && !staleCredit) {
+        if (account.getType() == AccountType.CHECKING) {
+            if (data.balance() == null && account.getCurrentBalance().signum() > 0) {
+                return;
+            }
             account.setType(AccountType.CREDIT_CARD);
         }
         if (account.getType() == AccountType.CREDIT_CARD && account.getCardNature() == null) {

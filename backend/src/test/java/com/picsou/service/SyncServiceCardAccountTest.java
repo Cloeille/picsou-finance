@@ -144,8 +144,18 @@ class SyncServiceCardAccountTest {
         stored.setCurrency("USD");
         Account saved = sync(stored, cardWithoutBalance());
         assertThat(saved.getType()).isEqualTo(AccountType.CHECKING);
+        assertThat(saved.getName()).isEqualTo("delayed_debit");
         assertThat(saved.getCurrentBalance()).isEqualByComparingTo("2000.00");
         assertThat(saved.getCurrency()).isEqualTo("USD");
+    }
+
+    @Test
+    void storedCard_neverTakesAPositiveBalance() {
+        Account stored = storedAccount(AccountType.CREDIT_CARD, "Carte Visa Synthetic Holder");
+        Account saved = sync(stored, new AccountData("uid-card", "delayed_debit", null, "EUR",
+            new BigDecimal("1880.00")));
+        assertThat(saved.getCurrentBalance()).isEqualByComparingTo("-474.87");
+        verify(accountService, never()).upsertSnapshotFromNative(any(), any(), any());
     }
 
     @Test

@@ -108,7 +108,9 @@ left with no other balance, or whose selected balance is positive, is still
 synced as a card with its transactions, but with `AccountData.balance` null: `upsertAccount`
 leaves the stored balance and currency as they are and writes no snapshot (a new card starts
 at 0; a `CHECKING` account holding a positive balance is not turned into a card until a readable
-balance arrives, since that figure is credit left, not owed).
+balance arrives, since that figure is credit left, not owed). Whatever the path, an account
+already stored as a card never takes a positive balance, and a tie between owed balances counts
+as unreadable.
 Nothing is stored with a guessed sign. A malformed or ambiguous balance list still skips the card,
 as it skips any account. The usual priority applies (`CLBD` before `XPCD`); Boursorama's cards
 send `OTHR` and `XPCD` only.

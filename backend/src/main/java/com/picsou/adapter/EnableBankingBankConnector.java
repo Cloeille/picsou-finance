@@ -771,8 +771,16 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         AccountDetailsResponse details = response.details();
         List<BalancesResponse.BalanceItem> owed = response.candidates().stream()
             .filter(item -> !isAvailableBalance(item)).toList();
-        BalancesResponse.BalanceItem selected = owed.isEmpty() ? null
-            : selectBalance(accountId, new AccountBalanceCandidates(details, owed, response.selection()), ownership);
+        BalancesResponse.BalanceItem selected = null;
+        if (!owed.isEmpty()) {
+            try {
+                selected = selectBalance(accountId,
+                    new AccountBalanceCandidates(details, owed, response.selection()), ownership);
+            } catch (SyncException ex) {
+                // Two owed balances of the same rank: no single amount owed, so none is stored.
+                selected = null;
+            }
+        }
         BigDecimal balance = selected != null ? new BigDecimal(selected.balanceAmount().amount().trim()) : null;
         if (selected == null || balance.signum() > 0) {
             log.warn("Enable Banking card {} sent no balance readable as an amount owed; its balance is left as is",
