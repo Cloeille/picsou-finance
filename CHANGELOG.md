@@ -42,6 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **BoursoBank syncs a PER.** A PER on the dashboard was read as a securities account, its
+  trading-board lookup answered 404, and the whole sync failed with `UPSTREAM_FORMAT_CHANGED`,
+  so no account was imported. The PER is now read from its own page: one position per fund,
+  merged across compartments, and a payment not yet invested as cash. If that page cannot be
+  read, the PER keeps its last values and the other accounts still sync; for now only the
+  sidecar log says so. (#351, #624)
 - **BoursoBank: a notice shown instead of the dashboard no longer breaks the sync.** When the bank
   parks the dashboard behind a notice it lets you postpone (a card renewal offer, for instance),
   the connector now follows its "Voir plus tard" link and reads the accounts. A notice that cannot

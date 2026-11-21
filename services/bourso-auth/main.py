@@ -50,6 +50,7 @@ from accounts_parser import (
     parse_iban_page,
     parse_dashboard,
     parse_life_insurance,
+    parse_per,
     parse_operations,
     parse_trading_summary,
 )
@@ -169,8 +170,9 @@ class AccountPayload(BaseModel):
     balanceEur: Decimal
     cashBalance: Decimal | None = None
     positions: list[PositionPayload]
-    # Assurance vie only: the supports-table rows the valuation was reconciled
-    # against, euro-fund rows included, which the backend needs to redo the check.
+    # Assurance vie and PER only: the supports-table rows the valuation was reconciled
+    # against, euro-fund and pending-payment rows included, which the backend needs to
+    # redo the check (it refuses either type without it).
     valuationLineCount: int | None = Field(default=None, ge=0)
     iban: str | None = None
     transactions: list[dict[str, Any]] = Field(default_factory=list)
@@ -513,11 +515,11 @@ async def _fetch_trading_account(
     return parse_trading_summary(payload, account_id)
 
 
-async def _fetch_life_insurance(client: httpx.AsyncClient, account_href: str) -> dict[str, Any]:
-    """Read an assurance-vie contract's supports from its positions page.
+async def _positions_page(client: httpx.AsyncClient, account_href: str, kind: str) -> httpx.Response:
+    """Fetch an account's server-rendered positions page (`<card link>/positions`).
 
-    Unlike a PEA, a contract has no trading-board summary; its positions page
-    is server-rendered and carries the valuation and every support.
+    An expired session and an outage end the sync; any other status is the
+    caller's to judge, and is logged here without the account.
     """
     account_url = _same_origin_url(account_href, BASE_URL)
     positions_url = _same_origin_url(urljoin(account_url.rstrip("/") + "/", "positions"), account_url)
@@ -527,11 +529,48 @@ async def _fetch_life_insurance(client: httpx.AsyncClient, account_href: str) ->
     ):
         raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
     if response.status_code != 200:
-        log.warning("BoursoBank assurance-vie page failed (HTTP %s)", response.status_code)
+        log.warning("BoursoBank %s page failed (HTTP %s)", kind, response.status_code)
         if response.status_code == 429 or response.status_code >= 500:
             raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+    return response
+
+
+async def _fetch_life_insurance(client: httpx.AsyncClient, account_href: str) -> dict[str, Any]:
+    """Read an assurance-vie contract's supports from its positions page.
+
+    Unlike a PEA, a contract has no trading-board summary; its positions page
+    is server-rendered and carries the valuation and every support.
+    """
+    response = await _positions_page(client, account_href, "assurance-vie")
+    if response.status_code != 200:
         raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
     return parse_life_insurance(response.text)
+
+
+async def _read_per(client: httpx.AsyncClient, account_id: str, account_href: str) -> dict[str, Any] | None:
+    """Read a PER from its positions page, or None when the page cannot be read.
+
+    A PER has no trading-board summary either (#351). Its layout rests on few live
+    runs, so an unreadable page -- unexpected status, shape or reconciliation -- skips
+    this one account rather than failing every other, as the provisional kinds of
+    the BPCE sidecars do; the backend keeps its last synced values. An expired
+    session or an outage still ends the sync: those are not about this page.
+    """
+    response = await _positions_page(client, account_href, "PER")
+    try:
+        if response.status_code != 200:
+            raise AccountsFormatError("UPSTREAM_FORMAT_CHANGED", f"PER page answered HTTP {response.status_code}")
+        plan = parse_per(response.text)
+        guard_symbol_collisions(plan["positions"])
+    except AccountsFormatError as exc:
+        # The message carries the failing check, never an amount.
+        log.warning("BoursoBank: PER %s… unreadable, skipped (%s: %s)", account_id[:8], exc.code, exc)
+        return None
+    except ArithmeticError:
+        # An amount out of Decimal's range (e.g. "1E30" in a merge): unreadable too.
+        log.warning("BoursoBank: PER %s… unreadable, skipped (amount out of range)", account_id[:8])
+        return None
+    return plan
 
 
 def redirects_to_identity_selector(response: httpx.Response) -> bool:
@@ -713,6 +752,7 @@ async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
 
     payloads: list[dict[str, Any]] = []
     history_pending: list[tuple[dict[str, Any], str]] = []
+    unreadable_per = 0
     for account in accounts:
         entry: dict[str, Any] = {
             "externalId": f"bourso_{account['id']}",
@@ -733,6 +773,15 @@ async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
             entry["positions"] = contract["positions"]
             entry["valuationLineCount"] = contract["valuationLineCount"]
             guard_symbol_collisions(entry["positions"])
+        elif account["type"] == "PER":
+            plan = await _read_per(client, account["id"], account["href"])
+            if plan is None:
+                unreadable_per += 1
+                continue
+            entry["balanceEur"] = plan["totalEur"]
+            entry["cashBalance"] = plan["cashEur"]
+            entry["positions"] = plan["positions"]
+            entry["valuationLineCount"] = plan["valuationLineCount"]
         elif account["section"] == "trading":
             summary = await _fetch_trading_account(client, api_url, user_hash, account["id"])
             # The trading board is authoritative over the dashboard tile: it is
@@ -747,6 +796,10 @@ async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
             # list of types keeps a new passbook kind from silently losing them.
             history_pending.append((entry, account["href"]))
         payloads.append(entry)
+    if unreadable_per:
+        log.warning(
+            "BoursoBank: skipped %d unreadable PER(s); they keep their last synced values", unreadable_per
+        )
 
     # Second pass, once every balance and holding is in hand: history is the
     # optional part, so it alone runs against the deadline set when the accounts
