@@ -505,7 +505,10 @@ public class SyncService {
         Account account;
         if (existing.isPresent()) {
             account = existing.get();
-            account.setCurrency(currency);
+            // A balance left as is keeps the currency it was stored in.
+            if (data.balance() != null) {
+                account.setCurrency(currency);
+            }
             if (data.balance() != null) {
                 account.setCurrentBalance(data.balance());
             }
@@ -572,6 +575,11 @@ public class SyncService {
         }
         if (account.getType() == AccountType.CHECKING) {
             account.setType(AccountType.CREDIT_CARD);
+            // Kept as is (no readable balance), a positive figure from the current-account days is
+            // credit left, not owed: as a card it would read as a negative debt.
+            if (data.balance() == null && account.getCurrentBalance().signum() > 0) {
+                account.setCurrentBalance(BigDecimal.ZERO);
+            }
         }
         if (account.getType() == AccountType.CREDIT_CARD && account.getCardNature() == null) {
             account.setCardNature(data.cardNature());

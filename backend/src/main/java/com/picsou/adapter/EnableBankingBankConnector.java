@@ -64,7 +64,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
     private static final String CARD_CASH_ACCOUNT_TYPE = "CARD";
     private static final String NO_CURRENCY = "XXX";
     /** ISO 20022 balance types that state credit still available, not an amount owed. */
-    private static final java.util.Set<String> AVAILABLE_BALANCE_TYPES = java.util.Set.of("ITAV", "CLAV");
+    private static final java.util.Set<String> AVAILABLE_BALANCE_TYPES = java.util.Set.of("ITAV", "CLAV", "OPAV", "FWAV");
     private static final List<String> BALANCE_TYPE_PRIORITY = List.of("CLBD", "XPCD", "ITBD", "ITAV", "CLAV");
 
     private final EnableBankingConfigProvider configProvider;

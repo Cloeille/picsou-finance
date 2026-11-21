@@ -180,6 +180,23 @@ class SyncServiceCardAccountTest {
     }
 
     @Test
+    void creditLeftStoredAsCash_isResetWhenTheAccountBecomesACardWithoutReadableBalance() {
+        Account stored = storedAccount(AccountType.CHECKING, "delayed_debit");
+        stored.setCurrentBalance(new BigDecimal("2000.00"));
+        stored.setCurrency("USD");
+        AccountData card = cardWithoutBalance();
+        when(bankConnector.fetchBalances(SESSION)).thenReturn(List.of(card));
+        when(accountRepository.findByExternalAccountIdAndMemberId(card.externalId(), MEMBER_ID))
+            .thenReturn(Optional.of(stored));
+
+        syncService.resyncAll(MEMBER_ID);
+
+        Account saved = savedAccount();
+        assertThat(saved.getCurrentBalance()).isEqualByComparingTo("0");
+        assertThat(saved.getCurrency()).isEqualTo("USD");
+    }
+
+    @Test
     void newCardWithoutReadableBalance_startsAtZero() {
         AccountData card = cardWithoutBalance();
         when(bankConnector.fetchBalances(SESSION)).thenReturn(List.of(card));
