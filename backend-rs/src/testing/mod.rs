@@ -403,6 +403,7 @@ impl Client {
 
     pub fn request(&self, method: Method, path: &str) -> Request {
         Request {
+            allow_decimal_strings: false,
             client: self.clone(),
             builder: self
                 .http
@@ -451,9 +452,68 @@ impl Client {
 pub struct Request {
     client: Client,
     builder: reqwest::RequestBuilder,
+    allow_decimal_strings: bool,
+}
+
+/// Jackson writes `BigDecimal` as a JSON number, while `rust_decimal` defaults to a string, so a
+/// response field that forgot `rust_decimal::serde::arbitrary_precision` would silently break the
+/// frontend's arithmetic. Every JSON response in the tests is checked for it.
+fn assert_no_decimal_strings(headers: &HeaderMap, body: &[u8]) {
+    let is_json = headers
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.contains("json"));
+    if !is_json {
+        return;
+    }
+    let Ok(value) = serde_json::from_slice::<Value>(body) else {
+        return;
+    };
+    fn walk(value: &Value, path: &mut String) {
+        match value {
+            Value::String(s) => {
+                let digits = s.strip_prefix('-').unwrap_or(s);
+                let decimal = digits.split_once('.').is_some_and(|(int, frac)| {
+                    !int.is_empty()
+                        && !frac.is_empty()
+                        && int.bytes().all(|b| b.is_ascii_digit())
+                        && frac.bytes().all(|b| b.is_ascii_digit())
+                });
+                assert!(
+                    !decimal,
+                    "{path} is the string \"{s}\"; Java sends a JSON number. Serialize Decimal fields with rust_decimal::serde::arbitrary_precision, or call allow_decimal_strings() if Java really sends a string"
+                );
+            }
+            Value::Array(items) => {
+                for (i, item) in items.iter().enumerate() {
+                    let len = path.len();
+                    path.push_str(&format!("[{i}]"));
+                    walk(item, path);
+                    path.truncate(len);
+                }
+            }
+            Value::Object(map) => {
+                for (key, item) in map {
+                    let len = path.len();
+                    path.push('.');
+                    path.push_str(key);
+                    walk(item, path);
+                    path.truncate(len);
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(&value, &mut String::from("$"));
 }
 
 impl Request {
+    /// For a response field Java declares as a `String` that can hold a decimal.
+    pub fn allow_decimal_strings(mut self) -> Self {
+        self.allow_decimal_strings = true;
+        self
+    }
+
     pub fn json(mut self, body: &Value) -> Self {
         self.builder = self.builder.json(body);
         self
@@ -501,6 +561,9 @@ impl Request {
         let headers = response.headers().clone();
         self.client.absorb(&headers);
         let body = response.bytes().await.expect("body").to_vec();
+        if !self.allow_decimal_strings {
+            assert_no_decimal_strings(&headers, &body);
+        }
         Response {
             status,
             headers,
