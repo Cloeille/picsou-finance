@@ -28,10 +28,10 @@ export function stepLabel(index: number, s: HttpStep, norm: Normalizer): string 
 }
 
 async function buildBody(step: HttpStep, vars: Vars): Promise<{ body?: string | FormData; headers: Record<string, string> }> {
-  const headers: Record<string, string> = { ...(step.headers ?? {}) };
+  const headers: Record<string, string> = { ...(step.headers === undefined ? {} : await resolve(step.headers, vars)) };
   if (step.raw) {
     headers["content-type"] = step.raw.contentType;
-    return { body: step.raw.body, headers };
+    return { body: await resolve(step.raw.body, vars), headers };
   }
   if (step.multipart !== undefined) {
     const parts = await resolve(step.multipart, vars);

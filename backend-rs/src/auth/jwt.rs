@@ -52,7 +52,24 @@ pub struct Claims {
     pub nbf: Option<i64>,
     pub aud: Option<Value>,
     pub iss: Option<String>,
+    /// A space-delimited string on MCP tokens, an array on the authorization server's first-party
+    /// tokens; both read as the space-delimited form.
+    #[serde(default, deserialize_with = "scope_text")]
     pub scope: Option<String>,
+}
+
+fn scope_text<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
+    Ok(match Option::<Value>::deserialize(deserializer)? {
+        Some(Value::String(s)) => Some(s),
+        Some(Value::Array(items)) => Some(
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(" "),
+        ),
+        _ => None,
+    })
 }
 
 impl Claims {
