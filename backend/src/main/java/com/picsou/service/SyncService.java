@@ -491,7 +491,9 @@ public class SyncService {
             // A deleted uid is not a rotation, even when another connector owns the IBAN.
             boolean deletedUid = accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(
                 data.externalId(), member.getId());
-            if (!deletedUid && data.iban() != null) {
+            // A card may carry the IBAN of the account it is debited from: matching on it would
+            // turn that current account into the card for good.
+            if (!deletedUid && data.iban() != null && data.type() != AccountType.CREDIT_CARD) {
                 existing = accountRepository.findByIbanAndCurrencyAndMemberId(data.iban(), currency, member.getId());
             }
             if (deletedUid || (existing.isEmpty() && data.iban() != null &&

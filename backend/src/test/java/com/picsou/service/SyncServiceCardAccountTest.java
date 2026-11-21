@@ -159,6 +159,15 @@ class SyncServiceCardAccountTest {
     }
 
     @Test
+    void cardCarryingItsCurrentAccountIban_isNeverMatchedToIt() {
+        AccountData card = new AccountData("uid-new-card", "Carte Visa Synthetic Holder", "FR00SYNTHETIC", "EUR",
+            new BigDecimal("-12.00"), AccountType.CREDIT_CARD, CardNature.DEFERRED_DEBIT, "delayed_debit");
+        Account saved = sync(null, card);
+        verify(accountRepository, never()).findByIbanAndCurrencyAndMemberId(any(), any(), any());
+        assertThat(saved.getExternalAccountId()).isEqualTo("uid-new-card");
+    }
+
+    @Test
     void newCardWithoutReadableBalance_startsAtZero() {
         Account saved = sync(null, cardWithoutBalance());
         assertThat(saved.getCurrentBalance()).isEqualByComparingTo("0");

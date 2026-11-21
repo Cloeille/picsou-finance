@@ -360,8 +360,9 @@ Known gaps (#664 follow-ups):
 - **Deferred-debit cards** have no `paymentDueAmount` / `paymentDueDate`, no link to their current
   account and no settlement tagging: Enable Banking says neither which account a card is debited
   from nor when (#668). The card's balance is its `XPCD` balance (the real-time amount still owed).
-- **A card has no IBAN**, so the IBAN fallback that survives an Enable Banking uid rotation cannot
-  match it: a rotated card uid creates a second card. This predates #664 (the rows were `CHECKING`
+- **A card never uses the IBAN fallback** that survives an Enable Banking uid rotation: a card may
+  carry its current account's IBAN, and matching on it would turn that account into the card. A
+  rotated card uid therefore creates a second card. This predates #664 (the rows were `CHECKING`
   without an IBAN too).
 
 ### Key files
