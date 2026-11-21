@@ -98,6 +98,7 @@
 | 2026-11-06 | [Parallel CI legs that prove their own completeness](./decisions/2026-11-06-parallel-ci-legs.md) | Active |
 | 2026-11-20 | [Exchange credentials carry an API passphrase and region when required](./decisions/2026-11-20-exchange-api-passphrase.md) | Active |
 | 2026-11-15 | [A Tauri desktop app built from the Docker release](./decisions/2026-11-15-desktop-app-tauri.md) | Proposed |
+| 2026-11-21 | [The integration switch shows the stored choice and stops only Picsou's own syncs](./decisions/2026-11-21-integration-switch-stops-own-syncs.md) | Active |
 
 ## Feature notes
 

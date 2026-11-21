@@ -462,7 +462,7 @@ Because the text fields (Application ID + Redirect URI) live in Postgres while t
 - `BankCountrySelect.test.tsx` (frontend) -- loading fallback (no error shown), live options with default-country-first ordering, `onChange` on selection, visible error on a failed fetch with no prior data, visible error on an empty-but-successful response, error suppressed when stale-but-real data is still shown during a failed background refetch, snap-to-first-available when the current value isn't in the loaded list
 - `InstitutionSearch.test.tsx` (frontend) -- the not-configured notice replaces the countries error and the search error (admin link, member wording), and a transient countries error is rendered full-width
 - `AdminControllerTest` -- `getSettings` reads the resolved provider; `updateEnableBanking` delegates the 2-arg writer
-- `IntegrationsServiceTest` -- `isEffectivelyEnabled` = stored flag OR detected config (env/DB/session presence)
+- `IntegrationsServiceTest` -- `isEnabled` is the stored flag (missing = Enabled, stored `false` = Disabled); `integrationOf` maps each sync source to its integration
 - Manual integration testing against real provider APIs
 
 ## Links

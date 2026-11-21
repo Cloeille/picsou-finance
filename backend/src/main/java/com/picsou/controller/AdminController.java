@@ -83,12 +83,10 @@ public class AdminController {
         String appId = ebConfigProvider.applicationId().orElse("");
         String redirectUri = ebConfigProvider.redirectUri().orElse("");
 
-        // Effective state, not the raw wizard flag: an integration configured
-        // purely via .env / compose (and thus live) reports on even though its
-        // DB toggle was never flipped by the wizard.
+        // The stored choice, so a switch turned off reads back off (#666).
         Map<String, Boolean> integrations = new LinkedHashMap<>();
         for (String name : INTEGRATIONS) {
-            integrations.put(name, integrationsService.isEffectivelyEnabled(name));
+            integrations.put(name, integrationsService.isEnabled(name));
         }
 
         AdminSettingsResponse.AiSettings ai = new AdminSettingsResponse.AiSettings(

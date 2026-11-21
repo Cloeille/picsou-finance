@@ -562,8 +562,8 @@ holdings, flags the accounts without history, and logs no URL, amount or IBAN.
 
 Backend — `BoursoAdapterTest` (18), `BoursoSyncServiceTest` (29),
 `BoursoControllerTest` (11), `BoursoAdapterWiringTest`, `BoursoSyncRecoveryTest`,
-plus the BoursoBank cases added to `AccountServiceTest`,
-`AccountConnectionServiceTest` and `IntegrationsServiceTest`.
+plus the BoursoBank cases added to `AccountServiceTest` and
+`AccountConnectionServiceTest`.
 `SchemaMappingValidationTest` is what proves the entity matches V78.
 
 Frontend — `BoursoTab.test.tsx` (6): the app-push wait, the direct sign-in,

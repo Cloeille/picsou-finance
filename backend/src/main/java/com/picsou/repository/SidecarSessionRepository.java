@@ -23,10 +23,6 @@ public interface SidecarSessionRepository extends JpaRepository<SidecarSession, 
         @Param("memberId") Long memberId
     );
 
-    boolean existsByBankAndActiveTrue(SidecarBank bank);
-
-    boolean existsByBankAndMemberIdAndActiveTrue(SidecarBank bank, Long memberId);
-
     long countByBank(SidecarBank bank);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)

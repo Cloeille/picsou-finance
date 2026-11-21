@@ -58,7 +58,7 @@ class AdminControllerTest {
         when(ebConfigProvider.redirectUri()).thenReturn(Optional.of("https://app.com/callback"));
         when(ebConfigProvider.privateKeyPresent()).thenReturn(true);
         for (String key : INTEGRATIONS) {
-            when(integrationsService.isEffectivelyEnabled(key)).thenReturn("enablebanking".equals(key));
+            when(integrationsService.isEnabled(key)).thenReturn("enablebanking".equals(key));
         }
 
         when(telemetryService.isAvailable()).thenReturn(true);
@@ -223,7 +223,7 @@ class AdminControllerTest {
         lenient().when(ebConfigProvider.redirectUri()).thenReturn(Optional.empty());
         lenient().when(ebConfigProvider.privateKeyPresent()).thenReturn(false);
         for (String key : INTEGRATIONS) {
-            lenient().when(integrationsService.isEffectivelyEnabled(key)).thenReturn(false);
+            lenient().when(integrationsService.isEnabled(key)).thenReturn(false);
         }
         when(aiConfigProvider.storedProvider()).thenReturn("anthropic");
         when(aiConfigProvider.storedModel()).thenReturn("m");

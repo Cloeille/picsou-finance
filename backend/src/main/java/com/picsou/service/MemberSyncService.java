@@ -79,6 +79,7 @@ public class MemberSyncService {
     private final LbpSyncService lbpSyncService;
     private final BnpSyncService bnpSyncService;
     private final LouveSyncService louveSyncService;
+    private final IntegrationsService integrationsService;
 
     public MemberSyncService(
             RevolutSyncService revolutSyncService,
@@ -103,7 +104,8 @@ public class MemberSyncService {
             NatixisSyncService natixisSyncService,
             LbpSyncService lbpSyncService,
             BnpSyncService bnpSyncService,
-            LouveSyncService louveSyncService) {
+            LouveSyncService louveSyncService,
+            IntegrationsService integrationsService) {
         this.revolutSyncService = revolutSyncService;
         this.syncService = syncService;
         this.trSyncService = trSyncService;
@@ -127,6 +129,7 @@ public class MemberSyncService {
         this.lbpSyncService = lbpSyncService;
         this.bnpSyncService = bnpSyncService;
         this.louveSyncService = louveSyncService;
+        this.integrationsService = integrationsService;
     }
 
     public List<SourceSyncResult> resyncScheduled(Long memberId) {
@@ -167,11 +170,17 @@ public class MemberSyncService {
     }
 
     /**
-     * Runs one source and always returns a result: an unknown source is SKIPPED and an unexpected
-     * exception is FAILED, so one source never stops the others.
+     * Runs one source and always returns a result: an unknown source, or one whose integration
+     * the admin disabled, is SKIPPED and an unexpected exception is FAILED, so one source never
+     * stops the others.
      */
     private SourceSyncResult executeSource(String source, Long memberId) {
         try {
+            if (IntegrationsService.integrationOf(source)
+                    .filter(integration -> !integrationsService.isEnabled(integration))
+                    .isPresent()) {
+                return new SourceSyncResult(source, Status.SKIPPED, "Disabled in Admin > Integrations");
+            }
             switch (source) {
                 case "revolut":
                     return revolutSyncService.resyncReporting(memberId);

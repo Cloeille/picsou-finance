@@ -106,22 +106,6 @@ public class EnableBankingConfigProvider {
     }
 
     /**
-     * Cheap, non-parsing variant of {@link #isConfigured()}: all three text
-     * fields are present and a private key file/PEM exists, without ever
-     * parsing the key. Use this on status surfaces (e.g. deriving the admin
-     * integration toggle) so a malformed key reports as "configured" rather
-     * than throwing — {@link #privateKey()} surfaces the parse error at real
-     * use time. The strict {@link #isConfigured()} stays for code paths that
-     * actually need a usable key.
-     */
-    public boolean isConfiguredLenient() {
-        return applicationId().isPresent()
-            && keyId().isPresent()
-            && redirectUri().isPresent()
-            && privateKeyPresent();
-    }
-
-    /**
      * Cheap, non-parsing check of whether a private key is available — mirrors
      * the source precedence of {@link #privateKey()} but only tests for
      * existence / non-blank content. Used by status surfaces (e.g. the admin

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Turning an integration off in Admin > Integrations now works.** The switch always read
+  back "enabled" once the integration was set up, and turning it off stopped nothing. It now
+  shows the choice you saved, and Off stops Picsou's own syncs of that integration: the
+  08:00 run, the catch-up at startup and the assistant's sync tools. Pressing Sync still
+  works. On upgrade, migration `V156` turns every switch back on once, because the "off"
+  values stored until now came from install defaults and never took effect: turn off again
+  what you want off. (#666)
+
 ## [1.2.2] — 2026-11-21
 
 ### Added

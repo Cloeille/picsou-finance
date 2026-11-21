@@ -1,13 +1,7 @@
 package com.picsou.service;
 
-import com.picsou.adapter.sidecar.SidecarBank;
-import com.picsou.config.EnableBankingConfigProvider;
 import com.picsou.model.AppSetting;
-import com.picsou.model.LbpSession;
 import com.picsou.repository.AppSettingRepository;
-import com.picsou.repository.SidecarSessionRepository;
-import com.picsou.repository.FinarySessionRepository;
-import com.picsou.repository.LbpSessionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -19,6 +13,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -27,11 +22,6 @@ import static org.mockito.Mockito.when;
 class IntegrationsServiceTest {
 
     @Mock AppSettingRepository settingRepository;
-    @Mock EnableBankingConfigProvider enableBankingConfig;
-    @Mock FinarySessionRepository finarySessions;
-    @Mock SidecarSessionRepository sidecarSessions;
-    @Mock LbpSessionRepository lbpSessions;
-    @Mock UserContext userContext;
     @InjectMocks IntegrationsService integrationsService;
 
     @Test
@@ -47,23 +37,40 @@ class IntegrationsServiceTest {
     }
 
     @Test
-    void disable_upsertsFalseFlag() {
-        when(settingRepository.findByKey("integration.finary.enabled")).thenReturn(Optional.empty());
+    void disable_overwritesAnExistingFlagWithFalse() {
+        AppSetting stored = AppSetting.builder().key("integration.finary.enabled").value("true").build();
+        when(settingRepository.findByKey("integration.finary.enabled")).thenReturn(Optional.of(stored));
+
         integrationsService.disable("finary");
+
         ArgumentCaptor<AppSetting> captor = ArgumentCaptor.forClass(AppSetting.class);
         verify(settingRepository).save(captor.capture());
+        assertThat(captor.getValue()).isSameAs(stored);
         assertThat(captor.getValue().getValue()).isEqualTo("false");
     }
 
     @Test
-    void isEnabled_readsFromRepository_defaultsToFalse() {
-        when(settingRepository.findByKey("integration.traderepublic.enabled"))
-            .thenReturn(Optional.empty());
-        assertThat(integrationsService.isEnabled("traderepublic")).isFalse();
+    void isEnabled_missingFlag_readsAsEnabled() {
+        // An install configured through .env never wrote the flag.
+        when(settingRepository.findByKey("integration.traderepublic.enabled")).thenReturn(Optional.empty());
 
-        AppSetting truthy = AppSetting.builder().key("integration.boursobank.enabled").value("true").build();
-        when(settingRepository.findByKey("integration.boursobank.enabled"))
-            .thenReturn(Optional.of(truthy));
+        assertThat(integrationsService.isEnabled("traderepublic")).isTrue();
+    }
+
+    @Test
+    void isEnabled_storedFalse_readsBackAsDisabled() {
+        // #666: the switch read back on whatever was stored, once the integration was set up.
+        AppSetting off = AppSetting.builder().key("integration.enablebanking.enabled").value("false").build();
+        when(settingRepository.findByKey("integration.enablebanking.enabled")).thenReturn(Optional.of(off));
+
+        assertThat(integrationsService.isEnabled("enablebanking")).isFalse();
+    }
+
+    @Test
+    void isEnabled_storedTrue_readsAsEnabled() {
+        AppSetting on = AppSetting.builder().key("integration.boursobank.enabled").value("true").build();
+        when(settingRepository.findByKey("integration.boursobank.enabled")).thenReturn(Optional.of(on));
+
         assertThat(integrationsService.isEnabled("boursobank")).isTrue();
     }
 
@@ -73,111 +80,27 @@ class IntegrationsServiceTest {
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("Unknown integration");
 
-        verify(settingRepository, never()).save(org.mockito.ArgumentMatchers.any());
+        verify(settingRepository, never()).save(any());
     }
 
     @Test
-    void isEffectivelyEnabled_enableBanking_trueWhenConfiguredViaEnv_evenIfFlagOff() {
-        // The reported case: configured purely via .env (flag never flipped by the wizard).
-        when(settingRepository.findByKey("integration.enablebanking.enabled")).thenReturn(Optional.empty());
-        when(enableBankingConfig.isConfiguredLenient()).thenReturn(true);
-
-        assertThat(integrationsService.isEffectivelyEnabled("enablebanking")).isTrue();
+    void integrationOf_mapsEachSyncSourceToItsIntegration() {
+        assertThat(IntegrationsService.integrationOf("enable-banking")).contains("enablebanking");
+        assertThat(IntegrationsService.integrationOf("enable-banking-retry")).contains("enablebanking");
+        assertThat(IntegrationsService.integrationOf("trade-republic")).contains("traderepublic");
+        assertThat(IntegrationsService.integrationOf("bourso")).contains("boursobank");
+        assertThat(IntegrationsService.integrationOf("bourse-direct")).contains("boursedirect");
+        assertThat(IntegrationsService.integrationOf("fortuneo")).contains("fortuneo");
+        assertThat(IntegrationsService.integrationOf("lbp")).contains("lbp");
+        assertThat(IntegrationsService.integrationOf("finary")).contains("finary");
+        assertThat(IntegrationsService.integrationOf("crypto-exchanges")).contains("crypto");
+        assertThat(IntegrationsService.integrationOf("wallets")).contains("crypto");
     }
 
     @Test
-    void isEffectivelyEnabled_traderepublic_trueWhenSessionExists_evenIfFlagOff() {
-        when(settingRepository.findByKey("integration.traderepublic.enabled")).thenReturn(Optional.empty());
-        when(sidecarSessions.countByBank(SidecarBank.TRADE_REPUBLIC)).thenReturn(1L);
-
-        assertThat(integrationsService.isEffectivelyEnabled("traderepublic")).isTrue();
-    }
-
-    @Test
-    void isEffectivelyEnabled_finary_falseWhenNoSessionAndFlagOff() {
-        when(settingRepository.findByKey("integration.finary.enabled")).thenReturn(Optional.empty());
-        when(finarySessions.count()).thenReturn(0L);
-
-        assertThat(integrationsService.isEffectivelyEnabled("finary")).isFalse();
-    }
-
-    @Test
-    void isEffectivelyEnabled_bourseDirect_trueWhenAnActiveSessionExists() {
-        when(settingRepository.findByKey("integration.boursedirect.enabled")).thenReturn(Optional.empty());
-        when(sidecarSessions.existsByBankAndActiveTrue(SidecarBank.BOURSE_DIRECT)).thenReturn(true);
-
-        assertThat(integrationsService.isEffectivelyEnabled("boursedirect")).isTrue();
-    }
-
-    @Test
-    void isEffectivelyEnabled_bourseDirect_falseWhenOnlyExpiredSessionsExist() {
-        when(settingRepository.findByKey("integration.boursedirect.enabled")).thenReturn(Optional.empty());
-        when(sidecarSessions.existsByBankAndActiveTrue(SidecarBank.BOURSE_DIRECT)).thenReturn(false);
-
-        assertThat(integrationsService.isEffectivelyEnabled("boursedirect")).isFalse();
-    }
-
-    @Test
-    void isEffectivelyEnabled_boursoBank_trueWhenAnActiveSessionExists() {
-        when(settingRepository.findByKey("integration.boursobank.enabled")).thenReturn(Optional.empty());
-        when(sidecarSessions.existsByBankAndActiveTrue(SidecarBank.BOURSO)).thenReturn(true);
-
-        assertThat(integrationsService.isEffectivelyEnabled("boursobank")).isTrue();
-    }
-
-    @Test
-    void isEffectivelyEnabled_boursoBank_falseWhenOnlyExpiredSessionsExist() {
-        when(settingRepository.findByKey("integration.boursobank.enabled")).thenReturn(Optional.empty());
-        when(sidecarSessions.existsByBankAndActiveTrue(SidecarBank.BOURSO)).thenReturn(false);
-
-        assertThat(integrationsService.isEffectivelyEnabled("boursobank")).isFalse();
-    }
-
-    @Test
-    void isEffectivelyEnabled_fortuneo_trueWhenAnActiveSessionExists() {
-        when(settingRepository.findByKey("integration.fortuneo.enabled")).thenReturn(Optional.empty());
-        when(userContext.currentMemberId()).thenReturn(7L);
-        when(sidecarSessions.existsByBankAndMemberIdAndActiveTrue(SidecarBank.FORTUNEO, 7L)).thenReturn(true);
-
-        assertThat(integrationsService.isEffectivelyEnabled("fortuneo")).isTrue();
-    }
-
-    @Test
-    void isEffectivelyEnabled_fortuneo_falseWhenOnlyExpiredSessionsExist() {
-        when(settingRepository.findByKey("integration.fortuneo.enabled")).thenReturn(Optional.empty());
-        when(userContext.currentMemberId()).thenReturn(7L);
-        when(sidecarSessions.existsByBankAndMemberIdAndActiveTrue(SidecarBank.FORTUNEO, 7L)).thenReturn(false);
-
-        assertThat(integrationsService.isEffectivelyEnabled("fortuneo")).isFalse();
-    }
-
-    @Test
-    void isEffectivelyEnabled_lbp_trueWhenAnActiveSessionExists() {
-        when(settingRepository.findByKey("integration.lbp.enabled")).thenReturn(Optional.empty());
-        when(userContext.currentMemberId()).thenReturn(7L);
-        when(lbpSessions.findByMemberId(7L))
-            .thenReturn(Optional.of(LbpSession.builder().active(true).build()));
-
-        assertThat(integrationsService.isEffectivelyEnabled("lbp")).isTrue();
-    }
-
-    @Test
-    void isEffectivelyEnabled_lbp_falseWhenOnlyAnInactiveSessionExists() {
-        when(settingRepository.findByKey("integration.lbp.enabled")).thenReturn(Optional.empty());
-        when(userContext.currentMemberId()).thenReturn(7L);
-        when(lbpSessions.findByMemberId(7L))
-            .thenReturn(Optional.of(LbpSession.builder().active(false).build()));
-
-        assertThat(integrationsService.isEffectivelyEnabled("lbp")).isFalse();
-    }
-
-    @Test
-    void isEffectivelyEnabled_crypto_fallsBackToStoredFlag_whenNoDetectionSignal() {
-        // crypto has no cheap config signal, so the stored flag is authoritative.
-        AppSetting truthy = AppSetting.builder().key("integration.crypto.enabled").value("true").build();
-        when(settingRepository.findByKey("integration.crypto.enabled")).thenReturn(Optional.of(truthy));
-
-        assertThat(integrationsService.isEffectivelyEnabled("crypto")).isTrue();
+    void integrationOf_sourceWithoutASwitch_isEmpty() {
+        assertThat(IntegrationsService.integrationOf("revolut")).isEmpty();
+        assertThat(IntegrationsService.integrationOf("degiro")).isEmpty();
     }
 
     @Test

@@ -78,7 +78,8 @@ public class SetupService {
         SetupState state = currentState();
         Map<String, Boolean> integrations = new LinkedHashMap<>();
         for (String name : INTEGRATIONS) {
-            integrations.put(name, readBool(integrationKey(name), false));
+            // A missing flag is Enabled, as in IntegrationsService.isEnabled.
+            integrations.put(name, readBool(integrationKey(name), true));
         }
         return new SetupStatusResponse(state, state != SetupState.COMPLETE, integrations,
             new SetupSsoInfo(ssoProperties.enabled(), ssoProperties.providerName(), ssoProperties.adminGroupConfigured()));

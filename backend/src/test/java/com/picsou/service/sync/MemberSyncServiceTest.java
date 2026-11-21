@@ -53,6 +53,7 @@ class MemberSyncServiceTest {
     @Mock private DegiroSyncService degiroSyncService;
     @Mock private DividendReceiptService dividendReceiptService;
     @Mock private InternalTransferPairingService transferPairingService;
+    @Mock private IntegrationsService integrationsService;
 
     private MemberSyncService memberSyncService;
 
@@ -67,8 +68,10 @@ class MemberSyncServiceTest {
             natixisSyncService,
             lbpSyncService,
             bnpSyncService,
-            louveSyncService
+            louveSyncService,
+            integrationsService
         );
+        lenient().when(integrationsService.isEnabled(anyString())).thenReturn(true);
         lenient().when(louveSyncService.resyncReporting(anyLong())).thenReturn(
             new SourceSyncResult("louve", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
         lenient().when(cmesSyncService.resyncReporting(anyLong())).thenReturn(
@@ -332,6 +335,35 @@ class MemberSyncServiceTest {
         List<SourceSyncResult> results = memberSyncService.resyncForUser(memberId, Set.of("amex"));
 
         assertThat(results).containsExactly(success("amex"));
+    }
+
+    @Test
+    void disabledIntegration_skipsItsSources_withoutCallingTheirService() {
+        when(integrationsService.isEnabled("enablebanking")).thenReturn(false);
+        when(integrationsService.isEnabled("crypto")).thenReturn(false);
+        when(revolutSyncService.resyncReporting(42L)).thenReturn(success("revolut"));
+
+        List<SourceSyncResult> results = memberSyncService.resyncForUser(42L,
+            Set.of("revolut", "enable-banking", "enable-banking-retry", "crypto-exchanges", "wallets"));
+
+        assertThat(results).extracting(SourceSyncResult::source)
+            .containsExactly("revolut", "enable-banking", "enable-banking-retry", "crypto-exchanges", "wallets");
+        assertThat(results.get(0).status()).isEqualTo(SourceSyncResult.Status.SYNCED);
+        assertThat(results.subList(1, 5)).allSatisfy(result -> {
+            assertThat(result.status()).isEqualTo(SourceSyncResult.Status.SKIPPED);
+            assertThat(result.message()).isEqualTo("Disabled in Admin > Integrations");
+        });
+        verifyNoInteractions(syncService, cryptoExchangeSyncService, walletSyncService);
+    }
+
+    @Test
+    void sourceWithoutASwitch_neverChecksIt() {
+        when(revolutSyncService.resyncReporting(42L)).thenReturn(success("revolut"));
+
+        memberSyncService.resyncForUser(42L, Set.of("revolut"));
+
+        verify(revolutSyncService).resyncReporting(42L);
+        verify(integrationsService, never()).isEnabled(anyString());
     }
 
     @Test
