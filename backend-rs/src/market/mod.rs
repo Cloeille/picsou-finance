@@ -9,6 +9,7 @@ pub mod metals;
 pub mod nasdaq;
 pub mod num;
 pub mod prices;
+pub mod runners;
 pub mod yahoo;
 
 use std::collections::BTreeSet;

@@ -67,6 +67,11 @@ impl PriceService {
         })
     }
 
+    /// clearPriceCache.
+    pub fn clear_cache(&self) {
+        self.cache.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+
     fn remember(&self, ticker: &str, price: Option<Decimal>) {
         self.cache
             .lock()

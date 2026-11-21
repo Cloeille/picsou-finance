@@ -5,3 +5,4 @@ mod geocoding;
 mod insee;
 mod nasdaq;
 mod prices;
+mod runners;
