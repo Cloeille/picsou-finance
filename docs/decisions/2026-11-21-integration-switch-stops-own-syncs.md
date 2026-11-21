@@ -54,6 +54,9 @@ member who presses Sync is asking for it explicitly.
 - Disabled does not block a manual sync or a new connection.
 - An admin who had stored a deliberate `false` sees the switch on again after V156 and turns
   it off once more. No such `false` ever took effect, so nothing they relied on changes.
+- The switch no longer hints whether an integration is set up: after V156 every switch reads
+  on, including integrations with no credentials or sidecar. Whether one is set up shows on
+  its own tab and in the sync results (`SKIPPED_NOT_CONNECTED`), not on the switch.
 
 ## Consequences
 

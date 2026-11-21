@@ -11,10 +11,9 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Toggles {@code integration.{key}.enabled} flags in {@code app_setting}.
- * The "intent → config → enable" ordering is deliberate: each substep's
- * *success* endpoint is what actually flips the flag to true. The Step 3
- * picker only records user intent in the frontend store.
+ * Toggles {@code integration.{key}.enabled} flags in {@code app_setting}: the
+ * switches of the Admin page's Integrations tab, also written true by each setup
+ * sub-step's success endpoint.
  *
  * <p>The flag is the admin's choice and nothing else: a missing row reads as
  * enabled (an install configured through {@code .env} never wrote one), and only

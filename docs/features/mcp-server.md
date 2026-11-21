@@ -257,7 +257,9 @@ sessions/credentials as the documented side effect of deleting a connection's la
   every 15 minutes, and four per day. Every advertised trigger description and the blocked-call
   response explain that this cooldown is shared across tools: a bank-only trigger can therefore
   block a subsequent broker-only trigger. The response includes `Try again in N min` and does not
-  touch the banks. `get_sync_status` (`sync:read`) does not consume the cooldown. The 08:00
+  touch the banks. A source whose integration is Disabled in Admin > Integrations comes back
+  `SKIPPED` "Disabled in Admin > Integrations" and its provider is not called (#666); the call
+  still uses the cooldown. `get_sync_status` (`sync:read`) does not consume the cooldown. The 08:00
   scheduler does not use the bucket. This dedicated store expires entries 24 hours after creation,
   rather than using the other limiters' one-hour idle eviction, so hourly calls cannot reset the
   daily budget. The store is in-memory, like the other limiters, so a restart
