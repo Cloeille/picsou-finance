@@ -291,3 +291,143 @@ async fn precious_metals_intraday_holds_coin_quote_flat_and_parses_french_amount
     assert_eq!(arr[0]["priceEur"].to_string(), "709.90");
     assert_eq!(arr[24]["priceEur"].to_string(), "709.90");
 }
+
+#[tokio::test]
+async fn coingecko_serves_history_intraday_and_logo_urls() {
+    use chrono::NaiveDate;
+
+    let yahoo = MockServer::start().await;
+    let coingecko = MockServer::start().await;
+    let app = app(&yahoo, &coingecko).await;
+    let t1 = chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, 2026, 1, 14, 12, 0, 0)
+        .unwrap()
+        .timestamp_millis();
+    let t2 = chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, 2026, 1, 15, 8, 0, 0)
+        .unwrap()
+        .timestamp_millis();
+    let t_oob = chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, 2026, 1, 1, 0, 0, 0)
+        .unwrap()
+        .timestamp_millis();
+    Mock::given(method("GET"))
+        .and(path("/coins/bitcoin/market_chart/range"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "prices": [
+                [t_oob, 80000.0],
+                [t1, 91234.567891234],
+                [t2, 92000.5],
+                [t2, -5.0],
+                ["bad", 100.0]
+            ]
+        })))
+        .mount(&coingecko)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/coins/markets"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"id": "bitcoin", "image": "https://coin-images.coingecko.com/btc.png"}
+        ])))
+        .mount(&coingecko)
+        .await;
+
+    let saved = app
+        .state
+        .market
+        .prices()
+        .backfill_historical_prices(
+            &BTreeSet::from(["BTC".to_owned()]),
+            NaiveDate::from_ymd_opt(2026, 1, 10).unwrap(),
+            true,
+        )
+        .await;
+    assert_eq!(saved, 2);
+
+    let admin = app.login_admin().await;
+    let intraday = admin.get("/api/prices/BTC/intraday").send().await.json();
+    let pts = intraday.as_array().unwrap();
+    assert_eq!(pts.len(), 2);
+    assert_eq!(pts[0]["priceEur"].to_string(), "91234.56789123");
+    assert_eq!(pts[1]["priceEur"].to_string(), "92000.50000000");
+
+    let logos = app
+        .state
+        .market
+        .coingecko()
+        .logo_urls(&BTreeSet::from(["btc".to_owned(), "AAPL".to_owned()]))
+        .await;
+    assert_eq!(
+        logos.get("BTC").map(String::as_str),
+        Some("https://coin-images.coingecko.com/btc.png")
+    );
+    assert!(!logos.contains_key("AAPL"));
+}
+
+#[tokio::test]
+async fn crypto_learning_guards_with_yahoo_dominance_and_drops_old_stock_snapshots() {
+    let yahoo = MockServer::start().await;
+    let coingecko = MockServer::start().await;
+    let app = app(&yahoo, &coingecko).await;
+
+    // STX is a listed equity on Yahoo: must never be learned as crypto.
+    stub_chart(&yahoo, "STX", "USD", 100.0, 1).await;
+    // NEWC and AMBG are unknown to Yahoo (404).
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/NEWC"))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&yahoo)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/AMBG"))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&yahoo)
+        .await;
+    // CoinGecko returns a dominant coin for NEWC (20x runner-up) and ambiguous coins for AMBG (2x).
+    Mock::given(method("GET"))
+        .and(path("/coins/markets"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"id": "newcoin", "symbol": "newc", "name": "NewCoin", "market_cap_rank": 40, "market_cap": 200000000},
+            {"id": "newcoin-wrapped", "symbol": "newc", "name": "Wrapped", "market_cap_rank": 900, "market_cap": 10000000},
+            {"id": "ambg-a", "symbol": "ambg", "name": "Ambg A", "market_cap_rank": 200, "market_cap": 20000000},
+            {"id": "ambg-b", "symbol": "ambg", "name": "Ambg B", "market_cap_rank": 250, "market_cap": 10000000}
+        ])))
+        .mount(&coingecko)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/simple/price"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"newcoin": {"eur": 4.25}})))
+        .mount(&coingecko)
+        .await;
+
+    // Seed a stale Yahoo-era snapshot for NEWC; learning must purge it atomically.
+    sqlx::query(
+        "INSERT INTO price_snapshot (ticker, date, price_eur, created_at) VALUES ('NEWC', '2026-01-10', 99.00, NOW())",
+    )
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+
+    let prices = app
+        .state
+        .market
+        .prices()
+        .refresh_crypto_prices(&BTreeSet::from([
+            "STX".to_owned(),
+            "NEWC".to_owned(),
+            "AMBG".to_owned(),
+        ]))
+        .await;
+    assert_eq!(
+        prices.get("NEWC").map(ToString::to_string).as_deref(),
+        Some("4.25")
+    );
+    assert!(!prices.contains_key("STX"));
+    assert!(!prices.contains_key("AMBG"));
+
+    // Only the freshly written 2026-01-15 snapshot remains for NEWC; the 2026-01-10 stock row is gone.
+    let old_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM price_snapshot WHERE ticker = 'NEWC' AND date = '2026-01-10'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(old_count, 0);
+}

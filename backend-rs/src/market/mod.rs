@@ -53,6 +53,7 @@ pub struct Market {
     openfigi: Arc<OpenFigi>,
     cooldown: Arc<YahooCooldown>,
     yahoo: Arc<YahooFinance>,
+    coingecko: Arc<CoinGecko>,
 }
 
 impl Market {
@@ -68,6 +69,7 @@ impl Market {
             http.clone(),
             &config.coingecko_base_url,
             db.clone(),
+            clock.clone(),
             Arc::new(YahooCooldown::new(clock.clone())),
         ));
         let openfigi = Arc::new(OpenFigi::new(
@@ -81,7 +83,7 @@ impl Market {
                 db.clone(),
                 clock.clone(),
                 yahoo.clone(),
-                coingecko,
+                coingecko.clone(),
                 Arc::new(PreciousMetals::new(
                     http.clone(),
                     &config.precious_metals_base_url,
@@ -92,6 +94,7 @@ impl Market {
             openfigi,
             cooldown,
             yahoo,
+            coingecko,
         }
     }
 
@@ -100,6 +103,12 @@ impl Market {
     /// intraday_prices_eur, probe_quote, search_symbols, equity_sector, instrument_type.
     pub fn yahoo(&self) -> &Arc<YahooFinance> {
         &self.yahoo
+    }
+
+    /// CoinGecko client: prices_eur, historical_prices_eur, intraday_prices_eur, logo_urls,
+    /// resolve_by_symbol, learn.
+    pub fn coingecko(&self) -> &Arc<CoinGecko> {
+        &self.coingecko
     }
 
     /// YahooCooldown: active(), until(), arm(retry_after).
