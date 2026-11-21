@@ -5,6 +5,7 @@ pub mod coingecko;
 pub mod cooldown;
 pub mod geocoding;
 pub mod insee;
+pub mod justetf;
 pub mod metals;
 pub mod nasdaq;
 pub mod num;
@@ -24,6 +25,7 @@ use sqlx::PgPool;
 
 use self::coingecko::CoinGecko;
 use self::cooldown::YahooCooldown;
+use self::justetf::JustEtf;
 use self::metals::PreciousMetals;
 use self::openfigi::OpenFigi;
 use self::prices::PriceService;
@@ -51,6 +53,7 @@ pub fn register(routes: &mut Routes) {
 pub struct Market {
     prices: Arc<PriceService>,
     openfigi: Arc<OpenFigi>,
+    justetf: Arc<JustEtf>,
     cooldown: Arc<YahooCooldown>,
     yahoo: Arc<YahooFinance>,
     coingecko: Arc<CoinGecko>,
@@ -78,6 +81,7 @@ impl Market {
             yahoo.clone(),
             coingecko.clone(),
         ));
+        let justetf = Arc::new(JustEtf::new(http.clone(), &config.justetf_base_url));
         Self {
             prices: Arc::new(PriceService::new(
                 db.clone(),
@@ -92,6 +96,7 @@ impl Market {
                 )),
             )),
             openfigi,
+            justetf,
             cooldown,
             yahoo,
             coingecko,
@@ -124,6 +129,11 @@ impl Market {
     /// OpenFIGI ISIN to ticker: resolve(isin), resolve_isin_or_symbol.
     pub fn openfigi(&self) -> &Arc<OpenFigi> {
         &self.openfigi
+    }
+
+    /// justETF ETF composition & facts by ISIN.
+    pub fn justetf(&self) -> &Arc<JustEtf> {
+        &self.justetf
     }
 
     /// The price service the ledger's valuation reads through.
