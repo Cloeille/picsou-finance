@@ -7,7 +7,7 @@
 //! from this origin would run script, so it is refused.
 
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -210,18 +210,6 @@ impl InstitutionLogos {
     }
 }
 
-/// One cache per icon service until the T2 seams join the app state (a process has one).
-fn cache_for(base_url: &str) -> Arc<InstitutionLogos> {
-    static CACHES: LazyLock<Mutex<HashMap<String, Arc<InstitutionLogos>>>> =
-        LazyLock::new(Mutex::default);
-    CACHES
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .entry(base_url.to_owned())
-        .or_default()
-        .clone()
-}
-
 /// BudgetSettingsService.logoFetchEnabled: the member's opt-in, off without a settings row.
 async fn logo_fetch_enabled(state: &AppState, member_id: i64) -> sqlx::Result<bool> {
     let enabled: Option<bool> =
@@ -260,7 +248,9 @@ async fn institution_logo(
         http: state.http.clone(),
         base_url: state.config.duckduckgo_icons_url.clone(),
     };
-    let Some(image) = cache_for(&port.base_url)
+    let Some(image) = state
+        .accounts
+        .institution_logos
         .logo(&port, &domain, state.clock.now())
         .await
     else {

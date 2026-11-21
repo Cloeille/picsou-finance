@@ -40,11 +40,6 @@ impl CryptoLogoRead for NoCryptoLogos {
     }
 }
 
-/// The crypto logo source until the T2 seams join the app state.
-pub fn crypto_logos() -> &'static dyn CryptoLogoRead {
-    &NoCryptoLogos
-}
-
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -114,7 +109,7 @@ async fn positions(
         .prices
         .quotes(&tickers, true, state.clock.today())
         .await;
-    let logos = crypto_logos().logo_urls(&tickers).await;
+    let logos = state.accounts.crypto_logos.logo_urls(&tickers).await;
 
     let lines = rows
         .into_iter()

@@ -191,6 +191,11 @@ pub struct Seams {
     pub bank_logos: Arc<dyn BankLogos>,
     pub connections: Arc<dyn ConnectionRemoval>,
     pub property_valuation: Arc<dyn PropertyValuer>,
+    pub crypto_logos: Arc<dyn super::positions::CryptoLogoRead>,
+    /// The institution logo cache: one per process, as InstitutionLogoService's.
+    pub institution_logos: Arc<super::institution_logo::InstitutionLogos>,
+    /// Instrument types, ETF compositions, security profile refresh (track T4).
+    pub analysis: super::analysis::seams::AnalysisSeams,
 }
 
 impl Default for Seams {
@@ -202,6 +207,9 @@ impl Default for Seams {
             bank_logos: Arc::new(NoBankLogos),
             connections: Arc::new(NoSyncConnections),
             property_valuation: Arc::new(super::meta::ValuationDisabled),
+            crypto_logos: Arc::new(super::positions::NoCryptoLogos),
+            institution_logos: Arc::default(),
+            analysis: Default::default(),
         }
     }
 }
