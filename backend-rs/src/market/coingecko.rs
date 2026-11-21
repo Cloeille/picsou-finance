@@ -38,6 +38,16 @@ impl CoinGecko {
         }
     }
 
+    /// The registry's display name of a known coin (BTC to "Bitcoin").
+    pub async fn display_name(&self, ticker: &str) -> Option<String> {
+        sqlx::query_scalar("SELECT name FROM crypto_asset WHERE upper(ticker) = upper($1)")
+            .bind(ticker)
+            .fetch_optional(&self.db)
+            .await
+            .ok()
+            .flatten()
+    }
+
     /// The CoinGecko ids of the upper-cased tickers the registry knows.
     pub async fn coin_ids(&self, tickers: &BTreeSet<String>) -> HashMap<String, String> {
         let tickers: Vec<&str> = tickers.iter().map(String::as_str).collect();

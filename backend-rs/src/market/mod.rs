@@ -8,6 +8,7 @@ pub mod insee;
 pub mod metals;
 pub mod nasdaq;
 pub mod num;
+pub mod openfigi;
 pub mod prices;
 pub mod runners;
 pub mod yahoo;
@@ -23,6 +24,7 @@ use sqlx::PgPool;
 
 use self::coingecko::CoinGecko;
 use self::cooldown::YahooCooldown;
+use self::openfigi::OpenFigi;
 use self::prices::PriceService;
 use self::yahoo::YahooFinance;
 use crate::AppState;
@@ -47,6 +49,7 @@ pub fn register(routes: &mut Routes) {
 /// state.market.
 pub struct Market {
     prices: Arc<PriceService>,
+    openfigi: Arc<OpenFigi>,
     cooldown: Arc<YahooCooldown>,
     yahoo: Arc<YahooFinance>,
 }
@@ -66,6 +69,12 @@ impl Market {
             db.clone(),
             Arc::new(YahooCooldown::new(clock.clone())),
         ));
+        let openfigi = Arc::new(OpenFigi::new(
+            http.clone(),
+            &config.openfigi_base_url,
+            yahoo.clone(),
+            coingecko.clone(),
+        ));
         Self {
             prices: Arc::new(PriceService::new(
                 db.clone(),
@@ -73,6 +82,7 @@ impl Market {
                 yahoo.clone(),
                 coingecko,
             )),
+            openfigi,
             cooldown,
             yahoo,
         }
@@ -93,6 +103,11 @@ impl Market {
     /// The price service: refresh_prices, backfill_historical_prices, intraday_prices_eur.
     pub fn prices(&self) -> &Arc<PriceService> {
         &self.prices
+    }
+
+    /// OpenFIGI ISIN to ticker: resolve(isin), resolve_isin_or_symbol.
+    pub fn openfigi(&self) -> &Arc<OpenFigi> {
+        &self.openfigi
     }
 
     /// The price service the ledger's valuation reads through.
