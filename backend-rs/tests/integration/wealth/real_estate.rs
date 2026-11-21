@@ -175,3 +175,180 @@ async fn geocoding_maps_features_skips_short_queries_and_is_rate_limited() {
     assert_eq!(limited.status, 429);
     assert!(limited.body.is_empty());
 }
+
+#[tokio::test]
+async fn property_valuation_adjusts_reindexes_geocodes_and_respects_manual_lock() {
+    use picsou::ledger::model::{ValuationMode, ValuationStatus};
+    use picsou::wealth::real_estate::valuation::{
+        FullMetadata, compute_adjustments, estimate, refresh_all_for_member,
+    };
+
+    // Pure adjustments: capped additive extras reconcile with added_amount, energy supersedes era,
+    // bounds bracket the adjusted estimate.
+    let hoarder = FullMetadata {
+        id: 1,
+        member_id: 1,
+        account_id: 1,
+        purchase_price: d("300000"),
+        agency_fees: None,
+        notary_fees: None,
+        works_cost: None,
+        property_type: Some("HOUSE".to_owned()),
+        address: None,
+        postal_code: None,
+        city: None,
+        country: Some("FR".to_owned()),
+        insee_code: Some("33063".to_owned()),
+        latitude: None,
+        longitude: None,
+        surface_area: Some(d("100")),
+        land_area: Some(d("100000")),
+        construction_year: Some(1960),
+        rooms: None,
+        bathrooms: Some(2),
+        floor_number: Some(0),
+        floors_total: None,
+        has_elevator: None,
+        garage_count: 20,
+        parking_count: 20,
+        has_garden: false,
+        has_terrace: false,
+        has_balcony: false,
+        energy_class: Some("A".to_owned()),
+        valuation_mode: ValuationMode::Estimated,
+    };
+    let adj = compute_adjustments(&hoarder, d("400000"), Some(d("4000")));
+    assert!(!adj.applied.iter().any(|a| a.code.starts_with("ERA_")));
+    assert_eq!(adj.added_amount.to_string(), "240000");
+    let disclosed_additive: rust_decimal::Decimal = adj
+        .applied
+        .iter()
+        .filter(|a| a.sqm.is_some())
+        .filter_map(|a| a.amount)
+        .sum();
+    assert_eq!(disclosed_additive.to_string(), "240000.00");
+    let low = adj.apply_to(Some(d("340000"))).unwrap();
+    let high = adj.apply_to(Some(d("470000"))).unwrap();
+    assert!(adj.value >= low && adj.value <= high);
+
+    // End-to-end estimate over wiremocked IGN + Cerema + INSEE.
+    let geocode_srv = MockServer::start().await;
+    let cerema_srv = MockServer::start().await;
+    let insee_srv = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            r#"{"features":[{"geometry":{"coordinates":[-0.58,44.84]},
+               "properties":{"label":"10 Rue Test 33000 Bordeaux","score":0.95,"citycode":"33063","postcode":"33000","city":"Bordeaux"}}]}"#,
+        ))
+        .mount(&geocode_srv)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/indicateurs/dv3f/prix/annuel/"))
+        .and(query_param("code", "33063"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            r#"{"count":1,"results":[{"annee":"2024","echelle":"communes","code":"33063",
+               "nbtrans_cod111":200,"pxm2_median_cod111":4000.00,"pxm2_q25_cod111":3500.00,"pxm2_q75_cod111":4700.00}]}"#,
+        ))
+        .mount(&cerema_srv)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/data/SERIES_BDM/010567060"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            r#"<DataSet><Obs TIME_PERIOD="2024-Q3" OBS_VALUE="100.0"/><Obs TIME_PERIOD="2025-Q4" OBS_VALUE="105.0"/></DataSet>"#,
+        ))
+        .mount(&insee_srv)
+        .await;
+
+    let app = TestApp::builder()
+        .with_admin()
+        .env("GEOCODING_API_URL", geocode_srv.uri())
+        .env("CEREMA_API_URL", cerema_srv.uri())
+        .env("INSEE_API_URL", insee_srv.uri())
+        .spawn()
+        .await;
+    let member = admin_member(&app).await;
+
+    // ESTIMATED house without insee_code -> geocodes, values, re-indexes (+5%), writes balance.
+    let mut est_acc = NewAccount::new(member, "Maison", AccountType::RealEstate);
+    est_acc.is_manual = true;
+    est_acc.current_balance = d("300000");
+    let est_id = account(&app, est_acc).await.id;
+    sqlx::query(
+        "INSERT INTO real_estate_metadata (account_id, member_id, purchase_price, property_type, address, city, surface_area, valuation_mode) \
+         VALUES ($1, $2, 300000, 'HOUSE', '10 Rue Test', 'Bordeaux', 100, 'ESTIMATED')",
+    )
+    .bind(est_id)
+    .bind(member)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+
+    // MANUAL house -> computes & stores valuation, leaves current_balance untouched.
+    let mut man_acc = NewAccount::new(member, "Manuel", AccountType::RealEstate);
+    man_acc.is_manual = true;
+    man_acc.current_balance = d("250000");
+    let man_id = account(&app, man_acc).await.id;
+    sqlx::query(
+        "INSERT INTO real_estate_metadata (account_id, member_id, purchase_price, property_type, insee_code, surface_area, valuation_mode) \
+         VALUES ($1, $2, 250000, 'HOUSE', '33063', 100, 'MANUAL')",
+    )
+    .bind(man_id)
+    .bind(member)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+
+    // Uncovered area (Strasbourg 67482) with 0 balance -> returns UNSUPPORTED_AREA and seeds cost_basis floor.
+    let mut alsace = NewAccount::new(member, "Strasbourg", AccountType::RealEstate);
+    alsace.is_manual = true;
+    alsace.current_balance = d("0");
+    let alsace_id = account(&app, alsace).await.id;
+    sqlx::query(
+        "INSERT INTO real_estate_metadata (account_id, member_id, purchase_price, notary_fees, property_type, insee_code, surface_area, valuation_mode) \
+         VALUES ($1, $2, 200000, 15000, 'HOUSE', '67482', 80, 'ESTIMATED')",
+    )
+    .bind(alsace_id)
+    .bind(member)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+
+    let est_resp = estimate(&app.state, est_id, member).await.unwrap();
+    assert_eq!(est_resp.status, ValuationStatus::Ok);
+    assert!(est_resp.applied_to_balance);
+    assert_eq!(est_resp.estimated_value.unwrap().to_string(), "420000.00");
+    assert_eq!(est_resp.reindex_ratio.unwrap().to_string(), "1.050000");
+
+    let new_bal: rust_decimal::Decimal =
+        sqlx::query_scalar("SELECT current_balance FROM account WHERE id = $1")
+            .bind(est_id)
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(new_bal.to_string(), "420000.00000000");
+
+    let man_resp = estimate(&app.state, man_id, member).await.unwrap();
+    assert_eq!(man_resp.status, ValuationStatus::Ok);
+    assert!(!man_resp.applied_to_balance);
+    let man_bal: rust_decimal::Decimal =
+        sqlx::query_scalar("SELECT current_balance FROM account WHERE id = $1")
+            .bind(man_id)
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(man_bal.to_string(), "250000.00000000");
+
+    let alsace_resp = estimate(&app.state, alsace_id, member).await.unwrap();
+    assert_eq!(alsace_resp.status, ValuationStatus::UnsupportedArea);
+    let floor_bal: rust_decimal::Decimal =
+        sqlx::query_scalar("SELECT current_balance FROM account WHERE id = $1")
+            .bind(alsace_id)
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(floor_bal.to_string(), "215000.00000000");
+
+    // Scheduled refresh handles all 3 independently and returns 2 OK (Maison + Manuel).
+    assert_eq!(refresh_all_for_member(&app.state, member).await, 2);
+}

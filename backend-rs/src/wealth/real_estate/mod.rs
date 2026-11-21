@@ -1,5 +1,7 @@
 //! Real estate summary and valuation history (RealEstateController), address search
-//! (GeocodingController).
+//! (GeocodingController), and property valuation / adjustments (PropertyValuationService).
+
+pub mod valuation;
 
 use std::collections::HashMap;
 
@@ -20,7 +22,7 @@ use crate::http::json::Path;
 use crate::http::rate_limit::policies;
 use crate::ledger::decimal::{HALF_UP, divide, set_scale};
 use crate::ledger::model::{Account, AccountType};
-use crate::ledger::{access, accounts, liabilities, loans, valuation};
+use crate::ledger::{access, accounts, liabilities, loans, valuation as ledger_valuation};
 use crate::market::geocoding;
 use crate::routes::Routes;
 use crate::wealth::params::{self, Query};
@@ -219,7 +221,7 @@ pub async fn summarize(
         };
         if account.account_type == AccountType::Scpi {
             let gross = access::weigh(
-                valuation::live_balance_eur(&mut conn, prices, account, today).await?,
+                ledger_valuation::live_balance_eur(&mut conn, prices, account, today).await?,
                 share,
             );
             let position: Option<ScpiPosition> = sqlx::query_as(
@@ -255,7 +257,7 @@ pub async fn summarize(
             continue;
         }
         let gross = access::weigh(
-            valuation::live_balance_eur(&mut conn, prices, account, today).await?,
+            ledger_valuation::live_balance_eur(&mut conn, prices, account, today).await?,
             share,
         );
         let metadata: Option<Metadata> = sqlx::query_as(
