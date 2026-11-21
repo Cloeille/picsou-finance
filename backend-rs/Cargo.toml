@@ -72,6 +72,8 @@ uuid = { version = "1.29.3", features = ["v4", "serde"] }
 aes = "0.9"
 http-body = "1"
 unicode-normalization = "0.1.26"
+k256 = { version = "0.14.0", default-features = false, features = ["arithmetic"] }
+ripemd = "0.2.0"
 
 [dev-dependencies]
 wiremock = "0.6.5"
