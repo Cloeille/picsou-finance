@@ -17,7 +17,7 @@ describe('AlertBanner', () => {
   it('calls onDismiss from the x button', () => {
     const onDismiss = vi.fn()
     render(<AlertBanner onDismiss={onDismiss}>Oops</AlertBanner>)
-    fireEvent.click(screen.getByRole('button', { name: 'x' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(onDismiss).toHaveBeenCalledTimes(1)
   })
 

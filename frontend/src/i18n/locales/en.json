@@ -546,7 +546,8 @@
     },
     "ledger": {
       "interestPart": "of which {{amount}} interest",
-      "noCashLeg": "No cash movement"
+      "noCashLeg": "No cash movement",
+      "closureWriteOffNote": "Closure write-off"
     },
     "noPlan": "No forecast set. Add a duration or a monthly payment to estimate one.",
     "closedHint": "This loan is closed. Delete its write-off to reopen it.",
@@ -588,7 +589,9 @@
       "interestCalculated": "Interest calculated",
       "interestDue": "Interest due",
       "principalRepaid": "Capital repaid",
-      "writtenOff": "Written off"
+      "writtenOff": "Written off",
+      "title": "Loan summary",
+      "period": "{{from}} to {{to}}"
     },
     "forecast": {
       "title": "Forecast",

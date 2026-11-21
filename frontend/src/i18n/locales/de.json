@@ -535,7 +535,8 @@
     },
     "ledger": {
       "interestPart": "davon {{amount}} Zinsen",
-      "noCashLeg": "Ohne Zahlungsbewegung"
+      "noCashLeg": "Ohne Zahlungsbewegung",
+      "closureWriteOffNote": "Abschreibung bei Abschluss"
     },
     "noPlan": "Keine Prognose festgelegt. Fügen Sie eine Laufzeit oder eine Monatsrate hinzu.",
     "closedHint": "Dieses Darlehen ist geschlossen. Löschen Sie den Forderungsverzicht, um es wieder zu öffnen.",
@@ -577,7 +578,9 @@
       "interestCalculated": "Berechnete Zinsen",
       "interestDue": "Fällige Zinsen",
       "principalRepaid": "Kapital zurückgezahlt",
-      "writtenOff": "Abgeschrieben"
+      "writtenOff": "Abgeschrieben",
+      "title": "Darlehensübersicht",
+      "period": "{{from}} bis {{to}}"
     },
     "forecast": {
       "title": "Prognose",

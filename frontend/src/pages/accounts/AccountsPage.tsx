@@ -834,7 +834,7 @@ export function AccountsPage() {
                 <CurrencyDisplay value={collapsedTotal} className="font-semibold" />
                 <span className="text-muted-foreground">{t('accounts.collapsedHint')}</span>
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
                   className="ml-auto"
                   onClick={() => setReorderMode(true)}

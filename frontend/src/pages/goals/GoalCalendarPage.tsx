@@ -14,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { Separator } from '@/components/ui/separator'
-import { ArrowLeft, CircleNotch, Plus } from '@phosphor-icons/react'
+import { ArrowCounterClockwise, ArrowLeft, CircleNotch, Plus, X } from '@phosphor-icons/react'
 import { cn, formatPercent, localeFromLanguage, parseAmount } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
 import type { GoalMonthEntry } from '@/types/api'
@@ -399,8 +399,8 @@ function MonthDetailPanel({ goalId, entry, onClose, className }: {
               <Badge variant="secondary" className="text-xs">{t('goals.declared')}</Badge>
             )}
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}>
-            &times;
+          <Button variant="ghost" size="icon-sm" aria-label={t('common.close')} onClick={onClose}>
+            <X className="size-4" aria-hidden="true" />
           </Button>
         </div>
       </CardHeader>
@@ -444,11 +444,13 @@ function MonthDetailPanel({ goalId, entry, onClose, className }: {
               </Button>
               {entry.override != null && (
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
+                  className="text-destructive hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
                   disabled={busy}
                   onClick={() => deleteOverride.mutate({ id: goalId, ym: entry.yearMonth })}
                 >
+                  <ArrowCounterClockwise className="size-3.5" aria-hidden="true" />
                   {t('goals.resetOverride')}
                 </Button>
               )}
@@ -494,11 +496,13 @@ function MonthDetailPanel({ goalId, entry, onClose, className }: {
               </Button>
               {entry.manualActual != null && (
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
+                  className="text-destructive hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
                   disabled={busy}
                   onClick={() => deleteManual.mutate({ id: goalId, ym: entry.yearMonth })}
                 >
+                  <ArrowCounterClockwise className="size-3.5" aria-hidden="true" />
                   {t('goals.resetManual')}
                 </Button>
               )}

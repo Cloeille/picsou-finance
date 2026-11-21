@@ -55,6 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Peer loan detail redesign and site-wide action button consistency.** Simplified `PeerLoanDetailSection` to remove the duplicated borrower title, drop the arrow separator in favor of localized date periods, hide the empty forecast card on closed loans with no plan, localize the system `"Closure write-off"` note across all four locales, and restructure repayment rows into a calm two-line layout with proper bordered Edit and destructive Delete buttons (`PencilSimple` / `Trash`). Harmonized remaining unstyled plain-text ghost buttons and raw text close marks across `ScpiDetailSection`, `GoalCalendarPage`, `AlertBanner`, `BankSyncTab`, and `AccountsPage`.
 - **A missed daily sync is made up once.** When Picsou was off or the machine asleep at 08:00, the bank
   sync and the balance snapshot now run within a minute or two of the next start or wake, once, not
   once per missed day. The weekly and monthly jobs follow the same rule. The first start after the

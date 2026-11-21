@@ -116,4 +116,22 @@ describe('PeerLoanDetailSection delete confirmation', () => {
     expect(within(dialog).queryByText(/cash movement/)).not.toBeInTheDocument()
     expect(within(dialog).queryByText(/linked transaction/)).not.toBeInTheDocument()
   })
+
+  it('hides the empty forecast card on a closed loan and renders a real destructive delete button', () => {
+    detail.current = {
+      ...loan([row({ kind: 'WRITE_OFF', note: 'Closure write-off', hasCashLeg: false })]),
+      closedAt: '2026-11-21',
+      principalRemaining: 0,
+      writtenOff: 1000,
+      plannedMonthlyAmount: null,
+      plannedMonths: null,
+      curve: [],
+    }
+    render(<PeerLoanDetailSection accountId={16} />)
+
+    expect(screen.getByText('Loan summary')).toBeInTheDocument()
+    expect(screen.queryByText('Forecast')).not.toBeInTheDocument()
+    const deleteBtn = screen.getByRole('button', { name: 'Delete' })
+    expect(deleteBtn.className).toContain('text-destructive')
+  })
 })

@@ -1,3 +1,4 @@
+import { X } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -51,8 +52,8 @@ export function AlertBanner({
       {icon}
       <span className="flex-1">{children}</span>
       {onDismiss && (
-        <Button variant="ghost" size="sm" onClick={onDismiss}>
-          x
+        <Button variant="ghost" size="icon-sm" aria-label="Close" onClick={onDismiss}>
+          <X className="size-4" aria-hidden="true" />
         </Button>
       )}
       {action}

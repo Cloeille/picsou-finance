@@ -535,7 +535,8 @@
     },
     "ledger": {
       "interestPart": "de los cuales {{amount}} de intereses",
-      "noCashLeg": "Sin movimiento de efectivo"
+      "noCashLeg": "Sin movimiento de efectivo",
+      "closureWriteOffNote": "Condonación al cierre"
     },
     "noPlan": "Sin previsión definida. Añade una duración o una cuota mensual para estimarla.",
     "closedHint": "Este préstamo está cerrado. Elimina la condonación para reabrirlo.",
@@ -577,7 +578,9 @@
       "interestCalculated": "Intereses calculados",
       "interestDue": "Intereses pendientes",
       "principalRepaid": "Capital devuelto",
-      "writtenOff": "Condonado"
+      "writtenOff": "Condonado",
+      "title": "Resumen del préstamo",
+      "period": "Del {{from}} al {{to}}"
     },
     "forecast": {
       "title": "Previsión",
