@@ -267,7 +267,9 @@ pub fn start(layout: &Layout, stack: &Shared) -> Result<Ready, Failed> {
 
     let listener = preferred_listener(&layout.data.join("desktop-port")).map_err(|e| format!("no free port: {e}"))?;
     let port = listener.local_addr().map_err(|e| format!("no free port: {e}"))?.port();
-    let mut env: Vec<(String, String)> = std::env::vars().collect();
+    // vars() panics on a variable that is not UTF-8: such a variable is skipped instead.
+    let mut env: Vec<(String, String)> =
+        std::env::vars_os().filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?))).collect();
     env.extend(backend_env(layout, db_port, port, &password));
     env.extend(sidecars::serve(layout, stack, &sidecar_key, sidecars::IDLE).map_err(|e| format!("sidecar ports: {e}"))?);
     let config = Config::load(&Env::from_map(env)).map_err(|e| format!("the backend settings are invalid: {e}"))?;
