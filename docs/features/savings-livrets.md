@@ -68,8 +68,8 @@ member. Eligible accounts must be:
 - not yet configured (no `savings_interest_config` row), and
 - matching a name pattern.
 
-The frontend surfaces these as a green banner on `AccountsPage` that deep-links into the first
-suggested account. The `AccountDetailPage` also shows the `SavingsConfigSection` for any account
+The frontend surfaces these as a neutral banner on `AccountsPage` that deep-links into the first
+suggested account, opened on its configuration tab (`/accounts/:id?tab=config`). The `AccountDetailPage` also shows the `SavingsConfigSection` for any account
 flagged by the detector (see `isSavings` gate below).
 
 ### Connector-provided explicit product (`SavingsAutoConfigService`)
@@ -226,8 +226,13 @@ This ensures the config section appears even on a freshly synced livret that is 
 `CHECKING` (before the user has confirmed the classification).
 
 **Suggestion banner** (`AccountsPage.tsx`):
-Rendered when `GET /api/savings/suggestions` returns at least one item. Displays a count and
-deep-links to the first suggested account.
+Rendered when `GET /api/savings/suggestions` returns at least one item. A neutral card (same
+surface as `Card`, monochrome `PiggyBank` badge, outline button) displays a count and deep-links to
+the first suggested account with `?tab=config`.
+
+**Savings tabs** (`AccountDetailPage.tsx`): the Overview / Configuration tabs are controlled by
+the `tab` query parameter (`?tab=config` selects the configuration tab, anything else the
+overview); switching tabs rewrites it with `replace`, as on `/admin`, `/settings` and `/sync`.
 
 **Demo mode** (`frontend/src/demo/index.ts`):
 Handlers cover `GET /savings/suggestions`, `PUT /accounts/{id}/savings-config`,

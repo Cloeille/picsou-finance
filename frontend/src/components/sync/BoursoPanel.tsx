@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react"
 import {
-  AlertTriangle,
-  Landmark,
+  Warning,
+  Bank,
   Lock,
-  LogOut,
-  RefreshCw,
-  Smartphone,
-} from "lucide-react"
+  SignOut,
+  ArrowsClockwise,
+  DeviceMobile,
+} from '@phosphor-icons/react'
 import { useTranslation } from "react-i18next"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -142,7 +142,7 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
   return (
     <div className="space-y-6">
       <Card size="sm">
-        <CardContent className="py-4">
+        <CardContent>
           <Badge
             className={
               connected
@@ -175,8 +175,8 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
 
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3 py-4">
-            <AlertTriangle className="size-5 shrink-0 text-destructive" />
+          <CardContent className="flex items-center gap-3">
+            <Warning className="size-5 shrink-0 text-destructive" />
             <p className="flex-1 text-sm text-destructive">{visibleError}</p>
             {(error || statusError) && (
               <Button
@@ -206,7 +206,7 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
             }}
             disabled={requestingSync}
           >
-            <RefreshCw
+            <ArrowsClockwise
               className={requestingSync ? "animate-spin" : undefined}
             />
             {requestingSync
@@ -227,7 +227,7 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
             }}
             disabled={logout.isPending}
           >
-            <LogOut />
+            <SignOut />
             {t("sync.bourso.clearSession")}
           </Button>
         </div>
@@ -271,10 +271,10 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
           }}
         >
           <Card size="sm">
-            <CardContent className="space-y-4 py-4">
+            <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="bourso-customer-id">
-                  <Landmark className="mr-1 inline-block size-4" />
+                  <Bank className="mr-1 inline-block size-4" />
                   {t("sync.bourso.customerId")}
                 </Label>
                 <Input
@@ -309,7 +309,7 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
                 />
               </div>
               <Button type="submit" disabled={initiate.isPending}>
-                {initiate.isPending && <RefreshCw className="animate-spin" />}
+                {initiate.isPending && <ArrowsClockwise className="animate-spin" />}
                 {initiate.isPending
                   ? t("sync.bourso.connecting")
                   : t("sync.bourso.connect")}
@@ -321,15 +321,15 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
 
       {!connected && authState === "AWAITING_APP" && (
         <Card size="sm">
-          <CardContent className="flex items-center gap-3 py-4">
-            <Smartphone className="size-5 shrink-0 text-muted-foreground" />
+          <CardContent className="flex items-center gap-3">
+            <DeviceMobile className="size-5 shrink-0 text-muted-foreground" />
             <div className="flex-1 space-y-1">
               <p className="text-sm">{t("sync.bourso.appValidationPrompt")}</p>
               <p className="text-sm text-muted-foreground">
                 {t("sync.bourso.appValidationHint")}
               </p>
             </div>
-            <RefreshCw className="size-4 shrink-0 animate-spin text-muted-foreground" />
+            <ArrowsClockwise className="size-4 shrink-0 animate-spin text-muted-foreground" />
           </CardContent>
         </Card>
       )}

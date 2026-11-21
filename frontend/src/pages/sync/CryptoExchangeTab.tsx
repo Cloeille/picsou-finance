@@ -11,9 +11,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
   Plus,
-  RefreshCw,
-  Trash2,
-} from 'lucide-react'
+  ArrowsClockwise,
+  Trash,
+} from '@phosphor-icons/react'
 import {
   useCryptoExchangeStatuses,
   useSyncCryptoExchange,
@@ -42,7 +42,7 @@ export function CryptoExchangeTab() {
       <div className="space-y-4">
         {Array.from({ length: 2 }).map((_, i) => (
           <Card key={i} size="sm">
-            <CardContent className="flex items-center justify-between p-4">
+            <CardContent className="flex items-center justify-between">
               <div className="space-y-2">
                 <Skeleton className="h-4 w-28" />
                 <Skeleton className="h-3 w-40" />
@@ -74,7 +74,7 @@ export function CryptoExchangeTab() {
         </Button>
       ) : (
         <Card size="sm">
-          <CardContent className="space-y-4 p-4">
+          <CardContent className="space-y-4">
             <CryptoExchangeForm
               variant="page"
               onSuccess={() => setShowAddForm(false)}
@@ -98,7 +98,7 @@ export function CryptoExchangeTab() {
         <div className="space-y-3">
           {exchanges.map(exchange => (
             <Card key={exchange.id} size="sm">
-              <CardContent className="flex items-center justify-between p-4">
+              <CardContent className="flex items-center justify-between">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{exchange.exchangeType}</span>
@@ -129,14 +129,14 @@ export function CryptoExchangeTab() {
                     onClick={() => syncMutation.mutate(exchange.id)}
                     disabled={syncMutation.isPending}
                   >
-                    <RefreshCw />
+                    <ArrowsClockwise />
                   </Button>
                   <Button
                     variant="ghost"
                     size="icon-sm"
                     onClick={() => setRemovingId(exchange.id)}
                   >
-                    <Trash2 />
+                    <Trash />
                   </Button>
                 </div>
               </CardContent>

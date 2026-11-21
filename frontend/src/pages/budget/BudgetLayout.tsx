@@ -25,7 +25,7 @@ export function BudgetLayout() {
         aria-label={t('budget.title')}
         className="flex w-full flex-wrap items-center gap-1 rounded-lg border border-border/60 bg-background/80 p-1"
       >
-        {BUDGET_NAV.map(({ section, to, end, labelKey, icon: Icon, badge }) => (
+        {BUDGET_NAV.map(({ section, to, end, labelKey, badge }) => (
           <NavLink
             key={section}
             to={to}
@@ -41,7 +41,6 @@ export function BudgetLayout() {
           >
             {({ isActive }) => (
               <>
-                <Icon className="size-4 shrink-0" aria-hidden="true" />
                 <span>{t(labelKey)}</span>
                 {badge && toReview > 0 && (
                   <Badge

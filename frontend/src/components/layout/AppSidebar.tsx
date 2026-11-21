@@ -2,15 +2,15 @@ import { NavLink, useLocation, useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  ChevronsUpDown,
+  CaretUpDown,
   Eye,
-  EyeOff,
-  RefreshCw,
-  Settings,
-  LogOut,
+  EyeSlash,
+  ArrowsClockwise,
+  GearSix,
+  SignOut,
   Shield,
-} from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+} from '@phosphor-icons/react'
+import type { Icon as LucideIcon } from '@phosphor-icons/react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
   DropdownMenu,
@@ -55,14 +55,14 @@ function AccountMenuFooterItems({
     <>
       <DropdownMenuItem asChild className={cn(settingsActive && 'bg-muted text-foreground')}>
         <NavLink to="/settings">
-          <Settings className="size-4" aria-hidden="true" />
+          <GearSix className="size-4" aria-hidden="true" />
           <span>{t('nav.settings')}</span>
         </NavLink>
       </DropdownMenuItem>
 
       <DropdownMenuItem asChild className={cn(syncActive && 'bg-muted text-foreground')}>
         <NavLink to="/sync">
-          <RefreshCw className="size-4" aria-hidden="true" />
+          <ArrowsClockwise className="size-4" aria-hidden="true" />
           <span>{t('nav.sync')}</span>
         </NavLink>
       </DropdownMenuItem>
@@ -70,7 +70,7 @@ function AccountMenuFooterItems({
       <DropdownMenuItem onClick={onToggleHideAmounts}>
         {hideAmounts
           ? <Eye className="size-4" aria-hidden="true" />
-          : <EyeOff className="size-4" aria-hidden="true" />}
+          : <EyeSlash className="size-4" aria-hidden="true" />}
         <span>{t(hideAmounts ? 'nav.showAmounts' : 'nav.hideAmounts')}</span>
       </DropdownMenuItem>
 
@@ -84,7 +84,7 @@ function AccountMenuFooterItems({
       <DropdownMenuSeparator />
 
       <DropdownMenuItem onClick={onLogoutClick} disabled={logoutPending}>
-        <LogOut className="size-4" aria-hidden="true" />
+        <SignOut className="size-4" aria-hidden="true" />
         <span>{t('settings.logout')}</span>
       </DropdownMenuItem>
     </>
@@ -126,7 +126,7 @@ function NavItem({
             isActive && 'text-foreground',
           )}
         >
-          <Icon className="size-4" aria-hidden="true" />
+          <Icon className="size-4" weight={isActive ? 'fill' : 'regular'} aria-hidden="true" />
         </ItemMedia>
         <ItemContent>
           <ItemTitle className="text-sm font-semibold">{title}</ItemTitle>
@@ -237,7 +237,7 @@ export function AppSidebar() {
                   <ItemTitle className="truncate text-sm font-semibold">{activeDisplayName}</ItemTitle>
                   <ItemDescription className="truncate text-xs">{activeDescription}</ItemDescription>
                 </ItemContent>
-                <ChevronsUpDown className="ml-auto size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <CaretUpDown className="ml-auto size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
               </button>
             </Item>
           </DropdownMenuTrigger>

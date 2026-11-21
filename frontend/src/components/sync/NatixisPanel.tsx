@@ -1,4 +1,4 @@
-import { Mail } from "lucide-react"
+import { EnvelopeSimple } from '@phosphor-icons/react'
 import { SidecarSessionPanel } from "@/components/sync/SidecarSessionPanel"
 
 interface NatixisPanelProps {
@@ -12,7 +12,7 @@ export function NatixisPanel({ onConnected }: NatixisPanelProps = {}) {
       provider="natixis"
       translationPrefix="sync.natixis"
       fieldIdPrefix="natixis"
-      loginIcon={Mail}
+      loginIcon={EnvelopeSimple}
       otpRetryable
       onConnected={onConnected}
     />

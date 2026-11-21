@@ -209,6 +209,7 @@ export interface ScpiPosition {
   managementCompany: string | null
   corumFundCode: string | null
   sofidyFundCode: string | null
+  louveFundCode: string | null
   shareCount: number
   subscriptionPriceEur: number | null
   withdrawalPriceEur: number | null
@@ -222,7 +223,7 @@ export interface ScpiPosition {
   distributionFrequency: DistributionFrequency | null
 }
 
-/** What the latest CORUM or Sofidy sync did with one fund (GH issue #232). */
+/** What the latest CORUM, Sofidy or Louve Invest sync did with one fund (GH issue #232). */
 export type ScpiFundOutcome =
   | 'CREATED'
   | 'LINKED'
@@ -231,8 +232,10 @@ export type ScpiFundOutcome =
   | 'AMBIGUOUS'
   | 'IGNORED'
   | 'MISSING_AT_PROVIDER'
+  /** Louve Invest: a nue-propriété or usufruct line, not valued as full ownership. */
+  | 'UNSUPPORTED_OWNERSHIP'
 
-export type ScpiProvider = 'CORUM' | 'SOFIDY'
+export type ScpiProvider = 'CORUM' | 'SOFIDY' | 'LOUVE'
 
 /** A fund a sync has seen. `accountId` is null when no account is linked to it. */
 export interface ScpiFund {
@@ -255,6 +258,8 @@ export interface ScpiPositionRequest {
   corumFundCode?: string | null
   /** Links this account to one fund of a Sofidy portfolio, so a sync can fill it. */
   sofidyFundCode?: string | null
+  /** Links this account to one Louve Invest fund (its `scpiUrlId`), so a sync can fill it. */
+  louveFundCode?: string | null
   shareCount: number
   subscriptionPriceEur?: number | null
   withdrawalPriceEur?: number | null
@@ -1614,6 +1619,41 @@ export type SofidySessionStatus = SidecarSessionStatusOf<SofidyErrorCode>
  * then work without a change here. No push variant: `mfaType` is null today.
  */
 export type SofidyAuthInitResponse = SidecarAuthInitResponse<'EMAIL'>
+
+/** The codes the Louve Invest endpoints attach to a failure. */
+export type LouveErrorCode =
+  | 'AUTH_ATTEMPT_EXPIRED'
+  | 'SESSION_EXPIRED'
+  | 'INVALID_SESSION_STATE'
+  | 'RATE_LIMITED'
+  | 'PORTFOLIO_INCOMPLETE'
+  | 'UPSTREAM_FORMAT_CHANGED'
+  | 'INVALID_DATA'
+  | 'UPSTREAM_UNAVAILABLE'
+  | 'INTERNAL_ERROR'
+
+/**
+ * Shaped like `WiseConnectionStatus`: `connected` once a token set is stored. `REAUTH_REQUIRED`
+ * means Louve refused the grant and only a new consent helps; `PENDING`, a first consent not
+ * given yet.
+ */
+export interface LouveConnectionStatus {
+  connected: boolean
+  status: 'PENDING' | 'CONNECTED' | 'ERROR' | 'REAUTH_REQUIRED' | null
+  lastSyncedAt: string | null
+}
+
+/** Louve's consent page, where the browser goes next. */
+export interface LouveStartResponse {
+  authorizeUrl: string
+}
+
+/** What Louve appended to the callback URL, posted back as is. */
+export interface LouveCallback {
+  code: string
+  state: string
+  iss: string
+}
 
 export type CorumErrorCode =
   | 'INVALID_CREDENTIALS'

@@ -11,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Loader2 } from 'lucide-react'
+import { CircleNotch } from '@phosphor-icons/react'
 import { useMfaEnrollInit, useMfaEnrollVerify } from '@/features/mfa/hooks'
 import { RecoveryCodesView } from './RecoveryCodesView'
 import { formatApiError, safeBackendMessage, getErrorStatus } from '@/lib/errors'
@@ -124,7 +124,7 @@ export function MfaEnrollDialog({
                 {t('settings.mfaCancel')}
               </Button>
               <Button type="submit" disabled={enrollInit.isPending}>
-                {enrollInit.isPending && <Loader2 size={14} className=".5 animate-spin" />}
+                {enrollInit.isPending && <CircleNotch size={14} className=".5 animate-spin" />}
                 {t('settings.mfaContinue')}
               </Button>
             </DialogFooter>
@@ -182,7 +182,7 @@ export function MfaEnrollDialog({
                 {t('settings.mfaPrevious')}
               </Button>
               <Button type="submit" disabled={enrollVerify.isPending || code.length !== 6}>
-                {enrollVerify.isPending && <Loader2 size={14} className=".5 animate-spin" />}
+                {enrollVerify.isPending && <CircleNotch size={14} className=".5 animate-spin" />}
                 {t('settings.mfaConfirm')}
               </Button>
             </DialogFooter>

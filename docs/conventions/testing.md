@@ -248,6 +248,16 @@ that needs a live account or a real login is a script, not a `test_*.py` module 
 from it). `services/base` tests run the same way in the Camoufox base, which includes
 the Python one (`sidecar-base` job). Camoufox sidecars also run on a native ARM64 runner.
 
+The browserless sidecars (base `python`) also run outside a container, on macOS and
+Windows, because the desktop app (#235) starts them that way. The `native-sidecars` job
+runs `python .github/scripts/native_sidecars.py`: each one's tests from its folder with
+`services/base` on `PYTHONPATH`, then a start with uvicorn on `127.0.0.1` and a free
+port, and one `GET /health`. So a browserless sidecar must not hardcode a Linux path
+(`/tmp`, `/app`, `/data`): use `tempfile.gettempdir()` or an environment variable with
+today's Docker value as the default. CI runs it under uv on the latest 3.12 patch (the
+runners' own 3.12 stops at 3.12.10, whose `html.parser` differs). Locally, run it with
+the base image's Python after `pip install -r services/base/requirements.txt`.
+
 ## Release smoke tests
 
 `docker/tests/test_deploy_integration.py` runs one `release-deployment` leg per parametrize

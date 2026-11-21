@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { AlertTriangle, Lock, LogOut, RefreshCw, ShieldCheck, User } from "lucide-react"
+import { Warning, Lock, SignOut, ArrowsClockwise, ShieldCheck, User } from '@phosphor-icons/react'
 import { useTranslation } from "react-i18next"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -72,7 +72,7 @@ export function DegiroPanel({ onConnected }: DegiroPanelProps = {}) {
   return (
     <div className="space-y-6">
       <Card size="sm">
-        <CardContent className="py-4">
+        <CardContent>
           <div className="flex flex-wrap items-center gap-3">
             {connected ? (
               <Badge className="bg-green-500/10 text-green-600 dark:text-green-400">
@@ -96,8 +96,8 @@ export function DegiroPanel({ onConnected }: DegiroPanelProps = {}) {
 
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3 py-4">
-            <AlertTriangle className="size-5 shrink-0 text-destructive" />
+          <CardContent className="flex items-center gap-3">
+            <Warning className="size-5 shrink-0 text-destructive" />
             <p className="flex-1 text-sm text-destructive">{visibleError}</p>
             <Button
               variant="outline"
@@ -125,7 +125,7 @@ export function DegiroPanel({ onConnected }: DegiroPanelProps = {}) {
             }}
             disabled={sync.isPending}
           >
-            <RefreshCw className={sync.isPending ? "animate-spin" : undefined} />
+            <ArrowsClockwise className={sync.isPending ? "animate-spin" : undefined} />
             {t("sync.degiro.sync")}
           </Button>
           <Button
@@ -143,7 +143,7 @@ export function DegiroPanel({ onConnected }: DegiroPanelProps = {}) {
             }}
             disabled={logout.isPending}
           >
-            <LogOut />
+            <SignOut />
             {t("sync.degiro.clearSession")}
           </Button>
         </div>
@@ -188,7 +188,7 @@ export function DegiroPanel({ onConnected }: DegiroPanelProps = {}) {
           }}
         >
           <Card size="sm">
-            <CardContent className="space-y-4 py-4">
+            <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="degiro-panel-username">
                   <User className="mr-1 inline-block size-4" />
@@ -217,7 +217,7 @@ export function DegiroPanel({ onConnected }: DegiroPanelProps = {}) {
                 />
               </div>
               <Button type="submit" disabled={initiate.isPending}>
-                {initiate.isPending && <RefreshCw className="animate-spin" />}
+                {initiate.isPending && <ArrowsClockwise className="animate-spin" />}
                 {t("sync.degiro.connect")}
               </Button>
             </CardContent>
@@ -253,7 +253,7 @@ export function DegiroPanel({ onConnected }: DegiroPanelProps = {}) {
           }}
         >
           <Card size="sm">
-            <CardContent className="space-y-4 py-4">
+            <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">{t("sync.degiro.totpPrompt")}</p>
               <div className="space-y-2">
                 <Label htmlFor="degiro-panel-totp">
@@ -271,7 +271,7 @@ export function DegiroPanel({ onConnected }: DegiroPanelProps = {}) {
                 />
               </div>
               <Button type="submit" disabled={complete.isPending}>
-                {complete.isPending && <RefreshCw className="animate-spin" />}
+                {complete.isPending && <ArrowsClockwise className="animate-spin" />}
                 {t("sync.degiro.connect")}
               </Button>
             </CardContent>

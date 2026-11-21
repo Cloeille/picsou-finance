@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react"
 import {
-  AlertTriangle,
+  Warning,
   PiggyBank,
   Lock,
-  LogOut,
-  RefreshCw,
+  SignOut,
+  ArrowsClockwise,
   ShieldCheck,
-} from "lucide-react"
+} from '@phosphor-icons/react'
 import { useTranslation } from "react-i18next"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -75,7 +75,7 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
   return (
     <div className="space-y-6">
       <Card size="sm">
-        <CardContent className="py-4">
+        <CardContent>
           <Badge
             className={
               connected
@@ -108,8 +108,8 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
 
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3 py-4">
-            <AlertTriangle className="size-5 shrink-0 text-destructive" />
+          <CardContent className="flex items-center gap-3">
+            <Warning className="size-5 shrink-0 text-destructive" />
             <p className="flex-1 text-sm text-destructive">{visibleError}</p>
             {(error || statusError) && (
               <Button
@@ -141,7 +141,7 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
             }}
             disabled={requestingSync}
           >
-            <RefreshCw
+            <ArrowsClockwise
               className={requestingSync ? "animate-spin" : undefined}
             />
             {requestingSync
@@ -164,7 +164,7 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
             }}
             disabled={logout.isPending}
           >
-            <LogOut />
+            <SignOut />
             {t("sync.fortuneo.clearSession")}
           </Button>
         </div>
@@ -206,7 +206,7 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
           }}
         >
           <Card size="sm">
-            <CardContent className="space-y-4 py-4">
+            <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="fortuneo-login">
                   <PiggyBank className="mr-1 inline-block size-4" />
@@ -235,7 +235,7 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
                 />
               </div>
               <Button type="submit" disabled={initiate.isPending}>
-                {initiate.isPending && <RefreshCw className="animate-spin" />}
+                {initiate.isPending && <ArrowsClockwise className="animate-spin" />}
                 {initiate.isPending
                   ? t("sync.fortuneo.connecting")
                   : t("sync.fortuneo.connect")}
@@ -279,7 +279,7 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
           }}
         >
           <Card size="sm">
-            <CardContent className="space-y-4 py-4">
+            <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 {t("sync.fortuneo.otpPrompt")}
               </p>
@@ -305,7 +305,7 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
                 type="submit"
                 disabled={complete.isPending || code.length !== 6}
               >
-                {complete.isPending && <RefreshCw className="animate-spin" />}
+                {complete.isPending && <ArrowsClockwise className="animate-spin" />}
                 {complete.isPending
                   ? t("sync.fortuneo.validating")
                   : t("sync.fortuneo.validate")}

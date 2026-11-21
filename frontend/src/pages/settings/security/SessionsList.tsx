@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
-import { Loader2, Trash2, Smartphone, Monitor, ShieldCheck } from 'lucide-react'
+import { CircleNotch, Trash, DeviceMobile, Monitor, ShieldCheck } from '@phosphor-icons/react'
 import {
   useSessions,
   useRevokeSession,
@@ -18,7 +18,7 @@ export function SessionsList() {
   if (isLoading) {
     return (
       <div className="flex justify-center py-4">
-        <Loader2 size={20} className="animate-spin text-muted-foreground" />
+        <CircleNotch size={20} className="animate-spin text-muted-foreground" />
       </div>
     )
   }
@@ -53,7 +53,7 @@ export function SessionsList() {
             onClick={() => revokeOthers.mutate()}
             disabled={revokeOthers.isPending}
           >
-            {revokeOthers.isPending && <Loader2 size={14} className=".5 animate-spin" />}
+            {revokeOthers.isPending && <CircleNotch size={14} className=".5 animate-spin" />}
             {t('settings.sessionsRevokeAllOthers')}
           </Button>
         </div>
@@ -75,7 +75,7 @@ function SessionRow({
 }) {
   const { t } = useTranslation()
   const isMobile = isProbablyMobile(session.userAgent)
-  const Icon = isMobile ? Smartphone : Monitor
+  const Icon = isMobile ? DeviceMobile : Monitor
 
   return (
     <li className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-3">
@@ -112,9 +112,9 @@ function SessionRow({
           className="self-end sm:self-auto"
         >
           {disabled ? (
-            <Loader2 size={14} className=".5 animate-spin" />
+            <CircleNotch size={14} className=".5 animate-spin" />
           ) : (
-            <Trash2 size={14} className=".5" />
+            <Trash size={14} className=".5" />
           )}
           {t('settings.sessionsRevoke')}
         </Button>

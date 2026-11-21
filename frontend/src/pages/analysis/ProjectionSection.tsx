@@ -1,8 +1,12 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts'
+import { X } from '@phosphor-icons/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
+import { NumericInput } from '@/components/shared/NumericInput'
 import { AllocationTrajectory } from './AllocationTrajectory'
 import {
   ChartContainer,
@@ -16,6 +20,7 @@ import { MoneyChartTooltip } from '@/components/shared/MoneyChartTooltip'
 import { cn, formatPercent } from '@/lib/utils'
 import type { ProjectionScenario } from '@/types/api'
 import { AXIS_PROPS, AXIS_PROPS_FLUSH } from '@/lib/chart-axis'
+import { parseCustomRate, projectCustomRate } from './custom-projection'
 
 const HORIZONS = [10, 20, 30] as const
 
@@ -26,6 +31,8 @@ const SCENARIO_COLORS: Record<ProjectionScenario['key'], string> = {
   OPTIMISTIC: 'var(--chart-1)',
 }
 
+const CUSTOM_KEY = 'CUSTOM'
+const CUSTOM_COLOR = 'var(--primary)'
 const CONTRIBUTED_COLOR = 'var(--color-muted-foreground)'
 const CONTRIBUTED_KEY = 'contributed'
 
@@ -43,11 +50,36 @@ export function ProjectionSection() {
   const [years, setYears] = useState<number>(20)
   const [view, setView] = useState<'wealth' | 'allocation'>('wealth')
   const [hidden, setHidden] = useState<Set<string>>(() => new Set())
+  const [customRateRaw, setCustomRateRaw] = useState('')
   const money = useMoney()
   const projection = useProjection(years)
 
+  const customRate = useMemo(() => parseCustomRate(customRateRaw), [customRateRaw])
+
+  const customRateFormatted = useMemo(() => {
+    if (customRate == null) return null
+    return formatPercent(customRate, { fractionDigits: Number.isInteger(customRate) ? 0 : 1 })
+  }, [customRate])
+
+  const customPoints = useMemo(() => {
+    const first = projection.data?.scenarios?.[0]
+    if (!first || customRate == null) return null
+    return projectCustomRate(first.points, customRate)
+  }, [projection.data, customRate])
+
+  const customFinal = useMemo(() => {
+    if (!customPoints || customPoints.length === 0) return null
+    const last = customPoints[customPoints.length - 1]
+    return {
+      valueEur: last.valueEur,
+      gainEur: Math.round((last.valueEur - last.contributedEur) * 100) / 100,
+    }
+  }, [customPoints])
+
   const config = useMemo<ChartConfig>(() => {
-    const entries = (projection.data?.scenarios ?? []).map((s) => [
+    const entries: Array<[string, { label: string; color: string }]> = (
+      projection.data?.scenarios ?? []
+    ).map((s) => [
       s.key,
       {
         label: t(`analysis.projection.scenarios.${s.key}`, {
@@ -56,8 +88,19 @@ export function ProjectionSection() {
         color: SCENARIO_COLORS[s.key],
       },
     ])
+    if (customRateFormatted != null) {
+      entries.push([
+        CUSTOM_KEY,
+        {
+          label: t('analysis.projection.scenarios.CUSTOM', {
+            value: customRateFormatted,
+          }),
+          color: CUSTOM_COLOR,
+        },
+      ])
+    }
     return Object.fromEntries(entries) as ChartConfig
-  }, [projection.data, t])
+  }, [projection.data, customRateFormatted, t])
 
   const rows = useMemo(() => {
     const scenarios = projection.data?.scenarios ?? []
@@ -71,19 +114,25 @@ export function ProjectionSection() {
       for (const scenario of scenarios) {
         row[scenario.key] = scenario.points[i]?.valueEur ?? 0
       }
+      if (customPoints) {
+        row[CUSTOM_KEY] = customPoints[i]?.valueEur ?? 0
+      }
       return row
     })
-  }, [projection.data])
+  }, [projection.data, customPoints])
 
   const yMax = useMemo(() => {
-    let max = 0
+    let visibleMax = 0
+    let allMax = 0
     for (const row of rows) {
       for (const [key, value] of Object.entries(row)) {
-        if (key !== 'date' && typeof value === 'number') max = Math.max(max, value)
+        if (key === 'date' || typeof value !== 'number') continue
+        allMax = Math.max(allMax, value)
+        if (!hidden.has(key)) visibleMax = Math.max(visibleMax, value)
       }
     }
-    return niceCeiling(max)
-  }, [rows])
+    return niceCeiling(visibleMax > 0 ? visibleMax : allMax)
+  }, [rows, hidden])
 
   const referenceFinal = useMemo(() => {
     const scenarios = projection.data?.scenarios ?? []
@@ -102,8 +151,19 @@ export function ProjectionSection() {
         }),
         color: SCENARIO_COLORS[scenario.key],
       })),
+      ...(customRateFormatted != null
+        ? [
+            {
+              key: CUSTOM_KEY,
+              label: t('analysis.projection.scenarios.CUSTOM', {
+                value: customRateFormatted,
+              }),
+              color: CUSTOM_COLOR,
+            },
+          ]
+        : []),
     ],
-    [projection.data, t],
+    [projection.data, customRateFormatted, t],
   )
 
   const toggle = (key: string) =>
@@ -193,6 +253,69 @@ export function ProjectionSection() {
               <AllocationTrajectory allocation={projection.data.allocation} />
             ) : (
               <>
+                <div className="mb-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-3 rounded-xl border border-border/60 bg-muted/25 px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <Label
+                      htmlFor="projection-custom-rate"
+                      className="text-sm font-medium text-foreground"
+                    >
+                      {t('analysis.projection.customRateLabel')}
+                    </Label>
+                    <div className="relative w-24">
+                      <NumericInput
+                        id="projection-custom-rate"
+                        value={customRateRaw}
+                        onChange={(e) => setCustomRateRaw(e.target.value)}
+                        placeholder="12"
+                        aria-label={t('analysis.projection.customRateLabel')}
+                        className="h-8 bg-background pr-7 text-sm tabular-nums"
+                      />
+                      <span
+                        className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-xs text-muted-foreground"
+                        aria-hidden="true"
+                      >
+                        %
+                      </span>
+                    </div>
+                    {customRateRaw !== '' && (
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="size-8 text-muted-foreground hover:text-foreground"
+                        aria-label={t('analysis.projection.customRateClear')}
+                        onClick={() => setCustomRateRaw('')}
+                      >
+                        <X className="size-4" />
+                      </Button>
+                    )}
+                  </div>
+
+                  {customFinal && customRateFormatted != null ? (
+                    <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 text-sm tabular-nums">
+                      <span className="text-muted-foreground">
+                        {t('analysis.projection.customRateResult', {
+                          count: years,
+                          value: customRateFormatted,
+                        })}
+                      </span>
+                      <span className="text-base font-semibold text-foreground">
+                        <CurrencyDisplay value={customFinal.valueEur} />
+                      </span>
+                      {customFinal.gainEur > 0 && (
+                        <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
+                          (<CurrencyDisplay value={customFinal.gainEur} showSign />{' '}
+                          {t('analysis.projection.customRateGains')})
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      {t('analysis.projection.customRateHint')}
+                    </p>
+                  )}
+                </div>
+
                 <ChartContainer config={config} className={cn('aspect-auto h-[320px] w-full')}>
                   <AreaChart data={rows} margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>
                     <defs>

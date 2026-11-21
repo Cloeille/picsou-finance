@@ -16,9 +16,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
   Plus,
-  RefreshCw,
-  Trash2,
-} from 'lucide-react'
+  ArrowsClockwise,
+  Trash,
+} from '@phosphor-icons/react'
 import type { ChainType } from '@/types/api'
 import { extractErrorMessage, formatApiError } from '@/lib/errors'
 
@@ -54,7 +54,7 @@ export function CryptoWalletTab() {
       <div className="space-y-4">
         {Array.from({ length: 2 }).map((_, i) => (
           <Card key={i} size="sm">
-            <CardContent className="flex items-center justify-between p-4">
+            <CardContent className="flex items-center justify-between">
               <div className="space-y-2">
                 <Skeleton className="h-4 w-36" />
                 <Skeleton className="h-3 w-52" />
@@ -86,7 +86,7 @@ export function CryptoWalletTab() {
         </Button>
       ) : (
         <Card size="sm">
-          <CardContent className="space-y-4 p-4">
+          <CardContent className="space-y-4">
             <CryptoWalletForm
               variant="page"
               onSuccess={() => setShowAddForm(false)}
@@ -110,7 +110,7 @@ export function CryptoWalletTab() {
         <div className="space-y-3">
           {wallets.map(wallet => (
             <Card key={wallet.id} size="sm">
-              <CardContent className="space-y-2 p-4">
+              <CardContent className="space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
@@ -143,14 +143,14 @@ export function CryptoWalletTab() {
                       // B. Scoping this per-row reads tidier and reintroduces that bug.
                       disabled={syncMutation.isPending}
                     >
-                      <RefreshCw />
+                      <ArrowsClockwise />
                     </Button>
                     <Button
                       variant="ghost"
                       size="icon-sm"
                       onClick={() => setRemovingId(wallet.id)}
                     >
-                      <Trash2 />
+                      <Trash />
                     </Button>
                   </div>
                 </div>

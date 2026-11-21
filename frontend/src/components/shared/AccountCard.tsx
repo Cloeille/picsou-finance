@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMoney } from '@/hooks/use-money'
-import { TriangleAlert } from 'lucide-react'
+import { Warning } from '@phosphor-icons/react'
 import type { CSSProperties } from 'react'
 import type { Account, PropertyKind } from '@/types/api'
 import { Card, CardContent } from '@/components/ui/card'
@@ -77,7 +77,7 @@ function PropertyAvatar({ kind, color }: { kind: PropertyKind; color: string }) 
         style={{ '--account-color': color } as CSSProperties}
         className="bg-[color-mix(in_oklch,var(--account-color)_16%,var(--card))] text-[color:oklch(from_var(--account-color)_calc(l_-_0.18)_c_h)] dark:text-[color:oklch(from_var(--account-color)_calc(l_+_0.12)_c_h)]"
       >
-        <Icon className="size-5" aria-hidden />
+        <Icon className="size-5" data-property-icon={kind} aria-hidden />
       </AvatarFallback>
     </Avatar>
   )
@@ -135,7 +135,7 @@ export function AccountCard({ account, closed = false, onClick }: AccountCardPro
       className={`cursor-pointer transition-colors hover:bg-muted/20 ${closed ? 'opacity-70' : ''}`}
       onClick={onClick}
     >
-      <CardContent className="flex items-start gap-3 p-4">
+      <CardContent className="flex items-start gap-3">
         {propertyKind ? (
           <PropertyAvatar kind={propertyKind} color={account.color} />
         ) : (
@@ -180,7 +180,7 @@ export function AccountCard({ account, closed = false, onClick }: AccountCardPro
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <p className={`mt-1 flex items-center gap-1 text-xs ${FRESHNESS_TEXT_CLASS[level]}`}>
-                      <TriangleAlert className="size-3 shrink-0" />
+                      <Warning className="size-3 shrink-0" />
                       {t('accounts.syncStale', { time: formatTimeAgo(freshness.date) })}
                     </p>
                   </TooltipTrigger>

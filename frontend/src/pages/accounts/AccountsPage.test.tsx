@@ -7,6 +7,8 @@ import type { NetWorthPoint } from '@/features/history/api'
 const useAccounts = vi.fn()
 const useHistory = vi.fn()
 const usePeerLoansOverview = vi.fn<() => { data: PeerLoansOverview | undefined }>(() => ({ data: undefined }))
+const useSavingsSuggestions = vi.fn<() => { data: Array<{ accountId: number; accountName: string; suggestedProduct: string; defaultAnnualRate: number }> | undefined }>(() => ({ data: undefined }))
+const navigateMock = vi.fn()
 const orderMutate = vi.fn()
 const collapseMutate = vi.fn()
 
@@ -28,7 +30,7 @@ vi.mock('@/features/accounts/hooks', async (importActual) => ({
 
 // The savings-suggestion banner is a query of its own and has nothing to say about gain/loss.
 vi.mock('@/features/savings/hooks', () => ({
-  useSavingsSuggestions: () => ({ data: undefined }),
+  useSavingsSuggestions: () => useSavingsSuggestions(),
 }))
 
 vi.mock('@/features/history/hooks', () => ({
@@ -51,7 +53,7 @@ vi.mock('@/components/shared/AccountsStackedChart', () => ({
   ),
 }))
 
-vi.mock('react-router', () => ({ useNavigate: () => vi.fn() }))
+vi.mock('react-router', () => ({ useNavigate: () => navigateMock }))
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -138,7 +140,7 @@ describe('AccountsPage - Immobilier gain / loss', () => {
     selectRealEstate()
 
     // 300 000 - 250 000 = +50 000, i.e. +20.0 %
-    expect(screen.getByText('dashboard.portfolioPerformance')).toBeInTheDocument()
+    expect(screen.getByTestId('portfolio-performance')).toBeInTheDocument()
     expect(screen.getByText('(+20.0%)')).toBeInTheDocument()
   })
 
@@ -162,7 +164,7 @@ describe('AccountsPage - Immobilier gain / loss', () => {
     render(<AccountsPage />)
     selectRealEstate()
 
-    expect(screen.queryByText('dashboard.portfolioPerformance')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('portfolio-performance')).not.toBeInTheDocument()
     expect(screen.queryByTestId('pnl-chart')).not.toBeInTheDocument()
   })
 
@@ -198,7 +200,7 @@ describe('AccountsPage - Immobilier gain / loss', () => {
 
     render(<AccountsPage />)
 
-    expect(screen.queryByText('dashboard.portfolioPerformance')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('portfolio-performance')).not.toBeInTheDocument()
     const chartData = JSON.parse(screen.getByTestId('pnl-chart').getAttribute('data-chart') ?? '[]') as Array<Record<string, string | number>>
     expect(chartData[0]).not.toHaveProperty('STOCKS')
   })
@@ -408,5 +410,33 @@ describe('AccountsPage - reorder covers co-owned accounts', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'accounts.moveDown' })[0])
     expect(orderMutate).toHaveBeenCalledWith([2, 1])
     expect(collapseMutate).not.toHaveBeenCalled()
+  })
+
+  it('opens the savings configuration tab directly when clicking Configure on the suggestions banner', () => {
+    navigateMock.mockReset()
+    useSavingsSuggestions.mockReturnValue({
+      data: [{ accountId: 99, accountName: 'Livret A', suggestedProduct: 'LIVRET_A', defaultAnnualRate: 2.4 }],
+    })
+    useAccounts.mockReturnValue({ data: [checking(99)], isLoading: false })
+    useHistory.mockReturnValue({ data: [], isLoading: false })
+
+    const { container } = render(<AccountsPage />)
+    expect(container.querySelector('.bg-emerald-50')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'savings.configureSavings' }))
+    expect(navigateMock).toHaveBeenCalledWith('/accounts/99?tab=config')
+    useSavingsSuggestions.mockReturnValue({ data: undefined })
+  })
+
+  it('keeps one filled primary button while reordering', () => {
+    useAccounts.mockReturnValue({ data: [checking(1, { isOwner: true })], isLoading: false })
+    useHistory.mockReturnValue({ data: [], isLoading: false })
+
+    const { container } = render(<AccountsPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'accounts.reorder' }))
+
+    const done = screen.getByRole('button', { name: 'accounts.doneReordering' })
+    expect(done).toHaveAttribute('aria-pressed', 'true')
+    expect(container.querySelectorAll('[data-slot="button"][data-variant="default"]')).toHaveLength(1)
   })
 })

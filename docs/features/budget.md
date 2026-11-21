@@ -1,6 +1,6 @@
 # Feature: Budget & Cashflow
 
-> Last updated: 2026-06-27
+> Last updated: 2026-11-20
 
 ## Context
 
@@ -49,7 +49,7 @@ A single `BudgetLayout` (segmented sub-nav on desktop, bottom bar on mobile — 
 | `/budget` (index) | `BudgetOverviewPage` | Hero "left to spend", mini-flow, Review banner (only if items), upcoming subscriptions, top categories |
 | `/budget/spending` | `SpendingPage` | Cashflow **flow diagram**: Sankey in a card ≥ 640px, Flow Bars below |
 | `/budget/spending/:categoryId` | `CategoryDetailPage` | Per-category drill: transactions with `MerchantAvatar` |
-| `/budget/subscriptions` | `SubscriptionsPage` | Recurring series **v2**: auto-confirm + runtime/price badges (`SubscriptionCard`), "what changed" feed + undo (`ActivityFeed`), upcoming agenda |
+| `/budget/subscriptions` | `SubscriptionsPage` | KPI strip (monthly recurring expenses / income, net of the next 30 days), recurring series **v2** with Detect / Add in the list header: auto-confirm note + runtime/price badges (`SubscriptionCard`), upcoming agenda, then the "recent changes" feed + undo (`ActivityFeed`) |
 | `/budget/envelopes` | `EnvelopesPage` | Envelopes + allocation; a parent envelope rolls up its whole subtree (M4) |
 | `/budget/review` | `ReviewPage` | Uncategorized inbox — **contextual, not a permanent destination** |
 | `/budget/settings` | `BudgetSettingsPage` | Category management, pay cycle, logo opt-in |
@@ -167,8 +167,9 @@ It deliberately has no empty-rules early-out: the brand KB alone categorizes a r
   - Conservation invariant (test-locked): `intoHub == outOfHub == max(in, out)`.
   - **Known limits**: the two legs of one transfer booked on either side of a cycle boundary show up as a
     small transfer in/out in each cycle. Both legs of an internal transfer must be categorised
-    `TRANSFER`: for example, a checking debit categorised as a transfer and an uncategorised
-    Livret credit show an external transfer out rather than savings. The allocation view
+    `TRANSFER`. After each sync, `InternalTransferPairingService` pairs the legs it can prove
+    (see *Internal transfer pairing* below); a leg it leaves alone (ambiguous, manual, more than
+    three days apart) still shows as an external transfer or as spending. The allocation view
     (`AllocationService`) keeps its own gross
     rule (incoming legs only) and is not changed here, so its contributions can differ from the Sankey's
     net per-account figures.
@@ -191,6 +192,35 @@ It deliberately has no empty-rules early-out: the brand KB alone categorizes a r
 - **`MerchantAvatar`** (`components/shared/MerchantAvatar.tsx`) — initial-monogram with a
   **deterministic colour derived from the name**, fully offline; switches to a proxied `<img>` only
   when `logo_fetch_enabled` (M5). Used across every transaction list.
+
+### Internal transfer pairing
+
+`InternalTransferPairingService.pairRecent(memberId, today)` finds the two legs of a transfer
+between two of a member's own accounts and categorises both `virement-interne` (#450). It runs
+through `ReceivedDividendClassifier` once an import has committed, right after dividend classification:
+after every member sync (`MemberSyncService`) and at the end of each Fortuneo and BoursoBank job.
+
+- **Window**: the last 90 days of the member's owned, visible accounts (the bank sync lookback),
+  loaded 3 days wider on both sides. A row outside the window is never paired, but it still makes
+  its group ambiguous, so a leg at the edge is not taken for unique because its rival was not read.
+  Hidden accounts (often a second connector's copy) and loan and peer-loan accounts are left out:
+  a repayment stays a `credit` expense.
+- **Legs**: a debit and a credit on two different accounts, same currency, exactly opposite
+  amounts, booked at most 3 days apart. Only cash legs qualify: no buy, sell, dividend or fee,
+  no Trade Republic `TRADING` row, no budget-neutral row.
+- **Manual wins**: a leg with `category_manual = true`, or a hand-entered row saved with a
+  category, never takes part, so its partner is not paired either.
+- **Ambiguity**: a pair is taken only when each leg is the other's single candidate. Two debits
+  for one credit, or two credits for one debit, leave every leg of that group alone. A manual,
+  typed or same-account leg counts as a candidate too (a refund on the same account, the real
+  partner categorised by hand), so it blocks a guess without ever being paired itself.
+- **Idempotent**: a leg already in a `TRANSFER` category (`epargne`, `investissement`, a previous
+  pairing) keeps its category, so a second run writes nothing. An `EXPENSE`/`INCOME` category set
+  by a rule, the brand base or the AI is replaced, and a pending AI suggestion is cleared.
+- **Known limits**: it pairs within one member's owned accounts only, never across family members
+  or on co-owned accounts read through sharing. Manual and file imports (CSV, HomeBank, Actual
+  Budget) are paired by the next sync, not at import time. A transfer whose legs differ (fees,
+  currency conversion) is not detected. Deferred-debit card settlements (#363) are out of scope.
 
 ### Period navigation
 
@@ -318,6 +348,15 @@ silently**, with a safety net so silent ≠ unexplained.
   (Apple principle — no permanent review chore). Both are mobile-responsive via `flex-wrap`. New
   TanStack hooks `useRecurringActivity` / `useUndoRecurring` invalidate `['budget','activity']`
   (also swept by `useDetectRecurring`).
+- **Recurring page layout (1.2.2 redesign)**: a three-card KPI strip on top, computed client-side
+  by `pages/budget/recurring-summary.ts` — monthly totals normalise each cadence to a month and
+  count only `CONFIRMED` series that are not `STALE` (the same set the upcoming calendar projects);
+  the third card nets the calendar occurrences up to the 30th local day. Rows show a neutral
+  directional tile instead of the category-coloured `MerchantAvatar`, and a status badge only when it
+  is not `CONFIRMED`. Labels go through `lib/bank-label.ts` (`formatBankLabel`), which hides SEPA
+  creditor / mandate / reference noise and rewords French transfer labels for display only; the raw
+  label stays in the `title` attribute, and any synthesized wording comes from
+  `budget.recurring.labels.*`, so it follows the interface language.
 
 ### Opt-in brand logos (M5)
 
@@ -389,7 +428,8 @@ overlap guard added in M4): `model/Budget.java` + `BudgetService` + `BudgetContr
 **Frontend:** `pages/budget/BudgetLayout.tsx` (mounts `BudgetPeriodProvider`) +
 `pages/budget/BudgetPeriodContext.tsx` (`BudgetPeriodProvider` / `useBudgetPeriod()`,
 `sessionStorage`-backed anchor, key `picsou_budget_anchor`) + `budget-nav.ts` + the nested pages above;
-`pages/budget/{SubscriptionCard,ActivityFeed}.tsx` + `budget-meta.ts` (runtime/activity lookups);
+`pages/budget/{RecurringTab,SubscriptionCard,ActivityFeed}.tsx` + `recurring-summary.ts` (KPI strip) +
+`budget-meta.ts` (runtime/activity lookups); `lib/bank-label.ts` (display-only label cleanup);
 `features/budget/{api,hooks}.ts` (TanStack Query, cascade invalidations rooted at `['budget']`);
 `components/shared/{MerchantAvatar,CashflowSankey,FlowBars,flow-utils}.ts(x)`;
 `types/api.ts`; demo mocks in `demo/data/budget.ts` + `demo/index.ts`.

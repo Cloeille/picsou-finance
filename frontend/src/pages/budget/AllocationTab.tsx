@@ -14,7 +14,7 @@ import { useMoney } from '@/hooks/use-money'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { Skeleton } from '@/components/ui/skeleton'
-import { PiggyBank } from 'lucide-react'
+import { PiggyBank } from '@phosphor-icons/react'
 import { useAllocation } from '@/features/budget/hooks'
 import type { CashflowPeriod } from '@/types/api'
 import { ColorDot, PeriodToggle } from './budget-utils'
@@ -147,8 +147,8 @@ export function AllocationTab() {
                             <CurrencyDisplay value={c.amount} />
                           </span>
                         </div>
-                        <div className="h-1.5 w-full overflow-hidden rounded-md bg-muted">
-                          <div className="h-full rounded-md"
+                        <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                          <div className="h-full rounded-full"
                             style={{ width: `${pct}%`, backgroundColor: c.color || ASSET_CLASS_COLOR[c.assetClass] }} />
                         </div>
                       </div>

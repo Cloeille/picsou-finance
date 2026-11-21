@@ -31,7 +31,7 @@ export function LoanProgressCard({ summary }: LoanProgressCardProps) {
         </div>
 
         <div className="space-y-2">
-          <Progress value={pct} className="h-2" />
+          <Progress value={pct} />
           <p className="text-xs text-muted-foreground">
             {t('debt.capitalRepaidPct', { pct: formatPercent(pct, { fractionDigits: 0 }, locale) })}
           </p>

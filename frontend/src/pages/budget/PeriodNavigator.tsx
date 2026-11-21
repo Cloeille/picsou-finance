@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react'
+import { CaretLeft, CaretRight, CaretDown } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import {
@@ -112,7 +112,7 @@ export function PeriodNavigator({
         aria-label={t('budget.period.prev')}
         onClick={handlePrev}
       >
-        <ChevronLeft />
+        <CaretLeft />
       </Button>
 
       {/* Jump dropdown — the label doubles as the trigger */}
@@ -120,7 +120,7 @@ export function PeriodNavigator({
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" className="h-8 gap-1 px-2 text-sm font-medium">
             {label}
-            <ChevronDown className="size-3.5" />
+            <CaretDown className="size-3.5" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-44 max-h-72 overflow-y-auto">
@@ -140,7 +140,7 @@ export function PeriodNavigator({
         onClick={handleNext}
         disabled={nextDisabled}
       >
-        <ChevronRight />
+        <CaretRight />
       </Button>
     </div>
   )

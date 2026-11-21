@@ -74,6 +74,11 @@ public class ScpiPositionService {
             relink(memberId, ScpiProvider.SOFIDY, position.getSofidyFundCode(), next);
             position.setSofidyFundCode(next);
         }
+        if (request.louveFundCode() != null) {
+            String next = blankToNull(request.louveFundCode());
+            relink(memberId, ScpiProvider.LOUVE, position.getLouveFundCode(), next);
+            position.setLouveFundCode(next);
+        }
         position.setShareCount(request.shareCount());
         position.setSubscriptionPriceEur(request.subscriptionPriceEur());
         position.setWithdrawalPriceEur(request.withdrawalPriceEur());

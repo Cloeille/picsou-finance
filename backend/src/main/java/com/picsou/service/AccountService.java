@@ -459,10 +459,17 @@ public class AccountService {
         scpiPositionRepository.findByAccountIdAndMemberId(id, memberId).ifPresent(position -> {
             scpiFundService.tombstone(memberId, ScpiProvider.CORUM, position.getCorumFundCode());
             scpiFundService.tombstone(memberId, ScpiProvider.SOFIDY, position.getSofidyFundCode());
+            scpiFundService.tombstone(memberId, ScpiProvider.LOUVE, position.getLouveFundCode());
             position.setCorumFundCode(null);
             position.setSofidyFundCode(null);
+            position.setLouveFundCode(null);
             scpiPositionRepository.save(position);
         });
+        // The linked_account_id foreign keys are ON DELETE SET NULL, which a soft-delete never
+        // fires. A loan or peer loan still pointing here would then fail to load (the account
+        // row is filtered out by @SQLRestriction) and break every page that lists it.
+        debtRepository.unlinkAccount(id);
+        peerLoanTermsRepository.unlinkAccount(id);
         account.setDeletedAt(Instant.now());
         accountRepository.save(account);
     }

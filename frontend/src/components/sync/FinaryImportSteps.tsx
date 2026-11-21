@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
-import { ArrowLeft, ArrowRight, CheckCircle2, Upload } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CheckCircle, UploadSimple } from '@phosphor-icons/react'
 import { ACCOUNT_COLORS, ACCOUNT_TYPES } from '@/lib/constants'
 import { availableTargets } from '@/features/sync/finary-mappings'
 import type { FinaryStep, NewAccountField } from '@/features/sync/use-finary-import'
@@ -36,7 +36,7 @@ export function FinaryStepIndicator({ step, variant }: { step: FinaryStep; varia
               step >= s ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
             }`}
           >
-            {step > s ? <CheckCircle2 className={modal ? 'size-3.5' : 'size-4'} /> : s}
+            {step > s ? <CheckCircle className={modal ? 'size-3.5' : 'size-4'} /> : s}
           </div>
           <span className={`${modal ? 'text-xs' : 'text-sm'} text-muted-foreground`}>{t(`sync.finary.step${s}`)}</span>
           {s < 3 && <div className={`mx-1 h-px ${modal ? 'w-6' : 'w-8'} ${step > s ? 'bg-primary' : 'bg-muted'}`} />}
@@ -92,7 +92,7 @@ export function FinaryUploadZone({
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
       >
-        <Upload className={`${modal ? 'size-5' : 'size-6'} text-muted-foreground`} />
+        <UploadSimple className={`${modal ? 'size-5' : 'size-6'} text-muted-foreground`} />
         <div>
           <p className={modal ? 'text-sm font-medium' : 'font-medium'}>{t('sync.finary.uploadFile')}</p>
           <p className={`${modal ? 'text-sm' : 'mt-1 text-sm'} text-muted-foreground`}>{t('sync.finary.uploadHint')}</p>
@@ -103,7 +103,7 @@ export function FinaryUploadZone({
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled}
         >
-          <Upload className={modal ? 'size-4' : undefined} />
+          <UploadSimple className={modal ? 'size-4' : undefined} />
           {t('sync.finary.uploadFile')}
         </Button>
         <input ref={fileInputRef} type="file" accept=".xlsx" className="hidden" onChange={onFileSelected} />
@@ -339,13 +339,13 @@ export function FinaryResultStep({
 
       {modal ? (
         <Button onClick={onDone} className="w-full">
-          <CheckCircle2 className="size-4" />
+          <CheckCircle className="size-4" />
           {t('sync.finary.done')}
         </Button>
       ) : (
         <div className="flex justify-center">
           <Button onClick={onDone}>
-            <CheckCircle2 />
+            <CheckCircle />
             {t('sync.finary.done')}
           </Button>
         </div>

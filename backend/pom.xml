@@ -161,7 +161,7 @@
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcprov-jdk18on</artifactId>
-            <version>1.86</version>
+            <version>1.87</version>
         </dependency>
 
         <!-- Rate limiting -->
@@ -197,7 +197,7 @@
         <dependency>
             <groupId>io.sentry</groupId>
             <artifactId>sentry</artifactId>
-            <version>8.63.0</version>
+            <version>8.64.0</version>
         </dependency>
 
         <!-- Apache POI - Excel file parsing -->

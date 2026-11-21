@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Lightbulb } from 'lucide-react'
+import { Lightbulb } from '@phosphor-icons/react'
 import {
   Dialog,
   DialogContent,

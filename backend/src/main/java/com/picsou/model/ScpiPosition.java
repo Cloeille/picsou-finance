@@ -84,6 +84,13 @@ public class ScpiPosition extends AuditableEntity {
     @Column(name = "sofidy_fund_code", length = 40)
     private String sofidyFundCode;
 
+    /**
+     * The Louve Invest {@code scpiUrlId} a Louve sync writes to, e.g. {@code aurore}. Null means
+     * the account was entered by hand. Unique per member, like the other fund codes.
+     */
+    @Column(name = "louve_fund_code", length = 40)
+    private String louveFundCode;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "valuation_status", nullable = false, length = 30)
     @Builder.Default

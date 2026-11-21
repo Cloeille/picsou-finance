@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { CheckCircle2, CircleAlert, Loader2 } from 'lucide-react'
+import { CheckCircle, WarningCircle, CircleNotch } from '@phosphor-icons/react'
 import { BoursoBankLogo } from '../components/IntegrationLogos'
 import { Button } from '@/components/ui/button'
 import { useBoursoBankHealth } from '@/features/setup/hooks'
@@ -81,14 +81,14 @@ export function SetupStepBoursoBank() {
 
       {phase === 'checking' && (
         <div className="flex flex-col items-center gap-2 py-6 text-muted-foreground">
-          <Loader2 className="h-6 w-6 animate-spin" />
+          <CircleNotch className="h-6 w-6 animate-spin" />
           <p className="text-sm">{t('setup.bourso.pinging')}</p>
         </div>
       )}
 
       {phase === 'ok' && (
         <div className="flex flex-col items-center gap-3 rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-6 text-center">
-          <CheckCircle2 className="h-10 w-10 text-emerald-500" />
+          <CheckCircle className="h-10 w-10 text-emerald-500" />
           <p className="text-lg font-medium">{t('setup.bourso.ok')}</p>
         </div>
       )}
@@ -99,7 +99,7 @@ export function SetupStepBoursoBank() {
           className="space-y-3 rounded-xl border border-destructive/40 bg-destructive/5 p-6"
         >
           <div className="flex items-start gap-3">
-            <CircleAlert className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+            <WarningCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
             <div className="space-y-1">
               <p className="font-medium text-destructive">{t('setup.bourso.downTitle')}</p>
               <p className="text-sm text-muted-foreground">

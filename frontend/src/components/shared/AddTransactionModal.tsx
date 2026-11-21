@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label'
 import { localeFromLanguage, parseAmount } from '@/lib/utils'
 import { formatCurrencyUnmasked } from '@/lib/money'
 import { extractErrorMessage } from '@/lib/errors'
-import { Loader2 } from 'lucide-react'
+import { CircleNotch } from '@phosphor-icons/react'
 import type { AccountType, TransactionRequest } from '@/types/api'
 import { accountsApi } from '@/features/accounts/api'
 import { budgetApi } from '@/features/budget/api'
@@ -326,7 +326,7 @@ function TransactionForm({ onOpenChange, accountId, accountType, onSubmit, isLoa
       <DialogFooter>
         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
         <Button type="submit" disabled={isLoading}>
-          {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+          {isLoading && <CircleNotch className="h-4 w-4 animate-spin" />}
           {initialValues ? t('common.save') : t('common.create')}
         </Button>
       </DialogFooter>

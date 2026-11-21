@@ -1,6 +1,5 @@
 import { Fragment, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ScrollText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -215,9 +214,8 @@ export function AiActivitySection() {
   return (
     <Card className="rounded-xl bg-card">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base font-semibold">
-          <ScrollText className="size-4 shrink-0 text-muted-foreground" />
-          {t('admin.aiActivity.title')}
+        <CardTitle className="text-base font-semibold">
+            {t('admin.aiActivity.title')}
         </CardTitle>
         <CardDescription>{t('admin.aiActivity.description')}</CardDescription>
       </CardHeader>

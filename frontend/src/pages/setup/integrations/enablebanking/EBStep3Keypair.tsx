@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Copy, Download, KeyRound, Loader2, Upload } from 'lucide-react'
+import { Check, Copy, DownloadSimple, CircleNotch, UploadSimple } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { formatApiError } from '@/lib/errors'
@@ -112,12 +112,6 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
   return (
     <EBSubstepShell current={4} total={5}>
       <div className="space-y-6">
-        <div className="flex justify-center">
-          <span className="inline-flex size-10 items-center justify-center text-foreground">
-            <KeyRound className="h-6 w-6" />
-          </span>
-        </div>
-
         <div className="flex flex-col rounded-lg border border-border/60 p-1 gap-1">
           <button
             type="button"
@@ -160,7 +154,7 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
 
             {generate.isPending && !pem && (
               <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground">
-                <Loader2 className="h-5 w-5 animate-spin" />
+                <CircleNotch className="h-5 w-5 animate-spin" />
                 <p className="text-sm">{t('setup.enablebanking.keypair.generating')}</p>
               </div>
             )}
@@ -196,7 +190,7 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
                     )}
                   </Button>
                   <Button type="button" variant="outline" size="sm" onClick={handleDownload} className="rounded-lg w-full sm:w-auto">
-                    <Download className="h-4 w-4" />
+                    <DownloadSimple className="h-4 w-4" />
                     {t('setup.enablebanking.keypair.download')}
                   </Button>
                 </div>
@@ -237,7 +231,7 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
                   disabled={pending}
                   onClick={() => fileInputRef.current?.click()}
                 >
-                  <Upload className="h-4 w-4" />
+                  <UploadSimple className="h-4 w-4" />
                   {t('setup.enablebanking.keypair.chooseFile')}
                 </Button>
 
@@ -264,7 +258,7 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
                   onClick={handleImport}
                 >
                   {importKey.isPending ? (
-                    <><Loader2 className="h-4 w-4 animate-spin" />{t('setup.enablebanking.keypair.importing')}</>
+                    <><CircleNotch className="h-4 w-4 animate-spin" />{t('setup.enablebanking.keypair.importing')}</>
                   ) : (
                     t('setup.enablebanking.keypair.importCta')
                   )}

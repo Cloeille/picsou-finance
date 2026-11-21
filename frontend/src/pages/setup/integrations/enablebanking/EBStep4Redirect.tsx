@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Copy, ExternalLink } from 'lucide-react'
+import { Check, Copy } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { EBSubstepShell } from './EBSubstepShell'
 import { useSetupFlowStore } from '@/stores/setup-flow-store'
@@ -33,11 +33,6 @@ export function EBStep4Redirect({ onNext, onBack }: Props) {
   return (
     <EBSubstepShell current={2} total={5}>
       <div className="space-y-6">
-        <div className="flex justify-center">
-          <span className="inline-flex size-10 items-center justify-center text-foreground">
-            <ExternalLink className="h-6 w-6" />
-          </span>
-        </div>
         <div className="text-center space-y-2">
           <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight">
             {t('setup.enablebanking.redirect.title')}

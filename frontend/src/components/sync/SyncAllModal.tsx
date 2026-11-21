@@ -19,22 +19,22 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
-  AlertTriangle,
-  Loader2,
-  RefreshCw,
-  ExternalLink,
-  Landmark,
+  Warning,
+  CircleNotch,
+  ArrowsClockwise,
+  ArrowSquareOut,
+  Bank,
   Coins,
   Wallet,
-  Building2,
-  LineChart,
+  Buildings,
+  ChartLineUp,
   CreditCard,
   Info,
-  Smartphone,
+  DeviceMobile,
   Lock,
   PiggyBank,
   ShieldCheck,
-} from 'lucide-react'
+} from '@phosphor-icons/react'
 import {
   useBankSyncStatus,
   useProviderStatus,
@@ -63,6 +63,8 @@ import {
   useSyncSimplefin,
   useWiseStatus,
   useSyncWise,
+  useLouveStatus,
+  useSyncLouve,
 } from '@/features/sync/hooks'
 import { useAccounts } from '@/features/accounts/hooks'
 import { formatTimeAgo } from '@/lib/utils'
@@ -101,7 +103,7 @@ type SyncConnection = {
   id: string
   providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso' | 'revolut'
     | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin' | 'wise'
-    | 'amex' | 'corum' | 'sofidy' | 'caisse-epargne' | 'banque-populaire' | 'lbp' | 'bnp' | 'cmes' | 'natixis' | 'cic'
+    | 'amex' | 'corum' | 'sofidy' | 'louve' | 'caisse-epargne' | 'banque-populaire' | 'lbp' | 'bnp' | 'cmes' | 'natixis' | 'cic'
   name: string
   status: string
   lastSyncedAt: string | null
@@ -114,27 +116,28 @@ type SyncConnection = {
 
 
 const ProviderIcon: Record<SyncConnection['providerType'], React.ComponentType<{ className?: string }>> = {
-  bank: Landmark,
+  bank: Bank,
   exchange: Coins,
   wallet: Wallet,
-  tr: Building2,
-  finary: LineChart,
-  bourso: Building2,
+  tr: Buildings,
+  finary: ChartLineUp,
+  bourso: Buildings,
   revolut: CreditCard,
   amundi: PiggyBank,
   fortuneo: PiggyBank,
-  'bourse-direct': LineChart,
-  degiro: LineChart,
-  ibkr: LineChart,
-  simplefin: Landmark,
+  'bourse-direct': ChartLineUp,
+  degiro: ChartLineUp,
+  ibkr: ChartLineUp,
+  simplefin: Bank,
   wise: PiggyBank,
   amex: CreditCard,
-  corum: Building2,
-  sofidy: Building2,
-  'caisse-epargne': Landmark,
-  'banque-populaire': Landmark,
-  lbp: Landmark,
-  bnp: Landmark,
+  corum: Buildings,
+  sofidy: Buildings,
+  louve: Buildings,
+  'caisse-epargne': Bank,
+  'banque-populaire': Bank,
+  lbp: Bank,
+  bnp: Bank,
   cmes: PiggyBank,
   natixis: PiggyBank,
   cic: PiggyBank,
@@ -153,6 +156,7 @@ const REAUTH_TAB: Partial<Record<SyncConnection['providerType'], string>> = {
   amex: 'amex',
   corum: 'corum',
   sofidy: 'sofidy',
+  louve: 'louve',
   'caisse-epargne': 'caisse-epargne',
   'banque-populaire': 'banque-populaire',
   lbp: 'lbp',
@@ -242,6 +246,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: amexStatus } = useProviderStatus("amex")
   const { data: corumStatus } = useProviderStatus("corum")
   const { data: sofidyStatus } = useProviderStatus("sofidy")
+  const { data: louveStatus } = useLouveStatus()
   const { data: cmesStatus } = useProviderStatus("cmes")
   const { data: natixisStatus } = useProviderStatus("natixis")
   const { data: cicStatus } = useProviderStatus("cic")
@@ -375,6 +380,14 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       running: isJobRunning(sofidyStatus?.syncStatus),
     },
     {
+      type: 'louve' as const, name: 'Louve Invest', provider: 'Louve Invest',
+      ownsAccount: (a: Account) => a.scpi?.louveFundCode != null,
+      active: louveStatus?.connected ?? false, lastSyncedAt: louveStatus?.lastSyncedAt ?? null,
+      failed: louveStatus?.status === 'ERROR' || louveStatus?.status === 'REAUTH_REQUIRED',
+      // A refused grant only clears with a new consent, given from the Louve Invest tab.
+      reauth: louveStatus?.status === 'REAUTH_REQUIRED',
+    },
+    {
       type: 'cmes' as const, name: 'Crédit Mutuel / CIC Épargne Salariale', provider: 'Crédit Mutuel Épargne Salariale',
       active: cmesStatus?.isActive ?? false, lastSyncedAt: cmesStatus?.lastSyncCompletedAt ?? null,
       // A stored session is never IDLE (it is queued as it is created): an expired one is kept
@@ -398,7 +411,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       running: isJobRunning(cicStatus?.syncStatus),
       canReconnect: cicStatus?.canReconnect === true,
     },
-  ], [cicStatus, cmesStatus, natixisStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, banquePopulaireStatus, lbpStatus, bnpStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus, wiseStatus])
+  ], [cicStatus, cmesStatus, natixisStatus, amexStatus, corumStatus, sofidyStatus, louveStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, banquePopulaireStatus, lbpStatus, bnpStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus, wiseStatus])
 
   const retryBankMutation     = useRetryBankSync()
   const reconnectBankMutation = useReconnectBankSync()
@@ -425,6 +438,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const syncAmexMutation         = useProviderSync("amex")
   const syncCorumMutation        = useProviderSync("corum")
   const syncSofidyMutation       = useProviderSync("sofidy")
+  const syncLouveMutation        = useSyncLouve()
   const syncCmesMutation = useProviderSync("cmes")
   const syncNatixisMutation = useProviderSync("natixis")
   const syncCicMutation = useProviderSync("cic")
@@ -653,6 +667,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       case 'sofidy':
         syncSofidyMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
+      case 'louve':
+        syncLouveMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
       case 'cmes':
         syncCmesMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
@@ -709,6 +726,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncAmexMutation,
     syncCorumMutation,
     syncSofidyMutation,
+    syncLouveMutation,
     syncCmesMutation,
     syncNatixisMutation,
     syncCicMutation,
@@ -900,7 +918,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
           <div className="-mx-1 min-h-0 flex-1 space-y-3 overflow-y-auto px-1">
             {Array.from({ length: 3 }).map((_, i) => (
               <Card key={i} size="sm">
-                <CardContent className="flex items-center justify-between py-3">
+                <CardContent className="flex items-center justify-between">
                   <div className="space-y-2">
                     <Skeleton className="h-4 w-32" />
                     <Skeleton className="h-3 w-24" />
@@ -913,7 +931,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
         ) : connections.length === 0 ? (
           <EmptyState
             title={t('sync.all.noConnections')}
-            icon={<RefreshCw className="size-12" />}
+            icon={<ArrowsClockwise className="size-12" />}
           />
         ) : (
           <div className="-mx-1 min-h-0 flex-1 space-y-2 overflow-y-auto px-1">
@@ -933,7 +951,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                 : undefined
               return (
                 <Card key={connection.id} size="sm">
-                  <CardContent className="flex flex-col gap-0 py-3">
+                  <CardContent className="flex flex-col gap-0">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <Icon className="size-5 text-muted-foreground" />
@@ -975,7 +993,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                           </p>
                           {rowErrors[connection.id] && (
                             <p className="flex items-center gap-1.5 text-sm text-destructive">
-                              <AlertTriangle className="size-3 shrink-0" />
+                              <Warning className="size-3 shrink-0" />
                               {rowErrors[connection.id]}
                             </p>
                           )}
@@ -1004,8 +1022,8 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                               })}
                             >
                               {isReconnecting
-                                ? <Loader2 className="size-4 animate-spin" />
-                                : <ExternalLink className="size-4" />}
+                                ? <CircleNotch className="size-4 animate-spin" />
+                                : <ArrowSquareOut className="size-4" />}
                             </Button>
                           )
                         })()}
@@ -1017,11 +1035,11 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                           title={actionTitle}
                         >
                           {isSyncing ? (
-                            <Loader2 className="size-4 animate-spin" />
+                            <CircleNotch className="size-4 animate-spin" />
                           ) : tab ? (
-                            <ExternalLink className="size-4" />
+                            <ArrowSquareOut className="size-4" />
                           ) : (
-                            <RefreshCw className="size-4" />
+                            <ArrowsClockwise className="size-4" />
                           )}
                         </Button>
                       </div>
@@ -1035,7 +1053,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                         </p>
                         {trAuthError && (
                           <p className="mb-3 flex items-center gap-2 text-sm text-destructive">
-                            <AlertTriangle className="size-3.5 shrink-0" />
+                            <Warning className="size-3.5 shrink-0" />
                             {trAuthError}
                           </p>
                         )}
@@ -1044,7 +1062,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                             {trReconnecting ? (
                               <div className="space-y-1">
                                 <p className="text-sm text-muted-foreground">
-                                  <Smartphone className="size-3 inline-block mr-1" />
+                                  <DeviceMobile className="size-3 inline-block mr-1" />
                                   {t('sync.tr.reconnectPhone')}
                                 </p>
                                 <p className="font-mono text-sm" data-testid="tr-modal-masked-phone">{trMaskedPhone}</p>
@@ -1052,7 +1070,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                             ) : (
                               <div className="space-y-1">
                                 <Label htmlFor="tr-modal-phone">
-                                  <Smartphone className="size-3 inline-block mr-1" />
+                                  <DeviceMobile className="size-3 inline-block mr-1" />
                                   {t('sync.tr.phone')}
                                 </Label>
                                 <Input
@@ -1082,7 +1100,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                             </div>
                             <div className="flex gap-2">
                               <Button type="submit" size="sm" disabled={initiateTrMutation.isPending || reconnectTrMutation.isPending}>
-                                {(initiateTrMutation.isPending || reconnectTrMutation.isPending) && <Loader2 className="size-3 animate-spin" />}
+                                {(initiateTrMutation.isPending || reconnectTrMutation.isPending) && <CircleNotch className="size-3 animate-spin" />}
                                 {t('sync.tr.connect')}
                               </Button>
                               <Button type="button" size="sm" variant="outline" onClick={resetTrAuth}>
@@ -1117,7 +1135,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                             </div>
                             <div className="flex gap-2">
                               <Button type="submit" size="sm" disabled={completeTrMutation.isPending || trTan.length !== trCodeLength}>
-                                {completeTrMutation.isPending && <Loader2 className="size-3 animate-spin" />}
+                                {completeTrMutation.isPending && <CircleNotch className="size-3 animate-spin" />}
                                 {t('sync.tr.connect')}
                               </Button>
                               <Button type="button" size="sm" variant="outline" onClick={resetTrAuth}>
@@ -1144,12 +1162,12 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
             >
               {isSyncAll ? (
                 <>
-                  <Loader2 className="size-4 animate-spin" />
+                  <CircleNotch className="size-4 animate-spin" />
                   {t('sync.all.syncing')}
                 </>
               ) : (
                 <>
-                  <RefreshCw className="size-4" />
+                  <ArrowsClockwise className="size-4" />
                   {t('sync.all.syncAll')}
                 </>
               )}

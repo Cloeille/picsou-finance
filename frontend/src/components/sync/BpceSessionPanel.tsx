@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
-  AlertTriangle,
-  Landmark,
-  LogOut,
-  RefreshCw,
-  Smartphone,
-} from "lucide-react"
+  Warning,
+  Bank,
+  SignOut,
+  ArrowsClockwise,
+  DeviceMobile,
+} from '@phosphor-icons/react'
 import { useTranslation } from "react-i18next"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -129,6 +129,13 @@ function formatCountdown(totalSeconds: number): string {
   const seconds = safe % 60
   return `${minutes}:${String(seconds).padStart(2, "0")}`
 }
+
+/** Contracts Picsou does not import but can name, by "family/sub-family" code. */
+const KNOWN_UNSUPPORTED_CONTRACTS = new Map([
+  ["6/12", "sync.bpceContracts.personalLoan"],
+  ["6/13", "sync.bpceContracts.homeLoan"],
+  ["2/11", "sync.bpceContracts.revolvingCredit"],
+])
 
 /** The banks of the BPCE platform: same login, keypad, Sécur'Pass and payloads. */
 export type BpceProviderId = "caisseEpargne" | "banquePopulaire"
@@ -321,6 +328,7 @@ export function BpceSessionPanel({
       ? (messageForCode(status.data?.lastSyncError) ??
         t(key("errors.serverError")))
       : null
+  const unsupportedCount = status.data?.unsupported.length ?? 0
   const statusError = status.isError ? formatError(status.error) : null
   const visibleError = error ?? backgroundError ?? statusError
 
@@ -465,7 +473,7 @@ export function BpceSessionPanel({
   return (
     <div className="space-y-6">
       <Card size="sm">
-        <CardContent className="py-4">
+        <CardContent>
           <Badge
             className={
               connected ? "bg-green-500/10 text-green-600 dark:text-green-400" : undefined
@@ -487,6 +495,13 @@ export function BpceSessionPanel({
           {syncStatus === "SUCCESS" && status.data?.lastSyncCompletedAt && (
             <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-400">
               {t(key("syncSuccess"))}
+              {/* The list it points to is only rendered for a live session. */}
+              {connected && unsupportedCount > 0 && (
+                <span className="text-muted-foreground">
+                  {" "}
+                  {t("sync.bpceContracts.notImported", { count: unsupportedCount })}
+                </span>
+              )}
             </p>
           )}
         </CardContent>
@@ -494,8 +509,8 @@ export function BpceSessionPanel({
 
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3 py-4">
-            <AlertTriangle className="size-5 shrink-0 text-destructive" />
+          <CardContent className="flex items-center gap-3">
+            <Warning className="size-5 shrink-0 text-destructive" />
             <p className="flex-1 text-sm text-destructive">{visibleError}</p>
             {statusError && !error && (
               <Button variant="outline" size="sm" onClick={() => void status.refetch()}>
@@ -518,7 +533,7 @@ export function BpceSessionPanel({
               }}
               disabled={requestingSync}
             >
-              <RefreshCw className={requestingSync ? "animate-spin" : undefined} />
+              <ArrowsClockwise className={requestingSync ? "animate-spin" : undefined} />
               {requestingSync ? t(key("syncing")) : t(key("sync"))}
             </Button>
             {!confirmingDisconnect && (
@@ -527,7 +542,7 @@ export function BpceSessionPanel({
                 onClick={() => setConfirmingDisconnect(true)}
                 disabled={logout.isPending}
               >
-                <LogOut />
+                <SignOut />
                 {t(key("clearSession"))}
               </Button>
             )}
@@ -535,7 +550,7 @@ export function BpceSessionPanel({
 
           {confirmingDisconnect && (
             <Card size="sm" className="border-destructive/30">
-              <CardContent className="space-y-3 py-4">
+              <CardContent className="space-y-3">
                 <p className="text-sm">{t(key("disconnectConfirm"))}</p>
                 <div className="flex flex-wrap gap-3">
                   <Button
@@ -555,7 +570,7 @@ export function BpceSessionPanel({
                       })
                     }}
                   >
-                    <LogOut />
+                    <SignOut />
                     {t(key("disconnectConfirmAction"))}
                   </Button>
                   <Button variant="outline" onClick={() => setConfirmingDisconnect(false)}>
@@ -566,26 +581,28 @@ export function BpceSessionPanel({
             </Card>
           )}
 
-          {(status.data?.unsupported.length ?? 0) > 0 && (
+          {unsupportedCount > 0 && (
             <Card size="sm">
-              <CardContent className="space-y-2 py-4">
+              <CardContent className="space-y-2">
                 <p className="text-sm font-medium">{t(key("unsupportedTitle"))}</p>
                 <p className="text-sm text-muted-foreground">
                   {t(key("unsupportedHint"))}
                 </p>
                 {/* Family and sub-family codes only: the contract id is never shown. */}
                 <ul className="flex flex-wrap gap-2">
-                  {status.data?.unsupported.map((contract, index) => (
-                    <li key={`${contract.familyCode}-${index}`}>
-                      <Badge variant="outline">
-                        <span>
-                          {contract.subFamilyCode
-                            ? `${contract.familyCode}/${contract.subFamilyCode}`
-                            : contract.familyCode}
-                        </span>
-                      </Badge>
-                    </li>
-                  ))}
+                  {status.data?.unsupported.map((contract, index) => {
+                    const code = contract.subFamilyCode
+                      ? `${contract.familyCode}/${contract.subFamilyCode}`
+                      : contract.familyCode
+                    const nameKey = KNOWN_UNSUPPORTED_CONTRACTS.get(code)
+                    return (
+                      <li key={`${contract.familyCode}-${index}`}>
+                        <Badge variant="outline">
+                          <span>{nameKey ? `${t(nameKey)} (${code})` : code}</span>
+                        </Badge>
+                      </li>
+                    )
+                  })}
                 </ul>
               </CardContent>
             </Card>
@@ -602,7 +619,7 @@ export function BpceSessionPanel({
           }}
         >
           <Card size="sm">
-            <CardContent className="space-y-4 py-4">
+            <CardContent className="space-y-4">
               {regions && !useRememberedIdentifier && (
                 <div className="space-y-2">
                   <Label htmlFor={`${fieldIdPrefix}-region`}>{t(key("region"))}</Label>
@@ -627,7 +644,7 @@ export function BpceSessionPanel({
                 {useRememberedIdentifier ? (
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="flex items-center text-sm">
-                      <Landmark className="mr-1 inline-block size-4" />
+                      <Bank className="mr-1 inline-block size-4" />
                       {t(key("rememberedIdentifier"))}
                     </p>
                     <Button
@@ -642,7 +659,7 @@ export function BpceSessionPanel({
                 ) : (
                   <>
                 <Label htmlFor={`${fieldIdPrefix}-customer-id`}>
-                  <Landmark className="mr-1 inline-block size-4" />
+                  <Bank className="mr-1 inline-block size-4" />
                   {t(key("customerId"))}
                 </Label>
                 <Input
@@ -673,7 +690,7 @@ export function BpceSessionPanel({
                 )}
               </div>
               <Button type="submit" disabled={pending || incomplete}>
-                {pending && <RefreshCw className="animate-spin" />}
+                {pending && <ArrowsClockwise className="animate-spin" />}
                 {pending ? t(key("connecting")) : t(key("connect"))}
               </Button>
             </CardContent>
@@ -683,8 +700,8 @@ export function BpceSessionPanel({
 
       {!connected && authState === "AWAITING_APP" && (
         <Card size="sm">
-          <CardContent className="flex items-center gap-3 py-4">
-            <Smartphone className="size-5 shrink-0 text-muted-foreground" />
+          <CardContent className="flex items-center gap-3">
+            <DeviceMobile className="size-5 shrink-0 text-muted-foreground" />
             <div className="flex-1 space-y-1">
               <p className="text-sm">{t(key("securPassPrompt"))}</p>
               <p className="text-sm text-muted-foreground">
@@ -697,7 +714,7 @@ export function BpceSessionPanel({
                 </span>
               </p>
             </div>
-            <RefreshCw className="size-4 shrink-0 animate-spin text-muted-foreground" />
+            <ArrowsClockwise className="size-4 shrink-0 animate-spin text-muted-foreground" />
           </CardContent>
         </Card>
       )}

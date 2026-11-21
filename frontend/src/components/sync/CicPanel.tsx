@@ -1,4 +1,4 @@
-import { Landmark } from "lucide-react"
+import { Bank } from '@phosphor-icons/react'
 import { SidecarSessionPanel } from "@/components/sync/SidecarSessionPanel"
 
 interface CicPanelProps {
@@ -15,7 +15,7 @@ export function CicPanel({ onConnected, autoReconnect, onAutoReconnectStarted }:
       provider="cic"
       translationPrefix="sync.cic"
       fieldIdPrefix="cic"
-      loginIcon={Landmark}
+      loginIcon={Bank}
       appPush
       otpRetryable
       autoReconnect={autoReconnect}

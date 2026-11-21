@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2 } from 'lucide-react'
+import { CircleNotch } from '@phosphor-icons/react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
@@ -83,7 +83,7 @@ export function RevolutSelectionCard({ discovered, onConfirm, confirming = false
 
   return (
     <Card size="sm">
-      <CardContent className="space-y-4 py-4">
+      <CardContent className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-medium">{t('sync.revolut.selection.title')}</p>
           <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
@@ -117,7 +117,7 @@ export function RevolutSelectionCard({ discovered, onConfirm, confirming = false
         </div>
 
         <Button className="w-full sm:w-auto" onClick={handleConfirm} disabled={confirming}>
-          {confirming && <Loader2 className="size-4 animate-spin" />}
+          {confirming && <CircleNotch className="size-4 animate-spin" />}
           {confirming ? t('sync.revolut.selection.importing') : t('sync.revolut.selection.confirm')}
         </Button>
       </CardContent>

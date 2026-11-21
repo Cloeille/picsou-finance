@@ -59,6 +59,9 @@ import type {
   FortuneoAuthInitResponse,
   CorumSessionStatus,
   SofidySessionStatus,
+  LouveConnectionStatus,
+  LouveStartResponse,
+  LouveCallback,
   SofidyAuthInitResponse,
   IbkrConnectionStatus,
   SimplefinConnectionStatus,
@@ -661,6 +664,31 @@ export const sofidyApi = {
       .then(r => r.data),
 
   clearSession: () => api.delete('/sofidy/session'),
+}
+
+// --- Louve Invest (official MCP server, OAuth) ---
+
+/**
+ * No credentials pass through Picsou: `start` returns Louve's consent page, Louve sends the
+ * browser back to `/sync/louve/callback`, and that page posts the code with `complete`.
+ */
+export const louveApi = {
+  start: () => api.post<LouveStartResponse>('/louve/auth/start').then(r => r.data),
+
+  complete: (callback: LouveCallback) =>
+    api.post<LouveConnectionStatus>('/louve/auth/complete', callback).then(r => r.data),
+
+  /** Runs the sync and answers once it is done, like Wise and SimpleFIN. */
+  sync: () => api.post<LouveConnectionStatus>('/louve/sync').then(r => r.data),
+
+  getStatus: () =>
+    api
+      .get<LouveConnectionStatus>('/louve/status', {
+        skipGlobalErrorRedirect: true,
+      })
+      .then(r => r.data),
+
+  disconnect: () => api.delete('/louve/connection'),
 }
 
 export const ibkrApi = {

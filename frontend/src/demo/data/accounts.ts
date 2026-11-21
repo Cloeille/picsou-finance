@@ -317,6 +317,7 @@ export const mockAccounts: Account[] = [
       managementCompany: 'Société exemple',
       corumFundCode: null,
       sofidyFundCode: null,
+      louveFundCode: null,
       shareCount: 10,
       subscriptionPriceEur: 1000,
       withdrawalPriceEur: 880,

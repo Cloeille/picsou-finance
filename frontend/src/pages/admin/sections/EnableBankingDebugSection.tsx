@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, Network, Trash2 } from 'lucide-react'
+import { DownloadSimple, Trash } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -78,7 +78,7 @@ function EbCallLogDialog() {
           </Button>
           {data && data.length > 0 && (
             <Button variant="outline" size="sm" onClick={() => exportTxt(data)}>
-              <Download className=".5 size-3.5" />
+              <DownloadSimple className=".5 size-3.5" />
               Export .txt
             </Button>
           )}
@@ -88,7 +88,7 @@ function EbCallLogDialog() {
             disabled={clear.isPending || !data?.length}
             onClick={() => { clear.mutate(); setExpandedIdx(null) }}
           >
-            <Trash2 className=".5 size-3.5" />
+            <Trash className=".5 size-3.5" />
             Vider
           </Button>
         </div>
@@ -179,9 +179,8 @@ export function EnableBankingDebugSection() {
   return (
     <Card className="rounded-xl bg-card">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base font-semibold">
-          <Network className="size-4 shrink-0 text-muted-foreground" />
-          Diagnostic API Enable Banking
+        <CardTitle className="text-base font-semibold">
+            Diagnostic API Enable Banking
         </CardTitle>
         <CardDescription>
           Journal des appels HTTP échangés avec Enable Banking à des fins de diagnostic.
