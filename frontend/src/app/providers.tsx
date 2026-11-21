@@ -6,7 +6,6 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/shared/Toaster'
 import { ICON_DEFAULTS } from '@/lib/icon-defaults'
 
-
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => createQueryClient())
 
