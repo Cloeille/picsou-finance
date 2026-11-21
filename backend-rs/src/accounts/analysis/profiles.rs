@@ -111,6 +111,16 @@ impl RefreshRunner {
         }
     }
 
+    /// Runs the configured refresher directly (used by the weekly scheduler pass).
+    pub async fn refresh_stale(
+        &self,
+        db: &PgPool,
+        tickers: &BTreeSet<String>,
+        limit: usize,
+    ) -> usize {
+        self.refresher.refresh_stale(db, tickers, limit).await
+    }
+
     /// Queues a pass over every distinct held ticker of the instance (profiles are global).
     pub async fn trigger(&self, db: &PgPool) -> sqlx::Result<Trigger> {
         if self

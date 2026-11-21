@@ -725,12 +725,13 @@ async fn open_loans_and_the_overview_list_configured_loans_open_first() {
     assert_eq!(names, ["bob", "zed"]);
     assert_eq!(num(&open[0]["remaining"]), "200.00");
 
-    // The outstanding curve reads track T2's history, not wired in this module yet.
+    // The outstanding curve reads track T2's wired history service.
     let response = f
         .admin
         .get("/api/peer-loans/overview?months=6")
         .send()
         .await;
-    assert_eq!(response.status, 501);
-    assert_eq!(response.json()["code"], "NOT_IMPLEMENTED");
+    assert_eq!(response.status, 200, "{}", response.text());
+    let overview = response.json();
+    assert!(overview["history"].is_array());
 }

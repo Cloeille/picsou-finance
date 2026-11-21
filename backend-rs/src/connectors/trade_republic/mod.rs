@@ -53,7 +53,7 @@ pub fn register(routes: &mut Routes) {
 pub struct Runtime {
     ws_url: RwLock<String>,
     auth_generations: Mutex<HashMap<i64, u64>>,
-    session_write: tokio::sync::Mutex<()>,
+    pub(crate) session_write: tokio::sync::Mutex<()>,
 }
 
 impl Default for Runtime {
@@ -85,7 +85,7 @@ impl Runtime {
             .unwrap_or(0)
     }
 
-    fn bump_generation(&self, member_id: i64) {
+    pub(crate) fn bump_generation(&self, member_id: i64) {
         *self
             .auth_generations
             .lock()
