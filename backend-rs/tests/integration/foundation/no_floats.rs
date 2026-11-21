@@ -6,6 +6,8 @@ const ALLOWED: &[&str] = &[
     // ProjectionService.monthlyRate: Java computes (1 + r)^(1/12) - 1 with Math.pow on a double
     // and reads it back through BigDecimal.valueOf; only the same double reproduces its digits.
     "src/accounts/analysis/projection.rs",
+    // An XLSX numeric cell is an IEEE double (POI's BigDecimal.doubleValue()); written, never read.
+    "src/transfer/account_export/cell.rs",
 ];
 
 fn scan(dir: &Path, hits: &mut Vec<String>) {

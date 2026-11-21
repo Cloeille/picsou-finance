@@ -79,6 +79,8 @@ pub struct Inner {
     /// Track T2's seams into the other tracks (goals, intraday prices, OpenFIGI, bank logos,
     /// sync connections, property valuation).
     pub accounts: accounts::Seams,
+    /// The import preview stores (track T7).
+    pub transfer: transfer::Transfer,
 }
 
 impl Deref for AppState {
@@ -100,6 +102,7 @@ impl AppState {
         Ok(Self(Arc::new(Inner {
             jwt: Jwt::new(&config.jwt, clock.clone())?,
             limits: RateLimiter::new(clock.clone()),
+            transfer: transfer::Transfer::new(&clock),
             crypto,
             http,
             clock,

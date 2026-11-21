@@ -23,7 +23,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 aes-gcm = "0.11.1"
 anyhow = "1.0.104"
 async-trait = "0.1.92"
-axum = { version = "0.8", features = ["macros", "http2"] }
+axum = { version = "0.8", features = ["macros", "http2", "multipart"] }
 base64 = "0.23.1"
 bcrypt = "0.19.3"
 bytes = "1.12.2"
@@ -73,10 +73,16 @@ aes = "0.9"
 http-body = "1"
 unicode-normalization = "0.1.26"
 fancy-regex = "0.20.2"
+rusqlite = { version = "0.32", features = ["bundled", "limits"] }
+zip = { version = "9.8.1", default-features = false, features = ["deflate"] }
+pbkdf2 = "0.13.0"
+flate2 = "1.1.11"
+num-bigint = "0.5.1"
 
 [dev-dependencies]
 wiremock = "0.6.5"
 picsou = { path = ".", features = ["testing"] }
+calamine = "0.38.0"
 
 [profile.dev.package."*"]
 opt-level = 2
