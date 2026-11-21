@@ -8,6 +8,7 @@ The model every domain track reads and writes: accounts, holdings, transactions,
 - Repository functions take `impl PgExecutor` (a pool, a connection or a transaction); a function that writes several rows takes `&mut PgConnection` so the caller owns the transaction (`&mut *tx`).
 - Account reads never return soft-deleted rows (Java's `@SQLRestriction`). Member scoping is an argument: use `accounts::get_or_throw(db, id, member_id)` for an owned account, `access::require_readable` / `access::require_owner` when co-owners are involved. Errors are `AppError` with Java's bodies (`accounts::account_not_found()`).
 - Time is a parameter: `today: NaiveDate` (`state.clock.today()`) and `now: DateTime<Utc>` (`state.clock.now()`). Nothing here reads the system clock.
+- A `Decimal` serializes as a JSON string by default (rust_decimal has no number mode without float); response fields need `#[serde(with = "rust_decimal::serde::arbitrary_precision")]` (`_option` for `Option`) to be written as Jackson writes BigDecimal, scale kept.
 - `decimal` holds the BigDecimal semantics: `set_scale` (pads like setScale), `divide`, `divide64` / `multiply64` (MathContext.DECIMAL64), `pow64`.
 
 ## Plug-in points (`state.ledger`)
@@ -32,5 +33,5 @@ The model every domain track reads and writes: accounts, holdings, transactions,
   - Bank sidecars (Bnp, BoursoBank, Revolut): `sidecar_import::import(conn, &account, &rows, &ctx, prefix, now)` with `ctx = categorize::load_context(&db, kb, member_id, now)` loaded once per sync.
   - After the commit: `transfers::after_import(&db, &*state.ledger.dividends, member_id, today, now)` (dividends, then internal-transfer pairing; idempotent).
   - Categorization: `categorize::{auto_categorize, enrich, apply, categories_by_slug, ensure_seeded, find_or_create_default}`; it never overrides an assigned category.
-MANUAL_SECTION
+- **Manual entry**: `manual_transactions::{add_transaction, update_transaction, delete_transaction}` (TransactionRequest / TransactionResponse, recomputes holdings of investment accounts and the balance of ledger accounts), `holding_compute::recompute_holdings` (positions from BUY/SELL rows), `manual_ledger::{compute_manual_ledger_balance, reconstruct_snapshots_from_db}` (MANUAL snapshots anchor the rebuild and survive it).
 - **Sidecar shared types**: `sidecar::{SidecarBank, SidecarErrorCode, SidecarTransaction, SourceSyncResult, SyncStatus}`, `sync_values`, `instrument::resolve`.
