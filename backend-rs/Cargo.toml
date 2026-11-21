@@ -71,6 +71,7 @@ url = "2.5.9"
 uuid = { version = "1.29.3", features = ["v4", "serde"] }
 aes = "0.9"
 http-body = "1"
+unicode-normalization = "0.1.26"
 
 [dev-dependencies]
 wiremock = "0.6.5"
