@@ -249,6 +249,8 @@ pub struct Config {
     pub duckduckgo_icons_url: String,
     /// Base URLs of the providers Java hard-codes (sync module), overridable for tests.
     pub sync_urls: HashMap<&'static str, String>,
+    /// Upstream bank base URLs for native in-process sidecars, overridable for wiremock tests.
+    pub native_sidecar_urls: HashMap<&'static str, String>,
     pub startup_sync_enabled: bool,
     pub instrument_logos_enabled: bool,
     pub dev_profile: bool,
@@ -312,6 +314,14 @@ pub const SYNC_URLS: &[(&str, &str, &str)] = &[
         "EVM_AVALANCHE_RPC_URL",
         "https://avalanche-c-chain-rpc.publicnode.com",
     ),
+];
+
+/// Upstream bank URLs for native in-process sidecars; overridable so tests point them at wiremock.
+pub const NATIVE_SIDECAR_URLS: &[(&str, &str, &str)] = &[
+    ("degiro", "DEGIRO_BASE_URL", "https://trader.degiro.nl"),
+    ("cmes", "CMES_BASE_URL", "https://www.creditmutuel-ere.fr"),
+    ("sofidy", "SOFIDY_BASE_URL", "https://moncompte.sofidy.com"),
+    ("cic", "CIC_BASE_URL", "https://www.cic.fr"),
 ];
 
 /// Sidecar compose service name, its URL variable, the production default and the dev default.
@@ -762,6 +772,10 @@ impl Config {
                 .iter()
                 .map(|(name, var, default)| (*name, env.or(var, default).to_owned()))
                 .collect(),
+            native_sidecar_urls: NATIVE_SIDECAR_URLS
+                .iter()
+                .map(|(name, var, default)| (*name, env.or(var, default).to_owned()))
+                .collect(),
             startup_sync_enabled: bool_or(env, "APP_STARTUP_SYNC_ENABLED", true)?,
             instrument_logos_enabled: bool_or(env, "INSTRUMENT_LOGOS_ENABLED", true)?,
             dev_profile: dev,
@@ -779,5 +793,13 @@ impl Config {
     /// The URL of a connector sidecar by its compose service name.
     pub fn sidecar_url(&self, name: &str) -> Option<&str> {
         self.sidecars.get(name).map(String::as_str)
+    }
+
+    /// The upstream bank base URL for a native in-process sidecar.
+    pub fn native_sidecar_url(&self, name: &str) -> &str {
+        self.native_sidecar_urls
+            .get(name)
+            .map(String::as_str)
+            .expect("a bank listed in NATIVE_SIDECAR_URLS")
     }
 }

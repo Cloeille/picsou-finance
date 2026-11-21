@@ -9,6 +9,9 @@ pub fn validate(sidecar_name: &str, url: &str) -> Result<String, String> {
     if trimmed.is_empty() {
         return Err(invalid(sidecar_name, url, "it is not set"));
     }
+    if trimmed.eq_ignore_ascii_case("native") {
+        return Ok("native".to_owned());
+    }
     if !trimmed.contains(':') {
         return Err(invalid(
             sidecar_name,
@@ -19,6 +22,34 @@ pub fn validate(sidecar_name: &str, url: &str) -> Result<String, String> {
     let parsed =
         Url::parse(trimmed).map_err(|_| invalid(sidecar_name, url, "it is not a valid URL"))?;
     let scheme = parsed.scheme().to_ascii_lowercase();
+    if scheme == "native" {
+        let host = match parsed.host_str() {
+            Some(host) if !host.trim().is_empty() => host,
+            _ => return Err(invalid(sidecar_name, url, "it has no host")),
+        };
+        if !parsed.username().is_empty() || parsed.password().is_some() {
+            return Err(invalid(
+                sidecar_name,
+                url,
+                "it embeds credentials in the URL",
+            ));
+        }
+        if parsed.query().is_some() || parsed.fragment().is_some() {
+            return Err(invalid(
+                sidecar_name,
+                url,
+                "it must not carry a query string or fragment",
+            ));
+        }
+        if host.contains('.') || host.contains(':') {
+            return Err(invalid(
+                sidecar_name,
+                url,
+                "a native sidecar target must be a local service name",
+            ));
+        }
+        return Ok(trimmed.to_owned());
+    }
     if scheme != "http" && scheme != "https" {
         return Err(invalid(
             sidecar_name,

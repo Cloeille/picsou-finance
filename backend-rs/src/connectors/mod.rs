@@ -32,6 +32,7 @@ use self::sidecar::pending::PendingLogins;
 use crate::AppState;
 use crate::config::Config;
 use crate::ledger::sidecar::SidecarBank;
+use crate::native_sidecars::NativeSidecars;
 use crate::routes::Routes;
 
 pub fn register(routes: &mut Routes) {
@@ -67,6 +68,8 @@ pub struct Connectors {
     pub natixis_logins: PendingLogins,
     /// Trade Republic's WebSocket endpoint and the login generations a disconnect bumps.
     pub trade_republic: trade_republic::Runtime,
+    /// Native in-process sidecar implementations (dispatched when a bank URL is `native://...`).
+    pub native: NativeSidecars,
 }
 
 impl Connectors {
@@ -91,6 +94,7 @@ impl Connectors {
             cic_logins: PendingLogins::default(),
             natixis_logins: PendingLogins::default(),
             trade_republic: trade_republic::Runtime::default(),
+            native: NativeSidecars::from_config(config),
         })
     }
 
