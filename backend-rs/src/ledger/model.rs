@@ -639,6 +639,26 @@ pub struct CategorizationRule {
     pub created_at: DateTime<Utc>,
 }
 
+string_enum!(AiCategorizationMode {
+    Suggest = "SUGGEST",
+    AutoHighConfidence = "AUTO_HIGH_CONFIDENCE",
+    AutoAll = "AUTO_ALL",
+});
+
+/// A member's budget settings; absent until the member saves them.
+#[derive(Debug, Clone, PartialEq, FromRow)]
+pub struct BudgetSettings {
+    pub id: i64,
+    pub member_id: i64,
+    /// 1 to 28 (smallint).
+    pub cycle_start_day: i16,
+    pub logo_fetch_enabled: bool,
+    pub ai_categorization_enabled: bool,
+    pub ai_mode: AiCategorizationMode,
+    pub ai_confidence_threshold: i32,
+    pub updated_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, PartialEq, FromRow)]
 pub struct MerchantBrand {
     pub id: i64,

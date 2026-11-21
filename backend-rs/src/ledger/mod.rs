@@ -7,6 +7,7 @@ pub mod accounts;
 pub mod bank_import;
 pub mod categorize;
 pub mod decimal;
+pub mod display_prefs;
 pub mod holding_dedup;
 pub mod holdings;
 pub mod instrument;

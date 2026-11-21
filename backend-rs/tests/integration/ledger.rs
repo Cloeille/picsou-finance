@@ -1,6 +1,8 @@
 //! Integration tests of the ledger module.
 
 mod access;
+mod categorize;
+mod display_prefs;
 mod holding_dedup;
 mod instrument;
 mod loans;

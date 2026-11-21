@@ -10,8 +10,8 @@ use sqlx::{PgExecutor, PgPool};
 
 use super::merchants::{self, KnowledgeBase};
 use super::model::{
-    CATEGORY_COLUMNS, CategorizationRule, Category, CategoryKind, NewTransaction, RuleMatchType,
-    Transaction,
+    BudgetSettings, CATEGORY_COLUMNS, CategorizationRule, Category, CategoryKind, NewTransaction,
+    RuleMatchType, Transaction,
 };
 
 struct DefaultCategory {
@@ -306,6 +306,20 @@ pub async fn rules_of_member<'e>(
     )
     .bind(member_id)
     .fetch_all(db)
+    .await
+}
+
+/// BudgetSettingsRepository.findByMemberId.
+pub async fn budget_settings_of_member<'e>(
+    db: impl PgExecutor<'e>,
+    member_id: i64,
+) -> sqlx::Result<Option<BudgetSettings>> {
+    sqlx::query_as(
+        "SELECT id, member_id, cycle_start_day, logo_fetch_enabled, ai_categorization_enabled, ai_mode, \
+         ai_confidence_threshold, updated_at FROM budget_settings WHERE member_id = $1",
+    )
+    .bind(member_id)
+    .fetch_optional(db)
     .await
 }
 
