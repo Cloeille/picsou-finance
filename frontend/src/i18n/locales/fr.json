@@ -547,7 +547,8 @@
     },
     "ledger": {
       "interestPart": "dont {{amount}} d'intérêts",
-      "noCashLeg": "Hors trésorerie"
+      "noCashLeg": "Hors trésorerie",
+      "closureWriteOffNote": "Abandon lors de la clôture"
     },
     "noPlan": "Aucune prévision définie. Ajoutez une durée ou une mensualité pour l'estimer.",
     "closedHint": "Ce prêt est clôturé. Supprimez l'abandon pour le rouvrir.",
@@ -589,7 +590,9 @@
       "interestCalculated": "Intérêts calculés",
       "interestDue": "Intérêts dus",
       "principalRepaid": "Capital remboursé",
-      "writtenOff": "Abandonné"
+      "writtenOff": "Abandonné",
+      "title": "Suivi du prêt",
+      "period": "Du {{from}} au {{to}}"
     },
     "forecast": {
       "title": "Prévision",
