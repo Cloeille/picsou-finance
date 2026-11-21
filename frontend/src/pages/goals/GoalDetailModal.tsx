@@ -4,7 +4,6 @@ import { useGoal } from '@/features/goals/hooks'
 import { useHistory } from '@/features/history/hooks'
 import { NetWorthChart } from '@/components/shared/NetWorthChart'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -13,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { CalendarBlank, PencilSimple, Trash, TrendUp, TrendDown, CircleNotch } from '@phosphor-icons/react'
+import { CalendarBlank, PencilSimple, Trash, CircleNotch } from '@phosphor-icons/react'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
 import { formatPercent } from '@/lib/utils'
 
@@ -46,7 +45,7 @@ export function GoalDetailModal({
   // is drawn in the same reference frame as the live area (which starts from
   // the linked accounts' pre-goal balance, not from zero). Without it, the
   // dashed target line floats far below the data and the chart looks rosy
-  // even when the "behind" badge fires.
+  // even when the goal is behind its required monthly pace.
   const baseline = useMemo(() => {
     if (!goal || !history?.length) return 0
     const createdMs = new Date(goal.createdAt).getTime()
@@ -79,33 +78,6 @@ export function GoalDetailModal({
     }
   }, [goal, t, todayMs])
 
-  const statusBadge = goal
-    ? (() => {
-        if ((goal.monthlyNeeded ?? 0) <= 0) {
-          return (
-            <Badge className="gap-1">
-              <TrendUp className="size-3" />
-              {t('goals.achieved')}
-            </Badge>
-          )
-        }
-        if (goal.isOnTrack) {
-          return (
-            <Badge className="gap-1">
-              <TrendUp className="size-3" />
-              {t('goals.onTrack')}
-            </Badge>
-          )
-        }
-        return (
-          <Badge variant="destructive" className="gap-1">
-            <TrendDown className="size-3" />
-            {t('goals.behind')}
-          </Badge>
-        )
-      })()
-    : null
-
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
       <DialogContent className="sm:max-w-[95vw] max-h-[90vh] overflow-y-auto" aria-describedby={undefined}>
@@ -116,10 +88,7 @@ export function GoalDetailModal({
         ) : (
           <>
             <DialogHeader>
-              <div className="flex items-center gap-3">
-                <DialogTitle className="text-lg">{goal.name}</DialogTitle>
-                {statusBadge}
-              </div>
+              <DialogTitle className="text-lg">{goal.name}</DialogTitle>
             </DialogHeader>
 
             <div className="space-y-6 mt-2">

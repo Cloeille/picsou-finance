@@ -74,6 +74,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Goal cards no longer show an "On track" / "Behind" tag.** The cards and the goal detail keep
+  the figures behind that verdict (required monthly pace, average contribution, months left), so the
+  comparison stays readable without a coloured tag competing with the page's actions.
 - **Calmer peer loan page.** The summary card is titled "Loan summary" (the borrower is already
   the page title) with the loan period in your language; the forecast card is hidden on a closed
   loan that has nothing to forecast; the write-off note added when closing a loan is translated;
