@@ -136,10 +136,17 @@ export function InstitutionSearch({ onConnect, connecting, layout }: Institution
 
       {enableBankingNotConfigured && (
         <AlertBanner
+          variant="roomy"
           role="alert"
+          className="gap-3"
           action={
             isAdmin ? (
-              <Button variant="outline" size="sm" asChild className="shrink-0">
+              <Button
+                variant="outline"
+                size="sm"
+                asChild
+                className="shrink-0 bg-background text-foreground hover:bg-muted"
+              >
                 <a href="/admin?tab=integrations">{t('sync.banks.configureEnableBanking')}</a>
               </Button>
             ) : undefined
