@@ -1,0 +1,304 @@
+//! PriceService over CompositePriceProvider: live quotes cached 15 minutes (a miss 60 seconds),
+//! the last recorded price within seven days as the fallback, price_snapshot writes on refresh,
+//! the historical backfill and the intraday series. Implements the ledger's PriceRead.
+//!
+//! Routing as CompositePriceProvider: a precious-metals product, else a coin the crypto registry
+//! maps (CoinGecko), else Yahoo Finance. The metals provider is not ported: those products are
+//! valued from their last recorded price.
+
+use std::collections::{BTreeSet, HashMap};
+use std::sync::{Arc, Mutex};
+
+use async_trait::async_trait;
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use rust_decimal::Decimal;
+use sqlx::PgPool;
+
+use super::coingecko::CoinGecko;
+use super::metals;
+use super::yahoo::YahooFinance;
+use crate::clock::AppClock;
+use crate::ledger::prices::{self, MAX_FALLBACK_AGE_DAYS, PriceRead, Quote};
+use crate::ledger::sync_values::java_is_blank;
+
+const CACHE_TTL: chrono::Duration = chrono::Duration::seconds(900);
+const MISS_CACHE_TTL: chrono::Duration = chrono::Duration::seconds(60);
+/// A recorded series with a hole wider than this is fetched again by the backfill.
+const MAX_HISTORY_GAP_DAYS: i64 = 7;
+
+pub struct PriceService {
+    db: PgPool,
+    clock: AppClock,
+    yahoo: Arc<YahooFinance>,
+    coingecko: Arc<CoinGecko>,
+    cache: Mutex<HashMap<String, (Option<Decimal>, DateTime<Utc>)>>,
+}
+
+impl PriceService {
+    pub fn new(db: PgPool, clock: AppClock, yahoo: Arc<YahooFinance>, coingecko: Arc<CoinGecko>) -> Self {
+        Self {
+            db,
+            clock,
+            yahoo,
+            coingecko,
+            cache: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// A fresh cache entry: Some(price) for a hit, Some(None) for a recent miss.
+    fn cached(&self, ticker: &str) -> Option<Option<Decimal>> {
+        let now = self.clock.now();
+        let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        cache.get(ticker).and_then(|(price, at)| {
+            let ttl = if price.is_some() { CACHE_TTL } else { MISS_CACHE_TTL };
+            (now <= *at + ttl).then_some(*price)
+        })
+    }
+
+    fn remember(&self, ticker: &str, price: Option<Decimal>) {
+        self.cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(ticker.to_owned(), (price, self.clock.now()));
+    }
+
+    /// The upper-cased tickers the crypto registry maps (CoinGeckoPriceProvider.supports).
+    async fn crypto_of(&self, tickers: &BTreeSet<String>) -> BTreeSet<String> {
+        self.coingecko.coin_ids(tickers).await.into_keys().collect()
+    }
+
+    /// CompositePriceProvider.getPricesEur.
+    async fn provider_prices(&self, tickers: &BTreeSet<String>) -> HashMap<String, Decimal> {
+        let crypto = self.crypto_of(tickers).await;
+        let other: BTreeSet<String> = tickers
+            .iter()
+            .filter(|t| !metals::supports(t) && !crypto.contains(*t))
+            .cloned()
+            .collect();
+        let mut result = HashMap::new();
+        if !crypto.is_empty() {
+            result.extend(self.coingecko.prices_eur(&crypto).await);
+        }
+        if !other.is_empty() {
+            result.extend(self.yahoo.prices_eur(&other).await);
+        }
+        result
+    }
+
+    /// refreshPrices (GET /api/prices): live prices, served from the cache when fresh, each
+    /// fetched one written as today's price_snapshot.
+    pub async fn refresh_prices(&self, tickers: &BTreeSet<String>) -> HashMap<String, Decimal> {
+        let mut result = HashMap::new();
+        let mut to_fetch = BTreeSet::new();
+        for ticker in tickers {
+            let upper = ticker.to_uppercase();
+            if upper == "EUR" {
+                result.insert(upper, Decimal::ONE);
+                continue;
+            }
+            match self.cached(&upper) {
+                Some(Some(price)) => {
+                    result.insert(upper, price);
+                }
+                Some(None) => {}
+                None => {
+                    to_fetch.insert(upper);
+                }
+            }
+        }
+        if to_fetch.is_empty() {
+            return result;
+        }
+        let fetched = self.provider_prices(&to_fetch).await;
+        let today = self.clock.today();
+        for (ticker, price) in &fetched {
+            self.remember(ticker, Some(*price));
+            if let Err(e) = upsert_snapshot(&self.db, ticker, today, *price, self.clock.now()).await {
+                tracing::warn!("Could not record the price of {ticker}: {e}");
+            }
+        }
+        result.extend(fetched);
+        result
+    }
+
+    /// backfillHistoricalPrices: fills price_snapshot from the provider's daily series for every
+    /// ticker whose recorded series has a hole wider than a week; returns the rows written.
+    pub async fn backfill_historical_prices(&self, tickers: &BTreeSet<String>, from: NaiveDate, crypto_only: bool) -> usize {
+        let to = self.clock.today();
+        let upper: BTreeSet<String> = tickers.iter().map(|t| t.to_uppercase()).filter(|t| t != "EUR").collect();
+        let crypto = self.crypto_of(&upper).await;
+        let mut saved = 0;
+        for ticker in upper {
+            if crypto_only && !crypto.contains(&ticker) {
+                continue;
+            }
+            match self.already_covered(&ticker, from, to).await {
+                Ok(true) => continue,
+                Ok(false) => {}
+                Err(e) => {
+                    tracing::error!("Historical price backfill failed for {ticker} -- skipping it: {e}");
+                    continue;
+                }
+            }
+            let series = self.historical_prices(&ticker, &crypto, from, to).await;
+            for (date, price) in &series {
+                match insert_snapshot_if_absent(&self.db, &ticker, *date, *price, self.clock.now()).await {
+                    Ok(true) => saved += 1,
+                    Ok(false) => {}
+                    Err(e) => tracing::error!("Could not record a historical price of {ticker}: {e}"),
+                }
+            }
+            tracing::info!("Backfilled {} prices for {ticker}", series.len());
+        }
+        saved
+    }
+
+    async fn historical_prices(
+        &self,
+        ticker: &str,
+        crypto: &BTreeSet<String>,
+        from: NaiveDate,
+        to: NaiveDate,
+    ) -> Vec<(NaiveDate, Decimal)> {
+        if metals::supports(ticker) || crypto.contains(ticker) {
+            // The metals and CoinGecko history providers are not ported.
+            return Vec::new();
+        }
+        self.yahoo.historical_prices_eur(ticker, from, to).await
+    }
+
+    async fn already_covered(&self, ticker: &str, from: NaiveDate, to: NaiveDate) -> sqlx::Result<bool> {
+        let rows = prices::price_history(&self.db, &[ticker.to_owned()], from, to).await?;
+        if rows.is_empty() {
+            return Ok(false);
+        }
+        let mut cursor = from;
+        for row in rows {
+            if (row.date - cursor).num_days() > MAX_HISTORY_GAP_DAYS {
+                return Ok(false);
+            }
+            cursor = row.date;
+        }
+        Ok((to - cursor).num_days() <= MAX_HISTORY_GAP_DAYS)
+    }
+
+    /// getIntradayPricesEur: the provider's hourly closes within [from, to].
+    pub async fn intraday_prices_eur(&self, ticker: &str, from: NaiveDateTime, to: NaiveDateTime) -> Vec<(NaiveDateTime, Decimal)> {
+        if java_is_blank(ticker) || ticker.eq_ignore_ascii_case("EUR") {
+            return Vec::new();
+        }
+        let upper = ticker.to_uppercase();
+        let crypto = self.crypto_of(&BTreeSet::from([upper.clone()])).await;
+        if metals::supports(&upper) || crypto.contains(&upper) {
+            return Vec::new();
+        }
+        self.yahoo.intraday_prices_eur(&upper, from, to).await
+    }
+}
+
+#[async_trait]
+impl PriceRead for PriceService {
+    async fn quotes(&self, tickers: &BTreeSet<String>, crypto_only: bool, today: NaiveDate) -> HashMap<String, Quote> {
+        let mut resolved = HashMap::new();
+        let mut candidates = BTreeSet::new();
+        for ticker in tickers.iter().filter(|t| !java_is_blank(t)) {
+            let upper = ticker.to_uppercase();
+            if upper == "EUR" {
+                resolved.insert(upper, Quote { price: Decimal::ONE, as_of: today, live: true });
+            } else {
+                candidates.insert(upper);
+            }
+        }
+        if crypto_only && !candidates.is_empty() {
+            candidates = self.crypto_of(&candidates).await;
+        }
+        let mut fetchable = BTreeSet::new();
+        let mut pending = BTreeSet::new();
+        for ticker in candidates {
+            match self.cached(&ticker) {
+                Some(Some(price)) => {
+                    resolved.insert(ticker, Quote { price, as_of: today, live: true });
+                }
+                Some(None) => {
+                    pending.insert(ticker);
+                }
+                None => {
+                    fetchable.insert(ticker.clone());
+                    pending.insert(ticker);
+                }
+            }
+        }
+        if pending.is_empty() {
+            return resolved;
+        }
+        if !fetchable.is_empty() {
+            let live = self.provider_prices(&fetchable).await;
+            for ticker in &fetchable {
+                let price = live.get(ticker).copied();
+                self.remember(ticker, price);
+                if let Some(price) = price {
+                    resolved.insert(ticker.clone(), Quote { price, as_of: today, live: true });
+                }
+            }
+        }
+        let unresolved: BTreeSet<String> = pending.into_iter().filter(|t| !resolved.contains_key(t)).collect();
+        if unresolved.is_empty() {
+            return resolved;
+        }
+        match prices::last_known_prices(&self.db, &unresolved, today).await {
+            Ok(last_known) => {
+                let unknown: Vec<&String> = unresolved.iter().filter(|t| !last_known.contains_key(*t)).collect();
+                if !last_known.is_empty() {
+                    tracing::warn!("No live price for {:?} -- falling back to the last recorded one", last_known.keys());
+                }
+                if !unknown.is_empty() {
+                    tracing::warn!(
+                        "No price at all for {unknown:?} -- not from the provider, and nothing recorded in the last {MAX_FALLBACK_AGE_DAYS} days"
+                    );
+                }
+                for (ticker, snapshot) in last_known {
+                    resolved.insert(ticker, Quote { price: snapshot.price_eur, as_of: snapshot.date, live: false });
+                }
+            }
+            Err(e) => tracing::warn!("Could not read the recorded prices: {e}"),
+        }
+        resolved
+    }
+
+    async fn fx_rate_eur(&self, currency: &str) -> Option<Decimal> {
+        self.yahoo.fx_rate_to_eur(Some(currency)).await
+    }
+}
+
+async fn upsert_snapshot(db: &PgPool, ticker: &str, date: NaiveDate, price: Decimal, now: DateTime<Utc>) -> sqlx::Result<()> {
+    let updated = sqlx::query("UPDATE price_snapshot SET price_eur = $3 WHERE ticker = $1 AND date = $2")
+        .bind(ticker)
+        .bind(date)
+        .bind(price)
+        .execute(db)
+        .await?
+        .rows_affected();
+    if updated == 0 {
+        insert_snapshot_if_absent(db, ticker, date, price, now).await?;
+    }
+    Ok(())
+}
+
+async fn insert_snapshot_if_absent(db: &PgPool, ticker: &str, date: NaiveDate, price: Decimal, now: DateTime<Utc>) -> sqlx::Result<bool> {
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM price_snapshot WHERE ticker = $1 AND date = $2)")
+        .bind(ticker)
+        .bind(date)
+        .fetch_one(db)
+        .await?;
+    if exists {
+        return Ok(false);
+    }
+    sqlx::query("INSERT INTO price_snapshot (ticker, date, price_eur, created_at) VALUES ($1, $2, $3, $4)")
+        .bind(ticker)
+        .bind(date)
+        .bind(price)
+        .bind(now)
+        .execute(db)
+        .await?;
+    Ok(true)
+}

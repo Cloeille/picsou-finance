@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use picsou::ledger::accounts::{self, NewAccount};
-use picsou::ledger::model::{Account, AccountType};
+use picsou::ledger::model::Account;
 use picsou::testing::TestApp;
 use rust_decimal::Decimal;
 
@@ -24,13 +24,3 @@ pub async fn account(app: &TestApp, draft: NewAccount) -> Account {
         .expect("account")
 }
 
-pub async fn account_of(
-    app: &TestApp,
-    member_id: i64,
-    account_type: AccountType,
-    balance: &str,
-) -> Account {
-    let mut draft = NewAccount::new(member_id, "Account", account_type);
-    draft.current_balance = d(balance);
-    account(app, draft).await
-}

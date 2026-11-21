@@ -4,3 +4,4 @@ mod cerema;
 mod geocoding;
 mod insee;
 mod nasdaq;
+mod prices;
