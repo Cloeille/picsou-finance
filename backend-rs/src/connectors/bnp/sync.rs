@@ -576,8 +576,9 @@ pub async fn complete_auth(
         tx.commit().await?;
         job
     };
+    let status = get_status(state, member_id).await?;
     template.submit(state, job)?;
-    get_status(state, member_id).await
+    Ok(status)
 }
 
 // --- sync ------------------------------------------------------------------------------

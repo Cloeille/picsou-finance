@@ -236,8 +236,9 @@ async fn complete(
         tx.commit().await?;
         job
     };
+    let status = get_status(&state, member_id).await?;
     template().submit(&state, job)?;
-    Ok(AxumJson(get_status(&state, member_id).await?))
+    Ok(AxumJson(status))
 }
 
 async fn sync_now(State(state): State<AppState>, auth: Auth, ip: ClientIp) -> AppResult<Response> {

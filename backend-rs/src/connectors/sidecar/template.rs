@@ -218,8 +218,10 @@ impl<S: SyncStrategy> SyncTemplate<S> {
                 .into());
             }
         };
+        let now = state.clock.now();
         current.mark_queued()?;
-        session::save(&mut *tx, &current, state.clock.now()).await?;
+        current.updated_at = now;
+        session::save(&mut *tx, &current, now).await?;
         tx.commit().await?;
         self.submit(
             state,
@@ -230,11 +232,12 @@ impl<S: SyncStrategy> SyncTemplate<S> {
                 history,
             },
         )?;
-        Ok(self.find(state, member_id).await?.unwrap_or(current))
+        Ok(current)
     }
 
     /// Replaces the member's session with a freshly authenticated one and queues its first import;
-    /// `prepare` sets the bank-specific columns before the row is written.
+    /// `prepare` sets the bank-specific columns before the row is written. Returns the queued
+    /// session captured before job submission so callers never race with `mark_running`.
     pub async fn replace_and_queue(
         &self,
         state: &AppState,
@@ -242,13 +245,17 @@ impl<S: SyncStrategy> SyncTemplate<S> {
         plain_state: String,
         history: bool,
         prepare: impl FnOnce(&mut NewSession) -> AppResult<()>,
-    ) -> AppResult<()> {
+    ) -> AppResult<SidecarSession> {
         let mut tx = state.db.begin().await?;
         let job = self
             .insert_queued(state, &mut tx, member_id, plain_state, history, prepare)
             .await?;
+        let stored = session::find(&mut *tx, self.bank, member_id)
+            .await?
+            .ok_or_else(|| AppError::internal("queued sidecar session missing after insert"))?;
         tx.commit().await?;
-        self.submit(state, job)
+        self.submit(state, job)?;
+        Ok(stored)
     }
 
     /// As replace_and_queue, inside the caller's transaction; the caller submits the job once it

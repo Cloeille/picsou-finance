@@ -227,8 +227,9 @@ pub async fn authenticate(
         })
         .await?;
     tx.commit().await?;
+    let status = get_status(state, member_id).await?;
     template().submit(state, job)?;
-    get_status(state, member_id).await
+    Ok(status)
 }
 
 /// The login and password as the JSON \`parse_credentials\` reads back; encrypted before storage.

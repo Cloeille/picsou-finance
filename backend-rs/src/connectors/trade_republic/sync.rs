@@ -348,9 +348,10 @@ pub async fn complete_auth(
         tx.commit().await?;
         job
     };
+    let status = get_status(state, member_id).await?;
     template.submit(state, job)?;
     tracing::info!("Trade Republic session stored for member {member_id}, import queued");
-    get_status(state, member_id).await
+    Ok(status)
 }
 
 pub async fn queue_sync(state: &AppState, member_id: i64) -> AppResult<SessionStatusResponse> {

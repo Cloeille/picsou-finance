@@ -232,7 +232,7 @@ pub async fn complete_auth(
     code: &str,
     member_id: i64,
 ) -> AppResult<SessionStatusResponse> {
-    flow::complete(
+    let session = flow::complete(
         state,
         &client(state),
         &template(),
@@ -242,7 +242,7 @@ pub async fn complete_auth(
         member_id,
     )
     .await?;
-    get_status(state, member_id).await
+    Ok(SessionStatusResponse::of(&session))
 }
 
 pub async fn queue_sync(state: &AppState, member_id: i64) -> AppResult<SessionStatusResponse> {

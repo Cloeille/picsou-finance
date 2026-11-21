@@ -63,7 +63,7 @@ pub async fn complete<S: SyncStrategy, B: Serialize + ?Sized>(
     timeout: Duration,
     body: &B,
     member_id: i64,
-) -> AppResult<()> {
+) -> AppResult<super::session::SidecarSession> {
     let response: SidecarSessionState = client
         .post(
             "/complete",

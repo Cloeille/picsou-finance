@@ -95,25 +95,54 @@ pub async fn daily_snapshots(state: &AppState) -> AppResult<usize> {
     let members = member_ids(state).await?;
     let mut written = 0usize;
 
-    let mut tx = state.db.begin().await?;
     for member_id in members {
-        let member_accounts = accounts::find_all_by_member(&mut *tx, member_id).await?;
+        let member_accounts = match accounts::find_all_by_member(&state.db, member_id).await {
+            Ok(list) => list,
+            Err(e) => {
+                tracing::error!(
+                    "Daily snapshot could not list accounts for member {member_id} -- skipping it: {e}"
+                );
+                continue;
+            }
+        };
         for account in member_accounts {
-            let existing = snapshots::find_by_account_and_date(&mut *tx, account.id, today).await?;
+            let existing = match snapshots::find_by_account_and_date(&state.db, account.id, today)
+                .await
+            {
+                Ok(found) => found,
+                Err(e) => {
+                    tracing::error!(
+                        "Daily snapshot lookup failed for account {} (member {member_id}) -- skipping it: {e}",
+                        account.id
+                    );
+                    continue;
+                }
+            };
             let refresh_insurer = providers::is_insurer_contract(&account) && existing.is_some();
             if existing.is_some() && !refresh_insurer {
                 continue;
             }
-            let val = match valuation::valuation(&mut tx, &*state.ledger.prices, &account, today)
-                .await
-            {
-                Ok(v) => v,
-                Err(e) => {
-                    tracing::error!(
-                        "Daily snapshot failed for account {} (member {member_id}) -- skipping it: {e}",
-                        account.id
-                    );
-                    continue;
+            let val = {
+                let mut conn = match state.db.acquire().await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::error!(
+                            "Daily snapshot could not acquire connection for account {} (member {member_id}) -- skipping it: {e}",
+                            account.id
+                        );
+                        continue;
+                    }
+                };
+                match valuation::valuation(&mut conn, &*state.ledger.prices, &account, today).await
+                {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::error!(
+                            "Daily snapshot failed for account {} (member {member_id}) -- skipping it: {e}",
+                            account.id
+                        );
+                        continue;
+                    }
                 }
             };
             if !val.any_priced {
@@ -126,12 +155,12 @@ pub async fn daily_snapshots(state: &AppState) -> AppResult<usize> {
             }
             let write = match existing {
                 Some(snap) => {
-                    snapshots::update_amounts(&mut *tx, snap.id, val.live_eur, val.invested_eur)
+                    snapshots::update_amounts(&state.db, snap.id, val.live_eur, val.invested_eur)
                         .await
                 }
                 None => {
                     snapshots::insert(
-                        &mut *tx,
+                        &state.db,
                         &NewSnapshot::derived(account.id, today, val.live_eur, val.invested_eur),
                         now,
                     )
@@ -149,7 +178,6 @@ pub async fn daily_snapshots(state: &AppState) -> AppResult<usize> {
             }
         }
     }
-    tx.commit().await?;
     tracing::debug!("Snapshots taken for all members ({written} written)");
     Ok(written)
 }
@@ -214,15 +242,10 @@ pub async fn refresh_security_profiles(state: &AppState) -> AppResult<usize> {
     Ok(refreshed)
 }
 
-/// Weekly on Sunday at 04:15: spawns the dividend history refresh pass off the scheduler loop
-/// (matching Java's `dividendRefreshExecutor`).
-pub fn refresh_dividend_history(state: &AppState) {
-    let state = state.clone();
-    tokio::spawn(async move {
-        if let Err(e) = refresh_dividend_history_pass(&state).await {
-            tracing::error!("Dividend history refresh failed -- skipping this cycle: {e}");
-        }
-    });
+/// Weekly on Sunday at 04:15: runs the dividend history refresh pass inside the cancellable
+/// scheduler task so shutdown stops it cleanly without leaking detached tasks.
+pub async fn refresh_dividend_history(state: &AppState) -> AppResult<usize> {
+    refresh_dividend_history_pass(state).await
 }
 
 /// Synchronous/awaitable body of `refresh_dividend_history`: refreshes up to 40 non-crypto (or
@@ -280,11 +303,13 @@ fn upper_set(values: impl IntoIterator<Item = String>) -> HashSet<String> {
         .collect()
 }
 
-/// Every 60 s: evicts expired import previews, Finary API sync previews, and pending bank logins.
+/// Every 60 s: evicts expired import previews, Finary API sync previews, pending bank logins,
+/// and idle MCP Streamable HTTP sessions.
 pub fn run_60s_cleanups(state: &AppState) {
     let now = state.clock.now();
     state.transfer.purge_expired();
     state.sync.finary.purge_expired(now);
+    state.mcp.evict_idle_streamable(now);
     crate::connectors::cic::evict_expired_pending_credentials(state);
     crate::connectors::lbp::evict_expired_pending_logins(state);
     crate::connectors::bnp::evict_expired_pending_logins(state);

@@ -376,13 +376,13 @@ async fn store_session_and_queue(
                 .encrypt(&serialize_credentials(customer_id, password))
         })
         .transpose()?;
-    template()
+    let session = template()
         .replace_and_queue(state, member_id, plain_state, false, |session| {
             session.encrypted_credentials = encrypted;
             Ok(())
         })
         .await?;
-    get_status(state, member_id).await
+    Ok(SessionStatusResponse::of(&session))
 }
 
 pub async fn get_status(state: &AppState, member_id: i64) -> AppResult<SessionStatusResponse> {

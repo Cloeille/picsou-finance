@@ -211,10 +211,10 @@ async fn store_session_and_queue(
     plain_state: String,
     member_id: i64,
 ) -> AppResult<SessionStatusResponse> {
-    template()
+    let session = template()
         .replace_and_queue(state, member_id, plain_state, false, |_| Ok(()))
         .await?;
-    get_status(state, member_id).await
+    Ok(SessionStatusResponse::of(&session))
 }
 
 pub async fn get_status(state: &AppState, member_id: i64) -> AppResult<SessionStatusResponse> {

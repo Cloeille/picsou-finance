@@ -200,10 +200,10 @@ impl JobRunner for LiveJobRunner {
                 .await
                 .map(|_| ())
                 .map_err(|e| anyhow::anyhow!("{e}")),
-            WEEKLY_DIVIDEND_HISTORY => {
-                scheduler::refresh_dividend_history(state);
-                Ok(())
-            }
+            WEEKLY_DIVIDEND_HISTORY => scheduler::refresh_dividend_history(state)
+                .await
+                .map(|_| ())
+                .map_err(|e| anyhow::anyhow!("{e}")),
             other => Err(anyhow::anyhow!("Unknown scheduled job {other}")),
         }
     }

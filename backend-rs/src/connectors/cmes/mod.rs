@@ -321,8 +321,9 @@ async fn store_session_and_queue(
         tx.commit().await?;
         job
     };
+    let status = get_status(state, member_id).await?;
     template().submit(state, job)?;
-    get_status(state, member_id).await
+    Ok(status)
 }
 
 pub async fn queue_sync(state: &AppState, member_id: i64) -> AppResult<SessionStatusResponse> {

@@ -441,8 +441,9 @@ pub async fn complete_auth(
         )
         .await?
     };
+    let status = get_status(state, member_id).await?;
     template().submit(state, job)?;
-    get_status(state, member_id).await
+    Ok(status)
 }
 
 fn require_generation(state: &AppState, member_id: i64, generation: u64) -> Result<(), SyncError> {

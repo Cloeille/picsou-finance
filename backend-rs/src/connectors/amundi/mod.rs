@@ -131,7 +131,7 @@ async fn complete(
 ) -> AppResult<AxumJson<SessionStatusResponse>> {
     consume(&state, &policies::AMUNDI_AUTH, &ip, AUTH_RATE_LIMITED)?;
     let body = json!({ "processId": req.process_id, "code": req.code });
-    flow::complete(
+    let session = flow::complete(
         &state,
         &client(&state),
         &template(),
@@ -141,7 +141,7 @@ async fn complete(
         auth.member_id,
     )
     .await?;
-    Ok(AxumJson(get_status(&state, auth.member_id).await?))
+    Ok(AxumJson(SessionStatusResponse::of(&session)))
 }
 
 async fn sync_now(State(state): State<AppState>, auth: Auth, ip: ClientIp) -> AppResult<Response> {
