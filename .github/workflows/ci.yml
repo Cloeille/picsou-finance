@@ -309,7 +309,7 @@ jobs:
       # CPython 3.12 security releases ship no installers, so setup-python stops at 3.12.10,
       # whose html.parser fails a cic-auth guard the base image (3.12.16) passes. uv runs the
       # python-build-standalone build of the latest patch, the runtime the desktop app bundles.
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
       - name: Test and start each browserless sidecar
         run: >-
           uv run --no-project --managed-python --python 3.12
