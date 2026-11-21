@@ -99,9 +99,10 @@ A card (`cash_account_type = CARD`) is the exception: its order is `name`, `prod
 card's `details` (Boursorama: `immediat_debit`, `delayed_debit`) while `name` is the label
 the holder sees, which also tells apart two cards of one joint account (#664).
 On a card, a currency of `XXX` (ISO 4217 "no currency", sent by Boursorama) counts as absent.
-A card whose selected balance is positive, or of an "available" type (`ITAV`, `CLAV`: credit
-left, not an amount owed), is imported as before (`CHECKING`, old name) with a warning, since
-reading it as a debt would need the ASPSP's sign convention.
+A card's balance is stored as the bank signs it: negative is owed, positive is credit in the
+holder's favour (a refund). A card whose selected balance is of an "available" type (`ITAV`,
+`CLAV`: credit left, not an amount owed) is skipped like an unreadable balance and logged: stored
+as cash or as a card, it would invent money.
 After balance selection, the adapter truncates the display name to 100 characters
 to fit `account.name`. Balance matching always uses the full account description,
 so descriptions that share the first 100 characters remain distinct matching keys.
@@ -336,8 +337,10 @@ A card's nature comes from its `details` token, case-insensitive: `immediat_debi
 Banking has no standard field for it.
 
 On an existing account, `SyncService.refreshCardIdentity()` turns a still-`CHECKING` account into a
-card when the bank says `CARD` and fills in an unknown card nature. A type or nature the user set
-is never changed. Accounts are never turned back from a card into `CHECKING`.
+card when the bank says `CARD` and fills in an unknown card nature. A type other than `CHECKING`
+and a known nature are never changed; `CHECKING` cannot be told apart from the old default, so a
+card the user set back to it by hand is upgraded again. Accounts are never turned back from a card
+into `CHECKING`.
 
 Known gaps (#664 follow-ups):
 - **Immediate-debit purchases count twice in the budget.** Boursorama lists each purchase both on
@@ -346,6 +349,9 @@ Known gaps (#664 follow-ups):
 - **Deferred-debit cards** have no `paymentDueAmount` / `paymentDueDate`, no link to their current
   account and no settlement tagging: Enable Banking says neither which account a card is debited
   from nor when (#668). The card's balance is its `XPCD` balance (the real-time amount still owed).
+- **A card has no IBAN**, so the IBAN fallback that survives an Enable Banking uid rotation cannot
+  match it: a rotated card uid creates a second card. This predates #664 (the rows were `CHECKING`
+  without an IBAN too).
 
 ### Key files
 

@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Enable Banking: bank cards are imported as cards.** A card the bank declares as such (Boursorama's
   immediate- and deferred-debit cards, for instance) was imported as a current account named
   `immediat_debit` or `delayed_debit`. It is now a card, with its debit mode, named after the label
-  the bank shows (e.g. the card brand and holder), and its amount owed counts as a debt. Accounts
+  the bank shows (e.g. the card brand and holder), and its balance counts as a debt. Accounts
   already imported this way are fixed on the next sync; a type other than current account, or a
   name you typed, is kept.
   Two gaps remain: immediate-debit purchases are still counted twice in the budget, and a

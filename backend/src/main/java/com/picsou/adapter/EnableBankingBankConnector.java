@@ -763,14 +763,13 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         if (!CARD_CASH_ACCOUNT_TYPE.equalsIgnoreCase(nullToEmpty(details.cashAccountType()).trim())) {
             return new AccountData(accountId, accountName, iban, currency, balance);
         }
-        // A card stores what is owed, signed negative. An "available" balance (credit left) or a
-        // positive one cannot be read as that without guessing the ASPSP's convention, so such a
-        // card is imported as before rather than turned into a negative debt.
+        // A card stores what is owed, signed negative (positive: credit in the holder's favour). An
+        // "available" balance is the credit left instead: storing it, as a card or as cash, would
+        // invent money, so the resource is skipped like any other unreadable balance.
         String balanceType = nullToEmpty(selected.balanceType()).trim().toUpperCase(Locale.ROOT);
-        if (balance.signum() > 0 || AVAILABLE_BALANCE_TYPES.contains(balanceType)) {
-            log.warn("Enable Banking card resource kept as a current account: balance type {}, sign {}",
-                balanceType.isEmpty() ? "none" : balanceType, balance.signum());
-            return new AccountData(accountId, accountName, iban, currency, balance);
+        if (AVAILABLE_BALANCE_TYPES.contains(balanceType)) {
+            throw new SyncException("Enable Banking card reports only an available balance (" + balanceType
+                + "), not an amount owed");
         }
         // ISO 4217 "XXX" (no currency) is what Boursorama declares on its cards.
         String cardCurrency = firstNonBlank(realCurrency(selected.balanceAmount().currency()),
