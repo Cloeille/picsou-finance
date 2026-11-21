@@ -1,6 +1,7 @@
 //! The hop to a Python sidecar (SidecarWebClientFactory) and the strict {"detail": "<CODE>"}
 //! error contract most sidecars speak (SidecarClient).
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::{Bytes, BytesMut};
@@ -11,6 +12,7 @@ use serde::de::DeserializeOwned;
 use super::error::SyncError;
 use crate::AppState;
 use crate::ledger::sidecar::{SidecarBank, SidecarErrorCode};
+use crate::native_sidecars::{NativeSidecar, is_native_url};
 
 /// Carries the shared secret; named, not Authorization, so no proxy strips or caches on it.
 pub const API_KEY_HEADER: &str = "X-Picsou-Sidecar-Key";
@@ -50,24 +52,48 @@ pub enum CallError {
     Transport(String),
 }
 
-/// SidecarWebClientFactory.create: one sidecar's base URL, the shared key and the capped reader.
+/// SidecarWebClientFactory.create: one sidecar's base URL, the shared key and the capped reader,
+/// or an in-process [`NativeSidecar`] handler when configured with `"native"` / `"native://<service>"`.
 #[derive(Clone)]
 pub struct SidecarHttp {
     http: reqwest::Client,
     base: String,
     key: Option<String>,
     sidecar_name: &'static str,
+    native: Option<Arc<dyn NativeSidecar>>,
+    native_configured: bool,
 }
 
 impl SidecarHttp {
     /// `service` is the compose service name the URL is configured under, `sidecar_name` the
     /// label error messages use.
     pub fn new(state: &AppState, service: &'static str, sidecar_name: &'static str) -> Self {
+        let base = state.connectors.base_url(service).to_owned();
+        let native_configured = is_native_url(&base);
+        let native = if native_configured {
+            state.connectors.native.resolve(service, &base)
+        } else {
+            None
+        };
         Self {
             http: state.http.clone(),
-            base: state.connectors.base_url(service).to_owned(),
+            base,
             key: state.connectors.api_key().map(str::to_owned),
             sidecar_name,
+            native,
+            native_configured,
+        }
+    }
+
+    /// Constructs a `SidecarHttp` backed directly by a specific in-process [`NativeSidecar`].
+    pub fn with_native(native: Arc<dyn NativeSidecar>, sidecar_name: &'static str) -> Self {
+        Self {
+            http: reqwest::Client::new(),
+            base: "native".to_owned(),
+            key: None,
+            sidecar_name,
+            native: Some(native),
+            native_configured: true,
         }
     }
 
@@ -78,6 +104,37 @@ impl SidecarHttp {
         body: Option<&B>,
         timeout: Duration,
     ) -> Result<RawResponse, CallError> {
+        if self.native_configured {
+            let Some(handler) = &self.native else {
+                return Err(CallError::Unreachable);
+            };
+            let payload = match body {
+                Some(b) => {
+                    serde_json::to_value(b).map_err(|e| CallError::Transport(e.to_string()))?
+                }
+                None => serde_json::Value::Null,
+            };
+            let outcome = tokio::time::timeout(timeout, handler.call(method, path, payload))
+                .await
+                .map_err(|_| CallError::Timeout)?;
+            let (status, json_body) = match outcome {
+                Ok(value) => (StatusCode::OK, value),
+                Err(err) => (err.status, err.to_json_body()),
+            };
+            let bytes =
+                serde_json::to_vec(&json_body).map_err(|e| CallError::Transport(e.to_string()))?;
+            if bytes.len() > MAX_RESPONSE_BYTES {
+                return Err(CallError::Transport(format!(
+                    "response exceeds {MAX_RESPONSE_BYTES} bytes"
+                )));
+            }
+            return Ok(RawResponse {
+                status,
+                headers: HeaderMap::new(),
+                body: Bytes::from(bytes),
+            });
+        }
+
         let mut request = self
             .http
             .request(method, format!("{}{path}", self.base))

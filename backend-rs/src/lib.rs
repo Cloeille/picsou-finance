@@ -21,6 +21,7 @@ pub mod ledger;
 pub mod logging;
 pub mod market;
 pub mod mcp;
+pub mod native_sidecars;
 pub mod routes;
 pub mod setup_auth;
 pub mod sync;

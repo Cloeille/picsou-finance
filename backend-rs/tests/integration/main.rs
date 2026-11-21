@@ -13,6 +13,7 @@ mod jobs;
 mod ledger;
 mod market;
 mod mcp;
+mod native_sidecars_a;
 mod sync;
 mod transfer;
 mod wealth;
