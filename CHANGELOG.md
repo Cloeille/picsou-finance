@@ -55,6 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Removed noisy goal pace tags ("En bonne voie" / "En retard").** Removed the decorative and often misleading status pill from `GoalCard`, `GoalDetailModal`, and `GoalProgressBar` so savings goals present clean factual figures (current total, target, progress bar, months remaining, required monthly pace, and average contribution) without visual clutter competing with primary buttons.
 - **A missed daily sync is made up once.** When Picsou was off or the machine asleep at 08:00, the bank
   sync and the balance snapshot now run within a minute or two of the next start or wake, once, not
   once per missed day. The weekly and monthly jobs follow the same rule. The first start after the
