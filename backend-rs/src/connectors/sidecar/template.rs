@@ -97,6 +97,8 @@ pub struct SyncTemplate<S: SyncStrategy> {
     /// session row exists yet (CORUM, Sofidy).
     locks_member: bool,
     pool: Pool,
+    /// The bank's name in the queue's own messages, when it differs from its label (Natixis).
+    queue_label: &'static str,
 }
 
 impl<S: SyncStrategy> Clone for SyncTemplate<S> {
@@ -106,6 +108,7 @@ impl<S: SyncStrategy> Clone for SyncTemplate<S> {
             strategy: self.strategy.clone(),
             locks_member: self.locks_member,
             pool: self.pool,
+            queue_label: self.queue_label,
         }
     }
 }
@@ -121,7 +124,20 @@ impl<S: SyncStrategy> SyncTemplate<S> {
             strategy: Arc::new(strategy),
             locks_member,
             pool: Pool::SINGLE_WORKER,
+            queue_label: bank.label(),
         }
+    }
+
+    /// Names the bank `label` in the messages queue() answers with.
+    pub fn with_queue_label(mut self, label: &'static str) -> Self {
+        self.queue_label = label;
+        self
+    }
+
+    /// Runs the jobs on a pool other than the single worker.
+    pub fn with_pool(mut self, pool: Pool) -> Self {
+        self.pool = pool;
+        self
     }
 
     pub fn bank(&self) -> SidecarBank {
@@ -160,7 +176,7 @@ impl<S: SyncStrategy> SyncTemplate<S> {
         member_id: i64,
         history: bool,
     ) -> AppResult<SidecarSession> {
-        let label = self.bank.label();
+        let label = self.queue_label;
         let mut tx = state.db.begin().await?;
         self.lock_member_if_needed(&mut tx, member_id).await?;
         let mut current = session::find_for_update(&mut tx, self.bank, member_id)

@@ -119,7 +119,7 @@ fn client(state: &AppState) -> SidecarClient {
 }
 
 fn template() -> SyncTemplate<Strategy> {
-    SyncTemplate::new(BANK, Strategy, false)
+    SyncTemplate::new(BANK, Strategy, false).with_queue_label("Natixis")
 }
 
 fn logins(state: &AppState) -> &PendingLogins {

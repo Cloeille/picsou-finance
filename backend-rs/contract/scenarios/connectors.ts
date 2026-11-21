@@ -106,4 +106,63 @@ const amundi: Scenario = {
   ],
 };
 
-export const scenarios = [bourseDirect, amundi];
+const cmes: Scenario = {
+  name: "connectors.cmes",
+  description: "CMES: failing logins, an unknown pending attempt, validation, budgets, stored session states",
+  steps: [
+    ...bootstrap(),
+    ...disconnectedFlow("/api/cmes", {
+      initiate: { login: "jdoe", password: "secret" },
+      invalidInitiate: { login: "jdoe" },
+    }),
+    post("/api/cmes/auth/complete", { processId: "p-1", code: "1234" }, { expect: 422, note: "no pending attempt" }),
+    post("/api/cmes/auth/complete", { processId: "p-1", code: "12" }, { expect: 422 }),
+    storedSession("CMES", { active: false, status: "FAILED", error: "INVALID_CREDENTIALS" }),
+    get("/api/cmes/status", { expect: 200 }),
+    post("/api/cmes/sync", undefined, { expect: 422 }),
+    del("/api/cmes/session", { expect: 204 }),
+    get("/api/cmes/status", { expect: 200 }),
+  ],
+};
+
+const natixis: Scenario = {
+  name: "connectors.natixis",
+  description: "Natixis: failing logins, the code rules, stored session states",
+  steps: [
+    ...bootstrap(),
+    ...disconnectedFlow("/api/natixis", {
+      initiate: { email: "jdoe@example.com", password: "secret" },
+      invalidInitiate: { email: "x".repeat(255), password: "secret" },
+    }),
+    post("/api/natixis/auth/complete", { processId: "p-1", code: "123456" }, { expect: 422, note: "no pending attempt" }),
+    post("/api/natixis/auth/complete", { processId: "p-1" }, { expect: 422 }),
+    post("/api/natixis/auth/complete", { processId: "p-1", code: "12ab" }, { expect: 422 }),
+    storedSession("NATIXIS", { active: true, status: "SUCCESS" }),
+    get("/api/natixis/status", { expect: 200 }),
+    sql("session queued", `UPDATE sidecar_session SET sync_status = 'QUEUED' WHERE bank = 'NATIXIS'`),
+    post("/api/natixis/sync", undefined, { expect: 202 }),
+    del("/api/natixis/session", { expect: 204 }),
+  ],
+};
+
+const degiro: Scenario = {
+  name: "connectors.degiro",
+  description: "DEGIRO: status, failing logins, validation, sync without a session and with an expired one",
+  steps: [
+    ...bootstrap(),
+    get("/api/degiro/status", { expect: 200 }),
+    get("/api/degiro/status", { as: "anon", expect: 401 }),
+    post("/api/degiro/auth/initiate", { username: "jdoe", password: "secret" }, { expect: 422 }),
+    post("/api/degiro/auth/initiate", { username: "", password: "secret" }, { expect: 422 }),
+    post("/api/degiro/auth/complete", { processId: "p", code: "123456" }, { expect: 422 }),
+    post("/api/degiro/auth/complete", { processId: "p", code: "12" }, { expect: 422 }),
+    post("/api/degiro/sync", undefined, { expect: 422 }),
+    sql("expired DEGIRO session", `INSERT INTO degiro_session (member_id, session_blob, status, last_synced_at, last_error) VALUES (${ADMIN_MEMBER}, 'x', 'REAUTH_REQUIRED', TIMESTAMPTZ '2024-01-02 03:04:05+00', 'SESSION_EXPIRED')`),
+    get("/api/degiro/status", { expect: 200 }),
+    post("/api/degiro/sync", undefined, { expect: 422 }),
+    del("/api/degiro/session", { expect: 204 }),
+    get("/api/degiro/status", { expect: 200 }),
+  ],
+};
+
+export const scenarios = [bourseDirect, amundi, cmes, natixis, degiro];
