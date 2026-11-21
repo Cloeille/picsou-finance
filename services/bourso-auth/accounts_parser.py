@@ -1228,7 +1228,7 @@ def parse_per(html: str) -> dict[str, Any]:
                     continue
                 raise AccountsFormatError(FORMAT_CHANGED, "PER line has no units and is not a euro fund")
             if quantity < 0:
-                # Refused as on an assurance vie; it also keeps a fund merged across
+                # Refused as on a single-fund contract; it also keeps a fund merged across
                 # compartments from netting to zero units while still holding value.
                 raise AccountsFormatError(INVALID_DATA, "PER line reports a negative quantity")
             if not quantity:

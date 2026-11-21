@@ -690,7 +690,7 @@ Positions come from the server-rendered `/compte/per/<id>/positions` (`parse_per
   assurance-vie rule (no units, ISIN, quote link or price, a label naming the euro). Only its units, cost price and percentage may say
   "En cours"; "En cours" anywhere else, or any other unreadable cell, is refused.
 - A line with zero units and a zero amount is dropped; units missing, or zero with an amount, is
-  refused. Negative units are refused (`INVALID_DATA`), as on an assurance-vie, so a fund merged
+  refused. Negative units are refused (`INVALID_DATA`), as on a single-fund contract, so a fund merged
   across compartments can never net to zero units while still holding value.
 - `valuationLineCount` is the number of lines over all compartments, pending ones included. The
   backend accepts `PER` with the assurance-vie checks: line count required, per-line allowance.

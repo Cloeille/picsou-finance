@@ -237,9 +237,10 @@ class PerDiagnosticsTest(unittest.TestCase):
     def assertShapeOnly(self, message, *expected):
         for part in expected:
             self.assertIn(part, message)
-        # No euro sign and no French-formatted amount: the ratio is the only number with decimals.
+        # No euro sign and no amount, French or Decimal-formatted ("1 700,00", "1700.00"):
+        # the gap's ratio, with 4 decimals, is the only number with any.
         self.assertNotIn("€", message)
-        self.assertNotRegex(message, r"\d,\d{2}")
+        self.assertNotRegex(message, r"\d[.,]\d{2}(?!\d)")
 
     def test_a_compartment_gap_names_the_compartment_and_the_page_shape(self):
         page = PER_HTML.replace("1 600,00 €", "1 700,00 €")
@@ -251,6 +252,16 @@ class PerDiagnosticsTest(unittest.TestCase):
         with self.assertRaises(AccountsFormatError) as raised:
             parse_per(PER_HTML.replace("2 230,00 €", "2 330,00 €"))
         self.assertShapeOnly(str(raised.exception), "3 compartment(s)", "4 line(s)", "1 pending")
+
+    def test_a_gap_between_all_lines_and_the_solde_names_the_page_shape(self):
+        # Each check passes on its own; only the lines-vs-Solde one fails (see PerPageTest).
+        compartments = [per_compartment(name, per_row(*WORLD_ROW, "1,0000", "10,00 €", "100,00 €",
+                                                      "90,00 €", "900,00 %", "100,00 €"), "100,05 €")
+                        for name in ("A", "B", "C")]
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_per(per_page(*compartments, solde="300,20 €"))
+        self.assertIn("lines do not reconcile with the Solde", str(raised.exception))
+        self.assertShapeOnly(str(raised.exception), "3 compartment(s)", "3 line(s)", "0 pending")
 
 
 if __name__ == "__main__":
