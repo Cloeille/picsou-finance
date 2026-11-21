@@ -8,6 +8,7 @@ use serde::Serialize;
 use sqlx::{FromRow, PgConnection};
 
 use super::jdecimal;
+use super::scale::{column, column_opt};
 use crate::error::AppResult;
 use crate::ledger::model::{
     Account, AccountDisplayPref, AccountType, CardNature, Debt, RecurringCadence, ValuationMode,
@@ -189,7 +190,18 @@ impl DebtResponse {
             Some(id) => accounts::find_by_id(&mut *conn, id).await?,
             None => None,
         };
-        Ok(Self::with_linked(d, linked.as_ref()))
+        Ok(Self::from_row(d, linked.as_ref()))
+    }
+
+    /// A debt row read back, its zeros at their column scale.
+    pub fn from_row(d: &Debt, linked: Option<&Account>) -> Self {
+        let mut r = Self::with_linked(d, linked);
+        r.borrowed_amount = column(r.borrowed_amount, 8);
+        r.interest_rate = column_opt(r.interest_rate, 4);
+        r.monthly_payment = column_opt(r.monthly_payment, 8);
+        r.insurance_monthly = column_opt(r.insurance_monthly, 8);
+        r.file_fees = column_opt(r.file_fees, 8);
+        r
     }
 
     pub fn with_linked(d: &Debt, linked: Option<&Account>) -> Self {
@@ -430,6 +442,16 @@ pub async fn scpi_position_of(
     .bind(member_id)
     .fetch_optional(conn)
     .await
+    .map(|row| {
+        row.map(|mut p: ScpiPosition| {
+            p.share_count = column(p.share_count, 8);
+            p.subscription_price_eur = column_opt(p.subscription_price_eur, 8);
+            p.withdrawal_price_eur = column_opt(p.withdrawal_price_eur, 8);
+            p.annual_distribution_per_share_eur =
+                column_opt(p.annual_distribution_per_share_eur, 8);
+            p
+        })
+    })
 }
 
 /// ScpiPositionService.withdrawalValue: shares × withdrawal price at 8 places, half up; no
@@ -506,6 +528,21 @@ pub async fn real_estate_of(
     .bind(account_id)
     .fetch_optional(conn)
     .await
+    .map(|row| {
+        row.map(|mut m: RealEstateMetadata| {
+            m.purchase_price = column(m.purchase_price, 8);
+            m.agency_fees = column_opt(m.agency_fees, 8);
+            m.notary_fees = column_opt(m.notary_fees, 8);
+            m.works_cost = column_opt(m.works_cost, 8);
+            m.rental_income = column_opt(m.rental_income, 8);
+            m.surface_area = column_opt(m.surface_area, 2);
+            m.land_area = column_opt(m.land_area, 2);
+            m.latitude = column_opt(m.latitude, 6);
+            m.longitude = column_opt(m.longitude, 6);
+            m.geocode_score = column_opt(m.geocode_score, 3);
+            m
+        })
+    })
 }
 
 /// When the property was last valued (property_valuation), or None.
@@ -532,6 +569,14 @@ async fn savings_config_of(
     .bind(account_id)
     .fetch_optional(conn)
     .await
+    .map(|row| {
+        row.map(|mut s: SavingsConfigDto| {
+            s.annual_rate = column(s.annual_rate, 4);
+            s.tax_rate_pct = column_opt(s.tax_rate_pct, 2);
+            s.ceiling = column_opt(s.ceiling, 2);
+            s
+        })
+    })
 }
 
 /// AccountService.toResponse(account, sharePercent, viewerId).

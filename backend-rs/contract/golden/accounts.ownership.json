@@ -1,0 +1,625 @@
+{
+  "description": "Ownership shares on a property: validation, the split, and the share-weighted dashboard and history",
+  "scenario": "accounts.ownership",
+  "steps": [
+    {
+      "body": {
+        "activated": false,
+        "avatarColor": "#16a34a",
+        "displayName": "Camille",
+        "hasLogin": false,
+        "hasPassword": false,
+        "id": "<id:1>",
+        "managed": true,
+        "mfaEnabled": false,
+        "ssoLinked": false
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "04 POST /api/family/members as admin"
+    },
+    {
+      "body": [
+        {
+          "activated": true,
+          "avatarColor": "#6366f1",
+          "displayName": "Admin",
+          "hasLogin": true,
+          "hasPassword": true,
+          "id": "<id:2>",
+          "loginName": "admin",
+          "managed": false,
+          "mfaEnabled": false,
+          "ssoLinked": false
+        },
+        {
+          "activated": false,
+          "avatarColor": "#16a34a",
+          "displayName": "Camille",
+          "hasLogin": false,
+          "hasPassword": false,
+          "id": "<id:1>",
+          "managed": true,
+          "mfaEnabled": false,
+          "ssoLinked": false
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "05 GET /api/family/members as admin"
+    },
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 300000,
+        "currentBalanceEur": 300000,
+        "hidden": false,
+        "id": "<id:2>",
+        "isManual": true,
+        "listCollapsed": false,
+        "name": "Appartement",
+        "type": "REAL_ESTATE"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "06 POST /api/accounts as admin"
+    },
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 2000,
+        "currentBalanceEur": 2000,
+        "hidden": false,
+        "id": "<id:1>",
+        "isManual": true,
+        "listCollapsed": false,
+        "name": "Courant",
+        "type": "CHECKING"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "07 POST /api/accounts as admin"
+    },
+    {
+      "body": {
+        "shares": [
+          {
+            "avatarColor": "#6366f1",
+            "displayName": "Admin",
+            "isOwner": true,
+            "memberId": "<id:2>",
+            "sharePercent": 100
+          }
+        ],
+        "totalAssigned": 100,
+        "unassigned": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "08 GET /api/accounts/{flat}/ownership as admin"
+    },
+    {
+      "body": {
+        "detail": "Ownership shares are only supported on real estate, SCPI and loan accounts",
+        "instance": "/api/accounts/<id:1>/ownership",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "09 PUT /api/accounts/{checking}/ownership as admin"
+    },
+    {
+      "body": {
+        "detail": "The account owner must keep a share",
+        "instance": "/api/accounts/<id:2>/ownership",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "10 PUT /api/accounts/{flat}/ownership as admin"
+    },
+    {
+      "body": {
+        "detail": "Ownership shares add up to more than 100%",
+        "instance": "/api/accounts/<id:2>/ownership",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "11 PUT /api/accounts/{flat}/ownership as admin"
+    },
+    {
+      "body": {
+        "detail": "A member appears twice in the ownership split",
+        "instance": "/api/accounts/<id:2>/ownership",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "12 PUT /api/accounts/{flat}/ownership as admin"
+    },
+    {
+      "body": {
+        "errors": {
+          "shares[0].sharePercent": "must be greater than 0"
+        },
+        "instance": "/api/accounts/<id:2>/ownership",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "13 PUT /api/accounts/{flat}/ownership as admin"
+    },
+    {
+      "body": {
+        "detail": "Family member not found",
+        "instance": "/api/accounts/<id:2>/ownership",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "14 PUT /api/accounts/{flat}/ownership as admin"
+    },
+    {
+      "body": {
+        "shares": [
+          {
+            "avatarColor": "#6366f1",
+            "displayName": "Admin",
+            "isOwner": true,
+            "memberId": "<id:2>",
+            "sharePercent": 62.5
+          },
+          {
+            "avatarColor": "#16a34a",
+            "displayName": "Camille",
+            "isOwner": false,
+            "memberId": "<id:1>",
+            "sharePercent": 37.5
+          }
+        ],
+        "totalAssigned": 100.0,
+        "unassigned": 0.0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "15 PUT /api/accounts/{flat}/ownership as admin"
+    },
+    {
+      "body": {
+        "shares": [
+          {
+            "avatarColor": "#6366f1",
+            "displayName": "Admin",
+            "isOwner": true,
+            "memberId": "<id:2>",
+            "sharePercent": 62.500
+          },
+          {
+            "avatarColor": "#16a34a",
+            "displayName": "Camille",
+            "isOwner": false,
+            "memberId": "<id:1>",
+            "sharePercent": 37.500
+          }
+        ],
+        "totalAssigned": 100.000,
+        "unassigned": 0.000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "16 GET /api/accounts/{flat}/ownership as admin"
+    },
+    {
+      "body": [
+        {
+          "color": "#6366f1",
+          "createdAt": "<instant>",
+          "currency": "EUR",
+          "currentBalance": 300000.00000000,
+          "currentBalanceEur": 300000.00000000,
+          "hidden": false,
+          "id": "<id:2>",
+          "isManual": true,
+          "isOwner": true,
+          "listCollapsed": false,
+          "name": "Appartement",
+          "sharePercent": 62.500,
+          "type": "REAL_ESTATE"
+        },
+        {
+          "color": "#6366f1",
+          "createdAt": "<instant>",
+          "currency": "EUR",
+          "currentBalance": 2000.00000000,
+          "currentBalanceEur": 2000.00000000,
+          "hidden": false,
+          "id": "<id:1>",
+          "isManual": true,
+          "isOwner": true,
+          "listCollapsed": false,
+          "name": "Courant",
+          "type": "CHECKING"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "17 GET /api/accounts as admin"
+    },
+    {
+      "body": {
+        "assets": [
+          {
+            "accountId": "<id:2>",
+            "accountType": "REAL_ESTATE",
+            "balanceEur": 187500.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Appartement",
+            "percentage": 98.94
+          },
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 2000.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Courant",
+            "percentage": 1.06
+          }
+        ],
+        "distribution": [
+          {
+            "accountId": "<id:2>",
+            "accountType": "REAL_ESTATE",
+            "balanceEur": 187500.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Appartement",
+            "percentage": 98.94
+          },
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 2000.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Courant",
+            "percentage": 1.06
+          }
+        ],
+        "goalSummaries": [],
+        "liabilities": [],
+        "netWorthHistory": [
+          {
+            "date": "<today>",
+            "invested": 189500.00000000,
+            "pnl": 0E-8,
+            "total": 189500.00000000
+          }
+        ],
+        "totalLiabilities": 0,
+        "totalNetWorth": 189500.00000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "18 GET /api/dashboard as admin"
+    },
+    {
+      "body": [
+        {
+          "accounts": {
+            "<id:1>": {
+              "invested": 2000.00000000,
+              "pnl": 0E-8,
+              "total": 2000.00000000
+            },
+            "<id:2>": {
+              "invested": 187500.00000000,
+              "pnl": 0E-8,
+              "total": 187500.00000000
+            }
+          },
+          "date": "<today>",
+          "invested": 189500.00000000,
+          "pnl": 0E-8,
+          "total": 189500.00000000
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "19 GET /api/history?accountIds={flat},{checking}&months=1&split=true as admin"
+    },
+    {
+      "body": {
+        "invested": 189500.00000000,
+        "pnl": 0E-8,
+        "pnlPercent": 0.0,
+        "total": 189500.00000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "20 GET /api/history/pnl?accountIds={flat},{checking} as admin"
+    },
+    {
+      "body": {
+        "shares": [
+          {
+            "avatarColor": "#6366f1",
+            "displayName": "Admin",
+            "isOwner": true,
+            "memberId": "<id:2>",
+            "sharePercent": 100
+          }
+        ],
+        "totalAssigned": 100,
+        "unassigned": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "21 PUT /api/accounts/{flat}/ownership as admin"
+    },
+    {
+      "body": {
+        "shares": [
+          {
+            "avatarColor": "#6366f1",
+            "displayName": "Admin",
+            "isOwner": true,
+            "memberId": "<id:2>",
+            "sharePercent": 100
+          }
+        ],
+        "totalAssigned": 100,
+        "unassigned": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "22 GET /api/accounts/{flat}/ownership as admin"
+    }
+  ]
+}

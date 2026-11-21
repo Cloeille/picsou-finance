@@ -96,7 +96,10 @@ fn owner_only(owner: &FamilyMember) -> OwnershipResponse {
 }
 
 fn split(owner_id: i64, rows: Vec<(FamilyMember, Decimal)>) -> OwnershipResponse {
-    let total: Decimal = rows.iter().map(|(_, s)| *s).sum();
+    let total = rows
+        .iter()
+        .map(|(_, s)| *s)
+        .fold(Decimal::ZERO, super::scale::add);
     OwnershipResponse {
         shares: rows
             .into_iter()
@@ -110,7 +113,7 @@ fn split(owner_id: i64, rows: Vec<(FamilyMember, Decimal)>) -> OwnershipResponse
             .collect(),
         // Java's sum starts at BigDecimal.ZERO, so the scale is the widest share's.
         total_assigned: total,
-        unassigned: FULL - total,
+        unassigned: super::scale::sub(FULL, total),
     }
 }
 
@@ -120,7 +123,8 @@ pub async fn get_ownership(
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<OwnershipResponse>> {
     let mut conn = state.db.acquire().await?;
-    let account = access::require_readable(&mut conn, id, auth.member_id).await?;
+    let account =
+        super::scale::fixed(access::require_readable(&mut conn, id, auth.member_id).await?);
     let owner = member(&mut conn, account.member_id).await?;
     let rows = access::ownerships_of_account(&mut *conn, id).await?;
     if rows.is_empty() {
@@ -128,7 +132,10 @@ pub async fn get_ownership(
     }
     let mut shares = Vec::with_capacity(rows.len());
     for row in rows {
-        shares.push((member(&mut conn, row.member_id).await?, row.share_percent));
+        shares.push((
+            member(&mut conn, row.member_id).await?,
+            super::scale::column(row.share_percent, 3),
+        ));
     }
     Ok(axum::Json(split(owner.id, shares)))
 }
@@ -147,7 +154,7 @@ pub async fn replace_ownership(
     ValidJson(req): ValidJson<OwnershipRequest>,
 ) -> AppResult<axum::Json<OwnershipResponse>> {
     let mut tx = state.db.begin().await?;
-    let account = access::require_owner(&mut tx, id, auth.member_id).await?;
+    let account = super::scale::fixed(access::require_owner(&mut tx, id, auth.member_id).await?);
     if !splittable(&account) {
         return Err(unprocessable(
             "Ownership shares are only supported on real estate, SCPI and loan accounts",
@@ -174,7 +181,7 @@ pub async fn replace_ownership(
                     "A member appears twice in the ownership split",
                 ));
             }
-            total += *share;
+            total = super::scale::add(total, *share);
         }
         if total > FULL {
             return Err(unprocessable("Ownership shares add up to more than 100%"));

@@ -249,7 +249,14 @@ pub async fn delete_account(
             .await?;
         links = scpi_links(&mut tx, member_id).await?;
     }
-    soft_delete(&mut tx, &account, member_id, state.clock.now()).await?;
+    soft_delete(
+        &mut tx,
+        &account,
+        member_id,
+        state.clock.now(),
+        state.clock.zone(),
+    )
+    .await?;
     if let Some(connection) = connection
         && !has_other_live_account(&mut tx, &connection, id, member_id, &links).await?
     {
@@ -284,6 +291,7 @@ async fn soft_delete(
     account: &Account,
     member_id: i64,
     now: chrono::DateTime<chrono::Utc>,
+    zone: chrono_tz::Tz,
 ) -> AppResult<()> {
     // The fund-code unique indexes do not exclude soft-deleted rows, and a sync would recreate
     // the account of a fund it has not seen: detach and tombstone the funds.
@@ -297,8 +305,13 @@ async fn soft_delete(
         .bind(account.id)
         .execute(&mut *conn)
         .await?;
-    let mut deleted = account.clone();
-    deleted.deleted_at = Some(now);
-    accounts::update(&mut *conn, &deleted, now).await?;
+    // deleted_at is a TIMESTAMP without zone, written as Hibernate writes an Instant there: the
+    // wall-clock time of the JVM zone, which TimeZoneConfig pins to app.timezone.
+    sqlx::query("UPDATE account SET deleted_at = $2, updated_at = $3 WHERE id = $1")
+        .bind(account.id)
+        .bind(now.with_timezone(&zone).naive_local())
+        .bind(now)
+        .execute(&mut *conn)
+        .await?;
     Ok(())
 }

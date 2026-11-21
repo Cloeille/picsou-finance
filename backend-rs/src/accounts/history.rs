@@ -11,9 +11,11 @@ use sqlx::PgConnection;
 
 use super::jdecimal;
 use super::query::Params;
+use super::scale::column;
+use super::scale::{add, sub};
 use crate::AppState;
 use crate::auth::Auth;
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::ledger::decimal::divide;
 use crate::ledger::model::{Account, AccountHolding, AccountType, BalanceSnapshot};
 use crate::ledger::{access, accounts, holdings, prices, providers, snapshots, valuation};
@@ -146,11 +148,11 @@ async fn forward_fill(
         fill.balance
             .entry(row.account_id)
             .or_default()
-            .insert(row.date, row.balance);
+            .insert(row.date, column(row.balance, 8));
         fill.invested
             .entry(row.account_id)
             .or_default()
-            .insert(row.date, row.invested_amount);
+            .insert(row.date, column(row.invested_amount, 8));
         fill.dates.insert(row.date);
     }
     // An insurer contract is observed rarely: its last statement before the window carries in.
@@ -164,11 +166,11 @@ async fn forward_fill(
             fill.balance
                 .entry(account.id)
                 .or_default()
-                .insert(s.date, s.balance);
+                .insert(s.date, column(s.balance, 8));
             fill.invested
                 .entry(account.id)
                 .or_default()
-                .insert(s.date, s.invested_amount);
+                .insert(s.date, column(s.invested_amount, 8));
         }
     }
     Ok(fill)
@@ -187,7 +189,8 @@ pub async fn build_history(
     split: bool,
     member_id: i64,
 ) -> AppResult<Vec<NetWorthPoint>> {
-    let list = accounts::find_by_ids(&mut *conn, account_ids).await?;
+    let mut list = accounts::find_by_ids(&mut *conn, account_ids).await?;
+    super::scale::fix_accounts(&mut list);
     if list.is_empty() {
         return Ok(Vec::new());
     }
@@ -229,7 +232,7 @@ pub async fn build_history(
             }
             let raw = weigh(bal.unwrap_or(Decimal::ZERO), &shares, id);
             let total = if is_loan { -raw } else { raw };
-            agg_total += total;
+            agg_total = add(agg_total, total);
             let unknown_account =
                 unknown_basis.contains(&id) || (per_ids.contains(&id) && inv.is_none());
             let invested = if flat {
@@ -241,15 +244,15 @@ pub async fn build_history(
             };
             match invested {
                 None => unknown = true,
-                Some(v) => agg_invested += v,
+                Some(v) => agg_invested = add(agg_invested, v),
             }
             let pnl = if flat {
                 Some(Decimal::ZERO)
             } else {
-                invested.map(|v| total - v)
+                invested.map(|v| sub(total, v))
             };
             if let Some(p) = pnl {
-                agg_pnl += p;
+                agg_pnl = add(agg_pnl, p);
             }
             if let Some(points) = points.as_mut() {
                 points.insert(
@@ -288,18 +291,18 @@ pub async fn build_history(
         } else {
             live
         };
-        live_total += total;
+        live_total = add(live_total, total);
         if !flat && let Some(i) = invested {
-            live_invested += i;
+            live_invested = add(live_invested, i);
         }
         let pnl = if flat {
             Some(Decimal::ZERO)
         } else {
-            invested.map(|i| live - i)
+            invested.map(|i| sub(live, i))
         };
         match pnl {
             None => unknown_live = true,
-            Some(p) => live_pnl += p,
+            Some(p) => live_pnl = add(live_pnl, p),
         }
         if let Some(points) = live_points.as_mut() {
             let invested = if flat { Some(Decimal::ZERO) } else { invested };
@@ -358,7 +361,8 @@ pub async fn get_intraday(
     let ids = Params::parse(query.as_deref()).required_longs("accountIds")?;
     let member_id = auth.member_id;
     let mut conn = state.db.acquire().await?;
-    let list = accounts::find_by_ids(&mut *conn, &ids).await?;
+    let mut list = accounts::find_by_ids(&mut *conn, &ids).await?;
+    super::scale::fix_accounts(&mut list);
     if list.is_empty() {
         return Ok(axum::Json(Vec::new()));
     }
@@ -390,7 +394,10 @@ pub async fn get_intraday(
             let by_date = snapshots::find_by_account(&mut *conn, id)
                 .await?
                 .into_iter()
-                .map(|s| (s.date, s))
+                .map(|mut s| {
+                    super::scale::fix_snapshot(&mut s);
+                    (s.date, s)
+                })
                 .collect();
             per_snapshots.insert(id, by_date);
             let v = valuation::valuation(&mut conn, prices, account, today).await?;
@@ -420,8 +427,11 @@ pub async fn get_intraday(
             if provider_cost.is_none() && h.average_buy_in.is_none() {
                 any_cost_unknown = true;
             }
-            invested += provider_cost
-                .unwrap_or_else(|| h.quantity * h.average_buy_in.unwrap_or(Decimal::ZERO));
+            invested = add(
+                invested,
+                provider_cost
+                    .unwrap_or_else(|| h.quantity * h.average_buy_in.unwrap_or(Decimal::ZERO)),
+            );
             if let Some(s) = &series {
                 all_series.insert(s.clone());
             }
@@ -504,14 +514,14 @@ pub async fn get_intraday(
                 if unknown_basis.contains(&id) {
                     unknown = true;
                 }
-                agg_total += balance;
+                agg_total = add(agg_total, balance);
                 match invested {
                     None => {
                         if owned {
                             unknown = true;
                         }
                     }
-                    Some(i) => agg_invested += i,
+                    Some(i) => agg_invested = add(agg_invested, i),
                 }
                 observed = true;
                 continue;
@@ -524,11 +534,11 @@ pub async fn get_intraday(
             if lines.is_empty() {
                 let balance = bank_balance.get(&id).copied().unwrap_or(Decimal::ZERO);
                 let value = if is_loan { -balance } else { balance };
-                agg_total += value;
+                agg_total = add(agg_total, value);
                 if !account.account_type.is_liability()
                     && account.account_type != AccountType::PeerLoan
                 {
-                    agg_invested += value;
+                    agg_invested = add(agg_invested, value);
                 }
             } else {
                 let mut market = Decimal::ZERO;
@@ -539,9 +549,9 @@ pub async fn get_intraday(
                         .and_then(|s| series_prices.get(s))
                         .and_then(|m| m.range(..=ts).next_back().map(|(_, p)| *p));
                     if let Some(p) = price {
-                        market += line.quantity * p;
+                        market = add(market, line.quantity * p);
                     } else if let Some(v) = line.provider_value_eur {
-                        market += v;
+                        market = add(market, v);
                     }
                 }
                 let market = weigh(
@@ -550,10 +560,13 @@ pub async fn get_intraday(
                     id,
                 );
                 if is_loan {
-                    agg_total -= market;
+                    agg_total = sub(agg_total, market);
                 } else {
-                    agg_total += market;
-                    agg_invested += holdings_invested.get(&id).copied().unwrap_or(Decimal::ZERO);
+                    agg_total = add(agg_total, market);
+                    agg_invested = add(
+                        agg_invested,
+                        holdings_invested.get(&id).copied().unwrap_or(Decimal::ZERO),
+                    );
                 }
             }
         }
@@ -580,7 +593,8 @@ pub async fn get_pnl(
     let ids = params.required_longs("accountIds")?;
     let from_date = params.date("from")?;
     let mut conn = state.db.acquire().await?;
-    let list = accounts::find_by_ids(&mut *conn, &ids).await?;
+    let mut list = accounts::find_by_ids(&mut *conn, &ids).await?;
+    super::scale::fix_accounts(&mut list);
     let empty = |total| PnlResponse {
         total,
         invested: Some(Decimal::ZERO),
@@ -607,28 +621,28 @@ pub async fn get_pnl(
         let v = valuation::valuation(&mut conn, prices, account, today).await?;
         let live = weigh(v.live_eur, &shares, account.id);
         if account.account_type == AccountType::Loan {
-            live_total -= live;
+            live_total = sub(live_total, live);
         } else if account.account_type.is_liability()
             || account.account_type == AccountType::PeerLoan
         {
-            live_total += live;
+            live_total = add(live_total, live);
         } else {
-            live_total += live;
+            live_total = add(live_total, live);
             if per
                 && share_of(&shares, account.id) > Decimal::ZERO
                 && !has_complete_cost_basis(account, &lines)
             {
                 unknown_basis = true;
             } else {
-                live_value += live;
-                live_invested += weigh(v.invested_eur, &shares, account.id);
+                live_value = add(live_value, live);
+                live_invested = add(live_invested, weigh(v.invested_eur, &shares, account.id));
             }
         }
         if !per {
             range_holdings.extend(lines.into_iter().map(|h| (account.id, h)));
         }
     }
-    let pnl = live_value - live_invested;
+    let pnl = sub(live_value, live_invested);
     let percent = |gain: Decimal, base: Decimal| {
         (base > Decimal::ZERO).then(|| {
             divide(
@@ -678,14 +692,20 @@ pub async fn get_pnl(
         let Some(now_price) = lives[ticker] else {
             continue;
         };
-        value_at_from += weigh(h.quantity * then, &shares, *account_id);
-        live_matched += weigh(h.quantity * now_price, &shares, *account_id);
+        value_at_from = add(
+            value_at_from,
+            weigh(h.quantity * then, &shares, *account_id),
+        );
+        live_matched = add(
+            live_matched,
+            weigh(h.quantity * now_price, &shares, *account_id),
+        );
         matched += 1;
     }
     if matched == 0 {
         return Ok(axum::Json(response));
     }
-    let range_pnl = live_matched - value_at_from;
+    let range_pnl = sub(live_matched, value_at_from);
     response.value_at_from = Some(value_at_from);
     response.range_pnl = Some(range_pnl);
     response.range_pnl_percent = percent(range_pnl, value_at_from);

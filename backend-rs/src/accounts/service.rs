@@ -288,6 +288,7 @@ pub async fn find_all(
     let include_hidden = Params::parse(query.as_deref()).boolean("includeHidden", false)?;
     let mut conn = state.db.acquire().await?;
     let mut list = access::readable_accounts(&mut conn, auth.member_id).await?;
+    super::scale::fix_accounts(&mut list);
     if !include_hidden {
         list.retain(|a| !a.hidden);
     }
@@ -312,7 +313,8 @@ pub async fn find_by_id(
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<AccountResponse>> {
     let mut conn = state.db.acquire().await?;
-    let account = access::require_readable(&mut conn, id, auth.member_id).await?;
+    let account =
+        super::scale::fixed(access::require_readable(&mut conn, id, auth.member_id).await?);
     Ok(axum::Json(
         viewer_response(&state, &mut conn, &account, auth.member_id).await?,
     ))
@@ -398,7 +400,8 @@ pub async fn update(
     ValidJson(req): ValidJson<AccountRequest>,
 ) -> AppResult<axum::Json<AccountResponse>> {
     let mut tx = state.db.begin().await?;
-    let mut account = accounts::get_or_throw(&mut *tx, id, auth.member_id).await?;
+    let mut account =
+        super::scale::fixed(accounts::get_or_throw(&mut *tx, id, auth.member_id).await?);
     let kind = req.kind();
     let name_changed = req.name() != account.name;
     let previous_provider = account.provider.clone();
@@ -546,7 +549,8 @@ pub async fn set_hidden(
     Json(req): Json<VisibilityRequest>,
 ) -> AppResult<axum::Json<AccountResponse>> {
     let mut tx = state.db.begin().await?;
-    let mut account = accounts::get_or_throw(&mut *tx, id, auth.member_id).await?;
+    let mut account =
+        super::scale::fixed(accounts::get_or_throw(&mut *tx, id, auth.member_id).await?);
     account.hidden = req.hidden;
     let saved = accounts::update(&mut *tx, &account, state.clock.now()).await?;
     account.updated_at = saved.updated_at;
@@ -570,7 +574,7 @@ pub async fn set_collapsed(
     Json(req): Json<DisplayRequest>,
 ) -> AppResult<axum::Json<AccountResponse>> {
     let mut tx = state.db.begin().await?;
-    let account = access::require_readable(&mut tx, id, auth.member_id).await?;
+    let account = super::scale::fixed(access::require_readable(&mut tx, id, auth.member_id).await?);
     display_prefs::upsert(&mut *tx, id, auth.member_id, None, Some(req.collapsed)).await?;
     let response = viewer_response(&state, &mut tx, &account, auth.member_id).await?;
     tx.commit().await?;
@@ -599,7 +603,9 @@ pub async fn set_display_order(
     let mut readable = Vec::with_capacity(ids.len());
     for id in &ids {
         let id = id.ok_or_else(accounts::account_not_found)?;
-        readable.push(access::require_readable(&mut tx, id, auth.member_id).await?);
+        readable.push(super::scale::fixed(
+            access::require_readable(&mut tx, id, auth.member_id).await?,
+        ));
     }
     let prefs = prefs_by_account(&mut tx, auth.member_id).await?;
     let shares = access::shares_for(&mut *tx, &readable, auth.member_id).await?;
@@ -635,10 +641,11 @@ pub async fn get_history(
     let from = params.date("from")?;
     let to = params.date("to")?;
     let mut conn = state.db.acquire().await?;
-    accounts::get_or_throw(&mut *conn, id, auth.member_id).await?;
+    super::scale::fixed(accounts::get_or_throw(&mut *conn, id, auth.member_id).await?);
     let to = to.unwrap_or_else(|| state.clock.today());
     let from = from.unwrap_or_else(|| to.checked_sub_months(Months::new(12)).unwrap_or(to));
-    let rows = snapshots::find_by_account_between(&mut *conn, id, from, to).await?;
+    let mut rows = snapshots::find_by_account_between(&mut *conn, id, from, to).await?;
+    rows.iter_mut().for_each(super::scale::fix_snapshot);
     Ok(axum::Json(
         rows.into_iter().map(SnapshotResponse::from).collect(),
     ))
@@ -654,7 +661,8 @@ pub async fn add_snapshot(
         return Err(AppError::BadRequest("Failed to read request".to_owned()));
     };
     let mut tx = state.db.begin().await?;
-    let mut account = accounts::get_or_throw(&mut *tx, id, auth.member_id).await?;
+    let mut account =
+        super::scale::fixed(accounts::get_or_throw(&mut *tx, id, auth.member_id).await?);
     if account.account_type == AccountType::PeerLoan {
         return Err(AppError::BadRequest(
             "A peer loan's balance comes from its repayment ledger, not a manual snapshot"
@@ -716,7 +724,8 @@ pub async fn get_transactions(
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<Vec<TransactionResponse>>> {
     let mut conn = state.db.acquire().await?;
-    let account = accounts::get_or_throw(&mut *conn, id, auth.member_id).await?;
+    let account =
+        super::scale::fixed(accounts::get_or_throw(&mut *conn, id, auth.member_id).await?);
     let rows = transactions::find_by_account_newest_first(&mut *conn, id).await?;
     let ids: Vec<i64> = rows.iter().map(|t| t.id).collect();
     let links = peer_loan_links(&mut conn, &ids).await?;

@@ -1,0 +1,589 @@
+{
+  "description": "Hidden accounts leave the dashboard, child accounts leave the totals, ranges only change the history",
+  "scenario": "accounts.visibility",
+  "steps": [
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 1000,
+        "currentBalanceEur": 1000,
+        "hidden": false,
+        "id": "<id:1>",
+        "isManual": true,
+        "listCollapsed": false,
+        "name": "Revolut",
+        "type": "CHECKING"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "04 POST /api/accounts as admin"
+    },
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 250,
+        "currentBalanceEur": 250,
+        "hidden": false,
+        "id": "<id:2>",
+        "isManual": true,
+        "listCollapsed": false,
+        "name": "Poche",
+        "type": "SAVINGS"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "05 POST /api/accounts as admin"
+    },
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 7000,
+        "currentBalanceEur": 7000,
+        "hidden": false,
+        "id": "<id:3>",
+        "isManual": true,
+        "listCollapsed": false,
+        "name": "Caché",
+        "type": "LIVRET_A"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "06 POST /api/accounts as admin"
+    },
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 7000.00000000,
+        "currentBalanceEur": 7000.00000000,
+        "hidden": true,
+        "id": "<id:3>",
+        "isManual": true,
+        "listCollapsed": false,
+        "name": "Caché",
+        "type": "LIVRET_A"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "08 PUT /api/accounts/{hidden}/visibility as admin"
+    },
+    {
+      "body": {
+        "assets": [
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 1000.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Revolut",
+            "percentage": 100.0
+          }
+        ],
+        "distribution": [
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 1000.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Revolut",
+            "percentage": 100.0
+          }
+        ],
+        "goalSummaries": [],
+        "liabilities": [],
+        "netWorthHistory": [
+          {
+            "date": "<today>",
+            "invested": 1000.00000000,
+            "pnl": 0E-8,
+            "total": 1000.00000000
+          }
+        ],
+        "totalLiabilities": 0,
+        "totalNetWorth": 1000.00000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "09 GET /api/dashboard as admin"
+    },
+    {
+      "body": {
+        "assets": [
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 1000.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Revolut",
+            "percentage": 100.0
+          }
+        ],
+        "distribution": [
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 1000.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Revolut",
+            "percentage": 100.0
+          }
+        ],
+        "goalSummaries": [],
+        "liabilities": [],
+        "netWorthHistory": [
+          {
+            "date": "<today>",
+            "invested": 1000.00000000,
+            "pnl": 0E-8,
+            "total": 1000.00000000
+          }
+        ],
+        "totalLiabilities": 0,
+        "totalNetWorth": 1000.00000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "10 GET /api/dashboard?range=7D as admin"
+    },
+    {
+      "body": {
+        "assets": [
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 1000.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Revolut",
+            "percentage": 100.0
+          }
+        ],
+        "distribution": [
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 1000.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Revolut",
+            "percentage": 100.0
+          }
+        ],
+        "goalSummaries": [],
+        "liabilities": [],
+        "netWorthHistory": [
+          {
+            "date": "<today>",
+            "invested": 1000.00000000,
+            "pnl": 0E-8,
+            "total": 1000.00000000
+          }
+        ],
+        "totalLiabilities": 0,
+        "totalNetWorth": 1000.00000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "11 GET /api/dashboard?range=YTD as admin"
+    },
+    {
+      "body": {
+        "assets": [
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 1000.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Revolut",
+            "percentage": 100.0
+          }
+        ],
+        "distribution": [
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 1000.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Revolut",
+            "percentage": 100.0
+          }
+        ],
+        "goalSummaries": [],
+        "liabilities": [],
+        "netWorthHistory": [
+          {
+            "date": "<today>",
+            "invested": 1000.00000000,
+            "pnl": 0E-8,
+            "total": 1000.00000000
+          }
+        ],
+        "totalLiabilities": 0,
+        "totalNetWorth": 1000.00000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "12 GET /api/dashboard?range=bogus as admin"
+    },
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 250,
+        "currentBalanceEur": 250,
+        "hidden": false,
+        "id": "<id:2>",
+        "isManual": true,
+        "listCollapsed": false,
+        "name": "Voyage",
+        "parentAccountId": "<id:1>",
+        "type": "SAVINGS"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "13 PUT /api/accounts/{pocket} as admin"
+    },
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 250.00000000,
+        "currentBalanceEur": 250.00000000,
+        "hidden": false,
+        "id": "<id:2>",
+        "isManual": true,
+        "isOwner": true,
+        "listCollapsed": true,
+        "name": "Voyage",
+        "parentAccountId": "<id:1>",
+        "type": "SAVINGS"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "14 PUT /api/accounts/{pocket}/display as admin"
+    },
+    {
+      "body": [
+        {
+          "color": "#6366f1",
+          "createdAt": "<instant>",
+          "currency": "EUR",
+          "currentBalance": 1000.00000000,
+          "currentBalanceEur": 1000.00000000,
+          "hidden": false,
+          "id": "<id:1>",
+          "isManual": true,
+          "isOwner": true,
+          "listCollapsed": false,
+          "name": "Revolut",
+          "type": "CHECKING"
+        },
+        {
+          "color": "#6366f1",
+          "createdAt": "<instant>",
+          "currency": "EUR",
+          "currentBalance": 250.00000000,
+          "currentBalanceEur": 250.00000000,
+          "hidden": false,
+          "id": "<id:2>",
+          "isManual": true,
+          "isOwner": true,
+          "listCollapsed": true,
+          "name": "Voyage",
+          "parentAccountId": "<id:1>",
+          "type": "SAVINGS"
+        },
+        {
+          "color": "#6366f1",
+          "createdAt": "<instant>",
+          "currency": "EUR",
+          "currentBalance": 7000.00000000,
+          "currentBalanceEur": 7000.00000000,
+          "hidden": true,
+          "id": "<id:3>",
+          "isManual": true,
+          "isOwner": true,
+          "listCollapsed": false,
+          "name": "Caché",
+          "type": "LIVRET_A"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "15 GET /api/accounts?includeHidden=true as admin"
+    },
+    {
+      "body": [
+        {
+          "date": "<today>",
+          "invested": 8250.00000000,
+          "pnl": 0E-8,
+          "total": 8250.00000000
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "16 GET /api/history?accountIds={wallet},{pocket},{hidden}&months=1 as admin"
+    },
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 7000.00000000,
+        "currentBalanceEur": 7000.00000000,
+        "hidden": false,
+        "id": "<id:3>",
+        "isManual": true,
+        "listCollapsed": false,
+        "name": "Caché",
+        "type": "LIVRET_A"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "17 PUT /api/accounts/{hidden}/visibility as admin"
+    },
+    {
+      "body": {
+        "assets": [
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 1000.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Revolut",
+            "percentage": 12.5
+          },
+          {
+            "accountId": "<id:3>",
+            "accountType": "LIVRET_A",
+            "balanceEur": 7000.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Caché",
+            "percentage": 87.5
+          }
+        ],
+        "distribution": [
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 1000.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Revolut",
+            "percentage": 12.5
+          },
+          {
+            "accountId": "<id:3>",
+            "accountType": "LIVRET_A",
+            "balanceEur": 7000.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Caché",
+            "percentage": 87.5
+          }
+        ],
+        "goalSummaries": [],
+        "liabilities": [],
+        "netWorthHistory": [
+          {
+            "date": "<today>",
+            "invested": 8000.00000000,
+            "pnl": 0E-8,
+            "total": 8000.00000000
+          }
+        ],
+        "totalLiabilities": 0,
+        "totalNetWorth": 8000.00000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "18 GET /api/dashboard as admin"
+    }
+  ]
+}

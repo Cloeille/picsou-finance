@@ -1,12 +1,14 @@
 //! Accounts, dashboard, history, analysis, logos, securities (track T2).
 
 pub mod connection;
+pub mod dashboard;
 pub mod dto;
 pub mod history;
 pub mod jdecimal;
 pub mod meta;
 pub mod ownership;
 pub mod query;
+pub mod scale;
 pub mod seams;
 pub mod service;
 pub mod validation;
@@ -51,6 +53,7 @@ pub fn register(routes: &mut Routes) {
         .delete("/api/accounts/{id}", connection::delete_account)
         .get("/api/accounts/{id}/ownership", ownership::get_ownership)
         .put("/api/accounts/{id}/ownership", ownership::replace_ownership)
+        .get("/api/dashboard", dashboard::get_dashboard)
         .get("/api/history", history::get_history)
         .get("/api/history/pnl", history::get_pnl)
         .get("/api/history/net-worth/intraday", history::get_intraday);
