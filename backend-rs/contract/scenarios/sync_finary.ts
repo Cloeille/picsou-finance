@@ -76,10 +76,10 @@ const upstream: Scenario = {
     ...bootstrap(),
     post("/api/finary/login", { email: "contract.user@example.com", password: "synthetic-pass-1" }, { expect: 200 }),
     // The detail quotes the JDK's "Tunnel failed, got: 503", which reqwest cannot reproduce.
-    post("/api/finary/check-totp", undefined, { compare: false }),
-    post("/api/finary/api-sync/preview", undefined, { compare: false }),
-    post("/api/finary/api-sync/preview?totp=123456", undefined, { compare: false }),
-    post("/api/finary/api-sync/auto", undefined, { compare: false }),
+    post("/api/finary/check-totp", undefined, { expect: 422, compare: false }),
+    post("/api/finary/api-sync/preview", undefined, { expect: 422, compare: false }),
+    post("/api/finary/api-sync/preview?totp=123456", undefined, { expect: 422, compare: false }),
+    post("/api/finary/api-sync/auto", undefined, { expect: 422, compare: false }),
     get("/api/finary/status", { expect: 200 }),
   ],
 };
