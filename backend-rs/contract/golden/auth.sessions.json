@@ -1,0 +1,251 @@
+{
+  "description": "Two remembered devices, list, revoke one, revoke all others",
+  "scenario": "auth.sessions",
+  "steps": [
+    {
+      "body": [
+        {
+          "createdAt": "<instant>",
+          "current": false,
+          "expiresAt": "<instant>",
+          "id": "<id:1>",
+          "ipPrefix": "127.0.0.",
+          "lastUsedAt": "<instant>",
+          "trustedFor2fa": false,
+          "userAgent": "picsou-contract/1"
+        },
+        {
+          "createdAt": "<instant>",
+          "current": true,
+          "expiresAt": "<instant>",
+          "id": "<id:2>",
+          "ipPrefix": "127.0.0.",
+          "lastUsedAt": "<instant>",
+          "trustedFor2fa": false,
+          "userAgent": "picsou-contract/1"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "06 GET /api/auth/sessions as laptop"
+    },
+    {
+      "body": null,
+      "bodyKind": "empty",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 204,
+      "step": "07 DELETE /api/auth/sessions/{tabletSession} as laptop"
+    },
+    {
+      "body": [
+        {
+          "createdAt": "<instant>",
+          "current": true,
+          "expiresAt": "<instant>",
+          "id": "<id:2>",
+          "ipPrefix": "127.0.0.",
+          "lastUsedAt": "<instant>",
+          "trustedFor2fa": false,
+          "userAgent": "picsou-contract/1"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "08 GET /api/auth/sessions as laptop"
+    },
+    {
+      "body": {
+        "detail": "Session revoked",
+        "instance": "/api/auth/refresh",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "0",
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "access_token",
+          "value": "<empty>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "0",
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "mfa_challenge_token",
+          "value": "<empty>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "0",
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "persistent_token",
+          "value": "<empty>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "0",
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "reauth_proof",
+          "value": "<empty>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "0",
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "refresh_token",
+          "value": "<empty>"
+        }
+      ],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401,
+      "step": "09 POST /api/auth/refresh as tablet"
+    },
+    {
+      "body": null,
+      "bodyKind": "empty",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "10 DELETE /api/auth/sessions/999999 as laptop"
+    },
+    {
+      "body": null,
+      "bodyKind": "empty",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 204,
+      "step": "11 DELETE /api/auth/sessions as laptop"
+    },
+    {
+      "body": [
+        {
+          "createdAt": "<instant>",
+          "current": true,
+          "expiresAt": "<instant>",
+          "id": "<id:2>",
+          "ipPrefix": "127.0.0.",
+          "lastUsedAt": "<instant>",
+          "trustedFor2fa": false,
+          "userAgent": "picsou-contract/1"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "12 GET /api/auth/sessions as laptop"
+    },
+    {
+      "body": {
+        "detail": "Authentication required",
+        "status": 401,
+        "title": "Unauthorized"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json;charset=ISO-8859-1",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401,
+      "step": "13 GET /api/auth/sessions as anon"
+    }
+  ]
+}

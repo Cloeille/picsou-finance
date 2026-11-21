@@ -1,0 +1,389 @@
+{
+  "description": "Admin creates and invites a member; the member activates, signs in, and is not an admin",
+  "scenario": "family.members",
+  "steps": [
+    {
+      "body": {
+        "activated": false,
+        "avatarColor": "#16a34a",
+        "displayName": "Camille",
+        "hasLogin": false,
+        "hasPassword": false,
+        "id": "<id:1>",
+        "managed": true,
+        "mfaEnabled": false,
+        "ssoLinked": false
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "04 POST /api/family/members as admin"
+    },
+    {
+      "body": [
+        {
+          "activated": true,
+          "avatarColor": "#6366f1",
+          "displayName": "Admin",
+          "hasLogin": true,
+          "hasPassword": true,
+          "id": "<id:2>",
+          "loginName": "admin",
+          "managed": false,
+          "mfaEnabled": false,
+          "ssoLinked": false
+        },
+        {
+          "activated": false,
+          "avatarColor": "#16a34a",
+          "displayName": "Camille",
+          "hasLogin": false,
+          "hasPassword": false,
+          "id": "<id:1>",
+          "managed": true,
+          "mfaEnabled": false,
+          "ssoLinked": false
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "05 GET /api/family/members as admin"
+    },
+    {
+      "body": {
+        "activationLink": "/activate/<token:1>"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "06 POST /api/family/members/{camilleId}/activate as admin"
+    },
+    {
+      "body": [
+        {
+          "activated": true,
+          "avatarColor": "#6366f1",
+          "displayName": "Admin",
+          "hasLogin": true,
+          "hasPassword": true,
+          "id": "<id:2>",
+          "loginName": "admin",
+          "managed": false,
+          "mfaEnabled": false,
+          "ssoLinked": false
+        },
+        {
+          "activated": false,
+          "avatarColor": "#16a34a",
+          "displayName": "Camille",
+          "hasLogin": true,
+          "hasPassword": false,
+          "id": "<id:1>",
+          "loginName": "camille",
+          "managed": true,
+          "mfaEnabled": false,
+          "ssoLinked": false
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "07 GET /api/family/members as admin"
+    },
+    {
+      "body": {
+        "errors": {
+          "acknowledgedWarning": "must be true"
+        },
+        "instance": "/api/auth/activate/<token:1>",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "08 POST /api/auth/activate/{camilleToken} as camille"
+    },
+    {
+      "body": {
+        "message": "Account activated successfully"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "09 POST /api/auth/activate/{camilleToken} as camille"
+    },
+    {
+      "body": {
+        "detail": "Invalid credentials",
+        "instance": "/api/auth/activate/<token:1>",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401,
+      "step": "10 POST /api/auth/activate/{camilleToken} as camille"
+    },
+    {
+      "body": {
+        "displayName": "Camille",
+        "memberId": "<id:1>",
+        "role": "MEMBER",
+        "username": "camille"
+      },
+      "bodyKind": "json",
+      "cookies": [
+        {
+          "attributes": {
+            "httponly": true,
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "access_token",
+          "value": "<set>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "refresh_token",
+          "value": "<set>"
+        }
+      ],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "11 POST /api/auth/login as camille"
+    },
+    {
+      "body": {
+        "detail": "Admin access required",
+        "instance": "/api/family/members",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 403,
+      "step": "12 GET /api/family/members as camille"
+    },
+    {
+      "body": [],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "13 GET /api/accounts as camille"
+    },
+    {
+      "body": {
+        "activated": true,
+        "avatarColor": "#16a34a",
+        "displayName": "Camille D.",
+        "hasLogin": true,
+        "hasPassword": true,
+        "id": "<id:1>",
+        "loginName": "camille",
+        "managed": true,
+        "mfaEnabled": false,
+        "ssoLinked": false
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "14 PUT /api/family/members/{camilleId} as admin"
+    },
+    {
+      "body": {
+        "detail": "displayName is required",
+        "instance": "/api/family/members/<id:1>",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "15 PUT /api/family/members/{camilleId} as admin"
+    },
+    {
+      "body": [
+        {
+          "activated": true,
+          "avatarColor": "#6366f1",
+          "displayName": "Admin",
+          "hasLogin": true,
+          "hasPassword": true,
+          "id": "<id:2>",
+          "loginName": "admin",
+          "managed": false,
+          "mfaEnabled": false,
+          "ssoLinked": false
+        },
+        {
+          "activated": true,
+          "avatarColor": "#16a34a",
+          "displayName": "Camille D.",
+          "hasLogin": true,
+          "hasPassword": true,
+          "id": "<id:1>",
+          "loginName": "camille",
+          "managed": true,
+          "mfaEnabled": false,
+          "ssoLinked": false
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "16 GET /api/family/members as admin"
+    }
+  ]
+}

@@ -1,0 +1,326 @@
+{
+  "description": "Wizard on an empty database: status, admin, security, complete, then 410 on a second admin",
+  "scenario": "setup.first-run",
+  "steps": [
+    {
+      "body": {
+        "integrations": {
+          "boursedirect": false,
+          "boursobank": false,
+          "crypto": false,
+          "enablebanking": false,
+          "finary": false,
+          "fortuneo": false,
+          "lbp": false,
+          "traderepublic": false
+        },
+        "needsSetup": true,
+        "sso": {
+          "adminBootstrap": false,
+          "enabled": false,
+          "providerName": "SSO"
+        },
+        "state": "PENDING_ADMIN"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "01 GET /api/setup/status as anon"
+    },
+    {
+      "body": {
+        "code": "setup_required",
+        "detail": "Picsou is not configured yet. Complete the setup wizard at /setup.",
+        "status": 503,
+        "title": "Setup Required"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json;charset=ISO-8859-1",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 503,
+      "step": "02 GET /api/accounts as anon"
+    },
+    {
+      "body": {
+        "errors": {
+          "password": "<secret:1>",
+          "username": "size must be between 3 and 50"
+        },
+        "instance": "/api/setup/admin",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "03 POST /api/setup/admin as anon"
+    },
+    {
+      "body": {
+        "displayName": "Admin",
+        "username": "admin"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "04 POST /api/setup/admin as anon"
+    },
+    {
+      "body": {
+        "integrations": {
+          "boursedirect": false,
+          "boursobank": false,
+          "crypto": false,
+          "enablebanking": false,
+          "finary": false,
+          "fortuneo": false,
+          "lbp": false,
+          "traderepublic": false
+        },
+        "needsSetup": true,
+        "sso": {
+          "adminBootstrap": false,
+          "enabled": false,
+          "providerName": "SSO"
+        },
+        "state": "IN_PROGRESS"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "05 GET /api/setup/status as anon"
+    },
+    {
+      "body": null,
+      "bodyKind": "empty",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 204,
+      "step": "06 POST /api/setup/security as anon"
+    },
+    {
+      "body": null,
+      "bodyKind": "empty",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 204,
+      "step": "07 POST /api/setup/integrations/traderepublic/acknowledge as anon"
+    },
+    {
+      "body": {
+        "detail": "This step only applies to integrations configured after signing in.",
+        "instance": "/api/setup/integrations/bogus/acknowledge",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "08 POST /api/setup/integrations/bogus/acknowledge as anon"
+    },
+    {
+      "body": null,
+      "bodyKind": "empty",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 204,
+      "step": "09 POST /api/setup/complete as anon"
+    },
+    {
+      "body": {
+        "integrations": {
+          "boursedirect": false,
+          "boursobank": false,
+          "crypto": false,
+          "enablebanking": false,
+          "finary": false,
+          "fortuneo": false,
+          "lbp": false,
+          "traderepublic": true
+        },
+        "needsSetup": false,
+        "sso": {
+          "adminBootstrap": false,
+          "enabled": false,
+          "providerName": "SSO"
+        },
+        "state": "COMPLETE"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "10 GET /api/setup/status as anon"
+    },
+    {
+      "body": {
+        "detail": "Setup is already complete; use the admin UI to manage users and security.",
+        "instance": "/api/setup/admin",
+        "status": 410,
+        "title": "Gone",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 410,
+      "step": "11 POST /api/setup/admin as anon"
+    },
+    {
+      "body": {
+        "displayName": "Admin",
+        "memberId": "<id:1>",
+        "role": "ADMIN",
+        "username": "admin"
+      },
+      "bodyKind": "json",
+      "cookies": [
+        {
+          "attributes": {
+            "httponly": true,
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "access_token",
+          "value": "<set>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "refresh_token",
+          "value": "<set>"
+        }
+      ],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "12 POST /api/auth/login as admin"
+    }
+  ]
+}

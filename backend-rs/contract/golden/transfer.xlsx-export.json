@@ -1,0 +1,112 @@
+{
+  "description": "XLSX export of selected accounts: status, content type and disposition only",
+  "scenario": "transfer.xlsx-export",
+  "steps": [
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 321.09,
+        "currentBalanceEur": 321.09,
+        "hidden": false,
+        "id": "<id:1>",
+        "isManual": true,
+        "listCollapsed": false,
+        "name": "Courant",
+        "type": "CHECKING"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "04 POST /api/accounts as admin"
+    },
+    {
+      "body": {
+        "accountId": "<id:1>",
+        "accountName": "Courant",
+        "amount": -750,
+        "budgetNeutral": false,
+        "createdAt": "<instant>",
+        "date": "2021-05-04",
+        "description": "Loyer",
+        "id": "<id:1>",
+        "isManual": true,
+        "merchantLabel": "Loyer",
+        "nativeCurrency": "EUR",
+        "txType": "WITHDRAWAL"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "05 POST /api/accounts/{checking}/transactions as admin"
+    },
+    {
+      "body": "<binary>",
+      "bodyKind": "binary",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-disposition": "attachment; filename=\"<token:1>.xlsx\"",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "06 POST /api/accounts/export as admin"
+    },
+    {
+      "body": {
+        "errors": {
+          "accountIds": "must not be empty"
+        },
+        "instance": "/api/accounts/export",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "07 POST /api/accounts/export as admin"
+    }
+  ]
+}

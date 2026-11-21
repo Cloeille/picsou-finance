@@ -1,0 +1,392 @@
+{
+  "description": "Login, authenticated read, refresh, logout, then every cookie is gone",
+  "scenario": "auth.login",
+  "steps": [
+    {
+      "body": {
+        "displayName": "Admin",
+        "memberId": "<id:1>",
+        "role": "ADMIN",
+        "username": "admin"
+      },
+      "bodyKind": "json",
+      "cookies": [
+        {
+          "attributes": {
+            "httponly": true,
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "access_token",
+          "value": "<set>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "refresh_token",
+          "value": "<set>"
+        }
+      ],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "04 POST /api/auth/login as browser"
+    },
+    {
+      "body": [],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "05 GET /api/accounts as browser"
+    },
+    {
+      "body": {
+        "displayName": "Admin",
+        "memberId": "<id:1>",
+        "role": "ADMIN",
+        "username": "admin"
+      },
+      "bodyKind": "json",
+      "cookies": [
+        {
+          "attributes": {
+            "httponly": true,
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "access_token",
+          "value": "<set>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "refresh_token",
+          "value": "<set>"
+        }
+      ],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "06 POST /api/auth/refresh as browser"
+    },
+    {
+      "body": {
+        "enabled": false,
+        "remainingRecoveryCodes": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "07 GET /api/auth/mfa/status as browser"
+    },
+    {
+      "body": null,
+      "bodyKind": "empty",
+      "cookies": [
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "0",
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "access_token",
+          "value": "<empty>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "0",
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "mfa_challenge_token",
+          "value": "<empty>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "0",
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "persistent_token",
+          "value": "<empty>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "0",
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "reauth_proof",
+          "value": "<empty>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "0",
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "refresh_token",
+          "value": "<empty>"
+        }
+      ],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 204,
+      "step": "08 POST /api/auth/logout as browser"
+    },
+    {
+      "body": {
+        "detail": "No refresh token",
+        "instance": "/api/auth/refresh",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "0",
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "access_token",
+          "value": "<empty>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "0",
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "mfa_challenge_token",
+          "value": "<empty>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "0",
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "persistent_token",
+          "value": "<empty>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "0",
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "reauth_proof",
+          "value": "<empty>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "0",
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "refresh_token",
+          "value": "<empty>"
+        }
+      ],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401,
+      "step": "09 POST /api/auth/refresh as browser"
+    },
+    {
+      "body": {
+        "detail": "Authentication required",
+        "status": 401,
+        "title": "Unauthorized"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json;charset=ISO-8859-1",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401,
+      "step": "10 GET /api/accounts as browser"
+    },
+    {
+      "body": {
+        "displayName": "Admin",
+        "memberId": "<id:1>",
+        "role": "ADMIN",
+        "username": "admin"
+      },
+      "bodyKind": "json",
+      "cookies": [
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "900",
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "access_token",
+          "value": "<set>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "7775999",
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "persistent_token",
+          "value": "<set>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "604800",
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "refresh_token",
+          "value": "<set>"
+        }
+      ],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "11 POST /api/auth/login as remembered"
+    },
+    {
+      "body": {
+        "displayName": "Admin",
+        "memberId": "<id:1>",
+        "role": "ADMIN",
+        "username": "admin"
+      },
+      "bodyKind": "json",
+      "cookies": [
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "900",
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "access_token",
+          "value": "<set>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "604800",
+            "path": "/",
+            "samesite": "Lax"
+          },
+          "name": "refresh_token",
+          "value": "<set>"
+        }
+      ],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "12 POST /api/auth/refresh as remembered"
+    }
+  ]
+}
