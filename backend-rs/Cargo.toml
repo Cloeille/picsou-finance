@@ -71,7 +71,7 @@ url = "2.5.9"
 uuid = { version = "1.29.3", features = ["v4", "serde"] }
 aes = "0.9"
 http-body = "1"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled", "limits"] }
 zip = { version = "9.8.1", default-features = false, features = ["deflate"] }
 pbkdf2 = "0.13.0"
 flate2 = "1.1.11"
