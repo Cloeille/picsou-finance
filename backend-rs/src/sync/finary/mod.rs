@@ -62,6 +62,11 @@ impl Hooks {
             previews: service::PreviewCache::default(),
         }
     }
+
+    /// Evicts expired preview sessions (FinaryApiSyncService.cleanupExpiredCache).
+    pub fn purge_expired(&self, now: chrono::DateTime<chrono::Utc>) {
+        self.previews.purge_expired(now);
+    }
 }
 
 impl Default for Hooks {

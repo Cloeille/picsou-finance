@@ -28,11 +28,11 @@ pub mod sync;
 pub mod testing;
 pub mod transfer;
 pub mod wealth;
+pub mod wiring;
 
 use std::ops::Deref;
-use std::sync::Arc;
-use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, OnceLock, Weak};
 use std::time::Instant;
 
 use axum::Router;
@@ -89,6 +89,8 @@ pub struct Inner {
     pub market: market::Market,
     /// The wealth domain's state and cross-track seams (track T4).
     pub wealth: wealth::Wealth,
+    /// Process-local scheduler state (track T8).
+    pub jobs: jobs::JobsState,
 }
 
 impl Deref for AppState {
@@ -100,6 +102,14 @@ impl Deref for AppState {
 }
 
 impl AppState {
+    pub(crate) fn downgrade(&self) -> Weak<Inner> {
+        Arc::downgrade(&self.0)
+    }
+
+    pub(crate) fn upgrade(weak: &Weak<Inner>) -> Option<Self> {
+        weak.upgrade().map(Self)
+    }
+
     pub fn new(config: Config, db: PgPool, clock: Arc<dyn Clock>) -> anyhow::Result<Self> {
         let clock = AppClock::new(clock, config.timezone);
         let connectors = connectors::Connectors::new(&config, db.clone())?;
@@ -110,10 +120,11 @@ impl AppState {
             .build()?;
         let market = market::Market::new(&config, &db, &http, &clock);
         let wealth = wealth::Wealth::new(&config, &db, &http, &clock);
+        let jobs = jobs::JobsState::new(db.clone(), clock.clone());
         let mut ledger = ledger::Ledger::new(db.clone());
         ledger.prices = market.price_read();
         ledger.dividends = wealth.dividends.classifier();
-        Ok(Self(Arc::new(Inner {
+        let mut inner = Inner {
             jwt: Jwt::new(&config.jwt, clock.clone())?,
             limits: RateLimiter::new(clock.clone()),
             transfer: transfer::Transfer::new(&clock),
@@ -124,6 +135,7 @@ impl AppState {
             ledger,
             market,
             wealth,
+            jobs,
             budget: budget::BudgetState::default(),
             accounts: accounts::Seams::default(),
             sync: sync::SyncHooks::new(db.clone()),
@@ -135,7 +147,11 @@ impl AppState {
             bearer_authenticators: identity::bearer_authenticators(),
             identity: identity::Runtime::default(),
             admin: admin::Runtime::default(),
-        })))
+        };
+        let state_ref = wiring::wire_all(&mut inner);
+        let state = Self(Arc::new(inner));
+        state_ref.set(&state);
+        Ok(state)
     }
 }
 
@@ -169,17 +185,25 @@ pub async fn run(
     let started = PROCESS_START.get().copied().unwrap_or_else(Instant::now);
     let addr = listener.local_addr()?;
     let db = state.db.clone();
+    let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+    let schedulers = jobs::spawn_schedulers(state.clone(), stop_rx);
     let app = app(state);
     tracing::info!(
         "Started Picsou on {addr}: ready {} ms after process start",
         started.elapsed().as_millis()
     );
+    let stop_on_shutdown = stop_tx.clone();
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown)
+    .with_graceful_shutdown(async move {
+        shutdown.await;
+        let _ = stop_on_shutdown.send(true);
+    })
     .await?;
+    let _ = stop_tx.send(true);
+    schedulers.shutdown(std::time::Duration::from_secs(2)).await;
     // A background task can hold a connection past the last request: do not wait on it forever.
     let _ = tokio::time::timeout(std::time::Duration::from_secs(5), db.close()).await;
     tracing::info!("Picsou stopped");
@@ -202,6 +226,7 @@ pub async fn start(config: Config, clock: Arc<dyn Clock>) -> anyhow::Result<AppS
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     identity::on_startup(&state).await?;
     admin::on_startup(&state).await?;
+    jobs::on_startup(&state).await?;
     let timing = state.clone();
     tokio::spawn(async move {
         timing.login_timing.hash().await;

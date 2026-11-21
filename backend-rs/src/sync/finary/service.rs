@@ -96,6 +96,10 @@ impl PreviewCache {
             .unwrap_or_else(|e| e.into_inner())
             .remove(token);
     }
+
+    pub(super) fn purge_expired(&self, now: DateTime<Utc>) {
+        drop(self.entries(now));
+    }
 }
 
 fn mask_email(email: &str) -> String {

@@ -1,0 +1,67 @@
+//! Startup runners (SidecarSyncRecovery, LbpSyncRecovery, NatixisSyncRecovery,
+//! PriceFxCleanupRunner, IsinTickerRepairRunner, PriceBackfillRunner, StartupSyncService).
+//!
+//! `DataSeeder` (`setup_auth::setup::seed_from_environment`), `seedIosClientRunner`
+//! (`identity::on_startup`), and `AdminRecoveryRunner` (`admin::on_startup`) already run earlier
+//! in `picsou::start`.
+
+use super::catch_up::DAILY_BANK_SYNC;
+use crate::AppState;
+use crate::market::runners::{
+    SqlAppSettings, isin_ticker_repair, price_backfill, price_fx_cleanup,
+};
+
+/// Synchronous startup maintenance runners executed during `picsou::start`:
+/// 1. `connectors::recover_interrupted_syncs` — aborts startup on DB failure, as Java does.
+/// 2. `market::runners::price_fx_cleanup` (`@Order(0)`) — one-shot FX purge behind `app_setting`.
+/// 3. `market::runners::isin_ticker_repair` (`@Order(2)`) — BEFORE `price_backfill`.
+/// 4. `market::runners::price_backfill` (lowest precedence) — 12-month price history gap fill.
+///
+/// Steps 2–4 log and continue on error so a maintenance pass never prevents the server from
+/// starting. On a fresh database with no manual ISIN rows or holdings they make zero external
+/// network calls.
+pub async fn on_startup(state: &AppState) -> anyhow::Result<()> {
+    crate::connectors::recover_interrupted_syncs(state).await?;
+
+    let settings = SqlAppSettings(state.db.clone());
+    if let Err(e) = price_fx_cleanup(state, &settings).await {
+        tracing::error!("Price FX cleanup failed: {e}");
+    }
+    if let Err(e) = isin_ticker_repair(state, &settings).await {
+        tracing::error!("ISIN ticker repair failed: {e}");
+    }
+    if let Err(e) = price_backfill(state).await {
+        tracing::error!("Price backfill failed: {e}");
+    }
+    Ok(())
+}
+
+/// StartupSyncService (`@Order(1)`): when `APP_STARTUP_SYNC_ENABLED=true`, triggers an initial
+/// `daily-bank-sync` through `CatchUpScheduler::run_now` so the run is recorded and the first
+/// catch-up tick does not repeat it. Returns `true` if a sync ran.
+pub async fn run_startup_sync(state: &AppState) -> bool {
+    if !state.config.startup_sync_enabled {
+        tracing::info!("Initial startup sync disabled");
+        return false;
+    }
+    tracing::info!("Starting initial sync of all accounts at startup");
+    match state
+        .jobs
+        .catch_up
+        .run_now(Some(state), DAILY_BANK_SYNC)
+        .await
+    {
+        Ok(true) => {
+            tracing::info!("Initial startup sync finished");
+            true
+        }
+        Ok(false) => {
+            tracing::info!("Initial startup sync skipped: the daily sync is already running");
+            false
+        }
+        Err(e) => {
+            tracing::error!("Initial startup sync failed: {e}");
+            false
+        }
+    }
+}

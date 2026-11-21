@@ -1,27 +1,11 @@
 //! Goal endpoints: progress, member scoping, monthly entries, history start, overrides.
 
-use std::sync::Arc;
-
-use async_trait::async_trait;
-use picsou::AppState;
-use picsou::error::AppResult;
 use picsou::ledger::accounts::NewAccount;
-use picsou::ledger::model::{Account, AccountType};
+use picsou::ledger::model::AccountType;
 use picsou::testing::{Client, TestApp};
-use picsou::wealth::savings::AccountResponses;
 use serde_json::{Value, json};
 
 use super::support::{account, d};
-
-/// Stands in for track T2's AccountService.toResponse.
-pub struct FakeResponses;
-
-#[async_trait]
-impl AccountResponses for FakeResponses {
-    async fn to_response(&self, _state: &AppState, account: &Account) -> AppResult<Value> {
-        Ok(json!({"id": account.id, "name": account.name}))
-    }
-}
 
 pub struct Fixture {
     pub app: TestApp,
@@ -32,12 +16,6 @@ pub struct Fixture {
 impl Fixture {
     pub async fn new() -> Self {
         let app = TestApp::with_admin().await;
-        assert!(
-            app.state
-                .wealth
-                .savings
-                .wire_account_responses(Arc::new(FakeResponses))
-        );
         let admin = app.login_admin().await;
         let member: i64 =
             sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
@@ -197,7 +175,7 @@ async fn an_objective_override_changes_the_objective_not_the_amount_saved() {
 }
 
 #[tokio::test]
-async fn without_the_account_seam_writes_answer_501_and_write_nothing() {
+async fn goal_creation_embeds_wired_account_response() {
     let app = TestApp::with_admin().await;
     let admin = app.login_admin().await;
     let member: i64 = sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
@@ -206,16 +184,19 @@ async fn without_the_account_seam_writes_answer_501_and_write_nothing() {
         .unwrap();
     let mut draft = NewAccount::new(member, "Livret", AccountType::Savings);
     draft.is_manual = true;
+    draft.current_balance = d("250");
     let livret = account(&app, draft).await.id;
     let response = admin
         .post("/api/goals")
         .json(&target(&[livret], 1000, "2027-01-31"))
         .send()
         .await;
-    assert_eq!(response.status, 501);
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM goal")
-        .fetch_one(&app.state.db)
-        .await
-        .unwrap();
-    assert_eq!(count, 0);
+    assert_eq!(response.status, 201, "{}", response.text());
+    let body = response.json();
+    assert_eq!(body["accounts"][0]["id"], livret);
+    assert_eq!(body["accounts"][0]["type"], "SAVINGS");
+    assert_eq!(
+        d(&body["accounts"][0]["currentBalanceEur"].to_string()),
+        d("250")
+    );
 }
