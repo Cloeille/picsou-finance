@@ -1,7 +1,7 @@
 //! The narrow calls the connectors make into services other tracks own. Each default is what
 //! Java does when that side has nothing; the coordinator swaps in the real implementation.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -188,11 +188,34 @@ impl AccountResponses for AccountRowResponses {
     }
 }
 
+/// PriceService.backfillHistoricalPrices (track T4): stores the daily prices of `tickers` from
+/// `from` on, and says how many rows it saved.
+#[async_trait]
+pub trait PriceBackfill: Send + Sync {
+    async fn backfill(&self, tickers: &BTreeSet<String>, from: NaiveDate) -> anyhow::Result<usize>;
+}
+
+/// What PriceService saves with no price provider: nothing.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NoPriceBackfill;
+
+#[async_trait]
+impl PriceBackfill for NoPriceBackfill {
+    async fn backfill(
+        &self,
+        _tickers: &BTreeSet<String>,
+        _from: NaiveDate,
+    ) -> anyhow::Result<usize> {
+        Ok(0)
+    }
+}
+
 /// The connectors' plug-in points, held by state.connectors.seams.
 pub struct Seams {
     pub isin: Arc<dyn IsinResolver>,
     pub security_identities: Arc<dyn SecurityIdentities>,
     pub accounts: Arc<dyn AccountResponses>,
+    pub price_backfill: Arc<dyn PriceBackfill>,
 }
 
 impl Seams {
@@ -201,6 +224,7 @@ impl Seams {
             isin: Arc::new(UnresolvedIsins),
             security_identities: Arc::new(RecordedSecurityIdentities::new(db)),
             accounts: Arc::new(AccountRowResponses),
+            price_backfill: Arc::new(NoPriceBackfill),
         }
     }
 }
