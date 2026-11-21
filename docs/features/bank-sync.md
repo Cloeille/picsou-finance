@@ -102,9 +102,11 @@ order, where `details` describes the card better than the holder's name.
 On a card, a currency of `XXX` (ISO 4217 "no currency", sent by Boursorama) counts as absent.
 A card's balance is what it owes, stored negative as on the BPCE and La Banque Postale cards.
 "Available" balances (`ITAV`, `CLAV`: credit left, not an amount owed) are left out before the
-usual selection. A card left with no other balance, or whose selected balance is positive, is
-skipped like an unreadable balance and logged, rather than stored with a guessed sign; an
-account an earlier release imported that way keeps its last stored balance until then.
+usual selection, except in the fallback (shared-list) path, where the ownership check needs the
+whole list. A card left with no other balance, or whose selected balance is positive, is still
+synced as a card with its transactions, but with `AccountData.balance` null: `upsertAccount`
+leaves the stored balance as it is and writes no snapshot (a new card starts at 0). Nothing is
+stored with a guessed sign, and no card fails a sync for its balance alone.
 After balance selection, the adapter truncates the display name to 100 characters
 to fit `account.name`. Balance matching always uses the full account description,
 so descriptions that share the first 100 characters remain distinct matching keys.

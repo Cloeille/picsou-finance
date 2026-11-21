@@ -762,26 +762,27 @@ public class EnableBankingBankConnector implements BankConnectorPort {
     /**
      * A card stores what it owes, signed negative, like the BPCE and La Banque Postale cards. An
      * "available" balance (credit left) never says that, and a positive one could only be read with the
-     * ASPSP's sign convention, so such a card is skipped like any other unreadable balance rather than
-     * stored with a guessed sign.
+     * ASPSP's sign convention: such a card is still returned, so it stays a card and its transactions
+     * import, but with no balance, which leaves the stored one untouched.
      */
     private AccountData fetchCardData(String accountId, AccountBalanceCandidates response, BalanceOwnership ownership) {
         AccountDetailsResponse details = response.details();
-        List<BalancesResponse.BalanceItem> owed = response.candidates().stream()
-            .filter(item -> !AVAILABLE_BALANCE_TYPES.contains(
-                nullToEmpty(item.balanceType()).trim().toUpperCase(Locale.ROOT)))
-            .toList();
-        if (owed.isEmpty()) {
-            throw new SyncException("Enable Banking card reports only an available balance, not an amount owed");
-        }
-        var selected = selectBalance(accountId,
-            new AccountBalanceCandidates(details, owed, response.selection()), ownership);
-        BigDecimal balance = new BigDecimal(selected.balanceAmount().amount().trim());
-        if (balance.signum() > 0) {
-            throw new SyncException("Enable Banking card reports a positive balance; its sign cannot be trusted");
+        // In the fallback path, the ownership check needs the whole list: filtering first would let
+        // a shared list with mixed labels pass as this card's own.
+        List<BalancesResponse.BalanceItem> owed = response.selection() == BalanceSelection.FALLBACK
+            ? response.candidates()
+            : response.candidates().stream().filter(item -> !isAvailableBalance(item)).toList();
+        BalancesResponse.BalanceItem selected = owed.isEmpty() ? null
+            : selectBalance(accountId, new AccountBalanceCandidates(details, owed, response.selection()), ownership);
+        BigDecimal balance = selected != null ? new BigDecimal(selected.balanceAmount().amount().trim()) : null;
+        if (selected == null || isAvailableBalance(selected) || balance.signum() > 0) {
+            log.warn("Enable Banking card {} sent no balance readable as an amount owed; its balance is left as is",
+                LogSanitizer.fingerprint(accountId));
+            balance = null;
         }
         // ISO 4217 "XXX" (no currency) is what Boursorama declares on its cards.
-        String currency = firstNonBlank(realCurrency(selected.balanceAmount().currency()),
+        String currency = firstNonBlank(
+            balance != null ? realCurrency(selected.balanceAmount().currency()) : null,
             realCurrency(details.currency()), "EUR");
         String accountName = accountName(details);
         CardNature nature = cardNatureOf(details.details());
@@ -792,6 +793,10 @@ public class EnableBankingBankConnector implements BankConnectorPort {
             : truncate(firstNonBlank(details.name(), details.product(), "Card"), MAX_ACCOUNT_NAME_LENGTH);
         return new AccountData(accountId, cardName, ibanOf(details), currency, balance, AccountType.CREDIT_CARD,
             nature, accountName.equals(cardName) ? null : accountName);
+    }
+
+    private static boolean isAvailableBalance(BalancesResponse.BalanceItem item) {
+        return AVAILABLE_BALANCE_TYPES.contains(nullToEmpty(item.balanceType()).trim().toUpperCase(Locale.ROOT));
     }
 
     /** First nonblank of {@code details}, {@code product}, {@code name}: the description beats the holder. */

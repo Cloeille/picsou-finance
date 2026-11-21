@@ -31,6 +31,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -147,6 +148,51 @@ class SyncServiceCardAccountTest {
     }
 
     @Test
+    void technicalName_isReplacedEvenWhenTheUserChangedTheType() {
+        Account stored = storedAccount(AccountType.OTHER, "delayed_debit");
+        AccountData card = deferredCard();
+        when(bankConnector.fetchBalances(SESSION)).thenReturn(List.of(card));
+        when(accountRepository.findByExternalAccountIdAndMemberId(card.externalId(), MEMBER_ID))
+            .thenReturn(Optional.of(stored));
+
+        syncService.resyncAll(MEMBER_ID);
+
+        Account saved = savedAccount();
+        assertThat(saved.getType()).isEqualTo(AccountType.OTHER);
+        assertThat(saved.getName()).isEqualTo("Carte Visa Synthetic Holder");
+    }
+
+    @Test
+    void cardWithoutReadableBalance_keepsItsStoredBalanceAndWritesNoSnapshot() {
+        Account stored = storedAccount(AccountType.CHECKING, "delayed_debit");
+        AccountData card = cardWithoutBalance();
+        when(bankConnector.fetchBalances(SESSION)).thenReturn(List.of(card));
+        when(accountRepository.findByExternalAccountIdAndMemberId(card.externalId(), MEMBER_ID))
+            .thenReturn(Optional.of(stored));
+
+        syncService.resyncAll(MEMBER_ID);
+
+        Account saved = savedAccount();
+        assertThat(saved.getType()).isEqualTo(AccountType.CREDIT_CARD);
+        assertThat(saved.getCurrentBalance()).isEqualByComparingTo("-474.87");
+        verify(accountService, never()).upsertSnapshotFromNative(any(), any(), any());
+        verify(bankTransactionImportService).importFor(saved, SESSION);
+    }
+
+    @Test
+    void newCardWithoutReadableBalance_startsAtZero() {
+        AccountData card = cardWithoutBalance();
+        when(bankConnector.fetchBalances(SESSION)).thenReturn(List.of(card));
+        when(accountRepository.findByExternalAccountIdAndMemberId(card.externalId(), MEMBER_ID))
+            .thenReturn(Optional.empty());
+
+        syncService.resyncAll(MEMBER_ID);
+
+        assertThat(savedAccount().getCurrentBalance()).isEqualByComparingTo("0");
+        verify(accountService, never()).upsertSnapshotFromNative(any(), any(), any());
+    }
+
+    @Test
     void knownCardNature_isNotOverwritten() {
         Account stored = storedAccount(AccountType.CREDIT_CARD, "Carte Visa Synthetic Holder");
         stored.setCardNature(CardNature.CREDIT);
@@ -162,6 +208,11 @@ class SyncServiceCardAccountTest {
 
     private static AccountData deferredCard() {
         return new AccountData("uid-card", "Carte Visa Synthetic Holder", null, "EUR", new BigDecimal("-581.81"),
+            AccountType.CREDIT_CARD, CardNature.DEFERRED_DEBIT, "delayed_debit");
+    }
+
+    private static AccountData cardWithoutBalance() {
+        return new AccountData("uid-card", "Carte Visa Synthetic Holder", null, "EUR", null,
             AccountType.CREDIT_CARD, CardNature.DEFERRED_DEBIT, "delayed_debit");
     }
 

@@ -102,6 +102,8 @@ public interface BankConnectorPort {
     ) {}
 
     /**
+     * @param balance    null when the provider sent none that can be trusted: the stored balance is
+     *                   then left as is (a new account starts at zero)
      * @param type       what the provider says the account is; never null, {@code CHECKING} when it
      *                   says nothing more precise
      * @param cardNature how a card is debited, when the provider says so; null for any other account

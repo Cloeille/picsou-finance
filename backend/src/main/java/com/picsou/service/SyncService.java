@@ -18,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -505,7 +506,9 @@ public class SyncService {
         if (existing.isPresent()) {
             account = existing.get();
             account.setCurrency(currency);
-            account.setCurrentBalance(data.balance());
+            if (data.balance() != null) {
+                account.setCurrentBalance(data.balance());
+            }
             account.setLastSyncedAt(Instant.now());
             // Refresh uid in case the provider rotated it (EB v0.16.4 Boursorama case)
             account.setExternalAccountId(data.externalId());
@@ -532,7 +535,7 @@ public class SyncService {
                 .cardNature(data.type() == AccountType.CREDIT_CARD ? data.cardNature() : null)
                 .provider(requisition.getInstitutionName())
                 .currency(currency)
-                .currentBalance(data.balance())
+                .currentBalance(data.balance() != null ? data.balance() : BigDecimal.ZERO)
                 .lastSyncedAt(Instant.now())
                 .externalAccountId(data.externalId())
                 .iban(data.iban())
@@ -544,7 +547,9 @@ public class SyncService {
         }
 
         account = accountRepository.save(account);
-        accountService.upsertSnapshotFromNative(account, data.balance(), LocalDate.now());
+        if (data.balance() != null) {
+            accountService.upsertSnapshotFromNative(account, data.balance(), LocalDate.now());
+        }
 
         // Balances first, transactions after, and never the other way round: the import
         // is best-effort (it swallows provider failures) so that an ASPSP which serves

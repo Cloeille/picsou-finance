@@ -1281,7 +1281,7 @@ class EnableBankingAccountDataTest {
 
     @ParameterizedTest
     @CsvSource({"CLAV, 2000.00", "ITAV, -10.00"})
-    void fetchBalances_cardWithOnlyAnAvailableBalance_isSkipped(String type, String amount) {
+    void fetchBalances_cardWithOnlyAnAvailableBalance_staysACardWithoutBalance(String type, String amount) {
         responses.put("/accounts/uid-operations/details", """
             {"name": "Carte Visa Synthetic Holder", "details": "delayed_debit", "cash_account_type": "CARD",
              "currency": "XXX"}
@@ -1291,17 +1291,41 @@ class EnableBankingAccountDataTest {
               "balance_amount": {"currency": "EUR", "amount": "%s"}}]}
             """.formatted(type, amount));
 
-        assertThatThrownBy(() -> connector.fetchBalances("session")).isInstanceOf(SyncException.class);
+        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
+            assertThat(account.type()).isEqualTo(com.picsou.model.AccountType.CREDIT_CARD);
+            assertThat(account.balance()).isNull();
+            assertThat(account.currency()).isEqualTo("EUR");
+        });
     }
 
     @Test
-    void fetchBalances_cardWithAPositiveBalance_isSkipped() {
+    void fetchBalances_cardWithAPositiveBalance_staysACardWithoutBalance() {
         responses.put("/accounts/uid-operations/details", """
             {"name": "Carte Visa Synthetic Holder", "details": "delayed_debit", "cash_account_type": "CARD"}
             """);
         responses.put("/accounts/uid-operations/balances", """
             {"balances": [{"name": "Balance", "balance_type": "OTHR",
               "balance_amount": {"currency": "EUR", "amount": "12.50"}}]}
+            """);
+
+        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
+            assertThat(account.type()).isEqualTo(com.picsou.model.AccountType.CREDIT_CARD);
+            assertThat(account.cardNature()).isEqualTo(com.picsou.model.CardNature.DEFERRED_DEBIT);
+            assertThat(account.balance()).isNull();
+        });
+    }
+
+    @Test
+    void fetchBalances_cardInASharedListWithMixedLabels_isStillRefusedAsAmbiguous() {
+        responses.put("/accounts/uid-operations/details", """
+            {"name": "Carte Visa Synthetic Holder", "details": "delayed_debit", "cash_account_type": "CARD"}
+            """);
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [
+              {"name": "Balance", "balance_type": "OTHR", "balance_amount": {"currency": "EUR", "amount": "-50.00"}},
+              {"name": "Synthetic other account", "balance_type": "ITAV",
+               "balance_amount": {"currency": "EUR", "amount": "900.00"}}
+            ]}
             """);
 
         assertThatThrownBy(() -> connector.fetchBalances("session")).isInstanceOf(SyncException.class);
@@ -1324,19 +1348,5 @@ class EnableBankingAccountDataTest {
 
         assertThat(connector.fetchBalances("session")).singleElement()
             .satisfies(account -> assertThat(account.balance()).isEqualByComparingTo("-120.00"));
-    }
-
-    @Test
-    void fetchBalances_nonCardWithNoCurrencyCode_isUnchanged() {
-        responses.put("/accounts/uid-operations/details", """
-            {"name": "Synthetic account", "cash_account_type": "CACC", "currency": "XXX"}
-            """);
-        responses.put("/accounts/uid-operations/balances", """
-            {"balances": [{"name": "Balance", "balance_type": "CLBD",
-              "balance_amount": {"amount": "1.00"}}]}
-            """);
-
-        assertThat(connector.fetchBalances("session")).singleElement()
-            .satisfies(account -> assertThat(account.currency()).isEqualTo("XXX"));
     }
 }
