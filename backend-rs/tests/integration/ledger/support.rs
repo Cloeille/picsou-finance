@@ -1,6 +1,6 @@
 //! Fixtures shared by the ledger tests: members and accounts written with the ledger's own API.
 
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use picsou::ledger::accounts::{self, NewAccount};
 use picsou::ledger::model::{Account, AccountType};
 use picsou::testing::TestApp;
@@ -8,6 +8,15 @@ use rust_decimal::Decimal;
 
 pub fn d(value: &str) -> Decimal {
     value.parse().expect("decimal literal")
+}
+
+pub fn day(value: &str) -> NaiveDate {
+    value.parse().expect("date literal")
+}
+
+/// The fixed civil date of the ledger tests.
+pub fn today() -> NaiveDate {
+    day("2026-03-15")
 }
 
 pub fn now() -> DateTime<Utc> {

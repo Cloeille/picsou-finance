@@ -327,36 +327,6 @@ pub(crate) const ACCOUNT_COLUMNS: &str = "a.id, a.member_id, a.name, a.type::tex
     a.provider_paid_in_eur, a.scheduled_payment_eur, a.scheduled_payment_cadence, a.deleted_at, \
     a.parent_account_id, a.hidden, a.created_at, a.updated_at";
 
-/// A nullable text column holding an enum name.
-#[derive(Debug)]
-pub struct OptionalText(pub Option<String>);
-
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for OptionalText {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        Ok(Self(
-            <Option<String> as sqlx::Decode<sqlx::Postgres>>::decode(value)?,
-        ))
-    }
-}
-
-impl sqlx::Type<sqlx::Postgres> for OptionalText {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-
-    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
-        <String as sqlx::Type<sqlx::Postgres>>::compatible(ty)
-    }
-}
-
-impl<T: std::str::FromStr<Err = UnknownVariant>> TryFrom<OptionalText> for Option<T> {
-    type Error = UnknownVariant;
-
-    fn try_from(value: OptionalText) -> Result<Self, UnknownVariant> {
-        value.0.map(|v| v.parse()).transpose()
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, FromRow)]
 pub struct AccountHolding {
     pub id: i64,
