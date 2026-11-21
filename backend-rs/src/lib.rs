@@ -83,6 +83,8 @@ pub struct Inner {
     pub transfer: transfer::Transfer,
     /// The sync module's plug-in points (cross-track seams).
     pub sync: sync::SyncHooks,
+    /// The sidecar connectors' base URLs, shared key, sync executors and cross-track seams.
+    pub connectors: connectors::Connectors,
 }
 
 impl Deref for AppState {
@@ -96,6 +98,7 @@ impl Deref for AppState {
 impl AppState {
     pub fn new(config: Config, db: PgPool, clock: Arc<dyn Clock>) -> anyhow::Result<Self> {
         let clock = AppClock::new(clock, config.timezone);
+        let connectors = connectors::Connectors::new(&config, db.clone())?;
         let crypto = CryptoEncryption::new(&config.crypto_key)?;
         let http = reqwest::Client::builder()
             .user_agent(concat!("picsou/", env!("CARGO_PKG_VERSION")))
@@ -113,6 +116,7 @@ impl AppState {
             budget: budget::BudgetState::default(),
             accounts: accounts::Seams::default(),
             sync: sync::SyncHooks::new(db.clone()),
+            connectors,
             db,
             setup_complete: AtomicBool::new(false),
             login_timing: TimingEqualizer::default(),
