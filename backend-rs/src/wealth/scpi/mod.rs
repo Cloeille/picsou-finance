@@ -1,5 +1,7 @@
 //! The SCPI fund catalog a provider sync reported, and the member's tombstones on it
-//! (ScpiFundController, ScpiFundService).
+//! (ScpiFundController, ScpiFundService), and the reconciliation the provider syncs run.
+
+pub mod reconciler;
 
 use axum::extract::State;
 use axum::http::StatusCode;
