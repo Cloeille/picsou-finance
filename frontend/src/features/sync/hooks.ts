@@ -32,7 +32,6 @@ import type {
   SidecarProviderId,
 } from './providers'
 import type {
-  ExchangeType,
   ChainType,
   FinaryAccountMapping,
   FinaryImportRequest,
@@ -586,8 +585,7 @@ export function useCryptoExchangeStatuses() {
 
 export function useAddCryptoExchange() {
   return useInvalidatingMutation({
-    mutationFn: ({ type, apiKey, apiSecret }: { type: ExchangeType; apiKey: string; apiSecret?: string }) =>
-      cryptoExchangeApi.add(type, apiKey, apiSecret),
+    mutationFn: cryptoExchangeApi.add,
     invalidates: [syncKeys.exchanges(), ...ACCOUNT_VIEWS],
   })
 }

@@ -96,12 +96,14 @@
 | 2026-11-06 | [Natixis Interépargne through a browserless sidecar that keeps only the refresh token](./decisions/2026-11-06-natixis-interepargne-httpx-sidecar.md) | Active |
 | 2026-11-07 | [Contract kinds seen in few live runs are enabled per bank and demoted, not fatal](./decisions/2026-11-07-provisional-kinds-per-bank.md) | Active |
 | 2026-11-06 | [Parallel CI legs that prove their own completeness](./decisions/2026-11-06-parallel-ci-legs.md) | Active |
+| 2026-11-20 | [Exchange credentials carry an API passphrase and region when required](./decisions/2026-11-20-exchange-api-passphrase.md) | Active |
 | 2026-11-15 | [A Tauri desktop app built from the Docker release](./decisions/2026-11-15-desktop-app-tauri.md) | Proposed |
 
 ## Feature notes
 
 | Feature | Last updated | Note |
 |---------|-------------|------|
+| Desktop app (Linux shell) | 2026-11-15 | [desktop-app.md](./features/desktop-app.md) |
 | Scheduler catch-up after a missed slot | 2026-11-15 | [scheduler-catch-up.md](./features/scheduler-catch-up.md) |
 | MCP server + scoped access-keys | 2026-06-26 | [mcp-server.md](./features/mcp-server.md) |
 | Budget + OAuth2 tools in MCP | 2026-07-06 | [mcp-budget-oauth2.md](./features/mcp-budget-oauth2.md) |
