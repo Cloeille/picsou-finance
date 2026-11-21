@@ -470,7 +470,7 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
 SELECTOR = "changes"
 GATE = "ci-ok"
 PUBLISH = "docker"
-NON_BLOCKING = {"helm-chart", "desktop"}
+NON_BLOCKING = {"helm-chart", "desktop", "desktop-windows", "desktop-macos"}
 # Path filters that select no job of their own.
 HELPER_FILTERS = {"workflows", "release-deps"}
 
@@ -641,7 +641,7 @@ class CiJobSelectionTest(unittest.TestCase):
                 "backend", "release-deployment", "workflow-inventory",
             },
             "charts/picsou/values.yaml": {"helm-chart"},
-            "desktop/src-tauri/src/supervisor.rs": {"desktop"},
+            "desktop/src-tauri/src/supervisor.rs": {"desktop", "desktop-windows", "desktop-macos"},
             "charts/picsou/templates/sidecars.yaml": {"helm-chart"},
             "services/sofidy-auth/main.py": {"sidecar:sofidy-auth", "backend", "native-sidecars"} | services,
             "services/tr-auth/main.py": {"sidecar:tr-auth"} | services,
@@ -899,8 +899,12 @@ class JobTimeoutTest(unittest.TestCase):
     """A hung step otherwise holds a runner for GitHub's 6-hour default."""
 
     # Minutes a job may be given: about twice its slowest observed run. Per job overrides the file's cap.
-    FILE_CAP = {"ci.yml": 20, "codeql.yml": 60, "docker.yml": 30}
-    JOB_CAP = {("ci.yml", "e2e"): 30}  # bimodal: most runs take 2 min, the slow tail 9-15 min
+    FILE_CAP = {"ci.yml": 20, "codeql.yml": 60, "docker.yml": 30, "desktop-release.yml": 40}
+    JOB_CAP = {
+        ("ci.yml", "e2e"): 30,  # bimodal: most runs take 2 min, the slow tail 9-15 min
+        ("ci.yml", "desktop-windows"): 40,  # cold Rust, Maven and bun builds: 25-30 min
+        ("ci.yml", "desktop-macos"): 40,  # same builds as Windows, on Apple Silicon
+    }
 
     def test_every_job_has_a_bounded_timeout(self):
         workflows = sorted((ROOT / ".github/workflows").glob("*.yml"))

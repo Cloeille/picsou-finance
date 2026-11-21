@@ -3694,5 +3694,9 @@
     "copied": "Kopiert",
     "copy": "Kopieren",
     "cardTitle": "Entdecke Picsou {{version}}"
+  },
+  "desktop": {
+    "unavailable": "Nicht in der Desktop-App",
+    "unavailableDetail": "Diese Bank braucht einen Browser, den die Desktop-App nicht enthält. Nutze die Docker-Version von Picsou, um sie zu synchronisieren."
   }
 }

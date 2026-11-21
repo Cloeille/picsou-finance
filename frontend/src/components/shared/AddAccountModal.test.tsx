@@ -33,6 +33,14 @@ const { finaryStatus, previewFinaryApi, importFinary, executeFinaryApiSync } = v
   executeFinaryApiSync: vi.fn(),
 }))
 
+const { desktopUnavailable } = vi.hoisted(() => ({
+  desktopUnavailable: vi.fn<(key: string) => boolean>(() => false),
+}))
+
+vi.mock('@/features/desktop/hooks', () => ({
+  useDesktopUnavailable: () => desktopUnavailable,
+}))
+
 vi.mock('@/features/accounts/hooks', () => ({
   useCreateAccount: () => ({ mutateAsync: createAccount, isPending: false }),
   useUpdateDebtMetadata: () => ({ mutateAsync: updateDebtMetadata, isPending: false }),
@@ -523,5 +531,18 @@ describe.each(['wise', 'amex', 'corum', 'sofidy'])('AddAccountModal %s wizard', 
     fireEvent.click(screen.getByRole('button', { name: `${key}-wizard` }))
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+})
+
+describe('AddAccountModal on desktop', () => {
+  it('marks a bank the desktop app does not ship and does not open it', () => {
+    desktopUnavailable.mockImplementation((key: string) => key === 'amex')
+    render(<AddAccountModal open onOpenChange={vi.fn()} />)
+
+    const amex = screen.getByText('sync.amex.title').closest('button')!
+    expect(amex).toBeDisabled()
+    expect(amex).toHaveTextContent('desktop.unavailable')
+    expect(screen.getByText('sync.bourso.title').closest('button')).not.toBeDisabled()
+    desktopUnavailable.mockImplementation(() => false)
   })
 })

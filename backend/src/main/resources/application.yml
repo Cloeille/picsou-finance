@@ -151,6 +151,9 @@ info:
   app:
     name: picsou
     version: ${APP_VERSION:dev}
+    # Set by the desktop shell (#235): the SPA marks the banks it does not ship as unavailable.
+    desktop: ${PICSOU_DESKTOP:false}
+    desktop-unavailable: ${PICSOU_DESKTOP_UNAVAILABLE:}
 
 app:
   # Civil time zone for the whole application: every LocalDate.now() / LocalDateTime.now(), the
