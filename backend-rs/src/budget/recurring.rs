@@ -4,7 +4,6 @@
 
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
 use chrono::{DateTime, Days, Months, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -328,17 +327,23 @@ fn response(s: &Series, today: Option<NaiveDate>) -> RecurringSeriesResponse {
     }
 }
 
+pub async fn list_for(
+    state: &AppState,
+    member_id: i64,
+    status: Option<RecurringStatus>,
+) -> AppResult<Vec<RecurringSeriesResponse>> {
+    let today = state.clock.today();
+    let series = series_of_member(&state.db, member_id, status).await?;
+    Ok(series.iter().map(|s| response(s, Some(today))).collect())
+}
+
 async fn find_all(
     State(state): State<AppState>,
     auth: Auth,
     params: Params,
 ) -> AppResult<axum::Json<Vec<RecurringSeriesResponse>>> {
     let status = params.optional::<RecurringStatus>("status")?;
-    let today = state.clock.today();
-    let series = series_of_member(&state.db, auth.member_id, status).await?;
-    Ok(axum::Json(
-        series.iter().map(|s| response(s, Some(today))).collect(),
-    ))
+    Ok(axum::Json(list_for(&state, auth.member_id, status).await?))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -400,7 +405,7 @@ fn activity_entry(s: &Series, since: NaiveDate) -> Option<RecurringActivityRespo
     })
 }
 
-async fn activity(
+pub async fn activity(
     State(state): State<AppState>,
     auth: Auth,
 ) -> AppResult<axum::Json<Vec<RecurringActivityResponse>>> {
@@ -574,11 +579,11 @@ impl RecurringSeriesRequest {
     }
 }
 
-async fn create(
+pub async fn create(
     State(state): State<AppState>,
     auth: Auth,
     Json(req): Json<RecurringSeriesRequest>,
-) -> AppResult<impl IntoResponse> {
+) -> AppResult<(StatusCode, axum::Json<RecurringSeriesResponse>)> {
     let mut s = Series {
         id: 0,
         label: String::new(),
@@ -605,7 +610,7 @@ async fn create(
     Ok((StatusCode::CREATED, axum::Json(response(&s, None))))
 }
 
-async fn update(
+pub async fn update(
     State(state): State<AppState>,
     auth: Auth,
     Path(id): Path<i64>,
@@ -629,7 +634,7 @@ async fn set_status(
     Ok(response(&s, None))
 }
 
-async fn confirm(
+pub async fn confirm(
     State(state): State<AppState>,
     auth: Auth,
     Path(id): Path<i64>,
@@ -640,7 +645,7 @@ async fn confirm(
 }
 
 /// Ignored series are kept so detection never resurrects them.
-async fn ignore(
+pub async fn ignore(
     State(state): State<AppState>,
     auth: Auth,
     Path(id): Path<i64>,
@@ -651,7 +656,7 @@ async fn ignore(
 }
 
 /// Acknowledges a price change (the new amount stays) or rejects a silent auto-confirm.
-async fn undo(
+pub async fn undo(
     State(state): State<AppState>,
     auth: Auth,
     Path(id): Path<i64>,
@@ -668,7 +673,7 @@ async fn undo(
     Ok(axum::Json(response(&s, Some(state.clock.today()))))
 }
 
-async fn delete(
+pub async fn delete(
     State(state): State<AppState>,
     auth: Auth,
     Path(id): Path<i64>,

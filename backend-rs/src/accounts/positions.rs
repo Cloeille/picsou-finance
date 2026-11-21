@@ -78,7 +78,7 @@ struct PositionRow {
     interest: Option<Decimal>,
 }
 
-async fn positions(
+pub async fn positions(
     State(state): State<AppState>,
     auth: Auth,
     Path(id): Path<i64>,

@@ -4,7 +4,6 @@
 
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -66,7 +65,7 @@ fn response(rule: &CategorizationRule, category_name: &str) -> CategorizationRul
     }
 }
 
-async fn find_all(
+pub async fn find_all(
     State(state): State<AppState>,
     auth: Auth,
 ) -> AppResult<axum::Json<Vec<CategorizationRuleResponse>>> {
@@ -141,11 +140,11 @@ pub async fn insert_rule<'e>(
     .await
 }
 
-async fn create(
+pub async fn create(
     State(state): State<AppState>,
     auth: Auth,
     Json(req): Json<CategorizationRuleRequest>,
-) -> AppResult<impl IntoResponse> {
+) -> AppResult<(StatusCode, axum::Json<CategorizationRuleResponse>)> {
     let category = require(
         &state.db,
         req.category_id.unwrap_or_default(),
@@ -179,7 +178,7 @@ async fn find_rule(state: &AppState, id: i64, member_id: i64) -> AppResult<Categ
     .ok_or_else(rule_not_found)
 }
 
-async fn update(
+pub async fn update(
     State(state): State<AppState>,
     auth: Auth,
     Path(id): Path<i64>,
@@ -211,7 +210,7 @@ async fn update(
     Ok(axum::Json(response(&rule, &category.name)))
 }
 
-async fn delete(
+pub async fn delete(
     State(state): State<AppState>,
     auth: Auth,
     Path(id): Path<i64>,
@@ -305,7 +304,7 @@ pub struct RulePreviewResult {
     pub transactions: Vec<PreviewTransaction>,
 }
 
-async fn preview(
+pub async fn preview(
     State(state): State<AppState>,
     auth: Auth,
     Json(req): Json<RulePreviewRequest>,

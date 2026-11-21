@@ -3,7 +3,6 @@
 
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgExecutor;
@@ -69,7 +68,7 @@ impl From<&Category> for CategoryResponse {
     }
 }
 
-async fn find_all(
+pub async fn find_all(
     State(state): State<AppState>,
     auth: Auth,
 ) -> AppResult<axum::Json<Vec<CategoryResponse>>> {
@@ -151,11 +150,11 @@ async fn next_sort_order(state: &AppState, member_id: i64) -> AppResult<i32> {
     Ok(max.unwrap_or(-1) + 1)
 }
 
-async fn create(
+pub async fn create(
     State(state): State<AppState>,
     auth: Auth,
     Json(req): Json<CategoryRequest>,
-) -> AppResult<impl IntoResponse> {
+) -> AppResult<(StatusCode, axum::Json<CategoryResponse>)> {
     let member_id = auth.member_id;
     let parent = resolve_parent(&state, req.parent_id, None, req.kind(), member_id).await?;
     let sort_order = match req.sort_order {
@@ -203,7 +202,7 @@ async fn save<'e>(db: impl PgExecutor<'e>, c: &Category, now: DateTime<Utc>) -> 
     Ok(())
 }
 
-async fn update(
+pub async fn update(
     State(state): State<AppState>,
     auth: Auth,
     Path(id): Path<i64>,
@@ -262,7 +261,7 @@ async fn set_archived_cascading(
     Ok(())
 }
 
-async fn archive(
+pub async fn archive(
     State(state): State<AppState>,
     auth: Auth,
     Path(id): Path<i64>,

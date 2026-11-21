@@ -89,6 +89,8 @@ pub struct Inner {
     pub market: market::Market,
     /// The wealth domain's state and cross-track seams (track T4).
     pub wealth: wealth::Wealth,
+    /// The MCP server's active sessions (track T8).
+    pub mcp: mcp::Runtime,
 }
 
 impl Deref for AppState {
@@ -135,6 +137,7 @@ impl AppState {
             bearer_authenticators: identity::bearer_authenticators(),
             identity: identity::Runtime::default(),
             admin: admin::Runtime::default(),
+            mcp: mcp::Runtime::default(),
         })))
     }
 }

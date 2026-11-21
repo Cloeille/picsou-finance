@@ -91,7 +91,7 @@ impl Validate for SavingsConfigRequest {
 }
 
 /// The visible bank-synced accounts with no config whose name looks like a savings book.
-async fn suggestions(
+pub async fn suggestions(
     AxumState(state): AxumState<AppState>,
     auth: Auth,
 ) -> AppResult<axum::Json<Vec<SavingsSuggestionResponse>>> {
@@ -178,7 +178,7 @@ async fn delete_config(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn projection(
+pub async fn projection(
     AxumState(state): AxumState<AppState>,
     auth: Auth,
     Path(id): Path<i64>,

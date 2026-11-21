@@ -22,6 +22,10 @@ const FRAMEWORK_ROUTES: &[(&str, &str)] = &[
     ("GET", "/oauth2/jwks"),
     ("GET", "/oauth2/sso/{}"),
     ("POST", "/oauth2/sso/{}"),
+    ("GET", "/mcp"),
+    ("POST", "/mcp"),
+    ("DELETE", "/mcp"),
+    ("POST", "/mcp/message"),
 ];
 
 /// Spring and axum share the {name} syntax; a regex constraint ({id:\d+}) and the variable name
