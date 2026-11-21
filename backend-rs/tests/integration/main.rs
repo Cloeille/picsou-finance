@@ -15,6 +15,7 @@ mod market;
 mod mcp;
 mod native_sidecars_a;
 mod native_sidecars_b;
+mod sqlite_foundation;
 mod sync;
 mod transfer;
 mod wealth;

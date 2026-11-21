@@ -6,9 +6,12 @@ use picsou::config::{Config, Env};
 #[tokio::main]
 async fn main() {
     let _ = picsou::PROCESS_START.set(Instant::now());
-    // `picsou migrate|verify`: the release migration check of docker/deploy.sh and the Helm chart.
+    // `picsou migrate|verify|export-sqlite <output.db>`: database maintenance CLI subcommands.
     if let Some(command) = std::env::args().nth(1) {
-        std::process::exit(picsou::db::release_cli::run(&command, &Env::from_process()).await);
+        let args: Vec<String> = std::env::args().skip(2).collect();
+        std::process::exit(
+            picsou::db::release_cli::run_with_args(&command, &args, &Env::from_process()).await,
+        );
     }
     let config = match Config::load(&Env::from_process()) {
         Ok(config) => config,
