@@ -210,12 +210,50 @@ impl PriceBackfill for NoPriceBackfill {
     }
 }
 
+/// SymbolCatalogPort.hasQuote (track T4): whether the price source quotes a ticker at all.
+#[async_trait]
+pub trait SymbolCatalog: Send + Sync {
+    /// False on any failure: a negative means "no information", never "this symbol is dead".
+    async fn has_quote(&self, ticker: &str) -> bool;
+}
+
+/// No symbol catalog configured: no ticker is known to be quoted.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NoSymbolCatalog;
+
+#[async_trait]
+impl SymbolCatalog for NoSymbolCatalog {
+    async fn has_quote(&self, _ticker: &str) -> bool {
+        false
+    }
+}
+
+/// BankLogoResolver.logoUrlOrNull (Enable Banking catalog, track T5): an institution's logo by its name.
+#[async_trait]
+pub trait BankLogos: Send + Sync {
+    /// None when the catalog is not configured, unreachable or has no match.
+    async fn logo_url(&self, country: &str, institution_name: &str) -> Option<String>;
+}
+
+/// Enable Banking not configured: no logo.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NoBankLogos;
+
+#[async_trait]
+impl BankLogos for NoBankLogos {
+    async fn logo_url(&self, _country: &str, _institution_name: &str) -> Option<String> {
+        None
+    }
+}
+
 /// The connectors' plug-in points, held by state.connectors.seams.
 pub struct Seams {
     pub isin: Arc<dyn IsinResolver>,
     pub security_identities: Arc<dyn SecurityIdentities>,
     pub accounts: Arc<dyn AccountResponses>,
     pub price_backfill: Arc<dyn PriceBackfill>,
+    pub symbol_catalog: Arc<dyn SymbolCatalog>,
+    pub bank_logos: Arc<dyn BankLogos>,
 }
 
 impl Seams {
@@ -225,6 +263,8 @@ impl Seams {
             security_identities: Arc::new(RecordedSecurityIdentities::new(db)),
             accounts: Arc::new(AccountRowResponses),
             price_backfill: Arc::new(NoPriceBackfill),
+            symbol_catalog: Arc::new(NoSymbolCatalog),
+            bank_logos: Arc::new(NoBankLogos),
         }
     }
 }

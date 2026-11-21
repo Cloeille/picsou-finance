@@ -7,6 +7,7 @@ pub mod banque_populaire;
 pub mod bnp;
 pub mod bourse_direct;
 pub mod bourso;
+pub mod bpce;
 pub mod caisse_epargne;
 pub mod cic;
 pub mod cmes;
