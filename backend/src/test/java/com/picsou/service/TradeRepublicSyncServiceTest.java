@@ -1108,6 +1108,193 @@ class TradeRepublicSyncServiceTest {
         assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
     }
 
+    @Test
+    void sync_emptyTrTitresUpdatesExistingAccountToZeroWithoutDroppingHistory() {
+        SidecarSession session = arrangeSession(FamilyMember.builder().id(MEMBER).displayName("Owner").build());
+        TrAccountData emptyTitres = new TrAccountData(
+            TradeRepublicAdapter.EXTERNAL_ID_SECURITIES, "TR Titres", AccountType.COMPTE_TITRES, bd("0"), List.of());
+        TrAccountData crypto = new TrAccountData(
+            TradeRepublicAdapter.EXTERNAL_ID_CRYPTO, "TR Crypto", AccountType.CRYPTO, bd("2.12"),
+            List.of(new TrPosition("XF000BTC0017", bd("0.00004"), bd("123436.75"), bd("53000"))));
+        when(trPort.fetchAccounts("cookie", CLAIMS)).thenReturn(List.of(emptyTitres, crypto));
+        when(isinConverter.resolve("XF000BTC0017")).thenReturn(new TickerResult("BTC", "Bitcoin"));
+
+        Account existingTitres = Account.builder().id(1L).name("TR Titres").type(AccountType.COMPTE_TITRES)
+            .provider("Trade Republic").currency("EUR").currentBalance(bd("2.12"))
+            .externalAccountId(TradeRepublicAdapter.EXTERNAL_ID_SECURITIES).isManual(false).build();
+        when(accountRepository.findByExternalAccountIdAndMemberId(TradeRepublicAdapter.EXTERNAL_ID_SECURITIES, MEMBER))
+            .thenReturn(Optional.of(existingTitres));
+        when(accountRepository.findByExternalAccountIdAndMemberId(TradeRepublicAdapter.EXTERNAL_ID_CRYPTO, MEMBER))
+            .thenReturn(Optional.empty());
+        lenient().when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(
+            TradeRepublicAdapter.EXTERNAL_ID_CRYPTO, MEMBER)).thenReturn(false);
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> {
+            Account a = inv.getArgument(0);
+            if (a.getId() == null) a.setId(9L);
+            return a;
+        });
+        lenient().when(accountService.toResponse(any(Account.class)))
+            .thenAnswer(inv -> com.picsou.dto.AccountResponse.from(inv.getArgument(0), bd("0")));
+
+        service.queueSync(MEMBER);
+
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(existingTitres.getCurrentBalance()).isEqualByComparingTo("0");
+        verify(holdingRepository).deleteByAccountId(1L);
+        verify(accountService).upsertSnapshot(eq(existingTitres), eq(bd("0")), any(LocalDate.class));
+        ArgumentCaptor<Account> savedAccounts = ArgumentCaptor.forClass(Account.class);
+        verify(accountRepository, times(2)).save(savedAccounts.capture());
+        assertThat(savedAccounts.getAllValues()).anySatisfy(a -> {
+            assertThat(a.getExternalAccountId()).isEqualTo(TradeRepublicAdapter.EXTERNAL_ID_CRYPTO);
+            assertThat(a.getType()).isEqualTo(AccountType.CRYPTO);
+            assertThat(a.getCurrentBalance()).isEqualByComparingTo("2.12");
+        });
+    }
+
+    @Test
+    void sync_emptyTrTitresIsNotCreatedForBrandNewCryptoOnlyMember() {
+        arrangeSession(FamilyMember.builder().id(MEMBER).displayName("Owner").build());
+        TrAccountData emptyTitres = new TrAccountData(
+            TradeRepublicAdapter.EXTERNAL_ID_SECURITIES, "TR Titres", AccountType.COMPTE_TITRES, bd("0"), List.of());
+        TrAccountData crypto = new TrAccountData(
+            TradeRepublicAdapter.EXTERNAL_ID_CRYPTO, "TR Crypto", AccountType.CRYPTO, bd("2.12"),
+            List.of(new TrPosition("XF000BTC0017", bd("0.00004"), bd("123436.75"), bd("53000"))));
+        when(trPort.fetchAccounts("cookie", CLAIMS)).thenReturn(List.of(emptyTitres, crypto));
+        when(isinConverter.resolve("XF000BTC0017")).thenReturn(new TickerResult("BTC", "Bitcoin"));
+
+        when(accountRepository.findByExternalAccountIdAndMemberId(TradeRepublicAdapter.EXTERNAL_ID_SECURITIES, MEMBER))
+            .thenReturn(Optional.empty());
+        lenient().when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(
+            TradeRepublicAdapter.EXTERNAL_ID_SECURITIES, MEMBER)).thenReturn(false);
+        when(accountRepository.findByExternalAccountIdAndMemberId(TradeRepublicAdapter.EXTERNAL_ID_CRYPTO, MEMBER))
+            .thenReturn(Optional.empty());
+        lenient().when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(
+            TradeRepublicAdapter.EXTERNAL_ID_CRYPTO, MEMBER)).thenReturn(false);
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> {
+            Account a = inv.getArgument(0);
+            a.setId(9L);
+            return a;
+        });
+        lenient().when(accountService.toResponse(any(Account.class)))
+            .thenAnswer(inv -> com.picsou.dto.AccountResponse.from(inv.getArgument(0), bd("2.12")));
+
+        service.queueSync(MEMBER);
+
+        ArgumentCaptor<Account> savedAccounts = ArgumentCaptor.forClass(Account.class);
+        verify(accountRepository, times(1)).save(savedAccounts.capture());
+        assertThat(savedAccounts.getValue().getExternalAccountId()).isEqualTo(TradeRepublicAdapter.EXTERNAL_ID_CRYPTO);
+    }
+
+    @Test
+    void sync_clearsExistingTrCryptoWhenDefaultAnswersWithNoCryptoLeft() {
+        arrangeSession(FamilyMember.builder().id(MEMBER).displayName("Owner").build());
+        TrAccountData titres = new TrAccountData(
+            TradeRepublicAdapter.EXTERNAL_ID_SECURITIES, "TR Titres", AccountType.COMPTE_TITRES, bd("0"), List.of());
+        when(trPort.fetchAccounts("cookie", CLAIMS)).thenReturn(List.of(titres));
+
+        Account existingTitres = Account.builder().id(1L).name("TR Titres").type(AccountType.COMPTE_TITRES)
+            .provider("Trade Republic").currency("EUR").currentBalance(bd("0"))
+            .externalAccountId(TradeRepublicAdapter.EXTERNAL_ID_SECURITIES).isManual(false).build();
+        Account existingCrypto = Account.builder().id(9L).name("TR Crypto").type(AccountType.CRYPTO)
+            .provider("Trade Republic").currency("EUR").currentBalance(bd("2.12"))
+            .externalAccountId(TradeRepublicAdapter.EXTERNAL_ID_CRYPTO).isManual(false).build();
+        when(accountRepository.findByExternalAccountIdAndMemberId(TradeRepublicAdapter.EXTERNAL_ID_SECURITIES, MEMBER))
+            .thenReturn(Optional.of(existingTitres));
+        when(accountRepository.findByExternalAccountIdAndMemberId(TradeRepublicAdapter.EXTERNAL_ID_CRYPTO, MEMBER))
+            .thenReturn(Optional.of(existingCrypto));
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(accountService.toResponse(any(Account.class)))
+            .thenAnswer(inv -> com.picsou.dto.AccountResponse.from(inv.getArgument(0), bd("0")));
+
+        service.queueSync(MEMBER);
+
+        assertThat(existingCrypto.getCurrentBalance()).isEqualByComparingTo("0");
+        verify(holdingRepository).deleteByAccountId(9L);
+        verify(accountService).upsertSnapshot(eq(existingCrypto), eq(bd("0")), any(LocalDate.class));
+    }
+
+    @Test
+    void importTransactions_routesNativeCryptoToTrCryptoAndKeepsCryptoEtcOnTrTitres() {
+        Account cash = trCash();
+        Account titres = Account.builder().id(3L).name("TR Titres").type(AccountType.COMPTE_TITRES)
+            .provider("Trade Republic").currency("EUR").currentBalance(bd("0")).build();
+        Account crypto = Account.builder().id(4L).name("TR Crypto").type(AccountType.CRYPTO)
+            .provider("Trade Republic").currency("EUR").currentBalance(bd("2.12")).build();
+        when(accountRepository.findByIdAndMemberId(cash.getId(), MEMBER)).thenReturn(Optional.of(cash));
+        stubTrAccounts(cash, titres, crypto);
+        when(holdingRepository.findByAccount_Id(crypto.getId())).thenReturn(List.of(
+            AccountHolding.builder().account(crypto).ticker("BTC").name("Bitcoin")
+                .quantity(bd("0.00004")).averageBuyIn(bd("123436.75")).build()));
+        when(categorizationService.categoriesBySlug(MEMBER)).thenReturn(Map.of(
+            "investissement", investTransferCategory(),
+            "investissement-titres", investPurchaseCategory()));
+
+        String[] headerCols = new String[19];
+        Arrays.fill(headerCols, "");
+        headerCols[0] = "datetime";
+        headerCols[5] = "isin";
+        headerCols[11] = "currency";
+        String header = String.join(",", headerCols);
+
+        String[] btcCols = new String[19];
+        Arrays.fill(btcCols, "");
+        btcCols[1] = "2026-11-18"; btcCols[2] = "DEFAULT"; btcCols[3] = "TRADING"; btcCols[4] = "BUY";
+        btcCols[5] = "XF000BTC0017"; btcCols[6] = "Bitcoin"; btcCols[10] = "\"-10,00\"";
+        btcCols[11] = "EUR"; btcCols[17] = "\"Buy Bitcoin\""; btcCols[18] = "ext-btc";
+
+        String[] etcCols = new String[19];
+        Arrays.fill(etcCols, "");
+        etcCols[1] = "2026-11-18"; etcCols[2] = "DEFAULT"; etcCols[3] = "TRADING"; etcCols[4] = "BUY";
+        etcCols[5] = "CH0454664001"; etcCols[6] = "Bitcoin"; etcCols[10] = "\"-50,00\"";
+        etcCols[11] = "EUR"; etcCols[17] = "\"Buy Bitcoin ETP\""; etcCols[18] = "ext-etc";
+
+        MockMultipartFile file = new MockMultipartFile(
+            "file", "tr.csv", "text/csv",
+            (header + "\n" + String.join(",", btcCols) + "\n" + String.join(",", etcCols) + "\n")
+                .getBytes(StandardCharsets.UTF_8));
+
+        service.importTransactionsCsv(cash.getId(), file, MEMBER);
+
+        ArgumentCaptor<Transaction> captor = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository, times(4)).save(captor.capture());
+        assertThat(captor.getAllValues()).anySatisfy(tx -> {
+            assertThat(tx.getExternalId()).isEqualTo("ext-btc_inv");
+            assertThat(tx.getAccount().getId()).isEqualTo(crypto.getId());
+        });
+        assertThat(captor.getAllValues()).anySatisfy(tx -> {
+            assertThat(tx.getExternalId()).isEqualTo("ext-etc_inv");
+            assertThat(tx.getAccount().getId()).isEqualTo(titres.getId());
+        });
+    }
+
+    @Test
+    void importTransactions_doesNotDuplicateLegacyCryptoLegAlreadyOnTrTitres() {
+        Account cash = trCash();
+        Account titres = Account.builder().id(3L).name("TR Titres").type(AccountType.COMPTE_TITRES)
+            .provider("Trade Republic").currency("EUR").currentBalance(bd("0")).build();
+        Account crypto = Account.builder().id(4L).name("TR Crypto").type(AccountType.CRYPTO)
+            .provider("Trade Republic").currency("EUR").currentBalance(bd("2.12")).build();
+        when(accountRepository.findByIdAndMemberId(cash.getId(), MEMBER)).thenReturn(Optional.of(cash));
+        stubTrAccounts(cash, titres, crypto);
+        when(holdingRepository.findByAccount_Id(crypto.getId())).thenReturn(List.of(
+            AccountHolding.builder().account(crypto).ticker("BTC").name("Bitcoin")
+                .quantity(bd("0.00004")).averageBuyIn(bd("123436.75")).build()));
+        when(categorizationService.categoriesBySlug(MEMBER)).thenReturn(Map.of(
+            "investissement", investTransferCategory(),
+            "investissement-titres", investPurchaseCategory()));
+        when(transactionRepository.existsByAccountIdAndExternalId(cash.getId(), "legacy-btc_cash")).thenReturn(true);
+        when(transactionRepository.existsByAccountIdAndExternalId(crypto.getId(), "legacy-btc_inv")).thenReturn(false);
+        when(transactionRepository.existsByAccountIdAndExternalId(titres.getId(), "legacy-btc_inv")).thenReturn(true);
+
+        MockMultipartFile file = csv(row("2025-10-11", "DEFAULT", "TRADING", "BUY", "Bitcoin", "-3,94", "Buy", "legacy-btc"));
+
+        TradeRepublicSyncService.ImportResult result = service.importTransactionsCsv(cash.getId(), file, MEMBER);
+
+        assertThat(result.inserted()).isZero();
+        assertThat(result.skipped()).isEqualTo(1);
+        verify(transactionRepository, never()).save(any(Transaction.class));
+    }
+
     private void stubOneSyncedAccount() {
         TrAccountData data = new TrAccountData("tr_cto", "TR Titres", AccountType.COMPTE_TITRES, bd("0"), List.of());
         when(trPort.fetchAccounts("cookie", CLAIMS)).thenReturn(List.of(data));

@@ -1,5 +1,6 @@
 {
   "common": {
+    "actions": "Actions",
     "loading": "Loading...",
     "add": "Add",
     "save": "Save",
@@ -1487,6 +1488,15 @@
       "type": "Exchange type",
       "apiKey": "API Key",
       "apiSecret": "API Secret",
+      "apiPassphrase": "API passphrase",
+      "region": "Region",
+      "regionPlaceholder": "Choose a region",
+      "regionHelp": "Choose the region your exchange account belongs to.",
+      "regions": {
+        "GLOBAL": "Global",
+        "EEA": "European Economic Area",
+        "US": "United States"
+      },
       "apiKeyOnly": "Meria connects with a single read-only API key — no secret needed.",
       "showSecret": "Show API secret",
       "hideSecret": "Hide API secret",

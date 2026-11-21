@@ -67,7 +67,7 @@ area and once with a 34 px bottom inset set through Chromium's `Emulation.setSaf
 
 ### Active state (shared pattern)
 
-Active nav items keep Lucide icons stroke-only. The item gets `ring-1 ring-border` when active, and the icon box switches from `text-muted-foreground` to `text-foreground`. Do not use SVG fill for active nav states.
+The active nav item gets `ring-1 ring-border`, its icon switches from `text-muted-foreground` to `text-foreground`, and the Phosphor icon goes from `weight="regular"` to `weight="fill"`. Phosphor ships a drawn fill variant per glyph, so this is not the SVG `fill` that made Lucide icons look like blobs.
 
 ### Key files
 
@@ -83,7 +83,7 @@ Active nav items keep Lucide icons stroke-only. The item gets `ring-1 ring-borde
 
 | Choice | Why | Rejected alternative |
 |--------|-----|----------------------|
-| Stroke-only Lucide icons for active state | Preserves the intended outline glyphs across Dashboard, Accounts, Goals, Settings, and Family | Filled Lucide icons (`fill="currentColor"`) — fills internal shapes and creates blob-like active icons |
+| Phosphor `fill` weight for the active state | Each glyph has a designed filled variant, so the active item reads at a glance | `fill="currentColor"` on an outline icon — fills internal shapes and creates blob-like icons |
 | Standalone `Avatar` instead of `ItemMedia` wrapper | Avoids nested box-in-box (avatar inside icon container) | Wrapping avatar in `ItemMedia` adds redundant sizing layer |
 | Separate `MobileBottomNav` component | Keeps mobile/desktop nav logic isolated; each can evolve independently | One component with responsive internals — harder to read and maintain |
 | 768px breakpoint (`md:`) | Consistent with existing `useIsMobile` hook and shadcn UI sidebar pattern | Custom breakpoint — would diverge from the rest of the codebase |
@@ -91,7 +91,7 @@ Active nav items keep Lucide icons stroke-only. The item gets `ring-1 ring-borde
 ## Gotchas / Pitfalls
 
 - **Babel spread in JSX props**: `{...(condition && { prop: value })}` causes a Vite/Babel parse error (500) in this project's config. Use a ternary `prop={condition ? value : fallback}` instead.
-- **Lucide icons are stroke icons**: do not pass `fill="currentColor"` to sidebar or bottom-nav icons. It fills the internal SVG geometry and makes active icons look like broken blobs.
+- **Use `weight`, never `fill`, for the active state**: `fill="currentColor"` on a Phosphor icon colours its geometry instead of selecting the filled variant.
 - **File encoding**: Editing `AppSidebar.tsx` with the Edit tool introduced invisible characters that broke Babel parsing. If the file breaks after edits, rewrite it entirely with the Write tool.
 - **`ItemMedia` import**: The component is imported even though the user dropdown no longer uses it — it's still used by `NavItem`. Don't remove the import.
 - **Mobile bottom nav padding**: `AppLayout`'s `<main>` reserves `5rem` plus the safe-area inset on mobile so content never sits behind the fixed bottom nav. If the bottom nav height changes, update this value; `e2e/mobile-layout.spec.ts` fails when they drift, including when the

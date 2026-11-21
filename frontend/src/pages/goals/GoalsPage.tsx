@@ -544,7 +544,7 @@ function RecurringPlanCard({
                   variant="ghost"
                   size="icon"
                   className="size-8 text-muted-foreground hover:text-foreground"
-                  aria-label={t('common.edit')}
+                  aria-label={t('common.actions')}
                 >
                   <DotsThree className="size-4" />
                 </Button>

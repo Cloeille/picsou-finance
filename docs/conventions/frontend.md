@@ -287,7 +287,7 @@ All theme color tokens are defined in the `@theme` block of `frontend/src/index.
 
 ### Icons
 
-Use icons from `lucide-react` as direct JSX components (e.g., `<Pencil className="size-4" />`). No other icon libraries.
+Use icons from `@phosphor-icons/react` as direct JSX components (e.g., `<PencilSimple className="size-4" />`). No other icon libraries; `design-guardrails.test.ts` refuses `lucide-react`. `ICON_DEFAULTS` (`lib/icon-defaults.ts`, applied in `app/providers.tsx`) sets the regular weight and `aria-hidden`: an icon that carries meaning on its own passes `aria-hidden={false}` and `alt`, and an icon-only button keeps its `aria-label`.
 
 ## Internationalization
 
@@ -345,7 +345,7 @@ e2e specs (which need a browser) and fail. Keep unit tests under `src/`, e2e und
 - **Never use Redux, Context, or global state for server data** — TanStack Query only.
 - **Never edit files in `components/ui/`** — these are shadcn/ui generated. Customize via theme tokens or the shadcn CLI. In particular, never inflate a primitive's radius away from the shadcn scale (e.g. `rounded-md`→`rounded-full` on `Button`, `rounded-lg`→`rounded-2xl` on `DropdownMenu`).
 - **Never hardcode `rounded-full` / `rounded-xl` / `rounded-2xl` on interactive text controls** (buttons, filter chips, tabs, segmented items, menu items) or use a `rounded-full` className to override a shadcn primitive. Shape follows the `--radius` theme: `rounded-md` for controls, `rounded-lg` for their containers. `rounded-full` is only for avatars, switches, badges, and status dots.
-- **Never use icon libraries other than `lucide-react`.**
+- **Never use icon libraries other than `@phosphor-icons/react`.**
 - **Never hardcode user-visible strings** — always use `useTranslation()`.
 - **Never use CSS modules, styled-components, or inline style objects** — Tailwind only.
 - **Never call `Math.random()`/`Date.now()` in render** — lazy `useState(() => …)` initializer (React Compiler `purity`).

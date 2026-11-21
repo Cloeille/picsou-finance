@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 import type { ReactNode } from 'react'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DashboardData } from '@/types/api'
@@ -110,6 +110,14 @@ describe('DashboardPage portfolio performance', () => {
     })
     hooks.useHistory.mockReturnValue({ data: [] })
     hooks.useBankSyncStatus.mockReturnValue({ data: [] })
+  })
+
+  it('names the performance row for screen readers', () => {
+    renderDashboard()
+
+    const row = screen.getByTestId('portfolio-performance')
+    expect(row).not.toHaveAttribute('aria-label')
+    expect(within(row).getByText('dashboard.portfolioPerformance')).toHaveClass('sr-only')
   })
 
   it('shows unavailable performance instead of zero when the selected range has unknown PnL', () => {

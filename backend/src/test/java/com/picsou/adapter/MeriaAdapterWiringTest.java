@@ -2,6 +2,7 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
+import com.picsou.port.CryptoExchangePort.ExchangeCredentials;
 import com.picsou.port.CryptoExchangePort.ExchangePosition;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -74,7 +75,7 @@ class MeriaAdapterWiringTest {
         MeriaAdapter adapter = new MeriaAdapter(
             "http://127.0.0.1:" + server.getAddress().getPort() + "/v1", new ObjectMapper());
 
-        List<ExchangePosition> holdings = adapter.fetchPositions("key", null);
+        List<ExchangePosition> holdings = adapter.fetchPositions(new ExchangeCredentials("key", null, null, null));
 
         assertThat(holdings).singleElement()
             .satisfies(holding -> {

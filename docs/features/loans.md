@@ -134,6 +134,12 @@ BalanceSnapshot persisted  →  historical balance chart steps down monthly
   standard formula `M = P · r / (1 − (1 + r)^-n)`.
 - **Holdings, transactions, and the manual snapshot history dialog are hidden** for LOAN
   accounts in `AccountDetailPage` — the loan section is the canonical view.
+- **Deleting the linked account unlinks the loan.** Account deletion is a soft-delete
+  (`deleted_at`), so the `ON DELETE SET NULL` of `debt.linked_account_id` (and of
+  `peer_loan_terms.linked_account_id`) never fires, and `@SQLRestriction` then hides the row the
+  loan still points to: reading the loan threw `EntityNotFoundException` and every page listing it
+  answered 500. `AccountService.delete` now clears both links first (`unlinkAccount`), and
+  `V154` clears the links left on already-deleted accounts.
 - **Finary-imported loans have no `Debt` row.** The Finary API sync imports loan/mortgage
   accounts from the dedicated `/loans` endpoint (see [finary-import.md](finary-import.md), issue #11)
   as `LOAN` accounts with the outstanding amount stored as a positive `currentBalance`. The
@@ -147,5 +153,8 @@ BalanceSnapshot persisted  →  historical balance chart steps down monthly
 - `LoanAmortizationServiceTest` — zero rate, computed monthly payment, paid installments from
   asOf date, capitalRepaidPct, insurance split, totalCost includes fileFees, finished loan,
   not-yet-started loan, `computeRemainingBalance`, installment dates of a loan due at month end
+- `AccountServiceDeleteTest`, `AccountDeleteUnlinksLoansPostgresTest` — deleting the linked
+  property unlinks the loan, which still reads; `UnlinkLoansFromDeletedAccountsMigrationTest`
+  — `V154` repairs only the links to deleted accounts
 - `AccountControllerLoanTest` — endpoint delegates correctly, propagates 404 (no Debt) and 400
   (account is not LOAN)
