@@ -513,8 +513,8 @@ The test pod uses `global.imagePullSecrets` and the app's `nodeSelector`,
   its URL in Admin → Settings.
 
 The app has a startup probe on `/actuator/health/liveness` (every 10 s, 30 failures:
-five minutes for the JVM and Flyway). Flyway runs during startup, so a database that is
-unreachable then fails startup: the JVM exits and the kubelet restarts the container, with
+five minutes for the migrations). They run during startup, so a database that is
+unreachable then fails startup: the process exits and the kubelet restarts the container, with
 back-off, until the database answers. Once the app has started, liveness uses the same
 endpoint, which ignores the database, so a later outage does not restart it, and HTTP
 readiness on `/actuator/health` holds traffic until the database is back. PostgreSQL

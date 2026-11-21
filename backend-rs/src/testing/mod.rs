@@ -190,7 +190,7 @@ impl TestAppBuilder {
         env.set("SPRING_DATASOURCE_USERNAME", DB_USER);
         let config = Config::load(&env).expect("test configuration");
         let clock = Arc::new(FixedClock::new(epoch()));
-        let state = crate::start(config, clock.clone(), false)
+        let state = crate::start(config, clock.clone())
             .await
             .expect("app start");
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")

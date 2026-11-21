@@ -6,8 +6,9 @@ side of getting a change merged.
 ## Prerequisites
 
 - GNU Make, Docker
-- Java 21 + Maven (backend). Maven enforces Java 21 during `validate`: point
-  `JAVA_HOME` at a JDK 21.
+- Rust stable with `rustfmt` and `clippy` (the backend, `backend-rs/`, and the desktop shell).
+- Java 21 + Maven, while the Java backend stays as the reference (`-java` targets). Maven
+  enforces Java 21 during `validate`: point `JAVA_HOME` at a JDK 21.
 - [Bun](https://bun.sh) (frontend)
 
 ## Commands
@@ -17,9 +18,10 @@ green `make test-…` locally is the CI job. `make help` lists them.
 
 | Command | What it does |
 |---|---|
-| `make dev` | PostgreSQL in Docker on `127.0.0.1:5432` (container `picsou-db` with user, password and database `picsou`, kept between runs), the backend on http://localhost:8080 (`dev` profile, with the `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` generated when `picsou-db` is created and stored in it, so every checkout decrypts the same data; exported values win; a `picsou-db` created by hand before `make dev` holds none, so export the `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` you ran it with) and Vite on https://localhost:5173 (proxies `/api/*` to the backend). Ctrl-C stops both processes. |
+| `make dev` | PostgreSQL in Docker on `127.0.0.1:5432` (container `picsou-db` with user, password and database `picsou`, kept between runs), the backend on http://localhost:8080 (the Rust backend, `cargo run` in `backend-rs` with the `dev` profile; `make dev-backend-java` runs the Java one instead, with the `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` generated when `picsou-db` is created and stored in it, so every checkout decrypts the same data; exported values win; a `picsou-db` created by hand before `make dev` holds none, so export the `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` you ran it with) and Vite on https://localhost:5173 (proxies `/api/*` to the backend). Ctrl-C stops both processes. |
 | `make test` | Every suite below, in order. |
-| `make test-backend` | Backend Maven tests. `TEST=GoalServiceTest` or `TEST=GoalServiceTest#method` runs one class or method. The PostgreSQL tests need Docker and skip themselves without it. `SOFIDY_PYTHON=python3` also runs the Java/Python Sofidy contract test (`pip install -r services/base/requirements.txt` first). To run one of CI's shards: `python3 .github/scripts/backend_shards.py --shards 3 --shard 2 --out /tmp/s && make test-backend SHARD_INCLUDES=/tmp/s/backend-shard-2.includes` (shard 3 writes `backend-shard-3.excludes`: pass it as `SHARD_EXCLUDES`). Without `--timings` the split is by hash, not CI's timed one. |
+| `make test-backend` | The Rust backend: `cargo fmt --check`, `clippy -D warnings`, then every test (`TEST=routes` filters by name). The tests create and drop their own databases on PostgreSQL 16 at `127.0.0.1:55432`, user `picsou`, trust authentication; for example `docker run -d --name picsou-test-db -p 127.0.0.1:55432:5432 -e POSTGRES_USER=picsou -e POSTGRES_HOST_AUTH_METHOD=trust postgres:16-alpine`. |
+| `make test-backend-java` | Java backend Maven tests. `TEST=GoalServiceTest` or `TEST=GoalServiceTest#method` runs one class or method. The PostgreSQL tests need Docker and skip themselves without it. `SOFIDY_PYTHON=python3` also runs the Java/Python Sofidy contract test (`pip install -r services/base/requirements.txt` first). To run one of CI's shards: `python3 .github/scripts/backend_shards.py --shards 3 --shard 2 --out /tmp/s && make test-backend-java SHARD_INCLUDES=/tmp/s/backend-shard-2.includes` (shard 3 writes `backend-shard-3.excludes`: pass it as `SHARD_EXCLUDES`). Without `--timings` the split is by hash, not CI's timed one. |
 | `make test-frontend` | ESLint (zero warnings), TypeScript, Vitest. |
 | `make lint-frontend` | ESLint (zero warnings) and TypeScript only. |
 | `make unit-frontend [SHARD=1/2]` | Vitest only, optionally one shard (CI runs two). |
@@ -27,7 +29,7 @@ green `make test-…` locally is the CI job. `make help` lists them.
 | `make test-sidecar SIDECAR=tr-auth` | Builds one connector's shared base and image, then runs its tests inside it. |
 | `make test-sidecars` | The `services/base` tests, then every connector. |
 | `make build` | Every image Compose builds: the app, the connectors and their bases. `SERVICES="app tr-auth"` builds only those. |
-| `make desktop` | The Linux desktop app (`.deb`, AppImage) from the same jar and SPA, with the Docker release's Java and PostgreSQL majors. See [desktop-app.md](docs/features/desktop-app.md). |
+| `make desktop` | The desktop app for this machine (Linux `.deb` and AppImage, macOS `.app`, Windows installer): the shell links the Rust backend, with the SPA and the Docker release's PostgreSQL major; no Maven or JRE. See [desktop-app.md](docs/features/desktop-app.md). |
 | `make format` | Prettier on the frontend sources. |
 | `make deps` | Reinstalls the frontend dependencies (after a `bun.lock` change). |
 | `make release VERSION=x.y.z` | Maintainers. Checks that `CHANGELOG.md` has a `## [x.y.z]` section, that the tree is clean and `HEAD` is on `origin/main`, then tags and pushes the tag (`REMOTE=upstream` from a fork). CI publishes the images and the chart once green. |

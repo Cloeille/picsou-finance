@@ -46,10 +46,12 @@ jobs:
             workflows: &workflows ['.github/**', 'Makefile']
             # Not a job: a change to the dependencies the release image downloads
             # makes the release smoke build refresh its cache.
-            release-deps: ['backend/pom.xml', 'frontend/package.json', 'frontend/bun.lock']
-            release-deployment: [*workflows, 'backend/**', 'frontend/**', 'docker/**', '.dockerignore']
+            release-deps: ['backend/pom.xml', 'backend-rs/Cargo.lock', 'frontend/package.json', 'frontend/bun.lock']
+            release-deployment: [*workflows, 'backend/**', 'backend-rs/**', 'frontend/**', 'docker/**', '.dockerignore']
             docker-compose: [*workflows, 'docker/**']
             backend: [*workflows, 'backend/**', 'services/base/**', 'services/sofidy-auth/**']
+            # The Rust backend embeds the Java migrations at build time.
+            backend-rs: &backend-rs [*workflows, 'backend-rs/**', 'backend/src/main/resources/db/migration/**']
             frontend: [*workflows, 'frontend/**']
             # The entrypoint tests read each Camoufox sidecar's runtime parameters.
             sidecar-base: [*workflows, 'services/base/**', 'services/*-auth/Dockerfile']
@@ -58,7 +60,10 @@ jobs:
             sidecar: [*workflows, 'services/base/**', 'services/*-auth/**']
             compose-sidecar-build: [*workflows, 'services/**', 'docker/docker-compose.yml']
             native-sidecars: [*workflows, 'services/base/**', 'services/*-auth/**']
-            desktop: [*workflows, 'desktop/**']
+            # The shell links the Rust backend.
+            desktop: [*backend-rs, 'desktop/**']
+            desktop-windows: [*backend-rs, 'desktop/**']
+            desktop-macos: [*backend-rs, 'desktop/**']
             workflow-inventory: [*workflows, 'services/**', 'backend/src/main/resources/application*.yml', '.env.example',
                                  'docker/.env.example', 'docker/docker-compose.yml', 'docker/Dockerfile',
                                  'backend/pom.xml', 'backend/src/test/**']
@@ -214,7 +219,7 @@ jobs:
           PICSOU_REQUIRE_DOCKER_TESTS: 'true'
           SHARD_INCLUDES: ${{ steps.shard.outputs.includes }}
           SHARD_EXCLUDES: ${{ steps.shard.outputs.excludes }}
-        run: make test-backend SOFIDY_PYTHON=python3
+        run: make test-backend-java SOFIDY_PYTHON=python3
       # A re-run of a failed shard uploads under the same name as its first attempt, which
       # stays in the run: overwrite it, or the upload fails with a 409 conflict.
       - name: Upload the test reports
@@ -228,6 +233,24 @@ jobs:
             backend/target/surefire-reports/*.txt
           if-no-files-found: error
           retention-days: 7
+
+  # The Rust backend (docs/decisions/2026-11-21-rust-backend.md): fmt, clippy, then every test,
+  # the route inventory against the Java endpoints included, on the PostgreSQL major it targets.
+  backend-rs:
+    needs: changes
+    if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'backend-rs')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: {POSTGRES_USER: picsou, POSTGRES_HOST_AUTH_METHOD: trust}
+        ports: ['127.0.0.1:55432:5432']
+        options: --health-cmd "pg_isready -U picsou" --health-interval 2s --health-timeout 5s --health-retries 30
+    steps:
+      - *checkout
+      - name: Format, lint and test the Rust backend
+        run: make test-backend
 
   frontend:
     name: frontend (${{ matrix.task }})
@@ -328,7 +351,7 @@ jobs:
     steps:
       - *checkout
       - name: Install the webview build dependencies
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev
       - name: Test and build the shell
         env:
           # Release LTO only slows CI; the bundles keep it.
@@ -338,6 +361,227 @@ jobs:
           mkdir -p ../runtime
           cargo test --locked
           cargo build --locked --release
+
+  # The unsigned Windows installer (#591): the shell, which links the backend, and the SPA, installed silently,
+  # then the installed app must reach the dashboard on loopback and leave no process when killed.
+  desktop-windows:
+    needs: changes
+    if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'desktop-windows')
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - *checkout
+      - *python
+      - *bun
+      - name: Build the SPA
+        working-directory: frontend
+        run: |
+          bun install --frozen-lockfile
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          bun run build
+      - name: Assemble the Windows runtime (PostgreSQL, pg_dump, sidecars)
+        run: python desktop/scripts/fetch_runtime.py --target windows
+      - name: Build the installer
+        working-directory: desktop/src-tauri
+        env:
+          CARGO_PROFILE_RELEASE_LTO: 'off'
+        run: npx --yes @tauri-apps/cli@2.12.4 build --bundles nsis
+      - name: Install it and start the installed app
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem desktop/src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          $setup = Start-Process $installer.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($setup.ExitCode) { throw "the installer exited with $($setup.ExitCode)" }
+          $exe = Join-Path $env:LOCALAPPDATA 'Picsou\picsou-desktop.exe'
+          if (-not (Test-Path $exe)) { throw "$exe is not installed" }
+          # A fresh Windows may lack the VC++ runtime: PostgreSQL must carry its own.
+          if (-not (Test-Path (Join-Path $env:LOCALAPPDATA 'Picsou\runtime\postgres\bin\vcruntime140.dll'))) { throw 'PostgreSQL ships without vcruntime140.dll' }
+          $app = Start-Process $exe -PassThru
+          $data = "$env:LOCALAPPDATA/com.picsou.desktop"
+          $ready = $false
+          foreach ($i in 1..120) {
+            Start-Sleep 2
+            $port = Get-Content "$data/desktop-port" -ErrorAction SilentlyContinue
+            if ($port) {
+              try { Invoke-WebRequest "http://127.0.0.1:$port/actuator/health/readiness" -UseBasicParsing -TimeoutSec 5 | Out-Null; $ready = $true; break } catch {}
+            }
+          }
+          if (-not $ready) { throw 'the installed app never became ready' }
+          "ready after $($i * 2) s on port $port"
+          Invoke-WebRequest "http://127.0.0.1:$port/api/setup/status" -UseBasicParsing -TimeoutSec 5 | Select-Object -ExpandProperty Content
+          # The SPA is served from the install folder: the one check of a backslash SPA_LOCATION.
+          $page = (Invoke-WebRequest "http://127.0.0.1:$port/" -UseBasicParsing -TimeoutSec 5).Content
+          if ($page -notmatch '<div id="root"') { throw 'the SPA is not served' }
+          # The banks the desktop does not ship reach the SPA through /actuator/info.
+          # Actuator answers application/vnd.spring-boot.actuator.v3+json, which Invoke-WebRequest leaves as bytes.
+          $info = (Invoke-RestMethod "http://127.0.0.1:$port/actuator/info" -TimeoutSec 5).app
+          "desktop: $($info.desktop), unavailable: $($info.'desktop-unavailable')"
+          if ("$($info.desktop)" -ne 'true' -or $info.'desktop-unavailable' -notmatch 'amex-auth') { throw 'the unavailable banks are not exposed' }
+          # Chromium is fetched in the background right after the start, before any sync asks.
+          $t0 = Get-Date
+          foreach ($try in 1..60) { if (Test-Path "$data/browsers/chromium_headless_shell-*/INSTALLATION_COMPLETE") { break }; Start-Sleep 5 }
+          if (-not (Test-Path "$data/browsers/chromium_headless_shell-*/INSTALLATION_COMPLETE")) { throw 'Chromium was not prefetched' }
+          "Chromium prefetched $([int]((Get-Date) - $t0).TotalSeconds) s after ready, before any corum call"
+          # The one-off `playwright install` exits once Chromium is in place.
+          foreach ($try in 1..12) { if (-not (Get-Process python -ErrorAction SilentlyContinue)) { break }; Start-Sleep 5 }
+          # Bank sidecars (#589): none runs at idle, the first call starts one on loopback.
+          if (Get-Process python -ErrorAction SilentlyContinue) { throw 'a sidecar runs at idle' }
+          # The setup check gives a sidecar 3 s; a cold Python start may need more, so retry.
+          foreach ($try in 1..15) {
+            $bourso = Invoke-WebRequest "http://127.0.0.1:$port/api/setup/integrations/boursobank/health" -UseBasicParsing -TimeoutSec 90 | Select-Object -ExpandProperty Content
+            if ($bourso -match '"ok":true') { break }
+            Start-Sleep 2
+          }
+          "bourso health after $try call(s): $bourso"
+          if ($bourso -notmatch '"ok":true') { throw 'the bourso sidecar did not answer' }
+          if (-not (Get-Process python -ErrorAction SilentlyContinue)) { throw 'no sidecar process after the call' }
+          # A Chromium sidecar: its first start downloads Chromium once, the next start reuses it.
+          $corum = (Get-Content "$data/sidecar-ports.json" | ConvertFrom-Json).CORUM_AUTH_URL
+          $t0 = Get-Date; $ok = $false
+          # 503 while Chromium downloads, then the sidecar's own /health.
+          foreach ($try in 1..120) {
+            try { Invoke-WebRequest "$corum/health" -UseBasicParsing -TimeoutSec 10 | Out-Null; $ok = $true; break } catch { Start-Sleep 5 }
+          }
+          if (-not $ok) { throw 'the corum sidecar never answered' }
+          "corum first start: $([int]((Get-Date) - $t0).TotalSeconds) s"
+          if (-not (Test-Path "$data/browsers/chromium_headless_shell-*")) { throw 'Chromium was not downloaded' }
+          Get-Content "$data/logs/browser-download.log" -Tail 3
+          $pids = (Get-Process picsou-desktop, postgres, python -ErrorAction SilentlyContinue).Id
+          $listening = Get-NetTCPConnection -State Listen | Where-Object { $pids -contains $_.OwningProcess }
+          $listening | Format-Table LocalAddress, LocalPort, OwningProcess
+          if (@($listening).Count -lt 2) { throw 'expected PostgreSQL and the backend to listen' }
+          if ($listening | Where-Object LocalAddress -notin '127.0.0.1', '::ffff:127.0.0.1') { throw 'a service listens beyond loopback' }
+          # A hard kill, like a crash: the job object must take PostgreSQL and the sidecars with it.
+          Stop-Process -Id $app.Id -Force
+          Start-Sleep 10
+          $left = Get-Process postgres, pg_ctl, python -ErrorAction SilentlyContinue
+          if ($left) { $left | Format-Table Name, Id; throw 'processes outlived the app' }
+          'no process left'
+          # An update (#588): data last opened by an older version is copied before it starts.
+          Set-Content "$data/app-version" '1.0.0' -NoNewline
+          Remove-Item "$data/desktop-port"
+          $app = Start-Process $exe -PassThru
+          $ready = $false
+          foreach ($i in 1..120) {
+            Start-Sleep 2
+            $port = Get-Content "$data/desktop-port" -ErrorAction SilentlyContinue
+            if ($port) {
+              try { Invoke-WebRequest "http://127.0.0.1:$port/actuator/health/readiness" -UseBasicParsing -TimeoutSec 5 | Out-Null; $ready = $true; break } catch {}
+            }
+          }
+          if (-not $ready) { throw 'the app never became ready after an update' }
+          $copy = Get-ChildItem "$data/backups" -Directory | Where-Object Name -like '*-1.0.0-to-*'
+          if (-not $copy -or -not (Test-Path "$($copy.FullName)/postgres/PG_VERSION")) { throw 'no copy of the data from before the update' }
+          "update ready after $($i * 2) s, copy: $($copy.Name), marker: $(Get-Content $data/app-version)"
+          Stop-Process -Id $app.Id -Force
+      - name: Show the app logs
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-ChildItem "$env:LOCALAPPDATA/com.picsou.desktop/logs" -Filter *.log -ErrorAction SilentlyContinue | ForEach-Object {
+            "===== $($_.Name)"
+            Get-Content $_.FullName -Tail 60
+          }
+      - name: Upload the installer
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: picsou-windows-installer
+          path: desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  # The macOS app (#591): Apple Silicon, ad-hoc signed because the project has no Apple Developer
+  # account. Started through LaunchServices like a double click, then the Windows job's checks:
+  # ready, a sidecar on demand, loopback only, nothing left after a hard kill, a backup on update.
+  desktop-macos:
+    needs: changes
+    if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'desktop-macos')
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - *checkout
+      - *python
+      - *bun
+      - name: Build the SPA
+        working-directory: frontend
+        run: bun install --frozen-lockfile && bun run build
+      - name: Assemble the macOS runtime (PostgreSQL, pg_dump, sidecars)
+        run: python desktop/scripts/fetch_runtime.py --target macos
+      - name: Build the app and the disk image
+        working-directory: desktop/src-tauri
+        env:
+          CARGO_PROFILE_RELEASE_LTO: 'off'
+        run: npx --yes @tauri-apps/cli@2.12.4 build --bundles app,dmg
+      - name: Start the app and check it
+        run: |
+          app="$PWD/desktop/src-tauri/target/release/bundle/macos/Picsou.app"
+          # Apple Silicon runs no unsigned code: the ad-hoc signature must hold.
+          codesign --verify --verbose=2 "$app"
+          codesign -dv "$app" 2>&1 | grep -q 'Signature=adhoc'
+          data="$HOME/Library/Application Support/com.picsou.desktop"
+          runtime="$app/Contents/Resources/runtime"
+          ready() {
+            for i in $(seq 1 120); do
+              sleep 2
+              port=$(cat "$data/desktop-port" 2>/dev/null || true)
+              if [ -n "$port" ] && curl -fs "http://127.0.0.1:$port/actuator/health/readiness" >/dev/null; then
+                echo "ready after $((i * 2)) s on port $port"; return 0
+              fi
+            done
+            echo "::error::$1"; return 1
+          }
+          open -n "$app"
+          ready 'the app never became ready'
+          port=$(cat "$data/desktop-port")
+          curl -fs "http://127.0.0.1:$port/api/setup/status"; echo
+          curl -fs "http://127.0.0.1:$port/" | grep -q '<div id="root"'
+          curl -fs "http://127.0.0.1:$port/actuator/info" | jq -e '(.app.desktop | tostring) == "true" and (.app["desktop-unavailable"] | contains("amex-auth"))'
+          # Chromium is fetched right after the start; the one-off installer then exits.
+          for try in $(seq 1 60); do ls "$data"/browsers/chromium_headless_shell-*/INSTALLATION_COMPLETE >/dev/null 2>&1 && break; sleep 5; done
+          ls "$data"/browsers/chromium_headless_shell-*/INSTALLATION_COMPLETE
+          for try in $(seq 1 12); do pgrep -f "$runtime/python" >/dev/null || break; sleep 5; done
+          if pgrep -f "$runtime/python" >/dev/null; then echo '::error::a sidecar runs at idle'; exit 1; fi
+          for try in $(seq 1 15); do
+            bourso=$(curl -s --max-time 90 "http://127.0.0.1:$port/api/setup/integrations/boursobank/health")
+            case "$bourso" in *'"ok":true'*) break ;; esac
+            sleep 2
+          done
+          echo "bourso health after $try call(s): $bourso"
+          case "$bourso" in *'"ok":true'*) ;; *) exit 1 ;; esac
+          corum=$(jq -r .CORUM_AUTH_URL "$data/sidecar-ports.json")
+          for try in $(seq 1 60); do curl -fs --max-time 10 "$corum/health" >/dev/null && break; sleep 5; done
+          curl -fs "$corum/health"; echo
+          # The backend runs in the app process itself.
+           pids=$({ pgrep -f "$runtime/"; pgrep -f "$app/Contents/MacOS/picsou-desktop"; } | paste -sd, -)
+          listening=$(lsof -nP -iTCP -sTCP:LISTEN -a -p "$pids" | awk 'NR > 1 {print $9}' | sort -u)
+          echo "$listening"
+          [ "$(echo "$listening" | wc -l)" -ge 2 ] || { echo '::error::expected PostgreSQL and the backend to listen'; exit 1; }
+          if echo "$listening" | grep -v '^127\.0\.0\.1:'; then echo '::error::a service listens beyond loopback'; exit 1; fi
+          # A hard kill, like a crash: each child's watcher must end it (macOS has no PDEATHSIG).
+          pkill -9 -f "$app/Contents/MacOS/picsou-desktop"
+          for try in $(seq 1 30); do pgrep -f "$runtime/" >/dev/null || break; sleep 1; done
+          if pgrep -fl "$runtime/"; then echo '::error::processes outlived the app'; exit 1; fi
+          echo "no process left after $try s"
+          # An update (#588): data last opened by an older version is copied before it starts.
+          printf 1.0.0 > "$data/app-version"
+          rm "$data/desktop-port"
+          open -n "$app"
+          ready 'the app never became ready after an update'
+          copy=$(ls -d "$data"/backups/*-1.0.0-to-* | head -1)
+          [ -f "$copy/postgres/PG_VERSION" ] || { echo '::error::no copy of the data from before the update'; exit 1; }
+          echo "update copy: $(basename "$copy"), marker: $(cat "$data/app-version")"
+          pkill -9 -f "$app/Contents/MacOS/picsou-desktop"
+      - name: Show the app logs
+        if: failure()
+        run: |
+          for f in "$HOME/Library/Application Support/com.picsou.desktop/logs/"*.log; do echo "===== $f"; tail -60 "$f"; done
+      - name: Upload the disk image
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: picsou-macos-dmg
+          path: desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 14
 
   compose-sidecar-build:
     needs: changes
@@ -448,7 +692,7 @@ jobs:
   # prevent application images from being published.
   ci-ok:
     if: always()
-    needs: [changes, release-deployment, docker-compose, backend, frontend, e2e, sidecar-base, sidecar, native-sidecars, compose-sidecar-build, workflow-inventory]
+    needs: [changes, release-deployment, docker-compose, backend, backend-rs, frontend, e2e, sidecar-base, sidecar, native-sidecars, compose-sidecar-build, workflow-inventory]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -525,7 +769,7 @@ jobs:
   # Images are only published after every release-blocking CI job is green, and
   # only on a push to main or a version tag — not on pull requests or release branches.
   docker:
-    needs: [ci-ok, release-deployment, docker-compose, backend, frontend, e2e, sidecar-base, sidecar, native-sidecars, compose-sidecar-build, workflow-inventory]
+    needs: [ci-ok, release-deployment, docker-compose, backend, backend-rs, frontend, e2e, sidecar-base, sidecar, native-sidecars, compose-sidecar-build, workflow-inventory]
     if: github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/release/')
     uses: ./.github/workflows/docker.yml
     secrets: inherit

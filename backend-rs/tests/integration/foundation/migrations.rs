@@ -56,6 +56,122 @@ async fn a_migrated_database_needs_nothing() {
 }
 
 #[tokio::test]
+async fn pending_lists_the_scripts_not_yet_applied() {
+    let db = fresh_database().await;
+    let mut conn = connect(&db).await;
+    assert!(flyway::pending(&mut conn).await.unwrap().is_empty());
+
+    let last: String = sqlx::query_scalar(
+        "DELETE FROM flyway_schema_history WHERE installed_rank = (SELECT max(installed_rank) FROM flyway_schema_history) RETURNING script",
+    )
+    .fetch_one(&mut conn)
+    .await
+    .unwrap();
+    assert_eq!(flyway::pending(&mut conn).await.unwrap(), [last]);
+
+    sqlx::query("DROP TABLE flyway_schema_history")
+        .execute(&mut conn)
+        .await
+        .unwrap();
+    assert_eq!(
+        flyway::pending(&mut conn).await.unwrap().len(),
+        flyway::migrations().unwrap().len()
+    );
+}
+
+#[tokio::test]
+async fn the_expected_schema_is_the_one_the_migrations_build() {
+    let db = fresh_database().await;
+    let mut conn = connect(&db).await;
+    let snapshot = picsou::db::schema::snapshot(&mut conn).await.unwrap();
+    let text = snapshot.join("\n") + "\n";
+    if std::env::var_os("PICSOU_WRITE_SCHEMA").is_some() {
+        std::fs::write(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/src/db/schema.tsv"),
+            &text,
+        )
+        .unwrap();
+    }
+    assert!(
+        text == picsou::db::schema::EXPECTED,
+        "a migration changed the schema: PICSOU_WRITE_SCHEMA=1 cargo test the_expected_schema rewrites src/db/schema.tsv"
+    );
+    picsou::db::schema::check(&mut conn).await.unwrap();
+}
+
+fn release_cli(command: &str, database: &TestDatabase) -> std::process::Output {
+    std::process::Command::new(env!("CARGO_BIN_EXE_picsou"))
+        .arg(command)
+        .env_clear()
+        .env(
+            "SPRING_DATASOURCE_URL",
+            format!("jdbc:postgresql://127.0.0.1:55432/{}", database.name()),
+        )
+        .env("SPRING_DATASOURCE_USERNAME", DB_USER)
+        .env("SPRING_DATASOURCE_PASSWORD", "trust-ignores-it")
+        .output()
+        .unwrap()
+}
+
+#[tokio::test]
+async fn the_release_cli_migrates_and_verifies_like_the_java_one() {
+    let db = fresh_database().await;
+    let migrate = release_cli("migrate", &db);
+    assert!(migrate.status.success(), "{migrate:?}");
+    let verify = release_cli("verify", &db);
+    assert!(verify.status.success(), "{verify:?}");
+
+    let mut conn = connect(&db).await;
+    let last: String = sqlx::query_scalar(
+        "DELETE FROM flyway_schema_history WHERE installed_rank = (SELECT max(installed_rank) FROM flyway_schema_history) RETURNING script",
+    )
+    .fetch_one(&mut conn)
+    .await
+    .unwrap();
+    let incomplete = release_cli("verify", &db);
+    let stderr = String::from_utf8_lossy(&incomplete.stderr);
+    assert_eq!(incomplete.status.code(), Some(1));
+    assert!(
+        stderr.contains("Migration inventory is incomplete") && stderr.contains(&last),
+        "{stderr}"
+    );
+
+    let drifted_db = fresh_database().await;
+    sqlx::query("ALTER TABLE account DROP COLUMN payment_due_amount")
+        .execute(&mut connect(&drifted_db).await)
+        .await
+        .unwrap();
+    let drifted = release_cli("verify", &drifted_db);
+    let stderr = String::from_utf8_lossy(&drifted.stderr);
+    assert_eq!(drifted.status.code(), Some(1));
+    assert!(
+        stderr.contains("missing column [payment_due_amount] in table [account]"),
+        "{stderr}"
+    );
+
+    // A baselined database was not built by these scripts: its columns are not compared.
+    sqlx::query(
+        "INSERT INTO flyway_schema_history (installed_rank, version, description, type, script, checksum, installed_by, execution_time, success) \
+         VALUES (0, '1', '<< Flyway Baseline >>', 'BASELINE', '<< Flyway Baseline >>', NULL, 'picsou', 0, true)",
+    )
+    .execute(&mut connect(&drifted_db).await)
+    .await
+    .unwrap();
+    let baselined = release_cli("verify", &drifted_db);
+    assert!(baselined.status.success(), "{baselined:?}");
+
+    let unknown = release_cli("rollback", &db);
+    assert_eq!(unknown.status.code(), Some(1));
+    let missing = std::process::Command::new(env!("CARGO_BIN_EXE_picsou"))
+        .arg("verify")
+        .env_clear()
+        .output()
+        .unwrap();
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("SPRING_DATASOURCE_URL"));
+}
+
+#[tokio::test]
 async fn an_applied_version_this_binary_lacks_fails() {
     let db = fresh_database().await;
     let mut conn = connect(&db).await;

@@ -1,6 +1,8 @@
 //! The connection pool and the Flyway-compatible migrator.
 
 pub mod flyway;
+pub mod release_cli;
+pub mod schema;
 
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
