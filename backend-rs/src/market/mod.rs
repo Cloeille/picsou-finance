@@ -23,8 +23,10 @@ use rust_decimal::Decimal;
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 
+use self::cerema::CeremaDv3f;
 use self::coingecko::CoinGecko;
 use self::cooldown::YahooCooldown;
+use self::insee::InseeBdm;
 use self::justetf::JustEtf;
 use self::metals::PreciousMetals;
 use self::openfigi::OpenFigi;
@@ -54,6 +56,8 @@ pub struct Market {
     prices: Arc<PriceService>,
     openfigi: Arc<OpenFigi>,
     justetf: Arc<JustEtf>,
+    cerema: Arc<CeremaDv3f>,
+    insee: Arc<InseeBdm>,
     cooldown: Arc<YahooCooldown>,
     yahoo: Arc<YahooFinance>,
     coingecko: Arc<CoinGecko>,
@@ -82,6 +86,12 @@ impl Market {
             coingecko.clone(),
         ));
         let justetf = Arc::new(JustEtf::new(http.clone(), &config.justetf_base_url));
+        let cerema = Arc::new(CeremaDv3f::new(http.clone(), &config.cerema_api_url));
+        let insee = Arc::new(InseeBdm::new(
+            http.clone(),
+            &config.insee_api_url,
+            clock.clone(),
+        ));
         Self {
             prices: Arc::new(PriceService::new(
                 db.clone(),
@@ -97,6 +107,8 @@ impl Market {
             )),
             openfigi,
             justetf,
+            cerema,
+            insee,
             cooldown,
             yahoo,
             coingecko,
@@ -134,6 +146,16 @@ impl Market {
     /// justETF ETF composition & facts by ISIN.
     pub fn justetf(&self) -> &Arc<JustEtf> {
         &self.justetf
+    }
+
+    /// Cerema DV3F open-data property valuation provider.
+    pub fn cerema(&self) -> &Arc<CeremaDv3f> {
+        &self.cerema
+    }
+
+    /// INSEE BDM housing price index provider.
+    pub fn insee(&self) -> &Arc<InseeBdm> {
+        &self.insee
     }
 
     /// The price service the ledger's valuation reads through.

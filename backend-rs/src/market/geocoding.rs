@@ -25,6 +25,25 @@ pub struct GeocodeResult {
     pub ban_id: Option<String>,
 }
 
+impl GeocodeResult {
+    /// Two-digit metropolitan department code, or three digits overseas (97x).
+    pub fn department_code(&self) -> Option<String> {
+        let code = self.insee_code.as_deref()?;
+        if code.starts_with("97") && code.len() >= 3 {
+            Some(code[..3].to_owned())
+        } else if code.len() >= 2 {
+            Some(code[..2].to_owned())
+        } else {
+            None
+        }
+    }
+}
+
+/// geocode(query): best single address match.
+pub async fn geocode(http: &reqwest::Client, base_url: &str, query: &str) -> Option<GeocodeResult> {
+    search(http, base_url, query, 1).await.into_iter().next()
+}
+
 /// autocomplete(query, limit): up to limit (clamped to 1..10) addresses.
 pub async fn autocomplete(
     http: &reqwest::Client,
