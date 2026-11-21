@@ -7,6 +7,7 @@ import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
 import com.picsou.model.*;
 import com.picsou.port.CryptoExchangePort;
+import com.picsou.port.CryptoExchangePort.ExchangeCredentials;
 import com.picsou.port.CryptoExchangePort.ExchangePosition;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
@@ -26,6 +27,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -42,6 +44,7 @@ import java.util.stream.Collectors;
 public class CryptoExchangeSyncService {
 
     private static final Logger log = LoggerFactory.getLogger(CryptoExchangeSyncService.class);
+    private static final int API_PASSPHRASE_MAX_BYTES = 347;
 
     private final List<CryptoExchangePort> exchangeAdapters;
     private final CryptoExchangeSessionRepository sessionRepository;
@@ -85,17 +88,19 @@ public class CryptoExchangeSyncService {
         this.sessionTransaction.setPropagationBehavior(TransactionTemplate.PROPAGATION_REQUIRES_NEW);
     }
 
-    public AccountResponse addExchange(ExchangeType type, String apiKey, String apiSecret, Long memberId) {
+    public AccountResponse addExchange(ExchangeType type, ExchangeCredentials supplied, Long memberId) {
         if (type == null) {
             throw new IllegalArgumentException("An exchange type is required.");
         }
         CryptoExchangePort adapter = findAdapter(type);
 
-        // Validate the credential shape the adapter actually needs, before spending a network
-        // round-trip on it. Blank normalises to null: the shared form always sends a string, so a
-        // single-key exchange arrives with "" rather than an absent field.
-        String key = trimToNull(apiKey);
-        String secret = trimToNull(apiSecret);
+        // Validate the adapter's credential requirements before making a network call.
+        String key = trimToNull(supplied.apiKey());
+        String secret = trimToNull(supplied.apiSecret());
+        String passphrase = supplied.apiPassphrase();
+        if (passphrase != null && passphrase.isBlank()) {
+            passphrase = null;
+        }
         if (key == null) {
             throw new IllegalArgumentException("An API key is required.");
         }
@@ -106,29 +111,34 @@ public class CryptoExchangeSyncService {
             throw new IllegalArgumentException(
                 type + " connects with a single read-only API key and takes no API secret.");
         }
-        if (!adapter.testConnection(key, secret)) {
+        boolean requiresPassphrase = adapter.requiresApiPassphrase();
+        if (requiresPassphrase && passphrase == null) {
+            throw new IllegalArgumentException(type + " requires an API passphrase.");
+        }
+        if (!requiresPassphrase && passphrase != null) {
+            throw new IllegalArgumentException(type + " does not use an API passphrase.");
+        }
+        if (passphrase != null && passphrase.getBytes(StandardCharsets.UTF_8).length > API_PASSPHRASE_MAX_BYTES) {
+            throw new IllegalArgumentException("The API passphrase exceeds " + API_PASSPHRASE_MAX_BYTES + " UTF-8 bytes.");
+        }
+        String region = validateRegion(type, supplied.region(), adapter.regions());
+        if (!adapter.testConnection(new ExchangeCredentials(key, secret, passphrase, region))) {
             throw new SyncException("Could not connect to " + type + ". Please check your API keys.");
         }
 
         FamilyMember member = familyMemberRepository.findById(memberId)
             .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
 
-        Optional<CryptoExchangeSession> existing = sessionRepository.findByExchangeTypeAndMemberId(type, memberId);
-        CryptoExchangeSession session;
-        if (existing.isPresent()) {
-            session = existing.get();
-            session.setApiKey(encryption.encrypt(key));
-            session.setApiSecret(encryption.encrypt(secret));
-            session.setStatus("CONNECTED");
-        } else {
-            session = CryptoExchangeSession.builder()
+        CryptoExchangeSession session = sessionRepository.findByExchangeTypeAndMemberId(type, memberId)
+            .orElseGet(() -> CryptoExchangeSession.builder()
                 .member(member)
                 .exchangeType(type)
-                .apiKey(encryption.encrypt(key))
-                .apiSecret(encryption.encrypt(secret))
-                .status("CONNECTED")
-                .build();
-        }
+                .build());
+        session.setApiKey(encryption.encrypt(key));
+        session.setApiSecret(encryption.encrypt(secret));
+        session.setApiPassphrase(encryption.encrypt(passphrase));
+        session.setRegion(region);
+        session.setStatus("CONNECTED");
         sessionRepository.save(session);
 
         return sync(session.getId(), memberId);
@@ -139,11 +149,12 @@ public class CryptoExchangeSyncService {
             .orElseThrow(() -> new ResourceNotFoundException("Exchange session not found"));
 
         CryptoExchangePort adapter = findAdapter(session.getExchangeType());
-        String decryptedKey = encryption.decrypt(session.getApiKey());
-        String decryptedSecret = encryption.decrypt(session.getApiSecret());
+        ExchangeCredentials credentials = new ExchangeCredentials(
+            encryption.decrypt(session.getApiKey()), encryption.decrypt(session.getApiSecret()),
+            encryption.decrypt(session.getApiPassphrase()), session.getRegion());
 
         try {
-            List<ExchangePosition> positions = adapter.fetchPositions(decryptedKey, decryptedSecret);
+            List<ExchangePosition> positions = adapter.fetchPositions(credentials);
 
             // The account balance and its holdings are per asset, whatever product it sits under;
             // the per-product split is kept separately, for display only.
@@ -421,7 +432,7 @@ public class CryptoExchangeSyncService {
     public List<ExchangeStatusResponse> getStatus(Long memberId) {
         return sessionRepository.findAllByMemberId(memberId).stream()
             .map(s -> new ExchangeStatusResponse(
-                s.getId(), s.getExchangeType(), s.getStatus(), s.getLastSyncedAt()))
+                s.getId(), s.getExchangeType(), s.getStatus(), s.getLastSyncedAt(), s.getRegion()))
             .toList();
     }
 
@@ -457,6 +468,21 @@ public class CryptoExchangeSyncService {
         if (value == null) return null;
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String validateRegion(ExchangeType type, String supplied, List<String> regions) {
+        String region = supplied == null ? "" : supplied.strip().toUpperCase(Locale.ROOT);
+        if (regions.isEmpty()) {
+            if (!region.isEmpty()) {
+                throw new IllegalArgumentException(type + " does not use a region.");
+            }
+            return null;
+        }
+        if (!regions.contains(region)) {
+            String requirement = region.isEmpty() ? " requires a region." : " does not support the selected region.";
+            throw new IllegalArgumentException(type + requirement + " Allowed regions: " + String.join(", ", regions));
+        }
+        return region;
     }
 
     /**
@@ -542,5 +568,5 @@ public class CryptoExchangeSyncService {
     }
 
     public record ExchangeStatusResponse(
-        Long id, ExchangeType exchangeType, String status, java.time.Instant lastSyncedAt) {}
+        Long id, ExchangeType exchangeType, String status, Instant lastSyncedAt, String region) {}
 }

@@ -109,6 +109,12 @@ export function CryptoExchangeTab() {
                       {t(`sync.connectionStatus.${exchange.status}`, { defaultValue: exchange.status })}
                     </Badge>
                   </div>
+                  {exchange.region && (
+                    <p className="text-xs text-muted-foreground">
+                      {t('common.labelColon', { label: t('sync.exchanges.region') })}{' '}
+                      {t(`sync.exchanges.regions.${exchange.region}`, { defaultValue: exchange.region })}
+                    </p>
+                  )}
                   {exchange.lastSyncedAt && (
                     <p className="text-xs text-muted-foreground">
                       {t('common.labelColon', { label: t('sync.exchanges.lastSync') })} {formatDate(exchange.lastSyncedAt)}

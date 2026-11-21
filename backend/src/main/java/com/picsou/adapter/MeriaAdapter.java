@@ -123,7 +123,8 @@ public class MeriaAdapter implements CryptoExchangePort {
     }
 
     @Override
-    public List<ExchangePosition> fetchPositions(String apiKey, String unusedSecret) {
+    public List<ExchangePosition> fetchPositions(ExchangeCredentials credentials) {
+        String apiKey = credentials.apiKey();
         // A TreeMap per product, not one map overall: the same asset can be held in several
         // products at once, and each stays its own position line.
         List<ExchangePosition> positions = new ArrayList<>();
@@ -189,13 +190,13 @@ public class MeriaAdapter implements CryptoExchangePort {
     }
 
     @Override
-    public boolean testConnection(String apiKey, String unusedSecret) {
+    public boolean testConnection(ExchangeCredentials credentials) {
         try {
             // The only place reading an untyped body: /status is documented as the key-check call
             // but its success payload is not, so we assert no more than the shared envelope flag.
             JsonNode body = client.get()
                 .uri("/status")
-                .header(API_KEY_HEADER, apiKey)
+                .header(API_KEY_HEADER, credentials.apiKey())
                 .accept(MediaType.APPLICATION_JSON)
                 .retrieve()
                 .bodyToMono(JsonNode.class)

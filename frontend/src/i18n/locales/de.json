@@ -1,5 +1,6 @@
 {
   "common": {
+    "actions": "Aktionen",
     "loading": "Wird geladen...",
     "add": "Hinzufügen",
     "save": "Speichern",
@@ -1156,6 +1157,15 @@
       "type": "Exchange-Typ",
       "apiKey": "API-Key",
       "apiSecret": "API-Secret",
+      "apiPassphrase": "API-Passphrase",
+      "region": "Region",
+      "regionPlaceholder": "Region auswählen",
+      "regionHelp": "Wähle die Region, der dein Konto bei der Kryptobörse zugeordnet ist.",
+      "regions": {
+        "GLOBAL": "Global",
+        "EEA": "Europäischer Wirtschaftsraum",
+        "US": "Vereinigte Staaten"
+      },
       "apiKeyOnly": "Meria verbindet sich mit einem einzigen schreibgeschützten API-Key — kein Secret nötig.",
       "showSecret": "API-Secret anzeigen",
       "hideSecret": "API-Secret verbergen",

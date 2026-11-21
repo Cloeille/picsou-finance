@@ -175,17 +175,16 @@ describe("Crypto exchange hooks", () => {
   })
 
   it("forwards an absent API secret unchanged for single-key exchanges", async () => {
-    // Meria takes an API key alone; the field must reach the API layer as undefined so axios
-    // drops it from the body rather than posting an empty string the backend would reject.
+    // Meria takes an API key alone. Forward the request without optional credentials.
     cryptoExchangeApi.add.mockResolvedValue({})
     const { wrapper } = createHarness()
     const { result } = renderHook(() => useAddCryptoExchange(), { wrapper })
 
     await act(() =>
-      result.current.mutateAsync({ type: "MERIA", apiKey: "meria-key", apiSecret: undefined }),
+      result.current.mutateAsync({ type: "MERIA", apiKey: "meria-key" }),
     )
 
-    expect(cryptoExchangeApi.add).toHaveBeenCalledWith("MERIA", "meria-key", undefined)
+    expect(cryptoExchangeApi.add).toHaveBeenCalledWith({ type: "MERIA", apiKey: "meria-key" }, expect.anything())
   })
 })
 
