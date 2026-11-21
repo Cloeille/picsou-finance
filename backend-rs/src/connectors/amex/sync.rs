@@ -1,15 +1,15 @@
 //! AmexSyncService and AmexAdapter: the sidecar calls, the strict validation of a card snapshot
 //! (all or nothing), and its write over the member's credit-card account.
 
-use std::collections::HashSet;
-use std::sync::LazyLock;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use regex::Regex;
 use rust_decimal::Decimal;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sqlx::PgConnection;
 
@@ -17,9 +17,9 @@ use super::history::{self, PreparedTransaction};
 use crate::AppState;
 use crate::connectors::sidecar::template::error;
 use crate::connectors::sidecar::{
-    AuthInitResponse, JobResult, SessionStatusResponse, SidecarClient, SidecarInitiate,
-    SidecarSession, SidecarSessionState, SidecarSyncStatus, SyncError, SyncJob, SyncStrategy,
-    SyncTemplate,
+    AuthInitResponse, JobResult, SessionStatusResponse, SidecarClient, SidecarHttp,
+    SidecarInitiate, SidecarSession, SidecarSessionState, SidecarSyncStatus, SyncError, SyncJob,
+    SyncStrategy, SyncTemplate,
 };
 use crate::error::{AppError, AppResult};
 use crate::ledger::accounts::{self, NewAccount};
@@ -39,7 +39,143 @@ const AUTH_TIMEOUT: Duration = Duration::from_secs(90);
 const VALIDATION_TIMEOUT: Duration = Duration::from_secs(40);
 const ACCOUNTS_TIMEOUT: Duration = Duration::from_secs(90);
 const HISTORY_TIMEOUT: Duration = Duration::from_secs(4 * 90);
+const WEBVIEW_TIMEOUT: Duration = Duration::from_secs(30);
+const WEBVIEW_ATTEMPT_SECONDS: i64 = 360;
 const NO_SESSION: &str = "American Express did not return a session";
+
+pub fn webview_supported(state: &AppState) -> bool {
+    state.config.desktop.eq_ignore_ascii_case("true")
+}
+
+#[derive(Debug, Clone)]
+struct PendingWebview {
+    member_id: i64,
+    deadline: DateTime<Utc>,
+    generation: u64,
+}
+
+#[derive(Default)]
+struct WebviewMaps {
+    pending: HashMap<String, PendingWebview>,
+    generations: HashMap<i64, u64>,
+}
+
+#[derive(Default)]
+struct WebviewLogins {
+    maps: Mutex<WebviewMaps>,
+    write: tokio::sync::Mutex<()>,
+}
+
+impl WebviewLogins {
+    fn maps(&self) -> MutexGuard<'_, WebviewMaps> {
+        self.maps
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn generation(&self, member_id: i64) -> u64 {
+        self.maps()
+            .generations
+            .get(&member_id)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    fn evict_expired(&self, now: DateTime<Utc>) {
+        self.maps().pending.retain(|_, p| p.deadline > now);
+    }
+
+    fn remove(&self, process_id: &str) {
+        self.maps().pending.remove(process_id);
+    }
+
+    fn owned_attempt(
+        &self,
+        process_id: &str,
+        member_id: i64,
+        now: DateTime<Utc>,
+    ) -> Result<PendingWebview, SyncError> {
+        self.maps()
+            .pending
+            .get(process_id)
+            .filter(|p| p.member_id == member_id && p.deadline > now)
+            .cloned()
+            .ok_or_else(|| {
+                error(
+                    SidecarErrorCode::AuthAttemptExpired,
+                    "American Express sign-in attempt expired",
+                )
+            })
+    }
+
+    fn require_generation(&self, member_id: i64, generation: u64) -> Result<(), SyncError> {
+        if self.generation(member_id) != generation {
+            return Err(error(
+                SidecarErrorCode::AuthAttemptExpired,
+                "The American Express connection was removed during the login",
+            ));
+        }
+        Ok(())
+    }
+
+    fn forget_member(&self, member_id: i64) {
+        let mut maps = self.maps();
+        *maps.generations.entry(member_id).or_insert(0) += 1;
+        maps.pending.retain(|_, p| p.member_id != member_id);
+    }
+}
+
+fn webview_logins(state: &AppState) -> Arc<WebviewLogins> {
+    state.connectors.jobs.local::<WebviewLogins>("amex-webview")
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebviewStartResponse {
+    pub process_id: String,
+    pub status: String,
+}
+
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebviewStatusResponse {
+    pub status: String,
+    pub error_code: Option<SidecarErrorCode>,
+    pub session: Option<SessionStatusResponse>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebviewCancelResponse {
+    pub cancelled: bool,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct BridgeWebviewStart {
+    process_id: Option<String>,
+    status: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct BridgeWebviewStatus {
+    status: Option<String>,
+    session_state: Option<String>,
+    error_code: Option<String>,
+}
+
+fn require_webview(state: &AppState) -> AppResult<()> {
+    if webview_supported(state) {
+        Ok(())
+    } else {
+        Err(AppError::NotFound(
+            "American Express interactive WebView login is only available in Picsou Desktop"
+                .to_owned(),
+        ))
+    }
+}
 
 static ISO_DATE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\d{4}-\d{2}-\d{2}$").expect("regex"));
@@ -216,18 +352,20 @@ pub async fn complete_auth(
 }
 
 pub async fn queue_sync(state: &AppState, member_id: i64) -> AppResult<SessionStatusResponse> {
-    Ok(SessionStatusResponse::of(
-        &template().queue(state, member_id, false).await?,
-    ))
+    Ok(
+        SessionStatusResponse::of(&template().queue(state, member_id, false).await?)
+            .with_webview_supported(webview_supported(state)),
+    )
 }
 
 pub async fn queue_history_recovery(
     state: &AppState,
     member_id: i64,
 ) -> AppResult<SessionStatusResponse> {
-    Ok(SessionStatusResponse::of(
-        &template().queue(state, member_id, true).await?,
-    ))
+    Ok(
+        SessionStatusResponse::of(&template().queue(state, member_id, true).await?)
+            .with_webview_supported(webview_supported(state)),
+    )
 }
 
 /// The first import after a login fetches the full provider history: the connect flow is already
@@ -240,20 +378,200 @@ async fn store_session_and_queue(
     let session = template()
         .replace_and_queue(state, member_id, plain_state, true, |_| Ok(()))
         .await?;
-    Ok(SessionStatusResponse::of(&session))
+    Ok(SessionStatusResponse::of(&session).with_webview_supported(webview_supported(state)))
 }
 
 pub async fn get_status(state: &AppState, member_id: i64) -> AppResult<SessionStatusResponse> {
+    let supported = webview_supported(state);
     Ok(template()
         .find(state, member_id)
         .await?
         .map_or_else(SessionStatusResponse::inactive, |s| {
             SessionStatusResponse::of(&s)
-        }))
+        })
+        .with_webview_supported(supported))
 }
 
 pub async fn clear_session(state: &AppState, member_id: i64) -> AppResult<bool> {
+    let logins = webview_logins(state);
+    let _write = logins.write.lock().await;
+    logins.forget_member(member_id);
     template().clear(state, member_id).await
+}
+
+pub async fn start_webview(state: &AppState, member_id: i64) -> AppResult<WebviewStartResponse> {
+    require_webview(state)?;
+    let logins = webview_logins(state);
+    let generation = logins.generation(member_id);
+    let started: BridgeWebviewStart = client(state)
+        .post(
+            "/webview/start",
+            &json!({}),
+            WEBVIEW_TIMEOUT,
+            "Could not start the American Express WebView login",
+            None,
+        )
+        .await?;
+    let Some(process_id) = started.process_id.filter(|s| clean(Some(s)).is_some()) else {
+        return Err(error(
+            SidecarErrorCode::UpstreamFormatChanged,
+            "American Express WebView bridge did not return a process identifier",
+        )
+        .into());
+    };
+    let status = started.status.unwrap_or_else(|| "WAITING_LOGIN".to_owned());
+    let now = state.clock.now();
+    {
+        let _write = logins.write.lock().await;
+        logins.require_generation(member_id, generation)?;
+        logins.evict_expired(now);
+        logins.maps().pending.insert(
+            process_id.clone(),
+            PendingWebview {
+                member_id,
+                deadline: now + chrono::Duration::seconds(WEBVIEW_ATTEMPT_SECONDS),
+                generation,
+            },
+        );
+    }
+    Ok(WebviewStartResponse { process_id, status })
+}
+
+pub async fn poll_webview_status(
+    state: &AppState,
+    process_id: &str,
+    member_id: i64,
+) -> AppResult<WebviewStatusResponse> {
+    require_webview(state)?;
+    let logins = webview_logins(state);
+    let current = logins.owned_attempt(process_id, member_id, state.clock.now())?;
+    let c = client(state);
+    let http = SidecarHttp::new(state, BANK.service_name(), BANK.label());
+    let path = format!("/webview/status/{process_id}");
+    let raw = http
+        .send::<()>(http::Method::GET, &path, None, WEBVIEW_TIMEOUT)
+        .await
+        .map_err(|e| c.map_call_error("Could not read American Express WebView status", e))?;
+    if !raw.is_success() {
+        let mapped = c.map_status("Could not read American Express WebView status", &raw, None);
+        if raw.status == http::StatusCode::GONE || raw.status == http::StatusCode::NOT_FOUND {
+            logins.remove(process_id);
+        }
+        return Err(mapped.into());
+    }
+    let bridge: BridgeWebviewStatus = c
+        .decode("Could not decode American Express WebView status", &raw)?
+        .ok_or_else(|| {
+            c.coded(
+                SidecarErrorCode::UpstreamUnavailable,
+                "Could not decode American Express WebView status",
+            )
+        })?;
+    let status = bridge.status.unwrap_or_else(|| "FAILED".to_owned());
+    match status.as_str() {
+        "WAITING_LOGIN" | "FETCHING" => Ok(WebviewStatusResponse {
+            status,
+            error_code: None,
+            session: None,
+        }),
+        "CANCELLED" => {
+            logins.remove(process_id);
+            Ok(WebviewStatusResponse {
+                status,
+                error_code: None,
+                session: None,
+            })
+        }
+        "FAILED" => {
+            logins.remove(process_id);
+            let error_code = Some(
+                BANK.parse(bridge.error_code.as_deref())
+                    .unwrap_or(SidecarErrorCode::UpstreamUnavailable),
+            );
+            Ok(WebviewStatusResponse {
+                status,
+                error_code,
+                session: None,
+            })
+        }
+        "DONE" => {
+            let Some(plain_state) = bridge.session_state.filter(|s| clean(Some(s)).is_some())
+            else {
+                logins.remove(process_id);
+                return Err(error(
+                    SidecarErrorCode::InvalidData,
+                    "American Express WebView login did not return a session",
+                )
+                .into());
+            };
+            let tpl = template();
+            let job = {
+                let _write = logins.write.lock().await;
+                let still_pending = logins.maps().pending.remove(process_id);
+                if still_pending.is_none() {
+                    let session = get_status(state, member_id).await?;
+                    return Ok(WebviewStatusResponse {
+                        status: "SYNCING".to_owned(),
+                        error_code: None,
+                        session: Some(session),
+                    });
+                }
+                logins.require_generation(member_id, current.generation)?;
+                let mut tx = state.db.begin().await?;
+                let job = tpl
+                    .insert_queued(state, &mut tx, member_id, plain_state, true, |_| Ok(()))
+                    .await?;
+                tx.commit().await?;
+                job
+            };
+            let session = get_status(state, member_id).await?;
+            tpl.submit(state, job)?;
+            Ok(WebviewStatusResponse {
+                status: "SYNCING".to_owned(),
+                error_code: None,
+                session: Some(session),
+            })
+        }
+        _ => {
+            logins.remove(process_id);
+            Err(error(
+                SidecarErrorCode::UpstreamFormatChanged,
+                "American Express WebView bridge returned an unexpected status",
+            )
+            .into())
+        }
+    }
+}
+
+pub async fn cancel_webview(
+    state: &AppState,
+    process_id: &str,
+    member_id: i64,
+) -> AppResult<WebviewCancelResponse> {
+    require_webview(state)?;
+    let logins = webview_logins(state);
+    let removed = {
+        let mut maps = logins.maps();
+        if maps
+            .pending
+            .get(process_id)
+            .is_some_and(|p| p.member_id == member_id)
+        {
+            maps.pending.remove(process_id);
+            true
+        } else {
+            false
+        }
+    };
+    if !removed {
+        return Ok(WebviewCancelResponse { cancelled: false });
+    }
+    let http = SidecarHttp::new(state, BANK.service_name(), BANK.label());
+    let path = format!("/webview/cancel/{process_id}");
+    let _ = http
+        .send::<Value>(http::Method::POST, &path, Some(&json!({})), WEBVIEW_TIMEOUT)
+        .await;
+    Ok(WebviewCancelResponse { cancelled: true })
 }
 
 pub async fn recover_interrupted_syncs(state: &AppState) -> sqlx::Result<u64> {

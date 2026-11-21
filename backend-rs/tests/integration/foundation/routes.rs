@@ -35,6 +35,12 @@ const FRAMEWORK_ROUTES: &[(&str, &str)] = &[
     ("POST", "/api/bnp/webview/start"),
     ("GET", "/api/bnp/webview/status/{}"),
     ("POST", "/api/bnp/webview/cancel/{}"),
+    ("POST", "/api/amex/webview/start"),
+    ("GET", "/api/amex/webview/status/{}"),
+    ("POST", "/api/amex/webview/cancel/{}"),
+    ("POST", "/api/revolut/webview/start"),
+    ("GET", "/api/revolut/webview/status/{}"),
+    ("POST", "/api/revolut/webview/cancel/{}"),
 ];
 
 /// Spring and axum share the {name} syntax; a regex constraint ({id:\d+}) and the variable name

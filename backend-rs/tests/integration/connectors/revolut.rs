@@ -550,3 +550,169 @@ async fn rate_limit_stops_the_sixth_sync_and_members_are_isolated() {
         false
     );
 }
+
+#[tokio::test]
+async fn webview_endpoints_are_desktop_only_and_drive_full_sync_on_desktop() {
+    // Web/Docker mode (PICSOU_DESKTOP unset): status omits webviewLoginSupported and routes 404.
+    let sidecar = MockServer::start().await;
+    let web_app = app_with_sidecar(URL, &sidecar).await;
+    let (web_client, _) = admin(&web_app).await;
+    let web_st = web_client.get("/api/revolut/status").send().await.json();
+    assert!(web_st.get("webviewLoginSupported").is_none());
+    assert_eq!(
+        web_client
+            .post("/api/revolut/webview/start")
+            .send()
+            .await
+            .status,
+        404
+    );
+
+    // Desktop mode (PICSOU_DESKTOP=true): status advertises webviewLoginSupported = true.
+    let desktop_app = picsou::testing::TestApp::builder()
+        .with_admin()
+        .env(URL, sidecar.uri())
+        .env("PICSOU_DESKTOP", "true")
+        .spawn()
+        .await;
+    let (client, _) = admin(&desktop_app).await;
+    let (other, _) = member(&desktop_app, "other-revolut").await;
+    assert_eq!(
+        client.get("/api/revolut/status").send().await.json()["webviewLoginSupported"],
+        true
+    );
+
+    answer(
+        &sidecar,
+        "/webview/start",
+        json!({ "processId": "wv-revo-1", "status": "WAITING_LOGIN" }),
+    )
+    .await;
+    let started = client.post("/api/revolut/webview/start").send().await;
+    assert_eq!(started.status, 200, "{}", started.text());
+    assert_eq!(started.header("cache-control"), Some("no-store"));
+    assert_eq!(started.json()["processId"], "wv-revo-1");
+
+    // Another member cannot poll or cancel the attempt.
+    assert_eq!(
+        other
+            .get("/api/revolut/webview/status/wv-revo-1")
+            .send()
+            .await
+            .json()["code"],
+        "AUTH_ATTEMPT_EXPIRED"
+    );
+    assert_eq!(
+        other
+            .post("/api/revolut/webview/cancel/wv-revo-1")
+            .send()
+            .await
+            .json()["cancelled"],
+        false
+    );
+
+    Mock::given(method("GET"))
+        .and(path("/webview/status/wv-revo-1"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "status": "WAITING_LOGIN" })),
+        )
+        .up_to_n_times(1)
+        .mount(&sidecar)
+        .await;
+    assert_eq!(
+        client
+            .get("/api/revolut/webview/status/wv-revo-1")
+            .send()
+            .await
+            .json()["status"],
+        "WAITING_LOGIN"
+    );
+
+    Mock::given(method("GET"))
+        .and(path("/webview/status/wv-revo-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "status": "DONE" })))
+        .mount(&sidecar)
+        .await;
+    answer(
+        &sidecar,
+        "/sync",
+        json!({
+            "accounts": [{
+                "externalId": "wallet-wv",
+                "name": "Revolut",
+                "type": "CHECKING",
+                "iban": IBAN,
+                "balance": n("150.00"),
+                "currency": "EUR",
+                "transactions": []
+            }]
+        }),
+    )
+    .await;
+
+    let done = client
+        .get("/api/revolut/webview/status/wv-revo-1")
+        .send()
+        .await;
+    assert_eq!(done.status, 200, "{}", done.text());
+    let done_json = done.json();
+    assert_eq!(done_json["status"], "SYNCING");
+    assert_eq!(done_json["session"]["connected"], true);
+    assert_eq!(done_json["session"]["webviewLoginSupported"], true);
+
+    settle(&desktop_app).await;
+    let progress = client.get("/api/revolut/sync/progress").send().await.json();
+    assert_eq!(progress["done"], true);
+    assert_eq!(progress["discovered"].as_array().unwrap().len(), 1);
+    assert_eq!(progress["discovered"][0]["externalId"], "wallet-wv");
+
+    // Confirming persists the discovered account.
+    let confirm = client
+        .post("/api/revolut/sync/confirm")
+        .json(&json!({
+            "selectedExternalIds": ["wallet-wv"],
+            "remember": false,
+            "voluntary": false
+        }))
+        .send()
+        .await;
+    assert_eq!(confirm.status, 204, "{}", confirm.text());
+    assert_eq!(count(&desktop_app, "SELECT count(*) FROM account").await, 1);
+
+    // Cancel flow removes pending login and calls bridge cancel.
+    sidecar.reset().await;
+    answer(
+        &sidecar,
+        "/webview/start",
+        json!({ "processId": "wv-revo-2", "status": "WAITING_LOGIN" }),
+    )
+    .await;
+    answer(
+        &sidecar,
+        "/webview/cancel/wv-revo-2",
+        json!({ "cancelled": true }),
+    )
+    .await;
+    assert_eq!(
+        client
+            .post("/api/revolut/webview/start")
+            .send()
+            .await
+            .status,
+        200
+    );
+    let cancelled = client
+        .post("/api/revolut/webview/cancel/wv-revo-2")
+        .send()
+        .await;
+    assert_eq!(cancelled.status, 200);
+    assert_eq!(cancelled.json()["cancelled"], true);
+    assert_eq!(
+        client
+            .get("/api/revolut/webview/status/wv-revo-2")
+            .send()
+            .await
+            .json()["code"],
+        "AUTH_ATTEMPT_EXPIRED"
+    );
+}

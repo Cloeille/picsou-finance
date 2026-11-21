@@ -8,7 +8,7 @@ mod sync;
 use std::sync::LazyLock;
 
 use axum::Json as AxumJson;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use regex::Regex;
@@ -16,10 +16,11 @@ use serde::Deserialize;
 
 pub use sync::{recover_interrupted_syncs, resync_reporting};
 
+use super::sidecar::keypad::no_store;
 use super::sidecar::web::{AuthInitResponse, SessionStatusResponse, consume};
 use crate::AppState;
 use crate::auth::Auth;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::http::client_ip::ClientIp;
 use crate::http::json::{Errors, Json, Validate};
 use crate::http::rate_limit::policies;
@@ -29,6 +30,9 @@ pub fn register(routes: &mut Routes) {
     routes
         .post("/api/amex/auth/initiate", initiate)
         .post("/api/amex/auth/complete", complete)
+        .post("/api/amex/webview/start", webview_start)
+        .get("/api/amex/webview/status/{processId}", webview_status)
+        .post("/api/amex/webview/cancel/{processId}", webview_cancel)
         .post("/api/amex/sync", sync_now)
         .post("/api/amex/history-recovery", recover_history)
         .get("/api/amex/status", status)
@@ -110,6 +114,52 @@ async fn complete(
     let otp = req.otp.unwrap_or_default();
     Ok(AxumJson(
         sync::complete_auth(&state, &process_id, &otp, auth.member_id).await?,
+    ))
+}
+
+const INVALID_WEBVIEW_ID: &str = "The American Express request is not valid";
+
+fn validate_process_id(process_id: &str) -> AppResult<()> {
+    if process_id.is_empty()
+        || process_id.len() > 128
+        || !process_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        return Err(AppError::BadRequest(INVALID_WEBVIEW_ID.to_owned()));
+    }
+    Ok(())
+}
+
+/// Opens an interactive OS WebView login on Picsou Desktop (never handles credentials).
+async fn webview_start(
+    State(state): State<AppState>,
+    auth: Auth,
+    ip: ClientIp,
+) -> AppResult<Response> {
+    consume(&state, &policies::AMEX_WEBVIEW, &ip, AUTH_RATE_LIMITED)?;
+    Ok(no_store(sync::start_webview(&state, auth.member_id).await?))
+}
+
+async fn webview_status(
+    State(state): State<AppState>,
+    auth: Auth,
+    Path(process_id): Path<String>,
+) -> AppResult<Response> {
+    validate_process_id(&process_id)?;
+    Ok(no_store(
+        sync::poll_webview_status(&state, &process_id, auth.member_id).await?,
+    ))
+}
+
+async fn webview_cancel(
+    State(state): State<AppState>,
+    auth: Auth,
+    Path(process_id): Path<String>,
+) -> AppResult<Response> {
+    validate_process_id(&process_id)?;
+    Ok(no_store(
+        sync::cancel_webview(&state, &process_id, auth.member_id).await?,
     ))
 }
 
