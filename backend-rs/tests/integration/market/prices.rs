@@ -431,3 +431,39 @@ async fn crypto_learning_guards_with_yahoo_dominance_and_drops_old_stock_snapsho
     .unwrap();
     assert_eq!(old_count, 0);
 }
+
+#[tokio::test]
+async fn coingecko_historical_backfill_clamps_lookback_within_365_day_public_limit() {
+    use chrono::Months;
+
+    let yahoo = MockServer::start().await;
+    let coingecko = MockServer::start().await;
+    let app = app(&yahoo, &coingecko).await;
+    let now_ts = app.state.clock.now().timestamp();
+    let expected_from = (now_ts - 364 * 86_400).to_string();
+    let sample_ts = chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, 2025, 2, 1, 12, 0, 0)
+        .unwrap()
+        .timestamp_millis();
+
+    Mock::given(method("GET"))
+        .and(path("/coins/bitcoin/market_chart/range"))
+        .and(query_param("vs_currency", "eur"))
+        .and(query_param("from", expected_from.as_str()))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"prices": [[sample_ts, 85000.0]]})),
+        )
+        .expect(1)
+        .mount(&coingecko)
+        .await;
+
+    // Same 12-month window PriceBackfillRunner requests on startup (365 days + hours > 365 days).
+    let today = app.state.clock.today();
+    let from = today.checked_sub_months(Months::new(12)).unwrap();
+    let saved = app
+        .state
+        .market
+        .prices()
+        .backfill_historical_prices(&BTreeSet::from(["BTC".to_owned()]), from, true)
+        .await;
+    assert_eq!(saved, 1);
+}

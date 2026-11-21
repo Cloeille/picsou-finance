@@ -22,6 +22,10 @@ const SYMBOL_LOOKUP_PAGE: usize = 250;
 const SYMBOL_LOOKUP_MAX_PAGES: usize = 4;
 const SYMBOL_LOOKUP_BATCH: usize = 50;
 const DOMINANCE_RATIO: Decimal = Decimal::TEN;
+/// CoinGecko's free public v3 API rejects `market_chart/range` queries older than 365 days with
+/// HTTP 401 (error 10012). Keep a 24 h margin (364 days) for clock skew, leap years, and local
+/// midnight offsets so a 12-month startup backfill never trips the cutoff.
+const PUBLIC_HISTORY_MAX_LOOKBACK_SECS: i64 = 364 * 86_400;
 
 /// A CoinGecko coin id and display name stored in crypto_asset.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +55,7 @@ struct MarketEntry {
 pub struct CoinGecko {
     http: reqwest::Client,
     base_url: String,
+    api_key: Option<String>,
     db: PgPool,
     clock: AppClock,
     /// Armed by a 429; while active nothing is asked.
@@ -68,10 +73,18 @@ impl CoinGecko {
         Self {
             http,
             base_url: base_url.trim_end_matches('/').to_owned(),
+            api_key: None,
             db,
             clock,
             cooldown,
         }
+    }
+
+    pub fn with_api_key(mut self, api_key: Option<String>) -> Self {
+        self.api_key = api_key
+            .map(|k| k.trim().to_owned())
+            .filter(|k| !k.is_empty());
+        self
     }
 
     /// The registry's display name of a known coin (BTC to "Bitcoin").
@@ -280,6 +293,18 @@ impl CoinGecko {
         if self.cooldown.active() {
             return Vec::new();
         }
+        let Some((from_epoch, to_epoch)) = clamp_public_lookback(
+            from_epoch,
+            to_epoch,
+            self.clock.now().timestamp(),
+            self.has_pro_history_access(),
+        ) else {
+            tracing::debug!(
+                "CoinGecko {operation} for {} is outside the 365-day public API window -- skipping",
+                safe(ticker)
+            );
+            return Vec::new();
+        };
         let url = format!(
             "{}/coins/{}/market_chart/range?vs_currency=eur&from={from_epoch}&to={to_epoch}",
             self.base_url,
@@ -421,15 +446,25 @@ impl CoinGecko {
         Some(accepted)
     }
 
+    fn has_pro_history_access(&self) -> bool {
+        self.api_key.is_some() && self.base_url.contains("pro-api.coingecko.com")
+    }
+
     async fn get_json(&self, url: &str, timeout: Duration, operation: &str) -> Option<Value> {
-        let response = match self
+        let mut req = self
             .http
             .get(url)
             .header("Accept", "application/json")
-            .timeout(timeout)
-            .send()
-            .await
-        {
+            .timeout(timeout);
+        if let Some(key) = &self.api_key {
+            let header = if self.base_url.contains("pro-api.coingecko.com") {
+                "x-cg-pro-api-key"
+            } else {
+                "x-cg-demo-api-key"
+            };
+            req = req.header(header, key);
+        }
+        let response = match req.send().await {
             Ok(r) => r,
             Err(e) => {
                 tracing::warn!("CoinGecko {operation} failed: {}", transport_message(&e));
@@ -543,4 +578,59 @@ fn local_datetime_epoch(zone: chrono_tz::Tz, naive: NaiveDateTime) -> i64 {
         .or_else(|| zone.from_local_datetime(&naive).latest())
         .map(|dt| dt.timestamp())
         .unwrap_or_else(|| naive.and_utc().timestamp())
+}
+
+/// Clamps `[from_epoch, to_epoch]` to CoinGecko's public v3 365-day lookback window (with a 24 h
+/// safety margin) unless a paid Pro API endpoint+key is configured. Returns `None` if the entire
+/// requested window falls before the allowed cutoff.
+fn clamp_public_lookback(
+    from_epoch: i64,
+    to_epoch: i64,
+    now_epoch: i64,
+    has_pro_history: bool,
+) -> Option<(i64, i64)> {
+    if has_pro_history {
+        return (from_epoch <= to_epoch).then_some((from_epoch, to_epoch));
+    }
+    let min_from = now_epoch.saturating_sub(PUBLIC_HISTORY_MAX_LOOKBACK_SECS);
+    let clamped_from = from_epoch.max(min_from);
+    (clamped_from <= to_epoch).then_some((clamped_from, to_epoch))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn public_lookback_clamps_twelve_month_backfill_within_365_day_limit() {
+        // 2026-11-21 23:00 UTC; midnight 12 months earlier is 365d + 23h ago -> would trigger 401.
+        let now = 1_795_302_000_i64;
+        let twelve_months_ago_midnight = now - (365 * 86_400 + 23 * 3600);
+        let today_midnight = now - 23 * 3600;
+
+        let (from, to) =
+            clamp_public_lookback(twelve_months_ago_midnight, today_midnight, now, false).unwrap();
+        assert_eq!(from, now - PUBLIC_HISTORY_MAX_LOOKBACK_SECS);
+        assert_eq!(to, today_midnight);
+        assert!(now - from < 365 * 86_400);
+
+        // Short range inside the window is untouched.
+        let week_ago = now - 7 * 86_400;
+        assert_eq!(
+            clamp_public_lookback(week_ago, now, now, false),
+            Some((week_ago, now))
+        );
+
+        // Range completely older than 364 days is skipped without an HTTP call.
+        assert_eq!(
+            clamp_public_lookback(now - 500 * 86_400, now - 400 * 86_400, now, false),
+            None
+        );
+
+        // Paid Pro access keeps the full requested range.
+        assert_eq!(
+            clamp_public_lookback(twelve_months_ago_midnight, today_midnight, now, true),
+            Some((twelve_months_ago_midnight, today_midnight))
+        );
+    }
 }

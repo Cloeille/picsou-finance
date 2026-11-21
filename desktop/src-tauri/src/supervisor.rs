@@ -270,9 +270,9 @@ pub fn start(layout: &Layout, stack: &Shared, app: Option<tauri::AppHandle>) -> 
     let listener = preferred_listener(&layout.data.join("desktop-port")).map_err(|e| format!("no free port: {e}"))?;
     let port = listener.local_addr().map_err(|e| format!("no free port: {e}"))?.port();
     // vars() panics on a variable that is not UTF-8: such a variable is skipped instead.
-    let mut env: Vec<(String, String)> =
+    let user_env: Vec<(String, String)> =
         std::env::vars_os().filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?))).collect();
-    env.extend(backend_env(layout, db_port, port, &password));
+    let mut env = merge_backend_env(user_env, layout, db_port, port, &password);
     env.extend(sidecars::serve(layout, stack, &sidecar_key, sidecars::IDLE).map_err(|e| format!("sidecar ports: {e}"))?);
     if let Some(app_handle) = app {
         let mut bridge = webview_bank::start(app_handle, sidecar_key.clone())
@@ -446,10 +446,23 @@ pub fn restore_backup(layout: &Layout, stack: &Shared) -> Result<(), String> {
     upgrade::restore(&layout.data, &copy, now_secs()).map_err(|e| format!("restore failed: {e}"))
 }
 
-/// The backend's environment: loopback only, plain HTTP cookies, data under the app-data folder.
+/// Pure-HTTP bank sidecars compiled natively into `picsou` (`backend-rs/src/native_sidecars/`).
+/// Desktop routes all 6 in-process by default so zero Python processes are needed for them; a
+/// non-blank user environment variable still overrides any individual bank.
+pub const NATIVE_SIDECARS: &[(&str, &str)] = &[
+    ("DEGIRO_AUTH_URL", "native://degiro-auth"),
+    ("CMES_AUTH_URL", "native://cmes-auth"),
+    ("SOFIDY_AUTH_URL", "native://sofidy-auth"),
+    ("CIC_AUTH_URL", "native://cic-auth"),
+    ("NATIXIS_AUTH_URL", "native://natixis-auth"),
+    ("BOURSO_AUTH_URL", "native://bourso-auth"),
+];
+
+/// The backend's environment: loopback only, plain HTTP cookies, data under the app-data folder,
+/// and the 6 pure-HTTP bank connectors routed to their native Rust implementations.
 pub fn backend_env(layout: &Layout, db_port: u16, port: u16, password: &str) -> Vec<(String, String)> {
     let path = |p: PathBuf| p.to_string_lossy().into_owned();
-    [
+    let mut vars: Vec<(String, String)> = [
         ("SERVER_ADDRESS", LOOPBACK.to_owned()),
         ("SERVER_PORT", port.to_string()),
         ("SPRING_DATASOURCE_URL", format!("jdbc:postgresql://{LOOPBACK}:{db_port}/{DB_NAME}")),
@@ -466,7 +479,32 @@ pub fn backend_env(layout: &Layout, db_port: u16, port: u16, password: &str) -> 
     ]
     .into_iter()
     .map(|(k, v)| (k.to_owned(), v))
-    .collect()
+    .collect();
+    vars.extend(NATIVE_SIDECARS.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
+    vars
+}
+
+/// Combines the caller's environment with `backend_env`, keeping any non-blank user override for
+/// the native sidecar URL variables.
+pub fn merge_backend_env(
+    user_env: Vec<(String, String)>,
+    layout: &Layout,
+    db_port: u16,
+    port: u16,
+    password: &str,
+) -> Vec<(String, String)> {
+    let overrides: std::collections::HashSet<String> = user_env
+        .iter()
+        .filter(|(k, v)| !v.trim().is_empty() && NATIVE_SIDECARS.iter().any(|(nk, _)| nk == k))
+        .map(|(k, _)| k.clone())
+        .collect();
+    let mut env = user_env;
+    for (k, v) in backend_env(layout, db_port, port, password) {
+        if !overrides.contains(&k) {
+            env.push((k, v));
+        }
+    }
+    env
 }
 
 /// Stops the backend once its requests in flight are answered, then PostgreSQL with a fast
@@ -719,7 +757,28 @@ mod tests {
         assert_eq!(env["APP_STARTUP_SYNC_ENABLED"], "false");
         assert_eq!(env["APP_DESKTOP_MODE"], "true");
         assert_eq!(env["APP_VERSION"], APP_VERSION);
+        for (var, expected) in NATIVE_SIDECARS {
+            assert_eq!(env[*var], *expected, "{var}");
+        }
         assert!(env.values().all(|v| !v.contains("0.0.0.0") && !v.starts_with("/data")));
+    }
+
+    #[test]
+    fn user_env_can_override_a_native_sidecar_url() {
+        let root = PathBuf::from("/picsou");
+        let user_env = vec![
+            ("BOURSO_AUTH_URL".to_owned(), "http://127.0.0.1:8004".to_owned()),
+            ("CIC_AUTH_URL".to_owned(), "   ".to_owned()),
+        ];
+        let env: std::collections::HashMap<_, _> =
+            merge_backend_env(user_env, &layout(&root), 5433, 8123, "pw").into_iter().collect();
+
+        assert_eq!(env["BOURSO_AUTH_URL"], "http://127.0.0.1:8004");
+        assert_eq!(env["CIC_AUTH_URL"], "native://cic-auth");
+        assert_eq!(env["DEGIRO_AUTH_URL"], "native://degiro-auth");
+        assert_eq!(env["CMES_AUTH_URL"], "native://cmes-auth");
+        assert_eq!(env["SOFIDY_AUTH_URL"], "native://sofidy-auth");
+        assert_eq!(env["NATIXIS_AUTH_URL"], "native://natixis-auth");
     }
 
     #[test]

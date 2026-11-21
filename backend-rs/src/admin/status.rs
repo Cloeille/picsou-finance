@@ -256,6 +256,14 @@ async fn probe(
     if url.trim().is_empty() {
         return Some(issue(IssueCode::SidecarUnreachable));
     }
+    if crate::native_sidecars::is_native_url(&url) {
+        return state
+            .connectors
+            .native
+            .resolve(name, &url)
+            .is_none()
+            .then(|| issue(IssueCode::SidecarUnreachable));
+    }
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(PROBE_TIMEOUT)
