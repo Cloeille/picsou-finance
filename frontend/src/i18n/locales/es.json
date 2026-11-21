@@ -1008,6 +1008,8 @@
       "search": "Buscar un banco",
       "country": "País",
       "countriesLoadError": "No se pudieron cargar todos los países — solo Francia disponible.",
+      "notConfigured": "Enable Banking aún no está configurado. Configúrelo en Administración (Bancos e integraciones) para buscar y conectar sus bancos.",
+      "configureEnableBanking": "Configurar",
       "searchPlaceholder": "p. ej. BNP Paribas...",
       "searchError": "No se pueden buscar bancos en este momento.",
       "connected": "Conexiones activas",

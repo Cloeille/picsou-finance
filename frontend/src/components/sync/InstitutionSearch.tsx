@@ -8,8 +8,18 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { BankCountrySelect, DEFAULT_BANK_COUNTRY } from '@/components/shared/BankCountrySelect'
 import { Bank, CircleNotch, MagnifyingGlass } from '@phosphor-icons/react'
-import { extractErrorMessage, formatApiError } from '@/lib/errors'
-import { useSearchInstitutions } from '@/features/sync/hooks'
+import { extractErrorMessage, formatApiError, getErrorCode, getErrorDetail } from '@/lib/errors'
+import { useBankCountries, useSearchInstitutions } from '@/features/sync/hooks'
+import { useAuthStore } from '@/stores/auth-store'
+
+function isEnableBankingNotConfigured(err: unknown): boolean {
+  if (getErrorCode(err) === 'ENABLE_BANKING_NOT_CONFIGURED') return true
+  const detail = getErrorDetail(err) ?? ''
+  return (
+    detail.includes('Enable Banking is not fully configured') ||
+    detail.includes('Enable Banking private key is missing')
+  )
+}
 
 interface InstitutionSearchProps {
   onConnect: (institutionId: string, institutionName: string) => void
@@ -32,8 +42,22 @@ function InstitutionLogo({ logoUrl }: { logoUrl?: string | null }) {
 export function InstitutionSearch({ onConnect, connecting, layout }: InstitutionSearchProps) {
   const { t } = useTranslation()
   const modal = layout === 'modal'
+  const isAdmin = useAuthStore((s) => s.user?.role) === 'ADMIN'
   const [searchQuery, setSearchQuery] = useState('')
   const [country, setCountry] = useState(DEFAULT_BANK_COUNTRY)
+
+  const {
+    data: countries,
+    isError: countriesFailed,
+    isSuccess: countriesLoaded,
+    error: countriesError,
+  } = useBankCountries()
+
+  const hasCountries = !!countries && countries.length > 0
+  const enableBankingNotConfigured =
+    !hasCountries && countriesFailed && isEnableBankingNotConfigured(countriesError)
+  const showCountriesLoadError =
+    !hasCountries && !enableBankingNotConfigured && (countriesFailed || countriesLoaded)
 
   const {
     data: institutions,
@@ -107,8 +131,29 @@ export function InstitutionSearch({ onConnect, connecting, layout }: Institution
             autoFocus={modal}
           />
         </div>
-        <BankCountrySelect value={country} onChange={setCountry} />
+        <BankCountrySelect value={country} onChange={setCountry} silentFallback />
       </div>
+
+      {enableBankingNotConfigured && (
+        <AlertBanner
+          role="alert"
+          action={
+            isAdmin ? (
+              <Button variant="outline" size="sm" asChild className="shrink-0">
+                <a href="/admin?tab=integrations">{t('sync.banks.configureEnableBanking')}</a>
+              </Button>
+            ) : undefined
+          }
+        >
+          {t('sync.banks.notConfigured')}
+        </AlertBanner>
+      )}
+
+      {showCountriesLoadError && (
+        <p role="alert" className="text-xs leading-snug text-destructive">
+          {t('sync.banks.countriesLoadError')}
+        </p>
+      )}
 
       {searchLoading && (
         modal ? (
@@ -121,7 +166,7 @@ export function InstitutionSearch({ onConnect, connecting, layout }: Institution
         )
       )}
 
-      {searchEnabled && searchFailed && !searchLoading && (
+      {searchEnabled && searchFailed && !searchLoading && !(enableBankingNotConfigured && isEnableBankingNotConfigured(searchError)) && (
         <AlertBanner>
           {modal
             ? extractErrorMessage(searchError, t('sync.banks.searchError'))

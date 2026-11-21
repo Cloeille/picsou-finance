@@ -52,6 +52,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **An account or transaction name containing `$t(` no longer freezes the page.** i18next before
   26.4.4 backtracked exponentially on such a value inside a translated sentence: a name of about
   35 characters blocked the browser tab for minutes. i18next is now 26.7.2.
+- **Bank search error layout and unconfigured Enable Banking banner.** Country-list load errors
+  are now rendered full-width below the search row instead of wrapping inside the narrow country
+  selector column, and when Enable Banking is not configured (`ENABLE_BANKING_NOT_CONFIGURED`),
+  bank search shows a clear configuration notice with a direct link to Administration for admins
+  instead of a misleading countries-fallback error.
 
 ### Changed
 
