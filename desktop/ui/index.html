@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Picsou</title>
+    <style>
+      body { margin: 0; height: 100vh; display: grid; place-items: center; font: 15px system-ui, sans-serif; background: #0f1115; color: #e6e6e6; }
+      main { max-width: 32rem; text-align: center; }
+      #error { display: none; color: #ff8a80; white-space: pre-wrap; }
+      body.failed #error { display: block; }
+      body.failed #waiting { display: none; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Picsou</h1>
+      <p id="waiting">Starting Picsou. The first start prepares the database and takes up to a minute.</p>
+      <p id="error"></p>
+    </main>
+    <script>
+      window.picsouFailed = (message) => {
+        document.getElementById("error").textContent = "Picsou could not start.\n" + message;
+        document.body.classList.add("failed");
+      };
+    </script>
+  </body>
+</html>
