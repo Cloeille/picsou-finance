@@ -28,7 +28,11 @@ pub async fn run(state: &AppState) -> anyhow::Result<()> {
         tracing::warn!("ADMIN_RECOVERY_ENABLED=true but no ADMIN user exists yet — skipping.");
         return Ok(());
     }
-    let base = state.config.public_base_url.trim_end_matches('/').to_owned();
+    let base = state
+        .config
+        .public_base_url
+        .trim_end_matches('/')
+        .to_owned();
     for (id, username) in admins {
         let token = generate_token();
         sqlx::query(

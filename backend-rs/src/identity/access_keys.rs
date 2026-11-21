@@ -15,8 +15,8 @@ use crate::auth::Auth;
 use crate::auth::persistent::sha256_hex;
 use crate::error::{AppError, AppResult, Problem};
 use crate::http::json::{Errors, Path};
-use crate::identity::common::JsonBody;
 use crate::http::rate_limit::policies;
+use crate::identity::common::JsonBody;
 use crate::identity::scopes;
 
 const BASE62: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -70,7 +70,10 @@ impl From<KeyRow> for AccessKeyResponse {
 const COLUMNS: &str =
     "id, name, key_prefix, scopes, last_used_at, expires_at, revoked_at, created_at";
 
-pub async fn list(State(state): State<AppState>, auth: Auth) -> AppResult<axum::Json<Vec<AccessKeyResponse>>> {
+pub async fn list(
+    State(state): State<AppState>,
+    auth: Auth,
+) -> AppResult<axum::Json<Vec<AccessKeyResponse>>> {
     let rows: Vec<KeyRow> = sqlx::query_as(&format!(
         "SELECT {COLUMNS} FROM access_key WHERE member_id = $1 ORDER BY created_at DESC"
     ))
@@ -177,7 +180,10 @@ pub async fn delete(
     .await?
     .rows_affected();
     if revoked == 0 {
-        return Err(AppError::status(StatusCode::NOT_FOUND, "Access key not found"));
+        return Err(AppError::status(
+            StatusCode::NOT_FOUND,
+            "Access key not found",
+        ));
     }
     Ok(StatusCode::NO_CONTENT)
 }

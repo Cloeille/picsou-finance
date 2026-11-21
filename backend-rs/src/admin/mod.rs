@@ -112,7 +112,10 @@ pub fn register(routes: &mut Routes) {
         .get("/api/admin/enablebanking/call-log", eb_call_log)
         .delete("/api/admin/enablebanking/call-log", clear_eb_call_log)
         .get("/api/admin/instance-status", status::instance_status)
-        .delete("/api/admin/members/{memberId}/mfa", members::force_disable_mfa)
+        .delete(
+            "/api/admin/members/{memberId}/mfa",
+            members::force_disable_mfa,
+        )
         .delete(
             "/api/admin/members/{memberId}/identities",
             members::unlink_identities,

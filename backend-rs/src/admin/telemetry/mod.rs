@@ -64,7 +64,12 @@ impl Default for Sends {
 
 impl Sends {
     fn cancel_all(&self) {
-        for handle in self.pending.lock().unwrap_or_else(|e| e.into_inner()).drain(..) {
+        for handle in self
+            .pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain(..)
+        {
             handle.abort();
         }
     }
@@ -92,12 +97,20 @@ pub async fn is_enabled(state: &AppState) -> Result<bool, sqlx::Error> {
 
 fn environment(state: &AppState) -> String {
     let e = state.config.telemetry_environment.trim();
-    if e.is_empty() { "production".to_owned() } else { e.to_owned() }
+    if e.is_empty() {
+        "production".to_owned()
+    } else {
+        e.to_owned()
+    }
 }
 
 fn release(state: &AppState) -> String {
     let r = state.config.app_version.trim();
-    if r.is_empty() { "dev".to_owned() } else { r.to_owned() }
+    if r.is_empty() {
+        "dev".to_owned()
+    } else {
+        r.to_owned()
+    }
 }
 
 /// setEnabled: enabling without a DSN is refused, so a consent never waits for a collector.
@@ -105,7 +118,12 @@ pub async fn set_enabled(state: &AppState, enabled: bool) -> Result<bool, sqlx::
     if enabled && !is_available(state) {
         return Ok(false);
     }
-    settings::upsert(&state.db, KEY_CONSENT, if enabled { "ENABLED" } else { "DISABLED" }).await?;
+    settings::upsert(
+        &state.db,
+        KEY_CONSENT,
+        if enabled { "ENABLED" } else { "DISABLED" },
+    )
+    .await?;
     if !enabled {
         state.admin.telemetry.cancel_all();
     }
@@ -125,13 +143,20 @@ pub struct ConfigResponse {
     consent: Consent,
 }
 
-pub async fn config(State(state): State<AppState>, _auth: Auth) -> AppResult<axum::Json<ConfigResponse>> {
+pub async fn config(
+    State(state): State<AppState>,
+    _auth: Auth,
+) -> AppResult<axum::Json<ConfigResponse>> {
     let available = is_available(&state);
     let consent = consent(&state).await?;
     let enabled = available && consent == Consent::Enabled;
     Ok(axum::Json(ConfigResponse {
         enabled,
-        dsn: if enabled { dsn(&state).map(|d| d.raw) } else { None },
+        dsn: if enabled {
+            dsn(&state).map(|d| d.raw)
+        } else {
+            None
+        },
         environment: environment(&state),
         release: release(&state),
         available,
@@ -158,7 +183,9 @@ fn too_large() -> Response {
 /// Sanitizes and queues one bounded asynchronous forward; false only when the in-flight
 /// limit is full.
 async fn forward(state: &AppState, raw: &[u8]) -> bool {
-    let Some(target) = dsn(state) else { return true };
+    let Some(target) = dsn(state) else {
+        return true;
+    };
     if raw.is_empty() {
         return true;
     }
@@ -182,12 +209,20 @@ async fn forward(state: &AppState, raw: &[u8]) -> bool {
         let _permit = permit;
         match request.send().await {
             Ok(response) => {
-                tracing::debug!("telemetry.tunnel.forwarded status={}", response.status().as_u16());
+                tracing::debug!(
+                    "telemetry.tunnel.forwarded status={}",
+                    response.status().as_u16()
+                );
             }
             Err(e) => tracing::error!("telemetry.tunnel.failed: {}", e.without_url()),
         }
     });
-    let mut pending = state.admin.telemetry.pending.lock().unwrap_or_else(|e| e.into_inner());
+    let mut pending = state
+        .admin
+        .telemetry
+        .pending
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     pending.retain(|h| !h.is_finished());
     pending.push(task.abort_handle());
     true
@@ -203,7 +238,10 @@ pub async fn tunnel(
     if !is_enabled(&state).await? {
         return Ok(StatusCode::NO_CONTENT.into_response());
     }
-    if !state.limits.try_consume(&policies::TELEMETRY, &auth.user.username) {
+    if !state
+        .limits
+        .try_consume(&policies::TELEMETRY, &auth.user.username)
+    {
         return Ok(too_many_requests());
     }
     let declared = headers

@@ -15,7 +15,9 @@ use crate::http::json::{Errors, Lang, read_json};
 use crate::setup_auth::audit::{self, AuditContext};
 
 pub fn user_agent(headers: &HeaderMap) -> Option<&str> {
-    headers.get(header::USER_AGENT).and_then(|v| v.to_str().ok())
+    headers
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
 }
 
 /// SetupAuditService.record with the request's client address and user agent.
@@ -46,17 +48,24 @@ pub fn reauth_failed(message: &str) -> AppError {
 
 /// ReAuthService.hasValidProof: a reauth_proof cookie for this account and token version.
 pub fn has_valid_proof(state: &AppState, user: &AppUser, headers: &HeaderMap) -> bool {
-    let Some(token) = cookies::read(headers, cookies::REAUTH_PROOF).filter(|t| !t.trim().is_empty())
+    let Some(token) =
+        cookies::read(headers, cookies::REAUTH_PROOF).filter(|t| !t.trim().is_empty())
     else {
         return false;
     };
     let Ok(claims) = state.jwt.parse(&token) else {
         return false;
     };
-    claims.is(TokenType::Reauth) && claims.uid == Some(user.id) && claims.tv == Some(user.token_version)
+    claims.is(TokenType::Reauth)
+        && claims.uid == Some(user.id)
+        && claims.tv == Some(user.token_version)
 }
 
-pub fn require_proof(state: &AppState, user: &AppUser, headers: &HeaderMap) -> Result<(), AppError> {
+pub fn require_proof(
+    state: &AppState,
+    user: &AppUser,
+    headers: &HeaderMap,
+) -> Result<(), AppError> {
     if has_valid_proof(state, user, headers) {
         Ok(())
     } else {

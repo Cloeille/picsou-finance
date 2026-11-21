@@ -8,7 +8,8 @@ use serde_json::{Map, Value, json};
 use super::encode_query_value;
 
 const UNMODIFIABLE_MAP: &str = "java.util.Collections$UnmodifiableMap";
-const REQUEST_CLASS: &str = "org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest";
+const REQUEST_CLASS: &str =
+    "org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest";
 const PRINCIPAL_KEY: &str = "java.security.Principal";
 
 /// The AppUser captured at authorization time; refreshed tokens would carry its token version.
@@ -40,7 +41,10 @@ impl AuthorizationRequest {
             format!("client_id={}", encode_query_value(&self.client_id)),
         ];
         if !self.scopes.is_empty() {
-            parts.push(format!("scope={}", encode_query_value(&self.scopes.join(" "))));
+            parts.push(format!(
+                "scope={}",
+                encode_query_value(&self.scopes.join(" "))
+            ));
         }
         if let Some(state) = &self.state {
             parts.push(format!("state={}", encode_query_value(state)));
@@ -84,7 +88,11 @@ impl AuthorizationRequest {
 
 /// The attributes column: the authenticated principal, the authorization request and, while
 /// consent is pending, the consent state.
-pub fn attributes(principal: &PrincipalSnapshot, request: &AuthorizationRequest, state: Option<&str>) -> String {
+pub fn attributes(
+    principal: &PrincipalSnapshot,
+    request: &AuthorizationRequest,
+    state: Option<&str>,
+) -> String {
     let mut map = Map::new();
     map.insert("@class".into(), UNMODIFIABLE_MAP.into());
     map.insert(
@@ -120,7 +128,13 @@ fn typed_items(value: Option<&Value>) -> Vec<String> {
         Some(Value::Array(pair)) => pair
             .get(1)
             .and_then(Value::as_array)
-            .map(|items| items.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
             .unwrap_or_default(),
         _ => Vec::new(),
     }
@@ -140,7 +154,11 @@ pub fn parse_attributes(raw: &str) -> Option<(PrincipalSnapshot, AuthorizationRe
     let snapshot = PrincipalSnapshot {
         id: typed_i64(principal.get("id"))?,
         username: principal.get("username")?.as_str()?.to_owned(),
-        role: principal.get("role").and_then(Value::as_str).unwrap_or("MEMBER").to_owned(),
+        role: principal
+            .get("role")
+            .and_then(Value::as_str)
+            .unwrap_or("MEMBER")
+            .to_owned(),
         token_version: typed_i64(principal.get("tokenVersion")).unwrap_or(0),
     };
     let request = root.get(REQUEST_CLASS)?;

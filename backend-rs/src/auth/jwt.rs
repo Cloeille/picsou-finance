@@ -58,7 +58,9 @@ pub struct Claims {
     pub scope: Option<String>,
 }
 
-fn scope_text<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
+fn scope_text<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
     Ok(match Option::<Value>::deserialize(deserializer)? {
         Some(Value::String(s)) => Some(s),
         Some(Value::Array(items)) => Some(

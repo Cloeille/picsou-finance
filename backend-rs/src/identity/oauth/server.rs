@@ -53,7 +53,10 @@ fn parameters(uri: &Uri, headers: &HeaderMap, body: &Bytes) -> HashMap<String, V
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .is_some_and(|c| c.starts_with("application/x-www-form-urlencoded"));
-    let sources: [&[u8]; 2] = [uri.query().unwrap_or_default().as_bytes(), if form { body } else { &[] }];
+    let sources: [&[u8]; 2] = [
+        uri.query().unwrap_or_default().as_bytes(),
+        if form { body } else { &[] },
+    ];
     for source in sources {
         for (k, v) in url::form_urlencoded::parse(source) {
             out.entry(k.into_owned()).or_default().push(v.into_owned());
@@ -72,7 +75,11 @@ fn single<'a>(params: &'a HashMap<String, Vec<String>>, name: &str) -> Option<&'
 
 /// The cookie bridge: only the access_token cookie authenticates the authorization endpoint,
 /// and a GET with an SSO session past its revalidation window stays anonymous.
-async fn cookie_principal(state: &AppState, headers: &HeaderMap, method: &Method) -> Option<AppUser> {
+async fn cookie_principal(
+    state: &AppState,
+    headers: &HeaderMap,
+    method: &Method,
+) -> Option<AppUser> {
     let token = cookies::read(headers, cookies::ACCESS)?;
     if *method == Method::GET
         && let Ok(claims) = state.jwt.parse(&token)
@@ -80,7 +87,9 @@ async fn cookie_principal(state: &AppState, headers: &HeaderMap, method: &Method
     {
         let window = chrono::Duration::from_std(state.config.sso.session_revalidate_after)
             .unwrap_or_default();
-        if !crate::identity::sso::Settings::new(state).enabled() || sso_at + window < state.clock.now() {
+        if !crate::identity::sso::Settings::new(state).enabled()
+            || sso_at + window < state.clock.now()
+        {
             return None;
         }
     }
@@ -95,7 +104,10 @@ fn login_redirect(origin: &RequestOrigin, uri: &Uri) -> Response {
         Some(q) => format!("{}?{q}", uri.path()),
         None => uri.path().to_owned(),
     };
-    redirect(origin, &format!("/login?redirect={}", java_url_encode(&target)))
+    redirect(
+        origin,
+        &format!("/login?redirect={}", java_url_encode(&target)),
+    )
 }
 
 /// Spring Boot's /error body for an authorization request it cannot redirect.
@@ -115,7 +127,13 @@ fn bad_request(state: &AppState, path: &str) -> Response {
         .into_response()
 }
 
-fn error_redirect(redirect_uri: &str, error: &str, parameter: &str, error_uri: &str, state: Option<&str>) -> Response {
+fn error_redirect(
+    redirect_uri: &str,
+    error: &str,
+    parameter: &str,
+    error_uri: &str,
+    state: Option<&str>,
+) -> Response {
     let mut location = format!(
         "{redirect_uri}{}error={error}&error_description={}&error_uri={}",
         if redirect_uri.contains('?') { '&' } else { '?' },
@@ -141,9 +159,9 @@ fn to_client(location: &str) -> Response {
 fn is_loopback(host: &str) -> bool {
     host == "[::1]"
         || host == "[0:0:0:0:0:0:0:1]"
-        || host
-            .strip_prefix("127.")
-            .is_some_and(|rest| rest.split('.').count() == 3 && rest.split('.').all(|o| o.parse::<u8>().is_ok()))
+        || host.strip_prefix("127.").is_some_and(|rest| {
+            rest.split('.').count() == 3 && rest.split('.').all(|o| o.parse::<u8>().is_ok())
+        })
 }
 
 /// The redirect URI an authorization request may use: the registered one when it has none,
@@ -191,7 +209,11 @@ fn principal_snapshot(user: &AppUser) -> PrincipalSnapshot {
     }
 }
 
-async fn consented_scopes(state: &AppState, client: &RegisteredClient, principal: &str) -> Result<Option<Vec<String>>, sqlx::Error> {
+async fn consented_scopes(
+    state: &AppState,
+    client: &RegisteredClient,
+    principal: &str,
+) -> Result<Option<Vec<String>>, sqlx::Error> {
     let authorities: Option<String> = sqlx::query_scalar(
         "SELECT authorities FROM oauth2_authorization_consent WHERE registered_client_id = $1 AND principal_name = $2",
     )
@@ -214,7 +236,12 @@ struct CodeGrant<'a> {
 }
 
 /// Saves an authorization holding a fresh code and redirects the browser back to the client.
-async fn issue_code(state: &AppState, grant: CodeGrant<'_>, existing: Option<&str>, redirect_uri: &str) -> AppResult<Response> {
+async fn issue_code(
+    state: &AppState,
+    grant: CodeGrant<'_>,
+    existing: Option<&str>,
+    redirect_uri: &str,
+) -> AppResult<Response> {
     let code = URL_SAFE_NO_PAD.encode(random_bytes::<96>());
     let now = state.clock.now();
     let attributes = jackson::attributes(&grant.user, &grant.request, None);
@@ -268,9 +295,17 @@ pub async fn authorize(
         return consent(&state, &headers, &params).await;
     }
     let path = uri.path();
-    let duplicated = ["response_type", "client_id", "redirect_uri", "scope", "state", "code_challenge", "code_challenge_method"]
-        .iter()
-        .any(|p| params.get(*p).is_some_and(|v| v.len() > 1));
+    let duplicated = [
+        "response_type",
+        "client_id",
+        "redirect_uri",
+        "scope",
+        "state",
+        "code_challenge",
+        "code_challenge_method",
+    ]
+    .iter()
+    .any(|p| params.get(*p).is_some_and(|v| v.len() > 1));
     let Some(client_id) = single(&params, "client_id") else {
         return Ok(bad_request(&state, path));
     };
@@ -286,25 +321,52 @@ pub async fn authorize(
     };
     let state_param = single(&params, "state");
     if !client.grant_types.iter().any(|g| g == "authorization_code") {
-        return Ok(error_redirect(&redirect_uri, "unauthorized_client", "client_id", AUTHZ_ERROR_URI, state_param));
+        return Ok(error_redirect(
+            &redirect_uri,
+            "unauthorized_client",
+            "client_id",
+            AUTHZ_ERROR_URI,
+            state_param,
+        ));
     }
     let mut requested_scopes: Vec<String> = Vec::new();
-    for scope in single(&params, "scope").unwrap_or_default().split_whitespace() {
+    for scope in single(&params, "scope")
+        .unwrap_or_default()
+        .split_whitespace()
+    {
         if !requested_scopes.iter().any(|s| s == scope) {
             requested_scopes.push(scope.to_owned());
         }
     }
     if requested_scopes.iter().any(|s| !client.scopes.contains(s)) {
-        return Ok(error_redirect(&redirect_uri, "invalid_scope", "scope", AUTHZ_ERROR_URI, state_param));
+        return Ok(error_redirect(
+            &redirect_uri,
+            "invalid_scope",
+            "scope",
+            AUTHZ_ERROR_URI,
+            state_param,
+        ));
     }
     let challenge = single(&params, "code_challenge");
     let challenge_method = single(&params, "code_challenge_method");
     if challenge.is_some() {
         if challenge_method != Some("S256") {
-            return Ok(error_redirect(&redirect_uri, "invalid_request", "code_challenge_method", PKCE_ERROR_URI, state_param));
+            return Ok(error_redirect(
+                &redirect_uri,
+                "invalid_request",
+                "code_challenge_method",
+                PKCE_ERROR_URI,
+                state_param,
+            ));
         }
     } else if client.require_proof_key {
-        return Ok(error_redirect(&redirect_uri, "invalid_request", "code_challenge", PKCE_ERROR_URI, state_param));
+        return Ok(error_redirect(
+            &redirect_uri,
+            "invalid_request",
+            "code_challenge",
+            PKCE_ERROR_URI,
+            state_param,
+        ));
     }
     let Some(user) = cookie_principal(&state, &headers, &method).await else {
         return Ok(login_redirect(&origin, &uri));
@@ -379,7 +441,9 @@ async fn consent(
     let Some(user) = cookie_principal(state, headers, &Method::POST).await else {
         return Ok(unauthorized());
     };
-    let (Some(client_id), Some(consent_state)) = (single(params, "client_id"), single(params, "state")) else {
+    let (Some(client_id), Some(consent_state)) =
+        (single(params, "client_id"), single(params, "state"))
+    else {
         return Ok(unauthorized());
     };
     let pending: Option<PendingConsent> = sqlx::query_as(
@@ -397,21 +461,36 @@ async fn consent(
     else {
         return Ok(unauthorized());
     };
-    let Some((snapshot, request)) = pending.attributes.as_deref().and_then(jackson::parse_attributes) else {
+    let Some((snapshot, request)) = pending
+        .attributes
+        .as_deref()
+        .and_then(jackson::parse_attributes)
+    else {
         return Ok(unauthorized());
     };
-    let redirect_uri = resolve_redirect(&client, request.redirect_uri.as_deref().filter(|r| !r.is_empty()))
-        .unwrap_or_default();
+    let redirect_uri = resolve_redirect(
+        &client,
+        request.redirect_uri.as_deref().filter(|r| !r.is_empty()),
+    )
+    .unwrap_or_default();
     let submitted: Vec<String> = params.get("scope").cloned().unwrap_or_default();
     if submitted.iter().any(|s| !request.scopes.contains(s)) {
-        return Ok(error_redirect(&redirect_uri, "invalid_scope", "scope", AUTHZ_ERROR_URI, request.state.as_deref()));
+        return Ok(error_redirect(
+            &redirect_uri,
+            "invalid_scope",
+            "scope",
+            AUTHZ_ERROR_URI,
+            request.state.as_deref(),
+        ));
     }
     let previous = consented_scopes(state, &client, &user.username).await?;
     let mut authorized: Vec<String> = Vec::new();
-    for scope in submitted
-        .iter()
-        .chain(previous.iter().flatten().filter(|s| request.scopes.contains(s)))
-    {
+    for scope in submitted.iter().chain(
+        previous
+            .iter()
+            .flatten()
+            .filter(|s| request.scopes.contains(s)),
+    ) {
         if !authorized.contains(scope) {
             authorized.push(scope.clone());
         }
@@ -428,7 +507,13 @@ async fn consent(
             .bind(&pending.id)
             .execute(&state.db)
             .await?;
-        return Ok(error_redirect(&redirect_uri, "access_denied", "client_id", AUTHZ_ERROR_URI, request.state.as_deref()));
+        return Ok(error_redirect(
+            &redirect_uri,
+            "access_denied",
+            "client_id",
+            AUTHZ_ERROR_URI,
+            request.state.as_deref(),
+        ));
     }
     let authorities: Vec<String> = authorities.iter().map(|s| format!("SCOPE_{s}")).collect();
     sqlx::query(
@@ -461,7 +546,12 @@ fn token_error(status: StatusCode, error: &str, description: Option<&str>) -> Re
         body.insert("error_description".into(), d.into());
         body.insert("error_uri".into(), TOKEN_ERROR_URI.into());
     }
-    (status, [(header::CONTENT_TYPE, JSON_UTF8)], Value::Object(body).to_string()).into_response()
+    (
+        status,
+        [(header::CONTENT_TYPE, JSON_UTF8)],
+        Value::Object(body).to_string(),
+    )
+        .into_response()
 }
 
 fn invalid_client() -> Response {
@@ -530,7 +620,11 @@ fn access_claims(
 ) -> Map<String, Value> {
     let mut c = Map::new();
     c.insert("sub".into(), user.username.clone().into());
-    let audience = if client.mcp { crate::auth::MCP_AUDIENCE.to_owned() } else { client.client_id.clone() };
+    let audience = if client.mcp {
+        crate::auth::MCP_AUDIENCE.to_owned()
+    } else {
+        client.client_id.clone()
+    };
     c.insert("aud".into(), audience.into());
     c.insert("uid".into(), user.id.into());
     c.insert("tv".into(), user.token_version.into());
@@ -545,7 +639,10 @@ fn access_claims(
     }
     c.insert("iss".into(), origin.base_url().into());
     c.insert("exp".into(), expires.timestamp().into());
-    c.insert("type".into(), if client.mcp { "mcp" } else { "access" }.into());
+    c.insert(
+        "type".into(),
+        if client.mcp { "mcp" } else { "access" }.into(),
+    );
     c.insert("iat".into(), issued.timestamp().into());
     c.insert("jti".into(), Uuid::new_v4().to_string().into());
     c
@@ -570,12 +667,19 @@ pub async fn token(
         single(&params, "code"),
         single(&params, "code_verifier"),
     );
-    let (Some("authorization_code"), Some(code), Some(verifier)) = (grant_type, code, verifier) else {
+    let (Some("authorization_code"), Some(code), Some(verifier)) = (grant_type, code, verifier)
+    else {
         return Ok(login_redirect(&origin, &uri));
     };
     let client_id = match params.get("client_id") {
         Some(values) if values.len() == 1 && !values[0].is_empty() => values[0].clone(),
-        _ => return Ok(token_error(StatusCode::BAD_REQUEST, "invalid_request", None)),
+        _ => {
+            return Ok(token_error(
+                StatusCode::BAD_REQUEST,
+                "invalid_request",
+                None,
+            ));
+        }
     };
     let Some(client) = clients::find_by_client_id(&state, &client_id).await? else {
         return Ok(invalid_client());
@@ -594,12 +698,20 @@ pub async fn token(
     let Some(found) = found else {
         return Ok(invalid_grant());
     };
-    let Some((snapshot, request)) = found.attributes.as_deref().and_then(jackson::parse_attributes) else {
+    let Some((snapshot, request)) = found
+        .attributes
+        .as_deref()
+        .and_then(jackson::parse_attributes)
+    else {
         return Ok(invalid_grant());
     };
     let pkce_ok = match request.code_challenge.as_deref() {
         Some(challenge) => {
-            request.code_challenge_method.as_deref().is_none_or(|m| m == "S256") && s256(verifier) == challenge
+            request
+                .code_challenge_method
+                .as_deref()
+                .is_none_or(|m| m == "S256")
+                && s256(verifier) == challenge
         }
         None => !client.require_proof_key,
     };
@@ -660,8 +772,16 @@ pub async fn token(
         body.insert("scope".into(), scopes.join(" ").into());
     }
     body.insert("token_type".into(), "Bearer".into());
-    body.insert("expires_in".into(), (expires - state.clock.now()).num_seconds().into());
-    Ok((StatusCode::OK, [(header::CONTENT_TYPE, JSON_UTF8)], Value::Object(body).to_string()).into_response())
+    body.insert(
+        "expires_in".into(),
+        (expires - state.clock.now()).num_seconds().into(),
+    );
+    Ok((
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, JSON_UTF8)],
+        Value::Object(body).to_string(),
+    )
+        .into_response())
 }
 
 /// Revocation, introspection and device authorization need a client secret or assertion no
@@ -715,7 +835,11 @@ pub async fn authorization_server_metadata(origin: RequestOrigin) -> Response {
         "dpop_signing_alg_values_supported": ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"],
         "registration_endpoint": endpoint("/oauth2/register"),
     });
-    ([(header::CONTENT_TYPE, "application/json")], body.to_string()).into_response()
+    (
+        [(header::CONTENT_TYPE, "application/json")],
+        body.to_string(),
+    )
+        .into_response()
 }
 
 /// The HS256 key has no public half, so the set is empty.
@@ -736,5 +860,9 @@ pub async fn protected_resource_metadata(origin: RequestOrigin) -> Response {
         "scopes_supported": scopes::sorted(),
         "bearer_methods_supported": ["header"],
     });
-    ([(header::CONTENT_TYPE, "application/json")], body.to_string()).into_response()
+    (
+        [(header::CONTENT_TYPE, "application/json")],
+        body.to_string(),
+    )
+        .into_response()
 }

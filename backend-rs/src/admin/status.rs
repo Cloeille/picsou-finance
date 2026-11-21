@@ -39,18 +39,38 @@ const SIDECARS: &[(&str, &str, Sessions)] = &[
     ("cmes-auth", BASE_PYTHON, Sessions::Bank("CMES")),
     ("cic-auth", BASE_PYTHON, Sessions::Bank("CIC")),
     ("natixis-auth", BASE_PYTHON, Sessions::Bank("NATIXIS")),
-    ("degiro-auth", BASE_PYTHON, Sessions::Table("degiro_session")),
+    (
+        "degiro-auth",
+        BASE_PYTHON,
+        Sessions::Table("degiro_session"),
+    ),
     ("tr-auth", BASE_CHROMIUM, Sessions::Bank("TRADE_REPUBLIC")),
-    ("caisse-epargne-auth", BASE_CHROMIUM, Sessions::Bank("CAISSE_EPARGNE")),
-    ("banque-populaire-auth", BASE_CHROMIUM, Sessions::Bank("BANQUE_POPULAIRE")),
-    ("bourse-direct-auth", BASE_CHROMIUM, Sessions::Bank("BOURSE_DIRECT")),
+    (
+        "caisse-epargne-auth",
+        BASE_CHROMIUM,
+        Sessions::Bank("CAISSE_EPARGNE"),
+    ),
+    (
+        "banque-populaire-auth",
+        BASE_CHROMIUM,
+        Sessions::Bank("BANQUE_POPULAIRE"),
+    ),
+    (
+        "bourse-direct-auth",
+        BASE_CHROMIUM,
+        Sessions::Bank("BOURSE_DIRECT"),
+    ),
     ("amundi-auth", BASE_CHROMIUM, Sessions::Bank("AMUNDI")),
     ("fortuneo-auth", BASE_CHROMIUM, Sessions::Bank("FORTUNEO")),
     ("corum-auth", BASE_CHROMIUM, Sessions::Bank("CORUM")),
     ("lbp-auth", BASE_CHROMIUM, Sessions::Table("lbp_session")),
     ("amex-auth", BASE_CAMOUFOX, Sessions::Bank("AMEX")),
     ("bnp-auth", BASE_CAMOUFOX, Sessions::Bank("BNP")),
-    ("revolut-auth", BASE_CAMOUFOX, Sessions::Table("revolut_session")),
+    (
+        "revolut-auth",
+        BASE_CAMOUFOX,
+        Sessions::Table("revolut_session"),
+    ),
 ];
 
 #[derive(Debug, Clone)]
@@ -131,7 +151,10 @@ async fn fetch_release(state: &AppState) -> Result<Release, String> {
         .await
         .map_err(|e| e.without_url().to_string())?;
     if !response.status().is_success() {
-        return Err(format!("github release status {}", response.status().as_u16()));
+        return Err(format!(
+            "github release status {}",
+            response.status().as_u16()
+        ));
     }
     let node: Value = response.json().await.map_err(|e| e.to_string())?;
     let text = |field: &str| {
@@ -168,8 +191,12 @@ async fn release_update(state: &AppState, current: &str) -> Option<ReleaseUpdate
                 .await
                 .inspect_err(|e| tracing::info!("instance-status.release.fetch_failed err={e}"))
                 .ok();
-            *state.admin.status.release.lock().unwrap_or_else(|e| e.into_inner()) =
-                Some((state.clock.now(), fetched.clone()));
+            *state
+                .admin
+                .status
+                .release
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = Some((state.clock.now(), fetched.clone()));
             fetched
         }
     };
@@ -215,7 +242,11 @@ async fn sidecar_url(state: &AppState, name: &str) -> String {
 }
 
 /// One in-use sidecar's health: unreachable, a non-2xx, or a base image other than expected.
-async fn probe(state: &AppState, name: &'static str, expected: &'static str) -> Option<SidecarIssue> {
+async fn probe(
+    state: &AppState,
+    name: &'static str,
+    expected: &'static str,
+) -> Option<SidecarIssue> {
     let issue = |code| SidecarIssue {
         code,
         sidecar: name,
@@ -238,7 +269,11 @@ async fn probe(state: &AppState, name: &'static str, expected: &'static str) -> 
                 .json::<Value>()
                 .await
                 .ok()
-                .and_then(|v| v.get("base").and_then(Value::as_str).map(|s| s.trim().to_owned()))
+                .and_then(|v| {
+                    v.get("base")
+                        .and_then(Value::as_str)
+                        .map(|s| s.trim().to_owned())
+                })
                 .filter(|s| !s.is_empty());
             (base.as_deref() != Some(expected)).then(|| issue(IssueCode::SidecarOutdated))
         }
@@ -250,7 +285,10 @@ async fn probe(state: &AppState, name: &'static str, expected: &'static str) -> 
             Some(issue(IssueCode::SidecarUnreachable))
         }
         Err(e) => {
-            tracing::info!("instance-status.sidecar.unreachable name={name} err={}", e.without_url());
+            tracing::info!(
+                "instance-status.sidecar.unreachable name={name} err={}",
+                e.without_url()
+            );
             Some(issue(IssueCode::SidecarUnreachable))
         }
     }
@@ -269,13 +307,21 @@ async fn probe_in_use(state: &AppState) -> Vec<SidecarIssue> {
         }
     }
     cache.counting.store(false, Ordering::Release);
-    let probes = in_use.into_iter().map(|(name, base)| probe(state, name, base));
-    let mut issues: Vec<SidecarIssue> = futures::future::join_all(probes).await.into_iter().flatten().collect();
+    let probes = in_use
+        .into_iter()
+        .map(|(name, base)| probe(state, name, base));
+    let mut issues: Vec<SidecarIssue> = futures::future::join_all(probes)
+        .await
+        .into_iter()
+        .flatten()
+        .collect();
     issues.sort_by(|a, b| a.sidecar.cmp(b.sidecar));
     issues
 }
 
-pub async fn instance_status(State(state): State<AppState>) -> AppResult<axum::Json<InstanceStatusResponse>> {
+pub async fn instance_status(
+    State(state): State<AppState>,
+) -> AppResult<axum::Json<InstanceStatusResponse>> {
     let current = if state.config.app_version.trim().is_empty() {
         "dev".to_owned()
     } else {

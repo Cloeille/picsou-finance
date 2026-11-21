@@ -210,7 +210,9 @@ impl Intent {
                 }
                 target
             }
-            Kind::Link | Kind::Reauth => with_query_parameter(&self.redirect, &format!("ssoError={code}")),
+            Kind::Link | Kind::Reauth => {
+                with_query_parameter(&self.redirect, &format!("ssoError={code}"))
+            }
             Kind::Activate => format!(
                 "/activate/{}?ssoError={code}",
                 java_url_encode(self.activation_token.as_deref().unwrap_or_default())
@@ -279,7 +281,10 @@ impl Discovery {
 }
 
 async fn discover(state: &AppState, issuer: &str) -> Result<Provider, String> {
-    let url = format!("{}/.well-known/openid-configuration", issuer.trim_end_matches('/'));
+    let url = format!(
+        "{}/.well-known/openid-configuration",
+        issuer.trim_end_matches('/')
+    );
     let response = state
         .http
         .get(&url)
@@ -312,7 +317,12 @@ pub async fn provider(state: &AppState) -> Option<Arc<Provider>> {
         return None;
     }
     let discovery = &state.identity.discovery;
-    if let Some(p) = discovery.provider.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+    if let Some(p) = discovery
+        .provider
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+    {
         return Some(p);
     }
     if discovery.discovering.swap(true, Ordering::AcqRel) {
@@ -336,7 +346,10 @@ impl Handshakes {
     }
 
     fn contains(&self, id: &str) -> bool {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).contains_key(id)
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(id)
     }
 
     fn take(&self, id: &str, now: DateTime<Utc>) -> Option<Handshake> {
@@ -366,7 +379,11 @@ fn params(uri: &Uri, headers: &HeaderMap, body: &Bytes) -> HashMap<String, Strin
 
 /// CrossSiteCookieRequestMatcher without its cookie condition: a cross-site POST is refused
 /// even from an anonymous browser, unless its origin is on the CORS allow-list.
-async fn is_rejected_cross_site(state: &AppState, headers: &HeaderMap, origin: &RequestOrigin) -> bool {
+async fn is_rejected_cross_site(
+    state: &AppState,
+    headers: &HeaderMap,
+    origin: &RequestOrigin,
+) -> bool {
     let value = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
     let cross = match value("sec-fetch-site") {
         Some(site) => site != "same-origin" && site != "none",
@@ -380,8 +397,10 @@ async fn is_rejected_cross_site(state: &AppState, headers: &HeaderMap, origin: &
     }
     match value("origin") {
         Some(o) => !crate::http::cors_origins(state).await.is_some_and(|list| {
-            list.iter()
-                .any(|a| a.trim_end_matches('/').eq_ignore_ascii_case(o.trim_end_matches('/')))
+            list.iter().any(|a| {
+                a.trim_end_matches('/')
+                    .eq_ignore_ascii_case(o.trim_end_matches('/'))
+            })
         }),
         None => true,
     }
@@ -392,9 +411,9 @@ fn same_origin(origin: &RequestOrigin, url: &str) -> bool {
         return false;
     };
     parsed.scheme().eq_ignore_ascii_case(origin.scheme)
-        && parsed
-            .host_str()
-            .is_some_and(|h| h.eq_ignore_ascii_case(origin.host.trim_start_matches('[').trim_end_matches(']')))
+        && parsed.host_str().is_some_and(|h| {
+            h.eq_ignore_ascii_case(origin.host.trim_start_matches('[').trim_end_matches(']'))
+        })
         && parsed.port_or_known_default() == Some(origin.port)
 }
 
@@ -433,16 +452,11 @@ pub async fn chain(
     start(&state, &origin, &ip, &headers, &params).await
 }
 
-fn signed_in_user_from_cookie<'a>(
-    state: &'a AppState,
-    headers: &'a HeaderMap,
-) -> impl Future<Output = Option<AppUser>> + 'a {
-    async move {
-        let token = cookies::read(headers, cookies::ACCESS)?;
-        crate::auth::layer::authenticate_access_token(state, &token)
-            .await
-            .map(|p: Principal| p.user)
-    }
+async fn signed_in_user_from_cookie(state: &AppState, headers: &HeaderMap) -> Option<AppUser> {
+    let token = cookies::read(headers, cookies::ACCESS)?;
+    crate::auth::layer::authenticate_access_token(state, &token)
+        .await
+        .map(|p: Principal| p.user)
 }
 
 async fn start(
@@ -452,7 +466,10 @@ async fn start(
     headers: &HeaderMap,
     params: &HashMap<String, String>,
 ) -> Response {
-    if !state.limits.try_consume(&policies::SSO_START, &ip.as_java_string()) {
+    if !state
+        .limits
+        .try_consume(&policies::SSO_START, &ip.as_java_string())
+    {
         return redirect(origin, &login_error("RATE_LIMITED"));
     }
     let kind = match params.get("intent").map(String::as_str).unwrap_or("login") {
@@ -506,7 +523,9 @@ async fn start(
                 None
             };
             let valid = invited.is_some_and(|u| {
-                !u.activated && u.activation_token_expires.is_none_or(|e| e >= state.clock.now())
+                !u.activated
+                    && u.activation_token_expires
+                        .is_none_or(|e| e >= state.clock.now())
             });
             if !valid {
                 return redirect(origin, &intent.error_redirect("ACTIVATION_INVALID"));
@@ -539,17 +558,25 @@ async fn start(
         .append_pair("code_challenge", &s256(&handshake.verifier))
         .append_pair("code_challenge_method", "S256");
     if handshake.intent.kind == Kind::Reauth {
-        query.append_pair("prompt", "login").append_pair("max_age", "0");
+        query
+            .append_pair("prompt", "login")
+            .append_pair("max_age", "0");
     }
-    let separator = if provider.authorization_endpoint.contains('?') { '&' } else { '?' };
+    let separator = if provider.authorization_endpoint.contains('?') {
+        '&'
+    } else {
+        '?'
+    };
     let location = format!(
         "{}{separator}{}",
         provider.authorization_endpoint,
         query.finish().replace('+', "%20")
     );
-    let existing = cookies::read(headers, SESSION_COOKIE)
-        .filter(|id| state.identity.handshakes.contains(id));
-    let session = existing.clone().unwrap_or_else(|| hex::encode_upper(rand::random::<[u8; 16]>()));
+    let existing =
+        cookies::read(headers, SESSION_COOKIE).filter(|id| state.identity.handshakes.contains(id));
+    let session = existing
+        .clone()
+        .unwrap_or_else(|| hex::encode_upper(rand::random::<[u8; 16]>()));
     state
         .identity
         .handshakes
@@ -557,7 +584,9 @@ async fn start(
     let mut response = redirect(origin, &location);
     if existing.is_none() {
         let secure = if origin.is_secure() { "; Secure" } else { "" };
-        if let Ok(value) = HeaderValue::from_str(&format!("{SESSION_COOKIE}={session}; Path=/{secure}; HttpOnly")) {
+        if let Ok(value) = HeaderValue::from_str(&format!(
+            "{SESSION_COOKIE}={session}; Path=/{secure}; HttpOnly"
+        )) {
             response.headers_mut().append(header::SET_COOKIE, value);
         }
     }
@@ -620,7 +649,10 @@ async fn jwks(state: &AppState, provider: &Provider, refresh: bool) -> Result<Jw
 fn audience_contains(aud: Option<&Value>, client_id: &str) -> (bool, usize) {
     match aud {
         Some(Value::String(a)) => (a == client_id, 1),
-        Some(Value::Array(list)) => (list.iter().any(|a| a.as_str() == Some(client_id)), list.len()),
+        Some(Value::Array(list)) => (
+            list.iter().any(|a| a.as_str() == Some(client_id)),
+            list.len(),
+        ),
         _ => (false, 0),
     }
 }
@@ -638,7 +670,11 @@ async fn validate_id_token(
         return Err("unexpected ID token algorithm".into());
     }
     let mut set = jwks(state, provider, false).await?;
-    if head.kid.as_deref().is_some_and(|kid| set.find(kid).is_none()) {
+    if head
+        .kid
+        .as_deref()
+        .is_some_and(|kid| set.find(kid).is_none())
+    {
         set = jwks(state, provider, true).await?;
     }
     let jwk = match head.kid.as_deref() {
@@ -668,15 +704,25 @@ async fn validate_id_token(
     if (audiences > 1 && azp.is_none()) || azp.is_some_and(|a| a != client_id) {
         return Err("ID token authorized party mismatch".into());
     }
-    let exp = claims.get("exp").and_then(Value::as_i64).ok_or("ID token without exp")?;
-    let iat = claims.get("iat").and_then(Value::as_i64).ok_or("ID token without iat")?;
+    let exp = claims
+        .get("exp")
+        .and_then(Value::as_i64)
+        .ok_or("ID token without exp")?;
+    let iat = claims
+        .get("iat")
+        .and_then(Value::as_i64)
+        .ok_or("ID token without iat")?;
     if now - CLOCK_SKEW > exp {
         return Err("ID token expired".into());
     }
     if iat > now + CLOCK_SKEW {
         return Err("ID token issued in the future".into());
     }
-    if claims.get("sub").and_then(Value::as_str).is_none_or(str::is_empty) {
+    if claims
+        .get("sub")
+        .and_then(Value::as_str)
+        .is_none_or(str::is_empty)
+    {
         return Err("ID token without subject".into());
     }
     if claims.get("nonce").and_then(Value::as_str) != Some(nonce) {
@@ -698,7 +744,10 @@ async fn exchange(
         ("redirect_uri", handshake.redirect_uri.clone()),
         ("code_verifier", handshake.verifier.clone()),
     ];
-    let mut request = state.http.post(&provider.token_endpoint).timeout(IDP_TIMEOUT);
+    let mut request = state
+        .http
+        .post(&provider.token_endpoint)
+        .timeout(IDP_TIMEOUT);
     if sso.client_secret().is_empty() {
         form.push(("client_id", sso.client_id()));
     } else {
@@ -727,8 +776,16 @@ async fn exchange(
     let tokens: TokenResponse = response.json().await.map_err(|e| e.to_string())?;
     let id_token = tokens.id_token.ok_or("no ID token")?;
     let mut claims = validate_id_token(state, provider, &id_token, &handshake.nonce).await?;
-    let issuer = claims.get("iss").and_then(Value::as_str).unwrap_or_default().to_owned();
-    let subject = claims.get("sub").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let issuer = claims
+        .get("iss")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    let subject = claims
+        .get("sub")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
     let auth_time = claims
         .get("auth_time")
         .and_then(Value::as_i64)

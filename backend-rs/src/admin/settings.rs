@@ -109,10 +109,14 @@ async fn read_or_empty(state: &AppState, key: &str) -> Result<String, sqlx::Erro
 
 /// AiConfigProvider.current: the stored AI configuration, None while AI is off.
 pub async fn ai_config(state: &AppState) -> AppResult<Option<AiConfig>> {
-    let Some(provider) = AiProvider::from_key(settings::read(state, AI_PROVIDER).await?.as_deref()) else {
+    let Some(provider) = AiProvider::from_key(settings::read(state, AI_PROVIDER).await?.as_deref())
+    else {
         return Ok(None);
     };
-    let api_key = match settings::read(state, AI_API_KEY).await?.filter(|k| !k.trim().is_empty()) {
+    let api_key = match settings::read(state, AI_API_KEY)
+        .await?
+        .filter(|k| !k.trim().is_empty())
+    {
         Some(enc) => Some(state.crypto.decrypt(&enc)?),
         None => None,
     };
@@ -143,7 +147,12 @@ pub async fn integration_enabled(state: &AppState, key: &str) -> Result<bool, sq
         .is_some_and(|v| settings::parse_bool(&v)))
 }
 
-async fn count(state: &AppState, sql: &str, bind: Option<&str>, member: Option<i64>) -> Result<i64, sqlx::Error> {
+async fn count(
+    state: &AppState,
+    sql: &str,
+    bind: Option<&str>,
+    member: Option<i64>,
+) -> Result<i64, sqlx::Error> {
     let mut query = sqlx::query_scalar::<_, i64>(sql);
     if let Some(b) = bind {
         query = query.bind(b.to_owned());
@@ -156,7 +165,11 @@ async fn count(state: &AppState, sql: &str, bind: Option<&str>, member: Option<i
 
 /// IntegrationsService.isEffectivelyEnabled: the stored flag, or a live configuration found
 /// without any network call (env credentials, a login session).
-pub async fn integration_effectively_enabled(state: &AppState, key: &str, member_id: i64) -> AppResult<bool> {
+pub async fn integration_effectively_enabled(
+    state: &AppState,
+    key: &str,
+    member_id: i64,
+) -> AppResult<bool> {
     if integration_enabled(state, key).await? {
         return Ok(true);
     }
@@ -170,24 +183,34 @@ pub async fn integration_effectively_enabled(state: &AppState, key: &str, member
                 && eb.private_key_present()
         }
         "traderepublic" => {
-            count(state, "SELECT count(*) FROM sidecar_session WHERE bank = $1", Some("TRADE_REPUBLIC"), None).await? > 0
-        }
-        "finary" => count(state, "SELECT count(*) FROM finary_session", None, None).await? > 0,
-        "boursedirect" => count(state, sidecar_active, Some("BOURSE_DIRECT"), None).await? > 0,
-        "boursobank" => count(state, sidecar_active, Some("BOURSO"), None).await? > 0,
-        "fortuneo" => {
             count(
                 state,
-                "SELECT count(*) FROM sidecar_session WHERE bank = $1 AND member_id = $2 AND is_active",
-                Some("FORTUNEO"),
-                Some(member_id),
+                "SELECT count(*) FROM sidecar_session WHERE bank = $1",
+                Some("TRADE_REPUBLIC"),
+                None,
             )
             .await?
                 > 0
         }
+        "finary" => count(state, "SELECT count(*) FROM finary_session", None, None).await? > 0,
+        "boursedirect" => count(state, sidecar_active, Some("BOURSE_DIRECT"), None).await? > 0,
+        "boursobank" => count(state, sidecar_active, Some("BOURSO"), None).await? > 0,
+        "fortuneo" => count(
+            state,
+            "SELECT count(*) FROM sidecar_session WHERE bank = $1 AND member_id = $2 AND is_active",
+            Some("FORTUNEO"),
+            Some(member_id),
+        )
+        .await?
+            > 0,
         "lbp" => {
-            count(state, "SELECT count(*) FROM lbp_session WHERE member_id = $1 AND is_active", None, Some(member_id))
-                .await?
+            count(
+                state,
+                "SELECT count(*) FROM lbp_session WHERE member_id = $1 AND is_active",
+                None,
+                Some(member_id),
+            )
+            .await?
                 > 0
         }
         _ => false,
@@ -235,7 +258,10 @@ pub struct SettingsResponse {
     telemetry: TelemetrySettings,
 }
 
-pub async fn get_settings(State(state): State<AppState>, auth: Auth) -> AppResult<axum::Json<SettingsResponse>> {
+pub async fn get_settings(
+    State(state): State<AppState>,
+    auth: Auth,
+) -> AppResult<axum::Json<SettingsResponse>> {
     let origins = settings::read(&state, settings::CORS_ALLOWED_ORIGINS)
         .await?
         .map(|s| s.split(',').map(str::to_owned).collect())
@@ -248,7 +274,9 @@ pub async fn get_settings(State(state): State<AppState>, auth: Auth) -> AppResul
     for name in INTEGRATIONS {
         integrations.insert(
             (*name).to_owned(),
-            integration_effectively_enabled(&state, name, auth.member_id).await?.into(),
+            integration_effectively_enabled(&state, name, auth.member_id)
+                .await?
+                .into(),
         );
     }
     let provider = settings::read(&state, AI_PROVIDER)
@@ -309,10 +337,15 @@ impl Validate for SecurityRequest {
 }
 
 /// SetupService.writeSecurity.
-pub async fn update_security(State(state): State<AppState>, Json(req): Json<SecurityRequest>) -> AppResult<StatusCode> {
+pub async fn update_security(
+    State(state): State<AppState>,
+    Json(req): Json<SecurityRequest>,
+) -> AppResult<StatusCode> {
     let origins = req.allowed_origins.unwrap_or_default();
     if origins.is_empty() {
-        return Err(AppError::BadRequest("At least one allowed origin is required.".into()));
+        return Err(AppError::BadRequest(
+            "At least one allowed origin is required.".into(),
+        ));
     }
     let Some(origins) = origins
         .into_iter()
@@ -320,17 +353,27 @@ pub async fn update_security(State(state): State<AppState>, Json(req): Json<Secu
         .filter(|l| !l.iter().any(|o| o.contains('*')))
     else {
         return Err(AppError::BadRequest(
-            "Wildcard origins are not allowed with credentialed CORS; list explicit origins.".into(),
+            "Wildcard origins are not allowed with credentialed CORS; list explicit origins."
+                .into(),
         ));
     };
-    settings::upsert(&state.db, settings::CORS_ALLOWED_ORIGINS, &origins.join(",")).await?;
+    settings::upsert(
+        &state.db,
+        settings::CORS_ALLOWED_ORIGINS,
+        &origins.join(","),
+    )
+    .await?;
     settings::upsert(
         &state.db,
         settings::SECURE_COOKIES,
         if req.secure_cookies { "true" } else { "false" },
     )
     .await?;
-    tracing::info!("setup.security.updated origins={} secure={}", origins.len(), req.secure_cookies);
+    tracing::info!(
+        "setup.security.updated origins={} secure={}",
+        origins.len(),
+        req.secure_cookies
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -345,9 +388,16 @@ impl Validate for TelemetryRequest {
     }
 }
 
-pub async fn update_telemetry(State(state): State<AppState>, Json(req): Json<TelemetryRequest>) -> AppResult<Response> {
+pub async fn update_telemetry(
+    State(state): State<AppState>,
+    Json(req): Json<TelemetryRequest>,
+) -> AppResult<Response> {
     if !super::telemetry::set_enabled(&state, req.enabled.unwrap_or(false)).await? {
-        return Ok(Problem::with_detail(StatusCode::CONFLICT, "Telemetry is not configured on this instance").into_response());
+        return Ok(Problem::with_detail(
+            StatusCode::CONFLICT,
+            "Telemetry is not configured on this instance",
+        )
+        .into_response());
     }
     Ok(StatusCode::NO_CONTENT.into_response())
 }
@@ -359,7 +409,9 @@ pub struct CorsReloaded {
 }
 
 /// SetupService.reloadCorsFromEnv: ALLOWED_ORIGINS wins once over the stored origins.
-pub async fn reload_cors_from_env(State(state): State<AppState>) -> AppResult<axum::Json<CorsReloaded>> {
+pub async fn reload_cors_from_env(
+    State(state): State<AppState>,
+) -> AppResult<axum::Json<CorsReloaded>> {
     let env = state.config.cors_allowed_origins.clone();
     if env.trim().is_empty() {
         return Err(AppError::BadRequest(
@@ -383,7 +435,10 @@ pub async fn reload_cors_from_env(State(state): State<AppState>) -> AppResult<ax
         ));
     }
     settings::upsert(&state.db, settings::CORS_ALLOWED_ORIGINS, &parsed.join(",")).await?;
-    tracing::info!("setup.security.cors-reloaded-from-env origins={}", parsed.len());
+    tracing::info!(
+        "setup.security.cors-reloaded-from-env origins={}",
+        parsed.len()
+    );
     Ok(axum::Json(CorsReloaded {
         allowed_origins: parsed,
     }))
@@ -403,7 +458,10 @@ impl Validate for EnableBankingRequest {
     }
 }
 
-pub async fn update_enable_banking(State(state): State<AppState>, Json(req): Json<EnableBankingRequest>) -> AppResult<StatusCode> {
+pub async fn update_enable_banking(
+    State(state): State<AppState>,
+    Json(req): Json<EnableBankingRequest>,
+) -> AppResult<StatusCode> {
     let app_id = req.application_id.unwrap_or_default();
     settings::upsert(&state.db, settings::ENABLEBANKING_APP_ID, &app_id).await?;
     settings::upsert(&state.db, settings::ENABLEBANKING_KEY_ID, &app_id).await?;
@@ -425,7 +483,9 @@ pub struct KeypairResponse {
 }
 
 /// The public PEM of the stored pair, generated only when none exists (no setup guard here).
-pub async fn generate_keypair(State(state): State<AppState>) -> AppResult<axum::Json<KeypairResponse>> {
+pub async fn generate_keypair(
+    State(state): State<AppState>,
+) -> AppResult<axum::Json<KeypairResponse>> {
     let (public_key_pem, regenerated) = enable_banking::get_or_generate_public_pem(&state).await?;
     Ok(axum::Json(KeypairResponse {
         public_key_pem,
@@ -445,14 +505,19 @@ impl Validate for ImportRequest {
     }
 }
 
-pub async fn import_private_key(State(state): State<AppState>, Json(req): Json<ImportRequest>) -> AppResult<Response> {
+pub async fn import_private_key(
+    State(state): State<AppState>,
+    Json(req): Json<ImportRequest>,
+) -> AppResult<Response> {
     match enable_banking::import_private_key(&state, &req.private_pem.unwrap_or_default())? {
         Ok(public_key_pem) => Ok(axum::Json(KeypairResponse {
             public_key_pem,
             regenerated: false,
         })
         .into_response()),
-        Err(detail) => Ok(Problem::with_detail(StatusCode::UNPROCESSABLE_ENTITY, detail).into_response()),
+        Err(detail) => {
+            Ok(Problem::with_detail(StatusCode::UNPROCESSABLE_ENTITY, detail).into_response())
+        }
     }
 }
 
@@ -471,15 +536,24 @@ pub async fn toggle_integration(
     Query(query): Query<HashMap<String, String>>,
 ) -> AppResult<StatusCode> {
     let Some(raw) = query.get("enabled") else {
-        return Err(AppError::BadRequest("Required parameter 'enabled' is not present.".into()));
+        return Err(AppError::BadRequest(
+            "Required parameter 'enabled' is not present.".into(),
+        ));
     };
     let Some(enabled) = parse_spring_bool(raw) else {
-        return Err(AppError::BadRequest(format!("Failed to convert 'enabled' with value: '{raw}'")));
+        return Err(AppError::BadRequest(format!(
+            "Failed to convert 'enabled' with value: '{raw}'"
+        )));
     };
     if !INTEGRATIONS.contains(&key.as_str()) {
         return Err(AppError::BadRequest(format!("Unknown integration: {key}")));
     }
-    settings::upsert(&state.db, &integration_key(&key), if enabled { "true" } else { "false" }).await?;
+    settings::upsert(
+        &state.db,
+        &integration_key(&key),
+        if enabled { "true" } else { "false" },
+    )
+    .await?;
     tracing::info!(
         "setup.integration.{} key={key}",
         if enabled { "enabled" } else { "disabled" }
@@ -502,10 +576,16 @@ impl Validate for AiRequest {
         e.not_blank("provider", self.provider.as_deref());
         if let Some(n) = self.max_concurrency {
             if n < 1 {
-                let message = e.default_message("must be greater than or equal to 1", "doit être supérieur ou égal à 1");
+                let message = e.default_message(
+                    "must be greater than or equal to 1",
+                    "doit être supérieur ou égal à 1",
+                );
                 e.add("maxConcurrency", message);
             } else if n > 16 {
-                let message = e.default_message("must be less than or equal to 16", "doit être inférieur ou égal à 16");
+                let message = e.default_message(
+                    "must be less than or equal to 16",
+                    "doit être inférieur ou égal à 16",
+                );
                 e.add("maxConcurrency", message);
             }
         }
@@ -517,7 +597,10 @@ fn encrypt(crypto: &CryptoEncryption, raw: &str) -> AppResult<String> {
 }
 
 /// AiConfigProvider.save: a blank key keeps the stored one; turning AI off clears it.
-pub async fn update_ai(State(state): State<AppState>, Json(req): Json<AiRequest>) -> AppResult<StatusCode> {
+pub async fn update_ai(
+    State(state): State<AppState>,
+    Json(req): Json<AiRequest>,
+) -> AppResult<StatusCode> {
     let provider = req.provider.unwrap_or_default();
     let disabling = AiProvider::from_key(Some(&provider)).is_none();
     let key = if disabling {
@@ -529,14 +612,27 @@ pub async fn update_ai(State(state): State<AppState>, Json(req): Json<AiRequest>
         }
     };
     settings::upsert(&state.db, AI_PROVIDER, &provider).await?;
-    settings::upsert(&state.db, AI_MODEL, req.model.as_deref().unwrap_or_default()).await?;
-    settings::upsert(&state.db, AI_BASE_URL, req.base_url.as_deref().unwrap_or_default()).await?;
+    settings::upsert(
+        &state.db,
+        AI_MODEL,
+        req.model.as_deref().unwrap_or_default(),
+    )
+    .await?;
+    settings::upsert(
+        &state.db,
+        AI_BASE_URL,
+        req.base_url.as_deref().unwrap_or_default(),
+    )
+    .await?;
     if let Some(key) = key {
         settings::upsert(&state.db, AI_API_KEY, &key).await?;
     }
     if let Some(n) = req.max_concurrency {
         settings::upsert(&state.db, AI_MAX_CONCURRENCY, &n.to_string()).await?;
     }
-    tracing::info!("setup.ai.configured provider={}", crate::identity::common::log_safe(&provider));
+    tracing::info!(
+        "setup.ai.configured provider={}",
+        crate::identity::common::log_safe(&provider)
+    );
     Ok(StatusCode::NO_CONTENT)
 }

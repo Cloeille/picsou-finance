@@ -54,15 +54,19 @@ pub async fn unlink_identities(
         .bind(target.id)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("UPDATE app_user SET token_version = token_version + 1, updated_at = now() WHERE id = $1")
-        .bind(target.id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("UPDATE persistent_session SET revoked_at = $2 WHERE user_id = $1 AND revoked_at IS NULL")
-        .bind(target.id)
-        .bind(state.clock.now())
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "UPDATE app_user SET token_version = token_version + 1, updated_at = now() WHERE id = $1",
+    )
+    .bind(target.id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "UPDATE persistent_session SET revoked_at = $2 WHERE user_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(target.id)
+    .bind(state.clock.now())
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     let details = format!("targetUserId={}", target.id);
     audit(

@@ -60,7 +60,10 @@ fn split(csv: &str) -> Vec<String> {
 impl From<ClientRow> for RegisteredClient {
     fn from(r: ClientRow) -> Self {
         Self {
-            require_proof_key: jackson::setting_bool(&r.client_settings, "settings.client.require-proof-key"),
+            require_proof_key: jackson::setting_bool(
+                &r.client_settings,
+                "settings.client.require-proof-key",
+            ),
             require_consent: jackson::setting_bool(
                 &r.client_settings,
                 "settings.client.require-authorization-consent",
@@ -85,7 +88,10 @@ impl From<ClientRow> for RegisteredClient {
 const COLUMNS: &str = "id, client_id, client_name, client_authentication_methods, authorization_grant_types, \
     redirect_uris, scopes, client_settings, token_settings";
 
-pub async fn find_by_client_id(state: &AppState, client_id: &str) -> Result<Option<RegisteredClient>, sqlx::Error> {
+pub async fn find_by_client_id(
+    state: &AppState,
+    client_id: &str,
+) -> Result<Option<RegisteredClient>, sqlx::Error> {
     let row: Option<ClientRow> = sqlx::query_as(&format!(
         "SELECT {COLUMNS} FROM oauth2_registered_client WHERE client_id = $1"
     ))
@@ -95,7 +101,10 @@ pub async fn find_by_client_id(state: &AppState, client_id: &str) -> Result<Opti
     Ok(row.map(Into::into))
 }
 
-pub async fn find_by_id(state: &AppState, id: &str) -> Result<Option<RegisteredClient>, sqlx::Error> {
+pub async fn find_by_id(
+    state: &AppState,
+    id: &str,
+) -> Result<Option<RegisteredClient>, sqlx::Error> {
     let row: Option<ClientRow> = sqlx::query_as(&format!(
         "SELECT {COLUMNS} FROM oauth2_registered_client WHERE id = $1"
     ))
@@ -199,7 +208,9 @@ fn validate_redirect_uris(uris: Option<Vec<String>>) -> AppResult<Vec<String>> {
             .ok()
             .filter(|u| u.fragment().is_none() && !uri.trim().is_empty());
         let Some(parsed) = parsed else {
-            return Err(AppError::BadRequest(format!("Malformed redirect_uris entry: {uri}")));
+            return Err(AppError::BadRequest(format!(
+                "Malformed redirect_uris entry: {uri}"
+            )));
         };
         let allowed = match parsed.scheme() {
             "https" => true,
@@ -219,7 +230,10 @@ fn validate_redirect_uris(uris: Option<Vec<String>>) -> AppResult<Vec<String>> {
 
 fn resolve_scopes(requested: Option<&str>) -> AppResult<Vec<String>> {
     let Some(raw) = requested.filter(|s| !s.trim().is_empty()) else {
-        return Ok(scopes::default_read().into_iter().map(str::to_owned).collect());
+        return Ok(scopes::default_read()
+            .into_iter()
+            .map(str::to_owned)
+            .collect());
     };
     let mut out: Vec<String> = Vec::new();
     for scope in raw.split_whitespace() {
@@ -329,7 +343,12 @@ pub async fn consent_info(
         .await?
         .ok_or_else(|| AppError::NotFound("Unknown OAuth client".into()))?;
     let mut requested: Vec<String> = Vec::new();
-    for scope in query.scope.as_deref().unwrap_or_default().split_whitespace() {
+    for scope in query
+        .scope
+        .as_deref()
+        .unwrap_or_default()
+        .split_whitespace()
+    {
         if client.scopes.iter().any(|s| s == scope) && !requested.iter().any(|s| s == scope) {
             requested.push(scope.to_owned());
         }

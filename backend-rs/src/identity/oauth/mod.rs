@@ -49,8 +49,7 @@ pub fn encode_component(value: &str) -> String {
 pub fn encode_query_value(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for byte in value.bytes() {
-        let keep = byte.is_ascii_alphanumeric()
-            || b"-._~!$'()*+,;:@/?".contains(&byte);
+        let keep = byte.is_ascii_alphanumeric() || b"-._~!$'()*+,;:@/?".contains(&byte);
         if keep {
             out.push(char::from(byte));
         } else {

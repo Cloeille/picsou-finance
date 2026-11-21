@@ -49,7 +49,9 @@ async fn chat(state: &AppState, cfg: &AiConfig) -> Result<Option<String>, String
             .post(format!("{base}/v1/messages"))
             .header("x-api-key", &key)
             .header("anthropic-version", "2023-06-01")
-            .json(&json!({"model": model, "max_tokens": ANTHROPIC_MAX_TOKENS, "messages": messages})),
+            .json(
+                &json!({"model": model, "max_tokens": ANTHROPIC_MAX_TOKENS, "messages": messages}),
+            ),
         AiProvider::Ollama => state
             .http
             .post(format!("{base}/api/chat"))
@@ -93,7 +95,10 @@ async fn chat(state: &AppState, cfg: &AiConfig) -> Result<Option<String>, String
 }
 
 /// Tests the submitted settings without saving them; a blank key reuses the stored one.
-pub async fn test(State(state): State<AppState>, Json(req): Json<AiRequest>) -> AppResult<axum::Json<AiTestResponse>> {
+pub async fn test(
+    State(state): State<AppState>,
+    Json(req): Json<AiRequest>,
+) -> AppResult<axum::Json<AiTestResponse>> {
     let Some(provider) = AiProvider::from_key(req.provider.as_deref()) else {
         return Ok(result(false, "No provider selected."));
     };
@@ -102,7 +107,10 @@ pub async fn test(State(state): State<AppState>, Json(req): Json<AiRequest>) -> 
         None => ai_config(&state).await?.and_then(|c| c.api_key),
     };
     if provider.key_required() && key.as_deref().is_none_or(|k| k.trim().is_empty()) {
-        return Ok(result(false, format!("An API key is required for {}.", provider.name())));
+        return Ok(result(
+            false,
+            format!("An API key is required for {}.", provider.name()),
+        ));
     }
     let cfg = AiConfig {
         provider,
@@ -153,10 +161,9 @@ pub struct AiCallLogPage {
 fn int_param(query: &HashMap<String, String>, name: &str, default: i32) -> AppResult<i32> {
     match query.get(name) {
         None => Ok(default),
-        Some(raw) => raw
-            .trim()
-            .parse()
-            .map_err(|_| AppError::BadRequest(format!("Failed to convert '{name}' with value: '{raw}'"))),
+        Some(raw) => raw.trim().parse().map_err(|_| {
+            AppError::BadRequest(format!("Failed to convert '{name}' with value: '{raw}'"))
+        }),
     }
 }
 

@@ -161,7 +161,10 @@ pub async fn profile_for(state: &AppState, member_id: i64) -> Result<Profile, sq
     Ok(match row {
         Some(row) => {
             let mut profile = row.profile;
-            profile.household_status = row.household_status.as_deref().and_then(HouseholdStatus::parse);
+            profile.household_status = row
+                .household_status
+                .as_deref()
+                .and_then(HouseholdStatus::parse);
             profile.risk_profile = row.risk_profile.as_deref().and_then(RiskProfile::parse);
             profile
         }
@@ -177,7 +180,10 @@ struct ProfileRow {
     risk_profile: Option<String>,
 }
 
-pub async fn get(State(state): State<AppState>, auth: Auth) -> AppResult<axum::Json<ProfileResponse>> {
+pub async fn get(
+    State(state): State<AppState>,
+    auth: Auth,
+) -> AppResult<axum::Json<ProfileResponse>> {
     let profile = profile_for(&state, auth.member_id).await?;
     Ok(axum::Json(respond(profile, state.clock.today())))
 }
@@ -213,12 +219,36 @@ impl Profile {
             e.add("birthDate", message);
         }
         decimal_bounds(e, "marginalTaxRate", self.marginal_tax_rate, 0, Some(100));
-        decimal_bounds(e, "taxHouseholdParts", self.tax_household_parts, 1, Some(20));
+        decimal_bounds(
+            e,
+            "taxHouseholdParts",
+            self.tax_household_parts,
+            1,
+            Some(20),
+        );
         integer_bounds(e, "dependents", self.dependents, 0, 20);
         decimal_bounds(e, "annualGrossIncome", self.annual_gross_income, 0, None);
-        decimal_bounds(e, "monthlyNetBeforeTax", self.monthly_net_before_tax, 0, None);
-        decimal_bounds(e, "withholdingTaxRate", self.withholding_tax_rate, 0, Some(100));
-        decimal_bounds(e, "monthlySavingsCapacity", self.monthly_savings_capacity, 0, None);
+        decimal_bounds(
+            e,
+            "monthlyNetBeforeTax",
+            self.monthly_net_before_tax,
+            0,
+            None,
+        );
+        decimal_bounds(
+            e,
+            "withholdingTaxRate",
+            self.withholding_tax_rate,
+            0,
+            Some(100),
+        );
+        decimal_bounds(
+            e,
+            "monthlySavingsCapacity",
+            self.monthly_savings_capacity,
+            0,
+            None,
+        );
         integer_bounds(e, "targetRetirementAge", self.target_retirement_age, 40, 90);
     }
 }

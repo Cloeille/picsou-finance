@@ -136,7 +136,11 @@ pub fn sanitize(raw: &[u8], configured_dsn: &str) -> Option<Vec<u8>> {
         let Some(event) = read_json(payload) else {
             continue;
         };
-        events.push(Value::Object(scrubber::scrub_event(&event)).to_string().into_bytes());
+        events.push(
+            Value::Object(scrubber::scrub_event(&event))
+                .to_string()
+                .into_bytes(),
+        );
     }
     if events.is_empty() {
         return None;
@@ -187,7 +191,10 @@ mod tests {
         let raw = b"{\"dsn\":\"https://evil@x/1\",\"sent_at\":\"2026-01-01T00:00:00Z\"}\n{\"type\":\"session\"}\n{}\n{\"type\":\"event\"}\n{\"level\":\"error\",\"user\":{\"id\":1}}\n";
         let out = String::from_utf8(sanitize(raw, DSN).unwrap()).unwrap();
         let lines: Vec<&str> = out.lines().collect();
-        assert_eq!(lines[0], "{\"sent_at\":\"2026-01-01T00:00:00Z\",\"dsn\":\"https://abc123@collector.example/42\"}");
+        assert_eq!(
+            lines[0],
+            "{\"sent_at\":\"2026-01-01T00:00:00Z\",\"dsn\":\"https://abc123@collector.example/42\"}"
+        );
         assert_eq!(lines[1], "{\"type\":\"event\",\"length\":17}");
         assert_eq!(lines[2], "{\"level\":\"error\"}");
     }
@@ -201,7 +208,10 @@ mod tests {
     #[test]
     fn parses_the_dsn() {
         let dsn = Dsn::parse("https://key:secret@host.example:8443/prefix/7").unwrap();
-        assert_eq!(dsn.envelope_url(), "https://host.example:8443/prefix/api/7/envelope/");
+        assert_eq!(
+            dsn.envelope_url(),
+            "https://host.example:8443/prefix/api/7/envelope/"
+        );
         assert!(dsn.auth_header().contains("sentry_key=key"));
         assert!(Dsn::parse("ftp://k@h/1").is_none());
         assert!(Dsn::parse("https://h/1").is_none());

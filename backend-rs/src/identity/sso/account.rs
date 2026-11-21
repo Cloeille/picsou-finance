@@ -43,7 +43,10 @@ fn truncate(value: Option<&str>, max: usize) -> Option<String> {
 }
 
 fn internal(e: impl std::fmt::Display) -> Refused {
-    tracing::error!("SSO account resolution failed: {}", log_safe(&e.to_string()));
+    tracing::error!(
+        "SSO account resolution failed: {}",
+        log_safe(&e.to_string())
+    );
     Refused("IDP_ERROR")
 }
 
@@ -154,7 +157,10 @@ impl From<sqlx::Error> for LoginError {
     }
 }
 
-async fn linked_user_id(state: &AppState, identity: &SsoIdentity) -> Result<Option<i64>, sqlx::Error> {
+async fn linked_user_id(
+    state: &AppState,
+    identity: &SsoIdentity,
+) -> Result<Option<i64>, sqlx::Error> {
     sqlx::query_scalar("SELECT user_id FROM user_identity WHERE issuer = $1 AND subject = $2")
         .bind(&identity.issuer)
         .bind(&identity.subject)
@@ -164,10 +170,7 @@ async fn linked_user_id(state: &AppState, identity: &SsoIdentity) -> Result<Opti
 
 fn in_admin_group(state: &AppState, identity: &SsoIdentity) -> bool {
     let group = Settings::new(state).admin_group();
-    identity
-        .groups
-        .as_ref()
-        .is_some_and(|g| g.iter().any(|x| *x == group))
+    identity.groups.as_ref().is_some_and(|g| g.contains(&group))
 }
 
 /// SsoAccountService.resolveLogin: bound by (issuer, subject) only, never by email or username.
@@ -193,12 +196,15 @@ async fn resolve_login(
 }
 
 pub fn display_name_for(identity: &SsoIdentity) -> String {
-    let name = [identity.display_name.as_deref(), identity.preferred_username.as_deref()]
-        .into_iter()
-        .flatten()
-        .find(|v| !v.trim().is_empty())
-        .map(str::trim)
-        .unwrap_or(DEFAULT_DISPLAY_NAME);
+    let name = [
+        identity.display_name.as_deref(),
+        identity.preferred_username.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|v| !v.trim().is_empty())
+    .map(str::trim)
+    .unwrap_or(DEFAULT_DISPLAY_NAME);
     truncate(Some(name), MAX_MEMBER_NAME).unwrap_or_default()
 }
 
@@ -241,7 +247,11 @@ pub async fn derive_username<'e>(
 }
 
 pub async fn username_for(state: &AppState, identity: &SsoIdentity) -> Result<String, sqlx::Error> {
-    match identity.preferred_username.as_deref().filter(|p| !p.trim().is_empty()) {
+    match identity
+        .preferred_username
+        .as_deref()
+        .filter(|p| !p.trim().is_empty())
+    {
         Some(preferred) => {
             let local = preferred.split_once('@').map_or(preferred, |(l, _)| l);
             derive_username(&state.db, local).await
@@ -285,14 +295,21 @@ async fn insert_identity(
     .bind(&identity.issuer)
     .bind(&identity.subject)
     .bind(truncate(identity.email.as_deref(), MAX_EMAIL))
-    .bind(truncate(identity.display_name.as_deref(), MAX_IDENTITY_NAME))
+    .bind(truncate(
+        identity.display_name.as_deref(),
+        MAX_IDENTITY_NAME,
+    ))
     .bind(last_login)
     .execute(&mut *tx)
     .await?;
     Ok(())
 }
 
-async fn provision(state: &AppState, identity: &SsoIdentity, request: Request<'_>) -> Result<AppUser, LoginError> {
+async fn provision(
+    state: &AppState,
+    identity: &SsoIdentity,
+    request: Request<'_>,
+) -> Result<AppUser, LoginError> {
     let username = username_for(state, identity).await?;
     let mut conn = state.db.acquire().await?;
     let mut tx = conn.begin().await?;
@@ -309,9 +326,9 @@ async fn provision(state: &AppState, identity: &SsoIdentity, request: Request<'_
     )
     .await;
     tracing::info!("sso.user.provisioned username={}", log_safe(&username));
-    Ok(users::find_by_id(&state.db, user_id)
+    users::find_by_id(&state.db, user_id)
         .await?
-        .ok_or_else(|| LoginError::Internal("provisioned user vanished".into()))?)
+        .ok_or_else(|| LoginError::Internal("provisioned user vanished".into()))
 }
 
 async fn touch_login(state: &AppState, identity: &SsoIdentity) -> Result<(), sqlx::Error> {
@@ -344,21 +361,30 @@ async fn sync_role(
         tracing::warn!("sso.groups-claim-missing user={}", log_safe(&user.username));
     }
     let group = sso.admin_group();
-    let in_group = groups.is_some_and(|g| g.iter().any(|x| *x == group));
+    let in_group = groups.is_some_and(|g| g.contains(&group));
     if in_group && user.role == Role::Member {
         sqlx::query("UPDATE app_user SET role = 'ADMIN', updated_at = now() WHERE id = $1")
             .bind(user.id)
             .execute(&state.db)
             .await?;
         user.role = Role::Admin;
-        audit(state, "sso.role.promoted", Some(&user.username), request.ip, request.headers, None).await;
+        audit(
+            state,
+            "sso.role.promoted",
+            Some(&user.username),
+            request.ip,
+            request.headers,
+            None,
+        )
+        .await;
     } else if !in_group && user.role == Role::Admin {
         let mut conn = state.db.acquire().await?;
         let mut tx = conn.begin().await?;
-        let admins: Vec<i64> =
-            sqlx::query_scalar("SELECT id FROM app_user WHERE role = 'ADMIN' ORDER BY id FOR UPDATE")
-                .fetch_all(&mut *tx)
-                .await?;
+        let admins: Vec<i64> = sqlx::query_scalar(
+            "SELECT id FROM app_user WHERE role = 'ADMIN' ORDER BY id FOR UPDATE",
+        )
+        .fetch_all(&mut *tx)
+        .await?;
         if !admins.contains(&user.id) {
             return Ok(());
         }
@@ -385,7 +411,15 @@ async fn sync_role(
             .await?;
         tx.commit().await?;
         user.role = Role::Member;
-        audit(state, "sso.role.demoted", Some(&user.username), request.ip, request.headers, None).await;
+        audit(
+            state,
+            "sso.role.demoted",
+            Some(&user.username),
+            request.ip,
+            request.headers,
+            None,
+        )
+        .await;
     }
     Ok(())
 }
@@ -436,7 +470,15 @@ async fn signed_in(
             sync_role(state, &mut user, identity.groups.as_deref(), request)
                 .await
                 .map_err(internal)?;
-            audit(state, "sso.identity.linked", Some(&user.username), request.ip, request.headers, Some("")).await;
+            audit(
+                state,
+                "sso.identity.linked",
+                Some(&user.username),
+                request.ip,
+                request.headers,
+                Some(""),
+            )
+            .await;
             Ok(with_query_parameter(&intent.redirect, "sso=linked"))
         }
     }
@@ -486,7 +528,10 @@ async fn activate(
         .await
         .map_err(internal)?
         .filter(|u| !u.activated)
-        .filter(|u| u.activation_token_expires.is_none_or(|e| e >= state.clock.now()))
+        .filter(|u| {
+            u.activation_token_expires
+                .is_none_or(|e| e >= state.clock.now())
+        })
         .ok_or(Refused("ACTIVATION_INVALID"))?;
     let linked = linked_user_id(state, identity).await.map_err(internal)?;
     if linked.is_some_and(|owner| owner != invited.id) {
@@ -497,7 +542,10 @@ async fn activate(
         ip: &ip,
         user_agent: user_agent(request.headers),
     };
-    match complete_invitation(state, &token, "", &ctx).await.map_err(internal)? {
+    match complete_invitation(state, &token, "", &ctx)
+        .await
+        .map_err(internal)?
+    {
         Invitation::Activated => {}
         Invitation::Unknown | Invitation::Expired => return Err(Refused("ACTIVATION_INVALID")),
     }
@@ -562,12 +610,17 @@ async fn seed_sso_admin(state: &AppState, identity: &SsoIdentity) -> AppResult<A
     .rows_affected();
     if claimed == 0 && current.as_deref().is_none_or(|s| s == "PENDING_ADMIN") {
         tracing::warn!("Setup: concurrent admin-seeding attempt lost the setup-state CAS");
-        return Err(AppError::Internal("Another setup session is already in progress.".into()));
+        return Err(AppError::Internal(
+            "Another setup session is already in progress.".into(),
+        ));
     }
     let user_id = insert_account(&mut tx, &username, &display_name).await?;
     insert_identity(&mut tx, user_id, identity, Some(state.clock.now())).await?;
     tx.commit().await?;
-    tracing::info!("setup.admin.created username={} role=ADMIN method=sso", log_safe(&username));
+    tracing::info!(
+        "setup.admin.created username={} role=ADMIN method=sso",
+        log_safe(&username)
+    );
     users::find_by_id(&state.db, user_id)
         .await?
         .ok_or_else(|| AppError::Internal("admin vanished".into()))
@@ -586,7 +639,15 @@ async fn setup(
     let user = seed_sso_admin(state, identity)
         .await
         .map_err(|_| Refused("SETUP_ALREADY_CLAIMED"))?;
-    audit(state, "setup.admin.created", Some(&user.username), request.ip, request.headers, Some("method=sso")).await;
+    audit(
+        state,
+        "setup.admin.created",
+        Some(&user.username),
+        request.ip,
+        request.headers,
+        Some("method=sso"),
+    )
+    .await;
     issue(state, jar, &user, false, request).await?;
     Ok("/setup/security".to_owned())
 }

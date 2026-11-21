@@ -165,10 +165,7 @@ pub async fn reauth(
     Ok((jar, StatusCode::NO_CONTENT).into_response())
 }
 
-async fn lock_user(
-    tx: &mut sqlx::PgConnection,
-    user_id: i64,
-) -> AppResult<AppUser> {
+async fn lock_user(tx: &mut sqlx::PgConnection, user_id: i64) -> AppResult<AppUser> {
     sqlx::query("SELECT id FROM app_user WHERE id = $1 FOR UPDATE")
         .bind(user_id)
         .execute(&mut *tx)
@@ -204,7 +201,16 @@ async fn reissue(
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".into()))?;
     let mut jar = Cookies::new(settings::secure_cookies(state).await);
-    issue_session(state, &mut jar, &user, false, false, sso_at, RequestInfo { ip, headers }).await?;
+    issue_session(
+        state,
+        &mut jar,
+        &user,
+        false,
+        false,
+        sso_at,
+        RequestInfo { ip, headers },
+    )
+    .await?;
     // Every series was just revoked; a surviving persistent cookie would answer "Session revoked".
     jar.clear_persistent();
     Ok(jar)
@@ -254,11 +260,13 @@ pub async fn remove_password(
     .bind(user.id)
     .execute(&mut *tx)
     .await?;
-    sqlx::query("UPDATE persistent_session SET revoked_at = $2 WHERE user_id = $1 AND revoked_at IS NULL")
-        .bind(user.id)
-        .bind(state.clock.now())
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "UPDATE persistent_session SET revoked_at = $2 WHERE user_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(user.id)
+    .bind(state.clock.now())
+    .execute(&mut *tx)
+    .await?;
     let latest: Option<DateTime<Utc>> = sqlx::query_scalar(
         "SELECT max(last_login_at) FROM user_identity WHERE user_id = $1 AND issuer = $2",
     )
@@ -268,7 +276,15 @@ pub async fn remove_password(
     .await?;
     tx.commit().await?;
     let jar = reissue(&state, user.id, latest, &ip, &headers).await?;
-    audit(&state, "auth.password.removed", Some(&user.username), &ip, &headers, None).await;
+    audit(
+        &state,
+        "auth.password.removed",
+        Some(&user.username),
+        &ip,
+        &headers,
+        None,
+    )
+    .await;
     Ok((jar, StatusCode::NO_CONTENT).into_response())
 }
 
@@ -311,15 +327,25 @@ pub async fn set_password(
     .bind(hash)
     .execute(&mut *tx)
     .await?;
-    sqlx::query("UPDATE persistent_session SET revoked_at = $2 WHERE user_id = $1 AND revoked_at IS NULL")
-        .bind(user.id)
-        .bind(state.clock.now())
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "UPDATE persistent_session SET revoked_at = $2 WHERE user_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(user.id)
+    .bind(state.clock.now())
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     let sso_at = current_sso_at(&state, &headers).await?;
     let jar = reissue(&state, user.id, sso_at, &ip, &headers).await?;
-    audit(&state, "auth.password.set", Some(&user.username), &ip, &headers, None).await;
+    audit(
+        &state,
+        "auth.password.set",
+        Some(&user.username),
+        &ip,
+        &headers,
+        None,
+    )
+    .await;
     Ok((jar, StatusCode::NO_CONTENT).into_response())
 }
 
@@ -345,12 +371,13 @@ pub async fn unlink_identity(
         return Err(AppError::NotFound("Identity not found".into()));
     };
     if !has_password(&user) {
-        let same_issuer: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM user_identity WHERE user_id = $1 AND issuer = $2")
-                .bind(user.id)
-                .bind(&issuer)
-                .fetch_one(&mut *tx)
-                .await?;
+        let same_issuer: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM user_identity WHERE user_id = $1 AND issuer = $2",
+        )
+        .bind(user.id)
+        .bind(&issuer)
+        .fetch_one(&mut *tx)
+        .await?;
         let left = same_issuer - i64::from(identity_issuer == issuer);
         if left <= 0 {
             return Err(AppError::coded(
@@ -366,7 +393,14 @@ pub async fn unlink_identity(
         .await?;
     tx.commit().await?;
     let details = format!("identityId={id}");
-    audit(&state, "sso.identity.unlinked", Some(&user.username), &ip, &headers, Some(&details)).await;
+    audit(
+        &state,
+        "sso.identity.unlinked",
+        Some(&user.username),
+        &ip,
+        &headers,
+        Some(&details),
+    )
+    .await;
     Ok(StatusCode::NO_CONTENT)
 }
-

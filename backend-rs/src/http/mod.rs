@@ -323,9 +323,22 @@ async fn cross_site_guard(State(state): State<AppState>, request: Request, next:
     next.run(request).await
 }
 
+/// The authorization-server and SSO filter chains answer before the API chain's SetupFilter.
+const SECURITY_CHAIN_ENDPOINTS: &[&str] = &[
+    "/oauth2/authorize",
+    "/oauth2/token",
+    "/oauth2/revoke",
+    "/oauth2/introspect",
+    "/oauth2/device_authorization",
+    "/oauth2/jwks",
+    "/.well-known/oauth-authorization-server",
+];
+
 fn allowed_during_setup(path: &str) -> bool {
     path.starts_with("/api/setup/")
         || path == "/api/setup"
+        || path.starts_with("/oauth2/sso/")
+        || SECURITY_CHAIN_ENDPOINTS.contains(&path)
         || matches!(
             path,
             "/actuator/health"

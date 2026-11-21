@@ -16,7 +16,12 @@ const MAX_FINGERPRINT: usize = 10;
 const LEVELS: &[&str] = &["fatal", "error", "warning", "info", "debug"];
 const USAGE_MESSAGES: &[&str] = &["page_view", "feature_used"];
 /// Must stay in sync with FeatureEvent in frontend/src/lib/telemetry.ts.
-const FEATURES: &[&str] = &["sync_triggered", "export_downloaded", "goal_created", "budget_viewed"];
+const FEATURES: &[&str] = &[
+    "sync_triggered",
+    "export_downloaded",
+    "goal_created",
+    "budget_viewed",
+];
 const ROUTE_NOT_FOUND: &str = "not-found";
 const TOKEN_SEPARATORS: &str = "/\\(),;:'\"<>[]{}|=&?#";
 
@@ -40,7 +45,10 @@ pattern!(MECHANISM_TYPE, r"^[A-Za-z0-9_.\-]{1,64}$");
 pattern!(SDK_NAME, r"^[A-Za-z0-9_./\-]{1,64}$");
 pattern!(VERSION, r"^[A-Za-z0-9_.+\-]{1,32}$");
 pattern!(CONTEXT_NAME, r"^[A-Za-z0-9_ .+\-]{1,64}$");
-pattern!(TAG_KEY, r"^(?:route|event|feature|ab\.[A-Za-z0-9_.\-]{1,60})$");
+pattern!(
+    TAG_KEY,
+    r"^(?:route|event|feature|ab\.[A-Za-z0-9_.\-]{1,60})$"
+);
 pattern!(ROUTE_TAG, r"^/[A-Za-z0-9_:./\-]{0,63}$");
 pattern!(NAME_TAG, r"^[A-Za-z0-9_.\-]{1,64}$");
 pattern!(URL, r#"https?://[^ \t\n\x0B\f\r"'<>()\[\]{}]+"#);
@@ -51,7 +59,10 @@ pattern!(
     SECRET_PAIR,
     r#"(?i)\b(key|token|password|passwd|secret|api[_-]?key|access[_-]?token|authorization)(["']?[ \t\n\x0B\f\r]*[=:][ \t\n\x0B\f\r]*["']?)[^ \t\n\x0B\f\r&;,"'}]+"#
 );
-pattern!(EMAIL, r"(?<![A-Za-z0-9_.+\-])(?>[A-Za-z0-9_.+\-]+)@(?>[A-Za-z0-9_\-]+)(?:\.(?>[A-Za-z0-9_\-]+))+");
+pattern!(
+    EMAIL,
+    r"(?<![A-Za-z0-9_.+\-])(?>[A-Za-z0-9_.+\-]+)@(?>[A-Za-z0-9_\-]+)(?:\.(?>[A-Za-z0-9_\-]+))+"
+);
 pattern!(IBAN, r"\b[A-Z]{2}[0-9]{2}(?: ?[A-Z0-9]){10,30}\b");
 pattern!(CARD, r"(?<![0-9])(?:[0-9][ -]?){12,18}[0-9](?![0-9])");
 pattern!(IPV4, r"(?<![0-9.])[0-9]{1,3}(?:\.[0-9]{1,3}){3}(?![0-9.])");
@@ -114,7 +125,10 @@ pub fn route_template(path: &str) -> String {
 }
 
 pub fn scrub_filename(filename: &str) -> String {
-    cut(&scrub_text(&route_template(&pre_cut(filename, MAX_NAME))), MAX_NAME)
+    cut(
+        &scrub_text(&route_template(&pre_cut(filename, MAX_NAME))),
+        MAX_NAME,
+    )
 }
 
 fn scrub_url(url: &str) -> String {
@@ -201,7 +215,10 @@ fn put(out: &mut Map<String, Value>, key: &str, value: Option<Value>) {
 
 fn put_text(out: &mut Map<String, Value>, key: &str, value: Option<&Value>, max: usize) {
     if let Some(s) = value.and_then(Value::as_str) {
-        out.insert(key.to_owned(), cut(&scrub_text(&pre_cut(s, max)), max).into());
+        out.insert(
+            key.to_owned(),
+            cut(&scrub_text(&pre_cut(s, max)), max).into(),
+        );
     }
 }
 
@@ -219,20 +236,36 @@ fn int_value(value: &Value) -> Option<i64> {
 /// Rebuilds a minimal event from the allowlist; never mutates the input.
 pub fn scrub_event(raw: &Map<String, Value>) -> Map<String, Value> {
     let mut out = Map::new();
-    put(&mut out, "event_id", matching(raw.get("event_id"), &EVENT_ID));
+    put(
+        &mut out,
+        "event_id",
+        matching(raw.get("event_id"), &EVENT_ID),
+    );
     match raw.get("timestamp") {
         Some(ts @ Value::Number(_)) => {
             out.insert("timestamp".into(), ts.clone());
         }
         other => put(&mut out, "timestamp", matching(other, &TIMESTAMP)),
     }
-    put(&mut out, "platform", matching(raw.get("platform"), &PLATFORM));
-    if let Some(level) = raw.get("level").and_then(Value::as_str).filter(|l| LEVELS.contains(l)) {
+    put(
+        &mut out,
+        "platform",
+        matching(raw.get("platform"), &PLATFORM),
+    );
+    if let Some(level) = raw
+        .get("level")
+        .and_then(Value::as_str)
+        .filter(|l| LEVELS.contains(l))
+    {
         out.insert("level".into(), level.into());
     }
     put(&mut out, "logger", matching(raw.get("logger"), &LOGGER));
     put(&mut out, "release", matching(raw.get("release"), &RELEASE));
-    put(&mut out, "environment", matching(raw.get("environment"), &ENVIRONMENT));
+    put(
+        &mut out,
+        "environment",
+        matching(raw.get("environment"), &ENVIRONMENT),
+    );
     if let Some(message) = scrub_message(raw.get("message")) {
         out.insert("message".into(), message.into());
     }
@@ -256,10 +289,18 @@ pub fn scrub_event(raw: &Map<String, Value>) -> Map<String, Value> {
         out.insert("sdk".into(), Value::Object(sdk));
     }
     // Transaction names survive only when they are a route, and then only templated.
-    if let Some(t) = raw.get("transaction").and_then(Value::as_str).filter(|t| t.starts_with('/')) {
+    if let Some(t) = raw
+        .get("transaction")
+        .and_then(Value::as_str)
+        .filter(|t| t.starts_with('/'))
+    {
         out.insert(
             "transaction".into(),
-            cut(&scrub_text(&route_template(&pre_cut(t, MAX_NAME))), MAX_NAME).into(),
+            cut(
+                &scrub_text(&route_template(&pre_cut(t, MAX_NAME))),
+                MAX_NAME,
+            )
+            .into(),
         );
     }
     out
@@ -393,7 +434,9 @@ fn scrub_contexts(contexts: Option<&Value>) -> Map<String, Value> {
         return out;
     };
     for (key, with_version) in [("os", false), ("browser", false), ("runtime", true)] {
-        let Some(m) = c.get(key).and_then(Value::as_object) else { continue };
+        let Some(m) = c.get(key).and_then(Value::as_object) else {
+            continue;
+        };
         let mut kept = Map::new();
         put(&mut kept, "name", matching(m.get("name"), &CONTEXT_NAME));
         if with_version {
@@ -434,8 +477,14 @@ mod tests {
 
     #[test]
     fn scrubs_the_usual_suspects() {
-        assert_eq!(scrub_text("mail jane.doe@example.com now"), "mail [email] now");
-        assert_eq!(scrub_text("iban FR7630006000011234567890189"), "iban [iban]");
+        assert_eq!(
+            scrub_text("mail jane.doe@example.com now"),
+            "mail [email] now"
+        );
+        assert_eq!(
+            scrub_text("iban FR7630006000011234567890189"),
+            "iban [iban]"
+        );
         assert_eq!(scrub_text("from 192.168.1.20"), "from [ip]");
         assert_eq!(scrub_text("paid 1 234,56 €"), "paid [amount]");
         assert_eq!(scrub_text("Bearer abc.def"), "[token]");

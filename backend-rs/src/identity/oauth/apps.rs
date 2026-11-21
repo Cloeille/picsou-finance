@@ -32,7 +32,10 @@ struct Row {
     issued_at: Option<NaiveDateTime>,
 }
 
-pub async fn list(State(state): State<AppState>, auth: Auth) -> AppResult<axum::Json<Vec<ConnectedApp>>> {
+pub async fn list(
+    State(state): State<AppState>,
+    auth: Auth,
+) -> AppResult<axum::Json<Vec<ConnectedApp>>> {
     let rows: Vec<Row> = sqlx::query_as(
         "SELECT a.id, c.client_name, a.authorized_scopes AS scopes, a.access_token_issued_at AS issued_at \
          FROM oauth2_authorization a JOIN oauth2_registered_client c ON c.id = a.registered_client_id \
@@ -46,7 +49,13 @@ pub async fn list(State(state): State<AppState>, auth: Auth) -> AppResult<axum::
         rows.into_iter()
             .map(|r| {
                 let mut scopes: Vec<String> = Vec::new();
-                for s in r.scopes.as_deref().unwrap_or_default().split(',').map(str::trim) {
+                for s in r
+                    .scopes
+                    .as_deref()
+                    .unwrap_or_default()
+                    .split(',')
+                    .map(str::trim)
+                {
                     if !s.is_empty() && !scopes.iter().any(|x| x == s) {
                         scopes.push(s.to_owned());
                     }
@@ -63,13 +72,18 @@ pub async fn list(State(state): State<AppState>, auth: Auth) -> AppResult<axum::
     ))
 }
 
-pub async fn revoke(State(state): State<AppState>, auth: Auth, Path(id): Path<String>) -> AppResult<StatusCode> {
-    let removed = sqlx::query("DELETE FROM oauth2_authorization WHERE id = $1 AND principal_name = $2")
-        .bind(&id)
-        .bind(&auth.user.username)
-        .execute(&state.db)
-        .await?
-        .rows_affected();
+pub async fn revoke(
+    State(state): State<AppState>,
+    auth: Auth,
+    Path(id): Path<String>,
+) -> AppResult<StatusCode> {
+    let removed =
+        sqlx::query("DELETE FROM oauth2_authorization WHERE id = $1 AND principal_name = $2")
+            .bind(&id)
+            .bind(&auth.user.username)
+            .execute(&state.db)
+            .await?
+            .rows_affected();
     if removed == 0 {
         return Err(AppError::NotFound("Connected app not found".into()));
     }
