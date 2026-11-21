@@ -72,6 +72,10 @@ pub struct Inner {
     pub desktop_info: bool,
     /// The ledger's plug-in points (prices, connection locks, merchant knowledge base).
     pub ledger: ledger::Ledger,
+    /// Price, FX and instrument data providers with their caches (track T4).
+    pub market: market::Market,
+    /// The wealth domain's state and cross-track seams (track T4).
+    pub wealth: wealth::Wealth,
 }
 
 impl Deref for AppState {
@@ -95,6 +99,11 @@ impl AppState {
             .user_agent(concat!("picsou/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(std::time::Duration::from_secs(10))
             .build()?;
+        let market = market::Market::new(&config, &db, &http, &clock);
+        let wealth = wealth::Wealth::new(&config, &db, &http, &clock);
+        let mut ledger = ledger::Ledger::new(db.clone());
+        ledger.prices = market.price_read();
+        ledger.dividends = wealth.dividends.classifier();
         Ok(Self(Arc::new(Inner {
             jwt: Jwt::new(&config.jwt, clock.clone())?,
             limits: RateLimiter::new(clock.clone()),
@@ -102,7 +111,9 @@ impl AppState {
             http,
             clock,
             config,
-            ledger: ledger::Ledger::new(db.clone()),
+            ledger,
+            market,
+            wealth,
             db,
             setup_complete: AtomicBool::new(false),
             login_timing: TimingEqualizer::default(),

@@ -234,6 +234,13 @@ pub struct Config {
     pub cerema_api_url: String,
     pub insee_api_url: String,
     pub geocoding_api_url: String,
+    /// Price and market-data hosts Java hard-codes; overridable here so tests can stub them.
+    pub yahoo_finance_base_url: String,
+    pub coingecko_base_url: String,
+    pub precious_metals_base_url: String,
+    pub openfigi_base_url: String,
+    pub justetf_base_url: String,
+    pub nasdaq_base_url: String,
     pub update_check_enabled: bool,
     pub meria_base_url: String,
     pub startup_sync_enabled: bool,
@@ -658,6 +665,24 @@ impl Config {
                 .to_owned(),
             geocoding_api_url: env
                 .or("GEOCODING_API_URL", "https://data.geopf.fr/geocodage")
+                .to_owned(),
+            yahoo_finance_base_url: env
+                .or("YAHOO_FINANCE_BASE_URL", "https://query1.finance.yahoo.com")
+                .to_owned(),
+            coingecko_base_url: env
+                .or("COINGECKO_BASE_URL", "https://api.coingecko.com/api/v3")
+                .to_owned(),
+            precious_metals_base_url: env
+                .or("PRECIOUS_METALS_BASE_URL", "https://www.loomis-fxgs.fr")
+                .to_owned(),
+            openfigi_base_url: env
+                .or("OPENFIGI_BASE_URL", "https://api.openfigi.com")
+                .to_owned(),
+            justetf_base_url: env
+                .or("JUSTETF_BASE_URL", "https://www.justetf.com")
+                .to_owned(),
+            nasdaq_base_url: env
+                .or("NASDAQ_BASE_URL", "https://api.nasdaq.com")
                 .to_owned(),
             update_check_enabled: bool_or(env, "APP_UPDATE_CHECK_ENABLED", true)?,
             meria_base_url: env

@@ -1,0 +1,1 @@
+//! scpi endpoints.
