@@ -152,7 +152,7 @@ export function InstitutionSearch({ onConnect, connecting, layout }: Institution
             ) : undefined
           }
         >
-          {t('sync.banks.notConfigured')}
+          {t(isAdmin ? 'sync.banks.notConfigured' : 'sync.banks.notConfiguredMember')}
         </AlertBanner>
       )}
 

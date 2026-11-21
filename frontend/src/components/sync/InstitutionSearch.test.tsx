@@ -87,7 +87,8 @@ describe('InstitutionSearch', () => {
 
     render(<InstitutionSearch layout="modal" onConnect={vi.fn()} connecting={false} />)
 
-    expect(screen.getByRole('alert')).toHaveTextContent('sync.banks.notConfigured')
+    // Members cannot open Administration: they are told to ask the administrator instead.
+    expect(screen.getByRole('alert')).toHaveTextContent('sync.banks.notConfiguredMember')
     expect(screen.queryByRole('link', { name: 'sync.banks.configureEnableBanking' })).not.toBeInTheDocument()
   })
 
