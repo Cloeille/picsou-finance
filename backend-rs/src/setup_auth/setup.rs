@@ -381,10 +381,10 @@ impl Validate for SecurityRequest {
     fn validate(&self, e: &mut Errors) {
         match &self.allowed_origins {
             None => {
-                e.add("allowedOrigins", "must not be null");
+                e.not_null::<Vec<Option<String>>>("allowedOrigins", None);
             }
             Some(list) if list.is_empty() => {
-                e.add("allowedOrigins", "must not be empty");
+                e.not_empty("allowedOrigins", Some(list.as_slice()));
             }
             Some(list) => {
                 for (i, origin) in list.iter().enumerate() {

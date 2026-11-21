@@ -85,6 +85,33 @@ async fn admin_request_validation() {
 }
 
 #[tokio::test]
+async fn validation_messages_follow_accept_language() {
+    let app = TestApp::spawn().await;
+    let french = app
+        .client()
+        .post("/api/setup/admin")
+        .header("accept-language", "fr-FR,fr;q=0.9,en;q=0.8")
+        .json(&json!({"username": "a", "avatarColor": "red"}))
+        .send()
+        .await
+        .json();
+    assert_eq!(
+        french["errors"],
+        json!({"username": "la taille doit être comprise entre 3 et 50", "password": "ne doit pas être vide",
+               "avatarColor": "Avatar color must be a hex color like #6366f1"})
+    );
+    let english = app
+        .client()
+        .post("/api/setup/admin")
+        .header("accept-language", "en-US,fr;q=0.5")
+        .json(&json!({}))
+        .send()
+        .await
+        .json();
+    assert_eq!(english["errors"]["password"], "must not be blank");
+}
+
+#[tokio::test]
 async fn unreadable_bodies() {
     let app = TestApp::spawn().await;
     let client = app.client();

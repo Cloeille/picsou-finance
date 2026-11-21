@@ -57,7 +57,7 @@ serde_json = { version = "1.0.154", features = ["arbitrary_precision", "preserve
 serde_with = "3.25.0"
 sha1 = "0.11.0"
 sha2 = "0.11.1"
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "chrono", "uuid", "rust_decimal", "json", "macros"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "chrono", "uuid", "rust_decimal", "json", "derive"] }
 subtle = "2.6.1"
 thiserror = "2.0.21"
 tokio = { version = "1.54.1", features = ["full"] }
