@@ -113,6 +113,12 @@ impl AppState {
         let mut ledger = ledger::Ledger::new(db.clone());
         ledger.prices = market.price_read();
         ledger.dividends = wealth.dividends.classifier();
+        let budget = budget::BudgetState::default();
+        budget.ai.set(Arc::new(ai::DynamicCategorizer::new(
+            db.clone(),
+            crypto.clone(),
+            http.clone(),
+        )));
         Ok(Self(Arc::new(Inner {
             jwt: Jwt::new(&config.jwt, clock.clone())?,
             limits: RateLimiter::new(clock.clone()),
@@ -124,7 +130,7 @@ impl AppState {
             ledger,
             market,
             wealth,
-            budget: budget::BudgetState::default(),
+            budget,
             accounts: accounts::Seams::default(),
             sync: sync::SyncHooks::new(db.clone()),
             connectors,
