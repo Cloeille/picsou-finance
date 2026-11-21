@@ -42,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Deleting a property no longer breaks the loan linked to it.** A loan or peer loan still linked
+  to a deleted account could not be read, and the accounts page failed with an error. Deleting an
+  account now unlinks them, and the upgrade repairs the loans already in that state (`V154`).
 - **American Express login no longer stalls behind the cookie banner.** When the consent banner
   showed up after the login form, it blocked the sign-in click and the connection failed with
   "Impossible de joindre American Express". It is now declined whenever it appears (#568).
