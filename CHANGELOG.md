@@ -46,6 +46,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `bonds` category were not detected as bonds, and the nominal currency was not read, so their price
   could be off by a factor of 100 or left empty. A Polish IKE wrapper now syncs as a brokerage account
   (`TR IKE`), for accounts created from now on.
+- **Deleting a property no longer breaks the loan linked to it.** A loan or peer loan still linked
+  to a deleted account could not be read, and the accounts page failed with an error. Deleting an
+  account now unlinks them, and the upgrade repairs the loans already in that state (`V154`).
 - **American Express login no longer stalls behind the cookie banner.** When the consent banner
   showed up after the login form, it blocked the sign-in click and the connection failed with
   "Impossible de joindre American Express". It is now declined whenever it appears (#568).
