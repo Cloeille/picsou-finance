@@ -361,9 +361,9 @@ class ReviewRegressionsTest(unittest.TestCase):
         job = next(r for r in self.resources() if r["kind"] == "Job")
         script = job["spec"]["template"]["spec"]["containers"][0]["args"][0]
         with tempfile.TemporaryDirectory() as tmp:
-            java = Path(tmp) / "java"
-            java.write_text('#!/bin/sh\n[ "$SPRING_DATASOURCE_PASSWORD" = "$EXPECTED_PASSWORD" ]\n')
-            java.chmod(0o755)
+            cli = Path(tmp) / "picsou"
+            cli.write_text('#!/bin/sh\n[ "$SPRING_DATASOURCE_PASSWORD" = "$EXPECTED_PASSWORD" ]\n')
+            cli.chmod(0o755)
             for explicit in (False, True):
                 env = {"PATH": tmp + os.pathsep + os.defpath,
                        "POSTGRES_PASSWORD": "synthetic-postgres",

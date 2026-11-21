@@ -224,9 +224,7 @@ docker_pinned() {
 }
 run_migration_cli() {
     local operation=$1
-    docker_pinned run --pull never --rm --no-deps --entrypoint java app \
-        -Dloader.main=com.picsou.migration.ReleaseMigrationCli \
-        -cp /app/app.jar org.springframework.boot.loader.launch.PropertiesLauncher "$operation"
+    docker_pinned run --pull never --rm --no-deps --entrypoint picsou app "$operation"
 }
 
 # Rehearse against a disposable clone restored from the complete custom dump.

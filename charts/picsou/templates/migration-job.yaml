@@ -72,8 +72,7 @@ spec:
               # The app derives this at startup (SecretBootstrap); the CLI reads the environment only.
               export SPRING_DATASOURCE_PASSWORD="${SPRING_DATASOURCE_PASSWORD:-$POSTGRES_PASSWORD}"
               for op in migrate verify; do
-                java -XX:MaxRAMPercentage=75.0 -Dloader.main=com.picsou.migration.ReleaseMigrationCli \
-                  -cp /app/app.jar org.springframework.boot.loader.launch.PropertiesLauncher "$op"
+                picsou "$op"
               done
           securityContext:
             allowPrivilegeEscalation: false
