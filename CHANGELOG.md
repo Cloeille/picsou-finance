@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Trade Republic bonds are valued correctly again.** Bonds listed under Trade Republic's
+  `bonds` category were not detected as bonds, and the nominal currency was not read, so their price
+  could be off by a factor of 100 or left empty. A Polish IKE wrapper now syncs as a brokerage account
+  (`TR IKE`), for accounts created from now on.
 - **BoursoBank syncs a PER.** A PER on the dashboard was read as a securities account, its
   trading-board lookup answered 404, and the whole sync failed with `UPSTREAM_FORMAT_CHANGED`,
   so no account was imported. The PER is now read from its own page: one position per fund,
@@ -68,6 +72,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Trade Republic: native crypto gets its own `TR Crypto` account.** Coins bought on Trade Republic
+  (Bitcoin and the like) moved out of `TR Titres` into a new `TR Crypto` account, so they show under
+  Accounts > Crypto with live CoinGecko prices and coin logos. Crypto ETFs and ETCs stay in `TR Titres`.
+  On the first sync after the upgrade, `TR Titres` drops by the crypto amount and `TR Crypto` takes
+  it, so net worth does not move; past transactions and snapshots stay on `TR Titres`, and CSV imports
+  do not duplicate earlier crypto trades. `TR Crypto` is a new account: sharing with another member,
+  exclusions and goal links set on `TR Titres` are not copied to it, set them again if you use them.
 - **A missed daily sync is made up once.** When Picsou was off or the machine asleep at 08:00, the bank
   sync and the balance snapshot now run within a minute or two of the next start or wake, once, not
   once per missed day. The weekly and monthly jobs follow the same rule. The first start after the
