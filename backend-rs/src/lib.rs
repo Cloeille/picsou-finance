@@ -74,6 +74,8 @@ pub struct Inner {
     pub identity: identity::Runtime,
     /// The admin module's in-memory state (Enable Banking call log, release check cache).
     pub admin: admin::Runtime,
+    /// The budget module's plug-in points (AI categorizer, logo source) and job state.
+    pub budget: budget::BudgetState,
 }
 
 impl Deref for AppState {
@@ -100,6 +102,7 @@ impl AppState {
             clock,
             config,
             ledger: ledger::Ledger::new(db.clone()),
+            budget: budget::BudgetState::default(),
             db,
             setup_complete: AtomicBool::new(false),
             login_timing: TimingEqualizer::default(),

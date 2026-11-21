@@ -8,9 +8,14 @@ MAPPING = re.compile(r"@(Get|Post|Put|Patch|Delete|Request)Mapping\s*(\((?:[^()]
 VERBS = {"Get": "GET", "Post": "POST", "Put": "PUT", "Patch": "PATCH", "Delete": "DELETE"}
 
 
-def paths(args):
+CONSTANT = re.compile(r'static\s+final\s+String\s+(\w+)\s*=\s*"([^"]*)"')
+
+
+def paths(args, constants=None):
     if not args:
         return [""]
+    for name, value in (constants or {}).items():
+        args = re.sub(rf'(?<!["\w]){name}(?!["\w])', f'"{value}"', args)
     found = re.findall(r'"([^"]*)"', re.sub(r"(produces|consumes|params|headers)\s*=\s*(\{[^}]*\}|\"[^\"]*\"|[\w.]+)", "", args))
     return found or [""]
 
@@ -27,18 +32,19 @@ for source in sorted(ROOT.rglob("*.java")):
     text = source.read_text()
     if "@RestController" not in text and "@Controller" not in text:
         continue
-    head = text.split(" class ", 1)
+    constants = dict(CONSTANT.findall(text))
+    head = re.split(r"^(?:public\s+|final\s+|abstract\s+)*class\s", text, maxsplit=1, flags=re.M)
     prefixes = [""]
     class_part = head[0]
     for m in MAPPING.finditer(class_part):
         if m.group(1) == "Request":
-            prefixes = paths(m.group(2))
+            prefixes = paths(m.group(2), constants)
     body = head[1] if len(head) > 1 else ""
     for m in MAPPING.finditer(body):
         tail = body[m.end():]
         name = re.search(r"\b(\w+)\s*\(", re.sub(r"@\w+(\((?:[^()]|\([^()]*\))*\))?", "", tail[:600]))
         for prefix in prefixes:
-            for p in paths(m.group(2)):
+            for p in paths(m.group(2), constants):
                 for verb in methods(m.group(1), m.group(2)):
                     rows.append((verb, (prefix + p) or "/", source.stem, name.group(1) if name else "?"))
 

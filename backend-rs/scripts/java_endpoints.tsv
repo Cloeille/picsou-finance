@@ -1,5 +1,4 @@
 GET	/.well-known/oauth-protected-resource	ProtectedResourceMetadataController	metadata
-GET	/	AllocationController	allocation
 GET	/api/access-keys	AccessKeyController	list
 POST	/api/access-keys	AccessKeyController	create
 DELETE	/api/access-keys/{id}	AccessKeyController	delete
@@ -65,7 +64,7 @@ POST	/api/admin/settings/enablebanking/keypair/import	AdminController	importEnab
 PATCH	/api/admin/settings/integrations/{key}	AdminController	toggleIntegration
 PUT	/api/admin/settings/security	AdminController	updateSecurity
 PUT	/api/admin/settings/telemetry	AdminController	updateTelemetry
-ANY	/api/allocation	AllocationController	AllocationController
+GET	/api/allocation	AllocationController	allocation
 POST	/api/amex/auth/complete	AmexController	complete
 POST	/api/amex/auth/initiate	AmexController	initiate
 POST	/api/amex/history-recovery	AmexController	recoverHistory
