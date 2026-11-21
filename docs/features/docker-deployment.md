@@ -832,7 +832,9 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
   and the Helm pre-upgrade job: the same strict history (validation, out of order, the high
   baseline and duplicate-account checks, every local script applied for `verify`), then the
   physical schema: every table, column and type and every enum label the migrations create must
-  exist (`backend-rs/src/db/schema.tsv`, kept current by a test). Output is limited to
+  exist (`backend-rs/src/db/schema.tsv`, kept current by a test), unless the history has a
+  `BASELINE` row (that schema was not built by these scripts). Unlike Hibernate's `validate`,
+  this compares every column the migrations create, mapped or not, and types exactly. Output is limited to
   migration names, our own messages and SQLSTATE codes. Tested in `backend-rs`
   (`foundation::migrations`) on real PostgreSQL.
 - CI builds the release image and runs `test_deploy_integration.py` against real PostgreSQL,

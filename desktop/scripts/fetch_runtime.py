@@ -228,6 +228,14 @@ def pg_tools(manifest, target, native):
             target_path.chmod(0o755)
     if native:
         subprocess.run([str(out / "bin" / f"pg_dump{exe}"), "--version"], check=True)
+        if target["os"] == "linux":
+            # A system libpq or libssl could satisfy the check above and hide a library missing here.
+            for tool in ("pg_dump", "pg_restore"):
+                resolved = subprocess.run(["ldd", str(out / "bin" / tool)], capture_output=True, text=True, check=True).stdout
+                outside = [line.strip() for line in resolved.splitlines()
+                           if line.split(" => ")[0].strip() in target["pg_libs"] and str(out / lib_dir) not in line]
+                if outside:
+                    sys.exit(f"{tool} loads these from outside pgtools/lib: {outside}")
 
 
 def vc_runtime(folders):

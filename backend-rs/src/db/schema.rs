@@ -46,7 +46,16 @@ pub async fn snapshot(conn: &mut PgConnection) -> Result<Vec<String>, sqlx::Erro
 }
 
 /// Fails on the first table, column, type or enum label the migrations create that is missing.
+/// A database with a BASELINE row was not built by these scripts, so there is nothing to compare.
 pub async fn check(conn: &mut PgConnection) -> Result<(), MigrationError> {
+    let baselined: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM flyway_schema_history WHERE type = 'BASELINE')",
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    if baselined {
+        return Ok(());
+    }
     let live = snapshot(conn).await?;
     let mut live_types: BTreeMap<(&str, &str), &str> = BTreeMap::new();
     let mut live_labels: BTreeSet<(&str, &str)> = BTreeSet::new();

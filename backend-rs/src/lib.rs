@@ -143,7 +143,8 @@ pub async fn run(
     )
     .with_graceful_shutdown(shutdown)
     .await?;
-    db.close().await;
+    // A background task can hold a connection past the last request: do not wait on it forever.
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), db.close()).await;
     tracing::info!("Picsou stopped");
     Ok(())
 }

@@ -149,6 +149,17 @@ async fn the_release_cli_migrates_and_verifies_like_the_java_one() {
         "{stderr}"
     );
 
+    // A baselined database was not built by these scripts: its columns are not compared.
+    sqlx::query(
+        "INSERT INTO flyway_schema_history (installed_rank, version, description, type, script, checksum, installed_by, execution_time, success) \
+         VALUES (0, '1', '<< Flyway Baseline >>', 'BASELINE', '<< Flyway Baseline >>', NULL, 'picsou', 0, true)",
+    )
+    .execute(&mut connect(&drifted_db).await)
+    .await
+    .unwrap();
+    let baselined = release_cli("verify", &drifted_db);
+    assert!(baselined.status.success(), "{baselined:?}");
+
     let unknown = release_cli("rollback", &db);
     assert_eq!(unknown.status.code(), Some(1));
     let missing = std::process::Command::new(env!("CARGO_BIN_EXE_picsou"))
