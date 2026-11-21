@@ -1193,11 +1193,12 @@ class EnableBankingAccountDataTest {
 
     @ParameterizedTest
     @CsvSource({
-        "immediat_debit, Carte bancaire à débit immédiat, IMMEDIATE_DEBIT",
-        "DELAYED_DEBIT, Carte bancaire à débit différé, DEFERRED_DEBIT",
-        "monthly_card, Carte bancaire, ''"
+        "immediat_debit, Carte bancaire à débit immédiat, IMMEDIATE_DEBIT, Carte Visa Synthetic Holder, immediat_debit",
+        "DELAYED_DEBIT, Carte bancaire à débit différé, DEFERRED_DEBIT, Carte Visa Synthetic Holder, DELAYED_DEBIT",
+        "Visa Premier 0000, Carte bancaire, '', Visa Premier 0000, ''"
     })
-    void fetchBalances_cardResource_isACardNamedAfterTheHolderLabel(String token, String product, String nature) {
+    void fetchBalances_cardResource_isACard(String token, String product, String nature, String expectedName,
+                                            String expectedLegacyName) {
         // A named ASPSP makes the balances account-scoped, as on the live Boursorama requisition.
         responses.put("/sessions/session", """
             {"accounts": ["uid-operations"], "aspsp": {"name": "Synthetic Bank", "country": "FR"}}
@@ -1219,8 +1220,8 @@ class EnableBankingAccountDataTest {
             assertThat(account.type()).isEqualTo(com.picsou.model.AccountType.CREDIT_CARD);
             assertThat(account.cardNature()).isEqualTo(
                 nature.isEmpty() ? null : com.picsou.model.CardNature.valueOf(nature));
-            assertThat(account.name()).isEqualTo("Carte Visa Synthetic Holder");
-            assertThat(account.legacyName()).isEqualTo(token);
+            assertThat(account.name()).isEqualTo(expectedName);
+            assertThat(account.legacyName()).isEqualTo(expectedLegacyName.isEmpty() ? null : expectedLegacyName);
             assertThat(account.iban()).isNull();
             assertThat(account.currency()).isEqualTo("EUR");
             assertThat(account.balance()).isEqualByComparingTo("-581.81");
@@ -1294,7 +1295,7 @@ class EnableBankingAccountDataTest {
     }
 
     @Test
-    void fetchBalances_cardInCredit_staysACard() {
+    void fetchBalances_cardWithAPositiveBalance_isSkipped() {
         responses.put("/accounts/uid-operations/details", """
             {"name": "Carte Visa Synthetic Holder", "details": "delayed_debit", "cash_account_type": "CARD"}
             """);
@@ -1303,10 +1304,26 @@ class EnableBankingAccountDataTest {
               "balance_amount": {"currency": "EUR", "amount": "12.50"}}]}
             """);
 
-        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
-            assertThat(account.type()).isEqualTo(com.picsou.model.AccountType.CREDIT_CARD);
-            assertThat(account.balance()).isEqualByComparingTo("12.50");
-        });
+        assertThatThrownBy(() -> connector.fetchBalances("session")).isInstanceOf(SyncException.class);
+    }
+
+    @Test
+    void fetchBalances_cardWithAmountOwedAndAvailableCredit_usesTheAmountOwed() {
+        responses.put("/sessions/session", """
+            {"accounts": ["uid-operations"], "aspsp": {"name": "Synthetic Bank", "country": "FR"}}
+            """);
+        responses.put("/accounts/uid-operations/details", """
+            {"name": "Carte Visa Synthetic Holder", "details": "delayed_debit", "cash_account_type": "CARD"}
+            """);
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [
+              {"name": "Balance", "balance_type": "OTHR", "balance_amount": {"currency": "EUR", "amount": "-120.00"}},
+              {"name": "Available", "balance_type": "ITAV", "balance_amount": {"currency": "EUR", "amount": "1880.00"}}
+            ]}
+            """);
+
+        assertThat(connector.fetchBalances("session")).singleElement()
+            .satisfies(account -> assertThat(account.balance()).isEqualByComparingTo("-120.00"));
     }
 
     @Test

@@ -747,39 +747,61 @@ public class EnableBankingBankConnector implements BankConnectorPort {
     }
 
     AccountData fetchAccountData(String accountId, AccountBalanceCandidates response, BalanceOwnership ownership) {
-        var selected = selectBalance(accountId, response, ownership);
         AccountDetailsResponse details = response.details();
+        if (details != null && CARD_CASH_ACCOUNT_TYPE.equalsIgnoreCase(nullToEmpty(details.cashAccountType()).trim())) {
+            return fetchCardData(accountId, response, ownership);
+        }
+        var selected = selectBalance(accountId, response, ownership);
         BigDecimal balance = new BigDecimal(selected.balanceAmount().amount().trim());
         String currency = firstNonBlank(selected.balanceAmount().currency(),
             details != null ? details.currency() : null, "EUR");
-        String iban = details != null && details.accountId() != null
-            ? firstNonBlank(details.accountId().iban()) : null;
-        if (details == null) {
-            return new AccountData(accountId, "Account", iban, currency, balance);
+        String name = details != null ? accountName(details) : "Account";
+        return new AccountData(accountId, name, ibanOf(details), currency, balance);
+    }
+
+    /**
+     * A card stores what it owes, signed negative, like the BPCE and La Banque Postale cards. An
+     * "available" balance (credit left) never says that, and a positive one could only be read with the
+     * ASPSP's sign convention, so such a card is skipped like any other unreadable balance rather than
+     * stored with a guessed sign.
+     */
+    private AccountData fetchCardData(String accountId, AccountBalanceCandidates response, BalanceOwnership ownership) {
+        AccountDetailsResponse details = response.details();
+        List<BalancesResponse.BalanceItem> owed = response.candidates().stream()
+            .filter(item -> !AVAILABLE_BALANCE_TYPES.contains(
+                nullToEmpty(item.balanceType()).trim().toUpperCase(Locale.ROOT)))
+            .toList();
+        if (owed.isEmpty()) {
+            throw new SyncException("Enable Banking card reports only an available balance, not an amount owed");
         }
-        // Earlier releases named every account this way; a card gets its own order (see below).
-        String accountName = truncate(firstNonBlank(details.details(), details.product(), details.name(), "Account"),
-            MAX_ACCOUNT_NAME_LENGTH);
-        if (!CARD_CASH_ACCOUNT_TYPE.equalsIgnoreCase(nullToEmpty(details.cashAccountType()).trim())) {
-            return new AccountData(accountId, accountName, iban, currency, balance);
-        }
-        // A card stores what is owed, signed negative (positive: credit in the holder's favour). An
-        // "available" balance is the credit left instead: storing it, as a card or as cash, would
-        // invent money, so the resource is skipped like any other unreadable balance.
-        String balanceType = nullToEmpty(selected.balanceType()).trim().toUpperCase(Locale.ROOT);
-        if (AVAILABLE_BALANCE_TYPES.contains(balanceType)) {
-            throw new SyncException("Enable Banking card reports only an available balance (" + balanceType
-                + "), not an amount owed");
+        var selected = selectBalance(accountId,
+            new AccountBalanceCandidates(details, owed, response.selection()), ownership);
+        BigDecimal balance = new BigDecimal(selected.balanceAmount().amount().trim());
+        if (balance.signum() > 0) {
+            throw new SyncException("Enable Banking card reports a positive balance; its sign cannot be trusted");
         }
         // ISO 4217 "XXX" (no currency) is what Boursorama declares on its cards.
-        String cardCurrency = firstNonBlank(realCurrency(selected.balanceAmount().currency()),
+        String currency = firstNonBlank(realCurrency(selected.balanceAmount().currency()),
             realCurrency(details.currency()), "EUR");
-        // A card's `details` is a technical token on some ASPSPs (Boursorama: `immediat_debit`), while
-        // `name` is the label the holder sees in the bank's app, e.g. the brand and holder.
-        String cardName = truncate(firstNonBlank(details.name(), details.product(), details.details(), "Card"),
+        String accountName = accountName(details);
+        CardNature nature = cardNatureOf(details.details());
+        // Only a known technical token in `details` (Boursorama: `immediat_debit`) is worth skipping:
+        // `name` is then the label the holder sees, e.g. the brand and holder. Elsewhere `details`
+        // describes the card better than the holder's name does, so the usual order stays.
+        String cardName = nature == null ? accountName
+            : truncate(firstNonBlank(details.name(), details.product(), "Card"), MAX_ACCOUNT_NAME_LENGTH);
+        return new AccountData(accountId, cardName, ibanOf(details), currency, balance, AccountType.CREDIT_CARD,
+            nature, accountName.equals(cardName) ? null : accountName);
+    }
+
+    /** First nonblank of {@code details}, {@code product}, {@code name}: the description beats the holder. */
+    private static String accountName(AccountDetailsResponse details) {
+        return truncate(firstNonBlank(details.details(), details.product(), details.name(), "Account"),
             MAX_ACCOUNT_NAME_LENGTH);
-        return new AccountData(accountId, cardName, iban, cardCurrency, balance, AccountType.CREDIT_CARD,
-            cardNatureOf(details.details()), accountName.equals(cardName) ? null : accountName);
+    }
+
+    private static String ibanOf(AccountDetailsResponse details) {
+        return details != null && details.accountId() != null ? firstNonBlank(details.accountId().iban()) : null;
     }
 
     /** ISO 4217 {@code XXX} means "no currency" (Boursorama sends it on cards): treat it as absent. */

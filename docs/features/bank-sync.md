@@ -94,15 +94,17 @@ Picsou now handles this with a two-pronged strategy:
 The adapter reads the IBAN from `account_id.iban`. The display name is the first
 nonblank value in `details`, `product`, and `name`, with `Account` as the fallback.
 `name` identifies the holder, so it is less useful than the account description.
-A card (`cash_account_type = CARD`) is the exception: its order is `name`, `product`,
-`details`, with `Card` as the fallback, because some ASPSPs put a technical token in a
-card's `details` (Boursorama: `immediat_debit`, `delayed_debit`) while `name` is the label
-the holder sees, which also tells apart two cards of one joint account (#664).
+A card (`cash_account_type = CARD`) whose `details` is a known technical token
+(Boursorama: `immediat_debit`, `delayed_debit`) is the exception: its order is `name`,
+`product`, with `Card` as the fallback, because `name` is then the label the holder sees,
+which also tells apart two cards of one joint account (#664). Any other card keeps the usual
+order, where `details` describes the card better than the holder's name.
 On a card, a currency of `XXX` (ISO 4217 "no currency", sent by Boursorama) counts as absent.
-A card's balance is stored as the bank signs it: negative is owed, positive is credit in the
-holder's favour (a refund). A card whose selected balance is of an "available" type (`ITAV`,
-`CLAV`: credit left, not an amount owed) is skipped like an unreadable balance and logged: stored
-as cash or as a card, it would invent money.
+A card's balance is what it owes, stored negative as on the BPCE and La Banque Postale cards.
+"Available" balances (`ITAV`, `CLAV`: credit left, not an amount owed) are left out before the
+usual selection. A card left with no other balance, or whose selected balance is positive, is
+skipped like an unreadable balance and logged, rather than stored with a guessed sign; an
+account an earlier release imported that way keeps its last stored balance until then.
 After balance selection, the adapter truncates the display name to 100 characters
 to fit `account.name`. Balance matching always uses the full account description,
 so descriptions that share the first 100 characters remain distinct matching keys.
