@@ -131,10 +131,15 @@ admin role only).
   WebClient and records every response it receives, whatever its status: time, method, URL,
   status and body. A call that gets no response (timeout, refused connection) is not recorded;
   the sync error reports those.
-- **Memory only, bounded.** The 200 newest calls, newest first, lost on restart and cleared by
-  "Vider". Each stored body is capped at 256 K characters and ends with
-  `…[truncated, N bytes in total]` past it, so the multi-megabyte bank catalog cannot fill the
-  heap. The connector itself still reads the whole body.
+- **Memory only, bounded.** At most the 200 newest calls, newest first, lost on restart and
+  cleared by "Vider". Each stored body is capped at 256 K characters and then ends with
+  `…[truncated, N characters in total]`, never splitting an emoji (a lone surrogate would make
+  every read of the log fail). All stored bodies together stay under 8 M characters, the oldest
+  calls going first, so repeated bank searches (the catalog answers in megabytes) cannot weigh
+  on a small instance's heap. The connector itself still reads the whole body.
+- **The connector reads the same body.** The filter decodes the response, records it and hands
+  the connector a copy rebuilt in UTF-8, with the Content-Type charset rewritten to match and
+  Content-Length dropped.
 - **Request bodies are not captured** (stored as `""`): in a WebClient filter they are opaque
   body inserters, and only `POST /auth` and `POST /sessions` send one. The responses are what
   diagnose a sync.
@@ -226,8 +231,9 @@ admin role only).
   approach as `security-cors-cookies.md`). A future MockMvc slice test asserting a
   USER-role request is rejected with 403 would close the gap.
 - `backend/src/test/java/com/picsou/service/EnableBankingCallLoggerTest.java` — the call-log
-  filter records successful and error responses, hands the caller the same body, caps a stored
-  body and keeps the 200 newest calls.
+  filter records successful and error responses, hands the caller the same body (also from a
+  non-UTF-8 charset), caps a stored body without splitting a surrogate pair, and keeps the
+  newest calls within the entry and character budgets.
 - `EnableBankingAccountDataTest.everyProviderCall_landsInTheAdminCallLog` — pins the
   connector's wiring against a local HTTP server. The writer was once dropped by a merge
   conflict resolution and the panel stayed empty for months without a failing test.

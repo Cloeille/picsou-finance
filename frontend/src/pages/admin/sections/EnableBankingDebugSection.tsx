@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { DownloadSimple, Trash } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
@@ -115,9 +115,8 @@ function EbCallLogDialog() {
               </thead>
               <tbody>
                 {data.map((entry, idx) => (
-                  <>
+                  <Fragment key={`${entry.timestamp}-${idx}`}>
                     <tr
-                      key={idx}
                       className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
                       onClick={() => setExpandedIdx(expandedIdx === idx ? null : idx)}
                     >
@@ -135,7 +134,7 @@ function EbCallLogDialog() {
                       </td>
                     </tr>
                     {expandedIdx === idx && (
-                      <tr key={`${idx}-detail`} className="border-b last:border-0 bg-muted/10">
+                      <tr className="border-b last:border-0 bg-muted/10">
                         <td colSpan={4} className="px-2 pb-3 pt-1 space-y-3">
                           <p className="text-xs break-all text-muted-foreground">
                             {entry.method} {entry.url}
@@ -157,7 +156,7 @@ function EbCallLogDialog() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))}
               </tbody>
             </table>
