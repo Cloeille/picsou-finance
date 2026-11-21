@@ -3697,6 +3697,46 @@
   },
   "desktop": {
     "unavailable": "Not on desktop",
-    "unavailableDetail": "This bank needs a browser the desktop app does not include. Use the Docker version of Picsou to sync it."
+    "unavailableDetail": "This bank needs a browser the desktop app does not include. Use the Docker version of Picsou to sync it.",
+    "onboarding": {
+      "title": "Welcome to Picsou",
+      "subtitle": "Your personal finance dashboard, stored locally on your computer.",
+      "nameLabel": "First name or space name (optional)",
+      "namePlaceholder": "My Space",
+      "cta": "Get started",
+      "starting": "Setting up...",
+      "lockHint": "You can enable password lock at any time in Settings.",
+      "error": "Could not start Picsou. Please try again."
+    },
+    "emptyDashboard": {
+      "title": "Add your first account",
+      "description": "Connect a bank or create a manual account to start tracking your net worth.",
+      "cta": "Add an account"
+    },
+    "advancedMode": {
+      "title": "Advanced mode",
+      "description": "Show administration tools, MCP access keys, OAuth connected apps, and technical logs.",
+      "label": "Enable advanced mode"
+    },
+    "lock": {
+      "title": "Desktop Security",
+      "description": "Protect local launches of Picsou with a password.",
+      "statusEnabled": "Password lock enabled",
+      "statusDisabled": "Direct launch without password",
+      "usernameHint": "Local username: {{username}}",
+      "enableButton": "Enable lock",
+      "disableButton": "Disable lock",
+      "newPasswordLabel": "New password (minimum 8 characters)",
+      "confirmPasswordLabel": "Confirm password",
+      "currentPasswordLabel": "Current password",
+      "passwordTooShort": "Password must be at least 8 characters.",
+      "passwordMismatch": "Passwords do not match.",
+      "invalidPassword": "Current password is incorrect.",
+      "enableConfirm": "Enable",
+      "disableConfirm": "Disable",
+      "enabledToast": "Password lock enabled.",
+      "disabledToast": "Password lock disabled.",
+      "cancel": "Cancel"
+    }
   }
 }

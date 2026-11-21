@@ -63,6 +63,7 @@ import {
 } from '@/features/budget/hooks'
 import { useAdminSettings } from '@/features/admin/hooks'
 import { useAuthStore } from '@/stores/auth-store'
+import { selectIsAdvancedMode, useAppStore } from '@/stores/app-store'
 import { cn, formatDate, getLocale } from '@/lib/utils'
 import type { Category, RuleMatchType, UncategorizedTransaction } from '@/types/api'
 
@@ -359,6 +360,7 @@ export function CategorizeTab() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const isAdmin = useAuthStore((s) => s.user?.role === 'ADMIN')
+  const isAdvancedMode = useAppStore(selectIsAdvancedMode)
   const { data: txs, isLoading, isError, refetch } = useUncategorized()
   const { data: categories } = useCategories()
   const { data: settings } = useBudgetSettings()
@@ -465,7 +467,7 @@ export function CategorizeTab() {
                   <span>{t('budget.categorize.recategorize')}</span>
                 </DropdownMenuItem>
 
-                {isAdmin && (
+                {isAdmin && isAdvancedMode && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onSelect={() => navigate('/admin?tab=ai')}>

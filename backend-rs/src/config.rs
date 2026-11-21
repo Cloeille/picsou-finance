@@ -202,6 +202,7 @@ pub struct Config {
     pub app_version: String,
     pub desktop: String,
     pub desktop_unavailable: String,
+    pub desktop_mode: bool,
     pub jwt: JwtConfig,
     pub crypto_key: String,
     pub crypto_key_path: PathBuf,
@@ -648,6 +649,7 @@ impl Config {
             app_version: env.or("APP_VERSION", "dev").to_owned(),
             desktop: env.or("PICSOU_DESKTOP", "false").to_owned(),
             desktop_unavailable: env.or("PICSOU_DESKTOP_UNAVAILABLE", "").to_owned(),
+            desktop_mode: bool_or(env, "APP_DESKTOP_MODE", false)?,
             jwt,
             crypto_key: secrets.crypto_key.clone().unwrap_or_default(),
             crypto_key_path: PathBuf::from(

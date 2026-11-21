@@ -3,6 +3,7 @@
 mod actuator;
 mod auth;
 mod crypto;
+mod desktop_mode;
 mod mfa;
 mod migrations;
 mod no_floats;

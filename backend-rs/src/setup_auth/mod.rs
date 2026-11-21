@@ -2,6 +2,7 @@
 
 pub mod audit;
 pub mod auth;
+pub mod desktop;
 pub mod enable_banking;
 pub mod mfa;
 pub mod sessions;
@@ -16,6 +17,7 @@ pub fn register(routes: &mut Routes) {
     routes
         .permit_all(None, "/api/setup/**")
         .permit_all(Some(Method::POST), "/api/auth/login")
+        .permit_all(Some(Method::POST), "/api/auth/desktop-autologin")
         .permit_all(Some(Method::POST), "/api/auth/refresh")
         .permit_all(Some(Method::POST), "/api/auth/logout")
         .permit_all(Some(Method::POST), "/api/auth/mfa/verify")
@@ -53,10 +55,12 @@ pub fn register(routes: &mut Routes) {
             "/api/setup/integrations/{key}/acknowledge",
             setup::acknowledge,
         )
-        .post("/api/setup/complete", setup::complete);
+        .post("/api/setup/complete", setup::complete)
+        .post("/api/setup/desktop-quick-start", desktop::quick_start);
 
     routes
         .post("/api/auth/login", auth::login)
+        .post("/api/auth/desktop-autologin", desktop::autologin)
         .post("/api/auth/mfa/verify", auth::mfa_verify)
         .post("/api/auth/refresh", auth::refresh)
         .post("/api/auth/logout", auth::logout)
@@ -75,4 +79,8 @@ pub fn register(routes: &mut Routes) {
         .get("/api/auth/sessions", sessions::list)
         .delete("/api/auth/sessions", sessions::revoke_all_except_current)
         .delete("/api/auth/sessions/{id}", sessions::revoke);
+
+    routes
+        .get("/api/desktop/lock", desktop::lock_status)
+        .put("/api/desktop/lock", desktop::update_lock);
 }

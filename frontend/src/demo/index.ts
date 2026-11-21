@@ -1800,6 +1800,10 @@ handlers.set(key('GET', '/admin/instance-status'), () => ({
 handlers.set(key('GET', '/admin/enablebanking/call-log'), () => [])
 handlers.set(key('DELETE', '/admin/enablebanking/call-log'), () => null)
 
+// Desktop Mode lock (not active in web demo)
+handlers.set(key('GET', '/desktop/lock'), () => ({ enabled: false }))
+handlers.set(key('PUT', '/desktop/lock'), () => ({ enabled: false }))
+
 // Finary - configured
 // Settings — security (2FA off in demo, one active session)
 handlers.set(key('GET', '/auth/mfa/status'), () => ({

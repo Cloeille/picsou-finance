@@ -3697,6 +3697,46 @@
   },
   "desktop": {
     "unavailable": "Pas sur l’app desktop",
-    "unavailableDetail": "Cette banque a besoin d’un navigateur que l’application desktop n’inclut pas. Utilisez la version Docker de Picsou pour la synchroniser."
+    "unavailableDetail": "Cette banque a besoin d’un navigateur que l’application desktop n’inclut pas. Utilisez la version Docker de Picsou pour la synchroniser.",
+    "onboarding": {
+      "title": "Bienvenue sur Picsou",
+      "subtitle": "Votre tableau de bord financier personnel, stocké localement sur votre ordinateur.",
+      "nameLabel": "Prénom ou nom de l’espace (optionnel)",
+      "namePlaceholder": "Mon espace",
+      "cta": "Commencer",
+      "starting": "Préparation en cours...",
+      "lockHint": "Vous pourrez activer un verrouillage par mot de passe à tout moment dans les réglages.",
+      "error": "Impossible de démarrer Picsou. Réessayez."
+    },
+    "emptyDashboard": {
+      "title": "Ajoutez votre premier compte",
+      "description": "Connectez une banque ou créez un compte manuel pour commencer à suivre votre patrimoine.",
+      "cta": "Ajouter un compte"
+    },
+    "advancedMode": {
+      "title": "Mode avancé",
+      "description": "Afficher les outils d’administration, les clés d’accès MCP, les applications OAuth et les journaux techniques.",
+      "label": "Activer le mode avancé"
+    },
+    "lock": {
+      "title": "Sécurité Desktop",
+      "description": "Protégez l’ouverture locale de Picsou par un mot de passe.",
+      "statusEnabled": "Verrouillage par mot de passe activé",
+      "statusDisabled": "Ouverture directe sans mot de passe",
+      "usernameHint": "Identifiant local : {{username}}",
+      "enableButton": "Activer le verrouillage",
+      "disableButton": "Désactiver le verrouillage",
+      "newPasswordLabel": "Nouveau mot de passe (8 caractères minimum)",
+      "confirmPasswordLabel": "Confirmer le mot de passe",
+      "currentPasswordLabel": "Mot de passe actuel",
+      "passwordTooShort": "Le mot de passe doit contenir au moins 8 caractères.",
+      "passwordMismatch": "Les mots de passe ne correspondent pas.",
+      "invalidPassword": "Mot de passe actuel incorrect.",
+      "enableConfirm": "Activer",
+      "disableConfirm": "Désactiver",
+      "enabledToast": "Verrouillage par mot de passe activé.",
+      "disabledToast": "Verrouillage par mot de passe désactivé.",
+      "cancel": "Annuler"
+    }
   }
 }

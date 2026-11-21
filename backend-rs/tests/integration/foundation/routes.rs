@@ -26,6 +26,11 @@ const FRAMEWORK_ROUTES: &[(&str, &str)] = &[
     ("POST", "/mcp"),
     ("DELETE", "/mcp"),
     ("POST", "/mcp/message"),
+    // Desktop-only local endpoints (return 404 unless APP_DESKTOP_MODE=true; loopback-only).
+    ("POST", "/api/setup/desktop-quick-start"),
+    ("POST", "/api/auth/desktop-autologin"),
+    ("GET", "/api/desktop/lock"),
+    ("PUT", "/api/desktop/lock"),
 ];
 
 /// Spring and axum share the {name} syntax; a regex constraint ({id:\d+}) and the variable name

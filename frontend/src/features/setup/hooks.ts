@@ -1,7 +1,10 @@
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useInvalidatingMutation } from '@/hooks/use-invalidating-mutation'
+import { useAppStore } from '@/stores/app-store'
+import { useAuthStore } from '@/stores/auth-store'
 import { setupApi } from './api'
 import type {
+  DesktopQuickStartRequest,
   EnableBankingConfigRequest,
   EnableBankingImportRequest,
   SetupAdminRequest,
@@ -18,7 +21,13 @@ export const SETUP_STATUS_KEY = ['setup', 'status'] as const
 export function useSetupStatus(enabled = true) {
   return useQuery({
     queryKey: SETUP_STATUS_KEY,
-    queryFn: setupApi.getStatus,
+    queryFn: async () => {
+      const status = await setupApi.getStatus()
+      useAppStore
+        .getState()
+        .setDesktopStatus(Boolean(status.desktopMode), Boolean(status.desktopLockEnabled))
+      return status
+    },
     enabled,
     staleTime: 5_000,
     retry: (failureCount, error) => {
@@ -98,5 +107,17 @@ export function useCompleteSetup() {
     mutationFn: () => setupApi.complete(),
     invalidates: [SETUP_STATUS_KEY],
     awaitRefresh: true,
+  })
+}
+
+export function useDesktopQuickStart() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: DesktopQuickStartRequest) => setupApi.desktopQuickStart(body),
+    onSuccess: async (user) => {
+      useAuthStore.getState().login(user)
+      useAppStore.getState().setDesktopStatus(true, false)
+      await queryClient.invalidateQueries({ queryKey: SETUP_STATUS_KEY })
+    },
   })
 }

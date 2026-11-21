@@ -20,6 +20,41 @@ impl ClientIp {
     pub fn as_java_string(&self) -> String {
         java_ip_string(&self.0)
     }
+
+    pub fn is_loopback(&self) -> bool {
+        is_loopback_ip(&self.0)
+    }
+}
+
+/// The raw TCP peer address before any X-Forwarded-For resolution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PeerIp(pub IpAddr);
+
+impl PeerIp {
+    pub fn is_loopback(&self) -> bool {
+        is_loopback_ip(&self.0)
+    }
+}
+
+pub fn is_loopback_ip(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_loopback(),
+        IpAddr::V6(v6) => {
+            v6.is_loopback() || v6.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback())
+        }
+    }
+}
+
+impl<S: Send + Sync> FromRequestParts<S> for PeerIp {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
+        Ok(parts
+            .extensions
+            .get::<PeerIp>()
+            .copied()
+            .unwrap_or(PeerIp(IpAddr::from([127, 0, 0, 1]))))
+    }
 }
 
 impl<S: Send + Sync> FromRequestParts<S> for ClientIp {
@@ -191,6 +226,7 @@ pub async fn resolve(
         .unwrap_or_else(|| SocketAddr::from(([127, 0, 0, 1], 0)));
     let client = resolve_client(peer.ip(), request.headers(), &state.config.trusted_proxies);
     let origin = resolve_origin(request.headers());
+    request.extensions_mut().insert(PeerIp(peer.ip()));
     request.extensions_mut().insert(ClientIp(client));
     request.extensions_mut().insert(origin);
     next.run(request).await

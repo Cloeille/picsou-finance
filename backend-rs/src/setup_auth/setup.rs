@@ -113,6 +113,7 @@ struct SsoInfo {
     admin_bootstrap: bool,
 }
 
+#[skip_serializing_none]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StatusResponse {
@@ -120,6 +121,8 @@ struct StatusResponse {
     needs_setup: bool,
     integrations: Integrations,
     sso: SsoInfo,
+    desktop_mode: Option<bool>,
+    desktop_lock_enabled: Option<bool>,
 }
 
 pub async fn status(State(state): State<AppState>) -> AppResult<axum::Json<impl Serialize>> {
@@ -132,6 +135,14 @@ pub async fn status(State(state): State<AppState>) -> AppResult<axum::Json<impl 
         flags.push((*name, on));
     }
     let sso = &state.config.sso;
+    let (desktop_mode, desktop_lock_enabled) = if state.config.desktop_mode {
+        (
+            Some(true),
+            Some(settings::desktop_lock_enabled(&state).await?),
+        )
+    } else {
+        (None, None)
+    };
     Ok(axum::Json(StatusResponse {
         state: current,
         needs_setup: current != SetupState::Complete,
@@ -141,10 +152,12 @@ pub async fn status(State(state): State<AppState>) -> AppResult<axum::Json<impl 
             provider_name: sso.provider_name.clone(),
             admin_bootstrap: sso.admin_group_configured(),
         },
+        desktop_mode,
+        desktop_lock_enabled,
     }))
 }
 
-fn rate_limited() -> Response {
+pub(crate) fn rate_limited() -> Response {
     Problem::with_detail(
         StatusCode::TOO_MANY_REQUESTS,
         "Too many setup requests. Try again in a minute.",
@@ -152,7 +165,7 @@ fn rate_limited() -> Response {
     .into_response()
 }
 
-async fn require_not_complete(state: &AppState) -> AppResult<()> {
+pub(crate) async fn require_not_complete(state: &AppState) -> AppResult<()> {
     if is_complete(state).await? {
         return Err(AppError::status(
             StatusCode::GONE,
@@ -162,7 +175,7 @@ async fn require_not_complete(state: &AppState) -> AppResult<()> {
     Ok(())
 }
 
-fn audit_ctx<'a>(ip: &'a str, headers: &'a HeaderMap) -> AuditContext<'a> {
+pub(crate) fn audit_ctx<'a>(ip: &'a str, headers: &'a HeaderMap) -> AuditContext<'a> {
     AuditContext {
         ip,
         user_agent: headers
@@ -304,6 +317,7 @@ pub async fn seed_admin(
 
 pub async fn mark_complete(state: &AppState) -> AppResult<()> {
     settings::upsert(&state.db, settings::SETUP_STATE, "COMPLETE").await?;
+    state.setup_complete.store(true, Ordering::Relaxed);
     tracing::info!("setup.completed");
     Ok(())
 }

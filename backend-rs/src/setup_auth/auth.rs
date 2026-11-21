@@ -29,14 +29,14 @@ static USERNAME: LazyLock<Regex> =
 /// The body every successful sign-in returns, in the Java HashMap's order.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct UserPayload {
+pub(crate) struct UserPayload {
     role: &'static str,
     display_name: String,
     username: String,
     member_id: i64,
 }
 
-fn user_payload(user: &AppUser) -> axum::Json<UserPayload> {
+pub(crate) fn user_payload(user: &AppUser) -> axum::Json<UserPayload> {
     axum::Json(UserPayload {
         role: user.role.as_str(),
         display_name: user.display_name.clone(),
@@ -45,7 +45,7 @@ fn user_payload(user: &AppUser) -> axum::Json<UserPayload> {
     })
 }
 
-async fn cookie_jar(state: &AppState) -> Cookies {
+pub(crate) async fn cookie_jar(state: &AppState) -> Cookies {
     Cookies::new(settings::secure_cookies(state).await)
 }
 

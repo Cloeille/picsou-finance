@@ -6,6 +6,15 @@ export type DateFormat = 'locale' | 'iso'
 interface AppState {
   sidebarCollapsed: boolean
   demoMode: boolean
+  /** True when the backend runs inside the local Desktop app (APP_DESKTOP_MODE=true). Runtime only. */
+  desktopMode: boolean
+  /** True when Desktop password lock is enabled on the backend. Runtime only. */
+  desktopLockEnabled: boolean
+  /**
+   * Reveals server/developer controls in Desktop Mode (Admin, MCP keys, OAuth apps, raw debug logs).
+   * Persisted in localStorage; ignored outside Desktop Mode where all controls are always visible.
+   */
+  advancedMode: boolean
   dateFormat: DateFormat
   dismissedInstanceStatusFingerprint: string | null
   /** The telemetry consent dialog was closed unanswered. Page-load only, never persisted. */
@@ -21,6 +30,9 @@ interface AppState {
   lastSeenWhatsNewVersion: string | null
   toggleSidebar: () => void
   setDemoMode: (enabled: boolean) => void
+  setDesktopStatus: (desktopMode: boolean, desktopLockEnabled: boolean) => void
+  setDesktopLockEnabled: (enabled: boolean) => void
+  setAdvancedMode: (enabled: boolean) => void
   setDateFormat: (format: DateFormat) => void
   setDismissedInstanceStatusFingerprint: (fingerprint: string | null) => void
   dismissTelemetryConsent: () => void
@@ -30,11 +42,24 @@ interface AppState {
   markWhatsNewSeen: (version: string) => void
 }
 
+/**
+ * Effective advanced mode: always true on Web/Docker (!desktopMode),
+ * opt-in via Settings on Desktop Mode.
+ */
+export function selectIsAdvancedMode(
+  state: Pick<AppState, 'desktopMode' | 'advancedMode'>,
+): boolean {
+  return !state.desktopMode || Boolean(state.advancedMode)
+}
+
 export const useAppStore = create<AppState>()(
   persist(
     (set) => ({
       sidebarCollapsed: false,
       demoMode: import.meta.env.VITE_DEMO_MODE === 'true',
+      desktopMode: false,
+      desktopLockEnabled: false,
+      advancedMode: false,
       dateFormat: 'locale',
       dismissedInstanceStatusFingerprint: null,
       telemetryConsentDismissed: false,
@@ -43,6 +68,10 @@ export const useAppStore = create<AppState>()(
       lastSeenWhatsNewVersion: null,
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setDemoMode: (enabled) => set({ demoMode: enabled }),
+      setDesktopStatus: (desktopMode, desktopLockEnabled) =>
+        set({ desktopMode, desktopLockEnabled }),
+      setDesktopLockEnabled: (desktopLockEnabled) => set({ desktopLockEnabled }),
+      setAdvancedMode: (advancedMode) => set({ advancedMode }),
       setDateFormat: (format) => set({ dateFormat: format }),
       setDismissedInstanceStatusFingerprint: (fingerprint) =>
         set({ dismissedInstanceStatusFingerprint: fingerprint }),
@@ -62,6 +91,7 @@ export const useAppStore = create<AppState>()(
       name: 'picsou-app',
       partialize: (s) => ({
         sidebarCollapsed: s.sidebarCollapsed,
+        advancedMode: s.advancedMode,
         dateFormat: s.dateFormat,
         dismissedInstanceStatusFingerprint: s.dismissedInstanceStatusFingerprint,
         // An allowlist: a field left out here is silently not persisted -- no type error, no

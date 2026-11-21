@@ -3697,6 +3697,46 @@
   },
   "desktop": {
     "unavailable": "No en la app de escritorio",
-    "unavailableDetail": "Este banco necesita un navegador que la app de escritorio no incluye. Usa la versión Docker de Picsou para sincronizarlo."
+    "unavailableDetail": "Este banco necesita un navegador que la app de escritorio no incluye. Usa la versión Docker de Picsou para sincronizarlo.",
+    "onboarding": {
+      "title": "Bienvenido a Picsou",
+      "subtitle": "Tu panel financiero personal, almacenado localmente en tu ordenador.",
+      "nameLabel": "Nombre o nombre del espacio (opcional)",
+      "namePlaceholder": "Mi espacio",
+      "cta": "Empezar",
+      "starting": "Preparando...",
+      "lockHint": "Puedes activar el bloqueo con contraseña en cualquier momento desde Ajustes.",
+      "error": "No se pudo iniciar Picsou. Inténtalo de nuevo."
+    },
+    "emptyDashboard": {
+      "title": "Añade tu primera cuenta",
+      "description": "Conecta un banco o crea una cuenta manual para empezar a seguir tu patrimonio.",
+      "cta": "Añadir una cuenta"
+    },
+    "advancedMode": {
+      "title": "Modo avanzado",
+      "description": "Mostrar herramientas de administración, claves de acceso MCP, aplicaciones OAuth y registros técnicos.",
+      "label": "Activar modo avanzado"
+    },
+    "lock": {
+      "title": "Seguridad de escritorio",
+      "description": "Protege la apertura local de Picsou con una contraseña.",
+      "statusEnabled": "Bloqueo con contraseña activado",
+      "statusDisabled": "Acceso directo sin contraseña",
+      "usernameHint": "Usuario local: {{username}}",
+      "enableButton": "Activar bloqueo",
+      "disableButton": "Desactivar bloqueo",
+      "newPasswordLabel": "Nueva contraseña (mínimo 8 caracteres)",
+      "confirmPasswordLabel": "Confirmar contraseña",
+      "currentPasswordLabel": "Contraseña actual",
+      "passwordTooShort": "La contraseña debe tener al menos 8 caracteres.",
+      "passwordMismatch": "Las contraseñas no coinciden.",
+      "invalidPassword": "La contraseña actual es incorrecta.",
+      "enableConfirm": "Activar",
+      "disableConfirm": "Desactivar",
+      "enabledToast": "Bloqueo con contraseña activado.",
+      "disabledToast": "Bloqueo con contraseña desactivado.",
+      "cancel": "Cancelar"
+    }
   }
 }

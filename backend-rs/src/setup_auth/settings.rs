@@ -11,6 +11,7 @@ pub const ENABLEBANKING_APP_ID: &str = "enablebanking.application-id";
 pub const ENABLEBANKING_KEY_ID: &str = "enablebanking.key-id";
 pub const ENABLEBANKING_REDIRECT_URI: &str = "enablebanking.redirect-uri";
 pub const BOURSO_AUTH_URL: &str = "bourso-auth.url";
+pub const DESKTOP_LOCK_ENABLED: &str = "desktop.lock.enabled";
 
 pub async fn read(state: &AppState, key: &str) -> Result<Option<String>, sqlx::Error> {
     read_with(&state.db, key).await
@@ -53,4 +54,11 @@ pub async fn secure_cookies(state: &AppState) -> bool {
         Ok(Some(value)) => parse_bool(&value),
         _ => state.config.secure_cookies,
     }
+}
+
+/// Whether Desktop Mode requires password authentication on launch (default false).
+pub async fn desktop_lock_enabled(state: &AppState) -> Result<bool, sqlx::Error> {
+    Ok(read(state, DESKTOP_LOCK_ENABLED)
+        .await?
+        .is_some_and(|v| parse_bool(&v)))
 }

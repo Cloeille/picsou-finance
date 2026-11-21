@@ -4,6 +4,8 @@ import { useEffect, useMemo } from 'react'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
 import { SUPPORTED_LOCALES, resolveLocale } from '@/i18n/locales'
+import { useSetupStatus } from '@/features/setup/hooks'
+import { useAppStore } from '@/stores/app-store'
 
 /**
  * Shell for every setup route. Intentionally minimal — Apple's setup
@@ -25,6 +27,9 @@ const MAIN_STEPS: { path: string; i18nKey: string }[] = [
 export function SetupLayout() {
   const { t, i18n } = useTranslation()
   const location = useLocation()
+  const demoMode = useAppStore((s) => s.demoMode)
+  const { data: setupStatus } = useSetupStatus(!demoMode)
+  const isDesktopMode = Boolean(setupStatus?.desktopMode)
 
   const { index, total } = useMemo(() => {
     // Pick the longest-prefix match so sub-routes like /setup/integrations/enablebanking
@@ -61,11 +66,13 @@ export function SetupLayout() {
 
   return (
     <div className="relative min-h-dvh bg-background setup-gradient">
-      <Progress
-        value={progressPct}
-        aria-label={t('setup.progress.bar', { current: index, total })}
-        className="fixed inset-x-0 top-0 z-50 h-1 rounded-none"
-      />
+      {!isDesktopMode && (
+        <Progress
+          value={progressPct}
+          aria-label={t('setup.progress.bar', { current: index, total })}
+          className="fixed inset-x-0 top-0 z-50 h-1 rounded-none"
+        />
+      )}
 
       <header className="fixed left-4 right-4 top-4 z-40 flex items-center justify-between gap-3 sm:left-6 sm:right-6 sm:top-6">
         <div
@@ -92,18 +99,20 @@ export function SetupLayout() {
           ))}
         </div>
 
-        <span
-          className={cn(
-            'inline-flex h-10 min-w-0 items-center rounded-lg border border-border/60',
-            'bg-background/80 px-4 text-sm font-medium tabular-nums text-muted-foreground',
-            'backdrop-blur-md'
-          )}
-          aria-live="polite"
-        >
-          <span className="truncate">
-            {t('setup.progress.label', { current: index, total })}
+        {!isDesktopMode && (
+          <span
+            className={cn(
+              'inline-flex h-10 min-w-0 items-center rounded-lg border border-border/60',
+              'bg-background/80 px-4 text-sm font-medium tabular-nums text-muted-foreground',
+              'backdrop-blur-md'
+            )}
+            aria-live="polite"
+          >
+            <span className="truncate">
+              {t('setup.progress.label', { current: index, total })}
+            </span>
           </span>
-        </span>
+        )}
       </header>
 
       <main
