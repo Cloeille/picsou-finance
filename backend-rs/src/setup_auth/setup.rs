@@ -144,11 +144,12 @@ pub async fn status(State(state): State<AppState>) -> AppResult<axum::Json<impl 
     } else {
         (None, None)
     };
+    let needs_setup = current != SetupState::Complete;
     let legacy_postgres_detected =
-        state.config.desktop_mode && state.config.desktop_legacy_postgres;
+        needs_setup && state.config.desktop_mode && state.config.desktop_legacy_postgres;
     Ok(axum::Json(StatusResponse {
         state: current,
-        needs_setup: current != SetupState::Complete,
+        needs_setup,
         integrations: Integrations(flags),
         sso: SsoInfo {
             enabled: sso.enabled(),

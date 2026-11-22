@@ -192,20 +192,23 @@ pub async fn delete_repayment<'e>(db: impl DbExec<'e>, id: i64) -> sqlx::Result<
 }
 
 /// findByMemberIdAndNameIgnoreCase, or a new row.
+///
+/// Matches in Rust via [`str::to_lowercase`] instead of SQL `lower()` because SQLite's built-in
+/// `lower()` is ASCII-only (which would treat `"Élodie"` and `"élodie"` as distinct counterparties).
 pub async fn counterparty_id(
     conn: &mut DbHandle<'_>,
     member_id: i64,
     name: &str,
     now: DateTime<Utc>,
 ) -> sqlx::Result<i64> {
-    let existing: Option<i64> = crate::db::query_scalar::<i64>(
-        "SELECT id FROM peer_counterparty WHERE member_id = $1 AND lower(name) = lower($2) ORDER BY id LIMIT 1",
+    let target = name.to_lowercase();
+    let rows: Vec<(i64, String)> = crate::db::query_as(
+        "SELECT id, name FROM peer_counterparty WHERE member_id = $1 ORDER BY id",
     )
     .bind(member_id)
-    .bind(name)
-    .fetch_optional(&mut *conn)
+    .fetch_all(&mut *conn)
     .await?;
-    if let Some(id) = existing {
+    if let Some((id, _)) = rows.into_iter().find(|(_, n)| n.to_lowercase() == target) {
         return Ok(id);
     }
     crate::db::query_scalar::<i64>(

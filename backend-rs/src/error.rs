@@ -202,7 +202,14 @@ impl IntoResponse for AppError {
 
 impl From<sqlx::Error> for AppError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Internal(format!("database: {error}"))
+        match error {
+            sqlx::Error::PoolTimedOut => Self::Coded {
+                status: StatusCode::SERVICE_UNAVAILABLE,
+                code: "DB_BUSY".to_owned(),
+                detail: "Database is temporarily busy. Please try again.".to_owned(),
+            },
+            other => Self::Internal(format!("database: {other}")),
+        }
     }
 }
 
@@ -238,4 +245,23 @@ pub mod raw {
     pub const PAYLOAD_TOO_LARGE: &str =
         "{\"status\":413,\"title\":\"Payload Too Large\",\"code\":\"payload_too_large\"}\n";
     pub const ACCESS_KEY_RATE_LIMITED: &str = "{\"status\":429,\"title\":\"Too Many Requests\",\"detail\":\"Rate limit exceeded for this access key\"}\n";
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sqlx_pool_timed_out_renders_503_db_busy() {
+        let error = AppError::from(sqlx::Error::PoolTimedOut);
+        let problem = error.problem();
+        assert_eq!(problem.status, StatusCode::SERVICE_UNAVAILABLE);
+        let body: Value = serde_json::from_str(&problem.render("/api/accounts")).unwrap();
+        assert_eq!(body["status"], 503);
+        assert_eq!(body["code"], "DB_BUSY");
+        assert_eq!(
+            body["detail"],
+            "Database is temporarily busy. Please try again."
+        );
+    }
 }

@@ -735,3 +735,47 @@ async fn open_loans_and_the_overview_list_configured_loans_open_first() {
     let overview = response.json();
     assert!(overview["history"].is_array());
 }
+
+#[tokio::test]
+async fn counterparty_lookup_matches_accented_unicode_case_insensitively() {
+    let f = Fixture::new().await;
+    let cash = f
+        .account("Courant", AccountType::Checking, true, "EUR")
+        .await;
+    let first = f
+        .account("Élodie", AccountType::PeerLoan, true, "EUR")
+        .await;
+    let second = f
+        .account("élodie", AccountType::PeerLoan, true, "EUR")
+        .await;
+
+    for loan in [first, second] {
+        let response = f
+            .admin
+            .put(&format!("/api/accounts/{loan}/peer-loan"))
+            .json(&json!({"principal": 100, "lentAt": "2026-01-05", "linkedAccountId": cash}))
+            .send()
+            .await;
+        assert_eq!(response.status, 200, "{}", response.text());
+    }
+
+    let counterparties: Vec<(i64, String)> = picsou::db::query_as(
+        "SELECT id, name FROM peer_counterparty WHERE member_id = $1 ORDER BY id",
+    )
+    .bind(f.member)
+    .fetch_all(&f.app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(counterparties.len(), 1, "got: {counterparties:?}");
+    assert_eq!(counterparties[0].1, "Élodie");
+
+    let linked_ids: Vec<i64> = picsou::db::query_scalar(
+        "SELECT counterparty_id FROM peer_loan_terms WHERE account_id IN ($1, $2)",
+    )
+    .bind(first)
+    .bind(second)
+    .fetch_all(&f.app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(linked_ids, vec![counterparties[0].0, counterparties[0].0]);
+}

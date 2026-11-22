@@ -152,6 +152,57 @@ async fn desktop_host_guard(
     next.run(request).await
 }
 
+fn is_setup_path(path: &str) -> bool {
+    path.starts_with("/api/setup/") || path == "/api/setup"
+}
+
+/// Desktop Mode guard for setup mutations: every state-changing request under `/api/setup/`
+/// requires a loopback peer and client IP plus a valid Desktop session gate. `GET /api/setup/status`
+/// stays open.
+async fn desktop_setup_guard(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if !state.config.desktop_mode {
+        return next.run(request).await;
+    }
+    let state_changing = matches!(
+        *request.method(),
+        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+    );
+    if !state_changing {
+        return next.run(request).await;
+    }
+    let path = decoded_path(request.uri().path());
+    if !is_setup_path(&path) {
+        return next.run(request).await;
+    }
+    let peer_loopback = request
+        .extensions()
+        .get::<client_ip::PeerIp>()
+        .is_some_and(client_ip::PeerIp::is_loopback);
+    let client_loopback = request
+        .extensions()
+        .get::<client_ip::ClientIp>()
+        .is_some_and(client_ip::ClientIp::is_loopback);
+    if !peer_loopback || !client_loopback {
+        return Problem::with_detail(
+            StatusCode::FORBIDDEN,
+            "Desktop endpoints are restricted to local loopback connections.",
+        )
+        .into_response();
+    }
+    if !crate::setup_auth::desktop::has_valid_desktop_gate(request.headers(), &state) {
+        return Problem::with_detail(
+            StatusCode::FORBIDDEN,
+            "Desktop session authorization required.",
+        )
+        .into_response();
+    }
+    next.run(request).await
+}
+
 /// AnonymousBodyLimitFilter: refuses large or chunked bodies on the endpoints anyone can reach.
 async fn anonymous_body_limit(request: Request, next: Next) -> Response {
     let path = decoded_path(request.uri().path());
@@ -385,10 +436,7 @@ const CREDENTIAL_COOKIES: &[&str] = &[
 ];
 
 fn is_desktop_ambient_endpoint(path: &str) -> bool {
-    matches!(
-        path,
-        "/api/auth/desktop-autologin" | "/api/setup/desktop-quick-start"
-    )
+    path == "/api/auth/desktop-autologin" || is_setup_path(path)
 }
 
 /// CrossSiteCookieRequestMatcher: a state-changing, cookie-authenticated request from another
@@ -558,6 +606,7 @@ pub fn build(routes: crate::routes::Routes, state: AppState) -> Router {
         .layer(from_fn_with_state(state.clone(), security_headers))
         .layer(from_fn_with_state(state.clone(), cors))
         .layer(from_fn(anonymous_body_limit))
+        .layer(from_fn_with_state(state.clone(), desktop_setup_guard))
         .layer(from_fn_with_state(state.clone(), desktop_host_guard))
         .layer(from_fn_with_state(state.clone(), client_ip::resolve))
         .layer(from_fn(render_problems))

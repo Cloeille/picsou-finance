@@ -64,13 +64,30 @@ fn parse_healthcheck_port(args: &[String], env: &Env) -> Result<u16, &'static st
     }
 }
 
-async fn probe_health(port: u16, timeout: Duration) -> bool {
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+fn healthcheck_host(env: &Env) -> String {
+    let raw = env.get("SERVER_ADDRESS").map(str::trim).unwrap_or_default();
+    if raw.is_empty() || matches!(raw, "0.0.0.0" | "::" | "[::]" | "*") {
+        return "127.0.0.1".to_owned();
+    }
+    if let Some(inner) = raw.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+        if inner == "::" {
+            return "127.0.0.1".to_owned();
+        }
+        return format!("[{inner}]");
+    }
+    if raw.contains(':') {
+        format!("[{raw}]")
+    } else {
+        raw.to_owned()
+    }
+}
+
+async fn probe_health(host: &str, port: u16, timeout: Duration) -> bool {
+    let target = format!("{host}:{port}");
     let probe = async {
-        let mut stream = tokio::net::TcpStream::connect(addr).await.ok()?;
-        let request = format!(
-            "GET /actuator/health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
-        );
+        let mut stream = tokio::net::TcpStream::connect(&target).await.ok()?;
+        let request =
+            format!("GET /actuator/health HTTP/1.1\r\nHost: {target}\r\nConnection: close\r\n\r\n");
         stream.write_all(request.as_bytes()).await.ok()?;
         let mut buf = Vec::with_capacity(256);
         let mut chunk = [0u8; 256];
@@ -106,7 +123,8 @@ async fn run_healthcheck(args: &[String], env: &Env) -> i32 {
             return 1;
         }
     };
-    if probe_health(port, HEALTHCHECK_TIMEOUT).await {
+    let host = healthcheck_host(env);
+    if probe_health(&host, port, HEALTHCHECK_TIMEOUT).await {
         0
     } else {
         1
@@ -136,6 +154,55 @@ mod tests {
         assert!(parse_healthcheck_port(&["--port".to_owned(), "0".to_owned()], &empty).is_err());
         assert!(parse_healthcheck_port(&["--port".to_owned(), "abc".to_owned()], &empty).is_err());
         assert!(parse_healthcheck_port(&["--unknown".to_owned()], &empty).is_err());
+    }
+
+    #[test]
+    fn healthcheck_host_uses_specific_server_address_and_defaults_wildcards() {
+        assert_eq!(healthcheck_host(&Env::default()), "127.0.0.1");
+        assert_eq!(
+            healthcheck_host(&Env::from_map([("SERVER_ADDRESS", "")])),
+            "127.0.0.1"
+        );
+        assert_eq!(
+            healthcheck_host(&Env::from_map([("SERVER_ADDRESS", "   ")])),
+            "127.0.0.1"
+        );
+        assert_eq!(
+            healthcheck_host(&Env::from_map([("SERVER_ADDRESS", "0.0.0.0")])),
+            "127.0.0.1"
+        );
+        assert_eq!(
+            healthcheck_host(&Env::from_map([("SERVER_ADDRESS", "::")])),
+            "127.0.0.1"
+        );
+        assert_eq!(
+            healthcheck_host(&Env::from_map([("SERVER_ADDRESS", "[::]")])),
+            "127.0.0.1"
+        );
+        assert_eq!(
+            healthcheck_host(&Env::from_map([("SERVER_ADDRESS", "*")])),
+            "127.0.0.1"
+        );
+        assert_eq!(
+            healthcheck_host(&Env::from_map([("SERVER_ADDRESS", "127.0.0.1")])),
+            "127.0.0.1"
+        );
+        assert_eq!(
+            healthcheck_host(&Env::from_map([("SERVER_ADDRESS", "::1")])),
+            "[::1]"
+        );
+        assert_eq!(
+            healthcheck_host(&Env::from_map([("SERVER_ADDRESS", "[::1]")])),
+            "[::1]"
+        );
+        assert_eq!(
+            healthcheck_host(&Env::from_map([("SERVER_ADDRESS", "10.0.0.5")])),
+            "10.0.0.5"
+        );
+        assert_eq!(
+            healthcheck_host(&Env::from_map([("SERVER_ADDRESS", "2001:db8::1")])),
+            "[2001:db8::1]"
+        );
     }
 
     #[tokio::test]
@@ -185,6 +252,6 @@ mod tests {
             let (_sock, _) = slow_listener.accept().await.unwrap();
             tokio::time::sleep(Duration::from_secs(5)).await;
         });
-        assert!(!probe_health(slow_port, Duration::from_millis(100)).await);
+        assert!(!probe_health("127.0.0.1", slow_port, Duration::from_millis(100)).await);
     }
 }

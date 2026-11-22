@@ -64,11 +64,35 @@ impl FromRequestParts<AppState> for DesktopLoopback {
     }
 }
 
+/// Returns `true` when `headers` carry valid Desktop session authorization:
+/// - `APP_DESKTOP_TOKEN` is configured (fail-closed when unset), AND
+/// - either the `picsou_desktop_gate` cookie matches `desktop_gate_cookie_secret`, OR
+/// - the `X-Picsou-Desktop-Token` header matches `APP_DESKTOP_TOKEN` while the single-use
+///   bootstrap exchange has not yet been consumed.
+pub(crate) fn has_valid_desktop_gate(headers: &HeaderMap, state: &AppState) -> bool {
+    let Some(expected_token) = state.config.desktop_token.as_deref() else {
+        return false;
+    };
+    let cookie_ok = cookies::read(headers, DESKTOP_GATE_COOKIE)
+        .is_some_and(|v| constant_time_str_eq(&v, &state.desktop_gate_cookie_secret));
+    if cookie_ok {
+        return true;
+    }
+    if state.desktop_bootstrap_consumed.load(Ordering::Acquire) {
+        return false;
+    }
+    headers
+        .get(DESKTOP_TOKEN_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| constant_time_str_eq(v, expected_token))
+}
+
 /// Fail-closed extractor for unauthenticated Desktop onboarding & auto-login endpoints.
 ///
 /// Requires `DesktopLoopback` AND `APP_DESKTOP_TOKEN` configured AND either:
 /// - Cookie `picsou_desktop_gate` matching the per-process secret in constant time, OR
-/// - Header `X-Picsou-Desktop-Token` matching `APP_DESKTOP_TOKEN` in constant time.
+/// - Header `X-Picsou-Desktop-Token` matching `APP_DESKTOP_TOKEN` in constant time (only until
+///   `/api/auth/desktop-bootstrap` consumes the single-use launch token).
 pub struct DesktopSessionGate;
 
 impl FromRequestParts<AppState> for DesktopSessionGate {
@@ -79,20 +103,13 @@ impl FromRequestParts<AppState> for DesktopSessionGate {
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
         DesktopLoopback::from_request_parts(parts, state).await?;
-        let Some(expected_token) = state.config.desktop_token.as_deref() else {
+        if state.config.desktop_token.is_none() {
             return Err(AppError::status(
                 StatusCode::FORBIDDEN,
                 "Desktop session token is not configured.",
             ));
-        };
-        let cookie_ok = cookies::read(&parts.headers, DESKTOP_GATE_COOKIE)
-            .is_some_and(|v| constant_time_str_eq(&v, &state.desktop_gate_cookie_secret));
-        let header_ok = parts
-            .headers
-            .get(DESKTOP_TOKEN_HEADER)
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|v| constant_time_str_eq(v, expected_token));
-        if !cookie_ok && !header_ok {
+        }
+        if !has_valid_desktop_gate(&parts.headers, state) {
             return Err(AppError::status(
                 StatusCode::FORBIDDEN,
                 "Desktop session authorization required.",
@@ -464,6 +481,20 @@ pub async fn update_lock(
             StatusCode::UNAUTHORIZED,
             "REAUTH_FAILED",
             "Invalid current password.",
+        ));
+    }
+    let mut mfa_active = mfa::is_enabled(&state.db, user.id).await?;
+    if !mfa_active
+        && let Some(primary) = users::find_primary_active(&state.db).await?
+        && primary.id != user.id
+    {
+        mfa_active = mfa::is_enabled(&state.db, primary.id).await?;
+    }
+    if mfa_active {
+        return Err(AppError::coded(
+            StatusCode::CONFLICT,
+            "MFA_ACTIVE",
+            "Disable two-factor authentication before turning off Desktop password lock.",
         ));
     }
     settings::upsert(&state.db, settings::DESKTOP_LOCK_ENABLED, "false").await?;

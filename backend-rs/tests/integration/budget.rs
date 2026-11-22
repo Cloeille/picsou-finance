@@ -908,6 +908,44 @@ async fn detection_auto_confirms_a_fixed_monthly_series_and_never_resurrects_an_
 }
 
 #[tokio::test]
+async fn recurring_label_matching_is_unicode_case_insensitive() {
+    let c = ctx().await;
+    let checking = c.account("Courant", AccountType::Checking).await;
+
+    // Create a confirmed series with an uppercase accented initial.
+    let created = c
+        .client
+        .post("/api/recurring")
+        .json(&json!({"label": "Élodie", "expectedAmount": -25.00, "cadence": "MONTHLY", "nextDueDate": "2026-02-05"}))
+        .send()
+        .await;
+    assert_eq!(created.status, 201, "{}", created.text());
+    let series_id = created.json()["id"].as_i64().unwrap();
+
+    // Direct lookup with lowercase accented equivalent must find the exact same row on both PG and SQLite.
+    let found = picsou::budget::recurring::find_by_label(&c.app.state.db, c.member, "élodie")
+        .await
+        .unwrap();
+    assert_eq!(found.map(|s| s.id), Some(series_id));
+
+    // Detection on transactions with lowercase accented label updates the existing series instead of duplicating it.
+    for date in ["2025-10-05", "2025-11-05", "2025-12-05", "2026-01-05"] {
+        c.tx(&checking, date, "-25.00", "élodie", None).await;
+    }
+    let detected = c.client.post("/api/recurring/detect").send().await.json();
+    assert_eq!(detected, json!({"detected": 1}));
+
+    let list = c.get("/api/recurring").await;
+    let rows = list.as_array().unwrap();
+    assert_eq!(
+        rows.len(),
+        1,
+        "expected existing accented series to be reused, got: {rows:?}"
+    );
+    assert_eq!(rows[0]["id"], series_id);
+}
+
+#[tokio::test]
 async fn ai_job_is_a_no_op_when_disabled_and_runs_the_plugged_categorizer_when_enabled() {
     let c = ctx().await;
     let checking = c.account("Courant", AccountType::Checking).await;

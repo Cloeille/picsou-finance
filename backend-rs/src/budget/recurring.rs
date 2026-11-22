@@ -133,19 +133,23 @@ pub async fn series_of_member<'e>(
     .map(|rows: Vec<Series>| rows.into_iter().map(with_column_scales).collect())
 }
 
+/// Matches in Rust via [`str::to_lowercase`] instead of SQL `upper()` because SQLite's built-in
+/// `upper()` is ASCII-only (which would treat `"Élodie"` and `"élodie"` as distinct series).
 pub async fn find_by_label<'e>(
     db: impl DbExec<'e>,
     member_id: i64,
     label: &str,
 ) -> sqlx::Result<Option<Series>> {
-    crate::db::query_as::<Series>(&format!(
-        "{SELECT} WHERE s.member_id = $1 AND upper(s.label) = upper($2) LIMIT 1"
-    ))
-    .bind(member_id)
-    .bind(label)
-    .fetch_optional(db)
-    .await
-    .map(|s: Option<Series>| s.map(with_column_scales))
+    let target = label.to_lowercase();
+    let rows: Vec<Series> =
+        crate::db::query_as::<Series>(&format!("{SELECT} WHERE s.member_id = $1 ORDER BY s.id"))
+            .bind(member_id)
+            .fetch_all(db)
+            .await?;
+    Ok(rows
+        .into_iter()
+        .find(|s| s.label.to_lowercase() == target)
+        .map(with_column_scales))
 }
 
 /// Restores the NUMERIC(20, 2) scale of zero amounts, as JDBC reads them.
