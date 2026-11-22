@@ -20,3 +20,14 @@ class SharedBaseRuntimeTest(unittest.TestCase):
             r"^python:3\.12-slim-bookworm@sha256:[0-9a-f]{64}$",
         )
         self.assertIn(("python", "chromium"), stages)
+
+    def test_chromium_target_installs_the_driver_node_runtime(self):
+        # The Node.js binary in the Playwright driver (1.65.1 and later) links
+        # libatomic.so.1, which the slim image lacks: without it the
+        # `playwright` CLI and every launch exit with "error while loading
+        # shared libraries".
+        dockerfile = Path(__file__).with_name("Dockerfile").read_text()
+        stages = dict(
+            re.findall(r"^FROM \S+ AS (\S+)$\n(.*?)(?=^FROM |\Z)", dockerfile, re.MULTILINE | re.DOTALL)
+        )
+        self.assertRegex(stages["chromium"], r"apt-get install[^&]*\blibatomic1\b")
