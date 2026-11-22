@@ -2,6 +2,7 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useLoginWithRememberMe } from '@/features/mfa/hooks'
+import { useSetupStatus } from '@/features/setup/hooks'
 import { ssoErrorMessage } from '@/features/sso/errors'
 import { useSsoInfo } from '@/features/sso/hooks'
 import { submitSsoStart } from '@/features/sso/start'
@@ -32,7 +33,16 @@ export function LoginPage() {
   const [ssoRedirecting, setSsoRedirecting] = useState(false)
   const loginMutation = useLoginWithRememberMe()
   const demoMode = useAppStore(s => s.demoMode)
-  const desktopMode = useAppStore(s => s.desktopMode)
+  const storeDesktopMode = useAppStore(s => s.desktopMode)
+  const storeDesktopLockEnabled = useAppStore(s => s.desktopLockEnabled)
+  const setupStatus = useSetupStatus(!demoMode)
+  const desktopMode =
+    setupStatus.data !== undefined ? Boolean(setupStatus.data.desktopMode) : storeDesktopMode
+  const desktopLockEnabled =
+    setupStatus.data !== undefined
+      ? Boolean(setupStatus.data.desktopLockEnabled)
+      : storeDesktopLockEnabled
+  const showDesktopLockNotice = !demoMode && desktopMode && !desktopLockEnabled
   const navigate = useNavigate()
   const redirect = safeRedirect(searchParams.get('redirect'))
   const ssoInfo = useSsoInfo(!demoMode)
@@ -115,6 +125,22 @@ export function LoginPage() {
   return (
     <div className="flex min-h-dvh items-center justify-center bg-background px-4 py-10">
       <div className="mx-auto flex w-full max-w-md flex-col gap-4">
+        {showDesktopLockNotice && (
+          <Card
+            role="status"
+            className="rounded-xl border-0 bg-muted/50 py-0 ring-1 ring-foreground/10"
+          >
+            <CardContent className="space-y-1 px-6 py-4 sm:px-8">
+              <p className="text-sm font-semibold text-foreground">
+                {t('desktop.oauthLogin.title')}
+              </p>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                {t('desktop.oauthLogin.description')}
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         <Card className="rounded-xl border border-border/60 py-7 ring-0 sm:py-8">
           <CardHeader className="items-center gap-1.5 px-6 text-center sm:px-8">
             <CardTitle className="text-2xl font-semibold tracking-tight sm:text-3xl">

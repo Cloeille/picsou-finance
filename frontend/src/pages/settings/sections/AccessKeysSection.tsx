@@ -22,6 +22,7 @@ import { useAccessKeys, useCreateAccessKey, useRevokeAccessKey } from '@/feature
 import { READ_SCOPES, WRITE_SCOPES, scopeI18nKey } from '@/features/accessKeys/scopes'
 import { keyStatus, type KeyStatus } from '@/features/accessKeys/status'
 import type { AccessKeyCreated } from '@/features/accessKeys/api'
+import { useAppStore } from '@/stores/app-store'
 
 const STATUS_BADGE: Record<KeyStatus, { variant: 'secondary' | 'outline' | 'destructive'; key: string }> = {
   active: { variant: 'secondary', key: 'statusActive' },
@@ -74,6 +75,8 @@ function ScopeToggle({
 
 export function AccessKeysSection() {
   const { t } = useTranslation()
+  const desktopMode = useAppStore((s) => s.desktopMode)
+  const desktopLockEnabled = useAppStore((s) => s.desktopLockEnabled)
   const { data: keys, isLoading } = useAccessKeys()
   const createKey = useCreateAccessKey()
   const revokeKey = useRevokeAccessKey()
@@ -231,6 +234,15 @@ export function AccessKeysSection() {
           {t('accessKeys.connectTitle')}
         </div>
         <p className="text-sm text-muted-foreground">{t('accessKeys.connectIntro')}</p>
+
+        {desktopMode && !desktopLockEnabled && (
+          <div
+            role="status"
+            className="rounded-lg bg-background p-3 text-sm leading-relaxed text-muted-foreground ring-1 ring-foreground/10"
+          >
+            {t('desktop.oauthLogin.apiTabNote')}
+          </div>
+        )}
 
         <div className="space-y-2">
           <Label className="text-muted-foreground">{t('accessKeys.connectEndpointLabel')}</Label>

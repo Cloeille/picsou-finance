@@ -3726,7 +3726,7 @@
       "starting": "Préparation en cours...",
       "error": "Impossible de démarrer Picsou. Réessayez.",
       "legacyPostgresTitle": "Anciennes données locales conservées",
-      "legacyPostgresBody": "Picsou Desktop utilise désormais une base SQLite intégrée. Votre ancien dossier PostgreSQL (postgres/) est resté intact dans le dossier de données de l'application : vous pouvez démarrer un nouvel espace ici ou migrer vos anciennes données vers SQLite avec picsou export-sqlite."
+      "legacyPostgresBody": "Picsou Desktop utilise désormais une base SQLite intégrée. Commencer ici crée une nouvelle base locale, et votre ancien dossier de données (postgres/) a été conservé intact dans le dossier de données de l'application."
     },
     "emptyDashboard": {
       "title": "Ajoutez votre premier compte",
@@ -3743,6 +3743,7 @@
       "statusEnabled": "Verrouillage par mot de passe activé",
       "statusDisabled": "Ouverture directe sans mot de passe",
       "mfaRequiresLock": "Activez d'abord le verrouillage par mot de passe ci-dessus avant de configurer la double authentification.",
+      "disableBlockedByMfa": "Désactivez d'abord la double authentification ci-dessous avant de désactiver le verrouillage par mot de passe.",
       "usernameHint": "Identifiant local : {{username}}",
       "enableButton": "Activer le verrouillage",
       "disableButton": "Désactiver le verrouillage",
@@ -3757,6 +3758,11 @@
       "enabledToast": "Verrouillage par mot de passe activé.",
       "disabledToast": "Verrouillage par mot de passe désactivé.",
       "cancel": "Annuler"
+    },
+    "oauthLogin": {
+      "title": "Verrouillage par mot de passe requis",
+      "description": "Picsou Desktop fonctionne sans mot de passe. Pour connecter une application externe (comme un client MCP) depuis votre navigateur, activez d'abord le verrouillage par mot de passe dans Picsou Desktop, rubrique Paramètres, onglet Sécurité.",
+      "apiTabNote": "Pour autoriser une application OAuth ou un client MCP depuis votre navigateur, activez d'abord le verrouillage par mot de passe dans Paramètres, onglet Sécurité."
     }
   }
 }

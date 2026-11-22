@@ -3,6 +3,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import fr from '@/i18n/locales/fr.json'
+import en from '@/i18n/locales/en.json'
+import es from '@/i18n/locales/es.json'
+import de from '@/i18n/locales/de.json'
 
 function memoryStorage(): Storage {
   const m = new Map<string, string>()
@@ -154,5 +158,14 @@ describe('Desktop 1-step welcome onboarding', () => {
     expect(await screen.findByText('desktop.onboarding.legacyPostgresTitle')).toBeInTheDocument()
     expect(screen.getByText('desktop.onboarding.legacyPostgresBody')).toBeInTheDocument()
     expect(useAppStore.getState().legacyPostgresDetected).toBe(true)
+  })
+
+  it('never mentions the missing picsou export-sqlite CLI in any locale legacy Postgres notice', () => {
+    for (const [lang, messages] of Object.entries({ fr, en, es, de })) {
+      const body = messages.desktop.onboarding.legacyPostgresBody
+      expect(body, `${lang} must not reference export-sqlite`).not.toContain('export-sqlite')
+      expect(body, `${lang} must mention postgres/`).toContain('postgres/')
+      expect(body, `${lang} must mention SQLite`).toContain('SQLite')
+    }
   })
 })

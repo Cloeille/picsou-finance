@@ -31,7 +31,7 @@ vi.mock('react-i18next', () => ({
   }),
 }))
 
-const { refresh, desktopAutologin, getLockStatus, updateLock, listMembers, getMfaStatus, getSignInMethods } = vi.hoisted(() => ({
+const { refresh, desktopAutologin, getLockStatus, updateLock, listMembers, getMfaStatus, getSignInMethods, listAccessKeys } = vi.hoisted(() => ({
   refresh: vi.fn(),
   desktopAutologin: vi.fn(),
   getLockStatus: vi.fn(),
@@ -39,6 +39,7 @@ const { refresh, desktopAutologin, getLockStatus, updateLock, listMembers, getMf
   listMembers: vi.fn(),
   getMfaStatus: vi.fn(),
   getSignInMethods: vi.fn(),
+  listAccessKeys: vi.fn(),
 }))
 
 vi.mock('@/features/auth/api', () => ({
@@ -59,6 +60,13 @@ vi.mock('@/features/mfa/api', () => ({
 vi.mock('@/features/sso/api', () => ({
   ssoApi: {
     getSignInMethods,
+  },
+}))
+vi.mock('@/features/accessKeys/api', () => ({
+  accessKeysApi: {
+    list: listAccessKeys,
+    create: vi.fn(),
+    revoke: vi.fn(),
   },
 }))
 vi.mock('@/components/shared/WhatsNewDialog', () => ({ WhatsNewDialog: () => null }))
@@ -82,6 +90,9 @@ const { DesktopLockCard } = await import('@/pages/settings/security/DesktopLockC
 const { SecuritySection: RealSecuritySection } = await vi.importActual<
   typeof import('@/pages/settings/security/SecuritySection')
 >('@/pages/settings/security/SecuritySection')
+const { AccessKeysSection: RealAccessKeysSection } = await vi.importActual<
+  typeof import('@/pages/settings/sections/AccessKeysSection')
+>('@/pages/settings/sections/AccessKeysSection')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { useAppStore, selectIsAdvancedMode } = await import('@/stores/app-store')
 
@@ -109,6 +120,10 @@ describe('Desktop Mode auto-login & Advanced Mode', () => {
     updateLock.mockReset()
     listMembers.mockReset()
     listMembers.mockResolvedValue([])
+    getMfaStatus.mockReset()
+    getMfaStatus.mockResolvedValue({ enabled: false, remainingRecoveryCodes: 0 })
+    listAccessKeys.mockReset()
+    listAccessKeys.mockResolvedValue([])
     localStorage.clear()
     sessionStorage.clear()
     useAuthStore.setState({ user: null, isAuthenticated: false })
@@ -299,5 +314,91 @@ describe('Desktop Mode auto-login & Advanced Mode', () => {
 
     expect(screen.queryByText('desktop.lock.mfaRequiresLock')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'settings.mfaEnable' })).toBeEnabled()
+  })
+
+  it('disables turning off Desktop password lock while 2FA is active and enables it once 2FA is off', async () => {
+    useAuthStore.getState().login(LOCAL_ADMIN)
+    useAppStore.setState({ desktopMode: true, desktopLockEnabled: true })
+    getLockStatus.mockResolvedValue({ enabled: true })
+    getMfaStatus.mockResolvedValue({ enabled: true, remainingRecoveryCodes: 8 })
+
+    const view = render(
+      <QueryClientProvider client={makeClient()}>
+        <DesktopLockCard />
+      </QueryClientProvider>,
+    )
+
+    expect(await screen.findByText('desktop.lock.disableBlockedByMfa')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'desktop.lock.disableButton' })).toBeDisabled()
+
+    view.unmount()
+    getMfaStatus.mockResolvedValue({ enabled: false, remainingRecoveryCodes: 0 })
+
+    render(
+      <QueryClientProvider client={makeClient()}>
+        <DesktopLockCard />
+      </QueryClientProvider>,
+    )
+
+    expect(await screen.findByText('desktop.lock.statusEnabled')).toBeInTheDocument()
+    expect(screen.queryByText('desktop.lock.disableBlockedByMfa')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'desktop.lock.disableButton' })).toBeEnabled()
+  })
+
+  it('maps 409 MFA_ACTIVE cleanly when disabling Desktop password lock fails server-side', async () => {
+    useAuthStore.getState().login(LOCAL_ADMIN)
+    useAppStore.setState({ desktopMode: true, desktopLockEnabled: true })
+    getLockStatus.mockResolvedValue({ enabled: true })
+    getMfaStatus.mockResolvedValue({ enabled: false, remainingRecoveryCodes: 0 })
+    updateLock.mockRejectedValueOnce({
+      response: { status: 409, data: { code: 'MFA_ACTIVE', detail: 'Disable 2FA first.' } },
+    })
+
+    render(
+      <QueryClientProvider client={makeClient()}>
+        <DesktopLockCard />
+      </QueryClientProvider>,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'desktop.lock.disableButton' }))
+    fireEvent.change(screen.getByLabelText('desktop.lock.currentPasswordLabel'), {
+      target: { value: 'strong-password-123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'desktop.lock.disableConfirm' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('desktop.lock.disableBlockedByMfa')
+  })
+
+  it('shows the Desktop password lock guidance note in AccessKeysSection only when Desktop is unlocked', async () => {
+    useAuthStore.getState().login(LOCAL_ADMIN)
+    useAppStore.setState({ desktopMode: true, desktopLockEnabled: false })
+
+    const { rerender } = render(
+      <QueryClientProvider client={makeClient()}>
+        <RealAccessKeysSection />
+      </QueryClientProvider>,
+    )
+
+    expect(await screen.findByText('desktop.oauthLogin.apiTabNote')).toBeInTheDocument()
+
+    act(() => {
+      useAppStore.setState({ desktopMode: true, desktopLockEnabled: true })
+    })
+    rerender(
+      <QueryClientProvider client={makeClient()}>
+        <RealAccessKeysSection />
+      </QueryClientProvider>,
+    )
+    expect(screen.queryByText('desktop.oauthLogin.apiTabNote')).not.toBeInTheDocument()
+
+    act(() => {
+      useAppStore.setState({ desktopMode: false, desktopLockEnabled: false })
+    })
+    rerender(
+      <QueryClientProvider client={makeClient()}>
+        <RealAccessKeysSection />
+      </QueryClientProvider>,
+    )
+    expect(screen.queryByText('desktop.oauthLogin.apiTabNote')).not.toBeInTheDocument()
   })
 })

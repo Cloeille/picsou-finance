@@ -3726,7 +3726,7 @@
       "starting": "Preparando...",
       "error": "No se pudo iniciar Picsou. Inténtalo de nuevo.",
       "legacyPostgresTitle": "Datos locales anteriores conservados",
-      "legacyPostgresBody": "Picsou Desktop utiliza ahora una base de datos SQLite integrada. Tu carpeta PostgreSQL anterior (postgres/) se ha conservado intacta en la carpeta de datos de la aplicación: puedes empezar desde cero aquí o migrar tus datos anteriores a SQLite con picsou export-sqlite."
+      "legacyPostgresBody": "Picsou Desktop utiliza ahora una base de datos SQLite integrada. Empezar aquí crea una nueva base de datos local, y tu carpeta de datos anterior (postgres/) se ha conservado intacta en el directorio de datos de la aplicación."
     },
     "emptyDashboard": {
       "title": "Añade tu primera cuenta",
@@ -3743,6 +3743,7 @@
       "statusEnabled": "Bloqueo con contraseña activado",
       "statusDisabled": "Acceso directo sin contraseña",
       "mfaRequiresLock": "Activa primero el bloqueo con contraseña arriba antes de configurar la autenticación en dos factores.",
+      "disableBlockedByMfa": "Desactiva primero la autenticación en dos factores más abajo antes de desactivar el bloqueo con contraseña.",
       "usernameHint": "Usuario local: {{username}}",
       "enableButton": "Activar bloqueo",
       "disableButton": "Desactivar bloqueo",
@@ -3757,6 +3758,11 @@
       "enabledToast": "Bloqueo con contraseña activado.",
       "disabledToast": "Bloqueo con contraseña desactivado.",
       "cancel": "Cancelar"
+    },
+    "oauthLogin": {
+      "title": "Se requiere bloqueo con contraseña",
+      "description": "Picsou Desktop funciona actualmente sin contraseña. Para autorizar una aplicación externa (como un cliente MCP) desde tu navegador, activa primero el bloqueo con contraseña en Picsou Desktop, en Ajustes > Seguridad.",
+      "apiTabNote": "Para autorizar una aplicación OAuth o MCP externa desde tu navegador, activa primero el bloqueo con contraseña en Ajustes > Seguridad."
     }
   }
 }
