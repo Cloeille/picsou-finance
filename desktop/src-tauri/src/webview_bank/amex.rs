@@ -41,7 +41,10 @@ const TRANSACTION_HISTORY_SIZE: usize = 1000;
 const LOGIN_TTL: Duration = Duration::from_secs(300);
 const POLL_INTERVAL: Duration = Duration::from_millis(600);
 const FETCH_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(4);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(25);
+const PENDING_SENTINEL: &str = "__PICSOU_PENDING__";
+const LOST_SENTINEL: &str = "__PICSOU_LOST__";
 const SNAPSHOT_CACHE_TTL: Duration = Duration::from_secs(180);
 const MAX_PROCESSES: usize = 4;
 const MAX_CACHE_ENTRIES: usize = 8;
@@ -432,7 +435,9 @@ impl AmexWebviewManager {
                 }
 
                 // Confirm the servicing API accepts this session and reveals an account_token.
-                if let Ok(member_json) = webview_fetch_json(&window, MEMBER_PATH, None).await {
+                if let Ok(member_json) =
+                    webview_fetch_json(&window, MEMBER_PATH, None, PROBE_TIMEOUT).await
+                {
                     let token = amex_parsers::account_token_from_member_payload(&member_json);
                     if token.is_some() {
                         if !self.mark_fetching(&process_id) {
@@ -491,7 +496,9 @@ impl AmexWebviewManager {
                 let win = window.clone();
                 let path = path.to_owned();
                 let tok = tok.map(str::to_owned);
-                async move { webview_fetch_json(&win, &path, tok.as_deref()).await }
+                async move {
+                    webview_fetch_json(&win, &path, tok.as_deref(), FETCH_TIMEOUT).await
+                }
             },
         )
         .await?;
@@ -705,6 +712,7 @@ async fn webview_fetch_json(
     window: &WebviewWindow,
     path: &str,
     account_token: Option<&str>,
+    timeout: Duration,
 ) -> Result<Value, ApiError> {
     let slot = format!("__picsou_amex_{}", random_hex(12));
     let path_js = serde_json::to_string(path).unwrap_or_else(|_| "\"/\"".to_owned());
@@ -716,7 +724,7 @@ async fn webview_fetch_json(
     let start_js = format!(
         r#"(function(){{
   var k = "{slot}";
-  window[k] = null;
+  window[k] = "{PENDING_SENTINEL}";
   var headers = {{ "Accept": "application/json" }};
   var tok = {token_js};
   if (tok !== null) {{
@@ -739,10 +747,10 @@ async fn webview_fetch_json(
         .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"))?;
 
     let read_js = format!(
-        r#"(function(){{ var k = "{slot}"; var v = window[k]; if (v !== null && v !== undefined) {{ delete window[k]; return v; }} return ""; }})()"#
+        r#"(function(){{ var k = "{slot}"; if (!(k in window)) return "{LOST_SENTINEL}"; var v = window[k]; if (v === "{PENDING_SENTINEL}") return ""; delete window[k]; return v; }})()"#
     );
 
-    let deadline = Instant::now() + FETCH_TIMEOUT;
+    let deadline = Instant::now() + timeout;
     let raw_payload = loop {
         if Instant::now() >= deadline {
             return Err(ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"));
@@ -761,6 +769,9 @@ async fn webview_fetch_json(
         }
         if let Ok(Ok(res)) = tokio::time::timeout(Duration::from_secs(3), rx).await {
             if let Some(unwrapped) = unwrap_eval_string(&res) {
+                if unwrapped == LOST_SENTINEL {
+                    return Err(ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"));
+                }
                 if !unwrapped.is_empty() {
                     break unwrapped;
                 }

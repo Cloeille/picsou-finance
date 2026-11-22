@@ -40,7 +40,10 @@ const EP_PORTFOLIO: &str = "/pe-war/rpc/portfolioDetails/get";
 const LOGIN_TTL: Duration = Duration::from_secs(300);
 const POLL_INTERVAL: Duration = Duration::from_millis(600);
 const FETCH_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(4);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(25);
+const PENDING_SENTINEL: &str = "__PICSOU_PENDING__";
+const LOST_SENTINEL: &str = "__PICSOU_LOST__";
 const SNAPSHOT_CACHE_TTL: Duration = Duration::from_secs(180);
 const MAX_PROCESSES: usize = 4;
 const MAX_CACHE_ENTRIES: usize = 8;
@@ -518,7 +521,9 @@ impl BnpWebviewManager {
 
             if on_site(&current_url, brand) {
                 // Confirm the session is genuinely active before reading accounts.
-                if let Ok(info) = webview_fetch_json(&window, "GET", INFOS_CLIENT, None).await {
+                if let Ok(info) =
+                    webview_fetch_json(&window, "GET", INFOS_CLIENT, None, PROBE_TIMEOUT).await
+                {
                     if bnp_parsers::session_alive(&info) {
                         if !self.mark_fetching(&process_id) {
                             return;
@@ -564,7 +569,7 @@ impl BnpWebviewManager {
     ) -> Result<(String, Vec<NormalizedAccount>, Vec<UnsupportedProduct>), ApiError> {
         let (accounts, unsupported) = fetch_snapshot_with(|method, path, body| {
             let win = window.clone();
-            async move { webview_fetch_json(&win, method, path, body).await }
+            async move { webview_fetch_json(&win, method, path, body, FETCH_TIMEOUT).await }
         })
         .await?;
 
@@ -815,6 +820,7 @@ async fn webview_fetch_json(
     method: &str,
     path: &str,
     body: Option<Value>,
+    timeout: Duration,
 ) -> Result<Value, ApiError> {
     let slot = format!("__picsou_{}", random_hex(12));
     let method_js = serde_json::to_string(method).unwrap_or_else(|_| "\"GET\"".to_owned());
@@ -827,7 +833,7 @@ async fn webview_fetch_json(
     let start_js = format!(
         r#"(function(){{
   var k = "{slot}";
-  window[k] = null;
+  window[k] = "{PENDING_SENTINEL}";
   var init = {{ method: {method_js}, credentials: "same-origin", redirect: "error", headers: {{ "Accept": "application/json" }} }};
   var bodyStr = {body_js};
   if (bodyStr !== null) {{
@@ -851,10 +857,10 @@ async fn webview_fetch_json(
         .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"))?;
 
     let read_js = format!(
-        r#"(function(){{ var k = "{slot}"; var v = window[k]; if (v !== null && v !== undefined) {{ delete window[k]; return v; }} return ""; }})()"#
+        r#"(function(){{ var k = "{slot}"; if (!(k in window)) return "{LOST_SENTINEL}"; var v = window[k]; if (v === "{PENDING_SENTINEL}") return ""; delete window[k]; return v; }})()"#
     );
 
-    let deadline = Instant::now() + FETCH_TIMEOUT;
+    let deadline = Instant::now() + timeout;
     let raw_payload = loop {
         if Instant::now() >= deadline {
             return Err(ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"));
@@ -873,6 +879,9 @@ async fn webview_fetch_json(
         }
         if let Ok(Ok(res)) = tokio::time::timeout(Duration::from_secs(3), rx).await {
             if let Some(unwrapped) = unwrap_eval_string(&res) {
+                if unwrapped == LOST_SENTINEL {
+                    return Err(ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"));
+                }
                 if !unwrapped.is_empty() {
                     break unwrapped;
                 }

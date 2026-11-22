@@ -241,6 +241,39 @@ async fn sidecar_url(state: &AppState, name: &str) -> String {
     configured
 }
 
+fn is_desktop_runtime(config: &crate::config::Config) -> bool {
+    config.desktop_mode || config.desktop.trim().eq_ignore_ascii_case("true")
+}
+
+/// Evaluates a sidecar `/health` JSON body against the expected shared Docker base image.
+/// Native Desktop WebView bridges answer `{"status": "ok", "webview": true}` instead of a
+/// Docker base image and are never flagged as `SIDECAR_OUTDATED`.
+fn health_issue(
+    body: Option<&Value>,
+    name: &'static str,
+    expected: &'static str,
+) -> Option<SidecarIssue> {
+    if body
+        .and_then(|v| v.get("webview"))
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        return None;
+    }
+    let base = body
+        .and_then(|v| {
+            v.get("base")
+                .and_then(Value::as_str)
+                .map(|s| s.trim().to_owned())
+        })
+        .filter(|s| !s.is_empty());
+    (base.as_deref() != Some(expected)).then(|| SidecarIssue {
+        code: IssueCode::SidecarOutdated,
+        sidecar: name,
+        expected_base: Some(expected),
+    })
+}
+
 /// One in-use sidecar's health: unreachable, a non-2xx, or a base image other than expected.
 async fn probe(
     state: &AppState,
@@ -273,17 +306,8 @@ async fn probe(
     let health = format!("{}/health", url.trim().trim_end_matches('/'));
     match client.get(&health).send().await {
         Ok(response) if response.status().is_success() => {
-            let base = response
-                .json::<Value>()
-                .await
-                .ok()
-                .and_then(|v| {
-                    v.get("base")
-                        .and_then(Value::as_str)
-                        .map(|s| s.trim().to_owned())
-                })
-                .filter(|s| !s.is_empty());
-            (base.as_deref() != Some(expected)).then(|| issue(IssueCode::SidecarOutdated))
+            let body = response.json::<Value>().await.ok();
+            health_issue(body.as_ref(), name, expected)
         }
         Ok(response) => {
             tracing::info!(
@@ -335,6 +359,13 @@ pub async fn instance_status(
     } else {
         state.config.app_version.trim().to_owned()
     };
+    if is_desktop_runtime(&state.config) {
+        return Ok(axum::Json(InstanceStatusResponse {
+            current_version: current,
+            update: None,
+            issues: Vec::new(),
+        }));
+    }
     let (update, issues) = tokio::join!(
         tokio::time::timeout(OVERALL_DEADLINE, release_update(&state, &current)),
         tokio::time::timeout(OVERALL_DEADLINE, probe_in_use(&state)),
@@ -352,6 +383,7 @@ pub async fn instance_status(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn compares_plain_semver_only() {
@@ -360,5 +392,22 @@ mod tests {
         assert!(!is_newer("1.10.0-rc1", "1.2.0"));
         assert!(!is_newer("1.3.0", "dev"));
         assert!(is_newer("1.10.0", "1.9.9"));
+    }
+
+    #[test]
+    fn native_webview_health_is_never_flagged_as_outdated() {
+        let webview_ok = json!({ "status": "ok", "webview": true });
+        assert!(health_issue(Some(&webview_ok), "bnp-auth", BASE_CAMOUFOX).is_none());
+        assert!(health_issue(Some(&webview_ok), "amex-auth", BASE_CAMOUFOX).is_none());
+        assert!(health_issue(Some(&webview_ok), "revolut-auth", BASE_CAMOUFOX).is_none());
+
+        let docker_ok = json!({ "status": "ok", "base": "sidecar-camoufox" });
+        assert!(health_issue(Some(&docker_ok), "bnp-auth", BASE_CAMOUFOX).is_none());
+
+        let docker_old = json!({ "status": "ok" });
+        let issue = health_issue(Some(&docker_old), "bnp-auth", BASE_CAMOUFOX).unwrap();
+        assert_eq!(issue.sidecar, "bnp-auth");
+        assert!(matches!(issue.code, IssueCode::SidecarOutdated));
+        assert_eq!(issue.expected_base, Some(BASE_CAMOUFOX));
     }
 }

@@ -43,7 +43,10 @@ const TRANSACTIONS_PATH: &str = "/api/retail/user/current/transactions/last";
 const LOGIN_TTL: Duration = Duration::from_secs(300);
 const POLL_INTERVAL: Duration = Duration::from_millis(600);
 const FETCH_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(4);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(25);
+const PENDING_SENTINEL: &str = "__PICSOU_PENDING__";
+const LOST_SENTINEL: &str = "__PICSOU_LOST__";
 const SNAPSHOT_CACHE_TTL: Duration = Duration::from_secs(300);
 const MAX_PROCESSES: usize = 4;
 const MAX_CACHE_ENTRIES: usize = 16;
@@ -92,6 +95,7 @@ pub struct ProgressSnapshot {
 struct FetchResponse {
     status: u16,
     data: Option<Value>,
+    has_device_id: bool,
 }
 
 pub struct RevolutWebviewManager {
@@ -583,6 +587,8 @@ impl RevolutWebviewManager {
 
     async fn watch_login(&self, process_id: String, member_key: String, window: WebviewWindow) {
         let deadline = Instant::now() + LOGIN_TTL;
+        let mut last_location: Option<(String, String)> = None;
+        let mut last_probe_outcome: Option<(u16, bool)> = None;
         loop {
             if !self.is_waiting(&process_id) {
                 return;
@@ -602,9 +608,29 @@ impl RevolutWebviewManager {
                 }
             };
 
+            let loc = (
+                current_url.host_str().unwrap_or("").to_ascii_lowercase(),
+                current_url.path().to_owned(),
+            );
+            if last_location.as_ref() != Some(&loc) {
+                tracing::info!(
+                    "Revolut WebView location changed (host={}; path={})",
+                    loc.0,
+                    loc.1
+                );
+                last_location = Some(loc);
+            }
+
             if on_revolut_home(&current_url) {
-                let device_id = read_device_id(&window).await;
-                let probe = webview_revolut_fetch(&window, "GET", TOKEN_INFO_PATH, &device_id, &[]).await;
+                let probe = webview_revolut_fetch(
+                    &window,
+                    "GET",
+                    TOKEN_INFO_PATH,
+                    "",
+                    &[],
+                    PROBE_TIMEOUT,
+                )
+                .await;
                 if probe.status == 200 {
                     if !self.mark_fetching(&process_id) {
                         return;
@@ -613,6 +639,7 @@ impl RevolutWebviewManager {
                         "Revolut WebView authenticated, harvesting read-only snapshot"
                     );
                     self.set_progress(&member_key, "HARVESTING", Some(0));
+                    let device_id = read_device_id(&window).await;
                     match self.finish_webview_harvest(&window, &member_key, &device_id).await {
                         Ok(payload) => {
                             self.remember_snapshot(&member_key, payload);
@@ -631,6 +658,15 @@ impl RevolutWebviewManager {
                     }
                     let _ = window.destroy();
                     return;
+                }
+                let outcome = (probe.status, probe.has_device_id);
+                if last_probe_outcome != Some(outcome) {
+                    tracing::info!(
+                        "Revolut WebView auth probe pending (status={}; has_device_id={})",
+                        probe.status,
+                        probe.has_device_id
+                    );
+                    last_probe_outcome = Some(outcome);
                 }
             }
 
@@ -656,7 +692,9 @@ impl RevolutWebviewManager {
                     .iter()
                     .map(|(k, v)| ((*k).to_owned(), v.clone()))
                     .collect();
-                async move { webview_revolut_fetch(&win, &method, &path, &dev, &params).await }
+                async move {
+                    webview_revolut_fetch(&win, &method, &path, &dev, &params, FETCH_TIMEOUT).await
+                }
             },
             |count| self.set_progress(member_key, "HARVESTING", i32::try_from(count).ok()),
         )
@@ -713,7 +751,13 @@ impl RevolutWebviewManager {
         };
         let mut url = match Url::parse(&format!("https://{API_HOST}{path}")) {
             Ok(u) => u,
-            Err(_) => return FetchResponse { status: 0, data: None },
+            Err(_) => {
+                return FetchResponse {
+                    status: 0,
+                    data: None,
+                    has_device_id: !device_id.is_empty(),
+                };
+            }
         };
         if !params.is_empty() {
             let mut pairs = url.query_pairs_mut();
@@ -739,7 +783,11 @@ impl RevolutWebviewManager {
             req = req.header("Cookie", cookie_header);
         }
         let Ok(resp) = req.send().await else {
-            return FetchResponse { status: 0, data: None };
+            return FetchResponse {
+                status: 0,
+                data: None,
+                has_device_id: !device_id.is_empty(),
+            };
         };
         let set_cookies: Vec<String> = resp
             .headers()
@@ -753,10 +801,18 @@ impl RevolutWebviewManager {
         }
         let status = resp.status().as_u16();
         let Ok(text) = read_capped_text(resp, MAX_RESPONSE_BYTES).await else {
-            return FetchResponse { status: 0, data: None };
+            return FetchResponse {
+                status: 0,
+                data: None,
+                has_device_id: !device_id.is_empty(),
+            };
         };
         let data = revolut_parsers::loads(&text).ok();
-        FetchResponse { status, data }
+        FetchResponse {
+            status,
+            data,
+            has_device_id: !device_id.is_empty(),
+        }
     }
 }
 
@@ -918,6 +974,7 @@ async fn webview_revolut_fetch(
     path: &str,
     device_id: &str,
     params: &[(String, String)],
+    timeout: Duration,
 ) -> FetchResponse {
     let slot = format!("__picsou_revo_{}", random_hex(12));
     let method_js = serde_json::to_string(method).unwrap_or_else(|_| "\"GET\"".to_owned());
@@ -933,7 +990,7 @@ async fn webview_revolut_fetch(
     let start_js = format!(
         r#"(function(){{
   var k = "{slot}";
-  window[k] = null;
+  window[k] = "{PENDING_SENTINEL}";
   var url = new URL({path_js}, window.location.origin);
   var params = {params_js};
   Object.keys(params).forEach(function(key) {{
@@ -946,9 +1003,10 @@ async fn webview_revolut_fetch(
     var c = document.cookie.split(';').map(function(s){{return s.trim();}}).find(function(s){{return s.indexOf('revo_device_id=') === 0;}});
     dev = c ? c.slice('revo_device_id='.length) : '';
   }}
+  var hasDev = Boolean(dev);
   fetch(url.toString(), {{
     method: {method_js},
-    credentials: "same-origin",
+    credentials: "include",
     redirect: "error",
     headers: {{
       "x-device-id": dev,
@@ -958,27 +1016,35 @@ async fn webview_revolut_fetch(
   }})
     .then(function(r) {{
       return r.text().then(function(t) {{
-        window[k] = JSON.stringify({{ ok: true, status: r.status, text: t }});
+        window[k] = JSON.stringify({{ ok: true, status: r.status, text: t, hasDev: hasDev }});
       }});
     }})
     .catch(function() {{
-      window[k] = JSON.stringify({{ ok: false, status: 0, text: "" }});
+      window[k] = JSON.stringify({{ ok: false, status: 0, text: "", hasDev: hasDev }});
     }});
 }})();"#
     );
 
     if window.eval(&start_js).is_err() {
-        return FetchResponse { status: 0, data: None };
+        return FetchResponse {
+            status: 0,
+            data: None,
+            has_device_id: !device_id.is_empty(),
+        };
     }
 
     let read_js = format!(
-        r#"(function(){{ var k = "{slot}"; var v = window[k]; if (v !== null && v !== undefined) {{ delete window[k]; return v; }} return ""; }})()"#
+        r#"(function(){{ var k = "{slot}"; if (!(k in window)) return "{LOST_SENTINEL}"; var v = window[k]; if (v === "{PENDING_SENTINEL}") return ""; delete window[k]; return v; }})()"#
     );
 
-    let deadline = Instant::now() + FETCH_TIMEOUT;
+    let deadline = Instant::now() + timeout;
     let raw_payload = loop {
         if Instant::now() >= deadline {
-            return FetchResponse { status: 0, data: None };
+            return FetchResponse {
+                status: 0,
+                data: None,
+                has_device_id: !device_id.is_empty(),
+            };
         }
         let (tx, rx) = tokio::sync::oneshot::channel::<String>();
         let sender = Arc::new(Mutex::new(Some(tx)));
@@ -990,10 +1056,21 @@ async fn webview_revolut_fetch(
             })
             .is_err()
         {
-            return FetchResponse { status: 0, data: None };
+            return FetchResponse {
+                status: 0,
+                data: None,
+                has_device_id: !device_id.is_empty(),
+            };
         }
         if let Ok(Ok(res)) = tokio::time::timeout(Duration::from_secs(3), rx).await {
             if let Some(unwrapped) = unwrap_eval_string(&res) {
+                if unwrapped == LOST_SENTINEL {
+                    return FetchResponse {
+                        status: 0,
+                        data: None,
+                        has_device_id: !device_id.is_empty(),
+                    };
+                }
                 if !unwrapped.is_empty() {
                     break unwrapped;
                 }
@@ -1003,22 +1080,34 @@ async fn webview_revolut_fetch(
     };
 
     #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
     struct JsFetchReply {
         ok: bool,
         status: u16,
         text: String,
+        #[serde(default)]
+        has_dev: bool,
     }
 
     let Ok(reply) = serde_json::from_str::<JsFetchReply>(&raw_payload) else {
-        return FetchResponse { status: 0, data: None };
+        return FetchResponse {
+            status: 0,
+            data: None,
+            has_device_id: !device_id.is_empty(),
+        };
     };
     if !reply.ok || reply.text.len() > MAX_RESPONSE_BYTES {
-        return FetchResponse { status: 0, data: None };
+        return FetchResponse {
+            status: 0,
+            data: None,
+            has_device_id: reply.has_dev,
+        };
     }
     let data = revolut_parsers::loads(&reply.text).ok();
     FetchResponse {
         status: reply.status,
         data,
+        has_device_id: reply.has_dev,
     }
 }
 
@@ -1041,6 +1130,24 @@ pub fn is_revolut_host(host: &str) -> bool {
     lowered == "revolut.com" || lowered.ends_with(".revolut.com")
 }
 
+fn strip_locale_prefix(path: &str) -> &str {
+    // Matches optional locale prefixes such as `/fr-fr/home` or `/en-gb/accounts`.
+    let bytes = path.as_bytes();
+    if bytes.len() >= 7
+        && bytes[0] == b'/'
+        && bytes[1].is_ascii_lowercase()
+        && bytes[2].is_ascii_lowercase()
+        && bytes[3] == b'-'
+        && bytes[4].is_ascii_lowercase()
+        && bytes[5].is_ascii_lowercase()
+        && bytes[6] == b'/'
+    {
+        &path[6..]
+    } else {
+        path
+    }
+}
+
 /// True once the WebView is on `https://app.revolut.com/home` (or another authenticated retail
 /// route on `app.revolut.com`, never `sso.revolut.com` or login/start pages).
 pub fn on_revolut_home(url: &Url) -> bool {
@@ -1057,12 +1164,15 @@ pub fn on_revolut_home(url: &Url) -> bool {
     if !host.eq_ignore_ascii_case(API_HOST) {
         return false;
     }
-    let path = url.path().to_ascii_lowercase();
+    let lowered = url.path().to_ascii_lowercase();
+    let path = strip_locale_prefix(&lowered);
     path == "/home"
         || path.starts_with("/home/")
         || path.starts_with("/accounts")
         || path.starts_with("/vaults")
         || path.starts_with("/pockets")
+        || path.starts_with("/overview")
+        || path.starts_with("/hub")
 }
 
 pub fn cookie_in_scope(cookie: &StoredCookie) -> bool {
@@ -1099,6 +1209,15 @@ mod tests {
         assert!(on_revolut_home(
             &Url::parse("https://app.revolut.com/home?tab=accounts").unwrap()
         ));
+        assert!(on_revolut_home(
+            &Url::parse("https://app.revolut.com/home?rwa_auth_type=auth&code=abc&state=xyz").unwrap()
+        ));
+        assert!(on_revolut_home(
+            &Url::parse("https://app.revolut.com/fr-FR/home").unwrap()
+        ));
+        assert!(on_revolut_home(
+            &Url::parse("https://app.revolut.com/overview").unwrap()
+        ));
     }
 
     #[test]
@@ -1118,9 +1237,9 @@ mod tests {
                 let path = path.to_owned();
                 async move {
                     if path == MONEY_BOXES_PATH {
-                        FetchResponse { status: 200, data: Some(json!([])) }
+                        FetchResponse { status: 200, data: Some(json!([])), has_device_id: true }
                     } else if path == CURRENCIES_PATH {
-                        FetchResponse { status: 200, data: Some(json!([{"code": "EUR"}])) }
+                        FetchResponse { status: 200, data: Some(json!([{"code": "EUR"}])), has_device_id: true }
                     } else if path == WALLETS_PATH {
                         FetchResponse {
                             status: 200,
@@ -1133,16 +1252,18 @@ mod tests {
                                     ]
                                 }]
                             })),
+                            has_device_id: true,
                         }
                     } else if path == ACCOUNT_DETAILS_PATH {
                         FetchResponse {
                             status: 200,
                             data: Some(json!({"iban": "FR7630006000011234567890189"})),
+                            has_device_id: true,
                         }
                     } else if path == TRANSACTIONS_PATH {
-                        FetchResponse { status: 200, data: Some(json!([])) }
+                        FetchResponse { status: 200, data: Some(json!([])), has_device_id: true }
                     } else {
-                        FetchResponse { status: 404, data: None }
+                        FetchResponse { status: 404, data: None, has_device_id: true }
                     }
                 }
             },
