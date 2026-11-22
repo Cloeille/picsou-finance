@@ -243,6 +243,41 @@ class IbkrFlexClientTest {
             .satisfies(account -> assertThat(account.positions()).isEmpty());
     }
 
+    /** A statement with no usable toDate still dates itself by the day it was generated. */
+    @Test
+    void parse_fallsBackToTheGenerationDate() {
+        String xml = """
+            <FlexQueryResponse><FlexStatements count="1">
+              <FlexStatement accountId="U1" whenGenerated="20261122;110616"><OpenPositions/></FlexStatement>
+            </FlexStatements></FlexQueryResponse>
+            """;
+
+        assertThat(client.parseOpenPositions(xml)).singleElement()
+            .satisfies(account -> assertThat(account.statementDate()).isEqualTo(java.time.LocalDate.of(2026, 11, 22)));
+    }
+
+    /** A statement without an account id is skipped by the parser, so it cannot empty anything. */
+    @Test
+    void parseUploaded_aStatementWithoutAnAccountIdNeedsNoOpenPositions() {
+        byte[] xml = """
+            <FlexQueryResponse><FlexStatements count="2">
+              <FlexStatement toDate="20261120"><Trades/></FlexStatement>
+              <FlexStatement accountId="U1" toDate="20261120"><OpenPositions/></FlexStatement>
+            </FlexStatements></FlexQueryResponse>
+            """.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        assertThat(client.parseUploadedStatement(xml)).singleElement()
+            .satisfies(account -> assertThat(account.accountId()).isEqualTo("U1"));
+    }
+
+    /** Deep nesting must never end as a stack overflow (a 500): it parses to "no account", which the service refuses. */
+    @Test
+    void parseUploaded_aHugelyNestedFileDoesNotOverflowTheStack() {
+        byte[] nested = ("<a>".repeat(20_000) + "</a>".repeat(20_000)).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        assertThat(client.parseUploadedStatement(nested)).isEmpty();
+    }
+
     @Test
     void parse_readsAnIsoStatementDateToo() {
         String xml = """

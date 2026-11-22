@@ -209,7 +209,9 @@ public class IbkrFlexClient {
         NodeList statements = doc.getElementsByTagName("FlexStatement");
         for (int i = 0; i < statements.getLength(); i++) {
             Element statement = (Element) statements.item(i);
-            if (statement.getElementsByTagName("OpenPositions").getLength() == 0) {
+            // A statement without an account id is skipped by the parser, so it cannot empty anything.
+            if (blankToNull(attr(statement, "accountId")) != null
+                && statement.getElementsByTagName("OpenPositions").getLength() == 0) {
                 throw new SyncException("This report has no Open Positions section for account "
                     + LogSanitizer.safe(attr(statement, "accountId")) + ". Add the Open Positions section to "
                     + "the Flex Query and download the report again; importing it as is would empty the account.");
@@ -294,16 +296,27 @@ public class IbkrFlexClient {
         return result;
     }
 
-    /** The statement's {@code toDate} ({@code yyyyMMdd}), or null when absent or not a date. */
+    /**
+     * The last day the statement covers: its {@code toDate}, else the day it was generated
+     * ({@code whenGenerated="20261122;110616"}); null when neither reads as a date.
+     */
     private LocalDate statementDate(Element statement) {
-        String raw = blankToNull(attr(statement, "toDate"));
-        if (raw == null) {
+        LocalDate toDate = flexDate(attr(statement, "toDate"));
+        if (toDate != null) {
+            return toDate;
+        }
+        String generated = blankToNull(attr(statement, "whenGenerated"));
+        return generated == null ? null : flexDate(generated.split("[;, T]", 2)[0]);
+    }
+
+    /** Flex lets the user pick the date format of a query; these two cover the usual choices. */
+    private LocalDate flexDate(String raw) {
+        if (raw == null || raw.isBlank()) {
             return null;
         }
-        // Flex lets the user pick the date format of a query; these two cover the usual choices.
         for (DateTimeFormatter format : List.of(DateTimeFormatter.BASIC_ISO_DATE, DateTimeFormatter.ISO_LOCAL_DATE)) {
             try {
-                return LocalDate.parse(raw, format);
+                return LocalDate.parse(raw.trim(), format);
             } catch (DateTimeParseException e) {
                 // try the next one
             }
@@ -397,7 +410,6 @@ public class IbkrFlexClient {
             factory.setExpandEntityReferences(false);
             DocumentBuilder builder = factory.newDocumentBuilder();
             Document doc = builder.parse(new ByteArrayInputStream(xml));
-            doc.getDocumentElement().normalize();
             return doc;
         } catch (ParserConfigurationException | SAXException | java.io.IOException e) {
             // Narrow on purpose: only genuine parse/IO failures become the user-facing

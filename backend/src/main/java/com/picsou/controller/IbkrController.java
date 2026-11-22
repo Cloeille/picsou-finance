@@ -82,8 +82,13 @@ public class IbkrController {
      */
     @PostMapping("/import")
     public ResponseEntity<?> importStatement(@RequestParam("file") MultipartFile file, HttpServletRequest request) {
-        // The cheap refusals come first, so picking the wrong file does not spend the budget a real
-        // sync shares with the import.
+        // Spring has buffered the whole body by now, so every attempt spends the budget it shares with
+        // /sync, a refused one included: a loop of large or empty files must not run unmetered.
+        if (!checkSyncRateLimit(request)) {
+            ProblemDetail detail = ProblemDetail.forStatus(HttpStatus.TOO_MANY_REQUESTS);
+            detail.setDetail("Too many sync requests. Please wait a moment before trying again.");
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(detail);
+        }
         if (file.isEmpty()) {
             throw new IllegalArgumentException("The uploaded file is empty.");
         }
@@ -91,11 +96,6 @@ public class IbkrController {
         // a loop of large files each be copied and DOM-parsed on the shared JVM.
         if (file.getSize() > MAX_IMPORT_BYTES) {
             throw new IllegalArgumentException("The uploaded file is too large for a Flex report.");
-        }
-        if (!checkSyncRateLimit(request)) {
-            ProblemDetail detail = ProblemDetail.forStatus(HttpStatus.TOO_MANY_REQUESTS);
-            detail.setDetail("Too many sync requests. Please wait a moment before trying again.");
-            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(detail);
         }
         byte[] xml;
         try {

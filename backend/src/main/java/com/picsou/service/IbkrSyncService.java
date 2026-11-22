@@ -242,7 +242,9 @@ public class IbkrSyncService {
                 + "XML report of a Flex Query that includes the Open Positions section.");
         }
         requireRecent(accounts);
-        int positions = accounts.stream().mapToInt(account -> account.positions().size()).sum();
+        // Per-lot detail rows are dropped later and cost no lookup: only the others count.
+        long positions = accounts.stream().flatMap(account -> account.positions().stream())
+            .filter(position -> !"LOT".equalsIgnoreCase(position.levelOfDetail())).count();
         if (positions > MAX_IMPORT_POSITIONS) {
             throw new SyncException("This report lists " + positions + " positions, more than the "
                 + MAX_IMPORT_POSITIONS + " an import accepts. Check that it is the Open Positions report "
@@ -262,12 +264,18 @@ public class IbkrSyncService {
     /**
      * Refuses a statement older than {@link #MAX_STATEMENT_AGE_DAYS}: the import replaces the current
      * holdings and stamps today's net-worth snapshot, so a forgotten old download must not get through.
-     * A statement without a readable date is let through, as the Web Service sync does.
+     * Unlike a Web Service answer, an uploaded file can be anything the user had lying around, so a
+     * statement whose date cannot be read is refused too rather than waved through.
      */
     private void requireRecent(List<IbkrAccountData> accounts) {
         LocalDate oldest = LocalDate.now(clock).minusDays(MAX_STATEMENT_AGE_DAYS);
         for (IbkrAccountData data : accounts) {
-            if (data.statementDate() != null && data.statementDate().isBefore(oldest)) {
+            if (data.statementDate() == null) {
+                throw new SyncException("This Flex report carries no date Picsou can read, so it cannot be checked "
+                    + "for freshness. In the Flex Query's delivery settings choose the date format yyyyMMdd or "
+                    + "yyyy-MM-dd, then download the report again.");
+            }
+            if (data.statementDate().isBefore(oldest)) {
                 throw new SyncException("This Flex report is dated " + data.statementDate() + ", more than "
                     + MAX_STATEMENT_AGE_DAYS + " days old. Run the Flex Query again in Client Portal and "
                     + "download a fresh report.");

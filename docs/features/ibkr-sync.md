@@ -85,13 +85,14 @@ XML file ─► IbkrController#importStatement (rate-limited like /sync, 2 MB ca
 - **A report with no Open Positions section is refused.** Accounts are seeded from every `FlexStatement`,
   so a Trades, NAV or Cash report of a known account would parse to an account with no position and
   empty it. An upload where any statement lacks an `OpenPositions` element is rejected; an empty
-  `<OpenPositions/>` stays valid (a liquidated account). More than 500 positions is rejected too: each one
+  `<OpenPositions/>` stays valid (a liquidated account). More than 500 positions (per-lot rows not counted) is rejected too: each one
   costs an OpenFIGI and a price lookup inside one transaction.
-- **A stale report is refused.** The import replaces the holdings and stamps today's net-worth
-  snapshot, so a statement whose `toDate` is more than 7 days before today (`Clock` injected) is
-  rejected with the date in the message. A "Last Business Day" report opened over a weekend or a
-  holiday stretch passes. `toDate` is read as `yyyyMMdd` or `yyyy-MM-dd`; a statement whose date is
-  in another Flex date format is let through unchecked, as a sync would.
+- **A stale or undated report is refused.** The import replaces the holdings and stamps today's net-worth
+  snapshot, so a statement whose date is more than 7 days before today (`Clock` injected) is rejected with
+  the date in the message. A "Last Business Day" report opened over a weekend or a holiday stretch passes.
+  The date is the statement's `toDate`, else its `whenGenerated` day, read as `yyyyMMdd` or `yyyy-MM-dd`;
+  an upload whose date cannot be read is refused too, with the format to choose in the Flex Query (a sync
+  is lenient there, an uploaded file can be anything the user had lying around).
 - **The file is parsed as bytes.** The XML parser detects the encoding itself (UTF-8 with or without a
   BOM, UTF-16, a declared ISO-8859-1), instead of a UTF-8 decode that would corrupt the others. A file
   that does not parse answers "The file is not a valid XML Flex report", and the log keeps only its size and
@@ -179,10 +180,12 @@ See the [ADR](../decisions/2026-07-19-ibkr-flex-web-service.md) for the full API
 - `IbkrSyncServiceTest` — mapping: cost-basis → base-currency conversion, LOT filtering,
   "not connected" error, error-status persistence, derivative asset-category filtering,
   zero-net-quantity positions; file import: same mapping with no connection, non-EUR refusal,
-  a file with no account, a stale report, a weekend-old report, every account deleted, too many positions
+  a file with no account, a stale and an undated report, a weekend-old report, every account deleted, too many positions (lots
+  not counted)
 - `IbkrFlexClientTest` — the statement date, the encoding of an uploaded file (BOM, UTF-16, ISO-8859-1),
   a non-XML file reported without logging its content, any DOCTYPE refused, a report with no Open
-  Positions section refused (an empty one accepted), the two date formats
+  Positions section refused (an empty one accepted), the two date formats and the generation-date
+  fallback, a deeply nested file that parses to no account instead of overflowing the stack
 - `IbkrControllerTest` — `/import`: raw bytes handed to the service, empty and oversized files
   refused, shared per-IP budget
 - `IbkrTab.test.tsx` — the import button posts the multipart file and shows the server message
