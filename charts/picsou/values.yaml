@@ -292,6 +292,13 @@ sidecarDefaults:
   tolerations: []
   affinity: {}
 
+# Run the 6 pure-HTTP bank connectors (bourso-auth, cic-auth, cmes-auth,
+# degiro-auth, natixis-auth, sofidy-auth) natively in-process in the app
+# container (sets APP_NATIVE_SIDECARS="true" and skips deploying those 6
+# deprecated Python sidecar pods). Stays false by default until the next
+# release; explicit app.env.<BANK>_AUTH_URL overrides still take precedence.
+nativeSidecars: false
+
 sidecars:
   tr-auth:
     enabled: true

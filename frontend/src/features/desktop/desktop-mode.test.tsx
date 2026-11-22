@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -31,12 +31,14 @@ vi.mock('react-i18next', () => ({
   }),
 }))
 
-const { refresh, desktopAutologin, getLockStatus, updateLock, listMembers } = vi.hoisted(() => ({
+const { refresh, desktopAutologin, getLockStatus, updateLock, listMembers, getMfaStatus, getSignInMethods } = vi.hoisted(() => ({
   refresh: vi.fn(),
   desktopAutologin: vi.fn(),
   getLockStatus: vi.fn(),
   updateLock: vi.fn(),
   listMembers: vi.fn(),
+  getMfaStatus: vi.fn(),
+  getSignInMethods: vi.fn(),
 }))
 
 vi.mock('@/features/auth/api', () => ({
@@ -47,6 +49,17 @@ vi.mock('@/features/desktop/api', () => ({
 }))
 vi.mock('@/features/family/api', () => ({
   familyApi: { listMembers },
+}))
+vi.mock('@/features/mfa/api', () => ({
+  mfaApi: {
+    getStatus: getMfaStatus,
+    listSessions: () => Promise.resolve([]),
+  },
+}))
+vi.mock('@/features/sso/api', () => ({
+  ssoApi: {
+    getSignInMethods,
+  },
 }))
 vi.mock('@/components/shared/WhatsNewDialog', () => ({ WhatsNewDialog: () => null }))
 vi.mock('@/pages/settings/security/SecuritySection', () => ({
@@ -66,6 +79,9 @@ const { RequireAuth } = await import('@/features/auth/guards')
 const { AppSidebar } = await import('@/components/layout/AppSidebar')
 const { SettingsPage } = await import('@/pages/settings/SettingsPage')
 const { DesktopLockCard } = await import('@/pages/settings/security/DesktopLockCard')
+const { SecuritySection: RealSecuritySection } = await vi.importActual<
+  typeof import('@/pages/settings/security/SecuritySection')
+>('@/pages/settings/security/SecuritySection')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { useAppStore, selectIsAdvancedMode } = await import('@/stores/app-store')
 
@@ -244,5 +260,44 @@ describe('Desktop Mode auto-login & Advanced Mode', () => {
       currentPassword: 'strong-password-123',
     }))
     expect(useAppStore.getState().desktopLockEnabled).toBe(false)
+  })
+
+  it('gates 2FA enrollment on Desktop password lock in SecuritySection', async () => {
+    useAuthStore.getState().login(LOCAL_ADMIN)
+    getMfaStatus.mockResolvedValue({ enabled: false, remainingRecoveryCodes: 0 })
+    getSignInMethods.mockResolvedValue({
+      hasPassword: true,
+      mfaEnabled: false,
+      identities: [],
+      ssoEnabled: false,
+      providerName: null,
+      adminGroupManaged: false,
+    })
+
+    useAppStore.setState({ desktopMode: true, desktopLockEnabled: false })
+    const { rerender } = render(
+      <QueryClientProvider client={makeClient()}>
+        <MemoryRouter initialEntries={['/settings']}>
+          <RealSecuritySection />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(await screen.findByText('desktop.lock.mfaRequiresLock')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'settings.mfaEnable' })).toBeDisabled()
+
+    act(() => {
+      useAppStore.setState({ desktopMode: true, desktopLockEnabled: true })
+    })
+    rerender(
+      <QueryClientProvider client={makeClient()}>
+        <MemoryRouter initialEntries={['/settings']}>
+          <RealSecuritySection />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(screen.queryByText('desktop.lock.mfaRequiresLock')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'settings.mfaEnable' })).toBeEnabled()
   })
 })

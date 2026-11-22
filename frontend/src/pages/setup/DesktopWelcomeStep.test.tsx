@@ -76,7 +76,12 @@ describe('Desktop 1-step welcome onboarding', () => {
     getStatus.mockReset()
     desktopQuickStart.mockReset()
     useAuthStore.setState({ user: null, isAuthenticated: false })
-    useAppStore.setState({ desktopMode: false, desktopLockEnabled: false, advancedMode: false })
+    useAppStore.setState({
+      desktopMode: false,
+      desktopLockEnabled: false,
+      legacyPostgresDetected: false,
+      advancedMode: false,
+    })
   })
 
   it('renders the 1-step desktop welcome and signs straight into the dashboard', async () => {
@@ -97,6 +102,7 @@ describe('Desktop 1-step welcome onboarding', () => {
     renderIntro()
 
     expect(await screen.findByText('desktop.onboarding.title')).toBeInTheDocument()
+    expect(screen.queryByText('desktop.onboarding.legacyPostgresTitle')).not.toBeInTheDocument()
     const input = screen.getByLabelText('desktop.onboarding.nameLabel')
     fireEvent.change(input, { target: { value: '  Louis  ' } })
     fireEvent.click(screen.getByRole('button', { name: 'desktop.onboarding.cta' }))
@@ -131,5 +137,22 @@ describe('Desktop 1-step welcome onboarding', () => {
 
     await waitFor(() => expect(screen.getByText('dashboard-landed')).toBeInTheDocument())
     expect(desktopQuickStart).toHaveBeenCalledWith({ displayName: undefined })
+  })
+
+  it('shows a calm informational notice when a legacy postgres/ folder is detected', async () => {
+    getStatus.mockResolvedValue({
+      state: 'PENDING_ADMIN',
+      needsSetup: true,
+      integrations: {},
+      desktopMode: true,
+      desktopLockEnabled: false,
+      legacyPostgresDetected: true,
+    })
+
+    renderIntro()
+
+    expect(await screen.findByText('desktop.onboarding.legacyPostgresTitle')).toBeInTheDocument()
+    expect(screen.getByText('desktop.onboarding.legacyPostgresBody')).toBeInTheDocument()
+    expect(useAppStore.getState().legacyPostgresDetected).toBe(true)
   })
 })

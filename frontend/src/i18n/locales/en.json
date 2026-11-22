@@ -18,7 +18,7 @@
       "forbidden": "You don't have permission to do that.",
       "tooManyRequests": "Too many attempts. Please wait a moment and try again.",
       "serverError": "Something went wrong on our side. Please try again.",
-      "network": "Can't reach the Picsou server. Check your connection and try again."
+      "network": "Can't reach Picsou. Check your connection and try again."
     },
     "dateHint": "dd/mm/yyyy",
     "search": "Search",
@@ -68,6 +68,7 @@
     "loggingIn": "Signing in...",
     "error": "Invalid credentials",
     "networkError": "Unable to reach the server. Check the connection, then try again.",
+    "networkErrorDesktop": "Unable to reach Picsou locally. Try again in a moment or restart the app.",
     "loginGenericError": "We couldn't sign you in. Please try again.",
     "showPassword": "Show password",
     "hidePassword": "Hide password",
@@ -1353,7 +1354,7 @@
         "invalidPin": "Incorrect PIN or password.",
         "invalidTan": "The verification code is incorrect or expired. Use the latest code you received, or restart the step to receive a new one.",
         "authenticationFailed": "Trade Republic authentication failed.",
-        "serviceUnavailable": "The local Trade Republic service is unavailable. Restart the servers, then try again.",
+        "serviceUnavailable": "The local Trade Republic service is unavailable. Restart Picsou and try again.",
         "serverError": "Trade Republic server error. Please try again.",
         "phoneNumberRequired": "Phone number is required.",
         "pinRequired": "PIN or password is required.",
@@ -1860,6 +1861,7 @@
       "customerId": "Identifier",
       "rememberIdentifier": "Remember the identifier",
       "rememberIdentifierHint": "The identifier is stored encrypted on your server. The password is never saved.",
+      "rememberIdentifierHintDesktop": "The identifier is stored encrypted locally on your device. The password is never saved.",
       "connect": "Connect",
       "connecting": "Connecting…",
       "sync": "Sync",
@@ -2717,6 +2719,7 @@
       "never2": "Names, emails, usernames or IP addresses",
       "never3": "Any identifier of a user, device or session",
       "tunnel": "Reports go through your own Picsou server, which scrubs them again before forwarding.",
+      "tunnelDesktop": "Reports are scrubbed locally on your device before anything is sent.",
       "enable": "Enable",
       "decline": "No thanks",
       "error": "Could not save your choice. Please try again."
@@ -2893,9 +2896,12 @@
   },
   "error": {
     "connecting": "Connecting to server...",
+    "connectingDesktop": "Starting Picsou...",
     "noConnection": "Cannot connect to server",
     "noConnectionDesc": "Make sure the server is running and try again.",
+    "noConnectionDescDesktop": "Picsou's local engine is not responding yet. Try again in a moment or restart the app.",
     "degradedMode": "No connection to server. Some features may not work.",
+    "degradedModeDesktop": "Lost connection to the local Picsou engine. Some features may be unavailable.",
     "notFound": "The page you are looking for does not exist.",
     "backToDashboard": "Back to dashboard",
     "forbidden": "You do not have permission to access this page.",
@@ -3174,6 +3180,7 @@
       "ok": "Sidecar is up and ready.",
       "downTitle": "We couldn't reach the sidecar.",
       "downHint": "Make sure the bourso-auth container is running. Docker Compose starts it by default.",
+      "downHintDesktop": "BoursoBank runs natively inside Picsou Desktop. Check your internet connection and try again.",
       "retry": "Retry",
       "continue": "Continue",
       "skip": "Skip for now"
@@ -3709,7 +3716,7 @@
   },
   "desktop": {
     "unavailable": "Not on desktop",
-    "unavailableDetail": "This bank needs a browser the desktop app does not include. Use the Docker version of Picsou to sync it.",
+    "unavailableDetail": "This bank connector is not yet available in Picsou Desktop.",
     "onboarding": {
       "title": "Welcome to Picsou",
       "subtitle": "Your personal finance dashboard, stored locally on your computer.",
@@ -3717,7 +3724,9 @@
       "namePlaceholder": "My Space",
       "cta": "Get started",
       "starting": "Setting up...",
-      "error": "Could not start Picsou. Please try again."
+      "error": "Could not start Picsou. Please try again.",
+      "legacyPostgresTitle": "Previous local data preserved",
+      "legacyPostgresBody": "Picsou Desktop now uses an embedded SQLite database. Your previous PostgreSQL folder (postgres/) was left untouched in the app data folder: you can start fresh here or migrate your previous data to SQLite using picsou export-sqlite."
     },
     "emptyDashboard": {
       "title": "Add your first account",
@@ -3733,6 +3742,7 @@
       "description": "Protect local launches of Picsou with a password.",
       "statusEnabled": "Password lock enabled",
       "statusDisabled": "Direct launch without password",
+      "mfaRequiresLock": "Enable the Desktop password lock above before configuring two-factor authentication.",
       "usernameHint": "Local username: {{username}}",
       "enableButton": "Enable lock",
       "disableButton": "Disable lock",

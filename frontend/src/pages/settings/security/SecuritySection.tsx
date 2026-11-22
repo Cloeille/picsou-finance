@@ -6,6 +6,7 @@ import { CircleNotch, ShieldCheck, ShieldSlash, Key, DownloadSimple } from '@pho
 import { useMfaStatus } from '@/features/mfa/hooks'
 import { ssoErrorMessage } from '@/features/sso/errors'
 import { useSignInMethods } from '@/features/sso/hooks'
+import { useAppStore } from '@/stores/app-store'
 import { MfaEnrollDialog } from './MfaEnrollDialog'
 import { MfaDisableDialog } from './MfaDisableDialog'
 import { RecoveryCodesDialog } from './RecoveryCodesDialog'
@@ -68,6 +69,9 @@ export function SecuritySection() {
   )
   const { data: status, isLoading } = useMfaStatus()
   const { data: methods } = useSignInMethods()
+  const desktopMode = useAppStore((s) => s.desktopMode)
+  const desktopLockEnabled = useAppStore((s) => s.desktopLockEnabled)
+  const mfaRequiresDesktopLock = desktopMode && !desktopLockEnabled
   const [enrollOpen, setEnrollOpen] = useState(false)
   const [disableOpen, setDisableOpen] = useState(false)
   const [regenerateOpen, setRegenerateOpen] = useState(false)
@@ -129,7 +133,9 @@ export function SecuritySection() {
                     ? '...'
                     : status?.enabled
                       ? t('settings.mfaEnabled')
-                      : t('settings.mfaDisabled')}
+                      : mfaRequiresDesktopLock
+                        ? t('desktop.lock.mfaRequiresLock')
+                        : t('settings.mfaDisabled')}
                   {status?.enabled && (
                     <>
                       {' · '}
@@ -149,7 +155,11 @@ export function SecuritySection() {
                 {t('settings.mfaDisable')}
               </Button>
             ) : (
-              <Button size="sm" onClick={() => setEnrollOpen(true)}>
+              <Button
+                size="sm"
+                disabled={mfaRequiresDesktopLock}
+                onClick={() => setEnrollOpen(true)}
+              >
                 {t('settings.mfaEnable')}
               </Button>
             )}
@@ -198,7 +208,7 @@ export function SecuritySection() {
         <SessionsList />
       </div>
 
-      <MfaEnrollDialog open={enrollOpen} onOpenChange={setEnrollOpen} />
+      <MfaEnrollDialog open={enrollOpen && !mfaRequiresDesktopLock} onOpenChange={setEnrollOpen} />
       <MfaDisableDialog open={disableOpen} onOpenChange={setDisableOpen} />
       <RecoveryCodesDialog open={regenerateOpen} onOpenChange={setRegenerateOpen} />
       <ExportDataDialog

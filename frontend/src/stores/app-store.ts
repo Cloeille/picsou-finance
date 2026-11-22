@@ -10,6 +10,8 @@ interface AppState {
   desktopMode: boolean
   /** True when Desktop password lock is enabled on the backend. Runtime only. */
   desktopLockEnabled: boolean
+  /** True when Desktop detected an untouched legacy postgres/ folder alongside a fresh SQLite DB. Runtime only. */
+  legacyPostgresDetected: boolean
   /**
    * Reveals server/developer controls in Desktop Mode (Admin, MCP keys, OAuth apps, raw debug logs).
    * Persisted in localStorage; ignored outside Desktop Mode where all controls are always visible.
@@ -30,7 +32,7 @@ interface AppState {
   lastSeenWhatsNewVersion: string | null
   toggleSidebar: () => void
   setDemoMode: (enabled: boolean) => void
-  setDesktopStatus: (desktopMode: boolean, desktopLockEnabled: boolean) => void
+  setDesktopStatus: (desktopMode: boolean, desktopLockEnabled: boolean, legacyPostgresDetected?: boolean) => void
   setDesktopLockEnabled: (enabled: boolean) => void
   setAdvancedMode: (enabled: boolean) => void
   setDateFormat: (format: DateFormat) => void
@@ -59,6 +61,7 @@ export const useAppStore = create<AppState>()(
       demoMode: import.meta.env.VITE_DEMO_MODE === 'true',
       desktopMode: false,
       desktopLockEnabled: false,
+      legacyPostgresDetected: false,
       advancedMode: false,
       dateFormat: 'locale',
       dismissedInstanceStatusFingerprint: null,
@@ -68,8 +71,12 @@ export const useAppStore = create<AppState>()(
       lastSeenWhatsNewVersion: null,
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setDemoMode: (enabled) => set({ demoMode: enabled }),
-      setDesktopStatus: (desktopMode, desktopLockEnabled) =>
-        set({ desktopMode, desktopLockEnabled }),
+      setDesktopStatus: (desktopMode, desktopLockEnabled, legacyPostgresDetected) =>
+        set((s) => ({
+          desktopMode,
+          desktopLockEnabled,
+          legacyPostgresDetected: legacyPostgresDetected ?? s.legacyPostgresDetected,
+        })),
       setDesktopLockEnabled: (desktopLockEnabled) => set({ desktopLockEnabled }),
       setAdvancedMode: (advancedMode) => set({ advancedMode }),
       setDateFormat: (format) => set({ dateFormat: format }),

@@ -25,7 +25,11 @@ export function useSetupStatus(enabled = true) {
       const status = await setupApi.getStatus()
       useAppStore
         .getState()
-        .setDesktopStatus(Boolean(status.desktopMode), Boolean(status.desktopLockEnabled))
+        .setDesktopStatus(
+          Boolean(status.desktopMode),
+          Boolean(status.desktopLockEnabled),
+          Boolean(status.legacyPostgresDetected),
+        )
       return status
     },
     enabled,

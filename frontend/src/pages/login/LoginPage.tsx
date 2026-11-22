@@ -32,6 +32,7 @@ export function LoginPage() {
   const [ssoRedirecting, setSsoRedirecting] = useState(false)
   const loginMutation = useLoginWithRememberMe()
   const demoMode = useAppStore(s => s.demoMode)
+  const desktopMode = useAppStore(s => s.desktopMode)
   const navigate = useNavigate()
   const redirect = safeRedirect(searchParams.get('redirect'))
   const ssoInfo = useSsoInfo(!demoMode)
@@ -100,7 +101,7 @@ export function LoginPage() {
       const status = getErrorStatus(err)
       const ax = err as { response?: unknown; message?: string }
       if (!ax.response) {
-        setError(t('auth.networkError'))
+        setError(desktopMode ? t('auth.networkErrorDesktop') : t('auth.networkError'))
       } else if (status === 401) {
         setError(t('auth.error'))
       } else {

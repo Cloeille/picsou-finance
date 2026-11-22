@@ -16,6 +16,7 @@ export interface SetupStatus {
   sso?: SetupSsoInfo
   desktopMode?: boolean
   desktopLockEnabled?: boolean
+  legacyPostgresDetected?: boolean
 }
 
 export interface DesktopQuickStartRequest {

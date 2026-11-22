@@ -5,6 +5,7 @@ import { CheckCircle, WarningCircle, CircleNotch } from '@phosphor-icons/react'
 import { BoursoBankLogo } from '../components/IntegrationLogos'
 import { Button } from '@/components/ui/button'
 import { useBoursoBankHealth } from '@/features/setup/hooks'
+import { useAppStore } from '@/stores/app-store'
 import { useSetupFlowStore } from '@/stores/setup-flow-store'
 import { nextIntegrationRoute } from './navigation'
 
@@ -19,6 +20,7 @@ type Phase = 'checking' | 'ok' | 'ko'
 export function SetupStepBoursoBank() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const desktopMode = useAppStore((s) => s.desktopMode)
   const health = useBoursoBankHealth()
   // Pull out the referentially-stable mutate fn so the check callback can
   // depend on it directly — depending on `health.mutate` makes exhaustive-deps
@@ -103,7 +105,7 @@ export function SetupStepBoursoBank() {
             <div className="space-y-1">
               <p className="font-medium text-destructive">{t('setup.bourso.downTitle')}</p>
               <p className="text-sm text-muted-foreground">
-                {detail ?? t('setup.bourso.downHint')}
+                {detail ?? (desktopMode ? t('setup.bourso.downHintDesktop') : t('setup.bourso.downHint'))}
               </p>
             </div>
           </div>

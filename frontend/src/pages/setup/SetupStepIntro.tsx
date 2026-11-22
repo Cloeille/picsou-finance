@@ -22,7 +22,7 @@ export function SetupStepIntro() {
   }
 
   if (setupStatus?.desktopMode) {
-    return <DesktopWelcomeStep />
+    return <DesktopWelcomeStep legacyPostgresDetected={Boolean(setupStatus.legacyPostgresDetected)} />
   }
 
   return (

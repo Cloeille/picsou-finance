@@ -1,7 +1,7 @@
 # ADR: Dual-Engine Database Architecture (Embedded SQLite + PostgreSQL)
 
 > Date: 2026-11-22
-> Status: 🟡 Proposed
+> Status: 🟢 Accepted (Implemented)
 
 ## Context
 
@@ -55,7 +55,7 @@ Picsou enforces zero `f32`/`f64` for money, quantities, prices, and rates (`foun
 
 Therefore, in SQLite:
 
-1. **Every PostgreSQL `NUMERIC` column (84 columns across the 67 tables) is stored as canonical `TEXT`** preserving exact `rust_decimal::Decimal` precision and scale (`to_sqlite_text` / `from_sqlite_text`). SQLite `REAL` columns are strictly forbidden and rejected by both the schema parity verifier and the decimal codec (`DecimalCodecError::FloatValueForbidden`).
+1. **Every PostgreSQL `NUMERIC` column (84 `NUMERIC` column instances across 71 distinct column names in the 67 tables) is stored as canonical `TEXT`** preserving exact `rust_decimal::Decimal` precision and scale (`to_sqlite_text` / `from_sqlite_text`). SQLite `REAL` columns are strictly forbidden and rejected by both the schema parity verifier and the decimal codec (`DecimalCodecError::FloatValueForbidden`).
 2. **Exact `rust_decimal::Decimal` UDFs are registered on every connection** with `SQLITE_UTF8 | SQLITE_DETERMINISTIC | SQLITE_INNOCUOUS` flags so they are valid in queries, views, and `CHECK` constraints:
    - Scalars: `dec_add(a, b)`, `dec_sub(a, b)`, `dec_mul(a, b)`, `dec_div(a, b, scale)` (plus 2-arg exact `dec_div(a, b)`), `dec_cmp(a, b)`, `dec_abs(a)`, `dec_neg(a)`
    - Aggregate: `dec_sum(x)` (matching PostgreSQL `SUM(numeric)` NULL semantics)

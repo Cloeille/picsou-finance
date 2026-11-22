@@ -191,7 +191,27 @@ docker run -d --name picsou --restart unless-stopped \
   ghcr.io/cloeille/picsou-finance:latest
 ```
 
-Everything persists under `/data` (`picsou.db`, `.secrets/`, and `keys/`). To back up, stop the container briefly and copy `/data/picsou.db` (plus `-wal` / `-shm` if present) and `/data/.secrets/`. PostgreSQL (`docker/docker-compose.yml` and the Helm chart) remains the default for multi-container deployments and browser-based bank sidecars.
+Everything persists under `/data` (`picsou.db`, `.secrets/`, and `keys/`). PostgreSQL (`docker/docker-compose.yml` and the Helm chart) remains the default for multi-container deployments and browser-based bank sidecars.
+
+> [!TIP]
+> **Opting into native connectors on PostgreSQL / Helm:** The 6 pure-HTTP Python sidecars (`bourso-auth`, `cic-auth`, `cmes-auth`, `degiro-auth`, `natixis-auth`, `sofidy-auth`) are deprecated and scheduled for removal in the next release. Docker Compose users can opt into the in-process Rust implementations today by setting `APP_NATIVE_SIDECARS=true` in `docker/.env`; Helm users can set `nativeSidecars: true` in `charts/picsou/values.yaml`. Explicit `<BANK>_AUTH_URL` variables continue to take precedence when set.
+
+#### Backing up SQLite
+
+SQLite runs in WAL mode (`picsou.db`, `picsou.db-wal`, `picsou.db-shm`). **Never hot-copy `/data/picsou.db` with `cp` or `tar` while the container is running**: copying a live WAL database mid-write can produce an inconsistent or corrupt backup.
+
+Choose one of two safe methods (and always back up `/data/.secrets/` alongside the database so stored bank sessions and API keys remain decryptable):
+
+1. **Online backup (no downtime)** using SQLite's backup API:
+   ```bash
+   sqlite3 /path/to/data/picsou.db ".backup '/path/to/backups/picsou.db'"
+   ```
+2. **Cold backup (brief stop)** for named Docker volumes:
+   ```bash
+   docker compose -f docker/compose.sqlite.yml stop app
+   # Copy /data/picsou.db (plus -wal / -shm if present) and /data/.secrets/
+   docker compose -f docker/compose.sqlite.yml start app
+   ```
 
 ### 3. HTTPS (decide before the first launch)
 

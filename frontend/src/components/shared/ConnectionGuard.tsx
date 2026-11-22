@@ -9,6 +9,7 @@ import picsouLogo from '@/assets/horizontal-white-picsou.svg'
 export function ConnectionGuard({ children }: { children: ReactNode }) {
   const { t } = useTranslation()
   const demoMode = useAppStore((s) => s.demoMode)
+  const desktopMode = useAppStore((s) => s.desktopMode)
   const { setConnected, setChecking } = useConnectivityStore()
   const [status, setStatus] = useState<'checking' | 'connected' | 'failed'>('checking')
 
@@ -55,13 +56,17 @@ export function ConnectionGuard({ children }: { children: ReactNode }) {
         {status === 'checking' ? (
           <>
             <CircleNotch className="size-8 text-primary animate-spin" />
-            <p className="text-sm text-muted-foreground">{t('error.connecting')}</p>
+            <p className="text-sm text-muted-foreground">
+              {desktopMode ? t('error.connectingDesktop') : t('error.connecting')}
+            </p>
           </>
         ) : (
           <>
             <WifiSlash className="size-10 text-destructive" />
             <h2 className="text-lg font-semibold">{t('error.noConnection')}</h2>
-            <p className="text-sm text-muted-foreground">{t('error.noConnectionDesc')}</p>
+            <p className="text-sm text-muted-foreground">
+              {desktopMode ? t('error.noConnectionDescDesktop') : t('error.noConnectionDesc')}
+            </p>
             <Button onClick={checkHealth} variant="outline">
               <ArrowsClockwise className="size-4" />
               {t('common.retry')}

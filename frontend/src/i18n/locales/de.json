@@ -17,7 +17,7 @@
       "forbidden": "Dafür hast du keine Berechtigung.",
       "tooManyRequests": "Zu viele Versuche. Bitte warte einen Moment und versuche es erneut.",
       "serverError": "Bei uns ist etwas schiefgelaufen. Bitte versuche es erneut.",
-      "network": "Der Picsou-Server ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut."
+      "network": "Picsou ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut."
     },
     "dateHint": "tt.mm.jjjj",
     "search": "Suchen",
@@ -68,6 +68,7 @@
     "loggingIn": "Anmeldung läuft...",
     "error": "Ungültige Zugangsdaten",
     "networkError": "Server nicht erreichbar. Prüfe die Verbindung und versuche es erneut.",
+    "networkErrorDesktop": "Picsou ist lokal nicht erreichbar. Versuche es gleich noch einmal oder starte die App neu.",
     "loginGenericError": "Anmeldung fehlgeschlagen. Bitte versuche es erneut.",
     "showPassword": "Passwort anzeigen",
     "hidePassword": "Passwort verbergen",
@@ -1051,7 +1052,7 @@
         "invalidPin": "Falsche PIN oder falsches Passwort.",
         "invalidTan": "Der Bestätigungscode ist falsch oder abgelaufen. Verwende den zuletzt erhaltenen Code oder starte den Schritt neu, um einen neuen zu erhalten.",
         "authenticationFailed": "Trade-Republic-Authentifizierung fehlgeschlagen.",
-        "serviceUnavailable": "Der lokale Trade-Republic-Dienst ist nicht verfügbar. Starte die Server neu und versuche es erneut.",
+        "serviceUnavailable": "Der lokale Trade-Republic-Dienst ist nicht verfügbar. Starte Picsou neu und versuche es erneut.",
         "serverError": "Trade-Republic-Serverfehler. Bitte versuche es erneut.",
         "phoneNumberRequired": "Telefonnummer ist erforderlich.",
         "pinRequired": "PIN oder Passwort ist erforderlich.",
@@ -1515,6 +1516,7 @@
       "customerId": "Kennung",
       "rememberIdentifier": "Kennung merken",
       "rememberIdentifierHint": "Die Kennung wird verschlüsselt auf deinem Server gespeichert. Das Passwort wird nie gespeichert.",
+      "rememberIdentifierHintDesktop": "Die Kennung wird verschlüsselt lokal auf deinem Gerät gespeichert. Das Passwort wird nie gespeichert.",
       "connect": "Verbinden",
       "connecting": "Verbindung…",
       "sync": "Synchronisieren",
@@ -2391,6 +2393,7 @@
       "never2": "Namen, E-Mail-Adressen, Benutzernamen oder IP-Adressen",
       "never3": "Jegliche Kennung von Benutzer, Gerät oder Sitzung",
       "tunnel": "Berichte laufen über deinen eigenen Picsou-Server, der sie vor der Weiterleitung erneut bereinigt.",
+      "tunnelDesktop": "Berichte werden vor dem Versand lokal auf deinem Gerät bereinigt.",
       "enable": "Aktivieren",
       "decline": "Nein danke",
       "error": "Deine Auswahl konnte nicht gespeichert werden. Bitte versuche es erneut."
@@ -2567,9 +2570,12 @@
   },
   "error": {
     "connecting": "Verbindung zum Server wird hergestellt...",
+    "connectingDesktop": "Picsou wird gestartet...",
     "noConnection": "Keine Verbindung zum Server möglich",
     "noConnectionDesc": "Stelle sicher, dass der Server läuft, und versuche es erneut.",
+    "noConnectionDescDesktop": "Die lokale Picsou-Engine antwortet noch nicht. Versuche es gleich noch einmal oder starte die App neu.",
     "degradedMode": "Keine Verbindung zum Server. Einige Funktionen sind eventuell nicht verfügbar.",
+    "degradedModeDesktop": "Verbindung zur lokalen Picsou-Engine unterbrochen. Einige Funktionen sind eventuell nicht verfügbar.",
     "notFound": "Die gesuchte Seite existiert nicht.",
     "backToDashboard": "Zurück zum Dashboard",
     "forbidden": "Du hast keine Berechtigung, auf diese Seite zuzugreifen.",
@@ -2848,6 +2854,7 @@
       "ok": "Der Sidecar läuft und ist bereit.",
       "downTitle": "Wir konnten den Sidecar nicht erreichen.",
       "downHint": "Stelle sicher, dass der bourso-auth-Container läuft. Docker Compose startet ihn standardmäßig.",
+      "downHintDesktop": "BoursoBank läuft nativ in Picsou Desktop. Prüfe deine Internetverbindung und versuche es erneut.",
       "retry": "Erneut versuchen",
       "continue": "Weiter",
       "skip": "Vorerst überspringen"
@@ -3709,7 +3716,7 @@
   },
   "desktop": {
     "unavailable": "Nicht in der Desktop-App",
-    "unavailableDetail": "Diese Bank braucht einen Browser, den die Desktop-App nicht enthält. Nutze die Docker-Version von Picsou, um sie zu synchronisieren.",
+    "unavailableDetail": "Dieser Bank-Connector ist in Picsou Desktop noch nicht verfügbar.",
     "onboarding": {
       "title": "Willkommen bei Picsou",
       "subtitle": "Dein persönliches Finanz-Dashboard, lokal auf deinem Computer gespeichert.",
@@ -3717,7 +3724,9 @@
       "namePlaceholder": "Mein Bereich",
       "cta": "Loslegen",
       "starting": "Wird eingerichtet...",
-      "error": "Picsou konnte nicht gestartet werden. Bitte versuche es erneut."
+      "error": "Picsou konnte nicht gestartet werden. Bitte versuche es erneut.",
+      "legacyPostgresTitle": "Bisherige lokale Daten erhalten",
+      "legacyPostgresBody": "Picsou Desktop nutzt jetzt eine eingebettete SQLite-Datenbank. Dein bisheriger PostgreSQL-Ordner (postgres/) blieb im Anwendungsdaten-Ordner unverändert erhalten: Du kannst hier neu starten oder deine bisherigen Daten mit picsou export-sqlite nach SQLite migrieren."
     },
     "emptyDashboard": {
       "title": "Erstes Konto hinzufügen",
@@ -3733,6 +3742,7 @@
       "description": "Schütze den lokalen Start von Picsou mit einem Passwort.",
       "statusEnabled": "Passwortsperre aktiviert",
       "statusDisabled": "Direkter Start ohne Passwort",
+      "mfaRequiresLock": "Aktiviere zuerst die Passwortsperre oben, bevor du die Zwei-Faktor-Authentifizierung einrichtest.",
       "usernameHint": "Lokaler Benutzername: {{username}}",
       "enableButton": "Sperre aktivieren",
       "disableButton": "Sperre deaktivieren",

@@ -89,4 +89,7 @@ WORKDIR /app
 USER 1000:1000
 EXPOSE 8080
 
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
+    CMD ["/usr/local/bin/picsou", "healthcheck"]
+
 ENTRYPOINT ["picsou"]

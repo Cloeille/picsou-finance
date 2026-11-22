@@ -8,14 +8,22 @@ import { Label } from '@/components/ui/label'
 import { AlertBanner } from '@/components/shared/AlertBanner'
 import { useDesktopQuickStart } from '@/features/setup/hooks'
 import { formatApiError } from '@/lib/errors'
+import { useAppStore } from '@/stores/app-store'
+
+interface DesktopWelcomeStepProps {
+  legacyPostgresDetected?: boolean
+}
 
 /**
  * 1-step local onboarding for Desktop Mode: frameless layout matching
  * SetupStepIntro and SetupStepAdmin directly on the clean canvas.
  */
-export function DesktopWelcomeStep() {
+export function DesktopWelcomeStep({ legacyPostgresDetected }: DesktopWelcomeStepProps = {}) {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const desktopMode = useAppStore((s) => s.desktopMode)
+  const storeLegacyPostgresDetected = useAppStore((s) => s.legacyPostgresDetected)
+  const showLegacyPostgresNotice = desktopMode && (legacyPostgresDetected ?? storeLegacyPostgresDetected)
   const [displayName, setDisplayName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const quickStart = useDesktopQuickStart()
@@ -43,6 +51,20 @@ export function DesktopWelcomeStep() {
           {t('desktop.onboarding.subtitle')}
         </p>
       </div>
+
+      {showLegacyPostgresNotice && (
+        <div
+          role="status"
+          className="mx-auto w-full max-w-md space-y-1.5 rounded-xl bg-muted/50 p-4 text-left ring-1 ring-foreground/10"
+        >
+          <p className="text-sm font-semibold text-foreground">
+            {t('desktop.onboarding.legacyPostgresTitle')}
+          </p>
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            {t('desktop.onboarding.legacyPostgresBody')}
+          </p>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="mx-auto w-full max-w-md space-y-5">
         <div className="space-y-2">
