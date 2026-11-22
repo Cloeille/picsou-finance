@@ -1092,8 +1092,14 @@
       "lastSync": "Letzte Sync",
       "neverSynced": "Nie synchronisiert",
       "syncedToast": "Interactive Brokers synchronisiert: {{count}} Konto/Konten",
+      "importTitle": "Flex-Bericht importieren",
+      "importHint": "Flex Web Service lässt sich nicht aktivieren? Führen Sie Ihre Flex-Abfrage im Client Portal aus, laden Sie den XML-Bericht herunter und importieren Sie ihn hier. Importieren Sie eine neue Datei, um Ihre Positionen zu aktualisieren.",
+      "importFile": "XML-Datei auswählen",
+      "importing": "Import läuft…",
+      "importedToast": "Interactive Brokers importiert: {{count}} Konto/Konten",
       "errors": {
         "connectFailed": "Verbindung konnte nicht gespeichert werden. Prüfen Sie Token und Abfrage-ID.",
+        "importFailed": "Datei konnte nicht importiert werden. Prüfen Sie, ob es der XML-Bericht Ihrer Flex-Abfrage ist.",
         "syncFailed": "Interactive-Brokers-Synchronisierung fehlgeschlagen. Prüfen Sie Ihr Token oder versuchen Sie es erneut.",
         "disconnectFailed": "Verbindung konnte nicht entfernt werden. Bitte versuchen Sie es erneut."
       }

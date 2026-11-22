@@ -128,6 +128,220 @@ class IbkrFlexClientTest {
             .hasMessageContaining("Last Business Day");
     }
 
+    /**
+     * The parser now also receives files the user uploads, so it must refuse a DOCTYPE outright:
+     * an external entity (file read, SSRF) and an internal one (billion-laughs) are both rejected
+     * before any entity is expanded, and nothing of the target file reaches the result.
+     */
+    @Test
+    void parse_rejectsAnyDoctype_soNoEntityIsEverExpanded() {
+        String external = """
+            <?xml version="1.0"?>
+            <!DOCTYPE FlexQueryResponse [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+            <FlexQueryResponse><FlexStatements><FlexStatement accountId="&xxe;"/></FlexStatements></FlexQueryResponse>
+            """;
+        String internal = """
+            <?xml version="1.0"?>
+            <!DOCTYPE FlexQueryResponse [<!ENTITY a "AAAA"><!ENTITY b "&a;&a;&a;&a;">]>
+            <FlexQueryResponse><FlexStatements><FlexStatement accountId="&b;"/></FlexStatements></FlexQueryResponse>
+            """;
+
+        assertThatThrownBy(() -> client.parseOpenPositions(external)).isInstanceOf(SyncException.class);
+        assertThatThrownBy(() -> client.parseOpenPositions(internal)).isInstanceOf(SyncException.class);
+    }
+
+    /** The statement's {@code toDate} is what tells a fresh report from a forgotten download. */
+    @Test
+    void parse_readsTheStatementDate_andToleratesItsAbsence() {
+        String xml = """
+            <FlexQueryResponse><FlexStatements count="3">
+              <FlexStatement accountId="U1" toDate="20261120"><OpenPositions/></FlexStatement>
+              <FlexStatement accountId="U2"><OpenPositions/></FlexStatement>
+              <FlexStatement accountId="U3" toDate="not-a-date"><OpenPositions/></FlexStatement>
+            </FlexStatements></FlexQueryResponse>
+            """;
+
+        List<IbkrAccountData> accounts = client.parseOpenPositions(xml);
+
+        assertThat(accounts).extracting(IbkrAccountData::statementDate)
+            .containsExactly(java.time.LocalDate.of(2026, 11, 20), null, null);
+    }
+
+    /** The XML parser, not a UTF-8 decode, must work out the encoding of an uploaded file. */
+    @Test
+    void parseUploaded_detectsTheEncodingOfTheFile() {
+        String doc = """
+            <?xml version="1.0" encoding="%s"?>
+            <FlexQueryResponse><FlexStatements count="1"><FlexStatement accountId="U1">
+              <OpenPositions><OpenPosition accountId="U1" symbol="CAC" description="AMUNDI CAC 40 ÉTF"
+                position="3" levelOfDetail="SUMMARY"/></OpenPositions>
+            </FlexStatement></FlexStatements></FlexQueryResponse>
+            """;
+        java.io.ByteArrayOutputStream withBom = new java.io.ByteArrayOutputStream();
+        withBom.writeBytes(new byte[] {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF});
+        withBom.writeBytes(doc.formatted("UTF-8").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        for (byte[] file : List.of(
+            withBom.toByteArray(),
+            doc.formatted("UTF-16").getBytes(java.nio.charset.StandardCharsets.UTF_16),
+            doc.formatted("ISO-8859-1").getBytes(java.nio.charset.StandardCharsets.ISO_8859_1))) {
+            List<IbkrAccountData> accounts = client.parseUploadedStatement(file);
+
+            assertThat(accounts).singleElement().satisfies(account ->
+                assertThat(account.positions()).singleElement().satisfies(position ->
+                    assertThat(position.description()).isEqualTo("AMUNDI CAC 40 ÉTF")));
+        }
+    }
+
+    /**
+     * A wrong file says it is a wrong file (not that Interactive Brokers failed), and nothing of
+     * its content reaches the logs: it may hold account ids, positions or another document.
+     */
+    @Test
+    void parseUploaded_aFileThatIsNotXml_isReportedAsSuch_withoutLoggingItsContent() {
+        ch.qos.logback.classic.Logger logger =
+            (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(IbkrFlexClient.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+            new ch.qos.logback.core.read.ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            byte[] csv = "account,secret-marker-U9999999,quantity\n1,2,3"
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+            assertThatThrownBy(() -> client.parseUploadedStatement(csv))
+                .isInstanceOf(SyncException.class)
+                .hasMessage("The file is not a valid XML Flex report.");
+
+            assertThat(appender.list).isNotEmpty()
+                .allSatisfy(event -> assertThat(event.getFormattedMessage()).doesNotContain("secret-marker"));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    /** A Trades / NAV / Cash report of a known account must not parse to "no position" and empty it. */
+    @Test
+    void parseUploaded_aReportWithoutOpenPositions_isRefused_butAnEmptyOneIsAccepted() {
+        byte[] tradesOnly = """
+            <FlexQueryResponse><FlexStatements count="1">
+              <FlexStatement accountId="U1" toDate="20261120"><Trades/></FlexStatement>
+            </FlexStatements></FlexQueryResponse>
+            """.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] liquidated = """
+            <FlexQueryResponse><FlexStatements count="1">
+              <FlexStatement accountId="U1" toDate="20261120"><OpenPositions/></FlexStatement>
+            </FlexStatements></FlexQueryResponse>
+            """.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> client.parseUploadedStatement(tradesOnly))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("Open Positions section")
+            .hasMessageContaining("U1");
+        assertThat(client.parseUploadedStatement(liquidated)).singleElement()
+            .satisfies(account -> assertThat(account.positions()).isEmpty());
+    }
+
+    /** A statement with no usable toDate still dates itself by the day it was generated. */
+    @Test
+    void parse_fallsBackToTheGenerationDate() {
+        String xml = """
+            <FlexQueryResponse><FlexStatements count="1">
+              <FlexStatement accountId="U1" whenGenerated="20261122;110616"><OpenPositions/></FlexStatement>
+            </FlexStatements></FlexQueryResponse>
+            """;
+
+        assertThat(client.parseOpenPositions(xml)).singleElement()
+            .satisfies(account -> assertThat(account.statementDate()).isEqualTo(java.time.LocalDate.of(2026, 11, 22)));
+    }
+
+    /** A statement without an account id is skipped by the parser, so it cannot empty anything. */
+    @Test
+    void parseUploaded_aStatementWithoutAnAccountIdNeedsNoOpenPositions() {
+        byte[] xml = """
+            <FlexQueryResponse><FlexStatements count="2">
+              <FlexStatement toDate="20261120"><Trades/></FlexStatement>
+              <FlexStatement accountId="U1" toDate="20261120"><OpenPositions/></FlexStatement>
+            </FlexStatements></FlexQueryResponse>
+            """.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        assertThat(client.parseUploadedStatement(xml)).singleElement()
+            .satisfies(account -> assertThat(account.accountId()).isEqualTo("U1"));
+    }
+
+    /** Deep nesting must never end as a stack overflow (a 500): it parses to "no account", which the service refuses. */
+    @Test
+    void parseUploaded_aHugelyNestedFileDoesNotOverflowTheStack() {
+        byte[] nested = ("<a>".repeat(20_000) + "</a>".repeat(20_000)).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        assertThat(client.parseUploadedStatement(nested)).isEmpty();
+    }
+
+    /** A recent generation date must not vouch for a report whose covered period cannot be read. */
+    @Test
+    void parse_anUnreadableToDateIsNotRescuedByTheGenerationDate() {
+        String xml = """
+            <FlexQueryResponse><FlexStatements count="1">
+              <FlexStatement accountId="U1" toDate="15/03/2025" whenGenerated="20261122;110616"><OpenPositions/></FlexStatement>
+            </FlexStatements></FlexQueryResponse>
+            """;
+
+        assertThat(client.parseOpenPositions(xml)).singleElement()
+            .satisfies(account -> assertThat(account.statementDate()).isNull());
+    }
+
+    /** The id becomes an account name and an external id: an absurd one is refused, not left to fail at save time. */
+    @Test
+    void parseUploaded_anAccountIdThatIsNotAnIbkrOneIsRefused() {
+        byte[] xml = ("<FlexQueryResponse><FlexStatements count=\"1\"><FlexStatement accountId=\"" + "X".repeat(150)
+            + "\" toDate=\"20261120\"><OpenPositions/></FlexStatement></FlexStatements></FlexQueryResponse>")
+            .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> client.parseUploadedStatement(xml))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("account id");
+    }
+
+    /** A position of another account would parse to an account of its own, undated: refuse it for what it is. */
+    @Test
+    void parseUploaded_aPositionBelongingToNoStatementIsRefused() {
+        byte[] xml = """
+            <FlexQueryResponse><FlexStatements count="1">
+              <FlexStatement accountId="U1" toDate="20261120"><OpenPositions>
+                <OpenPosition accountId="U2" symbol="CAC" position="1" levelOfDetail="SUMMARY"/>
+              </OpenPositions></FlexStatement>
+            </FlexStatements></FlexQueryResponse>
+            """.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> client.parseUploadedStatement(xml))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("belong to no account statement");
+    }
+
+    @Test
+    void parse_readsAnIsoStatementDateToo() {
+        String xml = """
+            <FlexQueryResponse><FlexStatements count="1">
+              <FlexStatement accountId="U1" toDate="2026-11-20"><OpenPositions/></FlexStatement>
+            </FlexStatements></FlexQueryResponse>
+            """;
+
+        assertThat(client.parseOpenPositions(xml)).singleElement()
+            .satisfies(account -> assertThat(account.statementDate()).isEqualTo(java.time.LocalDate.of(2026, 11, 20)));
+    }
+
+    @Test
+    void parseUploaded_rejectsAnyDoctype() {
+        byte[] external = """
+            <?xml version="1.0"?>
+            <!DOCTYPE FlexQueryResponse [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+            <FlexQueryResponse><FlexStatements><FlexStatement accountId="&xxe;"/></FlexStatements></FlexQueryResponse>
+            """.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> client.parseUploadedStatement(external)).isInstanceOf(SyncException.class);
+    }
+
     @Test
     void parse_groupsMultipleAccountsAndReadsShortAndSparsePositions() {
         // Two account ids in one statement; a short (negative) position; and a row

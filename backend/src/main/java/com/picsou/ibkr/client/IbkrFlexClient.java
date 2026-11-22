@@ -1,6 +1,7 @@
 package com.picsou.ibkr.client;
 
 import com.picsou.exception.SyncException;
+import com.picsou.util.LogSanitizer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.w3c.dom.Document;
@@ -22,13 +23,18 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Interactive Brokers Flex Web Service client (Open Positions).
@@ -51,6 +57,9 @@ import java.util.Map;
 @Component
 @Slf4j
 public class IbkrFlexClient {
+
+    /** What an IBKR account id looks like (U1234567, DU123456, an advisor sub-account U123456.1). */
+    private static final java.util.regex.Pattern ACCOUNT_ID = java.util.regex.Pattern.compile("[A-Za-z0-9._-]{1,32}");
 
     private static final String BASE_URL =
         "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService";
@@ -174,11 +183,78 @@ public class IbkrFlexClient {
      * Parses {@code <OpenPosition>} rows out of a FlexQueryResponse, grouped by
      * IBKR account id, preserving document order within each account.
      */
-    // Package-private so IbkrFlexClientTest can exercise the parser directly against a
-    // fixture, without any HTTP. This is the single riskiest part (exact IBKR attribute
-    // names), so it is the part most worth a fixture test.
-    List<IbkrAccountData> parseOpenPositions(String xml) {
-        Document doc = parse(xml);
+    // Public so a statement the user downloaded from Client Portal goes through the very same
+    // parser as one fetched from the Flex Web Service (IbkrSyncService#importStatement), and so
+    // IbkrFlexClientTest can exercise it directly against a fixture, without any HTTP. This is
+    // the single riskiest part (exact IBKR attribute names), so it is the part most worth a
+    // fixture test.
+    public List<IbkrAccountData> parseOpenPositions(String xml) {
+        return parseOpenPositions(parse(xml));
+    }
+
+    /**
+     * Same parser, for a Flex report the user uploaded. It takes the raw bytes so the XML parser
+     * detects the encoding itself (a BOM, UTF-16, a declared ISO-8859-1) instead of a UTF-8 decode
+     * that would corrupt the others, and a file that does not parse is reported as such without
+     * echoing any of its content into the logs.
+     */
+    public List<IbkrAccountData> parseUploadedStatement(byte[] xml) {
+        Document doc = parse(xml, true);
+        requireConsistentAccounts(doc);
+        requireOpenPositionsSection(doc);
+        return parseOpenPositions(doc);
+    }
+
+    /**
+     * An account id becomes an account name and an external id, so an uploaded file's ids must look like
+     * IBKR's, and every position must belong to a statement of the file: a position with another id would
+     * parse to an account of its own, with no date, and be refused for a reason the user cannot act on.
+     */
+    private void requireConsistentAccounts(Document doc) {
+        Set<String> statementIds = new HashSet<>();
+        NodeList statements = doc.getElementsByTagName("FlexStatement");
+        for (int i = 0; i < statements.getLength(); i++) {
+            String id = blankToNull(attr((Element) statements.item(i), "accountId"));
+            if (id == null) {
+                continue;
+            }
+            if (!ACCOUNT_ID.matcher(id).matches()) {
+                throw new SyncException("This file carries an account id Picsou does not recognise as an "
+                    + "Interactive Brokers one. Check that it is the report of your Flex Query.");
+            }
+            statementIds.add(id);
+        }
+        NodeList positions = doc.getElementsByTagName("OpenPosition");
+        for (int i = 0; i < positions.getLength(); i++) {
+            String id = blankToNull(attr((Element) positions.item(i), "accountId"));
+            if (id == null || !statementIds.contains(id)) {
+                throw new SyncException("This report lists positions that belong to no account statement of the "
+                    + "file. Check that it is the unedited report of your Flex Query.");
+            }
+        }
+    }
+
+    /**
+     * Refuses a report that has no {@code <OpenPositions>} section for an account. Accounts are
+     * seeded from every {@code <FlexStatement>}, so a Trades, NAV or Cash report of a known account
+     * would otherwise parse to an account with no position, and importing it would empty that account.
+     * An empty {@code <OpenPositions/>} stays valid: that is how a liquidated account reports.
+     */
+    private void requireOpenPositionsSection(Document doc) {
+        NodeList statements = doc.getElementsByTagName("FlexStatement");
+        for (int i = 0; i < statements.getLength(); i++) {
+            Element statement = (Element) statements.item(i);
+            // A statement without an account id is skipped by the parser, so it cannot empty anything.
+            if (blankToNull(attr(statement, "accountId")) != null
+                && statement.getElementsByTagName("OpenPositions").getLength() == 0) {
+                throw new SyncException("This report has no Open Positions section for account "
+                    + LogSanitizer.safe(attr(statement, "accountId")) + ". Add the Open Positions section to "
+                    + "the Flex Query and download the report again; importing it as is would empty the account.");
+            }
+        }
+    }
+
+    private List<IbkrAccountData> parseOpenPositions(Document doc) {
         NodeList positions = doc.getElementsByTagName("OpenPosition");
 
         // Account base currency, keyed by accountId -- from the optional
@@ -193,6 +269,7 @@ public class IbkrFlexClient {
         // account vanish from the result, so its stale holdings were never purged and the
         // dashboard kept valuing positions the user no longer owns.
         Map<String, List<IbkrPosition>> byAccount = new LinkedHashMap<>();
+        Map<String, LocalDate> dateByAccount = new HashMap<>();
         NodeList statements = doc.getElementsByTagName("FlexStatement");
         for (int i = 0; i < statements.getLength(); i++) {
             Node node = statements.item(i);
@@ -209,10 +286,14 @@ public class IbkrFlexClient {
                 // positions snapshot, and merging them would silently multiply every
                 // quantity by the number of days. Fail with the remedy instead.
                 throw new SyncException("The Flex statement contains several sections for account "
-                    + stmtAccount + " — set the Flex Query period to 'Last Business Day' "
+                    + LogSanitizer.safe(stmtAccount) + " — set the Flex Query period to 'Last Business Day' "
                     + "(and disable any day-by-day breakout) so positions are a single snapshot.");
             }
             byAccount.put(stmtAccount, new ArrayList<>());
+            LocalDate toDate = statementDate((Element) node);
+            if (toDate != null) {
+                dateByAccount.put(stmtAccount, toDate);
+            }
         }
 
         for (int i = 0; i < positions.getLength(); i++) {
@@ -242,11 +323,42 @@ public class IbkrFlexClient {
         List<IbkrAccountData> result = new ArrayList<>();
         for (Map.Entry<String, List<IbkrPosition>> entry : byAccount.entrySet()) {
             String accountId = entry.getKey();
-            result.add(new IbkrAccountData(accountId, entry.getValue(), baseCurrencyByAccount.get(accountId)));
+            result.add(new IbkrAccountData(accountId, entry.getValue(), baseCurrencyByAccount.get(accountId),
+                dateByAccount.get(accountId)));
         }
         log.info("IBKR Flex parsed {} open positions across {} account(s)",
             positions.getLength(), result.size());
         return result;
+    }
+
+    /**
+     * The last day the statement covers: its {@code toDate}; only when that is absent, the day it was
+     * generated ({@code whenGenerated="20261122;110616"}). Null when the one that applies is not a date.
+     */
+    private LocalDate statementDate(Element statement) {
+        String rawToDate = blankToNull(attr(statement, "toDate"));
+        if (rawToDate != null) {
+            // Present but unreadable stays unknown: a recent generation date must not vouch for a report
+            // whose covered period cannot be read (an old report re-generated today).
+            return flexDate(rawToDate);
+        }
+        String generated = blankToNull(attr(statement, "whenGenerated"));
+        return generated == null ? null : flexDate(generated.split("[;, T]", 2)[0]);
+    }
+
+    /** Flex lets the user pick the date format of a query; these two cover the usual choices. */
+    private LocalDate flexDate(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        for (DateTimeFormatter format : List.of(DateTimeFormatter.BASIC_ISO_DATE, DateTimeFormatter.ISO_LOCAL_DATE)) {
+            try {
+                return LocalDate.parse(raw.trim(), format);
+            } catch (DateTimeParseException e) {
+                // try the next one
+            }
+        }
+        return null;
     }
 
     /**
@@ -308,30 +420,54 @@ public class IbkrFlexClient {
         }
     }
 
-    /** Parses XML with external entities disabled (XXE-safe), since the payload is remote. */
+    /** The Flex Web Service answer, which the HTTP client already decoded as text. */
     private Document parse(String xml) {
+        return parse(xml == null ? new byte[0] : xml.getBytes(StandardCharsets.UTF_8), false);
+    }
+
+    /**
+     * Parses XML with external entities disabled (XXE-safe), since the payload is untrusted: it comes
+     * from the network, or from a file the user uploads. Any DOCTYPE is refused outright, which closes
+     * both external and internal entity expansion; the remaining switches are defence in depth.
+     *
+     * @param uploaded true for a file the user picked: its failure is then about the file, and none
+     *                 of its content is logged
+     */
+    private Document parse(byte[] xml, boolean uploaded) {
         try {
             DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
             factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
             factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
             factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
             factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+            try {
+                factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+                factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+            } catch (IllegalArgumentException e) {
+                // A parser other than the JDK's may not know these; any DOCTYPE is refused above anyway.
+            }
             factory.setXIncludeAware(false);
             factory.setExpandEntityReferences(false);
             DocumentBuilder builder = factory.newDocumentBuilder();
-            Document doc = builder.parse(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
-            doc.getDocumentElement().normalize();
+            Document doc = builder.parse(new ByteArrayInputStream(xml));
             return doc;
         } catch (ParserConfigurationException | SAXException | java.io.IOException e) {
             // Narrow on purpose: only genuine parse/IO failures become the user-facing
-            // "unexpected response" — a programming error (NPE, class cast) must surface
-            // as itself, not masquerade as an IBKR API change.
+            // message — a programming error (NPE, class cast) must surface as itself.
+            if (uploaded) {
+                // A file the user picked can hold anything (account ids, positions, another
+                // document altogether): only its size and the error type are logged.
+                log.warn("Uploaded IBKR Flex file is not valid XML ({} bytes, {})",
+                    xml.length, e.getClass().getSimpleName());
+                throw new SyncException("The file is not a valid XML Flex report.", e);
+            }
             // A non-XML body usually means an HTML error page or a network interception.
             // Deliberately truncated: a real statement carries the user's positions, and
             // full payloads do not belong in server logs — the length tells the rest.
+            String text = new String(xml, StandardCharsets.UTF_8);
             log.error("Failed to parse IBKR Flex response as XML ({} chars, first 300 shown): {}",
-                xml == null ? 0 : xml.length(),
-                xml == null ? "null" : xml.substring(0, Math.min(300, xml.length())));
+                text.length(), text.substring(0, Math.min(300, text.length())));
             throw new SyncException("Interactive Brokers returned an unexpected (non-XML) response.", e);
         }
     }
@@ -359,7 +495,7 @@ public class IbkrFlexClient {
         try {
             return new BigDecimal(raw);
         } catch (NumberFormatException e) {
-            log.warn("IBKR position: non-numeric {}='{}', treating as null", name, raw);
+            log.warn("IBKR position: non-numeric {}='{}', treating as null", name, LogSanitizer.safe(raw));
             return null;
         }
     }
@@ -419,15 +555,23 @@ public class IbkrFlexClient {
      *                     optional {@code AccountInformation} section of the Flex Query;
      *                     null when that section is not enabled on the query, or absent
      *                     from the statement
+     * @param statementDate the last day the statement covers (its {@code toDate}); null when absent
+     *                      or unreadable
      */
     public record IbkrAccountData(
         String accountId,
         List<IbkrPosition> positions,
-        String baseCurrency
+        String baseCurrency,
+        LocalDate statementDate
     ) {
+        /** Convenience constructor for callers/tests that predate the statement date. */
+        public IbkrAccountData(String accountId, List<IbkrPosition> positions, String baseCurrency) {
+            this(accountId, positions, baseCurrency, null);
+        }
+
         /** Convenience constructor for callers/tests that predate the base-currency field. */
         public IbkrAccountData(String accountId, List<IbkrPosition> positions) {
-            this(accountId, positions, null);
+            this(accountId, positions, null, null);
         }
     }
 }

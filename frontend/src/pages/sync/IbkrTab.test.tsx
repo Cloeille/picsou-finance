@@ -72,6 +72,34 @@ describe('IbkrTab', () => {
     await vi.waitFor(() => expect(apiPost).toHaveBeenCalledWith('/ibkr/sync'))
   })
 
+  it('imports a downloaded Flex XML report without any connection', async () => {
+    apiGet.mockResolvedValue({ data: { connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null } })
+    apiPost.mockResolvedValue({ data: [] })
+
+    renderTab()
+
+    const file = new File(['<FlexQueryResponse/>'], 'picsou.xml', { type: 'text/xml' })
+    fireEvent.change(await screen.findByTestId('ibkr-import-input'), { target: { files: [file] } })
+
+    await vi.waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1))
+    const [url, body, config] = apiPost.mock.calls[0]
+    expect(url).toBe('/ibkr/import')
+    expect((body as FormData).get('file')).toBe(file)
+    expect(config).toEqual({ headers: { 'Content-Type': 'multipart/form-data' } })
+  })
+
+  it('shows the server message when the imported file is refused', async () => {
+    apiGet.mockResolvedValue({ data: { connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null } })
+    apiPost.mockRejectedValue({ response: { status: 422, data: { detail: 'The file contains no Interactive Brokers account.' } } })
+
+    renderTab()
+
+    const file = new File(['<other/>'], 'other.xml', { type: 'text/xml' })
+    fireEvent.change(await screen.findByTestId('ibkr-import-input'), { target: { files: [file] } })
+
+    expect(await screen.findByText('The file contains no Interactive Brokers account.')).toBeInTheDocument()
+  })
+
   it('surfaces an error when the sync fails', async () => {
     apiGet.mockResolvedValue({
       data: { connected: true, connectionId: 1, status: 'CONNECTED', lastSyncedAt: null, maskedToken: '••••3F29' },

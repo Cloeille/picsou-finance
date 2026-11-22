@@ -20,12 +20,14 @@ import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.IbkrConnectionRepository;
 import com.picsou.service.sync.SourceSyncResult;
+import com.picsou.util.LogSanitizer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.HashMap;
@@ -66,10 +68,25 @@ public class IbkrSyncService {
     private final SecurityIdentityService identityService;
     private final CryptoEncryption encryption;
     private final IbkrStatusWriter statusWriter;
+    private final Clock clock;
 
     /** Column limits of {@code account_holding} (see V11): ticker VARCHAR(30), name VARCHAR(100). */
     private static final int MAX_TICKER_LEN = 30;
     private static final int MAX_NAME_LEN = 100;
+
+    /**
+     * How old an uploaded statement may be. A "Last Business Day" report covers at most the previous
+     * weekday, so a week leaves room for a holiday stretch; older than that is a forgotten download,
+     * whose quantities would replace the current ones.
+     */
+    private static final int MAX_STATEMENT_AGE_DAYS = 7;
+
+    /**
+     * How many positions an uploaded report may carry. A real one has a handful, and each position costs an
+     * OpenFIGI lookup and a price lookup inside one transaction, so a hand-edited file must not be able to
+     * fan out into thousands of outbound calls.
+     */
+    private static final int MAX_IMPORT_POSITIONS = 500;
 
     /**
      * Asset categories we price and cost-basis correctly (stocks/ETFs, mutual funds,
@@ -195,15 +212,10 @@ public class IbkrSyncService {
                 + "key may have changed. Please reconnect with a fresh token.", ex);
         }
 
-        List<IbkrAccountData> accounts = ibkrFlexClient.fetchOpenPositions(token, queryId);
-
-        List<AccountResponse> responses = accounts.stream()
-            .map(data -> upsertAccount(data, memberId))
-            .flatMap(Optional::stream)
-            .toList();
+        List<AccountResponse> responses = applyStatement(ibkrFlexClient.fetchOpenPositions(token, queryId), memberId, true);
 
         connection.setStatus("CONNECTED");
-        connection.setLastSyncedAt(Instant.now());
+        connection.setLastSyncedAt(Instant.now(clock));
         connectionRepository.save(connection);
 
         log.info("IBKR sync complete for member {}: {} account(s) updated", memberId, responses.size());
@@ -211,16 +223,93 @@ public class IbkrSyncService {
     }
 
     // ---------------------------------------------------------------------------
+    // File import
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Imports a Flex statement the user downloaded from Client Portal, for accounts where the
+     * Flex Web Service cannot be activated. Needs no stored connection: the XML goes through
+     * the same parser and the same account/holding mapping as a sync, so the result is identical
+     * to what a sync of that statement would have produced. The balance is a one-off snapshot —
+     * the user re-imports a fresh file to refresh it (live prices still move with the market).
+     */
+    public List<AccountResponse> importStatement(byte[] xml, Long memberId) {
+        List<IbkrAccountData> accounts = ibkrFlexClient.parseUploadedStatement(xml);
+        if (accounts.isEmpty()) {
+            // An uploaded file that is not a Flex statement parses to nothing; say so rather than
+            // answer "0 accounts updated" as if the import had worked.
+            throw new SyncException("The file contains no Interactive Brokers account. Check that it is the "
+                + "XML report of a Flex Query that includes the Open Positions section.");
+        }
+        requireRecent(accounts);
+        // Per-lot detail rows are dropped later and cost no lookup: only the others count.
+        long positions = accounts.stream().flatMap(account -> account.positions().stream())
+            .filter(position -> !"LOT".equalsIgnoreCase(position.levelOfDetail())).count();
+        if (positions > MAX_IMPORT_POSITIONS) {
+            throw new SyncException("This report lists " + positions + " positions, more than the "
+                + MAX_IMPORT_POSITIONS + " an import accepts. Check that it is the Open Positions report "
+                + "of your Flex Query.");
+        }
+        List<AccountResponse> responses = applyStatement(accounts, memberId, false);
+        if (responses.isEmpty()) {
+            // Every account in the file is one the member deleted: nothing was imported, and a
+            // silent "0 accounts" would read as a success.
+            throw new SyncException("Every account in this file was deleted from Picsou, so nothing was "
+                + "imported. Add the Interactive Brokers account again to import it.");
+        }
+        log.info("IBKR file import complete for member {}: {} account(s) updated", memberId, responses.size());
+        return responses;
+    }
+
+    /**
+     * Refuses a statement older than {@link #MAX_STATEMENT_AGE_DAYS}: the import replaces the current
+     * holdings and stamps today's net-worth snapshot, so a forgotten old download must not get through.
+     * Unlike a Web Service answer, an uploaded file can be anything the user had lying around, so a
+     * statement whose date cannot be read is refused too rather than waved through.
+     */
+    private void requireRecent(List<IbkrAccountData> accounts) {
+        LocalDate oldest = LocalDate.now(clock).minusDays(MAX_STATEMENT_AGE_DAYS);
+        for (IbkrAccountData data : accounts) {
+            if (data.statementDate() == null) {
+                throw new SyncException("This Flex report carries no date Picsou can read, so it cannot be checked "
+                    + "for freshness. In the Flex Query's delivery settings choose the date format yyyyMMdd or "
+                    + "yyyy-MM-dd, then download the report again.");
+            }
+            if (data.statementDate().isBefore(oldest)) {
+                throw new SyncException("This Flex report is dated " + data.statementDate() + ", more than "
+                    + MAX_STATEMENT_AGE_DAYS + " days old. Run the Flex Query again in Client Portal and "
+                    + "download a fresh report.");
+            }
+        }
+    }
+
+    /**
+     * Shared by the Flex Web Service sync and the file import: one statement, every account in it.
+     *
+     * @param recordIdentities whether to learn ticker → ISIN pairs from the statement. {@code false}
+     *        for an uploaded file: {@code security_profile} is shared by every member and keeps the
+     *        first ISIN it is given, so a hand-edited file must not be able to seed it.
+     */
+    private List<AccountResponse> applyStatement(List<IbkrAccountData> accounts, Long memberId,
+                                                 boolean recordIdentities) {
+        return accounts.stream()
+            .map(data -> upsertAccount(data, memberId, recordIdentities))
+            .flatMap(Optional::stream)
+            .toList();
+    }
+
+    // ---------------------------------------------------------------------------
     // Mapping
     // ---------------------------------------------------------------------------
 
-    private Optional<AccountResponse> upsertAccount(IbkrAccountData data, Long memberId) {
+    private Optional<AccountResponse> upsertAccount(IbkrAccountData data, Long memberId, boolean recordIdentities) {
         String externalId = "ibkr_" + data.accountId();
 
         Optional<Account> existing = accountRepository.findByExternalAccountIdAndMemberId(externalId, memberId);
         if (existing.isEmpty()
             && accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(externalId, memberId)) {
-            log.info("IBKR: skipping resurrection of soft-deleted account {} for member {}", externalId, memberId);
+            log.info("IBKR: skipping resurrection of soft-deleted account {} for member {}",
+                LogSanitizer.safe(externalId), memberId);
             return Optional.empty();
         }
 
@@ -229,7 +318,7 @@ public class IbkrSyncService {
         Account account;
         if (existing.isPresent()) {
             account = existing.get();
-            account.setLastSyncedAt(Instant.now());
+            account.setLastSyncedAt(Instant.now(clock));
         } else {
             FamilyMember member = familyMemberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
@@ -240,7 +329,7 @@ public class IbkrSyncService {
                 .provider("Interactive Brokers")
                 .currency("EUR")
                 .currentBalance(BigDecimal.ZERO)
-                .lastSyncedAt(Instant.now())
+                .lastSyncedAt(Instant.now(clock))
                 .externalAccountId(externalId)
                 .isManual(false)
                 .color("#d81222") // IBKR red
@@ -272,7 +361,8 @@ public class IbkrSyncService {
                 // Options / futures carry long symbols (e.g. "SPY 240119C00470000") that
                 // overflow account_holding.ticker (VARCHAR 30) and never price through Yahoo
                 // anyway — skip the position rather than fail the whole account's sync.
-                log.warn("IBKR: skipping position with over-long ticker '{}' ({} chars)", ticker, ticker.length());
+                log.warn("IBKR: skipping position with over-long ticker '{}' ({} chars)",
+                    LogSanitizer.safe(ticker), ticker.length());
                 continue;
             }
             deduped.merge(
@@ -281,7 +371,9 @@ public class IbkrSyncService {
                 HoldingDedup::vwapMerge);
         }
         int persisted = 0;
-        identityService.record(isinByTicker);
+        if (recordIdentities) {
+            identityService.record(isinByTicker);
+        }
         for (Map.Entry<String, HoldingDedup.HoldingAgg> entry : deduped.entrySet()) {
             HoldingDedup.HoldingAgg agg = entry.getValue();
             if (agg.quantity().signum() == 0) {
@@ -297,7 +389,7 @@ public class IbkrSyncService {
                 .quantity(agg.quantity())
                 .averageBuyIn(agg.averageBuyIn())
                 .currentPrice(agg.currentPrice())
-                .lastSyncedAt(Instant.now())
+                .lastSyncedAt(Instant.now(clock))
                 .build());
             persisted++;
         }
@@ -313,7 +405,7 @@ public class IbkrSyncService {
         BigDecimal liveEur = persisted == 0 ? BigDecimal.ZERO : accountService.liveBalanceEur(account);
         account.setCurrentBalance(liveEur);
         account = accountRepository.save(account);
-        accountService.upsertSnapshot(account, liveEur, LocalDate.now());
+        accountService.upsertSnapshot(account, liveEur, LocalDate.now(clock));
 
         return Optional.of(accountService.toResponse(account));
     }
@@ -333,7 +425,7 @@ public class IbkrSyncService {
         String baseCurrency = data.baseCurrency();
         if (baseCurrency == null) {
             log.warn("IBKR: account {} statement has no AccountInformation/baseCurrency; assuming EUR",
-                data.accountId());
+                LogSanitizer.safe(data.accountId()));
             return;
         }
         if (!"EUR".equalsIgnoreCase(baseCurrency)) {
@@ -369,7 +461,7 @@ public class IbkrSyncService {
         if (p.assetCategory() != null
             && !REPORTABLE_ASSET_CATEGORIES.contains(p.assetCategory().toUpperCase(Locale.ROOT))) {
             log.warn("IBKR: skipping unsupported assetCategory '{}' for symbol '{}'",
-                p.assetCategory(), p.symbol());
+                LogSanitizer.safe(p.assetCategory()), LogSanitizer.safe(p.symbol()));
             return false;
         }
         return (p.isin() != null && !p.isin().isBlank()) || (p.symbol() != null && !p.symbol().isBlank());
@@ -435,7 +527,7 @@ public class IbkrSyncService {
         if (p.currency() != null && !"EUR".equalsIgnoreCase(p.currency())) {
             log.warn("IBKR: position {} is in {} but the statement has no fxRateToBase — enable "
                 + "the 'FX Rate to Base' column on the Flex Query; storing cost basis as unknown",
-                p.symbol(), p.currency());
+                LogSanitizer.safe(p.symbol()), LogSanitizer.safe(p.currency()));
             return null;
         }
         return BigDecimal.ONE;

@@ -699,6 +699,14 @@ export const ibkrApi = {
 
   sync: () => api.post<Account[]>('/ibkr/sync').then(r => r.data),
 
+  importStatement: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<Account[]>('/ibkr/import', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data)
+  },
+
   disconnect: () => api.delete('/ibkr/connection').then(r => r.data),
 }
 

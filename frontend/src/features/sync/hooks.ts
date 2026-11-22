@@ -492,6 +492,13 @@ export function useSyncIbkr() {
   })
 }
 
+export function useImportIbkrStatement() {
+  return useInvalidatingMutation({
+    mutationFn: ibkrApi.importStatement,
+    invalidates: [syncKeys.ibkr(), ...ACCOUNT_VIEWS],
+  })
+}
+
 export function useDisconnectIbkr() {
   return useInvalidatingMutation({
     mutationFn: ibkrApi.disconnect,

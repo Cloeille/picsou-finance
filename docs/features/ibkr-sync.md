@@ -1,6 +1,6 @@
 # Feature: Interactive Brokers (IBKR) sync
 
-> Last updated: 2026-09-03
+> Last updated: 2026-11-22
 
 ## Context
 
@@ -26,7 +26,7 @@ trusted for EUR valuation.
 
 ### Key files
 
-- `controller/IbkrController.java` — `/api/ibkr/connect|status|sync|connection`
+- `controller/IbkrController.java` — `/api/ibkr/connect|status|sync|import|connection`
 - `service/IbkrSyncService.java` — connect/status/sync + position→holding mapping
   (lives in `com.picsou.service` with the other broker sync services)
 - `service/IbkrStatusWriter.java` — persists the `ERROR` status in its own
@@ -60,6 +60,62 @@ POST /api/ibkr/sync ─► IbkrFlexClient
         ▼
    liveBalanceEur (Yahoo/CoinGecko) ─► currentBalance + daily snapshot
 ```
+
+### File import (no Flex Web Service)
+
+Some accounts cannot activate the Flex Web Service (the "Flex Web Service Configuration"
+section is missing from Client Portal). They can still use the same Flex Query: run it in
+Client Portal, download the **XML** report and upload it from the IBKR panel ("Import a Flex
+report"), `POST /api/ibkr/import` (multipart field `file`).
+
+```
+XML file ─► IbkrController#importStatement (rate-limited like /sync, 2 MB cap, raw bytes)
+        ─► IbkrSyncService#importStatement ─► IbkrFlexClient#parseUploadedStatement  (same parser)
+        ─► requireRecent ─► applyStatement ─► upsertAccount                          (same mapping as a sync)
+```
+
+- **No connection needed**, and none is created or touched: the stored token, the connection
+  status and `IbkrStatusWriter` are not involved. A failed import leaves the previous
+  positions untouched (the service is transactional).
+- **Same rules as a sync**: EUR base-currency guard, `LOT`/`CASH`/derivative filtering, VWAP
+  de-dup, one `ibkr_<accountId>` account per statement account.
+- **A file that imports nothing is an error, not a success.** A file with no account at all (not a Flex
+  statement), or whose accounts the member all deleted (a soft-deleted account is never resurrected, as
+  in a sync), is refused with a `SyncException` (HTTP 422) instead of reporting "0 accounts".
+- **A report with no Open Positions section is refused.** Accounts are seeded from every `FlexStatement`,
+  so a Trades, NAV or Cash report of a known account would parse to an account with no position and
+  empty it. An upload where any statement lacks an `OpenPositions` element is rejected; an empty
+  `<OpenPositions/>` stays valid (a liquidated account). More than 500 positions (per-lot rows not counted) is rejected too: each one
+  costs an OpenFIGI and a price lookup inside one transaction.
+- **An uploaded file's account ids are checked.** An id becomes an account name and an external id, so
+  it must look like IBKR's (`[A-Za-z0-9._-]{1,32}`), and every position must belong to a statement of the
+  file: an absurd id, or a position of another account, is refused with a message instead of failing at
+  save time or being refused for a date it never had.
+- **A stale or undated report is refused.** The import replaces the holdings and stamps today's net-worth
+  snapshot, so a statement whose date is more than 7 days before today (`Clock` injected) is rejected with
+  the date in the message. A "Last Business Day" report opened over a weekend or a holiday stretch passes.
+  The date is the statement's `toDate` (its `whenGenerated` day only when `toDate` is absent: an unreadable
+  `toDate` is never rescued by a recent generation date), read as `yyyyMMdd` or `yyyy-MM-dd`;
+  an upload whose date cannot be read is refused too, with the format to choose in the Flex Query (a sync
+  is lenient there, an uploaded file can be anything the user had lying around).
+- **The file is parsed as bytes.** The XML parser detects the encoding itself (UTF-8 with or without a
+  BOM, UTF-16, a declared ISO-8859-1), instead of a UTF-8 decode that would corrupt the others. A file
+  that does not parse answers "The file is not a valid XML Flex report", and the log keeps only its size and
+  the error type: an uploaded file can hold account ids and positions, which never reach the logs. The
+  warnings that name a symbol, a category or an account go through `LogSanitizer.safe`, so a hand-edited
+  value cannot forge a log line.
+- **An uploaded file never feeds the shared ISIN store.** A sync records each ticker → ISIN pair
+  in `security_profile` (`SecurityIdentityService`), which is shared by every member and keeps the
+  first ISIN it receives. A hand-edited file could seed it with a wrong pair, so the import path
+  skips that step. The holdings are unaffected; a later Web Service sync records the pairs.
+- **One-off snapshot.** Nothing refreshes the positions between two imports (no daily job, since
+  there is no token). The live EUR valuation still follows the market through the tickers; only the
+  quantities and the cost basis are frozen. Re-importing a fresh file replaces them. Both paths
+  write to the same account, so a user can switch to the Web Service later without duplicates.
+- **Period must be a single day** ("Last Business Day"), as for the Web Service: a multi-day
+  statement is refused by the parser.
+- The XML is parsed XXE-safe (any DOCTYPE refused). The endpoint caps a file at 2 MB, far above a real
+  open-positions report, so a loop of large uploads cannot each be copied and DOM-parsed.
 
 ## Technical choices
 
@@ -128,7 +184,16 @@ See the [ADR](../decisions/2026-07-19-ibkr-flex-web-service.md) for the full API
   names, SUMMARY/LOT distinction, empty statement)
 - `IbkrSyncServiceTest` — mapping: cost-basis → base-currency conversion, LOT filtering,
   "not connected" error, error-status persistence, derivative asset-category filtering,
-  zero-net-quantity positions
+  zero-net-quantity positions; file import: same mapping with no connection, non-EUR refusal,
+  a file with no account, a stale and an undated report, a weekend-old report, every account deleted, too many positions (lots
+  not counted)
+- `IbkrFlexClientTest` — the statement date, the encoding of an uploaded file (BOM, UTF-16, ISO-8859-1),
+  a non-XML file reported without logging its content, any DOCTYPE refused, a report with no Open
+  Positions section refused (an empty one accepted), the two date formats and the generation-date
+  fallback, a deeply nested file that parses to no account instead of overflowing the stack
+- `IbkrControllerTest` — `/import`: raw bytes handed to the service, empty and oversized files
+  refused, shared per-IP budget
+- `IbkrTab.test.tsx` — the import button posts the multipart file and shows the server message
 - `HoldingDedupTest` — VWAP merge (shared with TR/Bourso), including the sign-aware
   cases IBKR can trigger (opposite-sign netting, netting to exactly zero)
 
