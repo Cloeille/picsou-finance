@@ -6,11 +6,12 @@ use std::collections::{BTreeSet, HashMap};
 use axum::extract::State;
 use rust_decimal::Decimal;
 use serde::Serialize;
-use sqlx::{FromRow, PgConnection};
+use sqlx::PgConnection;
 
 use super::sharing::{self, ACCOUNT, GOAL, SharingLevel};
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db::{self, AsDbHandle, DbFromRow, DbHandle};
 use crate::error::{AppError, AppResult};
 use crate::http::json::Path;
 use crate::ledger::model::{Account, FamilyMember};
@@ -72,7 +73,7 @@ pub struct ContributionInfo {
     amount: Decimal,
 }
 
-#[derive(FromRow)]
+#[derive(DbFromRow)]
 struct GoalRow {
     id: i64,
     member_id: i64,
@@ -95,11 +96,11 @@ async fn shared_accounts(conn: &mut PgConnection, member_id: i64) -> sqlx::Resul
     }
 }
 
-async fn shared_goals(conn: &mut PgConnection, member_id: i64) -> sqlx::Result<Vec<GoalRow>> {
+async fn shared_goals(conn: &mut DbHandle<'_>, member_id: i64) -> sqlx::Result<Vec<GoalRow>> {
     match sharing::level(&mut *conn, member_id, GOAL).await? {
         SharingLevel::None => Ok(Vec::new()),
         SharingLevel::All => {
-            sqlx::query_as(&format!(
+            db::query_as(&format!(
                 "SELECT {GOAL_COLUMNS} FROM goal WHERE member_id = $1 ORDER BY created_at, id"
             ))
             .bind(member_id)
@@ -108,7 +109,7 @@ async fn shared_goals(conn: &mut PgConnection, member_id: i64) -> sqlx::Result<V
         }
         SharingLevel::Manual => {
             let ids = sharing::shared_ids(&mut *conn, member_id, GOAL).await?;
-            sqlx::query_as(&format!(
+            db::query_as(&format!(
                 "SELECT {GOAL_COLUMNS} FROM goal WHERE id = ANY($1) AND member_id = $2 ORDER BY id"
             ))
             .bind(&ids)
@@ -124,7 +125,7 @@ async fn goal_accounts(
     conn: &mut PgConnection,
     goal_ids: &[i64],
 ) -> sqlx::Result<HashMap<i64, Vec<Account>>> {
-    let links: Vec<(i64, i64)> = sqlx::query_as(
+    let links: Vec<(i64, i64)> = db::query_as(
         "SELECT goal_id, account_id FROM goal_account WHERE goal_id = ANY($1) ORDER BY goal_id, account_id",
     )
     .bind(goal_ids)
@@ -152,19 +153,23 @@ async fn goal_accounts(
 
 /// Every member's positive total of manual contributions to the goal, in member order.
 async fn contributions_of(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     goal_id: i64,
     all_members: &[FamilyMember],
 ) -> sqlx::Result<Vec<ContributionInfo>> {
-    let totals: HashMap<i64, Decimal> = sqlx::query_as::<_, (i64, Decimal)>(
+    let sum_sql = if conn.is_sqlite() {
+        "SELECT member_id, dec_sum(amount) FROM goal_manual_contribution \
+         WHERE goal_id = $1 AND member_id IS NOT NULL GROUP BY member_id"
+    } else {
         "SELECT member_id, SUM(amount) FROM goal_manual_contribution \
-         WHERE goal_id = $1 AND member_id IS NOT NULL GROUP BY member_id",
-    )
-    .bind(goal_id)
-    .fetch_all(&mut *conn)
-    .await?
-    .into_iter()
-    .collect();
+         WHERE goal_id = $1 AND member_id IS NOT NULL GROUP BY member_id"
+    };
+    let totals: HashMap<i64, Decimal> = db::query_as::<(i64, Decimal)>(sum_sql)
+        .bind(goal_id)
+        .fetch_all(&mut *conn)
+        .await?
+        .into_iter()
+        .collect();
     Ok(all_members
         .iter()
         .filter_map(|m| {
@@ -219,7 +224,7 @@ pub async fn dashboard(
             });
         }
 
-        let goals = shared_goals(&mut conn, member.id).await?;
+        let goals = shared_goals(&mut conn.as_handle(), member.id).await?;
         if goals.is_empty() {
             continue;
         }
@@ -242,7 +247,8 @@ pub async fn dashboard(
                     goal_shares.get(&account.id).copied().unwrap_or_default(),
                 );
             }
-            let contributions = contributions_of(&mut conn, goal.id, &all_members).await?;
+            let contributions =
+                contributions_of(&mut conn.as_handle(), goal.id, &all_members).await?;
             shared_goal_infos.push(SharedGoalInfo {
                 id: goal.id,
                 owner_name: member.display_name.clone(),
@@ -262,7 +268,7 @@ pub async fn dashboard(
 }
 
 /// Whether the owner shares this goal with the family.
-async fn goal_visible(conn: &mut PgConnection, goal: &GoalRow) -> sqlx::Result<bool> {
+async fn goal_visible(conn: &mut DbHandle<'_>, goal: &GoalRow) -> sqlx::Result<bool> {
     Ok(
         match sharing::level(&mut *conn, goal.member_id, GOAL).await? {
             SharingLevel::None => false,
@@ -281,15 +287,101 @@ async fn contributions(
 ) -> AppResult<axum::Json<Vec<ContributionInfo>>> {
     let mut conn = state.db.acquire().await?;
     let all_members = members::find_all(&mut *conn).await?;
-    let goal: GoalRow = sqlx::query_as(&format!("SELECT {GOAL_COLUMNS} FROM goal WHERE id = $1"))
+    let goal: GoalRow = db::query_as(&format!("SELECT {GOAL_COLUMNS} FROM goal WHERE id = $1"))
         .bind(goal_id)
-        .fetch_optional(&mut *conn)
+        .fetch_optional(&mut conn)
         .await?
         .ok_or_else(|| AppError::NotFound("Goal not found".into()))?;
-    if goal.member_id != auth.member_id && !goal_visible(&mut conn, &goal).await? {
+    if goal.member_id != auth.member_id && !goal_visible(&mut conn.as_handle(), &goal).await? {
         return Err(AppError::Forbidden("Goal not accessible".into()));
     }
     Ok(axum::Json(
-        contributions_of(&mut conn, goal_id, &all_members).await?,
+        contributions_of(&mut conn.as_handle(), goal_id, &all_members).await?,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{DateTime, NaiveDate};
+
+    use super::*;
+    use crate::db::Db;
+    use crate::db::sqlite::{SqliteDb, migrate};
+
+    #[tokio::test]
+    async fn contributions_of_uses_exact_dec_sum_on_sqlite() {
+        let sq = SqliteDb::open_in_memory().unwrap();
+        sq.with_conn(|c| Ok(migrate::migrate(c).unwrap())).unwrap();
+        let db = Db::from(sq);
+
+        let alice_id: i64 =
+            db::query_scalar("INSERT INTO family_member (display_name) VALUES ($1) RETURNING id")
+                .bind("Alice")
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        let bob_id: i64 =
+            db::query_scalar("INSERT INTO family_member (display_name) VALUES ($1) RETURNING id")
+                .bind("Bob")
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        let goal_id: i64 = db::query_scalar(
+            "INSERT INTO goal (name, target_amount, deadline, member_id, type) \
+             VALUES ($1, $2, $3, $4, 'SAVINGS_TARGET') RETURNING id",
+        )
+        .bind("House")
+        .bind(Decimal::new(10000, 0))
+        .bind(NaiveDate::from_ymd_opt(2030, 1, 1).unwrap())
+        .bind(alice_id)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+
+        for (ym, member_id, amount) in [
+            ("2025-01", alice_id, "0.10"),
+            ("2025-02", alice_id, "0.20"),
+            ("2025-03", bob_id, "125.45"),
+        ] {
+            db::query(
+                "INSERT INTO goal_manual_contribution (goal_id, year_month, amount, member_id) \
+                 VALUES ($1, $2, $3, $4)",
+            )
+            .bind(goal_id)
+            .bind(ym)
+            .bind(amount.parse::<Decimal>().unwrap())
+            .bind(member_id)
+            .execute(&db)
+            .await
+            .unwrap();
+        }
+
+        let epoch = DateTime::from_timestamp(0, 0).unwrap();
+        let members = vec![
+            FamilyMember {
+                id: alice_id,
+                display_name: "Alice".to_owned(),
+                avatar_color: "#6366f1".to_owned(),
+                managed: false,
+                created_at: epoch,
+            },
+            FamilyMember {
+                id: bob_id,
+                display_name: "Bob".to_owned(),
+                avatar_color: "#10b981".to_owned(),
+                managed: false,
+                created_at: epoch,
+            },
+        ];
+
+        let mut conn = db.acquire().await.unwrap();
+        let result = contributions_of(&mut conn.as_handle(), goal_id, &members)
+            .await
+            .unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].member_name, "Alice");
+        assert_eq!(result[0].amount.to_string(), "0.30");
+        assert_eq!(result[1].member_name, "Bob");
+        assert_eq!(result[1].amount.to_string(), "125.45");
+    }
 }

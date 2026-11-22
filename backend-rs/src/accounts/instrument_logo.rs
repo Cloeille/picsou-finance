@@ -9,10 +9,10 @@ use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Utc};
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use serde::Deserialize;
-use sqlx::PgExecutor;
 
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db::{self, DbExec};
 use crate::error::AppResult;
 use crate::http::json::Path;
 use crate::ledger::sync_values::java_is_blank;
@@ -54,18 +54,18 @@ pub struct LogoUrls {
 
 /// storedUrls: the versioned URL of every stored mark among the upper-cased tickers.
 pub async fn stored_urls<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     tickers: &BTreeSet<String>,
 ) -> sqlx::Result<HashMap<String, LogoUrls>> {
     if tickers.is_empty() {
         return Ok(HashMap::new());
     }
     let keys: Vec<&str> = tickers.iter().map(String::as_str).collect();
-    let rows: Vec<(String, DateTime<Utc>, Option<String>)> = sqlx::query_as(
+    let rows: Vec<(String, DateTime<Utc>, Option<String>)> = db::query_as(
         "SELECT ticker, fetched_at, content_type_dark FROM instrument_logo \
          WHERE status = 'STORED' AND ticker = ANY($1) AND fetched_at IS NOT NULL",
     )
-    .bind(&keys)
+    .bind(keys.as_slice())
     .fetch_all(db)
     .await?;
     Ok(rows
@@ -114,7 +114,7 @@ async fn logo(
     }
     let dark = query.variant.as_deref() == Some("dark");
     let row: Option<LogoRow> =
-        sqlx::query_as(
+        db::query_as(
             "SELECT image, content_type, image_dark, content_type_dark, fetched_at FROM instrument_logo \
              WHERE ticker = $1 AND status = 'STORED' AND image IS NOT NULL",
         )

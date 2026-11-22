@@ -8,11 +8,11 @@ use axum::extract::{Query, State};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use sqlx::PgExecutor;
 
 use crate::AppState;
 use crate::accounts::analysis::seams::AnalysisSeams;
 use crate::auth::Auth;
+use crate::db::{self, DbExec};
 use crate::error::AppResult;
 use crate::http::json::Path;
 use crate::ledger::sync_values::java_is_blank;
@@ -101,7 +101,7 @@ pub struct InsightCache(Mutex<HashMap<String, Cached>>);
 
 /// getInsight, cached for three days per ticker (and ISIN when one is given).
 pub async fn get_insight<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     seams: &AnalysisSeams,
     ticker: &str,
     name: Option<&str>,
@@ -165,12 +165,12 @@ fn cache_put(
 
 /// A coin the crypto registry knows, else the instrument type the quote source reports.
 async fn classify<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     seams: &AnalysisSeams,
     upper: &str,
 ) -> sqlx::Result<&'static str> {
     let coin: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM crypto_asset WHERE upper(ticker) = $1)")
+        db::query_scalar("SELECT EXISTS(SELECT 1 FROM crypto_asset WHERE upper(ticker) = $1)")
             .bind(upper)
             .fetch_one(db)
             .await?;

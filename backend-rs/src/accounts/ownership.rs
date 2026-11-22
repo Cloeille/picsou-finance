@@ -10,6 +10,7 @@ use super::jdecimal;
 use super::validation::{Check, ValidJson, ValidateAt};
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db;
 use crate::error::{AppError, AppResult};
 use crate::http::json::Path;
 use crate::ledger::model::{Account, AccountType, FamilyMember};
@@ -198,14 +199,14 @@ pub async fn replace_ownership(
     let mut rows = Vec::with_capacity(shares.len());
     for (member_id, share) in shares {
         let m = member(&mut tx, member_id).await?;
-        sqlx::query(
+        db::query(
             "INSERT INTO account_ownership (account_id, member_id, share_percent, created_at, updated_at) \
              VALUES ($1, $2, $3, NOW(), NOW())",
         )
         .bind(id)
         .bind(member_id)
         .bind(share)
-        .execute(&mut *tx)
+        .execute(&mut tx)
         .await?;
         rows.push((m, share));
     }

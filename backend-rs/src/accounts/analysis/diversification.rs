@@ -13,6 +13,7 @@ use super::math::{jmin, percent_of, rounded_int, scale2};
 use super::profiles::{self, ProfileSlice};
 use crate::accounts::classification::{HoldingClassification, overrides_of};
 use crate::accounts::holdings::owned_holdings;
+use crate::db::AsDbHandle;
 use crate::error::AppResult;
 use crate::ledger::access::{self, weigh};
 use crate::ledger::decimal::{HALF_UP, divide, set_scale};
@@ -190,8 +191,11 @@ pub async fn diversification(
         }
     }
 
-    let loaded =
-        profiles::load(&mut *conn, value_by_ticker.iter().map(|(t, _)| t.as_str())).await?;
+    let loaded = profiles::load(
+        &mut conn.as_handle(),
+        value_by_ticker.iter().map(|(t, _)| t.as_str()),
+    )
+    .await?;
     let mut sector_totals = AxisTotals::default();
     let mut country_totals = AxisTotals::default();
     let mut unclassified: Vec<UnclassifiedLine> = Vec::new();
