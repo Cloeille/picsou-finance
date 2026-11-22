@@ -3732,7 +3732,6 @@
       "namePlaceholder": "Mein Bereich",
       "cta": "Loslegen",
       "starting": "Wird eingerichtet...",
-      "lockHint": "Du kannst die Passwortsperre jederzeit in den Einstellungen aktivieren.",
       "error": "Picsou konnte nicht gestartet werden. Bitte versuche es erneut."
     },
     "emptyDashboard": {

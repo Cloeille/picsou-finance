@@ -3732,7 +3732,6 @@
       "namePlaceholder": "My Space",
       "cta": "Get started",
       "starting": "Setting up...",
-      "lockHint": "You can enable password lock at any time in Settings.",
       "error": "Could not start Picsou. Please try again."
     },
     "emptyDashboard": {

@@ -3732,7 +3732,6 @@
       "namePlaceholder": "Mon espace",
       "cta": "Commencer",
       "starting": "Préparation en cours...",
-      "lockHint": "Vous pourrez activer un verrouillage par mot de passe à tout moment dans les réglages.",
       "error": "Impossible de démarrer Picsou. Réessayez."
     },
     "emptyDashboard": {

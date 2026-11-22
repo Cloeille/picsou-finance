@@ -80,10 +80,6 @@ export function DesktopWelcomeStep() {
             ? t('desktop.onboarding.starting')
             : t('desktop.onboarding.cta')}
         </Button>
-
-        <p className="text-center text-xs leading-relaxed text-muted-foreground">
-          {t('desktop.onboarding.lockHint')}
-        </p>
       </form>
     </div>
   )

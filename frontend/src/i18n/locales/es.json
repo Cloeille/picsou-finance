@@ -3732,7 +3732,6 @@
       "namePlaceholder": "Mi espacio",
       "cta": "Empezar",
       "starting": "Preparando...",
-      "lockHint": "Puedes activar el bloqueo con contraseña en cualquier momento desde Ajustes.",
       "error": "No se pudo iniciar Picsou. Inténtalo de nuevo."
     },
     "emptyDashboard": {
