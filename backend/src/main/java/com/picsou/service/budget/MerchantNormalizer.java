@@ -44,6 +44,18 @@ public final class MerchantNormalizer {
     /** Runs of 3+ digits (card suffixes, store ids, reference numbers). */
     private static final Pattern LONG_DIGITS = Pattern.compile("\\b\\d{3,}\\b");
 
+    /**
+     * Processors that glue their code to the merchant once the date is gone:
+     * {@code "LMWSNCF CONNECT"} (Lemonway). Needs two more characters so a bare "LMW" survives.
+     */
+    // ponytail: Lemonway only, the one prefix seen on a real statement; extend the alternation per new evidence.
+    private static final Pattern GLUED_PROCESSOR = Pattern.compile(
+        "^\\s*lmw\\s*(?=\\w{2})", Pattern.CASE_INSENSITIVE);
+
+    /** Card marker some banks append after the merchant: {@code "SNCF CONNECT CB"}. */
+    private static final Pattern TRAILING_CARD_MARKER = Pattern.compile(
+        "\\s+cb\\s*$", Pattern.CASE_INSENSITIVE);
+
     private static final Pattern PUNCT = Pattern.compile("[*#/\\\\|]+");
     /** Apostrophes are removed (not spaced) so {@code MCDONALD'S → mcdonalds}, {@code O'TACOS → otacos}. */
     private static final Pattern APOSTROPHE = Pattern.compile("['’`]");
@@ -66,6 +78,8 @@ public final class MerchantNormalizer {
         s = DATE_FRAGMENT.matcher(s).replaceAll(" ");
         s = LONG_DIGITS.matcher(s).replaceAll(" ");
         s = PUNCT.matcher(s).replaceAll(" ");
+        s = GLUED_PROCESSOR.matcher(s).replaceFirst("");
+        s = TRAILING_CARD_MARKER.matcher(s).replaceFirst("");
         s = MULTISPACE.matcher(s).replaceAll(" ").trim();
         if (s.isEmpty()) {
             s = MULTISPACE.matcher(base.trim()).replaceAll(" ");

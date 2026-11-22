@@ -92,8 +92,9 @@ It deliberately has no empty-rules early-out: the brand KB alone categorizes a r
   Spring-free** class, the single piece of intelligence behind clean names *and* brand matching.
   `normalize(counterparty, description)` strips the payment-processor wrapper (`PAYPAL *…`,
   `SUMUP *…` — keep what follows the last `*`), leading transaction-type noise (`CB`, `ACHAT`,
-  `PRLV SEPA`, `VIREMENT`…), card/reference digit runs, date fragments and stray punctuation, then
-  title-cases the result. `matchKey(label)` produces a lower-cased, **accent-stripped**,
+  `PRLV SEPA`, `VIREMENT`…), card/reference digit runs, date fragments and stray punctuation, a
+  processor code glued to the merchant (`LMWSNCF CONNECT` → `SNCF CONNECT`, Lemonway) and a
+  trailing `CB` marker, then title-cases the result. `matchKey(label)` produces a lower-cased, **accent-stripped**,
   whitespace-collapsed key so matching never depends on casing or accents
   (`MCDONALD'S → mcdonalds`). 100% unit-tested in isolation.
 - **`MerchantKnowledgeBase`** (`service/budget/MerchantKnowledgeBase.java`, `@Component`) — loads

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Lemonway card payments get their merchant name and icon.** A label such as
+  `CARTE 07/11/26 LMWSNCF CONNECT CB` now reads "Sncf Connect" and matches the SNCF brand:
+  the normalizer drops the `LMW` code glued to the merchant and the trailing `CB` marker. (#691)
+
 ## [1.2.2] — 2026-11-21
 
 ### Added
