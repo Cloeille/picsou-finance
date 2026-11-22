@@ -73,6 +73,7 @@ aes = "0.9"
 http-body = "1"
 unicode-normalization = "0.1.26"
 fancy-regex = "0.20.2"
+picsou-db-macros = { path = "macros" }
 rusqlite = { version = "0.32", features = ["bundled", "limits", "functions"] }
 zip = { version = "9.8.1", default-features = false, features = ["deflate"] }
 pbkdf2 = "0.13.0"

@@ -6,6 +6,7 @@ mod admin;
 mod ai;
 mod budget;
 mod connectors;
+mod db_dual_engine;
 mod family;
 mod foundation;
 mod identity;

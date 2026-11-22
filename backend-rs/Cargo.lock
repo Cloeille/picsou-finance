@@ -2465,6 +2465,7 @@ dependencies = [
  "pbkdf2",
  "percent-encoding",
  "picsou",
+ "picsou-db-macros",
  "qrcode",
  "quick-xml",
  "rand 0.10.4",
@@ -2495,6 +2496,15 @@ dependencies = [
  "uuid",
  "wiremock",
  "zip",
+]
+
+[[package]]
+name = "picsou-db-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]

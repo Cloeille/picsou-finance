@@ -70,6 +70,113 @@ fn invalid(message: impl Into<String>) -> ConfigError {
     ConfigError::Invalid(message.into())
 }
 
+/// Target for the embedded SQLite engine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SqliteTarget {
+    File(PathBuf),
+    InMemory,
+}
+
+/// Selected database engine configuration (`DATABASE_URL` or `SPRING_DATASOURCE_URL`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DatabaseConfig {
+    Postgres(Datasource),
+    Sqlite(SqliteTarget),
+}
+
+impl DatabaseConfig {
+    /// Parses either a SQLite URL (`sqlite:///path`, `sqlite::memory:`, `sqlite://:memory:`,
+    /// `jdbc:sqlite:...`) or a PostgreSQL URL (`jdbc:postgresql://...`, `postgres://...`,
+    /// `postgresql://...`).
+    pub fn parse(url: &str, username: &str, password: &str) -> Result<Self, ConfigError> {
+        let trimmed = url.trim();
+        if let Some(target) = parse_sqlite_url(trimmed)? {
+            return Ok(Self::Sqlite(target));
+        }
+        if trimmed.starts_with("postgres://") || trimmed.starts_with("postgresql://") {
+            let parsed = url::Url::parse(trimmed)
+                .map_err(|_| invalid("DATABASE_URL is not a valid PostgreSQL URL"))?;
+            let host = parsed
+                .host_str()
+                .filter(|h| !h.is_empty())
+                .ok_or_else(|| invalid("DATABASE_URL must name a host"))?
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .to_owned();
+            let port = parsed.port().unwrap_or(5432);
+            let database = parsed.path().trim_start_matches('/').to_owned();
+            if database.is_empty() {
+                return Err(invalid("DATABASE_URL must name a database"));
+            }
+            let effective_user = if parsed.username().is_empty() {
+                username.to_owned()
+            } else {
+                percent_encoding::percent_decode_str(parsed.username())
+                    .decode_utf8_lossy()
+                    .into_owned()
+            };
+            let effective_password = match parsed.password() {
+                Some(p) => percent_encoding::percent_decode_str(p)
+                    .decode_utf8_lossy()
+                    .into_owned(),
+                None => password.to_owned(),
+            };
+            return Ok(Self::Postgres(Datasource {
+                host,
+                port,
+                database,
+                username: effective_user,
+                password: effective_password,
+                max_connections: 10,
+                connect_timeout: Duration::from_millis(30_000),
+            }));
+        }
+        Ok(Self::Postgres(Datasource::parse_jdbc(
+            trimmed, username, password,
+        )?))
+    }
+
+    pub fn is_sqlite(&self) -> bool {
+        matches!(self, Self::Sqlite(_))
+    }
+}
+
+fn parse_sqlite_url(raw: &str) -> Result<Option<SqliteTarget>, ConfigError> {
+    let rest = if let Some(r) = raw.strip_prefix("jdbc:sqlite:") {
+        r
+    } else if let Some(r) = raw.strip_prefix("sqlite:") {
+        r
+    } else {
+        return Ok(None);
+    };
+
+    let without_query = rest.split('?').next().unwrap_or_default();
+    if without_query == ":memory:" || without_query == "//:memory:" {
+        return Ok(Some(SqliteTarget::InMemory));
+    }
+
+    // Handle `sqlite:///abs/path.db`, `sqlite://./rel/path.db`, `sqlite://rel/path.db`,
+    // `sqlite:/abs/path.db`, and `jdbc:sqlite:/abs/path.db`.
+    let path_str = if let Some(abs) = without_query.strip_prefix("///") {
+        if abs.is_empty() {
+            return Err(invalid("SQLite URL must name a database file path"));
+        }
+        format!("/{abs}")
+    } else if let Some(rel) = without_query.strip_prefix("//") {
+        if rel.is_empty() {
+            return Err(invalid("SQLite URL must name a database file path"));
+        }
+        rel.to_owned()
+    } else {
+        if without_query.is_empty() {
+            return Err(invalid("SQLite URL must name a database file path"));
+        }
+        without_query.to_owned()
+    };
+
+    Ok(Some(SqliteTarget::File(PathBuf::from(path_str))))
+}
+
 /// The datasource, parsed from the JDBC-style SPRING_DATASOURCE_URL.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Datasource {
@@ -80,6 +187,20 @@ pub struct Datasource {
     pub password: String,
     pub max_connections: u32,
     pub connect_timeout: Duration,
+}
+
+impl Default for Datasource {
+    fn default() -> Self {
+        Self {
+            host: "localhost".to_owned(),
+            port: 5432,
+            database: "picsou".to_owned(),
+            username: "picsou".to_owned(),
+            password: String::new(),
+            max_connections: 10,
+            connect_timeout: Duration::from_millis(30_000),
+        }
+    }
 }
 
 impl Datasource {
@@ -198,6 +319,7 @@ pub struct Config {
     pub server_address: IpAddr,
     pub server_port: u16,
     pub datasource: Datasource,
+    pub database: DatabaseConfig,
     pub timezone: Tz,
     pub app_version: String,
     pub desktop: String,
@@ -543,14 +665,22 @@ impl Config {
             .get("SPRING_PROFILES_ACTIVE")
             .is_some_and(|p| p.split(',').any(|p| p.trim() == "dev"));
 
-        let datasource = Datasource::parse_jdbc(
+        let raw_db_url = env.non_blank("DATABASE_URL").unwrap_or_else(|| {
             env.or(
                 "SPRING_DATASOURCE_URL",
                 "jdbc:postgresql://localhost:5432/picsou",
-            ),
+            )
+            .to_owned()
+        });
+        let database = DatabaseConfig::parse(
+            &raw_db_url,
             env.or("SPRING_DATASOURCE_USERNAME", "picsou"),
             &secrets.datasource_password,
         )?;
+        let datasource = match &database {
+            DatabaseConfig::Postgres(ds) => ds.clone(),
+            DatabaseConfig::Sqlite(_) => Datasource::default(),
+        };
 
         let jwt_secret = secrets
             .jwt_secret
@@ -675,6 +805,7 @@ impl Config {
                 .transpose()?
                 .unwrap_or(8080),
             datasource,
+            database,
             timezone: parse_timezone(env.get("APP_TIMEZONE"))?,
             app_version: env.or("APP_VERSION", "dev").to_owned(),
             desktop: env.or("PICSOU_DESKTOP", "false").to_owned(),
@@ -879,5 +1010,60 @@ mod tests {
             overridden.sidecar_url("cic-auth"),
             Some("native://cic-auth")
         );
+    }
+
+    #[test]
+    fn database_config_supports_sqlite_and_postgres_urls() {
+        // Default remains PostgreSQL jdbc URL.
+        let pg_default = Config::load(&base_env()).unwrap();
+        assert!(!pg_default.database.is_sqlite());
+        assert_eq!(pg_default.datasource.host, "localhost");
+        assert_eq!(pg_default.datasource.port, 5432);
+        assert_eq!(pg_default.datasource.database, "picsou");
+
+        // DATABASE_URL=sqlite:///abs/path.db
+        let mut env = base_env();
+        env.set("DATABASE_URL", "sqlite:///data/picsou.db");
+        let sq_file = Config::load(&env).unwrap();
+        assert_eq!(
+            sq_file.database,
+            DatabaseConfig::Sqlite(SqliteTarget::File(PathBuf::from("/data/picsou.db")))
+        );
+
+        // DATABASE_URL=sqlite::memory:
+        let mut env = base_env();
+        env.set("DATABASE_URL", "sqlite::memory:");
+        let sq_mem = Config::load(&env).unwrap();
+        assert_eq!(
+            sq_mem.database,
+            DatabaseConfig::Sqlite(SqliteTarget::InMemory)
+        );
+
+        // SPRING_DATASOURCE_URL=jdbc:sqlite:/tmp/local.db
+        let mut env = base_env();
+        env.set("SPRING_DATASOURCE_URL", "jdbc:sqlite:/tmp/local.db");
+        let sq_jdbc = Config::load(&env).unwrap();
+        assert_eq!(
+            sq_jdbc.database,
+            DatabaseConfig::Sqlite(SqliteTarget::File(PathBuf::from("/tmp/local.db")))
+        );
+
+        // DATABASE_URL=postgres://user:secret@db.internal:5433/picsou_prod
+        let mut env = base_env();
+        env.set(
+            "DATABASE_URL",
+            "postgres://alice:s3cr3t@db.internal:5433/picsou_prod",
+        );
+        let pg_uri = Config::load(&env).unwrap();
+        assert_eq!(pg_uri.datasource.host, "db.internal");
+        assert_eq!(pg_uri.datasource.port, 5433);
+        assert_eq!(pg_uri.datasource.database, "picsou_prod");
+        assert_eq!(pg_uri.datasource.username, "alice");
+        assert_eq!(pg_uri.datasource.password, "s3cr3t");
+
+        // Reject empty SQLite path.
+        let mut env = base_env();
+        env.set("DATABASE_URL", "sqlite:///");
+        assert!(Config::load(&env).is_err());
     }
 }

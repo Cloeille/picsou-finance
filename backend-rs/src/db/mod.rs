@@ -1,15 +1,203 @@
-//! The connection pool and the Flyway-compatible migrator.
+//! Dual-engine database layer (`PostgreSQL` + embedded `SQLite`), unified query builders, and the
+//! Flyway-compatible migrator.
 
+pub mod args;
 pub mod flyway;
+pub mod query;
 pub mod release_cli;
+pub mod row;
 pub mod schema;
 pub mod sqlite;
 
-use sqlx::PgPool;
+pub use picsou_db_macros::{DbEnum, DbFromRow};
+
+pub use self::args::{DbArgs, DbBind};
+pub use self::query::{DbExec, DbQuery, DbQueryAs, DbQueryResult, DbQueryScalar};
+pub use self::row::{DbDecode, DbFromRow, DbIndex, DbRow};
+
+use sqlx::pool::PoolConnection;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use sqlx::{PgPool, Postgres, Transaction};
 
-use crate::config::Datasource;
+use crate::config::{Config, DatabaseConfig, Datasource, SqliteTarget};
+use crate::db::sqlite::error::sqlite_err_to_sqlx;
+use crate::db::sqlite::{SqliteConn, SqliteDb, SqliteTx};
 
+/// Dual-engine database handle supporting both PostgreSQL and embedded SQLite transparently.
+#[derive(Clone, Debug)]
+pub enum Db {
+    Postgres(PgPool),
+    Sqlite(SqliteDb),
+}
+
+impl From<PgPool> for Db {
+    fn from(pool: PgPool) -> Self {
+        Self::Postgres(pool)
+    }
+}
+
+impl From<SqliteDb> for Db {
+    fn from(db: SqliteDb) -> Self {
+        Self::Sqlite(db)
+    }
+}
+
+impl Db {
+    /// Returns `true` when backed by embedded SQLite.
+    pub fn is_sqlite(&self) -> bool {
+        matches!(self, Self::Sqlite(_))
+    }
+
+    /// Returns `true` when backed by PostgreSQL.
+    pub fn is_postgres(&self) -> bool {
+        matches!(self, Self::Postgres(_))
+    }
+
+    /// Borrows the underlying `PgPool` when backed by PostgreSQL.
+    pub fn as_pg(&self) -> Option<&PgPool> {
+        match self {
+            Self::Postgres(pool) => Some(pool),
+            Self::Sqlite(_) => None,
+        }
+    }
+
+    /// Borrows the underlying `PgPool`, panicking if backed by SQLite (bridge for PG-only tools
+    /// such as Flyway and `export_pg` and incremental migration).
+    pub fn expect_pg(&self) -> &PgPool {
+        self.as_pg()
+            .expect("expected PostgreSQL Db engine, found SQLite")
+    }
+
+    /// Borrows the underlying [`SqliteDb`] when backed by SQLite.
+    pub fn as_sqlite(&self) -> Option<&SqliteDb> {
+        match self {
+            Self::Sqlite(sq) => Some(sq),
+            Self::Postgres(_) => None,
+        }
+    }
+
+    /// Starts a database transaction (`BEGIN` on PostgreSQL, `BEGIN IMMEDIATE` on SQLite).
+    pub async fn begin(&self) -> Result<DbTx<'_>, sqlx::Error> {
+        match self {
+            Self::Postgres(pool) => Ok(DbTx::Postgres(pool.begin().await?)),
+            Self::Sqlite(sq) => Ok(DbTx::Sqlite(sq.begin().await?)),
+        }
+    }
+
+    /// Acquires a single connection handle from the pool (`PoolConnection<Postgres>` on PostgreSQL,
+    /// serialized writer handle on SQLite).
+    pub async fn acquire(&self) -> Result<DbConn, sqlx::Error> {
+        match self {
+            Self::Postgres(pool) => Ok(DbConn::Postgres(pool.acquire().await?)),
+            Self::Sqlite(sq) => Ok(DbConn::Sqlite(sq.acquire().await?)),
+        }
+    }
+
+    /// Gracefully closes the pool (on SQLite, drains WAL readers and checkpoints WAL).
+    pub async fn close(&self) {
+        match self {
+            Self::Postgres(pool) => pool.close().await,
+            Self::Sqlite(sq) => sq.close().await,
+        }
+    }
+}
+
+/// Active dual-engine transaction or nested savepoint.
+///
+/// Rolls back automatically on `Drop` if [`DbTx::commit`] was not called.
+pub enum DbTx<'a> {
+    Postgres(Transaction<'a, Postgres>),
+    Sqlite(SqliteTx<'a>),
+}
+
+impl<'a> DbTx<'a> {
+    /// Returns `true` when backed by embedded SQLite.
+    pub fn is_sqlite(&self) -> bool {
+        matches!(self, Self::Sqlite(_))
+    }
+
+    /// Starts a nested savepoint inside this transaction (`SAVEPOINT` on both engines).
+    pub async fn begin(&mut self) -> Result<DbTx<'_>, sqlx::Error> {
+        match self {
+            Self::Postgres(tx) => {
+                use sqlx::Acquire;
+                Ok(DbTx::Postgres(tx.begin().await?))
+            }
+            Self::Sqlite(tx) => Ok(DbTx::Sqlite(tx.begin().await?)),
+        }
+    }
+
+    /// Commits the transaction or releases the nested savepoint.
+    pub async fn commit(self) -> Result<(), sqlx::Error> {
+        match self {
+            Self::Postgres(tx) => tx.commit().await,
+            Self::Sqlite(tx) => tx.commit().await,
+        }
+    }
+
+    /// Explicitly rolls back the transaction or rolls back to the nested savepoint.
+    pub async fn rollback(self) -> Result<(), sqlx::Error> {
+        match self {
+            Self::Postgres(tx) => tx.rollback().await,
+            Self::Sqlite(tx) => tx.rollback().await,
+        }
+    }
+}
+
+/// Acquired dual-engine connection handle returned by [`Db::acquire`].
+pub enum DbConn {
+    Postgres(PoolConnection<Postgres>),
+    Sqlite(SqliteConn),
+}
+
+impl DbConn {
+    /// Returns `true` when backed by embedded SQLite.
+    pub fn is_sqlite(&self) -> bool {
+        matches!(self, Self::Sqlite(_))
+    }
+
+    /// Starts a transaction on this acquired connection.
+    pub async fn begin(&mut self) -> Result<DbTx<'_>, sqlx::Error> {
+        match self {
+            Self::Postgres(conn) => {
+                use sqlx::Connection;
+                Ok(DbTx::Postgres(conn.begin().await?))
+            }
+            Self::Sqlite(conn) => Ok(DbTx::Sqlite(conn.begin().await?)),
+        }
+    }
+}
+
+/// Constructs an untyped dual-engine SQL query.
+pub fn query(sql: &str) -> DbQuery<'_> {
+    DbQuery::new(sql)
+}
+
+/// Constructs a typed dual-engine SQL query mapping rows via [`DbFromRow`].
+pub fn query_as<T: DbFromRow>(sql: &str) -> DbQueryAs<'_, T> {
+    DbQueryAs::new(sql)
+}
+
+/// Constructs a single-column dual-engine SQL query decoding column 0 via [`DbDecode`].
+pub fn query_scalar<T: DbDecode>(sql: &str) -> DbQueryScalar<'_, T> {
+    DbQueryScalar::new(sql)
+}
+
+/// Returns `true` if `err` is a UNIQUE or PRIMARY KEY constraint violation on either PostgreSQL
+/// (`23505`) or SQLite (`SQLITE_CONSTRAINT_UNIQUE` / `SQLITE_CONSTRAINT_PRIMARYKEY`).
+pub fn is_unique_violation(err: &sqlx::Error) -> bool {
+    err.as_database_error()
+        .is_some_and(|e| e.is_unique_violation() || e.code().as_deref() == Some("23505"))
+}
+
+/// Returns `true` if `err` is a FOREIGN KEY constraint violation on either PostgreSQL (`23503`) or
+/// SQLite (`SQLITE_CONSTRAINT_FOREIGNKEY`).
+pub fn is_foreign_key_violation(err: &sqlx::Error) -> bool {
+    err.as_database_error()
+        .is_some_and(|e| e.is_foreign_key_violation() || e.code().as_deref() == Some("23503"))
+}
+
+/// Connects to the PostgreSQL pool using the legacy `Datasource` configuration.
 pub fn connect_options(ds: &Datasource) -> PgConnectOptions {
     PgConnectOptions::new()
         .host(&ds.host)
@@ -20,6 +208,7 @@ pub fn connect_options(ds: &Datasource) -> PgConnectOptions {
         .application_name("picsou")
 }
 
+/// Connects to PostgreSQL directly, returning `PgPool`.
 pub async fn connect(ds: &Datasource) -> Result<PgPool, sqlx::Error> {
     PgPoolOptions::new()
         .max_connections(ds.max_connections)
@@ -27,3 +216,120 @@ pub async fn connect(ds: &Datasource) -> Result<PgPool, sqlx::Error> {
         .connect_with(connect_options(ds))
         .await
 }
+
+/// Connects to whichever database engine (`PostgreSQL` or `SQLite`) is configured on [`Config`].
+pub async fn db_connect(config: &Config) -> Result<Db, sqlx::Error> {
+    connect_db(&config.database).await
+}
+
+/// Connects to whichever database engine is specified by [`DatabaseConfig`].
+pub async fn connect_db(db_cfg: &DatabaseConfig) -> Result<Db, sqlx::Error> {
+    match db_cfg {
+        DatabaseConfig::Postgres(ds) => Ok(Db::Postgres(connect(ds).await?)),
+        DatabaseConfig::Sqlite(target) => {
+            let sq = match target {
+                SqliteTarget::InMemory => SqliteDb::open_in_memory().map_err(sqlite_err_to_sqlx)?,
+                SqliteTarget::File(path) => {
+                    let path = path.clone();
+                    tokio::task::spawn_blocking(move || SqliteDb::open(&path))
+                        .await
+                        .map_err(|e| {
+                            sqlx::Error::Protocol(format!("blocking SQLite open failed: {e}"))
+                        })?
+                        .map_err(sqlite_err_to_sqlx)?
+                }
+            };
+            Ok(Db::Sqlite(sq))
+        }
+    }
+}
+
+/// Helper macro implementing [`DbBind`] (owned & borrowed) and [`DbDecode`] for string-backed
+/// enums that already implement `as_str(self) -> &'static str`, `FromStr`, and `sqlx` PostgreSQL
+/// `Type`/`Encode`/`Decode` (such as `ledger::model::string_enum!`).
+#[macro_export]
+macro_rules! impl_db_string_enum {
+    ($name:ty) => {
+        impl $crate::db::DbBind for $name {
+            fn bind_pg(
+                self,
+                args: &mut ::sqlx::postgres::PgArguments,
+            ) -> ::core::result::Result<(), ::sqlx::error::BoxDynError> {
+                ::sqlx::Arguments::add(args, self)
+            }
+
+            fn bind_null_pg(
+                args: &mut ::sqlx::postgres::PgArguments,
+            ) -> ::core::result::Result<(), ::sqlx::error::BoxDynError> {
+                ::sqlx::Arguments::add(args, ::core::option::Option::<$name>::None)
+            }
+
+            fn to_sqlite_value(&self) -> ::rusqlite::types::Value {
+                ::rusqlite::types::Value::Text(self.as_str().to_owned())
+            }
+        }
+
+        impl $crate::db::DbBind for &$name {
+            fn bind_pg(
+                self,
+                args: &mut ::sqlx::postgres::PgArguments,
+            ) -> ::core::result::Result<(), ::sqlx::error::BoxDynError> {
+                ::sqlx::Arguments::add(args, *self)
+            }
+
+            fn bind_null_pg(
+                args: &mut ::sqlx::postgres::PgArguments,
+            ) -> ::core::result::Result<(), ::sqlx::error::BoxDynError> {
+                ::sqlx::Arguments::add(args, ::core::option::Option::<$name>::None)
+            }
+
+            fn to_sqlite_value(&self) -> ::rusqlite::types::Value {
+                ::rusqlite::types::Value::Text(self.as_str().to_owned())
+            }
+        }
+
+        impl $crate::db::DbDecode for $name {
+            fn decode_pg<I>(
+                row: &::sqlx::postgres::PgRow,
+                index: I,
+            ) -> ::core::result::Result<Self, ::sqlx::Error>
+            where
+                I: ::sqlx::ColumnIndex<::sqlx::postgres::PgRow>,
+            {
+                ::sqlx::Row::try_get::<Self, _>(row, index)
+            }
+
+            fn decode_pg_opt<I>(
+                row: &::sqlx::postgres::PgRow,
+                index: I,
+            ) -> ::core::result::Result<::core::option::Option<Self>, ::sqlx::Error>
+            where
+                I: ::sqlx::ColumnIndex<::sqlx::postgres::PgRow>,
+            {
+                ::sqlx::Row::try_get::<::core::option::Option<Self>, _>(row, index)
+            }
+
+            fn decode_sqlite(
+                value: &::rusqlite::types::Value,
+            ) -> ::core::result::Result<Self, ::sqlx::Error> {
+                match value {
+                    ::rusqlite::types::Value::Text(raw) => raw
+                        .parse::<$name>()
+                        .map_err(|err| ::sqlx::Error::Decode(::std::boxed::Box::new(err))),
+                    other => ::core::result::Result::Err(::sqlx::Error::Decode(
+                        ::std::boxed::Box::new(::std::io::Error::new(
+                            ::std::io::ErrorKind::InvalidData,
+                            ::std::format!(
+                                "expected SQLite TEXT for {}, got {:?}",
+                                ::core::stringify!($name),
+                                other
+                            ),
+                        )),
+                    )),
+                }
+            }
+        }
+    };
+}
+
+pub use crate::impl_db_string_enum;
