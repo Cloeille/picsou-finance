@@ -125,11 +125,11 @@ async fn view(
     auth: Auth,
     Path((id, ticker)): Path<(i64, String)>,
 ) -> AppResult<axum::Json<HoldingClassificationView>> {
-    let mut conn = state.db.acquire().await?;
-    access::require_readable(&mut conn.as_handle(), id, auth.member_id).await?;
+    let mut conn = state.db.pool_handle();
+    access::require_readable(&mut conn, id, auth.member_id).await?;
     let upper = ticker.to_uppercase();
     let found = find(&mut conn, auth.member_id, &upper).await?;
-    let profile = profiles::load(&mut conn.as_handle(), [upper.as_str()])
+    let profile = profiles::load(&mut conn, [upper.as_str()])
         .await?
         .remove(&upper);
     Ok(axum::Json(HoldingClassificationView {

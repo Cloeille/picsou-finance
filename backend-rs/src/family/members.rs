@@ -331,7 +331,7 @@ async fn reset_password(
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<Value>> {
     require_admin(&auth)?;
-    let mut conn = state.db.acquire().await?;
+    let mut conn = state.db.pool_handle();
     if !member_exists(&mut conn, id).await? {
         return Err(member_not_found());
     }

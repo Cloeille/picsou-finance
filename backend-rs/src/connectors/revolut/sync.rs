@@ -344,9 +344,9 @@ async fn build_preview(
     member_id: i64,
 ) -> sqlx::Result<Vec<DiscoveredRevolutAccount>> {
     let mut preview = Vec::with_capacity(harvested.len());
-    let mut conn = state.db.acquire().await?;
+    let mut conn = state.db.pool_handle();
     for data in harvested {
-        let imported = find_active_account(&mut conn.as_handle(), data, member_id)
+        let imported = find_active_account(&mut conn, data, member_id)
             .await?
             .is_some();
         preview.push(DiscoveredRevolutAccount {

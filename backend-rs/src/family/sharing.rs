@@ -108,7 +108,7 @@ async fn get_settings(
     RawQuery(query): RawQuery,
 ) -> AppResult<axum::Json<SharingSettingsResponse>> {
     let resource_type = required_param(query.as_deref(), "resourceType")?;
-    let mut conn = state.db.acquire().await?;
+    let mut conn = state.db.pool_handle();
     let sharing_level = level(&mut conn, auth.member_id, &resource_type).await?;
     let shared_resource_ids = match sharing_level {
         SharingLevel::Manual => shared_ids(&mut conn, auth.member_id, &resource_type).await?,

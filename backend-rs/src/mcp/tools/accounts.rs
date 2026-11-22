@@ -8,7 +8,6 @@ use crate::accounts::meta::ScpiPositionRequest;
 use crate::accounts::service::{AccountRequest, SnapshotRequest};
 use crate::accounts::validation::ValidJson;
 use crate::auth::Auth;
-use crate::db::AsDbHandle;
 use crate::error::{AppError, AppResult};
 use crate::http::json::Path;
 use crate::ledger::model::{AccountType, HoldingDraft};
@@ -254,9 +253,9 @@ pub async fn call(
         }
         "get_account_holdings" => {
             let id = req_i64(args, "accountId")?;
-            let mut conn = state.db.acquire().await?;
+            let mut conn = state.db.pool_handle();
             let lines = crate::accounts::holdings::owned_holdings(
-                &mut conn.as_handle(),
+                &mut conn,
                 &*state.ledger.prices,
                 &*state.accounts.crypto_logos,
                 id,
@@ -378,9 +377,9 @@ pub async fn call(
                 holdings::insert(&mut tx, account_id, &draft, now).await?;
             }
             tx.commit().await?;
-            let mut conn = state.db.acquire().await?;
+            let mut conn = state.db.pool_handle();
             let lines = crate::accounts::holdings::owned_holdings(
-                &mut conn.as_handle(),
+                &mut conn,
                 &*state.ledger.prices,
                 &*state.accounts.crypto_logos,
                 account_id,

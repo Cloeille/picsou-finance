@@ -131,18 +131,9 @@ pub async fn get(
 ) -> AppResult<PeerLoanDetailResponse> {
     let account = accounts::get_or_throw(&state.db, account_id, member_id).await?;
     require_type(&account)?;
-    let mut conn = state.db.acquire().await?;
+    let mut conn = state.db.pool_handle();
     match repo::find_terms(&mut conn, account_id).await? {
-        Some(terms) => {
-            build(
-                &mut conn.as_handle(),
-                &account,
-                &terms,
-                state.clock.today(),
-                &[],
-            )
-            .await
-        }
+        Some(terms) => build(&mut conn, &account, &terms, state.clock.today(), &[]).await,
         None => Ok(unconfigured(&account)),
     }
 }

@@ -7,7 +7,6 @@ use serde_json::{Map, Value};
 
 use crate::AppState;
 use crate::auth::Auth;
-use crate::db::AsDbHandle;
 use crate::error::{AppError, AppResult};
 use crate::mcp::tools::{
     ToolSpec, opt_date, opt_i32, opt_i64_vec, opt_str, prop_date, prop_int, prop_int_array,
@@ -110,10 +109,10 @@ pub async fn call(
             let account_ids = opt_i64_vec(args, "accountIds")?;
             let months = opt_i32(args, "months")?.unwrap_or(DEFAULT_HISTORY_MONTHS);
             let ids = resolve_account_ids(state, auth, account_ids).await?;
-            let mut conn = state.db.acquire().await?;
+            let mut conn = state.db.pool_handle();
             let points = crate::accounts::history::build_history(
                 state,
-                &mut conn.as_handle(),
+                &mut conn,
                 &ids,
                 months,
                 false,

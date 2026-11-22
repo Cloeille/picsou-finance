@@ -124,11 +124,10 @@ pub async fn get_ownership(
     auth: Auth,
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<OwnershipResponse>> {
-    let mut conn = state.db.acquire().await?;
-    let account = super::scale::fixed(
-        access::require_readable(&mut conn.as_handle(), id, auth.member_id).await?,
-    );
-    let owner = member(&mut conn.as_handle(), account.member_id).await?;
+    let mut conn = state.db.pool_handle();
+    let account =
+        super::scale::fixed(access::require_readable(&mut conn, id, auth.member_id).await?);
+    let owner = member(&mut conn, account.member_id).await?;
     let rows = access::ownerships_of_account(&mut conn, id).await?;
     if rows.is_empty() {
         return Ok(axum::Json(owner_only(&owner)));
@@ -136,7 +135,7 @@ pub async fn get_ownership(
     let mut shares = Vec::with_capacity(rows.len());
     for row in rows {
         shares.push((
-            member(&mut conn.as_handle(), row.member_id).await?,
+            member(&mut conn, row.member_id).await?,
             super::scale::column(row.share_percent, 3),
         ));
     }

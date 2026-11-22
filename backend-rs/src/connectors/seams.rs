@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
 use std::sync::Arc;
 
-use crate::db::{AsDbHandle, Db, DbHandle};
+use crate::db::{Db, DbHandle};
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
@@ -186,9 +186,9 @@ struct AccountRow<'a> {
 #[async_trait]
 impl AccountResponses for AccountRowResponses {
     async fn to_response(&self, state: &AppState, account: &Account) -> AppResult<Value> {
-        let mut conn = state.db.acquire().await?;
+        let mut conn = state.db.pool_handle();
         let eur = valuation::signed_live_balance_eur(
-            &mut conn.as_handle(),
+            &mut conn,
             &*state.ledger.prices,
             account,
             state.clock.today(),

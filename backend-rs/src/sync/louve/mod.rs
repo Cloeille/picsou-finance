@@ -19,7 +19,8 @@ pub mod scpi;
 pub mod service;
 mod transport;
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use crate::db::Db;
 
@@ -47,6 +48,9 @@ pub struct Hooks {
     http: reqwest::Client,
     /// LouveClientRegistry's synchronized methods.
     registry_lock: tokio::sync::Mutex<()>,
+    /// Per-member refresh mutexes so concurrent token refreshes serialize cleanly without holding
+    /// a DB transaction (or SQLite's global `writer_gate`) across external HTTP calls.
+    refresh_locks: Mutex<HashMap<i64, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl Hooks {
@@ -56,6 +60,19 @@ impl Hooks {
             scpi: Arc::new(scpi::SqlScpiFunds),
             http: transport::client(),
             registry_lock: tokio::sync::Mutex::new(()),
+            refresh_locks: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub(crate) fn refresh_lock(&self, member_id: i64) -> Arc<tokio::sync::Mutex<()>> {
+        let mut locks = self
+            .refresh_locks
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        Arc::clone(
+            locks
+                .entry(member_id)
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
+        )
     }
 }

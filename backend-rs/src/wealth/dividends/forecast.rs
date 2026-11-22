@@ -101,12 +101,12 @@ pub async fn upcoming(
     horizon_days: i32,
     account_id: Option<i64>,
 ) -> AppResult<Vec<UpcomingDividendResponse>> {
-    let mut conn = state.db.acquire().await?;
+    let mut conn = state.db.pool_handle();
     if let Some(id) = account_id {
-        access::require_readable(&mut conn.as_handle(), id, member_id).await?;
+        access::require_readable(&mut conn, id, member_id).await?;
     }
     let end = today + Days::new(clamp_horizon(horizon_days) as u64);
-    let readable = access::readable_accounts(&mut conn.as_handle(), member_id).await?;
+    let readable = access::readable_accounts(&mut conn, member_id).await?;
     let scoped: Vec<Account> = readable
         .iter()
         .filter(|a| account_id.is_none_or(|id| a.id == id))
@@ -116,16 +116,8 @@ pub async fn upcoming(
         return Ok(Vec::new());
     }
     let shares = access::shares_for(&mut conn, &scoped, member_id).await?;
-    let mut lines = holding_lines(
-        &mut conn.as_handle(),
-        &scoped,
-        &readable,
-        &shares,
-        today,
-        end,
-    )
-    .await?;
-    lines.extend(scpi_lines(&mut conn.as_handle(), &scoped, &shares, today, end).await?);
+    let mut lines = holding_lines(&mut conn, &scoped, &readable, &shares, today, end).await?;
+    lines.extend(scpi_lines(&mut conn, &scoped, &shares, today, end).await?);
     lines.sort_by(|a, b| {
         a.expected_date
             .cmp(&b.expected_date)

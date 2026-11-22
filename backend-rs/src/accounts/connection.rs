@@ -204,21 +204,13 @@ pub async fn deletion_impact(
     auth: Auth,
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<DeletionImpact>> {
-    let mut conn = state.db.acquire().await?;
-    let account = find_owned(&mut conn.as_handle(), id, auth.member_id).await?;
+    let mut conn = state.db.pool_handle();
+    let account = find_owned(&mut conn, id, auth.member_id).await?;
     let links = scpi_links(&mut conn, auth.member_id).await?;
     let Some(connection) = resolve(&account, &links) else {
         return Ok(axum::Json(DeletionImpact::none()));
     };
-    if has_other_live_account(
-        &mut conn.as_handle(),
-        &connection,
-        id,
-        auth.member_id,
-        &links,
-    )
-    .await?
-    {
+    if has_other_live_account(&mut conn, &connection, id, auth.member_id, &links).await? {
         return Ok(axum::Json(DeletionImpact::none()));
     }
     Ok(axum::Json(DeletionImpact {

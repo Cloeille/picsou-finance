@@ -4,7 +4,6 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap};
 
-use crate::db::AsDbHandle;
 use crate::db::DbHandle;
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -264,9 +263,9 @@ async fn list(
     auth: Auth,
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<Vec<HoldingResponse>>> {
-    let mut conn = state.db.acquire().await?;
+    let mut conn = state.db.pool_handle();
     let lines = owned_holdings(
-        &mut conn.as_handle(),
+        &mut conn,
         &*state.ledger.prices,
         &*state.accounts.crypto_logos,
         id,
@@ -320,7 +319,7 @@ async fn update(
     let lines = std::slice::from_ref(&saved);
     let today = state.clock.today();
     let quotes = valuation::quotes_for(&*state.ledger.prices, &account, lines, today).await;
-    let mut conn = state.db.acquire().await?;
+    let mut conn = state.db.pool_handle();
     let logos = logos_for(&mut conn, &*state.accounts.crypto_logos, &account, lines).await?;
     Ok(axum::Json(to_response(&account, &saved, &quotes, &logos)))
 }

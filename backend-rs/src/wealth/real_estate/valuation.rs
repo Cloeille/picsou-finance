@@ -417,22 +417,20 @@ pub async fn estimate(
     account_id: i64,
     member_id: i64,
 ) -> AppResult<PropertyValuationResponse> {
-    let mut tx = state.db.begin().await?;
-    let account = access::require_owner(&mut tx.as_handle(), account_id, member_id).await?;
+    let mut pool = state.db.pool_handle();
+    let account = access::require_owner(&mut pool, account_id, member_id).await?;
     if account.account_type != AccountType::RealEstate {
         return Err(AppError::BadRequest(
             "Account is not a real estate account".to_owned(),
         ));
     }
-    let metadata = load_metadata(&mut tx, account_id).await?.ok_or_else(|| {
+    let metadata = load_metadata(&state.db, account_id).await?.ok_or_else(|| {
         AppError::status(
             axum::http::StatusCode::CONFLICT,
             "Property has no metadata yet",
         )
     })?;
-    let response = estimate_for(state, &mut tx.as_handle(), &account, metadata).await?;
-    tx.commit().await?;
-    Ok(response)
+    estimate_for(state, &account, metadata).await
 }
 
 /// PropertyValuationService.refreshAllForMember: values each REAL_ESTATE property of the member
@@ -456,12 +454,10 @@ pub async fn refresh_all_for_member(state: &AppState, member_id: i64) -> usize {
             continue;
         }
         let outcome: AppResult<bool> = async {
-            let mut tx = state.db.begin().await?;
-            let Some(metadata) = load_metadata(&mut tx, account.id).await? else {
+            let Some(metadata) = load_metadata(&state.db, account.id).await? else {
                 return Ok(false);
             };
-            let resp = estimate_for(state, &mut tx.as_handle(), &account, metadata).await?;
-            tx.commit().await?;
+            let resp = estimate_for(state, &account, metadata).await?;
             Ok(resp.status == ValuationStatus::Ok)
         }
         .await;
@@ -479,46 +475,57 @@ pub async fn refresh_all_for_member(state: &AppState, member_id: i64) -> usize {
     refreshed
 }
 
+struct GeocodePersist {
+    ban_id: Option<String>,
+    score: Option<Decimal>,
+}
+
 async fn estimate_for(
     state: &AppState,
-    conn: &mut DbHandle<'_>,
     account: &Account,
     mut metadata: FullMetadata,
 ) -> AppResult<PropertyValuationResponse> {
     let mode = metadata.valuation_mode;
     if !state.config.valuation_enabled {
-        return with_cost_basis_floor(
-            conn,
+        return finish_failed(
+            state,
             account,
             &metadata,
+            None,
             PropertyValuationResponse::failed(ValuationStatus::ProviderUnavailable, mode),
         )
         .await;
     }
     let Some(kind) = metadata.kind().filter(|k| k.is_estimable()) else {
-        return with_cost_basis_floor(
-            conn,
+        return finish_failed(
+            state,
             account,
             &metadata,
+            None,
             PropertyValuationResponse::failed(ValuationStatus::NotEstimable, mode),
         )
         .await;
     };
     if metadata.surface_area.is_none_or(|a| a <= Decimal::ZERO) {
-        return with_cost_basis_floor(
-            conn,
+        return finish_failed(
+            state,
             account,
             &metadata,
+            None,
             PropertyValuationResponse::failed(ValuationStatus::IncompleteData, mode),
         )
         .await;
     }
-    let geocode_status = geocode_if_needed(state, conn, &mut metadata).await?;
+
+    // All external HTTP calls (BAN geocoding, Cerema DVF, INSEE re-indexing) run strictly outside
+    // any DB transaction so SQLite's global writer_gate is never held across network I/O.
+    let (geocode_status, geocode_update) = geocode_if_needed(state, &mut metadata).await;
     if geocode_status != ValuationStatus::Ok {
-        return with_cost_basis_floor(
-            conn,
+        return finish_failed(
+            state,
             account,
             &metadata,
+            geocode_update.as_ref(),
             PropertyValuationResponse::failed(geocode_status, mode),
         )
         .await;
@@ -527,10 +534,11 @@ async fn estimate_for(
     let input = to_input(&metadata, kind);
     let cerema = state.market.cerema();
     if !cerema.supports(&input) {
-        return with_cost_basis_floor(
-            conn,
+        return finish_failed(
+            state,
             account,
             &metadata,
+            geocode_update.as_ref(),
             PropertyValuationResponse::failed(ValuationStatus::UnsupportedArea, mode),
         )
         .await;
@@ -539,10 +547,11 @@ async fn estimate_for(
     let raw = match cerema.estimate(&input).await {
         Ok(Some(r)) => r,
         Ok(None) => {
-            return with_cost_basis_floor(
-                conn,
+            return finish_failed(
+                state,
                 account,
                 &metadata,
+                geocode_update.as_ref(),
                 PropertyValuationResponse::failed(ValuationStatus::NoComparableData, mode),
             )
             .await;
@@ -552,10 +561,11 @@ async fn estimate_for(
                 "Valuation provider unavailable for property {}: {e}",
                 account.id
             );
-            return with_cost_basis_floor(
-                conn,
+            return finish_failed(
+                state,
                 account,
                 &metadata,
+                geocode_update.as_ref(),
                 PropertyValuationResponse::failed(ValuationStatus::ProviderUnavailable, mode),
             )
             .await;
@@ -597,6 +607,10 @@ async fn estimate_for(
     let detail = method_detail_json(&raw, &adjusted, reindex_ratio);
     let provider_name = cerema.provider_name();
     let now = state.clock.now();
+    let mut tx = state.db.begin().await?;
+    if let Some(geo) = &geocode_update {
+        persist_geocode(&mut tx.as_handle(), &metadata, geo, now).await?;
+    }
     crate::db::query(
         "INSERT INTO property_valuation \
          (account_id, member_id, valued_at, estimated_value, low_value, high_value, price_per_sqm, \
@@ -627,7 +641,7 @@ async fn estimate_for(
     .bind(raw.source_year)
     .bind(detail)
     .bind(now)
-    .execute(&mut *conn)
+    .execute(&mut tx)
     .await?;
 
     let applied_to_balance = mode == ValuationMode::Estimated;
@@ -636,9 +650,10 @@ async fn estimate_for(
             .bind(account.id)
             .bind(final_value)
             .bind(now)
-            .execute(&mut *conn)
+            .execute(&mut tx)
             .await?;
     }
+    tx.commit().await?;
 
     Ok(PropertyValuationResponse {
         status: ValuationStatus::Ok,
@@ -657,6 +672,26 @@ async fn estimate_for(
         reindex_ratio,
         adjustments: adjusted.applied,
     })
+}
+
+async fn finish_failed(
+    state: &AppState,
+    account: &Account,
+    metadata: &FullMetadata,
+    geocode_update: Option<&GeocodePersist>,
+    response: PropertyValuationResponse,
+) -> AppResult<PropertyValuationResponse> {
+    let needs_floor = account.current_balance.is_zero() && metadata.cost_basis() > Decimal::ZERO;
+    if geocode_update.is_none() && !needs_floor {
+        return Ok(response);
+    }
+    let mut tx = state.db.begin().await?;
+    if let Some(geo) = geocode_update {
+        persist_geocode(&mut tx.as_handle(), metadata, geo, state.clock.now()).await?;
+    }
+    let response = with_cost_basis_floor(&mut tx.as_handle(), account, metadata, response).await?;
+    tx.commit().await?;
+    Ok(response)
 }
 
 async fn with_cost_basis_floor(
@@ -684,45 +719,12 @@ async fn with_cost_basis_floor(
     Ok(response)
 }
 
-async fn geocode_if_needed(
-    state: &AppState,
+async fn persist_geocode(
     conn: &mut DbHandle<'_>,
-    m: &mut FullMetadata,
-) -> AppResult<ValuationStatus> {
-    if m.insee_code
-        .as_deref()
-        .is_some_and(|c| !c.trim().is_empty())
-    {
-        return Ok(ValuationStatus::Ok);
-    }
-    let query = build_address_query(m);
-    if query.is_empty() {
-        return Ok(ValuationStatus::IncompleteData);
-    }
-    let Some(hit) = geocoding::geocode(&state.http, &state.config.geocoding_api_url, &query).await
-    else {
-        return Ok(ValuationStatus::GeocodingFailed);
-    };
-    let Some(insee) = hit.insee_code.filter(|c| !c.trim().is_empty()) else {
-        return Ok(ValuationStatus::GeocodingFailed);
-    };
-    if hit.score.is_some_and(|s| s < MIN_GEOCODE_SCORE) {
-        tracing::info!(
-            "Geocoding score {:?} too low for '{query}' — refusing to value on it",
-            hit.score
-        );
-        return Ok(ValuationStatus::GeocodingFailed);
-    }
-    m.insee_code = Some(insee.clone());
-    m.latitude = hit.latitude;
-    m.longitude = hit.longitude;
-    if m.postal_code.as_deref().is_none_or(|s| s.trim().is_empty()) {
-        m.postal_code = hit.postcode.clone();
-    }
-    if m.city.as_deref().is_none_or(|s| s.trim().is_empty()) {
-        m.city = hit.city.clone();
-    }
-    let now = state.clock.now();
+    m: &FullMetadata,
+    geo: &GeocodePersist,
+    now: chrono::DateTime<chrono::Utc>,
+) -> sqlx::Result<()> {
     crate::db::query(
         "UPDATE real_estate_metadata SET \
            insee_code = $2, latitude = $3, longitude = $4, ban_id = $5, \
@@ -733,14 +735,60 @@ async fn geocode_if_needed(
     .bind(&m.insee_code)
     .bind(m.latitude)
     .bind(m.longitude)
-    .bind(&hit.ban_id)
-    .bind(hit.score)
+    .bind(&geo.ban_id)
+    .bind(geo.score)
     .bind(now)
     .bind(&m.postal_code)
     .bind(&m.city)
     .execute(conn)
     .await?;
-    Ok(ValuationStatus::Ok)
+    Ok(())
+}
+
+async fn geocode_if_needed(
+    state: &AppState,
+    m: &mut FullMetadata,
+) -> (ValuationStatus, Option<GeocodePersist>) {
+    if m.insee_code
+        .as_deref()
+        .is_some_and(|c| !c.trim().is_empty())
+    {
+        return (ValuationStatus::Ok, None);
+    }
+    let query = build_address_query(m);
+    if query.is_empty() {
+        return (ValuationStatus::IncompleteData, None);
+    }
+    let Some(hit) = geocoding::geocode(&state.http, &state.config.geocoding_api_url, &query).await
+    else {
+        return (ValuationStatus::GeocodingFailed, None);
+    };
+    let Some(insee) = hit.insee_code.filter(|c| !c.trim().is_empty()) else {
+        return (ValuationStatus::GeocodingFailed, None);
+    };
+    if hit.score.is_some_and(|s| s < MIN_GEOCODE_SCORE) {
+        tracing::info!(
+            "Geocoding score {:?} too low for '{query}' — refusing to value on it",
+            hit.score
+        );
+        return (ValuationStatus::GeocodingFailed, None);
+    }
+    m.insee_code = Some(insee);
+    m.latitude = hit.latitude;
+    m.longitude = hit.longitude;
+    if m.postal_code.as_deref().is_none_or(|s| s.trim().is_empty()) {
+        m.postal_code = hit.postcode.clone();
+    }
+    if m.city.as_deref().is_none_or(|s| s.trim().is_empty()) {
+        m.city = hit.city.clone();
+    }
+    (
+        ValuationStatus::Ok,
+        Some(GeocodePersist {
+            ban_id: hit.ban_id,
+            score: hit.score,
+        }),
+    )
 }
 
 fn build_address_query(m: &FullMetadata) -> String {

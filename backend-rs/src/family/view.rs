@@ -10,7 +10,7 @@ use serde::Serialize;
 use super::sharing::{self, ACCOUNT, GOAL, SharingLevel};
 use crate::AppState;
 use crate::auth::Auth;
-use crate::db::{self, AsDbHandle, DbFromRow, DbHandle};
+use crate::db::{self, DbFromRow, DbHandle};
 use crate::error::{AppError, AppResult};
 use crate::http::json::Path;
 use crate::ledger::model::{Account, FamilyMember};
@@ -187,22 +187,21 @@ pub async fn dashboard(
 ) -> AppResult<axum::Json<FamilyDashboardResponse>> {
     let today = state.clock.today();
     let prices = &*state.ledger.prices;
-    let mut conn = state.db.acquire().await?;
+    let mut conn = state.db.pool_handle();
     let all_members = members::find_all(&mut conn).await?;
     let mut shared_account_infos = Vec::new();
     let mut shared_goal_infos = Vec::new();
     let mut total = Decimal::ZERO;
 
     for member in all_members.iter().filter(|m| m.id != auth.member_id) {
-        let accounts = shared_accounts(&mut conn.as_handle(), member.id).await?;
+        let accounts = shared_accounts(&mut conn, member.id).await?;
         // Weighted by the owner's share: the viewer's own half of a co-owned house already
         // shows on their personal dashboard.
         let shares = access::shares_for(&mut conn, &accounts, member.id).await?;
         let listed: BTreeSet<i64> = accounts.iter().map(|a| a.id).collect();
         for account in &accounts {
             let signed =
-                valuation::signed_live_balance_eur(&mut conn.as_handle(), prices, account, today)
-                    .await?;
+                valuation::signed_live_balance_eur(&mut conn, prices, account, today).await?;
             let balance_eur =
                 access::weigh(signed, shares.get(&account.id).copied().unwrap_or_default());
             // A pocket is inside its parent wallet's balance; it counts only when the parent
@@ -224,12 +223,12 @@ pub async fn dashboard(
             });
         }
 
-        let goals = shared_goals(&mut conn.as_handle(), member.id).await?;
+        let goals = shared_goals(&mut conn, member.id).await?;
         if goals.is_empty() {
             continue;
         }
         let goal_ids: Vec<i64> = goals.iter().map(|g| g.id).collect();
-        let linked = goal_accounts(&mut conn.as_handle(), &goal_ids).await?;
+        let linked = goal_accounts(&mut conn, &goal_ids).await?;
         let mut distinct: Vec<Account> = Vec::new();
         for account in linked.values().flatten() {
             if !distinct.iter().any(|a| a.id == account.id) {
@@ -240,20 +239,14 @@ pub async fn dashboard(
         for goal in goals {
             let mut current_total = Decimal::ZERO;
             for account in linked.get(&goal.id).map(Vec::as_slice).unwrap_or_default() {
-                let signed = valuation::signed_live_balance_eur(
-                    &mut conn.as_handle(),
-                    prices,
-                    account,
-                    today,
-                )
-                .await?;
+                let signed =
+                    valuation::signed_live_balance_eur(&mut conn, prices, account, today).await?;
                 current_total += access::weigh(
                     signed,
                     goal_shares.get(&account.id).copied().unwrap_or_default(),
                 );
             }
-            let contributions =
-                contributions_of(&mut conn.as_handle(), goal.id, &all_members).await?;
+            let contributions = contributions_of(&mut conn, goal.id, &all_members).await?;
             shared_goal_infos.push(SharedGoalInfo {
                 id: goal.id,
                 owner_name: member.display_name.clone(),
@@ -290,18 +283,18 @@ async fn contributions(
     auth: Auth,
     Path(goal_id): Path<i64>,
 ) -> AppResult<axum::Json<Vec<ContributionInfo>>> {
-    let mut conn = state.db.acquire().await?;
+    let mut conn = state.db.pool_handle();
     let all_members = members::find_all(&mut conn).await?;
     let goal: GoalRow = db::query_as(&format!("SELECT {GOAL_COLUMNS} FROM goal WHERE id = $1"))
         .bind(goal_id)
         .fetch_optional(&mut conn)
         .await?
         .ok_or_else(|| AppError::NotFound("Goal not found".into()))?;
-    if goal.member_id != auth.member_id && !goal_visible(&mut conn.as_handle(), &goal).await? {
+    if goal.member_id != auth.member_id && !goal_visible(&mut conn, &goal).await? {
         return Err(AppError::Forbidden("Goal not accessible".into()));
     }
     Ok(axum::Json(
-        contributions_of(&mut conn.as_handle(), goal_id, &all_members).await?,
+        contributions_of(&mut conn, goal_id, &all_members).await?,
     ))
 }
 
@@ -379,8 +372,8 @@ mod tests {
             },
         ];
 
-        let mut conn = db.acquire().await.unwrap();
-        let result = contributions_of(&mut conn.as_handle(), goal_id, &members)
+        let mut conn = db.pool_handle();
+        let result = contributions_of(&mut conn, goal_id, &members)
             .await
             .unwrap();
         assert_eq!(result.len(), 2);
