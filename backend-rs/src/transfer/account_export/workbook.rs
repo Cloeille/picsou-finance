@@ -1,16 +1,18 @@
 //! AccountsWorkbookService and AccountSheetWriter: a summary sheet, a debt sheet, then one sheet
 //! per selected account with its identity, positions and property, loan or peer-loan detail.
 
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use rust_xlsxwriter::{Workbook, Worksheet, XlsxError};
-use sqlx::{FromRow, PgConnection};
+use sqlx::PgConnection;
 
 use super::labels::{LabelKey as L, SheetLabels};
 use super::sheet::{Cursor, Styles, Value};
 use crate::AppState;
+use crate::db::{AsDbHandle, DbFromRow, DbHandle};
 use crate::error::{AppError, AppResult};
 use crate::ledger::decimal::{HALF_UP, divide};
 use crate::ledger::loans::{self, LoanScheduleResponse};
@@ -61,7 +63,7 @@ struct HoldingRow {
     price_stale: bool,
 }
 
-#[derive(FromRow)]
+#[derive(DbFromRow)]
 struct RealEstate {
     purchase_price: Option<Decimal>,
     purchase_date: Option<NaiveDate>,
@@ -110,7 +112,7 @@ impl RealEstate {
     }
 }
 
-#[derive(FromRow)]
+#[derive(DbFromRow)]
 struct PropertyValuation {
     valued_at: NaiveDate,
     estimated_value: Decimal,
@@ -145,7 +147,7 @@ struct AccountData {
     peer_loan: Option<PeerLoanData>,
 }
 
-#[derive(FromRow, Default)]
+#[derive(DbFromRow, Default)]
 struct Profile {
     birth_date: Option<NaiveDate>,
     marginal_tax_rate: Option<Decimal>,
@@ -178,7 +180,7 @@ impl Profile {
     }
 }
 
-#[derive(FromRow)]
+#[derive(DbFromRow)]
 struct Plan {
     id: i64,
     name: String,
@@ -215,16 +217,16 @@ pub async fn build(
     for debt in liabilities::debts_of_member(&mut *conn, member_id).await? {
         debts.push(debt_data(&mut conn, debt, today).await?);
     }
-    let profile: Profile = sqlx::query_as(
+    let profile: Profile = crate::db::query_as(
         "SELECT birth_date, marginal_tax_rate, household_status, tax_household_parts, dependents, \
          annual_gross_income, monthly_net_before_tax, withholding_tax_rate, monthly_savings_capacity, \
          target_retirement_age, risk_profile FROM member_profile WHERE member_id = $1",
     )
     .bind(member_id)
-    .fetch_optional(&mut *conn)
+    .fetch_optional(&mut conn)
     .await?
     .unwrap_or_default();
-    let plans = recurring_plans(&mut conn, member_id).await?;
+    let plans = recurring_plans(&mut conn.as_handle(), member_id).await?;
     drop(conn);
 
     write(state, labels, &data, &profile, &plans, &debts, today)
@@ -245,12 +247,22 @@ async fn gather(
     let balance_eur = valuation::live_balance_eur(conn, prices, &account, today).await?;
 
     accounts::get_or_throw(&mut *conn, id, member_id).await?;
-    let stored: Vec<AccountHolding> = sqlx::query_as(&format!(
-        "SELECT {HOLDING_COLUMNS} FROM account_holding h WHERE h.account_id = $1 ORDER BY h.current_price DESC, h.id"
+    let mut stored: Vec<AccountHolding> = crate::db::query_as(&format!(
+        "SELECT {HOLDING_COLUMNS} FROM account_holding h WHERE h.account_id = $1 ORDER BY h.id"
     ))
     .bind(id)
     .fetch_all(&mut *conn)
     .await?;
+    // Match PostgreSQL `ORDER BY h.current_price DESC, h.id` (NULLS FIRST + exact Decimal order).
+    stored.sort_by(|a, b| {
+        match (a.current_price, b.current_price) {
+            (None, None) => Ordering::Equal,
+            (None, Some(_)) => Ordering::Less,
+            (Some(_), None) => Ordering::Greater,
+            (Some(pa), Some(pb)) => pb.cmp(&pa),
+        }
+        .then_with(|| a.id.cmp(&b.id))
+    });
     let quotes = valuation::quotes_for(prices, &account, &stored, today).await;
     let holdings = stored
         .iter()
@@ -258,14 +270,14 @@ async fn gather(
         .collect();
 
     let (real_estate, valuations) = if account.account_type == AccountType::RealEstate {
-        let valuations: Vec<PropertyValuation> = sqlx::query_as(
+        let valuations: Vec<PropertyValuation> = crate::db::query_as(
             "SELECT valued_at, estimated_value, low_value, high_value, price_per_sqm, provider, confidence, \
              sample_size, source_year FROM property_valuation WHERE account_id = $1 ORDER BY valued_at DESC, id DESC",
         )
         .bind(id)
         .fetch_all(&mut *conn)
         .await?;
-        let meta: Option<RealEstate> = sqlx::query_as(
+        let meta: Option<RealEstate> = crate::db::query_as(
             "SELECT purchase_price, purchase_date, agency_fees, notary_fees, works_cost, property_type, category, \
              address, postal_code, city, country, surface_area, land_area, construction_year, rooms, energy_class, \
              rental_income, valuation_mode FROM real_estate_metadata WHERE account_id = $1",
@@ -340,7 +352,7 @@ async fn peer_loan(
     let planned_interest = peer_loans::plan(&terms, Some(computed.principal_remaining), today)
         .map_err(|e| AppError::BadRequest(e.to_string()))?
         .map(|p| p.planned_interest);
-    let (counterparty, closed_at): (Option<String>, Option<NaiveDate>) = sqlx::query_as(
+    let (counterparty, closed_at): (Option<String>, Option<NaiveDate>) = crate::db::query_as(
         "SELECT c.name, t.closed_at FROM peer_loan_terms t LEFT JOIN peer_counterparty c ON c.id = t.counterparty_id \
          WHERE t.id = $1",
     )
@@ -371,24 +383,28 @@ async fn peer_loan(
     }))
 }
 
-async fn recurring_plans(conn: &mut PgConnection, member_id: i64) -> AppResult<Vec<PlanData>> {
-    let plans: Vec<Plan> = sqlx::query_as(
+async fn recurring_plans(conn: &mut DbHandle<'_>, member_id: i64) -> AppResult<Vec<PlanData>> {
+    let plans: Vec<Plan> = crate::db::query_as(
         "SELECT id, name, monthly_amount, expected_return, start_date, end_date FROM goal \
          WHERE member_id = $1 AND type = 'RECURRING_INVESTMENT' ORDER BY created_at, id",
     )
     .bind(member_id)
     .fetch_all(&mut *conn)
     .await?;
+    let first_sql = if conn.is_sqlite() {
+        "SELECT a.id, a.name FROM goal_account ga JOIN account a ON a.id = ga.account_id \
+         WHERE ga.goal_id = $1 AND a.deleted_at IS NULL ORDER BY ga.rowid LIMIT 1"
+    } else {
+        "SELECT a.id, a.name FROM goal_account ga JOIN account a ON a.id = ga.account_id \
+         WHERE ga.goal_id = $1 AND a.deleted_at IS NULL ORDER BY ga.ctid LIMIT 1"
+    };
     let mut out = Vec::new();
     for plan in plans {
-        let first: Option<(i64, String)> = sqlx::query_as(
-            "SELECT a.id, a.name FROM goal_account ga JOIN account a ON a.id = ga.account_id \
-             WHERE ga.goal_id = $1 AND a.deleted_at IS NULL ORDER BY ga.ctid LIMIT 1",
-        )
-        .bind(plan.id)
-        .fetch_optional(&mut *conn)
-        .await?;
-        let lines: Vec<(String, Decimal)> = sqlx::query_as(
+        let first: Option<(i64, String)> = crate::db::query_as(first_sql)
+            .bind(plan.id)
+            .fetch_optional(&mut *conn)
+            .await?;
+        let lines: Vec<(String, Decimal)> = crate::db::query_as(
             "SELECT ticker, monthly_amount FROM goal_allocation WHERE goal_id = $1 ORDER BY id",
         )
         .bind(plan.id)
@@ -398,11 +414,12 @@ async fn recurring_plans(conn: &mut PgConnection, member_id: i64) -> AppResult<V
         if let Some((account_id, _)) = &first
             && !lines.is_empty()
         {
-            let held: Vec<(String, Option<String>)> =
-                sqlx::query_as("SELECT ticker, name FROM account_holding WHERE account_id = $1")
-                    .bind(account_id)
-                    .fetch_all(&mut *conn)
-                    .await?;
+            let held: Vec<(String, Option<String>)> = crate::db::query_as(
+                "SELECT ticker, name FROM account_holding WHERE account_id = $1",
+            )
+            .bind(account_id)
+            .fetch_all(&mut *conn)
+            .await?;
             names.extend(held);
         }
         out.push(PlanData {

@@ -2,11 +2,10 @@
 //! JSON section of data.json and one CSV entry, read with the scope of the Java repository call.
 
 use rust_decimal::Decimal;
-use sqlx::postgres::PgRow;
-use sqlx::{PgConnection, Row};
 
 use super::Exporting;
 use super::json::Cell;
+use crate::db::{DbHandle, DbRow};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Kind {
@@ -300,7 +299,13 @@ const SHARED_RESOURCES: Table = Table {
     scope: Scope::Member,
     sql: "SELECT id, resource_type, resource_id, created_at FROM shared_resource \
           WHERE owner_member_id = $1 AND resource_type IN ('ACCOUNT', 'GOAL', 'DEBT', 'WALLET') \
-          ORDER BY array_position(ARRAY['ACCOUNT', 'GOAL', 'DEBT', 'WALLET']::varchar[], resource_type), id",
+          ORDER BY CASE resource_type \
+              WHEN 'ACCOUNT' THEN 1 \
+              WHEN 'GOAL' THEN 2 \
+              WHEN 'DEBT' THEN 3 \
+              WHEN 'WALLET' THEN 4 \
+              ELSE 5 \
+          END, id",
 };
 
 const TRANSACTIONS: Table = Table {
@@ -363,7 +368,7 @@ pub const EXPORTERS: [Exporter; 16] = [
     Exporter::Table(&WALLET_ADDRESSES),
 ];
 
-fn decode(row: &PgRow, columns: &[(&str, Kind)]) -> Result<Vec<Cell>, sqlx::Error> {
+fn decode(row: &DbRow, columns: &[(&str, Kind)]) -> Result<Vec<Cell>, sqlx::Error> {
     columns
         .iter()
         .enumerate()
@@ -394,28 +399,31 @@ fn decode(row: &PgRow, columns: &[(&str, Kind)]) -> Result<Vec<Cell>, sqlx::Erro
 }
 
 async fn query(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     sql: &str,
     columns: &[(&str, Kind)],
     key: i64,
 ) -> Result<Vec<Vec<Cell>>, sqlx::Error> {
-    let rows = sqlx::query(sql).bind(key).fetch_all(conn).await?;
+    let rows = crate::db::query(sql)
+        .bind(key)
+        .fetch_all(&mut *conn)
+        .await?;
     rows.iter().map(|r| decode(r, columns)).collect()
 }
 
 /// AccountRepository.findAllByMemberIdOrderByCreatedAtAsc: the live accounts.
-pub async fn account_ids(conn: &mut PgConnection, member_id: i64) -> Result<Vec<i64>, sqlx::Error> {
-    sqlx::query_scalar(
+pub async fn account_ids(conn: &mut DbHandle<'_>, member_id: i64) -> Result<Vec<i64>, sqlx::Error> {
+    crate::db::query_scalar(
         "SELECT id FROM account WHERE member_id = $1 AND deleted_at IS NULL ORDER BY created_at, id",
     )
     .bind(member_id)
-    .fetch_all(conn)
+    .fetch_all(&mut *conn)
     .await
 }
 
 /// The bound ids of a table's query: one query for the member or user, one per account.
 pub async fn keys(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     table: &Table,
     who: &Exporting,
 ) -> Result<Vec<i64>, sqlx::Error> {
@@ -427,7 +435,7 @@ pub async fn keys(
 }
 
 pub async fn rows(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     table: &Table,
     key: i64,
 ) -> Result<Vec<Vec<Cell>>, sqlx::Error> {
@@ -463,7 +471,7 @@ const PROFILE_COLUMNS: [(&str, Kind); 11] = [
 ];
 
 /// The user (no password hash, no activation token) and their own member row.
-pub async fn profile(conn: &mut PgConnection, who: &Exporting) -> Result<Vec<Cell>, sqlx::Error> {
+pub async fn profile(conn: &mut DbHandle<'_>, who: &Exporting) -> Result<Vec<Cell>, sqlx::Error> {
     let mut rows = query(
         conn,
         "SELECT u.id, u.username, u.role, u.is_activated, u.acknowledged_warning, u.created_at, u.updated_at, \
@@ -515,7 +523,7 @@ pub const GOAL_COLUMNS: [(&str, Kind); 11] = [
     ("updated_at", Instant),
 ];
 
-pub async fn goals(conn: &mut PgConnection, member_id: i64) -> Result<Vec<Vec<Cell>>, sqlx::Error> {
+pub async fn goals(conn: &mut DbHandle<'_>, member_id: i64) -> Result<Vec<Vec<Cell>>, sqlx::Error> {
     query(
         conn,
         "SELECT id, name, type, target_amount::text, deadline, monthly_amount::text, expected_return::text, \
@@ -528,16 +536,16 @@ pub async fn goals(conn: &mut PgConnection, member_id: i64) -> Result<Vec<Vec<Ce
 
 /// Goal.accounts: the ManyToMany loads only live accounts.
 pub async fn goal_account_ids(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     goal_id: i64,
 ) -> Result<Vec<i64>, sqlx::Error> {
-    sqlx::query_scalar(
+    crate::db::query_scalar(
         "SELECT ga.account_id FROM goal_account ga \
          JOIN account a ON a.id = ga.account_id AND a.deleted_at IS NULL \
          WHERE ga.goal_id = $1 ORDER BY ga.account_id",
     )
     .bind(goal_id)
-    .fetch_all(conn)
+    .fetch_all(&mut *conn)
     .await
 }
 
@@ -577,7 +585,7 @@ pub const GOAL_CHILDREN: [GoalChild; 4] = [
 ];
 
 pub async fn goal_children(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     child: &GoalChild,
     goal_id: i64,
 ) -> Result<Vec<Vec<Cell>>, sqlx::Error> {

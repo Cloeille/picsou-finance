@@ -14,9 +14,7 @@ use super::{
 use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::ledger::accounts::{self, NewAccount};
-use crate::ledger::model::{
-    Account, AccountType, CATEGORY_COLUMNS, Category, CategoryKind, NewTransaction,
-};
+use crate::ledger::model::{Account, AccountType, Category, CategoryKind, NewTransaction};
 use crate::ledger::sync_values::java_is_blank;
 use crate::ledger::{categorize, manual_ledger, transactions};
 use crate::transfer::preview_store::Entry;
@@ -462,7 +460,7 @@ fn existing_transfer_category(by_slug: &HashMap<String, Category>) -> AppResult<
     Ok(None)
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(crate::db::DbFromRow)]
 struct StoredRow {
     id: i64,
     external_id: String,
@@ -472,11 +470,11 @@ struct StoredRow {
 /// findStoredExternalIdsInAccounts: the prefix goes through LIKE, so its "_" matches any
 /// character; callers re-check the prefix.
 async fn stored_in_accounts(
-    conn: &mut PgConnection,
+    exec: impl crate::db::DbExec<'_>,
     member_id: i64,
     account_ids: &[i64],
 ) -> sqlx::Result<Vec<StoredRow>> {
-    sqlx::query_as(
+    crate::db::query_as(
         "SELECT t.id, t.external_id, t.account_id FROM \"transaction\" t JOIN account a ON a.id = t.account_id \
          WHERE a.member_id = $1 AND a.deleted_at IS NULL AND t.account_id = ANY($2) \
          AND t.external_id LIKE $3 || '%' ORDER BY t.id",
@@ -484,7 +482,7 @@ async fn stored_in_accounts(
     .bind(member_id)
     .bind(account_ids)
     .bind(PREFIX)
-    .fetch_all(conn)
+    .fetch_all(exec)
     .await
 }
 
@@ -654,9 +652,9 @@ pub(super) async fn execute(
         return Err(bad(PREVIEW_EXPIRED));
     }
     let member_exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM family_member WHERE id = $1)")
+        crate::db::query_scalar("SELECT EXISTS(SELECT 1 FROM family_member WHERE id = $1)")
             .bind(member_id)
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut tx)
             .await?;
     if !member_exists {
         return Err(bad("Family member not found"));
@@ -696,18 +694,18 @@ pub(super) async fn execute(
 
     let plan = &resolved.plan;
     if !plan.to_delete.is_empty() {
-        sqlx::query("DELETE FROM \"transaction\" WHERE id = ANY($1)")
+        crate::db::query("DELETE FROM \"transaction\" WHERE id = ANY($1)")
             .bind(&plan.to_delete)
-            .execute(&mut *tx)
+            .execute(&mut tx)
             .await?;
     }
     let mut moved = 0;
     for (row_id, source) in &plan.to_move {
         let target = &resolved.targets[source];
-        moved += sqlx::query("UPDATE \"transaction\" SET account_id = $2 WHERE id = $1")
+        moved += crate::db::query("UPDATE \"transaction\" SET account_id = $2 WHERE id = $1")
             .bind(row_id)
             .bind(target.id)
-            .execute(&mut *tx)
+            .execute(&mut tx)
             .await?
             .rows_affected() as usize;
     }
@@ -899,7 +897,7 @@ async fn create_categories(
 /// Category.builder() with its defaults: no icon, not default, not archived, sort order 0.
 #[allow(clippy::too_many_arguments)]
 async fn insert_category(
-    conn: &mut PgConnection,
+    exec: impl crate::db::DbExec<'_>,
     member_id: i64,
     name: &str,
     slug: &str,
@@ -908,11 +906,11 @@ async fn insert_category(
     parent_id: Option<i64>,
     now: chrono::DateTime<chrono::Utc>,
 ) -> sqlx::Result<Category> {
-    sqlx::query_as(&format!(
-        "WITH c AS (INSERT INTO category (member_id, parent_id, name, slug, kind, color, icon, is_default, archived, \
+    crate::db::query_as(
+        "INSERT INTO category (member_id, parent_id, name, slug, kind, color, icon, is_default, archived, \
          sort_order, created_at, updated_at) VALUES ($1, $2, $3, $4, $5::category_kind, $6, NULL, false, false, 0, $7, \
-         $7) RETURNING *) SELECT {CATEGORY_COLUMNS} FROM c"
-    ))
+         $7) RETURNING id, member_id, parent_id, name, slug, kind::text AS kind, color, icon, is_default, archived, sort_order",
+    )
     .bind(member_id)
     .bind(parent_id)
     .bind(name)
@@ -920,7 +918,7 @@ async fn insert_category(
     .bind(kind)
     .bind(color)
     .bind(now)
-    .fetch_one(conn)
+    .fetch_one(exec)
     .await
 }
 

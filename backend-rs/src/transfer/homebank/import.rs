@@ -17,8 +17,7 @@ use crate::ledger::categorize;
 use crate::ledger::manual_ledger;
 use crate::ledger::members;
 use crate::ledger::model::{
-    Account, AccountType, CATEGORY_COLUMNS, CardNature, Category, CategoryKind, NewTransaction,
-    RecurringCadence,
+    Account, AccountType, CardNature, Category, CategoryKind, NewTransaction, RecurringCadence,
 };
 use crate::ledger::sync_values::java_is_blank;
 use crate::ledger::transactions;
@@ -885,7 +884,7 @@ fn validate_transactions(
 }
 
 async fn validate_existing_transaction_ownership(
-    conn: &mut PgConnection,
+    exec: impl crate::db::DbExec<'_>,
     parsed: &ParsedHomeBankData,
     mappings: &HashMap<&str, &AccountMapping>,
     targets: &HashMap<String, Account>,
@@ -910,13 +909,13 @@ async fn validate_existing_transaction_ownership(
     if external_ids.is_empty() {
         return Ok(());
     }
-    let existing: Vec<(String, i64)> = sqlx::query_as(
+    let existing: Vec<(String, i64)> = crate::db::query_as(
         "SELECT t.external_id, t.account_id FROM \"transaction\" t JOIN account a ON a.id = t.account_id \
          WHERE a.member_id = $1 AND a.deleted_at IS NULL AND t.external_id = ANY($2)",
     )
     .bind(member_id)
     .bind(&external_ids)
-    .fetch_all(&mut *conn)
+    .fetch_all(exec)
     .await?;
     let mut source_account_by_external_id: HashMap<String, &str> = HashMap::new();
     for t in parsed.transactions.iter().filter(|t| !t.forecast) {
@@ -970,7 +969,7 @@ struct NewCategory<'a> {
 }
 
 async fn insert_category(
-    conn: &mut PgConnection,
+    exec: impl crate::db::DbExec<'_>,
     category: NewCategory<'_>,
     now: DateTime<Utc>,
 ) -> AppResult<Category> {
@@ -982,11 +981,11 @@ async fn insert_category(
         color,
         parent_id,
     } = category;
-    Ok(sqlx::query_as(&format!(
-        "WITH c AS (INSERT INTO category (member_id, parent_id, slug, name, kind, color, is_default, archived, \
+    Ok(crate::db::query_as(
+        "INSERT INTO category (member_id, parent_id, slug, name, kind, color, is_default, archived, \
          sort_order, created_at, updated_at) VALUES ($1, $2, $3, $4, $5::category_kind, $6, false, false, 0, $7, $7) \
-         RETURNING *) SELECT {CATEGORY_COLUMNS} FROM c"
-    ))
+         RETURNING id, member_id, parent_id, name, slug, kind::text AS kind, color, icon, is_default, archived, sort_order",
+    )
     .bind(member_id)
     .bind(parent_id)
     .bind(slug)
@@ -994,7 +993,7 @@ async fn insert_category(
     .bind(kind)
     .bind(color)
     .bind(now)
-    .fetch_one(&mut *conn)
+    .fetch_one(exec)
     .await?)
 }
 

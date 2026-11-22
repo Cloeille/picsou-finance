@@ -214,7 +214,7 @@ async fn consented_scopes(
     client: &RegisteredClient,
     principal: &str,
 ) -> Result<Option<Vec<String>>, sqlx::Error> {
-    let authorities: Option<String> = sqlx::query_scalar(
+    let authorities: Option<String> = crate::db::query_scalar(
         "SELECT authorities FROM oauth2_authorization_consent WHERE registered_client_id = $1 AND principal_name = $2",
     )
     .bind(&client.id)
@@ -247,7 +247,7 @@ async fn issue_code(
     let attributes = jackson::attributes(&grant.user, &grant.request, None);
     let scopes = grant.scopes.join(",");
     let id = existing.map_or_else(|| Uuid::new_v4().to_string(), str::to_owned);
-    sqlx::query(
+    crate::db::query(
         "INSERT INTO oauth2_authorization (id, registered_client_id, principal_name, authorization_grant_type, \
          authorized_scopes, attributes, state, authorization_code_value, authorization_code_issued_at, \
          authorization_code_expires_at, authorization_code_metadata) \
@@ -388,7 +388,7 @@ pub async fn authorize(
             .is_some_and(|c| requested_scopes.iter().all(|s| c.contains(s)));
     if needs_consent {
         let consent_state = URL_SAFE.encode(random_bytes::<32>());
-        sqlx::query(
+        crate::db::query(
             "INSERT INTO oauth2_authorization (id, registered_client_id, principal_name, authorization_grant_type, \
              attributes, state) VALUES ($1, $2, $3, 'authorization_code', $4, $5)",
         )
@@ -422,7 +422,7 @@ pub async fn authorize(
     .await
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(crate::db::DbFromRow)]
 struct PendingConsent {
     id: String,
     registered_client_id: String,
@@ -446,7 +446,7 @@ async fn consent(
     else {
         return Ok(unauthorized());
     };
-    let pending: Option<PendingConsent> = sqlx::query_as(
+    let pending: Option<PendingConsent> = crate::db::query_as(
         "SELECT id, registered_client_id, principal_name, attributes FROM oauth2_authorization WHERE state = $1",
     )
     .bind(consent_state)
@@ -503,7 +503,7 @@ async fn consent(
     }
     // Earlier consents count: only a client never consented to, approved nothing, is denied.
     if authorities.is_empty() {
-        sqlx::query("DELETE FROM oauth2_authorization WHERE id = $1")
+        crate::db::query("DELETE FROM oauth2_authorization WHERE id = $1")
             .bind(&pending.id)
             .execute(&state.db)
             .await?;
@@ -516,7 +516,7 @@ async fn consent(
         ));
     }
     let authorities: Vec<String> = authorities.iter().map(|s| format!("SCOPE_{s}")).collect();
-    sqlx::query(
+    crate::db::query(
         "INSERT INTO oauth2_authorization_consent (registered_client_id, principal_name, authorities) VALUES ($1, $2, $3) \
          ON CONFLICT (registered_client_id, principal_name) DO UPDATE SET authorities = EXCLUDED.authorities",
     )
@@ -582,7 +582,7 @@ fn confidential_attempt(headers: &HeaderMap, params: &HashMap<String, Vec<String
     }
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(crate::db::DbFromRow)]
 struct CodeAuthorization {
     id: String,
     registered_client_id: String,
@@ -687,7 +687,7 @@ pub async fn token(
     if !client.authentication_methods.iter().any(|m| m == "none") {
         return Ok(invalid_client());
     }
-    let found: Option<CodeAuthorization> = sqlx::query_as(
+    let found: Option<CodeAuthorization> = crate::db::query_as(
         "SELECT id, registered_client_id, principal_name, authorized_scopes, attributes, \
          authorization_code_expires_at, authorization_code_metadata, access_token_metadata \
          FROM oauth2_authorization WHERE authorization_code_value = $1",
@@ -727,11 +727,13 @@ pub async fn token(
     if jackson::token_metadata_invalidated(found.authorization_code_metadata.as_deref()) {
         // A replayed code revokes what it minted.
         if let Some(meta) = &found.access_token_metadata {
-            sqlx::query("UPDATE oauth2_authorization SET access_token_metadata = $2 WHERE id = $1")
-                .bind(&found.id)
-                .bind(jackson::invalidate(meta))
-                .execute(&state.db)
-                .await?;
+            crate::db::query(
+                "UPDATE oauth2_authorization SET access_token_metadata = $2 WHERE id = $1",
+            )
+            .bind(&found.id)
+            .bind(jackson::invalidate(meta))
+            .execute(&state.db)
+            .await?;
         }
         return Ok(invalid_grant());
     }
@@ -752,7 +754,7 @@ pub async fn token(
     let expires = now + chrono::Duration::seconds(client.access_token_ttl);
     let claims = access_claims(&origin, &client, &snapshot, &scopes, now, expires);
     let access_token = sign(&state, &claims);
-    sqlx::query(
+    crate::db::query(
         "UPDATE oauth2_authorization SET authorization_code_metadata = $2, access_token_value = $3, \
          access_token_issued_at = $4, access_token_expires_at = $5, access_token_metadata = $6, \
          access_token_type = 'Bearer', access_token_scopes = $7 WHERE id = $1",

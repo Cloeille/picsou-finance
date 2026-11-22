@@ -36,7 +36,7 @@ struct OAuth2SessionStatus {
     source: &'static str,
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(crate::db::DbFromRow)]
 struct KeyStatusRow {
     id: i64,
     name: String,
@@ -102,7 +102,7 @@ pub async fn call(
                     to_json_text(&status)
                 }
                 AuthMethod::AccessKey { key_id, .. } => {
-                    let row: KeyStatusRow = sqlx::query_as(
+                    let row: KeyStatusRow = crate::db::query_as(
                         "SELECT id, name, scopes, created_at, last_used_at, expires_at \
                          FROM access_key WHERE id = $1 AND member_id = $2",
                     )

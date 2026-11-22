@@ -19,7 +19,7 @@ pub const SECURITY_PROFILE_BATCH: usize = 40;
 pub const DIVIDEND_HISTORY_BATCH: usize = 40;
 
 async fn member_ids(state: &AppState) -> sqlx::Result<Vec<i64>> {
-    sqlx::query_scalar("SELECT id FROM family_member ORDER BY created_at ASC")
+    crate::db::query_scalar("SELECT id FROM family_member ORDER BY created_at ASC")
         .fetch_all(&state.db)
         .await
 }
@@ -261,7 +261,7 @@ pub async fn refresh_dividend_history_pass(state: &AppState) -> AppResult<usize>
     let with_isin: HashSet<String> = if wanted.is_empty() {
         HashSet::new()
     } else {
-        let rows: Vec<String> = sqlx::query_scalar(
+        let rows: Vec<String> = crate::db::query_scalar(
             "SELECT ticker FROM security_profile WHERE isin IS NOT NULL AND upper(ticker) = ANY($1)",
         )
         .bind(&wanted)

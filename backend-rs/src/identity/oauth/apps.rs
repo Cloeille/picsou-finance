@@ -24,7 +24,7 @@ pub struct ConnectedApp {
     last_used_at: Option<DateTime<Utc>>,
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(crate::db::DbFromRow)]
 struct Row {
     id: String,
     client_name: String,
@@ -36,7 +36,7 @@ pub async fn list(
     State(state): State<AppState>,
     auth: Auth,
 ) -> AppResult<axum::Json<Vec<ConnectedApp>>> {
-    let rows: Vec<Row> = sqlx::query_as(
+    let rows: Vec<Row> = crate::db::query_as(
         "SELECT a.id, c.client_name, a.authorized_scopes AS scopes, a.access_token_issued_at AS issued_at \
          FROM oauth2_authorization a JOIN oauth2_registered_client c ON c.id = a.registered_client_id \
          WHERE a.principal_name = $1 AND a.access_token_value IS NOT NULL \
@@ -78,7 +78,7 @@ pub async fn revoke(
     Path(id): Path<String>,
 ) -> AppResult<StatusCode> {
     let removed =
-        sqlx::query("DELETE FROM oauth2_authorization WHERE id = $1 AND principal_name = $2")
+        crate::db::query("DELETE FROM oauth2_authorization WHERE id = $1 AND principal_name = $2")
             .bind(&id)
             .bind(&auth.user.username)
             .execute(&state.db)

@@ -11,6 +11,7 @@ use sqlx::Connection;
 use crate::AppState;
 use crate::auth::cookies::Cookies;
 use crate::auth::{AppUser, Auth, password, users};
+use crate::db::AsDbHandle;
 use crate::error::{AppError, AppResult, Problem};
 use crate::http::client_ip::ClientIp;
 use crate::http::json::{Errors, Json, Path, Validate};
@@ -60,7 +61,7 @@ pub struct SignInMethodsResponse {
     admin_group_managed: bool,
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(crate::db::DbFromRow)]
 struct IdentityRow {
     id: i64,
     issuer: String,
@@ -80,7 +81,7 @@ pub async fn sign_in_methods(
 ) -> AppResult<axum::Json<SignInMethodsResponse>> {
     let sso = sso::Settings::new(&state);
     let issuer = sso.issuer_uri();
-    let rows: Vec<IdentityRow> = sqlx::query_as(
+    let rows: Vec<IdentityRow> = crate::db::query_as(
         "SELECT id, issuer, email, display_name, created_at, last_login_at FROM user_identity \
          WHERE user_id = $1 ORDER BY created_at ASC",
     )
@@ -166,7 +167,7 @@ pub async fn reauth(
 }
 
 async fn lock_user(tx: &mut sqlx::PgConnection, user_id: i64) -> AppResult<AppUser> {
-    sqlx::query("SELECT id FROM app_user WHERE id = $1 FOR UPDATE")
+    crate::db::query("SELECT id FROM app_user WHERE id = $1 FOR UPDATE")
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
@@ -175,14 +176,14 @@ async fn lock_user(tx: &mut sqlx::PgConnection, user_id: i64) -> AppResult<AppUs
         .ok_or_else(|| AppError::NotFound("User not found".into()))
 }
 
-async fn delete_mfa(tx: &mut sqlx::PgConnection, user_id: i64) -> Result<(), sqlx::Error> {
-    sqlx::query(
+async fn delete_mfa(tx: &mut crate::db::DbHandle<'_>, user_id: i64) -> Result<(), sqlx::Error> {
+    crate::db::query(
         "DELETE FROM user_mfa_recovery_code WHERE user_mfa_id IN (SELECT id FROM user_mfa WHERE user_id = $1)",
     )
     .bind(user_id)
     .execute(&mut *tx)
     .await?;
-    sqlx::query("DELETE FROM user_mfa WHERE user_id = $1")
+    crate::db::query("DELETE FROM user_mfa WHERE user_id = $1")
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
@@ -235,12 +236,12 @@ pub async fn remove_password(
             "Single sign-on is not available, so password login cannot be turned off",
         ));
     }
-    let used: bool = sqlx::query_scalar(
+    let used: bool = crate::db::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM user_identity WHERE user_id = $1 AND issuer = $2 AND last_login_at IS NOT NULL)",
     )
     .bind(user.id)
     .bind(&issuer)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut tx)
     .await?;
     if !used {
         return Err(AppError::coded(
@@ -253,26 +254,26 @@ pub async fn remove_password(
         tx.commit().await?;
         return Ok(StatusCode::NO_CONTENT.into_response());
     }
-    delete_mfa(&mut tx, user.id).await?;
-    sqlx::query(
+    delete_mfa(&mut tx.as_handle(), user.id).await?;
+    crate::db::query(
         "UPDATE app_user SET password_hash = '', token_version = token_version + 1, updated_at = now() WHERE id = $1",
     )
     .bind(user.id)
-    .execute(&mut *tx)
+    .execute(&mut tx)
     .await?;
-    sqlx::query(
+    crate::db::query(
         "UPDATE persistent_session SET revoked_at = $2 WHERE user_id = $1 AND revoked_at IS NULL",
     )
     .bind(user.id)
     .bind(state.clock.now())
-    .execute(&mut *tx)
+    .execute(&mut tx)
     .await?;
-    let latest: Option<DateTime<Utc>> = sqlx::query_scalar(
+    let latest: Option<DateTime<Utc>> = crate::db::query_scalar(
         "SELECT max(last_login_at) FROM user_identity WHERE user_id = $1 AND issuer = $2",
     )
     .bind(user.id)
     .bind(&issuer)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut tx)
     .await?;
     tx.commit().await?;
     let jar = reissue(&state, user.id, latest, &ip, &headers).await?;
@@ -320,19 +321,19 @@ pub async fn set_password(
         ));
     }
     let hash = password::hash(&request.new_password.unwrap_or_default()).await?;
-    sqlx::query(
+    crate::db::query(
         "UPDATE app_user SET password_hash = $2, token_version = token_version + 1, updated_at = now() WHERE id = $1",
     )
     .bind(user.id)
     .bind(hash)
-    .execute(&mut *tx)
+    .execute(&mut tx)
     .await?;
-    sqlx::query(
+    crate::db::query(
         "UPDATE persistent_session SET revoked_at = $2 WHERE user_id = $1 AND revoked_at IS NULL",
     )
     .bind(user.id)
     .bind(state.clock.now())
-    .execute(&mut *tx)
+    .execute(&mut tx)
     .await?;
     tx.commit().await?;
     let sso_at = current_sso_at(&state, &headers).await?;
@@ -362,21 +363,21 @@ pub async fn unlink_identity(
     let user = lock_user(&mut tx, auth.user.id).await?;
     require_proof(&state, &user, &headers)?;
     let identity_issuer: Option<String> =
-        sqlx::query_scalar("SELECT issuer FROM user_identity WHERE id = $1 AND user_id = $2")
+        crate::db::query_scalar("SELECT issuer FROM user_identity WHERE id = $1 AND user_id = $2")
             .bind(id)
             .bind(user.id)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut tx)
             .await?;
     let Some(identity_issuer) = identity_issuer else {
         return Err(AppError::NotFound("Identity not found".into()));
     };
     if !has_password(&user) {
-        let same_issuer: i64 = sqlx::query_scalar(
+        let same_issuer: i64 = crate::db::query_scalar(
             "SELECT count(*) FROM user_identity WHERE user_id = $1 AND issuer = $2",
         )
         .bind(user.id)
         .bind(&issuer)
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut tx)
         .await?;
         let left = same_issuer - i64::from(identity_issuer == issuer);
         if left <= 0 {
@@ -387,9 +388,9 @@ pub async fn unlink_identity(
             ));
         }
     }
-    sqlx::query("DELETE FROM user_identity WHERE id = $1")
+    crate::db::query("DELETE FROM user_identity WHERE id = $1")
         .bind(id)
-        .execute(&mut *tx)
+        .execute(&mut tx)
         .await?;
     tx.commit().await?;
     let details = format!("identityId={id}");

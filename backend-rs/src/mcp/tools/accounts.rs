@@ -397,9 +397,9 @@ pub async fn call(
             let holding = holdings::find_by_account_and_ticker(&mut *tx, account_id, &ticker)
                 .await?
                 .ok_or_else(|| AppError::NotFound("Holding not found".to_owned()))?;
-            sqlx::query("DELETE FROM account_holding WHERE id = $1")
+            crate::db::query("DELETE FROM account_holding WHERE id = $1")
                 .bind(holding.id)
-                .execute(&mut *tx)
+                .execute(&mut tx)
                 .await?;
             tx.commit().await?;
             Ok(format!(

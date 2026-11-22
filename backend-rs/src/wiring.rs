@@ -474,7 +474,7 @@ impl ConnectionRemoval for SyncConnectionRemoval {
                 let Ok(wallet_id) = connection.discriminator.parse::<i64>() else {
                     return Ok(RemovedConnection::simple(false));
                 };
-                let exists: bool = sqlx::query_scalar(
+                let exists: bool = crate::db::query_scalar(
                     "SELECT EXISTS(SELECT 1 FROM wallet_address WHERE id = $1 AND member_id = $2)",
                 )
                 .bind(wallet_id)
@@ -489,7 +489,7 @@ impl ConnectionRemoval for SyncConnectionRemoval {
                 true
             }
             K::Exchange => {
-                let id: Option<i64> = sqlx::query_scalar(
+                let id: Option<i64> = crate::db::query_scalar(
                     "SELECT id FROM crypto_exchange_session WHERE exchange_type = $1 AND member_id = $2",
                 )
                 .bind(&connection.discriminator)
@@ -499,40 +499,42 @@ impl ConnectionRemoval for SyncConnectionRemoval {
                 let Some(id) = id else {
                     return Ok(RemovedConnection::simple(false));
                 };
-                sqlx::query("DELETE FROM crypto_exchange_session WHERE id = $1")
+                crate::db::query("DELETE FROM crypto_exchange_session WHERE id = $1")
                     .bind(id)
                     .execute(&mut *conn)
                     .await?;
                 true
             }
-            K::Amundi => delete_sidecar(conn, SidecarBank::Amundi, member_id).await?,
+            K::Amundi => delete_sidecar(&mut *conn, SidecarBank::Amundi, member_id).await?,
             K::Cmes => {
                 let _guard = state.connectors.cmes_logins.write_lock().await;
                 state.connectors.cmes_logins.forget_member(member_id);
-                delete_sidecar(conn, SidecarBank::Cmes, member_id).await?
+                delete_sidecar(&mut *conn, SidecarBank::Cmes, member_id).await?
             }
             K::Cic => {
                 let _guard = state.connectors.cic_logins.write_lock().await;
                 state.connectors.cic_logins.forget_member(member_id);
-                delete_sidecar(conn, SidecarBank::Cic, member_id).await?
+                delete_sidecar(&mut *conn, SidecarBank::Cic, member_id).await?
             }
             K::Natixis => {
                 let _guard = state.connectors.natixis_logins.write_lock().await;
                 state.connectors.natixis_logins.forget_member(member_id);
-                delete_sidecar(conn, SidecarBank::Natixis, member_id).await?
+                delete_sidecar(&mut *conn, SidecarBank::Natixis, member_id).await?
             }
             K::TradeRepublic => {
                 let _guard = state.connectors.trade_republic.session_write.lock().await;
                 state.connectors.trade_republic.bump_generation(member_id);
-                delete_sidecar(conn, SidecarBank::TradeRepublic, member_id).await?
+                delete_sidecar(&mut *conn, SidecarBank::TradeRepublic, member_id).await?
             }
-            K::BourseDirect => delete_sidecar(conn, SidecarBank::BourseDirect, member_id).await?,
-            K::Bourso => delete_sidecar(conn, SidecarBank::Bourso, member_id).await?,
-            K::Fortuneo => delete_sidecar(conn, SidecarBank::Fortuneo, member_id).await?,
-            K::Corum => delete_sidecar(conn, SidecarBank::Corum, member_id).await?,
-            K::Bnp => delete_sidecar(conn, SidecarBank::Bnp, member_id).await?,
+            K::BourseDirect => {
+                delete_sidecar(&mut *conn, SidecarBank::BourseDirect, member_id).await?
+            }
+            K::Bourso => delete_sidecar(&mut *conn, SidecarBank::Bourso, member_id).await?,
+            K::Fortuneo => delete_sidecar(&mut *conn, SidecarBank::Fortuneo, member_id).await?,
+            K::Corum => delete_sidecar(&mut *conn, SidecarBank::Corum, member_id).await?,
+            K::Bnp => delete_sidecar(&mut *conn, SidecarBank::Bnp, member_id).await?,
             K::Degiro => {
-                let rows = sqlx::query("DELETE FROM degiro_session WHERE member_id = $1")
+                let rows = crate::db::query("DELETE FROM degiro_session WHERE member_id = $1")
                     .bind(member_id)
                     .execute(&mut *conn)
                     .await?
@@ -540,7 +542,7 @@ impl ConnectionRemoval for SyncConnectionRemoval {
                 rows > 0
             }
             K::Lbp => {
-                let rows = sqlx::query("DELETE FROM lbp_session WHERE member_id = $1")
+                let rows = crate::db::query("DELETE FROM lbp_session WHERE member_id = $1")
                     .bind(member_id)
                     .execute(&mut *conn)
                     .await?
@@ -548,7 +550,7 @@ impl ConnectionRemoval for SyncConnectionRemoval {
                 rows > 0
             }
             K::Ibkr => {
-                let rows = sqlx::query("DELETE FROM ibkr_connection WHERE member_id = $1")
+                let rows = crate::db::query("DELETE FROM ibkr_connection WHERE member_id = $1")
                     .bind(member_id)
                     .execute(&mut *conn)
                     .await?
@@ -556,11 +558,12 @@ impl ConnectionRemoval for SyncConnectionRemoval {
                 rows > 0
             }
             K::Simplefin => {
-                let rows = sqlx::query("DELETE FROM simplefin_connection WHERE member_id = $1")
-                    .bind(member_id)
-                    .execute(&mut *conn)
-                    .await?
-                    .rows_affected();
+                let rows =
+                    crate::db::query("DELETE FROM simplefin_connection WHERE member_id = $1")
+                        .bind(member_id)
+                        .execute(&mut *conn)
+                        .await?
+                        .rows_affected();
                 rows > 0
             }
             K::Wise => crate::sync::wise::delete_connection(&mut *conn, member_id).await?,
@@ -589,14 +592,14 @@ impl ConnectionRemoval for SyncConnectionRemoval {
 }
 
 async fn delete_sidecar(
-    conn: &mut PgConnection,
+    exec: impl crate::db::DbExec<'_>,
     bank: SidecarBank,
     member_id: i64,
 ) -> AppResult<bool> {
-    let rows = sqlx::query("DELETE FROM sidecar_session WHERE bank = $1 AND member_id = $2")
+    let rows = crate::db::query("DELETE FROM sidecar_session WHERE bank = $1 AND member_id = $2")
         .bind(bank.as_str())
         .bind(member_id)
-        .execute(&mut *conn)
+        .execute(exec)
         .await?
         .rows_affected();
     Ok(rows > 0)
@@ -677,7 +680,7 @@ struct MarketSecurityProfiles {
 const PROFILE_REFRESH_AFTER_DAYS: i64 = 30;
 const PROFILE_RETRY_FAILURE_DAYS: i64 = 3;
 
-#[derive(sqlx::FromRow)]
+#[derive(crate::db::DbFromRow)]
 struct ProfileFreshness {
     ticker: String,
     status: String,
@@ -721,23 +724,24 @@ impl SecurityProfileRefresher for MarketSecurityProfiles {
             return 0;
         }
         let keys: Vec<&str> = upper.iter().map(String::as_str).collect();
-        let known: HashMap<String, ProfileFreshness> = match sqlx::query_as::<_, ProfileFreshness>(
-            "SELECT ticker, status, refreshed_at, last_attempt_at, isin \
+        let known: HashMap<String, ProfileFreshness> =
+            match crate::db::query_as::<ProfileFreshness>(
+                "SELECT ticker, status, refreshed_at, last_attempt_at, isin \
              FROM security_profile WHERE ticker = ANY($1)",
-        )
-        .bind(&keys)
-        .fetch_all(db)
-        .await
-        {
-            Ok(rows) => rows
-                .into_iter()
-                .map(|r| (r.ticker.to_uppercase(), r))
-                .collect(),
-            Err(e) => {
-                tracing::warn!("Could not load security profiles: {e}");
-                return 0;
-            }
-        };
+            )
+            .bind(keys.as_slice())
+            .fetch_all(db)
+            .await
+            {
+                Ok(rows) => rows
+                    .into_iter()
+                    .map(|r| (r.ticker.to_uppercase(), r))
+                    .collect(),
+                Err(e) => {
+                    tracing::warn!("Could not load security profiles: {e}");
+                    return 0;
+                }
+            };
 
         let now = self.clock.now();
         let success_cutoff = now - chrono::Duration::days(PROFILE_REFRESH_AFTER_DAYS);
@@ -836,7 +840,7 @@ impl MarketSecurityProfiles {
 
         let status = if resolved { "OK" } else { "NO_DATA" };
         let mut tx = db.begin().await?;
-        let profile_id: i64 = sqlx::query_scalar(
+        let profile_id: i64 = crate::db::query_scalar(
             "INSERT INTO security_profile \
              (ticker, asset_type, isin, sector_key, country_key, source, as_of, status, last_error, \
               last_attempt_at, refreshed_at, ter_percent, distribution_policy, replication, domicile_country, \
@@ -873,24 +877,24 @@ impl MarketSecurityProfiles {
         .bind(&replication)
         .bind(&domicile_country)
         .bind(replace_slices)
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut tx)
         .await?;
 
         if replace_slices {
-            sqlx::query("DELETE FROM security_composition_slice WHERE profile_id = $1")
+            crate::db::query("DELETE FROM security_composition_slice WHERE profile_id = $1")
                 .bind(profile_id)
-                .execute(&mut *tx)
+                .execute(&mut tx)
                 .await?;
             for (kind, label, percent) in &slices {
-                sqlx::query(
+                crate::db::query(
                     "INSERT INTO security_composition_slice (profile_id, kind, label, percent) \
                      VALUES ($1, $2, $3, $4)",
                 )
                 .bind(profile_id)
-                .bind(kind)
+                .bind(*kind)
                 .bind(label)
                 .bind(percent)
-                .execute(&mut *tx)
+                .execute(&mut tx)
                 .await?;
             }
         }

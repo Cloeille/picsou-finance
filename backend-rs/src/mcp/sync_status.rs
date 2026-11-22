@@ -80,7 +80,7 @@ fn push_reader(lines: &mut Vec<String>, source: &str, result: Result<Vec<String>
 }
 
 async fn revolut(state: &AppState, member_id: i64) -> Result<Vec<String>, sqlx::Error> {
-    let row: Option<(bool, Option<DateTime<Utc>>)> = sqlx::query_as(
+    let row: Option<(bool, Option<DateTime<Utc>>)> = crate::db::query_as(
         "SELECT remember_credentials, last_synced_at FROM revolut_session \
          WHERE member_id = $1 ORDER BY id LIMIT 1",
     )
@@ -109,7 +109,7 @@ type RequisitionRow = (
 type BrokerSessionRow = (bool, String, Option<DateTime<Utc>>, Option<String>);
 
 async fn banking(state: &AppState, member_id: i64) -> Result<Vec<String>, sqlx::Error> {
-    let rows: Vec<RequisitionRow> = sqlx::query_as(
+    let rows: Vec<RequisitionRow> = crate::db::query_as(
         "SELECT institution_name, institution_id, status::text, last_synced_at \
              FROM requisition WHERE member_id = $1 ORDER BY id",
     )
@@ -144,7 +144,7 @@ async fn sidecar_broker(
     bank: SidecarBank,
     member_id: i64,
 ) -> Result<Vec<String>, sqlx::Error> {
-    let row: Option<BrokerSessionRow> = sqlx::query_as(
+    let row: Option<BrokerSessionRow> = crate::db::query_as(
         "SELECT is_active, sync_status, last_sync_completed_at, last_sync_error \
          FROM sidecar_session WHERE bank = $1 AND member_id = $2",
     )
@@ -165,7 +165,7 @@ async fn sidecar_broker(
 }
 
 async fn lbp_broker(state: &AppState, member_id: i64) -> Result<Vec<String>, sqlx::Error> {
-    let row: Option<BrokerSessionRow> = sqlx::query_as(
+    let row: Option<BrokerSessionRow> = crate::db::query_as(
         "SELECT is_active, sync_status, last_sync_completed_at, last_sync_error \
          FROM lbp_session WHERE member_id = $1",
     )
@@ -185,11 +185,12 @@ async fn lbp_broker(state: &AppState, member_id: i64) -> Result<Vec<String>, sql
 }
 
 async fn ibkr(state: &AppState, member_id: i64) -> Result<Vec<String>, sqlx::Error> {
-    let row: Option<(String, Option<DateTime<Utc>>)> =
-        sqlx::query_as("SELECT status, last_synced_at FROM ibkr_connection WHERE member_id = $1")
-            .bind(member_id)
-            .fetch_optional(&state.db)
-            .await?;
+    let row: Option<(String, Option<DateTime<Utc>>)> = crate::db::query_as(
+        "SELECT status, last_synced_at FROM ibkr_connection WHERE member_id = $1",
+    )
+    .bind(member_id)
+    .fetch_optional(&state.db)
+    .await?;
     Ok(row
         .into_iter()
         .map(|(status_raw, last_synced_at)| {
@@ -207,7 +208,7 @@ async fn ibkr(state: &AppState, member_id: i64) -> Result<Vec<String>, sqlx::Err
 }
 
 async fn simplefin(state: &AppState, member_id: i64) -> Result<Vec<String>, sqlx::Error> {
-    let row: Option<(String, Option<DateTime<Utc>>)> = sqlx::query_as(
+    let row: Option<(String, Option<DateTime<Utc>>)> = crate::db::query_as(
         "SELECT status, last_synced_at FROM simplefin_connection WHERE member_id = $1",
     )
     .bind(member_id)
@@ -227,11 +228,12 @@ async fn simplefin(state: &AppState, member_id: i64) -> Result<Vec<String>, sqlx
 }
 
 async fn wise(state: &AppState, member_id: i64) -> Result<Vec<String>, sqlx::Error> {
-    let row: Option<(String, Option<DateTime<Utc>>)> =
-        sqlx::query_as("SELECT status, last_synced_at FROM wise_connection WHERE member_id = $1")
-            .bind(member_id)
-            .fetch_optional(&state.db)
-            .await?;
+    let row: Option<(String, Option<DateTime<Utc>>)> = crate::db::query_as(
+        "SELECT status, last_synced_at FROM wise_connection WHERE member_id = $1",
+    )
+    .bind(member_id)
+    .fetch_optional(&state.db)
+    .await?;
     Ok(row
         .into_iter()
         .map(|(status_raw, last_synced_at)| {
@@ -249,7 +251,7 @@ async fn wise(state: &AppState, member_id: i64) -> Result<Vec<String>, sqlx::Err
 }
 
 async fn exchanges(state: &AppState, member_id: i64) -> Result<Vec<String>, sqlx::Error> {
-    let rows: Vec<(String, String, Option<DateTime<Utc>>)> = sqlx::query_as(
+    let rows: Vec<(String, String, Option<DateTime<Utc>>)> = crate::db::query_as(
         "SELECT exchange_type::text, status, last_synced_at FROM crypto_exchange_session \
          WHERE member_id = $1 ORDER BY id",
     )
@@ -279,7 +281,7 @@ async fn exchanges(state: &AppState, member_id: i64) -> Result<Vec<String>, sqlx
 }
 
 async fn wallets(state: &AppState, member_id: i64) -> Result<Vec<String>, sqlx::Error> {
-    let rows: Vec<(String, Option<DateTime<Utc>>)> = sqlx::query_as(
+    let rows: Vec<(String, Option<DateTime<Utc>>)> = crate::db::query_as(
         "SELECT chain::text, last_synced_at FROM wallet_address WHERE member_id = $1 ORDER BY id",
     )
     .bind(member_id)
@@ -300,7 +302,7 @@ async fn wallets(state: &AppState, member_id: i64) -> Result<Vec<String>, sqlx::
 }
 
 async fn finary(state: &AppState, member_id: i64) -> Result<Vec<String>, sqlx::Error> {
-    let row: Option<(String, Option<DateTime<Utc>>)> = sqlx::query_as(
+    let row: Option<(String, Option<DateTime<Utc>>)> = crate::db::query_as(
         "SELECT status, last_synced_at FROM finary_session WHERE member_id = $1 ORDER BY id LIMIT 1",
     )
     .bind(member_id)
@@ -323,7 +325,7 @@ async fn finary(state: &AppState, member_id: i64) -> Result<Vec<String>, sqlx::E
 }
 
 async fn degiro(state: &AppState, member_id: i64) -> Result<Vec<String>, sqlx::Error> {
-    let row: Option<(String, Option<DateTime<Utc>>, Option<String>)> = sqlx::query_as(
+    let row: Option<(String, Option<DateTime<Utc>>, Option<String>)> = crate::db::query_as(
         "SELECT status, last_synced_at, last_error FROM degiro_session WHERE member_id = $1",
     )
     .bind(member_id)

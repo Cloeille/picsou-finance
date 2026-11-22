@@ -147,7 +147,7 @@ pub struct SqlLastRunStore(pub PgPool);
 impl LastRunStore for SqlLastRunStore {
     async fn load(&self, key: &str) -> AppResult<Option<String>> {
         Ok(
-            sqlx::query_scalar("SELECT value FROM app_setting WHERE setting_key = $1")
+            crate::db::query_scalar("SELECT value FROM app_setting WHERE setting_key = $1")
                 .bind(key)
                 .fetch_optional(&self.0)
                 .await?,
@@ -155,7 +155,7 @@ impl LastRunStore for SqlLastRunStore {
     }
 
     async fn save(&self, key: &str, value: &str) -> AppResult<()> {
-        sqlx::query(
+        crate::db::query(
             "INSERT INTO app_setting (setting_key, value) VALUES ($1, $2) \
              ON CONFLICT (setting_key) DO UPDATE SET value = EXCLUDED.value",
         )

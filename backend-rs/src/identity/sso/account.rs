@@ -10,6 +10,7 @@ use super::{Intent, Kind, Refused, Settings, SsoIdentity, with_query_parameter};
 use crate::AppState;
 use crate::auth::cookies::{self, Cookies};
 use crate::auth::{AppUser, Role, users};
+use crate::db::{AsDbHandle, DbExec};
 use crate::error::{AppError, AppResult};
 use crate::http::client_ip::ClientIp;
 use crate::identity::common::{audit, has_valid_proof, java_url_encode, log_safe, user_agent};
@@ -145,11 +146,7 @@ enum LoginError {
 
 impl From<sqlx::Error> for LoginError {
     fn from(e: sqlx::Error) -> Self {
-        let unique = e
-            .as_database_error()
-            .and_then(|d| d.code())
-            .is_some_and(|c| c == "23505");
-        if unique {
+        if crate::db::is_unique_violation(&e) {
             Self::Conflict
         } else {
             Self::Internal(e.to_string())
@@ -161,7 +158,7 @@ async fn linked_user_id(
     state: &AppState,
     identity: &SsoIdentity,
 ) -> Result<Option<i64>, sqlx::Error> {
-    sqlx::query_scalar("SELECT user_id FROM user_identity WHERE issuer = $1 AND subject = $2")
+    crate::db::query_scalar("SELECT user_id FROM user_identity WHERE issuer = $1 AND subject = $2")
         .bind(&identity.issuer)
         .bind(&identity.subject)
         .fetch_optional(&state.db)
@@ -210,7 +207,7 @@ pub fn display_name_for(identity: &SsoIdentity) -> String {
 
 /// UsernameDeriver.derive: accents stripped, separator runs to a dot, a numeric suffix on collision.
 pub async fn derive_username<'e>(
-    db: impl sqlx::PgExecutor<'e> + Copy,
+    db: impl DbExec<'e> + Copy,
     display_name: &str,
 ) -> Result<String, sqlx::Error> {
     let stripped: String = display_name
@@ -237,7 +234,13 @@ pub async fn derive_username<'e>(
     base.truncate(45);
     let mut candidate = base.clone();
     let mut n = 2;
-    while users::exists_by_username(db, &candidate).await? {
+    while crate::db::query_scalar::<bool>(
+        "SELECT EXISTS (SELECT 1 FROM app_user WHERE username = $1)",
+    )
+    .bind(&candidate)
+    .fetch_one(db)
+    .await?
+    {
         let suffix = format!(".{n}");
         n += 1;
         let keep = base.len().min(USERNAME_COLUMN_LENGTH - suffix.len());
@@ -261,17 +264,17 @@ pub async fn username_for(state: &AppState, identity: &SsoIdentity) -> Result<St
 }
 
 async fn insert_account(
-    tx: &mut sqlx::PgConnection,
+    tx: &mut crate::db::DbHandle<'_>,
     username: &str,
     display_name: &str,
 ) -> Result<i64, sqlx::Error> {
-    let member_id: i64 = sqlx::query_scalar(
+    let member_id: i64 = crate::db::query_scalar(
         "INSERT INTO family_member (display_name, is_managed) VALUES ($1, false) RETURNING id",
     )
     .bind(display_name)
     .fetch_one(&mut *tx)
     .await?;
-    sqlx::query_scalar(
+    crate::db::query_scalar(
         "INSERT INTO app_user (username, password_hash, member_id, role, is_activated, acknowledged_warning) \
          VALUES ($1, '', $2, 'ADMIN', true, true) RETURNING id",
     )
@@ -282,12 +285,12 @@ async fn insert_account(
 }
 
 async fn insert_identity(
-    tx: &mut sqlx::PgConnection,
+    exec: impl DbExec<'_>,
     user_id: i64,
     identity: &SsoIdentity,
     last_login: Option<DateTime<Utc>>,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query(
+    crate::db::query(
         "INSERT INTO user_identity (user_id, issuer, subject, email, display_name, last_login_at) \
          VALUES ($1, $2, $3, $4, $5, $6)",
     )
@@ -300,7 +303,7 @@ async fn insert_identity(
         MAX_IDENTITY_NAME,
     ))
     .bind(last_login)
-    .execute(&mut *tx)
+    .execute(exec)
     .await?;
     Ok(())
 }
@@ -313,7 +316,8 @@ async fn provision(
     let username = username_for(state, identity).await?;
     let mut conn = state.db.acquire().await?;
     let mut tx = conn.begin().await?;
-    let user_id = insert_account(&mut tx, &username, &display_name_for(identity)).await?;
+    let user_id =
+        insert_account(&mut tx.as_handle(), &username, &display_name_for(identity)).await?;
     insert_identity(&mut tx, user_id, identity, Some(state.clock.now())).await?;
     tx.commit().await?;
     audit(
@@ -332,7 +336,7 @@ async fn provision(
 }
 
 async fn touch_login(state: &AppState, identity: &SsoIdentity) -> Result<(), sqlx::Error> {
-    sqlx::query(
+    crate::db::query(
         "UPDATE user_identity SET last_login_at = $3, email = $4, display_name = $5, updated_at = $3 \
          WHERE issuer = $1 AND subject = $2",
     )
@@ -363,7 +367,7 @@ async fn sync_role(
     let group = sso.admin_group();
     let in_group = groups.is_some_and(|g| g.contains(&group));
     if in_group && user.role == Role::Member {
-        sqlx::query("UPDATE app_user SET role = 'ADMIN', updated_at = now() WHERE id = $1")
+        crate::db::query("UPDATE app_user SET role = 'ADMIN', updated_at = now() WHERE id = $1")
             .bind(user.id)
             .execute(&state.db)
             .await?;
@@ -380,10 +384,10 @@ async fn sync_role(
     } else if !in_group && user.role == Role::Admin {
         let mut conn = state.db.acquire().await?;
         let mut tx = conn.begin().await?;
-        let admins: Vec<i64> = sqlx::query_scalar(
+        let admins: Vec<i64> = crate::db::query_scalar(
             "SELECT id FROM app_user WHERE role = 'ADMIN' ORDER BY id FOR UPDATE",
         )
-        .fetch_all(&mut *tx)
+        .fetch_all(&mut tx)
         .await?;
         if !admins.contains(&user.id) {
             return Ok(());
@@ -405,9 +409,9 @@ async fn sync_role(
             .await;
             return Ok(());
         }
-        sqlx::query("UPDATE app_user SET role = 'MEMBER', updated_at = now() WHERE id = $1")
+        crate::db::query("UPDATE app_user SET role = 'MEMBER', updated_at = now() WHERE id = $1")
             .bind(user.id)
-            .execute(&mut *tx)
+            .execute(&mut tx)
             .await?;
         tx.commit().await?;
         user.role = Role::Member;
@@ -494,7 +498,7 @@ async fn link(
     match linked {
         Some(owner) if owner != user_id => Err(Refused("IDENTITY_IN_USE")),
         Some(_) => {
-            sqlx::query(
+            crate::db::query(
                 "UPDATE user_identity SET email = $3, display_name = $4, updated_at = now() WHERE issuer = $1 AND subject = $2",
             )
             .bind(&identity.issuer)
@@ -506,12 +510,9 @@ async fn link(
             .map_err(internal)?;
             Ok(())
         }
-        None => {
-            let mut conn = state.db.acquire().await.map_err(internal)?;
-            insert_identity(&mut conn, user_id, identity, None)
-                .await
-                .map_err(internal)
-        }
+        None => insert_identity(&state.db, user_id, identity, None)
+            .await
+            .map_err(internal),
     }
 }
 
@@ -572,15 +573,15 @@ async fn activate(
 pub async fn disable_mfa(state: &AppState, user_id: i64) -> Result<(), sqlx::Error> {
     let mut conn = state.db.acquire().await?;
     let mut tx = conn.begin().await?;
-    sqlx::query(
+    crate::db::query(
         "DELETE FROM user_mfa_recovery_code WHERE user_mfa_id IN (SELECT id FROM user_mfa WHERE user_id = $1)",
     )
     .bind(user_id)
-    .execute(&mut *tx)
+    .execute(&mut tx)
     .await?;
-    sqlx::query("DELETE FROM user_mfa WHERE user_id = $1")
+    crate::db::query("DELETE FROM user_mfa WHERE user_id = $1")
         .bind(user_id)
-        .execute(&mut *tx)
+        .execute(&mut tx)
         .await?;
     tx.commit().await
 }
@@ -591,9 +592,11 @@ async fn seed_sso_admin(state: &AppState, identity: &SsoIdentity) -> AppResult<A
     let display_name = display_name_for(identity);
     let mut conn = state.db.acquire().await?;
     let mut tx = conn.begin().await?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-        .execute(&mut *tx)
-        .await?;
+    if !DbExec::is_sqlite(&&mut tx) {
+        crate::db::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut tx)
+            .await?;
+    }
     let current: Option<String> = settings::read_with(&mut *tx, settings::SETUP_STATE).await?;
     if current.as_deref() == Some("COMPLETE") {
         return Err(AppError::Internal("Setup is already complete".into()));
@@ -601,11 +604,11 @@ async fn seed_sso_admin(state: &AppState, identity: &SsoIdentity) -> AppResult<A
     if users::count(&mut *tx).await? > 0 {
         return Err(AppError::Internal("An account already exists".into()));
     }
-    let claimed = sqlx::query(
+    let claimed = crate::db::query(
         "UPDATE app_setting SET value = 'IN_PROGRESS' WHERE setting_key = $1 AND value = 'PENDING_ADMIN'",
     )
     .bind(settings::SETUP_STATE)
-    .execute(&mut *tx)
+    .execute(&mut tx)
     .await?
     .rows_affected();
     if claimed == 0 && current.as_deref().is_none_or(|s| s == "PENDING_ADMIN") {
@@ -614,7 +617,7 @@ async fn seed_sso_admin(state: &AppState, identity: &SsoIdentity) -> AppResult<A
             "Another setup session is already in progress.".into(),
         ));
     }
-    let user_id = insert_account(&mut tx, &username, &display_name).await?;
+    let user_id = insert_account(&mut tx.as_handle(), &username, &display_name).await?;
     insert_identity(&mut tx, user_id, identity, Some(state.clock.now())).await?;
     tx.commit().await?;
     tracing::info!(

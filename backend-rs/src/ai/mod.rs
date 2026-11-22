@@ -54,16 +54,17 @@ impl DynamicCategorizer {
     }
 
     async fn read_settings(&self) -> Result<HashMap<String, String>, sqlx::Error> {
-        let rows: Vec<(String, String)> = sqlx::query_as(
-            "SELECT setting_key, value FROM app_setting WHERE setting_key = ANY($1)",
-        )
-        .bind([
+        let keys: &[&str] = &[
             AI_PROVIDER,
             AI_MODEL,
             AI_BASE_URL,
             AI_API_KEY,
             AI_MAX_CONCURRENCY,
-        ])
+        ];
+        let rows: Vec<(String, String)> = crate::db::query_as(
+            "SELECT setting_key, value FROM app_setting WHERE setting_key = ANY($1)",
+        )
+        .bind(keys)
         .fetch_all(&self.db)
         .await?;
         Ok(rows.into_iter().collect())

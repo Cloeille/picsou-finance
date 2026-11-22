@@ -36,7 +36,7 @@ pub struct RegisteredClient {
     pub access_token_ttl: i64,
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(crate::db::DbFromRow)]
 struct ClientRow {
     id: String,
     client_id: String,
@@ -92,7 +92,7 @@ pub async fn find_by_client_id(
     state: &AppState,
     client_id: &str,
 ) -> Result<Option<RegisteredClient>, sqlx::Error> {
-    let row: Option<ClientRow> = sqlx::query_as(&format!(
+    let row: Option<ClientRow> = crate::db::query_as(&format!(
         "SELECT {COLUMNS} FROM oauth2_registered_client WHERE client_id = $1"
     ))
     .bind(client_id)
@@ -105,7 +105,7 @@ pub async fn find_by_id(
     state: &AppState,
     id: &str,
 ) -> Result<Option<RegisteredClient>, sqlx::Error> {
-    let row: Option<ClientRow> = sqlx::query_as(&format!(
+    let row: Option<ClientRow> = crate::db::query_as(&format!(
         "SELECT {COLUMNS} FROM oauth2_registered_client WHERE id = $1"
     ))
     .bind(id)
@@ -127,7 +127,7 @@ struct NewClient<'a> {
 async fn insert(state: &AppState, client: NewClient<'_>) -> Result<String, sqlx::Error> {
     let id = Uuid::new_v4().to_string();
     let oauth = &state.config.oauth;
-    sqlx::query(
+    crate::db::query(
         "INSERT INTO oauth2_registered_client (id, client_id, client_id_issued_at, client_secret, \
          client_secret_expires_at, client_name, client_authentication_methods, authorization_grant_types, \
          redirect_uris, post_logout_redirect_uris, scopes, client_settings, token_settings) \
@@ -171,7 +171,7 @@ pub async fn seed_ios_client(state: &AppState) -> Result<(), sqlx::Error> {
     )
     .await?;
     // Spring's builder names an unnamed client after its id.
-    sqlx::query("UPDATE oauth2_registered_client SET client_name = id WHERE client_id = $1")
+    crate::db::query("UPDATE oauth2_registered_client SET client_name = id WHERE client_id = $1")
         .bind(&client_id)
         .execute(&state.db)
         .await?;

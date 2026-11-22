@@ -67,7 +67,7 @@ impl RiskProfile {
 }
 
 /// One profile, stored or requested: every field is optional and null clears it.
-#[derive(Debug, Default, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Default, Deserialize, crate::db::DbFromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct Profile {
     pub birth_date: Option<NaiveDate>,
@@ -150,7 +150,7 @@ fn respond(p: Profile, today: NaiveDate) -> ProfileResponse {
 
 /// The member's stored profile, or an empty one; reading never creates a row.
 pub async fn profile_for(state: &AppState, member_id: i64) -> Result<Profile, sqlx::Error> {
-    let row: Option<ProfileRow> = sqlx::query_as(
+    let row: Option<ProfileRow> = crate::db::query_as(
         "SELECT birth_date, marginal_tax_rate, household_status, tax_household_parts, dependents, \
          annual_gross_income, monthly_net_before_tax, withholding_tax_rate, monthly_savings_capacity, \
          target_retirement_age, risk_profile FROM member_profile WHERE member_id = $1",
@@ -172,7 +172,7 @@ pub async fn profile_for(state: &AppState, member_id: i64) -> Result<Profile, sq
     })
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(crate::db::DbFromRow)]
 struct ProfileRow {
     #[sqlx(flatten)]
     profile: Profile,
@@ -264,14 +264,14 @@ pub async fn replace(
     errors.into_result()?;
     let p = body.value;
     let member_exists: bool =
-        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM family_member WHERE id = $1)")
+        crate::db::query_scalar("SELECT EXISTS (SELECT 1 FROM family_member WHERE id = $1)")
             .bind(auth.member_id)
             .fetch_one(&state.db)
             .await?;
     if !member_exists {
         return Err(AppError::BadRequest("Unknown member".into()));
     }
-    sqlx::query(
+    crate::db::query(
         "INSERT INTO member_profile (member_id, birth_date, marginal_tax_rate, household_status, tax_household_parts, \
          dependents, annual_gross_income, monthly_net_before_tax, withholding_tax_rate, monthly_savings_capacity, \
          target_retirement_age, risk_profile, created_at, updated_at) \

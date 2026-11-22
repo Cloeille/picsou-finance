@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use bytes::Bytes;
 use chrono::{DateTime, Datelike, Local, Timelike, Utc};
 use futures::Stream;
-use sqlx::{PgConnection, PgPool};
+use sqlx::PgPool;
 use tokio::sync::mpsc;
 use zip::write::{SimpleFileOptions, StreamWriter};
 use zip::{CompressionMethod, ZipWriter};
@@ -16,6 +16,7 @@ use zip::{CompressionMethod, ZipWriter};
 use super::Exporting;
 use super::exporters::{self, EXPORTERS, Exporter, GOAL_CHILDREN, GOAL_COLUMNS};
 use super::json::{Cell, JsonWriter, java_instant};
+use crate::db::{AsDbHandle, DbExec, DbHandle};
 
 #[derive(Debug, thiserror::Error)]
 enum ExportError {
@@ -154,18 +155,20 @@ async fn write_all(
     archive: &mut Archive,
 ) -> Result<(), ExportError> {
     let mut tx = db.begin().await?;
-    sqlx::query("SET TRANSACTION READ ONLY")
-        .execute(&mut *tx)
-        .await?;
+    if !DbExec::is_sqlite(&&mut tx) {
+        crate::db::query("SET TRANSACTION READ ONLY")
+            .execute(&mut tx)
+            .await?;
+    }
     write_json(
-        &mut tx,
+        &mut tx.as_handle(),
         who,
         include_balance_snapshots,
         exported_at,
         archive,
     )
     .await?;
-    write_csv_entries(&mut tx, who, include_balance_snapshots, archive).await?;
+    write_csv_entries(&mut tx.as_handle(), who, include_balance_snapshots, archive).await?;
     write_readme(who, exported_at, archive)?;
     tx.commit().await?;
     finish(archive).await
@@ -178,7 +181,7 @@ async fn finish(archive: &mut Archive) -> Result<(), ExportError> {
 }
 
 async fn write_json(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     who: &Exporting,
     include_balance_snapshots: bool,
     exported_at: DateTime<Utc>,
@@ -238,7 +241,7 @@ async fn write_json(
 }
 
 async fn write_goals_json(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     who: &Exporting,
     j: &mut JsonWriter,
     archive: &mut Archive,
@@ -278,7 +281,7 @@ async fn write_goals_json(
 }
 
 async fn write_csv_entries(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     who: &Exporting,
     include_balance_snapshots: bool,
     archive: &mut Archive,

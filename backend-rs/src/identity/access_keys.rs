@@ -23,7 +23,7 @@ const BASE62: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrst
 const BODY_LENGTH: usize = 32;
 const PREFIX_LENGTH: usize = 12;
 
-#[derive(sqlx::FromRow)]
+#[derive(crate::db::DbFromRow)]
 struct KeyRow {
     id: i64,
     name: String,
@@ -74,7 +74,7 @@ pub async fn list(
     State(state): State<AppState>,
     auth: Auth,
 ) -> AppResult<axum::Json<Vec<AccessKeyResponse>>> {
-    let rows: Vec<KeyRow> = sqlx::query_as(&format!(
+    let rows: Vec<KeyRow> = crate::db::query_as(&format!(
         "SELECT {COLUMNS} FROM access_key WHERE member_id = $1 ORDER BY created_at DESC"
     ))
     .bind(auth.member_id)
@@ -141,7 +141,7 @@ pub async fn create(
         return Err(AppError::BadRequest(format!("Unknown scope: {unknown}")));
     }
     let raw = format!("psk_{}", generate_body());
-    let row: KeyRow = sqlx::query_as(&format!(
+    let row: KeyRow = crate::db::query_as(&format!(
         "INSERT INTO access_key (member_id, created_by, name, key_prefix, key_hash, scopes, expires_at, created_at, updated_at) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8) RETURNING {COLUMNS}"
     ))
@@ -170,7 +170,7 @@ pub async fn delete(
     auth: Auth,
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    let revoked = sqlx::query(
+    let revoked = crate::db::query(
         "UPDATE access_key SET revoked_at = COALESCE(revoked_at, $3), updated_at = $3 WHERE id = $1 AND member_id = $2",
     )
     .bind(id)
