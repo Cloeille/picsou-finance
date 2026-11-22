@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { CircleNotch, Fingerprint } from '@phosphor-icons/react'
+import { AlertBanner } from '@/components/shared/AlertBanner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -41,15 +42,28 @@ export function NatixisBrowserSession({ onConnected }: NatixisBrowserSessionProp
   const notifyConnectedOnSuccess = useRef(false)
 
   useEffect(() => {
-    if (syncStatus !== 'SUCCESS' || !notifyConnectedOnSuccess.current) return
+    if (!notifyConnectedOnSuccess.current) return
+    if (syncStatus === 'FAILED') {
+      // The first sync failed: that import is over, and a later sync's success is not its connection.
+      notifyConnectedOnSuccess.current = false
+      return
+    }
+    if (syncStatus !== 'SUCCESS') return
     notifyConnectedOnSuccess.current = false
     onConnected?.()
   }, [onConnected, syncStatus])
+
+  // Closing the card (the modal) drops the pending notification with it.
+  useEffect(() => () => {
+    notifyConnectedOnSuccess.current = false
+  }, [])
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const refreshToken = token.trim()
     if (!refreshToken) return
+    // The last refusal must not sit above the spinner and read as the verdict on this paste.
+    setError(null)
     importSession.mutate(refreshToken, {
       onSuccess: (result) => {
         setToken('')
@@ -103,15 +117,19 @@ export function NatixisBrowserSession({ onConnected }: NatixisBrowserSessionProp
               type="password"
               value={token}
               onChange={(e) => setToken(e.target.value)}
-              autoComplete="off"
+              // Not a login: stops a password manager from filling the saved Natixis password here.
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
+              data-form-type="other"
               spellCheck={false}
               required
             />
           </div>
           {error && (
-            <p role="alert" className="text-sm text-destructive">
+            <AlertBanner role="alert" onDismiss={() => setError(null)}>
               {error}
-            </p>
+            </AlertBanner>
           )}
           <Button type="submit" disabled={importSession.isPending || !token.trim()} className="w-full">
             {importSession.isPending && <CircleNotch className="size-4 animate-spin" />}
