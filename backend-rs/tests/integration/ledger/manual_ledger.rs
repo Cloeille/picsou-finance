@@ -4,6 +4,7 @@ use std::str::FromStr;
 use async_trait::async_trait;
 use chrono::{DateTime, Days, NaiveDate, TimeZone, Utc};
 use http::StatusCode;
+use picsou::db::AsDbHandle;
 use picsou::error::AppError;
 use picsou::ledger::accounts::{self, NewAccount};
 use picsou::ledger::manual_ledger::{
@@ -206,7 +207,7 @@ async fn balance(
     prices: &FakePrices,
 ) -> Result<Decimal, AppError> {
     let mut conn = app.state.db.acquire().await.unwrap();
-    compute_manual_ledger_balance(&mut conn, account, prices, today()).await
+    compute_manual_ledger_balance(&mut conn.as_handle(), account, prices, today()).await
 }
 
 fn hours(h: i64) -> chrono::TimeDelta {
@@ -391,9 +392,10 @@ async fn reconstruct_snapshots_from_db_writes_the_history_in_eur_converting_the_
     let prices = FakePrices::with(&[("USD", "0.9"), ("GBP", "1.2")]);
 
     let mut conn = app.state.db.acquire().await.unwrap();
-    let written = reconstruct_snapshots_from_db(&mut conn, &account, &prices, today(), now())
-        .await
-        .unwrap();
+    let written =
+        reconstruct_snapshots_from_db(&mut conn.as_handle(), &account, &prices, today(), now())
+            .await
+            .unwrap();
 
     assert_eq!(written, 4);
     let derived = SnapshotSource::Derived;
@@ -422,9 +424,14 @@ async fn reconstruct_snapshots_from_db_aborts_rather_than_writing_an_unconverted
     .unwrap();
 
     let mut conn = app.state.db.acquire().await.unwrap();
-    let result =
-        reconstruct_snapshots_from_db(&mut conn, &account, &FakePrices::default(), today(), now())
-            .await;
+    let result = reconstruct_snapshots_from_db(
+        &mut conn.as_handle(),
+        &account,
+        &FakePrices::default(),
+        today(),
+        now(),
+    )
+    .await;
 
     assert!(matches!(result, Err(AppError::Status { ref detail, .. }) if detail.contains("USD")));
     assert_eq!(
@@ -458,9 +465,15 @@ async fn reconstruct_snapshots_from_db_replaces_derived_rows_and_keeps_statement
     book(&app, account.id, days_ago(40), "1200", "EUR", now()).await;
 
     let mut conn = app.state.db.acquire().await.unwrap();
-    reconstruct_snapshots_from_db(&mut conn, &account, &FakePrices::default(), today(), now())
-        .await
-        .unwrap();
+    reconstruct_snapshots_from_db(
+        &mut conn.as_handle(),
+        &account,
+        &FakePrices::default(),
+        today(),
+        now(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(
         history(&app, account.id).await,

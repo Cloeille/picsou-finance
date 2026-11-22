@@ -5,8 +5,8 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::db::Db;
 use rust_decimal::Decimal;
-use sqlx::PgPool;
 
 use super::seams::SecurityProfileRefresher;
 use crate::db::{self, DbHandle};
@@ -113,17 +113,12 @@ impl RefreshRunner {
     }
 
     /// Runs the configured refresher directly (used by the weekly scheduler pass).
-    pub async fn refresh_stale(
-        &self,
-        db: &PgPool,
-        tickers: &BTreeSet<String>,
-        limit: usize,
-    ) -> usize {
+    pub async fn refresh_stale(&self, db: &Db, tickers: &BTreeSet<String>, limit: usize) -> usize {
         self.refresher.refresh_stale(db, tickers, limit).await
     }
 
     /// Queues a pass over every distinct held ticker of the instance (profiles are global).
-    pub async fn trigger(&self, db: &PgPool) -> sqlx::Result<Trigger> {
+    pub async fn trigger(&self, db: &Db) -> sqlx::Result<Trigger> {
         if self
             .running
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -170,7 +165,7 @@ mod tests {
         let runner = RefreshRunner::new(Arc::new(NoProfileProviders));
         runner.running.store(true, Ordering::Release);
         // The guard answers before any query: the pool is never connected.
-        let db = PgPool::connect_lazy("postgres://picsou@127.0.0.1:1/none").expect("lazy pool");
+        let db = Db::from(crate::db::sqlite::SqliteDb::open_in_memory().expect("in-memory sqlite"));
         assert_eq!(runner.trigger(&db).await.unwrap(), Trigger::AlreadyRunning);
         assert!(
             runner.running.load(Ordering::Acquire),

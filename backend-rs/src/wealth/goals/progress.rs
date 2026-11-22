@@ -2,10 +2,10 @@
 
 use std::collections::HashMap;
 
+use crate::db::DbHandle;
 use chrono::{Datelike, Months, NaiveDate};
 use chrono_tz::Tz;
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use super::dto::{GoalAllocationResponse, GoalProgressResponse, GoalType};
 use super::months::{YearMonth, months_between};
@@ -55,7 +55,7 @@ pub struct Figures {
 
 /// Signed live balances (a LOAN counts against the goal), weighted by the goal owner's share.
 async fn current_total(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     ctx: &Ctx<'_>,
     goal: &Goal,
 ) -> sqlx::Result<Decimal> {
@@ -84,7 +84,7 @@ pub fn not_a_savings_target() -> AppError {
     )
 }
 
-pub async fn figures(conn: &mut PgConnection, ctx: &Ctx<'_>, goal: &Goal) -> AppResult<Figures> {
+pub async fn figures(conn: &mut DbHandle<'_>, ctx: &Ctx<'_>, goal: &Goal) -> AppResult<Figures> {
     let (target, deadline) = require_target(goal)?;
     let current_total = current_total(&mut *conn, ctx, goal).await?;
     let months_left = months_between(ctx.today, deadline).max(0);
@@ -115,7 +115,7 @@ pub async fn figures(conn: &mut PgConnection, ctx: &Ctx<'_>, goal: &Goal) -> App
 
 /// The month's objective before any override: (target - current) / months left.
 pub async fn monthly_needed(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     ctx: &Ctx<'_>,
     goal: &Goal,
 ) -> AppResult<Decimal> {
@@ -125,7 +125,7 @@ pub async fn monthly_needed(
 /// Snapshot deltas over the last three months, summed over the accounts; else the mean of the
 /// manual contributions; None when neither has data.
 async fn avg_monthly_contribution(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     ctx: &Ctx<'_>,
     goal: &Goal,
 ) -> sqlx::Result<Option<Decimal>> {
@@ -164,7 +164,7 @@ async fn avg_monthly_contribution(
 /// Σ effective >= Σ objective over the months from creation to the current one (excluded);
 /// months without data are skipped, and no data at all is the benefit of the doubt.
 async fn is_on_track(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     ctx: &Ctx<'_>,
     goal: &Goal,
     monthly_needed: Decimal,
@@ -201,7 +201,7 @@ async fn is_on_track(
 /// End-of-month balance minus end-of-previous-month balance, summed over the accounts that have
 /// both (a LOAN paid down counts as progress); None for a future month or without data.
 pub async fn actual_for_month(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     ctx: &Ctx<'_>,
     goal: &Goal,
     ym: YearMonth,
@@ -231,7 +231,7 @@ pub async fn actual_for_month(
 }
 
 async fn allocation_responses(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     goal: &Goal,
 ) -> sqlx::Result<Vec<GoalAllocationResponse>> {
     if goal.allocations.is_empty() {
@@ -257,13 +257,13 @@ async fn allocation_responses(
 /// GoalService.toProgressResponse: branches on the type, since a recurring plan has no target.
 pub async fn to_response(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     goal: &Goal,
 ) -> AppResult<GoalProgressResponse> {
     let responder = state.wealth.savings.account_responses()?;
     let mut accounts = Vec::with_capacity(goal.accounts.len());
     for account in &goal.accounts {
-        accounts.push(responder.to_response(state, account).await?);
+        accounts.push(responder.to_response_on(state, &mut *conn, account).await?);
     }
     let ctx = Ctx::of(state);
     let mut response = GoalProgressResponse {

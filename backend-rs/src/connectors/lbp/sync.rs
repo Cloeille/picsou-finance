@@ -6,12 +6,13 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sqlx::PgConnection;
 
 use super::session::{self, LbpSession};
 use crate::AppState;
@@ -522,7 +523,7 @@ async fn store_session(
             return Err(expired().into());
         }
         let mut tx = state.db.begin().await?;
-        if members::find_by_id(&mut *tx, member_id).await?.is_none() {
+        if members::find_by_id(&mut tx, member_id).await?.is_none() {
             return Err(AppError::NotFound("Family member not found".to_owned()));
         }
         if let Some(existing) = session::find_by_member_for_update(&mut tx, member_id).await? {
@@ -893,22 +894,19 @@ async fn commit(state: &AppState, job: &SyncJob, prepared: &Prepared) -> JobResu
         );
         return Ok(None);
     }
-    if members::find_by_id(&mut *tx, job.member_id)
-        .await?
-        .is_none()
-    {
+    if members::find_by_id(&mut tx, job.member_id).await?.is_none() {
         return Err(AppError::NotFound("Family member not found".to_owned()).into());
     }
     let synced_at = state.clock.now();
     // Read before the upserts: only what a previous sync imported can be closed.
     let imported =
-        accounts::find_all_by_member_and_provider(&mut *tx, job.member_id, PROVIDER).await?;
+        accounts::find_all_by_member_and_provider(&mut tx, job.member_id, PROVIDER).await?;
     for data in &prepared.accounts {
-        upsert_account(state, &mut tx, data, job.member_id, synced_at).await?;
+        upsert_account(state, &mut tx.as_handle(), data, job.member_id, synced_at).await?;
     }
     close_unlisted_accounts(
         state,
-        &mut tx,
+        &mut tx.as_handle(),
         &prepared.accounts,
         imported,
         job.member_id,
@@ -933,7 +931,7 @@ fn snapshot_context(state: &AppState) -> SnapshotContext<'_> {
 
 async fn upsert_account(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     data: &PreparedAccount,
     member_id: i64,
     synced_at: DateTime<Utc>,
@@ -997,7 +995,7 @@ async fn upsert_account(
 /// imported again, while a bank-closed account can come back. Only a complete read gets here.
 async fn close_unlisted_accounts(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     prepared: &[PreparedAccount],
     imported: Vec<Account>,
     member_id: i64,
@@ -1033,7 +1031,7 @@ async fn close_unlisted_accounts(
 /// Upsert by (account, external id); rows are never deleted, manual rows never touched.
 async fn upsert_transactions(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     lines: &[PreparedTransaction],
 ) -> JobResult<()> {

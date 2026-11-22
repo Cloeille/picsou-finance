@@ -4,10 +4,10 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
+use crate::db::DbHandle;
 use chrono::{DateTime, Utc};
 use regex::Regex;
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use super::IsinLookup;
 use super::upstream::{FinaryAccount, Position};
@@ -188,7 +188,7 @@ struct Line {
 /// importHoldings: sets account.cash_balance (the caller saves the account) and replaces the
 /// holdings; returns how many were written.
 pub async fn import(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     isin_lookup: &dyn IsinLookup,
     account: &mut Account,
     finary: &FinaryAccount,

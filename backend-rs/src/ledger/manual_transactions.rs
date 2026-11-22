@@ -1,10 +1,10 @@
 //! ManualTransactionService: hand-entered transactions on a member's account, and the derived
 //! state they drive (holdings of an investment account, balance and history of a ledger one).
 
+use crate::db::DbHandle;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use sqlx::PgConnection;
 
 use super::accounts;
 use super::categorize::{self, CategorizationContext};
@@ -241,13 +241,12 @@ fn validate_fees(fees: Option<Decimal>) -> AppResult<()> {
     Ok(())
 }
 
-// Wave 3: switch to impl DbExec once categorize::category_of_member switches
-async fn resolve_category(
-    conn: &mut PgConnection,
+async fn resolve_category<'e>(
+    db: impl DbExec<'e>,
     category_id: i64,
     member_id: i64,
 ) -> AppResult<Category> {
-    categorize::category_of_member(&mut *conn, category_id, member_id)
+    categorize::category_of_member(db, category_id, member_id)
         .await?
         .ok_or_else(|| AppError::NotFound("Category not found".to_owned()))
 }
@@ -267,14 +266,13 @@ async fn find_manual_transaction<'e>(
     Ok(tx)
 }
 
-// Wave 3: switch to impl DbExec once categorize::category_of_member switches
-async fn respond(
-    conn: &mut PgConnection,
+async fn respond<'e>(
+    db: impl DbExec<'e>,
     tx: &Transaction,
     account: &Account,
 ) -> AppResult<TransactionResponse> {
     let category_name = match tx.category_id {
-        Some(id) => categorize::category_of_member(&mut *conn, id, account.member_id)
+        Some(id) => categorize::category_of_member(db, id, account.member_id)
             .await?
             .map(|c| c.name),
         None => None,
@@ -291,7 +289,7 @@ async fn respond(
 /// category is kept as a manual choice; without one the automatic pipeline runs. lookup is the
 /// OpenFIGI resolution of an ISIN ticker.
 pub async fn add_transaction(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     ctx: ManualEntryContext<'_>,
     categorization: &CategorizationContext,
     account_id: i64,
@@ -349,7 +347,7 @@ pub async fn add_transaction(
 /// updateTransaction: rewrites a manual row of the member's account; a synced row is refused.
 /// Optional fields left null keep their stored value.
 pub async fn update_transaction(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     ctx: ManualEntryContext<'_>,
     account_id: i64,
     tx_id: i64,
@@ -405,7 +403,7 @@ pub async fn update_transaction(
 
 /// deleteTransaction: removes a manual row of the member's account; a synced row is refused.
 pub async fn delete_transaction(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     ctx: ManualEntryContext<'_>,
     account_id: i64,
     tx_id: i64,
@@ -427,7 +425,7 @@ pub async fn delete_transaction(
 /// one its balance and history. A valued account (SCPI, property, employee savings) keeps its
 /// valuation, and a synced one its provider's figures.
 async fn recompute_derived_state(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     ctx: ManualEntryContext<'_>,
     account: &Account,
 ) -> AppResult<()> {

@@ -97,7 +97,7 @@ async fn the_secret_is_stored_encrypted() {
     let app = TestApp::with_admin().await;
     let client = app.login_admin().await;
     let (secret, _) = enroll(&app, &client).await;
-    let stored: String = sqlx::query_scalar("SELECT totp_secret_enc FROM user_mfa")
+    let stored: String = picsou::db::query_scalar("SELECT totp_secret_enc FROM user_mfa")
         .fetch_one(&app.state.db)
         .await
         .unwrap();

@@ -6,7 +6,6 @@ use std::collections::HashSet;
 use axum::extract::State;
 use axum::http::StatusCode;
 use serde::Serialize;
-use sqlx::PgConnection;
 
 use super::meta::detach_scpi_funds;
 use super::seams::{ConnectionKind, ConnectionRef};
@@ -124,7 +123,7 @@ fn resolve(account: &Account, links: &ScpiLinks) -> Option<ConnectionRef> {
 }
 
 async fn has_other_live_account(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     connection: &ConnectionRef,
     deleted_id: i64,
     member_id: i64,
@@ -206,12 +205,20 @@ pub async fn deletion_impact(
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<DeletionImpact>> {
     let mut conn = state.db.acquire().await?;
-    let account = find_owned(&mut conn, id, auth.member_id).await?;
+    let account = find_owned(&mut conn.as_handle(), id, auth.member_id).await?;
     let links = scpi_links(&mut conn, auth.member_id).await?;
     let Some(connection) = resolve(&account, &links) else {
         return Ok(axum::Json(DeletionImpact::none()));
     };
-    if has_other_live_account(&mut conn, &connection, id, auth.member_id, &links).await? {
+    if has_other_live_account(
+        &mut conn.as_handle(),
+        &connection,
+        id,
+        auth.member_id,
+        &links,
+    )
+    .await?
+    {
         return Ok(axum::Json(DeletionImpact::none()));
     }
     Ok(axum::Json(DeletionImpact {
@@ -220,7 +227,7 @@ pub async fn deletion_impact(
     }))
 }
 
-async fn find_owned(conn: &mut PgConnection, id: i64, member_id: i64) -> AppResult<Account> {
+async fn find_owned(conn: &mut DbHandle<'_>, id: i64, member_id: i64) -> AppResult<Account> {
     accounts::find_by_id_and_member(conn, id, member_id)
         .await?
         .ok_or_else(|| AppError::NotFound("Account not found".to_owned()))
@@ -243,7 +250,7 @@ pub async fn delete_account_with_impact(
     id: i64,
 ) -> AppResult<DeletionImpact> {
     let mut tx = state.db.begin().await?;
-    let account = find_owned(&mut tx, id, member_id).await?;
+    let account = find_owned(&mut tx.as_handle(), id, member_id).await?;
     let mut links = scpi_links(&mut tx, member_id).await?;
     let connection = resolve(&account, &links);
     let locked = match connection.as_ref().map(|c| c.kind) {
@@ -256,7 +263,7 @@ pub async fn delete_account_with_impact(
         state
             .ledger
             .connection_locks
-            .lock_member_for_account_deletion(&mut tx, locked, member_id)
+            .lock_member_for_account_deletion(&mut tx.as_handle(), locked, member_id)
             .await?;
         links = scpi_links(&mut tx, member_id).await?;
     }
@@ -271,7 +278,7 @@ pub async fn delete_account_with_impact(
     let mut impact = DeletionImpact::none();
     let mut after_commit: Option<Box<dyn FnOnce() + Send>> = None;
     if let Some(connection) = connection
-        && !has_other_live_account(&mut tx, &connection, id, member_id, &links).await?
+        && !has_other_live_account(&mut tx.as_handle(), &connection, id, member_id, &links).await?
     {
         tracing::info!(
             "Removing {:?} connection {} -- its last account was deleted",
@@ -295,7 +302,7 @@ pub async fn delete_account_with_impact(
             let outcome = state
                 .accounts
                 .connections
-                .remove(&mut tx, &connection, member_id)
+                .remove(&mut tx.as_handle(), &connection, member_id)
                 .await?;
             after_commit = outcome.after_commit;
             outcome.removed

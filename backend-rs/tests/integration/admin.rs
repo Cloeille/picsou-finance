@@ -68,7 +68,7 @@ async fn reads_and_writes_the_settings() {
         .await;
     assert_eq!(ai.status, StatusCode::NO_CONTENT);
     let stored: String =
-        sqlx::query_scalar("SELECT value FROM app_setting WHERE setting_key = 'ai.api-key'")
+        picsou::db::query_scalar("SELECT value FROM app_setting WHERE setting_key = 'ai.api-key'")
             .fetch_one(&app.state.db)
             .await
             .unwrap();
@@ -188,7 +188,7 @@ async fn the_ai_test_calls_the_provider_without_saving() {
         json!({"ok": false, "message": "No provider selected."})
     );
     let stored: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM app_setting WHERE setting_key LIKE 'ai.%'")
+        picsou::db::query_scalar("SELECT count(*) FROM app_setting WHERE setting_key LIKE 'ai.%'")
             .fetch_one(&app.state.db)
             .await
             .unwrap();
@@ -199,7 +199,7 @@ async fn the_ai_test_calls_the_provider_without_saving() {
 async fn pages_the_ai_call_log() {
     let app = TestApp::with_admin().await;
     for i in 0..3 {
-        sqlx::query("INSERT INTO ai_call_log (created_at, provider, status, total_tokens, applied) VALUES ($1, 'OPENAI', 'OK', $2, false)")
+        picsou::db::query("INSERT INTO ai_call_log (created_at, provider, status, total_tokens, applied) VALUES ($1, 'OPENAI', 'OK', $2, false)")
             .bind(picsou::testing::epoch() + chrono::Duration::minutes(i))
             .bind(10 * (i as i32 + 1))
             .execute(&app.state.db)
@@ -284,12 +284,12 @@ async fn instance_status_probes_only_the_sidecars_in_use() {
         .with_admin()
         .spawn()
         .await;
-    let member: i64 = sqlx::query_scalar("SELECT member_id FROM app_user LIMIT 1")
+    let member: i64 = picsou::db::query_scalar("SELECT member_id FROM app_user LIMIT 1")
         .fetch_one(&app.state.db)
         .await
         .unwrap();
     for bank in ["BOURSO", "TRADE_REPUBLIC"] {
-        sqlx::query("INSERT INTO sidecar_session (bank, member_id, session_state, is_active) VALUES ($1, $2, '{}', true)")
+        picsou::db::query("INSERT INTO sidecar_session (bank, member_id, session_state, is_active) VALUES ($1, $2, '{}', true)")
             .bind(bank)
             .bind(member)
             .execute(&app.state.db)
@@ -315,16 +315,19 @@ async fn instance_status_probes_only_the_sidecars_in_use() {
 async fn resets_another_members_mfa_but_never_their_own() {
     let app = TestApp::with_admin().await;
     let (bob, bob_member) = app.create_member("bob", "bob-password-1").await;
-    sqlx::query("INSERT INTO user_mfa (user_id, enabled, totp_secret_enc) VALUES ($1, true, 'x')")
-        .bind(bob)
-        .execute(&app.state.db)
-        .await
-        .unwrap();
+    picsou::db::query(
+        "INSERT INTO user_mfa (user_id, enabled, totp_secret_enc) VALUES ($1, true, 'x')",
+    )
+    .bind(bob)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
     let admin = app.login_admin().await;
-    let own: i64 = sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
-        .fetch_one(&app.state.db)
-        .await
-        .unwrap();
+    let own: i64 =
+        picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
     let mine = admin
         .delete(&format!("/api/admin/members/{own}/mfa"))
         .send()
@@ -336,7 +339,7 @@ async fn resets_another_members_mfa_but_never_their_own() {
         .send()
         .await;
     assert_eq!(reset.status, StatusCode::NO_CONTENT);
-    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM user_mfa")
+    let left: i64 = picsou::db::query_scalar("SELECT count(*) FROM user_mfa")
         .fetch_one(&app.state.db)
         .await
         .unwrap();
@@ -473,7 +476,7 @@ async fn admin_recovery_deactivates_every_admin_with_a_one_hour_link() {
         StatusCode::FORBIDDEN,
         "the login points to the recovery link"
     );
-    let audit: i64 = sqlx::query_scalar("SELECT count(*) FROM setup_audit WHERE event = 'admin.recovery.token-generated' AND ip IS NULL")
+    let audit: i64 = picsou::db::query_scalar("SELECT count(*) FROM setup_audit WHERE event = 'admin.recovery.token-generated' AND ip IS NULL")
         .fetch_one(&app.state.db)
         .await
         .unwrap();

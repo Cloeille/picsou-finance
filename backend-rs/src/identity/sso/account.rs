@@ -3,7 +3,6 @@
 
 use axum::http::HeaderMap;
 use chrono::{DateTime, Utc};
-use sqlx::Connection;
 use unicode_normalization::UnicodeNormalization;
 
 use super::{Intent, Kind, Refused, Settings, SsoIdentity, with_query_parameter};
@@ -314,8 +313,7 @@ async fn provision(
     request: Request<'_>,
 ) -> Result<AppUser, LoginError> {
     let username = username_for(state, identity).await?;
-    let mut conn = state.db.acquire().await?;
-    let mut tx = conn.begin().await?;
+    let mut tx = state.db.begin().await?;
     let user_id =
         insert_account(&mut tx.as_handle(), &username, &display_name_for(identity)).await?;
     insert_identity(&mut tx, user_id, identity, Some(state.clock.now())).await?;
@@ -382,8 +380,7 @@ async fn sync_role(
         )
         .await;
     } else if !in_group && user.role == Role::Admin {
-        let mut conn = state.db.acquire().await?;
-        let mut tx = conn.begin().await?;
+        let mut tx = state.db.begin().await?;
         let admins: Vec<i64> = crate::db::query_scalar(
             "SELECT id FROM app_user WHERE role = 'ADMIN' ORDER BY id FOR UPDATE",
         )
@@ -571,8 +568,7 @@ async fn activate(
 }
 
 pub async fn disable_mfa(state: &AppState, user_id: i64) -> Result<(), sqlx::Error> {
-    let mut conn = state.db.acquire().await?;
-    let mut tx = conn.begin().await?;
+    let mut tx = state.db.begin().await?;
     crate::db::query(
         "DELETE FROM user_mfa_recovery_code WHERE user_mfa_id IN (SELECT id FROM user_mfa WHERE user_id = $1)",
     )
@@ -590,18 +586,17 @@ pub async fn disable_mfa(state: &AppState, user_id: i64) -> Result<(), sqlx::Err
 async fn seed_sso_admin(state: &AppState, identity: &SsoIdentity) -> AppResult<AppUser> {
     let username = username_for(state, identity).await?;
     let display_name = display_name_for(identity);
-    let mut conn = state.db.acquire().await?;
-    let mut tx = conn.begin().await?;
+    let mut tx = state.db.begin().await?;
     if !DbExec::is_sqlite(&&mut tx) {
         crate::db::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .execute(&mut tx)
             .await?;
     }
-    let current: Option<String> = settings::read_with(&mut *tx, settings::SETUP_STATE).await?;
+    let current: Option<String> = settings::read_with(&mut tx, settings::SETUP_STATE).await?;
     if current.as_deref() == Some("COMPLETE") {
         return Err(AppError::Internal("Setup is already complete".into()));
     }
-    if users::count(&mut *tx).await? > 0 {
+    if users::count(&mut tx).await? > 0 {
         return Err(AppError::Internal("An account already exists".into()));
     }
     let claimed = crate::db::query(

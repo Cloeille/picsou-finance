@@ -37,7 +37,7 @@ fn tx(id: &str, date: &str, amount: &str, label: &str) -> Value {
 
 async fn store_lbp_session(app: &picsou::testing::TestApp, member_id: i64, plain: &str) -> i64 {
     let enc = app.state.crypto.encrypt(plain).unwrap();
-    sqlx::query_scalar(
+    picsou::db::query_scalar(
         "INSERT INTO lbp_session (member_id, session_state, last_validated_at, is_active, sync_status) \
          VALUES ($1, $2, now(), true, 'IDLE') RETURNING id",
     )
@@ -333,7 +333,7 @@ async fn sync_maps_all_kinds_configures_livrets_updates_txns_and_closes_removed_
 
     // Check types, balances, card fields, fallback LEP label, regulated savings auto-config.
     type Row = (String, String, String, Decimal, Option<Decimal>);
-    let accounts: Vec<Row> = sqlx::query_as(
+    let accounts: Vec<Row> = picsou::db::query_as(
         "SELECT external_account_id, type::text, name, current_balance, payment_due_amount \
          FROM account WHERE member_id = $1 ORDER BY external_account_id",
     )
@@ -390,7 +390,7 @@ async fn sync_maps_all_kinds_configures_livrets_updates_txns_and_closes_removed_
     );
 
     // Duplicate t1 kept the last occurrence.
-    let txns: Vec<(String, String, Decimal)> = sqlx::query_as(
+    let txns: Vec<(String, String, Decimal)> = picsou::db::query_as(
         "SELECT external_id, description, amount FROM \"transaction\" ORDER BY external_id",
     )
     .fetch_all(&app.state.db)
@@ -414,7 +414,7 @@ async fn sync_maps_all_kinds_configures_livrets_updates_txns_and_closes_removed_
     .await;
     let st2 = sync(&app, &client).await;
     assert_eq!(st2["syncStatus"], "SUCCESS");
-    let closed_card: (Decimal, Option<Decimal>, Option<chrono::NaiveDate>) = sqlx::query_as(
+    let closed_card: (Decimal, Option<Decimal>, Option<chrono::NaiveDate>) = picsou::db::query_as(
         "SELECT current_balance, payment_due_amount, payment_due_date FROM account WHERE external_account_id = 'lbp_2001'",
     )
     .fetch_one(&app.state.db)
@@ -451,7 +451,7 @@ async fn invalid_snapshots_fail_whole_and_recovery_marks_in_flight_failed() {
     let app = app_with_sidecar(URL, &sidecar).await;
     let (client, member_id) = admin(&app).await;
     let id = store_lbp_session(&app, member_id, "plain-state").await;
-    sqlx::query("UPDATE lbp_session SET sync_status = 'RUNNING' WHERE id = $1")
+    picsou::db::query("UPDATE lbp_session SET sync_status = 'RUNNING' WHERE id = $1")
         .bind(id)
         .execute(&app.state.db)
         .await

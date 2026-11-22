@@ -3,9 +3,9 @@
 //! characters: setting_key is VARCHAR(100) and a redirect URI can be longer). The value is the
 //! client id; a public client has no secret.
 
+use crate::db::Db;
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
-use sqlx::PgPool;
 
 use super::error::LouveResult;
 use super::oauth;
@@ -28,11 +28,11 @@ pub trait ClientSettings: Send + Sync {
 }
 
 pub struct AppSettingTable {
-    db: PgPool,
+    db: Db,
 }
 
 impl AppSettingTable {
-    pub fn new(db: PgPool) -> Self {
+    pub fn new(db: Db) -> Self {
         Self { db }
     }
 }

@@ -1,10 +1,10 @@
 //! AccountService.toResponse(account) for the account a wallet sync writes: no viewer, so no
 //! share or ownership badge.
 
+use crate::db::DbHandle;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::Serialize;
-use sqlx::PgConnection;
 
 use crate::db::{self, DbFromRow};
 use crate::error::AppResult;
@@ -86,7 +86,7 @@ pub struct InstitutionResponse {
 }
 
 pub async fn build(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     prices: &dyn PriceRead,
     account: &Account,
     today: NaiveDate,

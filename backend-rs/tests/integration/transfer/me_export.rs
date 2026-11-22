@@ -121,10 +121,7 @@ fn assert_reauth_failed(response: &Response, detail: &str) {
 }
 
 async fn sql(app: &TestApp, statement: &str) {
-    sqlx::raw_sql(statement)
-        .execute(&app.state.db)
-        .await
-        .unwrap();
+    app.state.db.execute_batch(statement).await.unwrap();
 }
 
 #[tokio::test]
@@ -134,12 +131,19 @@ async fn export_writes_every_entity_in_spring_order_with_java_headers_and_format
     let member = admin_member(&app).await;
     let checking = account(&app, member, AccountType::Checking, true).await;
     let gone = account(&app, member, AccountType::Checking, true).await;
+    picsou::db::query(
+        "INSERT INTO \"transaction\" (account_id, date, description, amount, native_currency, created_at, is_manual, tx_type, category_manual, budget_neutral) \
+         VALUES ($1, '2021-05-04', $2, -750, 'EUR', '2026-03-15T10:00:00.120Z', true, 'WITHDRAWAL', false, false)",
+    )
+    .bind(checking.id)
+    .bind("Loyer\nmai")
+    .execute(&app.state.db)
+    .await
+    .unwrap();
     sql(
         &app,
         &format!(
             "UPDATE account SET name = 'Courant, \"main\"', current_balance = -750 WHERE id = {c};
-             INSERT INTO \"transaction\" (account_id, date, description, amount, native_currency, created_at, is_manual, tx_type, category_manual, budget_neutral)
-               VALUES ({c}, '2021-05-04', E'Loyer\\nmai', -750, 'EUR', '2026-03-15T10:00:00.120Z', true, 'WITHDRAWAL', false, false);
              INSERT INTO account_holding (account_id, ticker, name, quantity, average_buy_in, current_price, created_at, updated_at)
                VALUES ({c}, 'ZZQX.PA', 'Fund', 0, 0.00000010, 65000, '2020-01-01T00:00:00.123456Z', '2020-01-01T00:00:00Z');
              INSERT INTO balance_snapshot (account_id, date, balance, invested_amount, created_at, source)
@@ -319,7 +323,7 @@ async fn with_2fa_on_the_totp_is_required_and_the_password_is_not_enough() {
     let client = app.login_admin().await;
     let secret = "JBSWY3DPEHPK3PXP";
     let encrypted = app.state.crypto.encrypt(secret).unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO user_mfa (user_id, enabled, totp_secret_enc, enrolled_at) \
          SELECT id, true, $1, now() FROM app_user WHERE username = 'admin'",
     )
@@ -351,10 +355,11 @@ async fn with_2fa_on_the_totp_is_required_and_the_password_is_not_enough() {
 async fn a_valid_reauth_proof_replaces_the_inline_payload() {
     let app = app().await;
     let client = app.login_admin().await;
-    let admin_id: i64 = sqlx::query_scalar("SELECT id FROM app_user WHERE username = 'admin'")
-        .fetch_one(&app.state.db)
-        .await
-        .unwrap();
+    let admin_id: i64 =
+        picsou::db::query_scalar("SELECT id FROM app_user WHERE username = 'admin'")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
     let admin = users::find_by_id(&app.state.db, admin_id)
         .await
         .unwrap()
@@ -385,10 +390,11 @@ async fn a_valid_reauth_proof_replaces_the_inline_payload() {
 async fn a_proof_minted_before_the_token_version_changed_is_refused() {
     let app = app().await;
     let client = app.login_admin().await;
-    let admin_id: i64 = sqlx::query_scalar("SELECT id FROM app_user WHERE username = 'admin'")
-        .fetch_one(&app.state.db)
-        .await
-        .unwrap();
+    let admin_id: i64 =
+        picsou::db::query_scalar("SELECT id FROM app_user WHERE username = 'admin'")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
     let mut admin = users::find_by_id(&app.state.db, admin_id)
         .await
         .unwrap()
@@ -498,7 +504,7 @@ async fn no_secret_reaches_the_archive() {
     )
     .await;
     let hash: String =
-        sqlx::query_scalar("SELECT password_hash FROM app_user WHERE username = 'admin'")
+        picsou::db::query_scalar("SELECT password_hash FROM app_user WHERE username = 'admin'")
             .fetch_one(&app.state.db)
             .await
             .unwrap();

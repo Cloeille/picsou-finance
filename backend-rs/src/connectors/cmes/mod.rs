@@ -6,6 +6,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use async_trait::async_trait;
 use axum::Json as AxumJson;
 use axum::extract::State;
@@ -16,7 +18,6 @@ use regex::Regex;
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
-use sqlx::PgConnection;
 
 use super::sidecar::flow::non_blank;
 use super::sidecar::pending::{Pending, PendingLogins};
@@ -313,10 +314,17 @@ async fn store_session_and_queue(
             .encrypt(&json!({ "login": login, "password": password }).to_string())?;
         let mut tx = state.db.begin().await?;
         let job = template()
-            .insert_queued(state, &mut tx, member_id, plain_state, false, |session| {
-                session.encrypted_credentials = Some(credentials);
-                Ok(())
-            })
+            .insert_queued(
+                state,
+                &mut tx.as_handle(),
+                member_id,
+                plain_state,
+                false,
+                |session| {
+                    session.encrypted_credentials = Some(credentials);
+                    Ok(())
+                },
+            )
             .await?;
         tx.commit().await?;
         job
@@ -471,7 +479,7 @@ impl SyncStrategy for Strategy {
     async fn commit(
         &self,
         state: &AppState,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         _session: &mut SidecarSession,
         job: &SyncJob,
         prepared: &Vec<PreparedPlan>,
@@ -516,7 +524,7 @@ impl SyncStrategy for Strategy {
 
     async fn on_failure(
         &self,
-        _conn: &mut PgConnection,
+        _conn: &mut DbHandle<'_>,
         session: &mut SidecarSession,
         code: SidecarErrorCode,
     ) -> JobResult<()> {
@@ -568,7 +576,7 @@ fn inherited_accounts(
 
 async fn upsert(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     plan: &PreparedPlan,
     inherited: Option<Account>,
     member_id: i64,
@@ -620,7 +628,7 @@ async fn upsert(
 /// A plan CMES stopped listing is closed at zero rather than left at its last balance.
 async fn close_unlisted_plans(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     prepared: &[PreparedPlan],
     imported: &[Account],
     inherited_ids: &HashSet<i64>,

@@ -1,6 +1,6 @@
 //! UsernameDeriver: a readable, login-safe username from a member's display name.
 
-use sqlx::PgConnection;
+use crate::db::DbHandle;
 use unicode_normalization::UnicodeNormalization;
 use unicode_normalization::char::is_combining_mark;
 
@@ -39,7 +39,7 @@ pub fn base(display_name: &str) -> String {
 }
 
 /// The base, or the base with ".2", ".3", ... when taken; every candidate fits the column.
-pub async fn derive(conn: &mut PgConnection, display_name: &str) -> sqlx::Result<String> {
+pub async fn derive(conn: &mut DbHandle<'_>, display_name: &str) -> sqlx::Result<String> {
     let base = base(display_name);
     let mut candidate = base.clone();
     let mut n: u64 = 2;

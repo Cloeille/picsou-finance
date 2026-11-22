@@ -32,7 +32,7 @@ fn n(s: &str) -> Value {
 
 async fn admin_client(app: &TestApp) -> (Client, i64) {
     let client = app.login_admin().await;
-    let member_id = sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = $1")
+    let member_id = picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = $1")
         .bind(ADMIN_USERNAME)
         .fetch_one(&app.state.db)
         .await
@@ -370,7 +370,7 @@ async fn degiro_end_to_end_native_through_test_app() {
     assert_eq!(comp.json()["isActive"], true);
 
     // Account balance = 125.50 cash + 10 * 45.00 = 575.50
-    let (balance, cash): (Decimal, Decimal) = sqlx::query_as(
+    let (balance, cash): (Decimal, Decimal) = picsou::db::query_as(
         "SELECT current_balance, cash_balance FROM account WHERE external_account_id = 'degiro-portfolio'",
     )
     .fetch_one(&app.state.db)
@@ -378,7 +378,7 @@ async fn degiro_end_to_end_native_through_test_app() {
     .unwrap();
     assert_eq!((balance, cash), (d("575.50"), d("125.50")));
 
-    let (qty, buy_in, price): (Decimal, Decimal, Decimal) = sqlx::query_as(
+    let (qty, buy_in, price): (Decimal, Decimal, Decimal) = picsou::db::query_as(
         "SELECT quantity, average_buy_in, current_price FROM account_holding LIMIT 1",
     )
     .fetch_one(&app.state.db)
@@ -961,14 +961,14 @@ async fn cmes_sms_retry_and_end_to_end_test_app() {
     assert_eq!(status["syncStatus"], "SUCCESS");
 
     let balance: Decimal =
-        sqlx::query_scalar("SELECT current_balance FROM account WHERE provider = $1 LIMIT 1")
+        picsou::db::query_scalar("SELECT current_balance FROM account WHERE provider = $1 LIMIT 1")
             .bind(picsou::ledger::providers::CMES)
             .fetch_one(&app.state.db)
             .await
             .unwrap();
     assert_eq!(balance, d("1500.50"));
 
-    let holdings_count: i64 = sqlx::query_scalar(
+    let holdings_count: i64 = picsou::db::query_scalar(
         "SELECT count(*) FROM account_holding h JOIN account a ON a.id = h.account_id WHERE a.provider = $1",
     )
     .bind(picsou::ledger::providers::CMES)
@@ -1816,7 +1816,7 @@ async fn cic_end_to_end_native_through_test_app() {
     assert_eq!(status["syncStatus"], "SUCCESS");
     assert_eq!(status["canReconnect"], true);
 
-    let rows: Vec<(String, String, Decimal)> = sqlx::query_as(
+    let rows: Vec<(String, String, Decimal)> = picsou::db::query_as(
         "SELECT external_account_id, type::text, current_balance FROM account \
          WHERE member_id = $1 AND provider = 'CIC' ORDER BY external_account_id",
     )

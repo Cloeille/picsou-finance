@@ -106,7 +106,7 @@ impl Fixture {
     }
 
     async fn scalar_i64(&self, sql: &str) -> i64 {
-        sqlx::query_scalar(sql)
+        picsou::db::query_scalar(sql)
             .fetch_one(&self.app.state.db)
             .await
             .unwrap()
@@ -218,7 +218,7 @@ async fn connect_claims_once_and_stores_the_access_url_encrypted() {
     assert_eq!(requests[0].method.as_str(), "POST");
     assert!(!requests[0].headers.contains_key("authorization"));
 
-    let stored: String = sqlx::query_scalar("SELECT access_url FROM simplefin_connection")
+    let stored: String = picsou::db::query_scalar("SELECT access_url FROM simplefin_connection")
         .fetch_one(&f.app.state.db)
         .await
         .unwrap();
@@ -274,7 +274,7 @@ async fn claim_answers_map_to_their_problems() {
 async fn a_failed_claim_leaves_the_stored_connection_untouched() {
     let f = Fixture::new().await;
     f.connect().await;
-    let before: String = sqlx::query_scalar("SELECT access_url FROM simplefin_connection")
+    let before: String = picsou::db::query_scalar("SELECT access_url FROM simplefin_connection")
         .fetch_one(&f.app.state.db)
         .await
         .unwrap();
@@ -283,7 +283,7 @@ async fn a_failed_claim_leaves_the_stored_connection_untouched() {
     f.app.clock.advance(Duration::from_secs(61));
     let response = f.post_connect(&f.admin, &token()).await;
     assert_eq!(response.status, StatusCode::UNPROCESSABLE_ENTITY);
-    let after: String = sqlx::query_scalar("SELECT access_url FROM simplefin_connection")
+    let after: String = picsou::db::query_scalar("SELECT access_url FROM simplefin_connection")
         .fetch_one(&f.app.state.db)
         .await
         .unwrap();
@@ -412,13 +412,13 @@ async fn sync_creates_a_checking_account_with_its_bank_balance_and_transactions(
 
     let id = synced["id"].as_i64().unwrap();
     let external: String =
-        sqlx::query_scalar("SELECT external_account_id FROM account WHERE id = $1")
+        picsou::db::query_scalar("SELECT external_account_id FROM account WHERE id = $1")
             .bind(id)
             .fetch_one(&f.app.state.db)
             .await
             .unwrap();
     assert_eq!(external, "sfin_CONN1_A1");
-    let rows: Vec<(String, Decimal, String)> = sqlx::query_as(
+    let rows: Vec<(String, Decimal, String)> = picsou::db::query_as(
         "SELECT description, amount, external_transaction_id FROM transaction WHERE account_id = $1",
     )
     .bind(id)
@@ -430,7 +430,7 @@ async fn sync_creates_a_checking_account_with_its_bank_balance_and_transactions(
     assert_eq!(rows[0].1, "-12.34".parse::<Decimal>().unwrap());
     assert_eq!(rows[0].2, "TX1");
     let snapshot: Decimal =
-        sqlx::query_scalar("SELECT balance FROM balance_snapshot WHERE account_id = $1")
+        picsou::db::query_scalar("SELECT balance FROM balance_snapshot WHERE account_id = $1")
             .bind(id)
             .fetch_one(&f.app.state.db)
             .await
@@ -449,7 +449,7 @@ async fn a_resync_keeps_the_members_type_and_inserts_nothing_new() {
     f.accounts_answer(200, account_set(vec![account("A1", "EUR", "100.00")]))
         .await;
     let id = f.sync().await.json()[0]["id"].as_i64().unwrap();
-    sqlx::query("UPDATE account SET type = 'SAVINGS' WHERE id = $1")
+    picsou::db::query("UPDATE account SET type = 'SAVINGS' WHERE id = $1")
         .bind(id)
         .execute(&f.app.state.db)
         .await
@@ -499,7 +499,7 @@ async fn a_soft_deleted_account_is_not_resurrected() {
     f.accounts_answer(200, account_set(vec![account("A1", "EUR", "100")]))
         .await;
     f.sync().await;
-    sqlx::query("UPDATE account SET deleted_at = now()")
+    picsou::db::query("UPDATE account SET deleted_at = now()")
         .execute(&f.app.state.db)
         .await
         .unwrap();
@@ -535,7 +535,7 @@ async fn positions_make_a_brokerage_account_and_a_sweep_becomes_cash() {
     assert_eq!(synced["cashBalance"].to_string(), "2000.00000000");
 
     let holdings: Vec<HoldingRow> =
-        sqlx::query_as(
+        picsou::db::query_as(
             "SELECT ticker, quantity, average_buy_in, current_price, provider_value_eur, quote_currency \
              FROM account_holding ORDER BY ticker",
         )
@@ -557,7 +557,7 @@ async fn positions_make_a_brokerage_account_and_a_sweep_becomes_cash() {
 
     // A hand-entered buy-in survives a bridge that reports no cost; an empty or partial list
     // never wipes the stored positions.
-    sqlx::query("UPDATE account_holding SET average_buy_in = 111")
+    picsou::db::query("UPDATE account_holding SET average_buy_in = 111")
         .execute(&f.app.state.db)
         .await
         .unwrap();
@@ -570,7 +570,7 @@ async fn positions_make_a_brokerage_account_and_a_sweep_becomes_cash() {
     .await;
     f.sync().await;
     let (quantity, buy_in): (Decimal, Option<Decimal>) =
-        sqlx::query_as("SELECT quantity, average_buy_in FROM account_holding")
+        picsou::db::query_as("SELECT quantity, average_buy_in FROM account_holding")
             .fetch_one(&f.app.state.db)
             .await
             .unwrap();
@@ -589,7 +589,7 @@ async fn positions_make_a_brokerage_account_and_a_sweep_becomes_cash() {
             f.scalar_i64("SELECT count(*) FROM account_holding").await,
             1
         );
-        let quantity: Decimal = sqlx::query_scalar("SELECT quantity FROM account_holding")
+        let quantity: Decimal = picsou::db::query_scalar("SELECT quantity FROM account_holding")
             .fetch_one(&f.app.state.db)
             .await
             .unwrap();
@@ -605,7 +605,7 @@ async fn positions_make_a_brokerage_account_and_a_sweep_becomes_cash() {
     )
     .await;
     f.sync().await;
-    let tickers: Vec<String> = sqlx::query_scalar("SELECT ticker FROM account_holding")
+    let tickers: Vec<String> = picsou::db::query_scalar("SELECT ticker FROM account_holding")
         .fetch_all(&f.app.state.db)
         .await
         .unwrap();
@@ -737,7 +737,7 @@ async fn resync_reporting_skips_a_member_without_a_connection_and_reports_succes
 #[tokio::test]
 async fn an_undecryptable_access_shows_error_and_a_fixed_mask() {
     let f = Fixture::new().await;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO simplefin_connection (member_id, access_url) VALUES ($1, 'not-ciphertext')",
     )
     .bind(f.member_id)
@@ -756,7 +756,7 @@ async fn an_undecryptable_access_shows_error_and_a_fixed_mask() {
             .unwrap()
             .starts_with("Could not decrypt")
     );
-    let stored: String = sqlx::query_scalar("SELECT status FROM simplefin_connection")
+    let stored: String = picsou::db::query_scalar("SELECT status FROM simplefin_connection")
         .fetch_one(&f.app.state.db)
         .await
         .unwrap();

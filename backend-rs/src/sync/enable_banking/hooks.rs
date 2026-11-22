@@ -3,11 +3,11 @@
 
 use std::sync::{Arc, Mutex};
 
+use crate::db::DbHandle;
 use chrono::{DateTime, NaiveDate, Utc};
 use rsa::RsaPrivateKey;
 use rust_decimal::Decimal;
 use serde::Serialize;
-use sqlx::PgConnection;
 
 use crate::AppState;
 use crate::error::AppResult;
@@ -53,7 +53,7 @@ pub trait AccountResponses: Send + Sync {
     async fn to_response(
         &self,
         state: &AppState,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         account: &Account,
     ) -> AppResult<serde_json::Value>;
 }
@@ -123,7 +123,7 @@ impl AccountResponses for BaseAccountResponse {
     async fn to_response(
         &self,
         state: &AppState,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         a: &Account,
     ) -> AppResult<serde_json::Value> {
         let balance_eur =

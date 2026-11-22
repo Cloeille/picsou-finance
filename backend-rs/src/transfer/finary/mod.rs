@@ -22,6 +22,7 @@ use self::parse::{ParsedAccount, ParsedData};
 use crate::AppState;
 use crate::auth::Auth;
 use crate::clock::AppClock;
+use crate::db::AsDbHandle;
 use crate::error::{AppError, AppResult};
 use crate::http::json::{Errors, Json, Validate};
 use crate::ledger::accounts::{self, NewAccount};
@@ -513,7 +514,7 @@ async fn execute(
             Some(MappingAction::MapExisting) => {
                 let target = mapping.target_account_id;
                 let found = match target {
-                    Some(id) => accounts::find_by_id_and_member(&mut *tx, id, member_id).await?,
+                    Some(id) => accounts::find_by_id_and_member(&mut tx, id, member_id).await?,
                     None => None,
                 };
                 let mut account = found.ok_or_else(|| {
@@ -525,19 +526,20 @@ async fn execute(
                 // The rebuilt history is anchored at the Finary balance; the account shows it too.
                 account.current_balance = finary.balance.value;
                 account.currency = finary.currency.clone();
-                let account = accounts::update(&mut *tx, &account, now).await?;
+                let account = accounts::update(&mut tx, &account, now).await?;
                 result.accounts_mapped += 1;
                 account
             }
             Some(MappingAction::CreateNew) => {
-                let account = create_account(&mut tx, member_id, mapping, finary, now).await?;
+                let account =
+                    create_account(&mut tx.as_handle(), member_id, mapping, finary, now).await?;
                 result.accounts_created += 1;
                 account
             }
             None => continue,
         };
         result.snapshots_created += persist::reconstruct_snapshots(
-            &mut tx,
+            &mut tx.as_handle(),
             prices,
             account.id,
             finary,
@@ -546,9 +548,14 @@ async fn execute(
             now,
         )
         .await?;
-        result.transactions_imported +=
-            persist::import_transactions(&mut tx, account.id, finary, &parsed.transactions, now)
-                .await?;
+        result.transactions_imported += persist::import_transactions(
+            &mut tx.as_handle(),
+            account.id,
+            finary,
+            &parsed.transactions,
+            now,
+        )
+        .await?;
         result.imported_accounts.push(ImportedAccountSummary {
             id: account.id,
             name: account.name,
@@ -563,7 +570,7 @@ async fn execute(
 }
 
 async fn create_account(
-    conn: &mut sqlx::PgConnection,
+    conn: &mut crate::db::DbHandle<'_>,
     member_id: i64,
     mapping: &AccountMapping,
     finary: &ParsedAccount,

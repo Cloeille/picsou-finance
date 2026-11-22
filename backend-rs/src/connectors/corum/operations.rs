@@ -9,9 +9,9 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::db::DbHandle;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use super::adapter::{LifeHolding, LifeOperation};
 use crate::AppState;
@@ -192,7 +192,7 @@ fn predecessor_of<'a>(
 /// another kind, leaves the payment uncategorized.
 async fn investment_category(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
 ) -> sqlx::Result<Option<i64>> {
     let category =
@@ -210,7 +210,7 @@ async fn investment_category(
 /// Reconciles the account's synced rows against \`operations\`, already validated.
 pub async fn reconcile(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     account: &Account,
     operations: Option<&[&LifeOperation]>,

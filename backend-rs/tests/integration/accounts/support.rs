@@ -17,14 +17,14 @@ pub fn num(value: &Value) -> String {
 }
 
 pub async fn admin_member(app: &TestApp) -> i64 {
-    sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+    picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
         .fetch_one(&app.state.db)
         .await
         .expect("admin member")
 }
 
 pub async fn account(app: &TestApp, member_id: i64, name: &str, kind: &str, balance: &str) -> i64 {
-    sqlx::query_scalar(
+    picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color, created_at, updated_at) \
          VALUES ($1, $2, $3::account_type, 'EUR', $4, true, '#000000', now(), now()) RETURNING id",
     )
@@ -38,7 +38,7 @@ pub async fn account(app: &TestApp, member_id: i64, name: &str, kind: &str, bala
 }
 
 pub async fn exec(app: &TestApp, sql: &str) {
-    sqlx::raw_sql(sql).execute(&app.state.db).await.expect(sql);
+    app.state.db.execute_batch(sql).await.expect(sql);
 }
 
 pub async fn snapshot(app: &TestApp, account_id: i64, date: &str, balance: &str, invested: &str) {

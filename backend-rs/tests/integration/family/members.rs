@@ -7,7 +7,7 @@ use serde_json::json;
 use super::support::{PASSWORD, account, admin_member};
 
 async fn user_of(app: &TestApp, member_id: i64) -> Option<(String, String, bool, Option<String>)> {
-    sqlx::query_as(
+    picsou::db::query_as(
         "SELECT username, password_hash, is_activated, activation_token FROM app_user WHERE member_id = $1",
     )
     .bind(member_id)
@@ -115,23 +115,25 @@ async fn create_validates_the_display_name_and_returns_a_managed_profile() {
 async fn list_reports_mfa_password_and_sso_flags() {
     let app = TestApp::with_admin().await;
     let (bob_user, _) = app.create_member("bob", PASSWORD).await;
-    sqlx::query("UPDATE app_user SET password_hash = '' WHERE id = $1")
+    picsou::db::query("UPDATE app_user SET password_hash = '' WHERE id = $1")
         .bind(bob_user)
         .execute(&app.state.db)
         .await
         .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO user_identity (user_id, issuer, subject) VALUES ($1, 'https://idp', 'sub-1')",
     )
     .bind(bob_user)
     .execute(&app.state.db)
     .await
     .unwrap();
-    sqlx::query("INSERT INTO user_mfa (user_id, enabled, totp_secret_enc) VALUES ($1, true, 'x')")
-        .bind(bob_user)
-        .execute(&app.state.db)
-        .await
-        .unwrap();
+    picsou::db::query(
+        "INSERT INTO user_mfa (user_id, enabled, totp_secret_enc) VALUES ($1, true, 'x')",
+    )
+    .bind(bob_user)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
     let admin = app.login_admin().await;
 
     let list = admin.get("/api/family/members").send().await.json();
@@ -204,12 +206,13 @@ async fn activation_derives_the_username_and_reuses_an_unactivated_login() {
     assert_eq!(hash, "");
     assert!(!activated);
     assert_eq!(stored.as_deref(), Some(token));
-    let expires: chrono::DateTime<chrono::Utc> =
-        sqlx::query_scalar("SELECT activation_token_expires FROM app_user WHERE member_id = $1")
-            .bind(id)
-            .fetch_one(&app.state.db)
-            .await
-            .unwrap();
+    let expires: chrono::DateTime<chrono::Utc> = picsou::db::query_scalar(
+        "SELECT activation_token_expires FROM app_user WHERE member_id = $1",
+    )
+    .bind(id)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
     assert_eq!(
         expires,
         picsou::testing::epoch() + chrono::Duration::days(7)
@@ -347,7 +350,7 @@ async fn deleting_an_activated_member_removes_the_login_and_cascades_their_data(
     );
 
     assert!(user_of(&app, bob).await.is_none());
-    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM account WHERE id = ANY($1)")
+    let left: i64 = picsou::db::query_scalar("SELECT count(*) FROM account WHERE id = ANY($1)")
         .bind(vec![bobs, kids])
         .fetch_one(&app.state.db)
         .await
@@ -362,7 +365,7 @@ async fn another_administrator_can_be_deleted_while_one_remains() {
     let app = TestApp::with_admin().await;
     let admin = app.login_admin().await;
     let (second, second_member) = app.create_member("second", PASSWORD).await;
-    sqlx::query("UPDATE app_user SET role = 'ADMIN' WHERE id = $1")
+    picsou::db::query("UPDATE app_user SET role = 'ADMIN' WHERE id = $1")
         .bind(second)
         .execute(&app.state.db)
         .await
@@ -373,9 +376,10 @@ async fn another_administrator_can_be_deleted_while_one_remains() {
         .send()
         .await;
     assert_eq!(response.status, StatusCode::NO_CONTENT);
-    let admins: i64 = sqlx::query_scalar("SELECT count(*) FROM app_user WHERE role = 'ADMIN'")
-        .fetch_one(&app.state.db)
-        .await
-        .unwrap();
+    let admins: i64 =
+        picsou::db::query_scalar("SELECT count(*) FROM app_user WHERE role = 'ADMIN'")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
     assert_eq!(admins, 1);
 }

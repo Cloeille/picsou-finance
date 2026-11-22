@@ -6,13 +6,13 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use crate::db::DbHandle;
 use async_trait::async_trait;
 use chrono::{DateTime, Days, Months, NaiveDate, Utc};
 use regex::Regex;
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::PgConnection;
 
 use super::history;
 use super::writer::{self, Recognition, Recognitions, Upsert};
@@ -169,7 +169,7 @@ impl SyncStrategy for Strategy {
     async fn commit(
         &self,
         state: &AppState,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         _session: &mut SidecarSession,
         job: &SyncJob,
         prepared: &Vec<PreparedAccount>,
@@ -621,7 +621,7 @@ fn color_for(account_type: AccountType) -> &'static str {
 
 async fn upsert_account(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     data: &PreparedAccount,
     member_id: i64,
     synced_at: DateTime<Utc>,
@@ -679,7 +679,7 @@ async fn upsert_account(
 /// otherwise, since without ids a re-sent row cannot be told from a new one. An empty answer
 /// leaves the stored history alone: it far more likely means nothing was fetched.
 async fn sync_transactions(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     rows: &[PreparedTransaction],
     today: NaiveDate,
@@ -728,7 +728,7 @@ fn new_row(account: &Account, tx: &PreparedTransaction) -> NewTransaction {
 /// the response covers, from its oldest entry to today: the feed is authoritative up to now, so a
 /// newer stored row is one the provider stopped showing, while older history stays.
 async fn reconcile_full_history(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     rows: &[PreparedTransaction],
     today: NaiveDate,
@@ -797,7 +797,7 @@ async fn reconcile_full_history(
 /// Replaces the trailing window of synced rows, keeping older history and manual rows; only what
 /// falls inside the window is inserted, or every older row would be appended again each sync.
 async fn replace_recent_transactions(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     rows: &[PreparedTransaction],
     today: NaiveDate,

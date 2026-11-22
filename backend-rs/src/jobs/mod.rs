@@ -7,7 +7,7 @@ pub mod startup;
 use std::sync::Arc;
 use std::time::Duration;
 
-use sqlx::PgPool;
+use crate::db::Db;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 
@@ -23,7 +23,7 @@ pub struct JobsState {
 }
 
 impl JobsState {
-    pub fn new(db: PgPool, clock: AppClock) -> Self {
+    pub fn new(db: Db, clock: AppClock) -> Self {
         Self {
             catch_up: Arc::new(catch_up::CatchUpScheduler::new(db, clock)),
         }

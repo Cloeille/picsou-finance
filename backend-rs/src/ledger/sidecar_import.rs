@@ -4,9 +4,9 @@
 
 use std::collections::HashSet;
 
+use crate::db::DbHandle;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use super::bank_import::{collapse_whitespace, sha256_hex};
 use super::categorize::{self, CategorizationContext, TRANSFER_SLUG};
@@ -24,7 +24,7 @@ const EXTERNAL_ID_LIMIT: usize = 255;
 
 /// Imports the sidecar rows of an EUR account that are not stored yet; returns how many.
 pub async fn import(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     rows: &[SidecarTransaction],
     ctx: &CategorizationContext,

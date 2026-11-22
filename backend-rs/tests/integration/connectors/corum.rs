@@ -109,7 +109,7 @@ async fn status(client: &Client) -> Value {
 }
 
 async fn scpi_accounts(app: &TestApp) -> Vec<(String, Decimal, bool)> {
-    sqlx::query_as(
+    picsou::db::query_as(
         "SELECT name, current_balance, is_manual FROM account WHERE type = 'SCPI' AND deleted_at IS NULL ORDER BY name",
     )
     .fetch_all(&app.state.db)
@@ -118,14 +118,16 @@ async fn scpi_accounts(app: &TestApp) -> Vec<(String, Decimal, bool)> {
 }
 
 async fn outcomes(app: &TestApp) -> Vec<(String, String)> {
-    sqlx::query_as("SELECT fund_code, last_outcome FROM scpi_provider_fund ORDER BY fund_code")
-        .fetch_all(&app.state.db)
-        .await
-        .unwrap()
+    picsou::db::query_as(
+        "SELECT fund_code, last_outcome FROM scpi_provider_fund ORDER BY fund_code",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap()
 }
 
 async fn manual_scpi(app: &TestApp, member_id: i64, name: &str) -> i64 {
-    sqlx::query_scalar(
+    picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color) \
          VALUES ($1, $2, 'SCPI', 'EUR', 1000, true, '#000') RETURNING id",
     )
@@ -201,7 +203,7 @@ async fn a_second_sync_updates_the_shares_and_creates_nothing() {
         ]
     );
     let shares: Vec<Decimal> =
-        sqlx::query_scalar("SELECT share_count FROM scpi_position ORDER BY id")
+        picsou::db::query_scalar("SELECT share_count FROM scpi_position ORDER BY id")
             .fetch_all(&app.state.db)
             .await
             .unwrap();
@@ -226,11 +228,12 @@ async fn a_manual_account_named_like_a_fund_is_linked_and_two_are_ambiguous() {
             ("XL".into(), "LINKED".into())
         ]
     );
-    let balance: Decimal = sqlx::query_scalar("SELECT current_balance FROM account WHERE id = $1")
-        .bind(linked)
-        .fetch_one(&app.state.db)
-        .await
-        .unwrap();
+    let balance: Decimal =
+        picsou::db::query_scalar("SELECT current_balance FROM account WHERE id = $1")
+            .bind(linked)
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
     assert_eq!(balance, d("1800"));
     assert_eq!(
         count(&app, "SELECT count(*) FROM account WHERE type = 'SCPI'").await,
@@ -250,13 +253,13 @@ async fn an_ignored_fund_is_not_recreated_and_a_missing_one_is_reported_without_
     .await;
     let app = app_with_sidecar(URL, &sidecar).await;
     let (client, member_id) = admin(&app).await;
-    sqlx::query("INSERT INTO scpi_provider_fund (member_id, provider, fund_code, label, ignored) VALUES ($1, 'CORUM', 'XL', 'CORUM XL', true)")
+    picsou::db::query("INSERT INTO scpi_provider_fund (member_id, provider, fund_code, label, ignored) VALUES ($1, 'CORUM', 'XL', 'CORUM XL', true)")
         .bind(member_id)
         .execute(&app.state.db)
         .await
         .unwrap();
     let gone = manual_scpi(&app, member_id, "CORUM Eurion").await;
-    sqlx::query("INSERT INTO scpi_position (account_id, member_id, share_count, corum_fund_code) VALUES ($1, $2, 5, 'EU')")
+    picsou::db::query("INSERT INTO scpi_position (account_id, member_id, share_count, corum_fund_code) VALUES ($1, $2, 5, 'EU')")
         .bind(gone)
         .bind(member_id)
         .execute(&app.state.db)
@@ -316,7 +319,7 @@ async fn a_fund_without_a_withdrawal_price_keeps_its_balance_and_reports_price_i
     );
     assert_eq!(scpi_accounts(&app).await[0].1, d("1800"));
     let (shares, status): (Decimal, String) =
-        sqlx::query_as("SELECT share_count, valuation_status FROM scpi_position")
+        picsou::db::query_as("SELECT share_count, valuation_status FROM scpi_position")
             .fetch_one(&app.state.db)
             .await
             .unwrap();
@@ -512,7 +515,7 @@ async fn unreadable_remembered_credentials_are_cleared() {
     let (client, member_id) = admin(&app).await;
     store_session(&app, BANK, member_id, "state-1").await;
     let damaged = app.state.crypto.encrypt(r#"{"login":"C123"}"#).unwrap();
-    sqlx::query("UPDATE sidecar_session SET encrypted_credentials = $1")
+    picsou::db::query("UPDATE sidecar_session SET encrypted_credentials = $1")
         .bind(damaged)
         .execute(&app.state.db)
         .await
@@ -553,7 +556,7 @@ async fn re_logins_past_the_member_budget_keep_the_session_and_the_credentials()
         .crypto
         .encrypt(r#"{"login":"C123","password":"secret"}"#)
         .unwrap();
-    sqlx::query("UPDATE sidecar_session SET encrypted_credentials = $1")
+    picsou::db::query("UPDATE sidecar_session SET encrypted_credentials = $1")
         .bind(credentials)
         .execute(&app.state.db)
         .await
@@ -561,7 +564,7 @@ async fn re_logins_past_the_member_budget_keep_the_session_and_the_credentials()
 
     // Each run re-logs in, then the new session expires too; the sixth run finds the budget spent.
     for _ in 0..6 {
-        sqlx::query(
+        picsou::db::query(
             "UPDATE sidecar_session SET is_active = true, sync_status = 'IDLE', last_sync_error = NULL",
         )
         .execute(&app.state.db)
@@ -732,7 +735,7 @@ async fn a_life_contract_becomes_one_assurance_vie_account_with_its_lines_and_op
         Decimal,
         Option<String>,
         String,
-    ) = sqlx::query_as(
+    ) = picsou::db::query_as(
         "SELECT name, external_account_id, current_balance, is_manual, provider_invested_eur, \
          scheduled_payment_cadence, opened_at::text FROM account",
     )
@@ -758,7 +761,7 @@ async fn a_life_contract_becomes_one_assurance_vie_account_with_its_lines_and_op
         Option<Decimal>,
         Option<String>,
     );
-    let holdings: Vec<HoldingRow> = sqlx::query_as(
+    let holdings: Vec<HoldingRow> = picsou::db::query_as(
         "SELECT ticker, provider_value_eur, average_buy_in, provider_pnl_eur, provider_wealth_tier \
              FROM account_holding ORDER BY ticker",
     )
@@ -792,7 +795,7 @@ async fn a_life_contract_becomes_one_assurance_vie_account_with_its_lines_and_op
         Option<String>,
         bool,
     );
-    let rows: Vec<TxRow> = sqlx::query_as(
+    let rows: Vec<TxRow> = picsou::db::query_as(
         "SELECT t.external_id, t.tx_type, t.ticker, t.budget_neutral, c.slug, t.is_manual \
          FROM \"transaction\" t LEFT JOIN category c ON c.id = t.category_id ORDER BY t.external_id",
     )
@@ -830,7 +833,7 @@ async fn a_life_contract_becomes_one_assurance_vie_account_with_its_lines_and_op
         ]
     );
     let snapshot: (Decimal, Decimal) =
-        sqlx::query_as("SELECT balance, invested_amount FROM balance_snapshot")
+        picsou::db::query_as("SELECT balance, invested_amount FROM balance_snapshot")
             .fetch_one(&app.state.db)
             .await
             .unwrap();
@@ -859,7 +862,7 @@ async fn a_resync_keeps_the_member_category_and_drops_operations_corum_no_longer
     let app = app_with_sidecar(URL, &sidecar).await;
     let (client, _) = admin(&app).await;
     login(&app, &client, false).await;
-    sqlx::query("UPDATE \"transaction\" SET category_id = NULL, category_manual = true WHERE external_id = 'corum:1'")
+    picsou::db::query("UPDATE \"transaction\" SET category_id = NULL, category_manual = true WHERE external_id = 'corum:1'")
         .execute(&app.state.db)
         .await
         .unwrap();
@@ -867,7 +870,7 @@ async fn a_resync_keeps_the_member_category_and_drops_operations_corum_no_longer
     client.post("/api/corum/sync").send().await;
     settle(&app).await;
 
-    let rows: Vec<(String, Option<i64>, bool)> = sqlx::query_as(
+    let rows: Vec<(String, Option<i64>, bool)> = picsou::db::query_as(
         "SELECT external_id, category_id, category_manual FROM \"transaction\" ORDER BY external_id",
     )
     .fetch_all(&app.state.db)
@@ -888,7 +891,7 @@ async fn a_manual_corum_life_account_is_adopted_unless_it_holds_lines_typed_by_h
         let sidecar = sidecar_with(life_portfolio(Value::Null)).await;
         let app = app_with_sidecar(URL, &sidecar).await;
         let (client, member_id) = admin(&app).await;
-        let manual: i64 = sqlx::query_scalar(
+        let manual: i64 = picsou::db::query_scalar(
             "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color) \
              VALUES ($1, 'Corum life', 'ASSURANCE_VIE', 'EUR', 0, true, '#000') RETURNING id",
         )
@@ -897,7 +900,7 @@ async fn a_manual_corum_life_account_is_adopted_unless_it_holds_lines_typed_by_h
         .await
         .unwrap();
         if with_holding {
-            sqlx::query(
+            picsou::db::query(
                 "INSERT INTO account_holding (account_id, ticker, quantity) VALUES ($1, 'MINE', 1)",
             )
             .bind(manual)
@@ -911,7 +914,7 @@ async fn a_manual_corum_life_account_is_adopted_unless_it_holds_lines_typed_by_h
         let after = status(&client).await;
         assert_eq!(after["syncStatus"], "SUCCESS");
         let external: Option<String> =
-            sqlx::query_scalar("SELECT external_account_id FROM account WHERE id = $1")
+            picsou::db::query_scalar("SELECT external_account_id FROM account WHERE id = $1")
                 .bind(manual)
                 .fetch_one(&app.state.db)
                 .await
@@ -933,7 +936,7 @@ async fn a_deleted_life_account_is_not_brought_back() {
     let app = app_with_sidecar(URL, &sidecar).await;
     let (client, _) = admin(&app).await;
     login(&app, &client, false).await;
-    sqlx::query("UPDATE account SET deleted_at = now()")
+    picsou::db::query("UPDATE account SET deleted_at = now()")
         .execute(&app.state.db)
         .await
         .unwrap();
@@ -984,15 +987,16 @@ async fn line_costs_that_miss_the_contract_cost_are_dropped() {
     login(&app, &client, false).await;
 
     let costs: Vec<(Option<Decimal>, Option<Decimal>)> =
-        sqlx::query_as("SELECT average_buy_in, provider_pnl_eur FROM account_holding")
+        picsou::db::query_as("SELECT average_buy_in, provider_pnl_eur FROM account_holding")
             .fetch_all(&app.state.db)
             .await
             .unwrap();
     assert_eq!(costs, vec![(None, None), (None, None)]);
-    let invested: Decimal = sqlx::query_scalar("SELECT invested_amount FROM balance_snapshot")
-        .fetch_one(&app.state.db)
-        .await
-        .unwrap();
+    let invested: Decimal =
+        picsou::db::query_scalar("SELECT invested_amount FROM balance_snapshot")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
     assert_eq!(invested, d("1300"));
 }
 

@@ -6,9 +6,9 @@
 
 use std::collections::BTreeSet;
 
+use crate::db::DbHandle;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use super::liabilities;
 use super::model::{Account, AccountHolding, AccountType, BalanceSnapshot, SnapshotSource};
@@ -46,7 +46,7 @@ impl Valuation {
 
 /// AccountService.valuation.
 pub async fn valuation(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     prices: &dyn PriceRead,
     account: &Account,
     today: NaiveDate,
@@ -316,7 +316,7 @@ pub async fn quotes_for(
 
 /// AccountService.liveBalanceEur.
 pub async fn live_balance_eur(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     prices: &dyn PriceRead,
     account: &Account,
     today: NaiveDate,
@@ -326,7 +326,7 @@ pub async fn live_balance_eur(
 
 /// The live balance with the liability sign: a LOAN is negative, for net-worth sums.
 pub async fn signed_live_balance_eur(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     prices: &dyn PriceRead,
     account: &Account,
     today: NaiveDate,
@@ -341,7 +341,7 @@ pub async fn signed_live_balance_eur(
 
 /// AccountService.calculateInvestedAmount.
 pub async fn invested_amount(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     prices: &dyn PriceRead,
     account: &Account,
     today: NaiveDate,
@@ -359,7 +359,7 @@ pub struct SnapshotContext<'a> {
 /// AccountService.upsertSnapshot(account, balance, date): the invested amount is the account's
 /// current cost basis.
 pub async fn upsert_snapshot(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     ctx: &SnapshotContext<'_>,
     account: &Account,
     balance_eur: Decimal,
@@ -373,7 +373,7 @@ pub async fn upsert_snapshot(
 /// (at today's rate, even back-dated) before storing it; a MANUAL row keeps its native figure
 /// and entry instant current.
 pub async fn upsert_snapshot_from_native(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     ctx: &SnapshotContext<'_>,
     account: &Account,
     native_balance: Decimal,

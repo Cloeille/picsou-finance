@@ -218,11 +218,12 @@ async fn settings_are_created_on_first_read_and_validated() {
         "aiMode": "AUTO_HIGH_CONFIDENCE", "aiConfidenceThreshold": 75,
         "currentCycleStart": "2026-01-01", "currentCycleEnd": "2026-01-31"})
     );
-    let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM budget_settings WHERE member_id = $1")
-        .bind(c.member)
-        .fetch_one(&c.app.state.db)
-        .await
-        .unwrap();
+    let rows: i64 =
+        picsou::db::query_scalar("SELECT COUNT(*) FROM budget_settings WHERE member_id = $1")
+            .bind(c.member)
+            .fetch_one(&c.app.state.db)
+            .await
+            .unwrap();
     assert_eq!(rows, 1);
     let r = c
         .client
@@ -292,7 +293,7 @@ async fn envelopes_score_the_current_cycle_with_refunds_rollups_and_java_scales(
     c.tx(&checking, "2025-12-31", "-999", "Last month", Some(food))
         .await;
     let hidden = c.account("Copy", AccountType::Checking).await;
-    sqlx::query("UPDATE account SET hidden = true WHERE id = $1")
+    picsou::db::query("UPDATE account SET hidden = true WHERE id = $1")
         .bind(hidden.id)
         .execute(&c.app.state.db)
         .await
@@ -618,7 +619,7 @@ async fn manual_categorization_learns_a_rule_and_never_overrides_a_manual_choice
     let tx_cat = |id: i64| {
         let db = c.app.state.db.clone();
         async move {
-            sqlx::query_scalar::<_, Option<i64>>(
+            picsou::db::query_scalar::<Option<i64>>(
                 "SELECT category_id FROM \"transaction\" WHERE id = $1",
             )
             .bind(id)
@@ -733,7 +734,7 @@ async fn search_skips_hidden_accounts_unless_asked_and_requires_the_range() {
     let c = ctx().await;
     let checking = c.account("Courant", AccountType::Checking).await;
     let hidden = c.account("Hidden", AccountType::Checking).await;
-    sqlx::query("UPDATE account SET hidden = true WHERE id = $1")
+    picsou::db::query("UPDATE account SET hidden = true WHERE id = $1")
         .bind(hidden.id)
         .execute(&c.app.state.db)
         .await
@@ -788,7 +789,7 @@ async fn recurring_series_lifecycle_calendar_and_activity() {
     assert_eq!(dues, vec!["2026-01-20", "2026-02-20"]);
 
     let card = c.account("Amex", AccountType::CreditCard).await;
-    sqlx::query("UPDATE account SET payment_due_date = '2026-01-25', payment_due_amount = 120.5 WHERE id = $1").bind(card.id).execute(&c.app.state.db).await.unwrap();
+    picsou::db::query("UPDATE account SET payment_due_date = '2026-01-25', payment_due_amount = 120.5 WHERE id = $1").bind(card.id).execute(&c.app.state.db).await.unwrap();
     let cal = c.get("/api/recurring/calendar").await;
     assert_eq!(cal[1]["seriesId"], -card.id);
     assert_eq!(cal[1]["creditCardPayment"], true);
@@ -896,12 +897,13 @@ async fn detection_auto_confirms_a_fixed_monthly_series_and_never_resurrects_an_
     );
     let r = c.client.post("/api/recurring/detect").send().await.json();
     assert_eq!(r, json!({"detected": 1}));
-    let linked: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM \"transaction\" WHERE recurring_series_id = $1")
-            .bind(id)
-            .fetch_one(&c.app.state.db)
-            .await
-            .unwrap();
+    let linked: i64 = picsou::db::query_scalar(
+        "SELECT COUNT(*) FROM \"transaction\" WHERE recurring_series_id = $1",
+    )
+    .bind(id)
+    .fetch_one(&c.app.state.db)
+    .await
+    .unwrap();
     assert_eq!(linked, 4);
 }
 
@@ -979,23 +981,24 @@ async fn ai_job_is_a_no_op_when_disabled_and_runs_the_plugged_categorizer_when_e
         (json!(1), json!(1), json!(0))
     );
     let confidence: Option<i32> =
-        sqlx::query_scalar("SELECT ai_confidence FROM \"transaction\" WHERE id = $1")
+        picsou::db::query_scalar("SELECT ai_confidence FROM \"transaction\" WHERE id = $1")
             .bind(tx)
             .fetch_one(&c.app.state.db)
             .await
             .unwrap();
     assert_eq!(confidence, Some(50));
-    let logs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ai_call_log WHERE provider = 'test'")
-        .fetch_one(&c.app.state.db)
-        .await
-        .unwrap();
+    let logs: i64 =
+        picsou::db::query_scalar("SELECT COUNT(*) FROM ai_call_log WHERE provider = 'test'")
+            .fetch_one(&c.app.state.db)
+            .await
+            .unwrap();
     assert_eq!(logs, 1);
 }
 
 #[tokio::test]
 async fn logo_proxy_is_opt_in_cached_and_falls_back_to_404() {
     let c = ctx().await;
-    let brand: (i64, String) = sqlx::query_as("SELECT id, logo_domain FROM merchant_brand WHERE logo_domain IS NOT NULL ORDER BY id LIMIT 1")
+    let brand: (i64, String) = picsou::db::query_as("SELECT id, logo_domain FROM merchant_brand WHERE logo_domain IS NOT NULL ORDER BY id LIMIT 1")
         .fetch_one(&c.app.state.db).await.unwrap();
     let r = c
         .client

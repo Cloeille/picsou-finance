@@ -93,7 +93,7 @@ impl Synced {
     }
 
     async fn account_id(&self) -> i64 {
-        sqlx::query_scalar("SELECT id FROM account WHERE member_id = $1 ORDER BY id LIMIT 1")
+        picsou::db::query_scalar("SELECT id FROM account WHERE member_id = $1 ORDER BY id LIMIT 1")
             .bind(self.member_id)
             .fetch_one(&self.app.state.db)
             .await
@@ -101,7 +101,7 @@ impl Synced {
     }
 
     async fn rows(&self) -> Vec<(Option<String>, String, String, Decimal)> {
-        sqlx::query_as(
+        picsou::db::query_as(
             "SELECT external_id, date::text, description, amount FROM \"transaction\" ORDER BY date, id",
         )
         .fetch_all(&self.app.state.db)
@@ -282,7 +282,7 @@ async fn a_mixed_portfolio_commits_every_account_with_its_snapshot() {
         .await;
 
     assert_eq!(after["syncStatus"], "SUCCESS");
-    let accounts: Vec<(String, String, Decimal, String)> = sqlx::query_as(
+    let accounts: Vec<(String, String, Decimal, String)> = picsou::db::query_as(
         "SELECT external_account_id, type::text, cash_balance, color FROM account ORDER BY id",
     )
     .fetch_all(&s.app.state.db)
@@ -300,17 +300,18 @@ async fn a_mixed_portfolio_commits_every_account_with_its_snapshot() {
             ),
         ]
     );
-    let snapshots: Vec<(Decimal, Decimal)> =
-        sqlx::query_as("SELECT balance, invested_amount FROM balance_snapshot ORDER BY account_id")
-            .fetch_all(&s.app.state.db)
-            .await
-            .unwrap();
+    let snapshots: Vec<(Decimal, Decimal)> = picsou::db::query_as(
+        "SELECT balance, invested_amount FROM balance_snapshot ORDER BY account_id",
+    )
+    .fetch_all(&s.app.state.db)
+    .await
+    .unwrap();
     assert_eq!(
         snapshots,
         vec![(d("1250"), d("1050")), (d("300"), d("300"))]
     );
     let holding: (String, Decimal) =
-        sqlx::query_as("SELECT ticker, provider_value_eur FROM account_holding")
+        picsou::db::query_as("SELECT ticker, provider_value_eur FROM account_holding")
             .fetch_one(&s.app.state.db)
             .await
             .unwrap();
@@ -400,7 +401,7 @@ async fn rows_without_ids_replace_only_the_trailing_ninety_day_window() {
         "SUCCESS"
     );
     let account_id = s.account_id().await;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO \"transaction\" (account_id, date, description, amount, native_currency, is_manual, created_at) \
          VALUES ($1, $2, 'MANUAL', 5, 'EUR', true, now())",
     )
@@ -440,7 +441,7 @@ async fn identified_rows_import_the_whole_history_and_update_in_place() {
         s.sync(json!([checking("100", first)])).await["syncStatus"],
         "SUCCESS"
     );
-    let before: Vec<i64> = sqlx::query_scalar("SELECT id FROM \"transaction\" ORDER BY date")
+    let before: Vec<i64> = picsou::db::query_scalar("SELECT id FROM \"transaction\" ORDER BY date")
         .fetch_all(&s.app.state.db)
         .await
         .unwrap();
@@ -455,7 +456,7 @@ async fn identified_rows_import_the_whole_history_and_update_in_place() {
         "SUCCESS"
     );
 
-    let after: Vec<i64> = sqlx::query_scalar("SELECT id FROM \"transaction\" ORDER BY date")
+    let after: Vec<i64> = picsou::db::query_scalar("SELECT id FROM \"transaction\" ORDER BY date")
         .fetch_all(&s.app.state.db)
         .await
         .unwrap();
@@ -550,7 +551,7 @@ async fn securities_ledger_fields_are_stored_on_the_holdings_ticker() {
 
     assert_eq!(after["syncStatus"], "SUCCESS", "{after}");
     let rows: Vec<LedgerRow> =
-        sqlx::query_as(
+        picsou::db::query_as(
             "SELECT type, tx_type, ticker, name, quantity, price_per_unit, fees FROM \"transaction\" ORDER BY date",
         )
         .fetch_all(&s.app.state.db)
@@ -579,7 +580,7 @@ async fn a_window_import_keeps_a_dividend_recognised_before() {
     let today = s.today();
     let coupon = vec![tx(None, &day(today, 3), "COUPON ACME", "12.30")];
     s.sync(json!([checking("100", coupon.clone())])).await;
-    sqlx::query(
+    picsou::db::query(
         "UPDATE \"transaction\" SET tx_type = 'DIVIDEND', ticker = 'ACME', name = 'Acme SA', category_manual = true",
     )
     .execute(&s.app.state.db)
@@ -593,7 +594,7 @@ async fn a_window_import_keeps_a_dividend_recognised_before() {
     .await;
 
     let row: (Option<String>, Option<String>, Option<String>, bool) =
-        sqlx::query_as("SELECT tx_type, ticker, name, category_manual FROM \"transaction\"")
+        picsou::db::query_as("SELECT tx_type, ticker, name, category_manual FROM \"transaction\"")
             .fetch_one(&s.app.state.db)
             .await
             .unwrap();
@@ -617,7 +618,7 @@ async fn a_provider_type_other_than_a_credit_drops_the_automatic_dividend_catego
         vec![tx(Some("op-1"), &day(today, 3), "COUPON", "5")]
     )]))
     .await;
-    let category: i64 = sqlx::query_scalar(
+    let category: i64 = picsou::db::query_scalar(
         "INSERT INTO category (member_id, name, slug, kind, color, is_default, archived, sort_order) \
          VALUES ($1, 'Revenus du capital', 'revenus-capital', 'INCOME', '#000000', false, false, 0) \
          ON CONFLICT DO NOTHING RETURNING id",
@@ -628,7 +629,7 @@ async fn a_provider_type_other_than_a_credit_drops_the_automatic_dividend_catego
     .unwrap()
     .unwrap_or_default();
     let category = if category == 0 {
-        sqlx::query_scalar(
+        picsou::db::query_scalar(
             "SELECT id FROM category WHERE member_id = $1 AND slug = 'revenus-capital'",
         )
         .bind(s.member_id)
@@ -638,7 +639,7 @@ async fn a_provider_type_other_than_a_credit_drops_the_automatic_dividend_catego
     } else {
         category
     };
-    sqlx::query(
+    picsou::db::query(
         "UPDATE \"transaction\" SET tx_type = 'DIVIDEND', ticker = 'ACME', category_id = $1",
     )
     .bind(category)
@@ -651,7 +652,7 @@ async fn a_provider_type_other_than_a_credit_drops_the_automatic_dividend_catego
     s.sync(json!([checking("100", vec![fee])])).await;
 
     let row: (Option<String>, Option<i64>) =
-        sqlx::query_as("SELECT tx_type, category_id FROM \"transaction\"")
+        picsou::db::query_as("SELECT tx_type, category_id FROM \"transaction\"")
             .fetch_one(&s.app.state.db)
             .await
             .unwrap();
@@ -670,7 +671,7 @@ async fn the_cash_history_is_reconstructed_from_the_ledger_without_overwriting()
 
     s.sync(json!([checking("100", rows)])).await;
 
-    let snapshots: Vec<(String, Decimal, Decimal)> = sqlx::query_as(
+    let snapshots: Vec<(String, Decimal, Decimal)> = picsou::db::query_as(
         "SELECT date::text, balance, invested_amount FROM balance_snapshot ORDER BY date",
     )
     .fetch_all(&s.app.state.db)
@@ -692,7 +693,7 @@ async fn the_securities_history_is_valued_from_recorded_prices() {
     let s = Synced::new().await;
     let today = s.today();
     for (days_ago, price) in [(3, "100"), (2, "110"), (1, "120")] {
-        sqlx::query(
+        picsou::db::query(
             "INSERT INTO price_snapshot (ticker, date, price_eur, created_at) VALUES ('FR0000120271', $1, $2, now())",
         )
         .bind(today - chrono::Days::new(days_ago))
@@ -717,7 +718,7 @@ async fn the_securities_history_is_valued_from_recorded_prices() {
     )]))
     .await;
 
-    let snapshots: Vec<(String, Decimal, Decimal)> = sqlx::query_as(
+    let snapshots: Vec<(String, Decimal, Decimal)> = picsou::db::query_as(
         "SELECT date::text, balance, invested_amount FROM balance_snapshot WHERE date < $1 ORDER BY date",
     )
     .bind(today)
@@ -790,7 +791,7 @@ async fn interrupted_syncs_become_retryable_failures() {
     let app = app_with_sidecar(URL, &sidecar).await;
     let (client, member_id) = admin(&app).await;
     let id = store_session(&app, BANK, member_id, "plain-state").await;
-    sqlx::query("UPDATE sidecar_session SET sync_status = 'QUEUED' WHERE id = $1")
+    picsou::db::query("UPDATE sidecar_session SET sync_status = 'QUEUED' WHERE id = $1")
         .bind(id)
         .execute(&app.state.db)
         .await

@@ -5,10 +5,10 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::db::Db;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone};
 use rust_decimal::Decimal;
 use serde_json::Value;
-use sqlx::PgPool;
 
 use super::cooldown::YahooCooldown;
 use super::num::{json_decimal, json_i64, put};
@@ -56,7 +56,7 @@ pub struct CoinGecko {
     http: reqwest::Client,
     base_url: String,
     api_key: Option<String>,
-    db: PgPool,
+    db: Db,
     clock: AppClock,
     /// Armed by a 429; while active nothing is asked.
     cooldown: Arc<YahooCooldown>,
@@ -66,7 +66,7 @@ impl CoinGecko {
     pub fn new(
         http: reqwest::Client,
         base_url: &str,
-        db: PgPool,
+        db: Db,
         clock: AppClock,
         cooldown: Arc<YahooCooldown>,
     ) -> Self {

@@ -14,12 +14,12 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
+use crate::db::Db;
 use async_trait::async_trait;
 use chrono::{
     DateTime, Datelike, Duration, LocalResult, NaiveDate, NaiveTime, Offset, TimeZone, Utc, Weekday,
 };
 use chrono_tz::Tz;
-use sqlx::PgPool;
 
 use super::scheduler;
 use crate::AppState;
@@ -141,7 +141,7 @@ pub trait LastRunStore: Send + Sync {
 }
 
 /// Default `LastRunStore` backed by PostgreSQL `app_setting`.
-pub struct SqlLastRunStore(pub PgPool);
+pub struct SqlLastRunStore(pub Db);
 
 #[async_trait]
 impl LastRunStore for SqlLastRunStore {
@@ -260,7 +260,7 @@ pub struct CatchUpScheduler {
 }
 
 impl CatchUpScheduler {
-    pub fn new(db: PgPool, clock: AppClock) -> Self {
+    pub fn new(db: Db, clock: AppClock) -> Self {
         Self::with_parts(
             Arc::new(SqlLastRunStore(db)),
             Arc::new(LiveJobRunner),

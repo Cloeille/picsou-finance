@@ -43,7 +43,7 @@ async fn rows(
     app: &TestApp,
     account_id: i64,
 ) -> Vec<(String, Decimal, Option<Decimal>, Option<String>)> {
-    sqlx::query_as(
+    picsou::db::query_as(
         "SELECT tx_type, amount, price_per_unit, ticker FROM \"transaction\" WHERE account_id = $1 ORDER BY date",
     )
     .bind(account_id)
@@ -93,7 +93,7 @@ async fn preview_detects_the_dialect_and_mapping_then_import_writes_trades_and_h
     assert_eq!(stored[0].1, "-1239.49".parse::<Decimal>().unwrap());
     assert_eq!(stored[2].0, "SELL");
     assert_eq!(stored[2].1, "350".parse::<Decimal>().unwrap());
-    let quantity: Decimal = sqlx::query_scalar(
+    let quantity: Decimal = picsou::db::query_scalar(
         "SELECT quantity FROM account_holding WHERE account_id = $1 AND ticker = 'CW8.PA'",
     )
     .bind(cto.id)

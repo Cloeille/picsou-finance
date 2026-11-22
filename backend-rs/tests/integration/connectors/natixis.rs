@@ -85,7 +85,7 @@ async fn a_login_imports_plans_and_operations_and_keeps_the_renewed_state() {
         app.state.crypto.decrypt(&session.session_state).unwrap(),
         "renewed-state"
     );
-    let ticker: String = sqlx::query_scalar("SELECT ticker FROM account_holding")
+    let ticker: String = picsou::db::query_scalar("SELECT ticker FROM account_holding")
         .fetch_one(&app.state.db)
         .await
         .unwrap();
@@ -98,7 +98,7 @@ async fn a_login_imports_plans_and_operations_and_keeps_the_renewed_state() {
         "FONDS-MON-TAIRE".len() + 9,
         "label plus an 8-digit hash: {ticker}"
     );
-    let rows: Vec<(String, String, Decimal, bool, String)> = sqlx::query_as(
+    let rows: Vec<(String, String, Decimal, bool, String)> = picsou::db::query_as(
         "SELECT external_id, tx_type, amount, budget_neutral, description FROM \"transaction\" ORDER BY date",
     )
     .fetch_all(&app.state.db)
@@ -157,7 +157,7 @@ async fn a_second_import_updates_operations_in_place_and_drops_settled_vanished_
     settle(&app).await;
 
     let rows: Vec<(String, String)> =
-        sqlx::query_as("SELECT external_id, tx_type FROM \"transaction\" ORDER BY date")
+        picsou::db::query_as("SELECT external_id, tx_type FROM \"transaction\" ORDER BY date")
             .fetch_all(&app.state.db)
             .await
             .unwrap();
@@ -280,7 +280,7 @@ async fn the_stale_sweep_fails_only_rows_no_job_touched_for_ten_minutes() {
     let app = app_with_sidecar(URL, &sidecar).await;
     let (client, member_id) = admin(&app).await;
     let id = store_session(&app, BANK, member_id, "s").await;
-    sqlx::query(
+    picsou::db::query(
         "UPDATE sidecar_session SET sync_status = 'RUNNING', updated_at = $2 WHERE id = $1",
     )
     .bind(id)

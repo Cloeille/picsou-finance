@@ -5,10 +5,10 @@
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 
+use crate::db::Db;
 use bytes::Bytes;
 use chrono::{DateTime, Datelike, Local, Timelike, Utc};
 use futures::Stream;
-use sqlx::PgPool;
 use tokio::sync::mpsc;
 use zip::write::{SimpleFileOptions, StreamWriter};
 use zip::{CompressionMethod, ZipWriter};
@@ -77,7 +77,7 @@ impl Archive {
 
 /// Starts the export and returns the body stream it feeds.
 pub(super) fn spawn(
-    db: PgPool,
+    db: Db,
     who: Exporting,
     include_balance_snapshots: bool,
     exported_at: DateTime<Utc>,
@@ -115,7 +115,7 @@ pub(super) fn spawn(
 }
 
 async fn run(
-    db: PgPool,
+    db: Db,
     who: Exporting,
     include_balance_snapshots: bool,
     exported_at: DateTime<Utc>,
@@ -148,7 +148,7 @@ async fn run(
 }
 
 async fn write_all(
-    db: &PgPool,
+    db: &Db,
     who: &Exporting,
     include_balance_snapshots: bool,
     exported_at: DateTime<Utc>,

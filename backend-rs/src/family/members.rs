@@ -13,6 +13,7 @@ use super::username;
 use crate::AppState;
 use crate::auth::Auth;
 use crate::auth::users::{self, Role};
+use crate::db::AsDbHandle;
 use crate::db::{self, DbExec, DbFromRow};
 use crate::error::{AppError, AppResult};
 use crate::http::json::{Errors, Json, Path, Validate};
@@ -237,7 +238,7 @@ async fn delete(
             "Cannot delete your own account",
         ));
     }
-    if let Some(user) = users::find_by_member_id(&mut *tx, id).await? {
+    if let Some(user) = users::find_by_member_id(&mut tx, id).await? {
         if user.role == Role::Admin {
             let admins: Vec<i64> =
                 db::query_scalar("SELECT id FROM app_user WHERE role = 'ADMIN' FOR UPDATE")
@@ -283,7 +284,7 @@ async fn activate(
             .fetch_optional(&mut tx)
             .await?
             .ok_or_else(member_not_found)?;
-    let existing = users::find_by_member_id(&mut *tx, id).await?;
+    let existing = users::find_by_member_id(&mut tx, id).await?;
     if existing.as_ref().is_some_and(|u| u.activated) {
         return Err(AppError::status(
             StatusCode::BAD_REQUEST,
@@ -302,7 +303,7 @@ async fn activate(
                 .await?;
         }
         None => {
-            let username = username::derive(&mut tx, &display_name).await?;
+            let username = username::derive(&mut tx.as_handle(), &display_name).await?;
             db::query(
                 "INSERT INTO app_user (username, password_hash, member_id, role, is_activated, \
                  activation_token, activation_token_expires, acknowledged_warning) \
@@ -334,7 +335,7 @@ async fn reset_password(
     if !member_exists(&mut conn, id).await? {
         return Err(member_not_found());
     }
-    let user = users::find_by_member_id(&mut *conn, id)
+    let user = users::find_by_member_id(&mut conn, id)
         .await?
         .ok_or_else(|| AppError::status(StatusCode::BAD_REQUEST, "Member has no login to reset"))?;
     let token = new_token();

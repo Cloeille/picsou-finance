@@ -58,7 +58,7 @@ async fn get_prices_converts_to_eur_caches_and_records_todays_price() {
     assert_eq!(d(&again["AAPL"].to_string()), d("90"));
 
     let recorded: Vec<(String, String)> =
-        sqlx::query_as("SELECT ticker, price_eur::text FROM price_snapshot ORDER BY ticker")
+        picsou::db::query_as("SELECT ticker, price_eur::text FROM price_snapshot ORDER BY ticker")
             .fetch_all(&app.state.db)
             .await
             .unwrap();
@@ -97,7 +97,7 @@ async fn a_provider_failure_falls_back_to_the_last_price_of_the_week() {
         .await;
     let app = app(&yahoo, &coingecko).await;
     for (ticker, date, price) in [("CW8", "2026-01-12", "500.5"), ("OLD", "2026-01-01", "10")] {
-        sqlx::query("INSERT INTO price_snapshot (ticker, date, price_eur, created_at) VALUES ($1, $2::date, $3::numeric, now())")
+        picsou::db::query("INSERT INTO price_snapshot (ticker, date, price_eur, created_at) VALUES ($1, $2::date, $3::numeric, now())")
             .bind(ticker)
             .bind(date)
             .bind(price)
@@ -131,7 +131,7 @@ async fn crypto_quotes_come_from_coingecko_and_never_from_an_equity_source() {
         .mount(&coingecko)
         .await;
     let app = app(&yahoo, &coingecko).await;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO crypto_asset (ticker, coingecko_id, name, source) VALUES ('BTC', 'bitcoin', 'Bitcoin', 'CURATED') \
          ON CONFLICT (ticker) DO UPDATE SET coingecko_id = 'bitcoin'",
     )
@@ -156,7 +156,7 @@ async fn a_coingecko_429_pauses_the_next_calls() {
         .mount(&coingecko)
         .await;
     let app = app(&yahoo, &coingecko).await;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO crypto_asset (ticker, coingecko_id, name, source) VALUES ('ZZZ', 'zzz-coin', 'Zzz', 'AUTO') ON CONFLICT DO NOTHING",
     )
     .execute(&app.state.db)
@@ -398,7 +398,7 @@ async fn crypto_learning_guards_with_yahoo_dominance_and_drops_old_stock_snapsho
         .await;
 
     // Seed a stale Yahoo-era snapshot for NEWC; learning must purge it atomically.
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO price_snapshot (ticker, date, price_eur, created_at) VALUES ('NEWC', '2026-01-10', 99.00, NOW())",
     )
     .execute(&app.state.db)
@@ -423,7 +423,7 @@ async fn crypto_learning_guards_with_yahoo_dominance_and_drops_old_stock_snapsho
     assert!(!prices.contains_key("AMBG"));
 
     // Only the freshly written 2026-01-15 snapshot remains for NEWC; the 2026-01-10 stock row is gone.
-    let old_count: i64 = sqlx::query_scalar(
+    let old_count: i64 = picsou::db::query_scalar(
         "SELECT count(*) FROM price_snapshot WHERE ticker = 'NEWC' AND date = '2026-01-10'",
     )
     .fetch_one(&app.state.db)

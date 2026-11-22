@@ -381,7 +381,7 @@ async fn remember(app: &TestApp, member_id: i64, customer_id: &str) -> String {
         .crypto
         .encrypt(&json!({ "customerId": customer_id }).to_string())
         .unwrap();
-    sqlx::query("UPDATE sidecar_session SET encrypted_credentials = $1 WHERE member_id = $2")
+    picsou::db::query("UPDATE sidecar_session SET encrypted_credentials = $1 WHERE member_id = $2")
         .bind(&credentials)
         .bind(member_id)
         .execute(&app.state.db)
@@ -450,7 +450,7 @@ async fn an_unreadable_identifier_is_not_remembered() {
     let sidecar = MockServer::start().await;
     let (app, client, member_id) = app(&sidecar).await;
     store_session(&app, BANK, member_id, "plain-state").await;
-    sqlx::query(
+    picsou::db::query(
         "UPDATE sidecar_session SET encrypted_credentials = 'garbage' WHERE member_id = $1",
     )
     .bind(member_id)
@@ -574,7 +574,7 @@ async fn sync_with(
 }
 
 async fn accounts_of(app: &TestApp, member_id: i64) -> Vec<AccountRow> {
-    sqlx::query_as(
+    picsou::db::query_as(
         "SELECT external_account_id, type::text, name, current_balance, provider FROM account \
          WHERE member_id = $1 ORDER BY external_account_id",
     )
@@ -648,7 +648,7 @@ async fn a_sync_imports_every_kind_under_the_prefix_and_counts_unsupported_contr
             ),
         ]
     );
-    let card: CardRow = sqlx::query_as(
+    let card: CardRow = picsou::db::query_as(
         "SELECT card_nature::text, payment_due_amount, payment_due_date, parent_account_id, iban FROM account WHERE external_account_id = 'ce_5'",
     )
     .fetch_one(&app.state.db)
@@ -663,11 +663,12 @@ async fn a_sync_imports_every_kind_under_the_prefix_and_counts_unsupported_contr
         0,
         "the IBAN is never stored"
     );
-    let rows: Vec<(String, Decimal, String)> =
-        sqlx::query_as("SELECT external_id, amount, description FROM \"transaction\" ORDER BY id")
-            .fetch_all(&app.state.db)
-            .await
-            .unwrap();
+    let rows: Vec<(String, Decimal, String)> = picsou::db::query_as(
+        "SELECT external_id, amount, description FROM \"transaction\" ORDER BY id",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
     assert_eq!(
         rows,
         vec![(
@@ -703,7 +704,7 @@ async fn a_second_sync_updates_rows_in_place_and_never_deletes_them() {
         sync_with(&sidecar, &app, &client, member_id, second).await["syncStatus"],
         "SUCCESS"
     );
-    let rows: Vec<(String, Decimal, String)> = sqlx::query_as(
+    let rows: Vec<(String, Decimal, String)> = picsou::db::query_as(
         "SELECT external_id, amount, description FROM \"transaction\" ORDER BY external_id",
     )
     .fetch_all(&app.state.db)
@@ -820,7 +821,7 @@ async fn a_sync_never_resurrects_an_account_the_user_deleted() {
     let (app, client, member_id) = app(&sidecar).await;
     let snapshot = json!({ "accounts": [account("1", "CURRENT_ACCOUNT", "10", json!({})), account("2", "LDDS", "20", json!({}))] });
     sync_with(&sidecar, &app, &client, member_id, snapshot.clone()).await;
-    sqlx::query("UPDATE account SET deleted_at = now() WHERE external_account_id = 'ce_2'")
+    picsou::db::query("UPDATE account SET deleted_at = now() WHERE external_account_id = 'ce_2'")
         .execute(&app.state.db)
         .await
         .unwrap();
@@ -848,7 +849,7 @@ async fn a_sync_never_resurrects_an_account_the_user_deleted() {
 }
 
 async fn category_of(app: &TestApp, external_id: &str) -> Option<String> {
-    sqlx::query_scalar(
+    picsou::db::query_scalar(
         "SELECT c.slug FROM \"transaction\" t LEFT JOIN category c ON c.id = t.category_id WHERE t.external_id = $1",
     )
     .bind(external_id)
@@ -893,17 +894,18 @@ async fn a_deferred_card_settlement_is_tagged_as_an_internal_transfer_once() {
         "the card operations stay expenses"
     );
 
-    sqlx::query("UPDATE \"transaction\" SET category_id = NULL WHERE external_id = 'ce_s1'")
+    picsou::db::query("UPDATE \"transaction\" SET category_id = NULL WHERE external_id = 'ce_s1'")
         .execute(&app.state.db)
         .await
         .unwrap();
-    let chosen: i64 =
-        sqlx::query_scalar("SELECT id FROM category WHERE member_id = $1 AND slug = 'credit'")
-            .bind(member_id)
-            .fetch_one(&app.state.db)
-            .await
-            .unwrap();
-    sqlx::query("UPDATE \"transaction\" SET category_id = $1 WHERE external_id = 'ce_s1'")
+    let chosen: i64 = picsou::db::query_scalar(
+        "SELECT id FROM category WHERE member_id = $1 AND slug = 'credit'",
+    )
+    .bind(member_id)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    picsou::db::query("UPDATE \"transaction\" SET category_id = $1 WHERE external_id = 'ce_s1'")
         .bind(chosen)
         .execute(&app.state.db)
         .await
@@ -940,7 +942,7 @@ async fn a_loan_gets_its_debt_and_its_disbursement_and_installments_are_tagged()
         sync_with(&sidecar, &app, &client, member_id, snapshot).await["syncStatus"],
         "SUCCESS"
     );
-    let debt: DebtRow = sqlx::query_as(
+    let debt: DebtRow = picsou::db::query_as(
         "SELECT d.borrowed_amount, d.interest_rate, d.monthly_payment, d.insurance_monthly, d.lender_name, d.start_date, \
          d.end_date, l.external_account_id FROM debt d JOIN account l ON l.id = d.linked_account_id",
     )
@@ -1016,12 +1018,12 @@ async fn a_per_keeps_its_euro_fund_as_cash_and_its_units_as_holdings() {
         "SUCCESS"
     );
     let account: (Decimal, Option<Decimal>, String) =
-        sqlx::query_as("SELECT current_balance, cash_balance, color FROM account WHERE external_account_id = 'ce_7'")
+        picsou::db::query_as("SELECT current_balance, cash_balance, color FROM account WHERE external_account_id = 'ce_7'")
             .fetch_one(&app.state.db)
             .await
             .unwrap();
     assert_eq!(account, (d("1800"), Some(d("300")), "#8b5cf6".into()));
-    let holding: (String, Decimal, Option<Decimal>, Option<Decimal>) = sqlx::query_as(
+    let holding: (String, Decimal, Option<Decimal>, Option<Decimal>) = picsou::db::query_as(
         "SELECT ticker, quantity, current_price, provider_value_eur FROM account_holding",
     )
     .fetch_one(&app.state.db)
@@ -1036,7 +1038,7 @@ async fn a_per_keeps_its_euro_fund_as_cash_and_its_units_as_holdings() {
             Some(d("1500"))
         )
     );
-    let snapshot: (Decimal, Decimal) = sqlx::query_as(
+    let snapshot: (Decimal, Decimal) = picsou::db::query_as(
         "SELECT balance, invested_amount FROM balance_snapshot WHERE date = DATE '2026-01-14'",
     )
     .fetch_one(&app.state.db)
@@ -1068,7 +1070,7 @@ async fn an_undecryptable_session_is_recorded_as_unusable() {
     let sidecar = MockServer::start().await;
     let (app, client, member_id) = app(&sidecar).await;
     store_session(&app, BANK, member_id, "plain-state").await;
-    sqlx::query("UPDATE sidecar_session SET session_state = 'garbage'")
+    picsou::db::query("UPDATE sidecar_session SET session_state = 'garbage'")
         .execute(&app.state.db)
         .await
         .unwrap();
@@ -1109,7 +1111,7 @@ async fn recovery_fails_only_this_banks_in_flight_syncs() {
     let (app, _client, member_id) = app(&sidecar).await;
     store_session(&app, BANK, member_id, "plain-state").await;
     store_session(&app, SidecarBank::Bourso, member_id, "plain-state").await;
-    sqlx::query("UPDATE sidecar_session SET sync_status = 'RUNNING'")
+    picsou::db::query("UPDATE sidecar_session SET sync_status = 'RUNNING'")
         .execute(&app.state.db)
         .await
         .unwrap();

@@ -8,6 +8,7 @@ use crate::accounts::meta::ScpiPositionRequest;
 use crate::accounts::service::{AccountRequest, SnapshotRequest};
 use crate::accounts::validation::ValidJson;
 use crate::auth::Auth;
+use crate::db::AsDbHandle;
 use crate::error::{AppError, AppResult};
 use crate::http::json::Path;
 use crate::ledger::model::{AccountType, HoldingDraft};
@@ -255,7 +256,7 @@ pub async fn call(
             let id = req_i64(args, "accountId")?;
             let mut conn = state.db.acquire().await?;
             let lines = crate::accounts::holdings::owned_holdings(
-                &mut conn,
+                &mut conn.as_handle(),
                 &*state.ledger.prices,
                 &*state.accounts.crypto_logos,
                 id,
@@ -354,16 +355,16 @@ pub async fn call(
             let current_price_eur = req_decimal(args, "currentPriceEur")?;
             let now = state.clock.now();
             let mut tx = state.db.begin().await?;
-            accounts::get_or_throw(&mut *tx, account_id, auth.member_id).await?;
+            accounts::get_or_throw(&mut tx, account_id, auth.member_id).await?;
             if let Some(existing) =
-                holdings::find_by_account_and_ticker(&mut *tx, account_id, &ticker).await?
+                holdings::find_by_account_and_ticker(&mut tx, account_id, &ticker).await?
             {
                 let mut draft = HoldingDraft::from(&existing);
                 draft.quantity = quantity;
                 draft.current_price = Some(current_price_eur);
                 draft.last_synced_at = Some(now);
                 // Keep average_buy_in unchanged — it's the cost basis from first sync.
-                holdings::update(&mut *tx, existing.id, &draft, now).await?;
+                holdings::update(&mut tx, existing.id, &draft, now).await?;
             } else {
                 let draft = HoldingDraft {
                     ticker: ticker.clone(),
@@ -374,12 +375,12 @@ pub async fn call(
                     last_synced_at: Some(now),
                     ..HoldingDraft::default()
                 };
-                holdings::insert(&mut *tx, account_id, &draft, now).await?;
+                holdings::insert(&mut tx, account_id, &draft, now).await?;
             }
             tx.commit().await?;
             let mut conn = state.db.acquire().await?;
             let lines = crate::accounts::holdings::owned_holdings(
-                &mut conn,
+                &mut conn.as_handle(),
                 &*state.ledger.prices,
                 &*state.accounts.crypto_logos,
                 account_id,
@@ -393,8 +394,8 @@ pub async fn call(
             let account_id = req_i64(args, "accountId")?;
             let ticker = req_str(args, "ticker")?;
             let mut tx = state.db.begin().await?;
-            accounts::get_or_throw(&mut *tx, account_id, auth.member_id).await?;
-            let holding = holdings::find_by_account_and_ticker(&mut *tx, account_id, &ticker)
+            accounts::get_or_throw(&mut tx, account_id, auth.member_id).await?;
+            let holding = holdings::find_by_account_and_ticker(&mut tx, account_id, &ticker)
                 .await?
                 .ok_or_else(|| AppError::NotFound("Holding not found".to_owned()))?;
             crate::db::query("DELETE FROM account_holding WHERE id = $1")

@@ -134,12 +134,11 @@ pub async fn find_by_activation_token<'e>(
         .map(Into::into))
 }
 
-// Wave 3: switch to impl DbExec (called by src/identity/sso/account.rs with opaque impl PgExecutor)
 pub async fn exists_by_username<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+    db: impl DbExec<'e>,
     username: &str,
 ) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM app_user WHERE username = $1)")
+    crate::db::query_scalar("SELECT EXISTS (SELECT 1 FROM app_user WHERE username = $1)")
         .bind(username)
         .fetch_one(db)
         .await

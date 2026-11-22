@@ -1,10 +1,11 @@
 //! AccountOwnershipService: how a real estate, SCPI or loan account splits between members.
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use axum::extract::State;
 use axum::http::StatusCode;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use sqlx::PgConnection;
 
 use super::jdecimal;
 use super::validation::{Check, ValidJson, ValidateAt};
@@ -76,7 +77,7 @@ fn unprocessable(detail: &str) -> AppError {
     }
 }
 
-async fn member(conn: &mut PgConnection, id: i64) -> AppResult<FamilyMember> {
+async fn member(conn: &mut DbHandle<'_>, id: i64) -> AppResult<FamilyMember> {
     members::find_by_id(conn, id)
         .await?
         .ok_or_else(|| AppError::NotFound("Family member not found".to_owned()))
@@ -124,17 +125,18 @@ pub async fn get_ownership(
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<OwnershipResponse>> {
     let mut conn = state.db.acquire().await?;
-    let account =
-        super::scale::fixed(access::require_readable(&mut conn, id, auth.member_id).await?);
-    let owner = member(&mut conn, account.member_id).await?;
-    let rows = access::ownerships_of_account(&mut *conn, id).await?;
+    let account = super::scale::fixed(
+        access::require_readable(&mut conn.as_handle(), id, auth.member_id).await?,
+    );
+    let owner = member(&mut conn.as_handle(), account.member_id).await?;
+    let rows = access::ownerships_of_account(&mut conn, id).await?;
     if rows.is_empty() {
         return Ok(axum::Json(owner_only(&owner)));
     }
     let mut shares = Vec::with_capacity(rows.len());
     for row in rows {
         shares.push((
-            member(&mut conn, row.member_id).await?,
+            member(&mut conn.as_handle(), row.member_id).await?,
             super::scale::column(row.share_percent, 3),
         ));
     }
@@ -155,7 +157,8 @@ pub async fn replace_ownership(
     ValidJson(req): ValidJson<OwnershipRequest>,
 ) -> AppResult<axum::Json<OwnershipResponse>> {
     let mut tx = state.db.begin().await?;
-    let account = super::scale::fixed(access::require_owner(&mut tx, id, auth.member_id).await?);
+    let account =
+        super::scale::fixed(access::require_owner(&mut tx.as_handle(), id, auth.member_id).await?);
     if !splittable(&account) {
         return Err(unprocessable(
             "Ownership shares are only supported on real estate, SCPI and loan accounts",
@@ -172,7 +175,7 @@ pub async fn replace_ownership(
             )
         })
         .collect();
-    let owner = member(&mut tx, account.member_id).await?;
+    let owner = member(&mut tx.as_handle(), account.member_id).await?;
     if !shares.is_empty() {
         let mut seen = std::collections::HashSet::new();
         let mut total = Decimal::ZERO;
@@ -191,14 +194,14 @@ pub async fn replace_ownership(
             return Err(unprocessable("The account owner must keep a share"));
         }
     }
-    access::delete_ownerships_of_account(&mut *tx, id).await?;
+    access::delete_ownerships_of_account(&mut tx, id).await?;
     if shares.is_empty() {
         tx.commit().await?;
         return Ok(axum::Json(owner_only(&owner)));
     }
     let mut rows = Vec::with_capacity(shares.len());
     for (member_id, share) in shares {
-        let m = member(&mut tx, member_id).await?;
+        let m = member(&mut tx.as_handle(), member_id).await?;
         db::query(
             "INSERT INTO account_ownership (account_id, member_id, share_percent, created_at, updated_at) \
              VALUES ($1, $2, $3, NOW(), NOW())",

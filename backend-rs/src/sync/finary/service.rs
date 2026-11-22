@@ -3,9 +3,10 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use chrono::{DateTime, Duration, Utc};
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use super::api::{
     AccountMapping, AccountPreview, AccountResponse, AutoSyncStatus, CheckTotpResponse,
@@ -328,7 +329,7 @@ fn transaction_currency(tx: &Transaction, acc: &FinaryAccount) -> Result<String,
 
 /// The preview's writes and its response, given what was fetched.
 async fn finish_preview(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     state: &AppState,
     member_id: i64,
     session_id: i64,
@@ -444,7 +445,7 @@ pub async fn preview(
     let (email, password) = credentials(state, &s).await?;
     let fetched = fetch(state, &email, &password, totp).await?;
     let mut tx = state.db.begin().await?;
-    let response = finish_preview(&mut tx, state, member_id, s.id, fetched).await?;
+    let response = finish_preview(&mut tx.as_handle(), state, member_id, s.id, fetched).await?;
     tx.commit().await?;
     Ok(response)
 }
@@ -456,7 +457,7 @@ pub async fn execute(
     mappings: Option<&[AccountMapping]>,
 ) -> AppResult<ImportResultResponse> {
     let mut tx = state.db.begin().await?;
-    let result = execute_in(&mut tx, state, member_id, token, mappings).await?;
+    let result = execute_in(&mut tx.as_handle(), state, member_id, token, mappings).await?;
     tx.commit().await?;
     Ok(result)
 }
@@ -468,7 +469,7 @@ fn account_key(category: Option<&str>, id: Option<&str>) -> String {
 /// Two Finary rows written into one Picsou account would each replace its balance and
 /// holdings; a CREATE_NEW row writes into the account already holding its external id.
 async fn reject_shared_targets(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     mappings: &[AccountMapping],
     by_key: &HashMap<String, &FinaryAccount>,
     member_id: i64,
@@ -503,7 +504,7 @@ async fn reject_shared_targets(
 }
 
 async fn execute_in(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     state: &AppState,
     member_id: i64,
     token: Option<&str>,
@@ -746,10 +747,10 @@ pub async fn auto_sync(state: &AppState, member_id: i64) -> AppResult<FinaryAuto
     };
     // One transaction, as Java's @Transactional autoSync: a failed import leaves nothing behind.
     let mut tx = state.db.begin().await?;
-    let preview = finish_preview(&mut tx, state, member_id, s.id, fetched).await?;
+    let preview = finish_preview(&mut tx.as_handle(), state, member_id, s.id, fetched).await?;
     let response = if preview.auto_mapped {
         let result = execute_in(
-            &mut tx,
+            &mut tx.as_handle(),
             state,
             member_id,
             Some(&preview.file_token),

@@ -71,7 +71,7 @@ async fn a_login_at_a_regional_bank_stores_its_region_and_the_sync_names_the_acc
     let status: Value = client.get(&format!("{BASE}/status")).send().await.json();
     assert_eq!(status["syncStatus"], "SUCCESS", "{status}");
     assert_eq!(status["remembered"], true);
-    let accounts: Vec<(String, String, String, Decimal, Option<String>)> = sqlx::query_as(
+    let accounts: Vec<(String, String, String, Decimal, Option<String>)> = picsou::db::query_as(
         "SELECT external_account_id, name, provider, current_balance, logo_url FROM account ORDER BY external_account_id",
     )
     .fetch_all(&app.state.db)
@@ -97,7 +97,7 @@ async fn a_login_at_a_regional_bank_stores_its_region_and_the_sync_names_the_acc
             ),
         ]
     );
-    let label: String = sqlx::query_scalar("SELECT description FROM \"transaction\"")
+    let label: String = picsou::db::query_scalar("SELECT description FROM \"transaction\"")
         .fetch_one(&app.state.db)
         .await
         .unwrap();
@@ -119,7 +119,7 @@ async fn an_empty_identifier_reuses_the_remembered_one_at_its_own_region() {
         .crypto
         .encrypt(r#"{"customerId":"B7654321"}"#)
         .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO sidecar_session (bank, member_id, session_state, encrypted_credentials, region, last_validated_at, \
          is_active, sync_status) VALUES ('BANQUE_POPULAIRE', $1, 'x', $2, 'BRED', now(), true, 'IDLE')",
     )

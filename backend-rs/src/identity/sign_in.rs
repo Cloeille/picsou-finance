@@ -6,7 +6,6 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::Connection;
 
 use crate::AppState;
 use crate::auth::cookies::Cookies;
@@ -166,7 +165,7 @@ pub async fn reauth(
     Ok((jar, StatusCode::NO_CONTENT).into_response())
 }
 
-async fn lock_user(tx: &mut sqlx::PgConnection, user_id: i64) -> AppResult<AppUser> {
+async fn lock_user(tx: &mut crate::db::DbHandle<'_>, user_id: i64) -> AppResult<AppUser> {
     crate::db::query("SELECT id FROM app_user WHERE id = $1 FOR UPDATE")
         .bind(user_id)
         .execute(&mut *tx)
@@ -225,9 +224,8 @@ pub async fn remove_password(
 ) -> AppResult<Response> {
     let sso = sso::Settings::new(&state);
     let issuer = sso.issuer_uri();
-    let mut conn = state.db.acquire().await?;
-    let mut tx = conn.begin().await?;
-    let user = lock_user(&mut tx, auth.user.id).await?;
+    let mut tx = state.db.begin().await?;
+    let user = lock_user(&mut tx.as_handle(), auth.user.id).await?;
     require_proof(&state, &user, &headers)?;
     if !sso.enabled() {
         return Err(AppError::coded(
@@ -309,9 +307,8 @@ pub async fn set_password(
     headers: HeaderMap,
     Json(request): Json<SetPasswordRequest>,
 ) -> AppResult<Response> {
-    let mut conn = state.db.acquire().await?;
-    let mut tx = conn.begin().await?;
-    let user = lock_user(&mut tx, auth.user.id).await?;
+    let mut tx = state.db.begin().await?;
+    let user = lock_user(&mut tx.as_handle(), auth.user.id).await?;
     require_proof(&state, &user, &headers)?;
     if has_password(&user) {
         return Err(AppError::coded(
@@ -358,9 +355,8 @@ pub async fn unlink_identity(
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
     let issuer = sso::Settings::new(&state).issuer_uri();
-    let mut conn = state.db.acquire().await?;
-    let mut tx = conn.begin().await?;
-    let user = lock_user(&mut tx, auth.user.id).await?;
+    let mut tx = state.db.begin().await?;
+    let user = lock_user(&mut tx.as_handle(), auth.user.id).await?;
     require_proof(&state, &user, &headers)?;
     let identity_issuer: Option<String> =
         crate::db::query_scalar("SELECT issuer FROM user_identity WHERE id = $1 AND user_id = $2")

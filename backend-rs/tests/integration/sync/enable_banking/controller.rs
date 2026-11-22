@@ -40,7 +40,7 @@ async fn not_configured_names_the_missing_setting_with_a_stable_code() {
         .await;
     assert_eq!(initiate.status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(initiate.json()["code"], "ENABLE_BANKING_NOT_CONFIGURED");
-    let none: i64 = sqlx::query_scalar("SELECT count(*) FROM requisition")
+    let none: i64 = picsou::db::query_scalar("SELECT count(*) FROM requisition")
         .fetch_one(&app.state.db)
         .await
         .unwrap();
@@ -251,7 +251,7 @@ async fn delete_removes_the_requisition_and_keeps_its_accounts() {
         None,
     )
     .await;
-    let account: i64 = sqlx::query_scalar(
+    let account: i64 = picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color, requisition_id, created_at, updated_at) \
          VALUES ($1, 'Courant', 'CHECKING', 'EUR', 10, false, '#6366f1', $2, now(), now()) RETURNING id",
     )
@@ -265,10 +265,11 @@ async fn delete_removes_the_requisition_and_keeps_its_accounts() {
     assert!(deleted.body.is_empty());
     let again = b.admin.delete(&format!("/api/sync/{id}")).send().await;
     assert_eq!(again.status, StatusCode::NOT_FOUND);
-    let link: Option<i64> = sqlx::query_scalar("SELECT requisition_id FROM account WHERE id = $1")
-        .bind(account)
-        .fetch_one(&b.app.state.db)
-        .await
-        .unwrap();
+    let link: Option<i64> =
+        picsou::db::query_scalar("SELECT requisition_id FROM account WHERE id = $1")
+            .bind(account)
+            .fetch_one(&b.app.state.db)
+            .await
+            .unwrap();
     assert_eq!(link, None);
 }

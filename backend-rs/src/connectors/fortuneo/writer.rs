@@ -4,9 +4,9 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use crate::db::DbHandle;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use crate::ledger::model::{NewTransaction, Transaction, TransactionType};
 use crate::ledger::sync_values::java_is_blank;
@@ -214,7 +214,7 @@ pub enum Upsert {
 /// replaceRecentTransactions: deletes the synced rows from `cutoff` on, then inserts their
 /// replacements, inside the caller's transaction.
 pub async fn replace_recent_transactions(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account_id: i64,
     cutoff: NaiveDate,
     replacements: &[NewTransaction],
@@ -231,7 +231,7 @@ pub async fn replace_recent_transactions(
 /// (account_id, external_id) slot, then writes every reported row; all inside the caller's
 /// transaction, so a failure leaves the account's history as it was.
 pub async fn reconcile_history(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     obsolete: &[Transaction],
     upserts: &[Upsert],
     now: chrono::DateTime<chrono::Utc>,

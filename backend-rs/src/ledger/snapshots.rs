@@ -1,9 +1,9 @@
 //! BalanceSnapshotRepository and the snapshot writes that need no valuation. The writes that
 //! derive the invested amount or convert a native balance are in valuation.rs.
 
+use crate::db::DbHandle;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use super::model::{BalanceSnapshot, SNAPSHOT_COLUMNS, SNAPSHOT_RETURNING, SnapshotSource};
 use crate::db::{DbExec, DbFromRow};
@@ -219,7 +219,7 @@ pub async fn delete<'e>(db: impl DbExec<'e>, id: i64) -> sqlx::Result<()> {
 /// AccountService.upsertSnapshot(account, balance, invested, date): updates the day's row in
 /// place, whatever its source, or creates a DERIVED one.
 pub async fn upsert(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account_id: i64,
     balance: Decimal,
     invested_amount: Decimal,

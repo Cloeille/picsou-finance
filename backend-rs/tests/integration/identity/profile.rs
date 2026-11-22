@@ -7,7 +7,7 @@ async fn an_unstated_profile_reads_empty_and_creates_nothing() {
     let app = TestApp::with_admin().await;
     let admin = app.login_admin().await;
     assert_eq!(admin.get("/api/me/profile").send().await.json(), json!({}));
-    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM member_profile")
+    let rows: i64 = picsou::db::query_scalar("SELECT count(*) FROM member_profile")
         .fetch_one(&app.state.db)
         .await
         .unwrap();

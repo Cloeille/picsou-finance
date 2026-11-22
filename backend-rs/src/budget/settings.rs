@@ -45,7 +45,7 @@ pub async fn logo_fetch_enabled<'e>(db: impl DbExec<'e>, member_id: i64) -> sqlx
 
 /// getOrCreate: the member's row, inserted with the entity defaults when missing.
 pub async fn get_or_create(
-    db: &sqlx::PgPool,
+    db: &crate::db::Db,
     member_id: i64,
     now: DateTime<Utc>,
 ) -> sqlx::Result<BudgetSettings> {

@@ -43,13 +43,13 @@ async fn a_login_without_totp_stores_the_session_and_imports_at_once() {
     assert_eq!(status["isActive"], true);
     assert_eq!(status["status"], "ACTIVE");
     let (balance, cash): (Decimal, Decimal) =
-        sqlx::query_as("SELECT current_balance, cash_balance FROM account WHERE external_account_id = 'degiro-portfolio'")
+        picsou::db::query_as("SELECT current_balance, cash_balance FROM account WHERE external_account_id = 'degiro-portfolio'")
             .fetch_one(&app.state.db)
             .await
             .unwrap();
     assert_eq!((balance, cash), (d("700.50"), d("100.50")));
     let (ticker, quantity, average): (String, Decimal, Decimal) =
-        sqlx::query_as("SELECT ticker, quantity, average_buy_in FROM account_holding")
+        picsou::db::query_as("SELECT ticker, quantity, average_buy_in FROM account_holding")
             .fetch_one(&app.state.db)
             .await
             .unwrap();

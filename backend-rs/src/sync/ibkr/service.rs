@@ -1,10 +1,11 @@
 //! IbkrSyncService: stores the encrypted Flex credentials, pulls the open positions and maps
 //! them onto one COMPTE_TITRES account per IBKR account, holdings replaced wholesale.
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde_json::Value;
-use sqlx::PgConnection;
 
 use super::connection::{self, IbkrConnection};
 use super::flex::{self, IbkrAccountData, IbkrPosition};
@@ -195,7 +196,9 @@ async fn do_sync(
     let mut tx = state.db.begin().await?;
     let mut responses = Vec::with_capacity(statement.len());
     for data in &statement {
-        if let Some(response) = upsert_account(state, &mut tx, data, member_id, now, today).await? {
+        if let Some(response) =
+            upsert_account(state, &mut tx.as_handle(), data, member_id, now, today).await?
+        {
             responses.push(response);
         }
     }
@@ -210,7 +213,7 @@ async fn do_sync(
 
 async fn upsert_account(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     data: &IbkrAccountData,
     member_id: i64,
     now: DateTime<Utc>,
@@ -298,7 +301,7 @@ async fn upsert_account(
         .sync
         .ibkr
         .security_identities
-        .record(&isin_by_ticker)
+        .record_on(&mut *conn, &isin_by_ticker)
         .await;
 
     let mut persisted = 0;

@@ -10,6 +10,7 @@ use crate::accounts::realized_pnl;
 use crate::accounts::security;
 use crate::auth::Auth;
 use crate::budget::allocation;
+use crate::db::AsDbHandle;
 use crate::error::{AppError, AppResult};
 use crate::http::json::Path;
 use crate::ledger::model::TransactionType;
@@ -164,7 +165,7 @@ pub async fn call(
         "get_wealth_pyramid" => {
             let mut conn = state.db.acquire().await?;
             let resp = pyramid::pyramid(
-                &mut conn,
+                &mut conn.as_handle(),
                 &*state.ledger.prices,
                 &*state.accounts.crypto_logos,
                 auth.member_id,
@@ -176,7 +177,7 @@ pub async fn call(
         "get_portfolio_diversification" => {
             let mut conn = state.db.acquire().await?;
             let resp = diversification::diversification(
-                &mut conn,
+                &mut conn.as_handle(),
                 &*state.ledger.prices,
                 &*state.accounts.crypto_logos,
                 auth.member_id,
@@ -190,14 +191,16 @@ pub async fn call(
             let today = state.clock.today();
             let mut conn = state.db.acquire().await?;
             let pyr = pyramid::pyramid(
-                &mut conn,
+                &mut conn.as_handle(),
                 &*state.ledger.prices,
                 &*state.accounts.crypto_logos,
                 auth.member_id,
                 today,
             )
             .await?;
-            let resp = projection::project(&mut conn, &pyr, auth.member_id, years, today).await?;
+            let resp =
+                projection::project(&mut conn.as_handle(), &pyr, auth.member_id, years, today)
+                    .await?;
             to_json_text(&resp)
         }
         "get_allocation_targets" => {
@@ -207,7 +210,7 @@ pub async fn call(
         "get_essential_expense_estimate" => {
             let mut conn = state.db.acquire().await?;
             let resp = expenses::estimate(
-                &mut conn,
+                &mut conn.as_handle(),
                 &*state.ledger.prices,
                 auth.member_id,
                 state.clock.today(),

@@ -10,20 +10,21 @@ use super::support::account;
 async fn ignoring_a_fund_unlinks_its_account_and_restore_lifts_the_tombstone() {
     let app = TestApp::with_admin().await;
     let admin = app.login_admin().await;
-    let member: i64 = sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
-        .fetch_one(&app.state.db)
-        .await
-        .unwrap();
+    let member: i64 =
+        picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
     let scpi = account(&app, NewAccount::new(member, "CORUM XL", AccountType::Scpi))
         .await
         .id;
-    sqlx::query("INSERT INTO scpi_position (account_id, member_id, share_count, corum_fund_code) VALUES ($1, $2, 3, 'XL')")
+    picsou::db::query("INSERT INTO scpi_position (account_id, member_id, share_count, corum_fund_code) VALUES ($1, $2, 3, 'XL')")
         .bind(scpi)
         .bind(member)
         .execute(&app.state.db)
         .await
         .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO scpi_provider_fund (member_id, provider, fund_code, label, last_outcome) VALUES ($1, 'CORUM', 'XL', 'CORUM XL', 'LINKED')",
     )
     .bind(member)

@@ -27,7 +27,7 @@ async fn app_with(server: &MockServer) -> TestApp {
 }
 
 async fn admin_member(app: &TestApp) -> i64 {
-    sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+    picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
         .fetch_one(&app.state.db)
         .await
         .unwrap()
@@ -35,12 +35,12 @@ async fn admin_member(app: &TestApp) -> i64 {
 
 /// A coin the crypto registry maps, with a price recorded the day before the test clock.
 async fn price(app: &TestApp, ticker: &str, eur: &str) {
-    sqlx::query("DELETE FROM crypto_asset WHERE upper(ticker) = $1")
+    picsou::db::query("DELETE FROM crypto_asset WHERE upper(ticker) = $1")
         .bind(ticker)
         .execute(&app.state.db)
         .await
         .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO crypto_asset (ticker, coingecko_id, name, source, resolved_at) VALUES ($1, $2, $1, 'CURATED', now())",
     )
     .bind(ticker)
@@ -48,7 +48,7 @@ async fn price(app: &TestApp, ticker: &str, eur: &str) {
     .execute(&app.state.db)
     .await
     .unwrap();
-    sqlx::query("INSERT INTO price_snapshot (ticker, date, price_eur, created_at) VALUES ($1, $2, $3, now())")
+    picsou::db::query("INSERT INTO price_snapshot (ticker, date, price_eur, created_at) VALUES ($1, $2, $3, now())")
         .bind(ticker)
         .bind(NaiveDate::from_ymd_opt(2026, 1, 14).unwrap())
         .bind(d(eur))
@@ -97,7 +97,7 @@ async fn add(client: &Client, body: Value) -> picsou::testing::Response {
 }
 
 async fn holdings(app: &TestApp, account_id: i64) -> Vec<(String, Decimal)> {
-    sqlx::query_as(
+    picsou::db::query_as(
         "SELECT ticker, quantity FROM account_holding WHERE account_id = $1 ORDER BY ticker",
     )
     .bind(account_id)
@@ -107,7 +107,7 @@ async fn holdings(app: &TestApp, account_id: i64) -> Vec<(String, Decimal)> {
 }
 
 async fn session_status(app: &TestApp, id: i64) -> String {
-    sqlx::query_scalar("SELECT status FROM crypto_exchange_session WHERE id = $1")
+    picsou::db::query_scalar("SELECT status FROM crypto_exchange_session WHERE id = $1")
         .bind(id)
         .fetch_one(&app.state.db)
         .await
@@ -115,7 +115,7 @@ async fn session_status(app: &TestApp, id: i64) -> String {
 }
 
 async fn session_count(app: &TestApp) -> i64 {
-    sqlx::query_scalar("SELECT count(*) FROM crypto_exchange_session")
+    picsou::db::query_scalar("SELECT count(*) FROM crypto_exchange_session")
         .fetch_one(&app.state.db)
         .await
         .unwrap()
@@ -193,7 +193,7 @@ async fn meria_connects_with_one_key_and_stores_the_breakdown_and_summed_holding
         Option<String>,
         Option<String>,
         String,
-    ) = sqlx::query_as(
+    ) = picsou::db::query_as(
         "SELECT api_key, api_secret, api_passphrase, region, status FROM crypto_exchange_session",
     )
     .fetch_one(&app.state.db)
@@ -219,7 +219,7 @@ async fn meria_connects_with_one_key_and_stores_the_breakdown_and_summed_holding
     assert!(status[0].get("region").is_none());
 
     let member_id = admin_member(&app).await;
-    sqlx::query(
+    picsou::db::query(
         "UPDATE account_holding SET average_buy_in = 80 WHERE account_id = $1 AND ticker = 'ETH'",
     )
     .bind(account_id)
@@ -320,13 +320,13 @@ async fn binance_sends_a_signed_timestamp_and_a_spot_only_account_has_no_breakdo
         holdings(&app, account_id).await,
         vec![("BTC".to_owned(), d("0.5"))]
     );
-    let secret: String = sqlx::query_scalar("SELECT api_secret FROM crypto_exchange_session")
+    let secret: String = picsou::db::query_scalar("SELECT api_secret FROM crypto_exchange_session")
         .fetch_one(&app.state.db)
         .await
         .unwrap();
     assert_eq!(app.state.crypto.decrypt(&secret).unwrap(), SECRET);
     let snapshot: Decimal =
-        sqlx::query_scalar("SELECT balance FROM balance_snapshot WHERE account_id = $1")
+        picsou::db::query_scalar("SELECT balance FROM balance_snapshot WHERE account_id = $1")
             .bind(account_id)
             .fetch_one(&app.state.db)
             .await
@@ -361,14 +361,14 @@ async fn an_unpriced_first_sync_creates_the_account_but_a_later_one_refuses_a_ze
     assert_eq!(first.json()["currentBalance"].to_string(), "0");
     let account_id = first.json()["id"].as_i64().unwrap();
     let snapshots: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM balance_snapshot WHERE account_id = $1")
+        picsou::db::query_scalar("SELECT count(*) FROM balance_snapshot WHERE account_id = $1")
             .bind(account_id)
             .fetch_one(&app.state.db)
             .await
             .unwrap();
     assert_eq!(snapshots, 0, "no zero reaches the history");
 
-    let session_id: i64 = sqlx::query_scalar("SELECT id FROM crypto_exchange_session")
+    let session_id: i64 = picsou::db::query_scalar("SELECT id FROM crypto_exchange_session")
         .fetch_one(&app.state.db)
         .await
         .unwrap();
@@ -415,11 +415,11 @@ async fn a_sync_prunes_holdings_the_exchange_no_longer_reports_and_reconnects_th
         envelope(json!([{"currencyCode": "ETH", "balance": 2}])),
     )
     .await;
-    let session_id: i64 = sqlx::query_scalar("SELECT id FROM crypto_exchange_session")
+    let session_id: i64 = picsou::db::query_scalar("SELECT id FROM crypto_exchange_session")
         .fetch_one(&app.state.db)
         .await
         .unwrap();
-    sqlx::query("UPDATE crypto_exchange_session SET status = 'ERROR' WHERE id = $1")
+    picsou::db::query("UPDATE crypto_exchange_session SET status = 'ERROR' WHERE id = $1")
         .bind(session_id)
         .execute(&app.state.db)
         .await
@@ -468,7 +468,7 @@ async fn a_meria_failure_on_any_endpoint_fails_the_sync_and_leaves_the_account_u
         .json()["id"]
         .as_i64()
         .unwrap();
-    let session_id: i64 = sqlx::query_scalar("SELECT id FROM crypto_exchange_session")
+    let session_id: i64 = picsou::db::query_scalar("SELECT id FROM crypto_exchange_session")
         .fetch_one(&app.state.db)
         .await
         .unwrap();
@@ -510,11 +510,12 @@ async fn a_meria_failure_on_any_endpoint_fails_the_sync_and_leaves_the_account_u
         assert_eq!(session_status(&app, session_id).await, "ERROR");
         drop(scoped);
     }
-    let balance: Decimal = sqlx::query_scalar("SELECT current_balance FROM account WHERE id = $1")
-        .bind(account_id)
-        .fetch_one(&app.state.db)
-        .await
-        .unwrap();
+    let balance: Decimal =
+        picsou::db::query_scalar("SELECT current_balance FROM account WHERE id = $1")
+            .bind(account_id)
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
     assert_eq!(balance, d("100"));
 }
 
@@ -533,7 +534,7 @@ async fn an_unexpected_binance_failure_reads_as_try_again_later() {
         .status,
         200
     );
-    let session_id: i64 = sqlx::query_scalar("SELECT id FROM crypto_exchange_session")
+    let session_id: i64 = picsou::db::query_scalar("SELECT id FROM crypto_exchange_session")
         .fetch_one(&app.state.db)
         .await
         .unwrap();
@@ -690,7 +691,7 @@ async fn sessions_are_scoped_to_their_member_and_removal_soft_deletes_the_accoun
         .json()["id"]
         .as_i64()
         .unwrap();
-    let session_id: i64 = sqlx::query_scalar("SELECT id FROM crypto_exchange_session")
+    let session_id: i64 = picsou::db::query_scalar("SELECT id FROM crypto_exchange_session")
         .fetch_one(&app.state.db)
         .await
         .unwrap();
@@ -730,7 +731,7 @@ async fn sessions_are_scoped_to_their_member_and_removal_soft_deletes_the_accoun
     );
 
     // The session outlives its deleted account: the sync says what to do instead of retrying.
-    sqlx::query("UPDATE account SET deleted_at = now() WHERE id = $1")
+    picsou::db::query("UPDATE account SET deleted_at = now() WHERE id = $1")
         .bind(account_id)
         .execute(&app.state.db)
         .await
@@ -745,7 +746,7 @@ async fn sessions_are_scoped_to_their_member_and_removal_soft_deletes_the_accoun
         "{}",
         orphan.text()
     );
-    sqlx::query("UPDATE account SET deleted_at = NULL WHERE id = $1")
+    picsou::db::query("UPDATE account SET deleted_at = NULL WHERE id = $1")
         .bind(account_id)
         .execute(&app.state.db)
         .await
@@ -760,7 +761,7 @@ async fn sessions_are_scoped_to_their_member_and_removal_soft_deletes_the_accoun
         204
     );
     assert_eq!(session_count(&app).await, 0);
-    let (deleted, snapshots): (bool, i64) = sqlx::query_as(
+    let (deleted, snapshots): (bool, i64) = picsou::db::query_as(
         "SELECT deleted_at IS NOT NULL, (SELECT count(*) FROM balance_snapshot WHERE account_id = $1) FROM account WHERE id = $1",
     )
     .bind(account_id)

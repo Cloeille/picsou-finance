@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use axum::Json as AxumJson;
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -15,7 +17,6 @@ use regex::Regex;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sqlx::PgConnection;
 
 use super::sidecar::client::CallError;
 use super::sidecar::web::consume;
@@ -307,7 +308,7 @@ async fn store_session_and_sync(
     let now = state.clock.now();
     let encrypted = state.crypto.encrypt(plain_blob)?;
     let mut tx = state.db.begin().await?;
-    if members::find_by_id(&mut *tx, member_id).await?.is_none() {
+    if members::find_by_id(&mut tx, member_id).await?.is_none() {
         return Err(AppError::NotFound("Family member not found".to_owned()));
     }
     db::query(
@@ -323,7 +324,7 @@ async fn store_session_and_sync(
     tracing::info!("DEGIRO session stored for member {member_id}");
     match fetch_portfolio(state, plain_blob).await {
         Ok(data) => {
-            upsert_account(state, &mut tx, &data, member_id).await?;
+            upsert_account(state, &mut tx.as_handle(), &data, member_id).await?;
             set_status(
                 &mut tx,
                 member_id,
@@ -391,7 +392,7 @@ pub async fn sync(state: &AppState, member_id: i64) -> AppResult<Value> {
         Err(e) => return Err(e.into()),
     };
     let mut tx = state.db.begin().await?;
-    let account = upsert_account(state, &mut tx, &data, member_id).await?;
+    let account = upsert_account(state, &mut tx.as_handle(), &data, member_id).await?;
     set_status(
         &mut tx,
         member_id,
@@ -505,7 +506,7 @@ async fn fetch_portfolio(state: &AppState, blob: &str) -> Result<Portfolio, Fail
 
 async fn upsert_account(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     data: &Portfolio,
     member_id: i64,
 ) -> AppResult<crate::ledger::model::Account> {

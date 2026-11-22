@@ -79,7 +79,7 @@ async fn institutions_are_filtered_deduplicated_and_signed_with_the_configured_k
 #[tokio::test]
 async fn a_stored_key_id_wins_over_the_application_id() {
     let b = bank().await;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO app_setting (setting_key, value) VALUES ('enablebanking.key-id', 'kid-9')",
     )
     .execute(&b.app.state.db)

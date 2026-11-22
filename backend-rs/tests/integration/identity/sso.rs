@@ -152,14 +152,14 @@ impl Sso {
     }
 
     async fn count(&self, sql: &str) -> i64 {
-        sqlx::query_scalar(sql)
+        picsou::db::query_scalar(sql)
             .fetch_one(&self.app.state.db)
             .await
             .unwrap()
     }
 
     async fn identities(&self, user_id: i64) -> i64 {
-        sqlx::query_scalar("SELECT count(*) FROM user_identity WHERE user_id = $1")
+        picsou::db::query_scalar("SELECT count(*) FROM user_identity WHERE user_id = $1")
             .bind(user_id)
             .fetch_one(&self.app.state.db)
             .await
@@ -381,13 +381,13 @@ async fn pkce_and_nonce_round_trip_and_tampering_fails() {
 async fn remember_me_restores_sso_but_never_trusts_a_password_login() {
     let sso = Sso::ready().await;
     let carol = sso.local_user("carol").await;
-    sqlx::query("INSERT INTO user_identity (user_id, issuer, subject, email) VALUES ($1, $2, 'carol', 'carol@example.test')")
+    picsou::db::query("INSERT INTO user_identity (user_id, issuer, subject, email) VALUES ($1, $2, 'carol', 'carol@example.test')")
         .bind(carol)
         .bind(sso.idp.issuer())
         .execute(&sso.app.state.db)
         .await
         .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO user_mfa (user_id, enabled, totp_secret_enc) VALUES ($1, true, 'unused')",
     )
     .bind(carol)
@@ -401,7 +401,7 @@ async fn remember_me_restores_sso_but_never_trusts_a_password_login() {
         .cookie("persistent_token")
         .expect("a remember-me cookie");
     let series = persistent.split(':').next().unwrap().to_owned();
-    let (sso_at, trusted): (Option<chrono::DateTime<Utc>>, bool) = sqlx::query_as(
+    let (sso_at, trusted): (Option<chrono::DateTime<Utc>>, bool) = picsou::db::query_as(
         "SELECT sso_authenticated_at, trusted_for_2fa FROM persistent_session WHERE series_id::text = $1",
     )
     .bind(&series)
@@ -467,7 +467,7 @@ async fn the_sso_window_bounds_refresh_and_new_app_authorizations() {
         .await;
     let persistent = browser.cookie("persistent_token").unwrap();
     let series = persistent.split(':').next().unwrap().to_owned();
-    sqlx::query(
+    picsou::db::query(
         "UPDATE persistent_session SET sso_authenticated_at = $2 WHERE series_id::text = $1",
     )
     .bind(&series)
@@ -479,12 +479,13 @@ async fn the_sso_window_bounds_refresh_and_new_app_authorizations() {
     remembered.set_cookie("persistent_token", &persistent);
     let stale = remembered.post("/api/auth/refresh").send().await;
     assert_eq!(stale.status, StatusCode::UNAUTHORIZED);
-    let revoked: Option<chrono::DateTime<Utc>> =
-        sqlx::query_scalar("SELECT revoked_at FROM persistent_session WHERE series_id::text = $1")
-            .bind(&series)
-            .fetch_one(&sso.app.state.db)
-            .await
-            .unwrap();
+    let revoked: Option<chrono::DateTime<Utc>> = picsou::db::query_scalar(
+        "SELECT revoked_at FROM persistent_session WHERE series_id::text = $1",
+    )
+    .bind(&series)
+    .fetch_one(&sso.app.state.db)
+    .await
+    .unwrap();
     assert!(revoked.is_some());
 }
 
@@ -553,7 +554,7 @@ async fn linking_needs_a_proof_and_binds_the_identity() {
 async fn activation_binds_the_invitation_and_leaves_no_password() {
     let sso = Sso::ready().await;
     let invited = sso.local_user("invited").await;
-    sqlx::query("UPDATE app_user SET is_activated = false, activation_token = 'invitation-token', activation_token_expires = $2 WHERE id = $1")
+    picsou::db::query("UPDATE app_user SET is_activated = false, activation_token = 'invitation-token', activation_token_expires = $2 WHERE id = $1")
         .bind(invited)
         .bind(sso.app.clock.now_utc() + Duration::minutes(5))
         .execute(&sso.app.state.db)
@@ -580,7 +581,7 @@ async fn activation_binds_the_invitation_and_leaves_no_password() {
     assert!(user.password_hash.is_empty());
     assert!(user.activation_token.is_none());
     let owner: i64 =
-        sqlx::query_scalar("SELECT user_id FROM user_identity WHERE subject = 'invited-sub'")
+        picsou::db::query_scalar("SELECT user_id FROM user_identity WHERE subject = 'invited-sub'")
             .fetch_one(&sso.app.state.db)
             .await
             .unwrap();
@@ -706,14 +707,14 @@ async fn public_app_clients_get_access_tokens_without_refresh_tokens() {
 async fn a_password_reset_link_never_lets_an_idp_identity_take_over() {
     let sso = Sso::ready().await;
     let victim = sso.local_user("resetvictim").await;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO user_mfa (user_id, enabled, totp_secret_enc) VALUES ($1, true, 'unused')",
     )
     .bind(victim)
     .execute(&sso.app.state.db)
     .await
     .unwrap();
-    sqlx::query("UPDATE app_user SET activation_token = 'reset-token', activation_token_expires = $2 WHERE id = $1")
+    picsou::db::query("UPDATE app_user SET activation_token = 'reset-token', activation_token_expires = $2 WHERE id = $1")
         .bind(victim)
         .bind(sso.app.clock.now_utc() + Duration::hours(1))
         .execute(&sso.app.state.db)

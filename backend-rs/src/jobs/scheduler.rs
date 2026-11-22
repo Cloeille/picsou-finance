@@ -7,6 +7,7 @@ use std::panic::AssertUnwindSafe;
 use futures::FutureExt;
 
 use crate::AppState;
+use crate::db::AsDbHandle;
 use crate::error::AppResult;
 use crate::ledger::model::AccountType;
 use crate::ledger::sidecar::SyncStatus;
@@ -133,7 +134,13 @@ pub async fn daily_snapshots(state: &AppState) -> AppResult<usize> {
                         continue;
                     }
                 };
-                match valuation::valuation(&mut conn, &*state.ledger.prices, &account, today).await
+                match valuation::valuation(
+                    &mut conn.as_handle(),
+                    &*state.ledger.prices,
+                    &account,
+                    today,
+                )
+                .await
                 {
                     Ok(v) => v,
                     Err(e) => {

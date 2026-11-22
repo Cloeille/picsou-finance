@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use picsou::clock::Clock;
+use picsou::db::AsDbHandle;
 use picsou::jobs::catch_up::{
     CatchUpScheduler, DAILY_BANK_SYNC, DAILY_SNAPSHOTS, KEY_PREFIX, MONTHLY_PROPERTY_VALUATION,
     WEEKLY_DIVIDEND_HISTORY, WEEKLY_SECURITY_PROFILES,
@@ -26,7 +27,7 @@ fn d(s: &str) -> Decimal {
 }
 
 async fn admin_member_id(app: &TestApp) -> i64 {
-    sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+    picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
         .fetch_one(&app.state.db)
         .await
         .expect("admin member")
@@ -74,7 +75,7 @@ async fn savings_config_goal_history_and_dashboard_goals_work_end_to_end() {
     assert_eq!(d(&cfg_body["currentBalanceEur"].to_string()), d("2500"));
 
     // Seed a historical balance snapshot so GET /api/goals/{id}/history has real data.
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO balance_snapshot (account_id, date, balance, invested_amount, created_at, source) \
          VALUES ($1, '2026-01-01', 2000, 2000, now(), 'DERIVED')",
     )
@@ -141,7 +142,7 @@ async fn account_deletion_removes_t5_and_t6_connections_without_deadlocking() {
     let now = app.state.clock.now();
 
     // 1. BoursoBank sidecar session + single linked account.
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO sidecar_session (bank, member_id, session_state, is_active, sync_status, \
          last_sync_life_ambiguous, created_at, updated_at) \
          VALUES ('BOURSO', $1, 'enc', true, 'IDLE', 0, $2, $2)",
@@ -159,7 +160,7 @@ async fn account_deletion_removes_t5_and_t6_connections_without_deadlocking() {
         .id;
 
     // 2. CORUM sidecar session + SCPI account linked via scpi_position.corum_fund_code (tests member row lock!).
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO sidecar_session (bank, member_id, session_state, is_active, sync_status, \
          last_sync_life_ambiguous, created_at, updated_at) \
          VALUES ('CORUM', $1, 'enc', true, 'IDLE', 0, $2, $2)",
@@ -175,7 +176,7 @@ async fn account_deletion_removes_t5_and_t6_connections_without_deadlocking() {
         .await
         .unwrap()
         .id;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO scpi_position (account_id, member_id, share_count, corum_fund_code, valuation_status, created_at, updated_at) \
          VALUES ($1, $2, 10, 'ORIGIN', 'OK', $3, $3)",
     )
@@ -187,7 +188,7 @@ async fn account_deletion_removes_t5_and_t6_connections_without_deadlocking() {
     .unwrap();
 
     // 3. Wise connection + single Wise jar account.
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO wise_connection (member_id, api_token, status, created_at, updated_at) \
          VALUES ($1, 'enc', 'CONNECTED', $2, $2)",
     )
@@ -204,7 +205,7 @@ async fn account_deletion_removes_t5_and_t6_connections_without_deadlocking() {
         .id;
 
     // 4. On-chain wallet + single wallet account.
-    let wallet_id: i64 = sqlx::query_scalar(
+    let wallet_id: i64 = picsou::db::query_scalar(
         "INSERT INTO wallet_address (member_id, chain, address, created_at) \
          VALUES ($1, 'BITCOIN', 'bc1qexampleaddress', $2) RETURNING id",
     )
@@ -226,14 +227,14 @@ async fn account_deletion_removes_t5_and_t6_connections_without_deadlocking() {
         assert_eq!(resp.status, 204, "delete account {id}: {}", resp.text());
     }
 
-    let bourso_left: i64 = sqlx::query_scalar(
+    let bourso_left: i64 = picsou::db::query_scalar(
         "SELECT count(*) FROM sidecar_session WHERE bank = 'BOURSO' AND member_id = $1",
     )
     .bind(member)
     .fetch_one(&app.state.db)
     .await
     .unwrap();
-    let corum_left: i64 = sqlx::query_scalar(
+    let corum_left: i64 = picsou::db::query_scalar(
         "SELECT count(*) FROM sidecar_session WHERE bank = 'CORUM' AND member_id = $1",
     )
     .bind(member)
@@ -241,13 +242,13 @@ async fn account_deletion_removes_t5_and_t6_connections_without_deadlocking() {
     .await
     .unwrap();
     let wise_left: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM wise_connection WHERE member_id = $1")
+        picsou::db::query_scalar("SELECT count(*) FROM wise_connection WHERE member_id = $1")
             .bind(member)
             .fetch_one(&app.state.db)
             .await
             .unwrap();
     let wallet_left: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM wallet_address WHERE member_id = $1")
+        picsou::db::query_scalar("SELECT count(*) FROM wallet_address WHERE member_id = $1")
             .bind(member)
             .fetch_one(&app.state.db)
             .await
@@ -267,7 +268,7 @@ async fn member_sync_invokes_wired_t6_sidecars_and_skips_degiro_when_scheduled()
 
     // Seed an inactive Bourso session with SESSION_EXPIRED so T6's real resync_reporting returns
     // NeedsReauth("SESSION_EXPIRED") instead of NoSidecarSessions's SkippedNotConnected!
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO sidecar_session (bank, member_id, session_state, is_active, sync_status, \
          last_sync_error, last_sync_life_ambiguous, created_at, updated_at) \
          VALUES ('BOURSO', $1, 'enc', false, 'FAILED', 'SESSION_EXPIRED', 0, $2, $2)",
@@ -279,7 +280,7 @@ async fn member_sync_invokes_wired_t6_sidecars_and_skips_degiro_when_scheduled()
     .unwrap();
 
     // Seed a DEGIRO session with REAUTH_REQUIRED so resync_for_user hits degiro::user_sync_reporting.
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO degiro_session (member_id, session_blob, status, created_at, updated_at) \
          VALUES ($1, 'enc', 'REAUTH_REQUIRED', $2, $2)",
     )
@@ -382,7 +383,7 @@ async fn openfigi_and_analysis_seams_wire_market_providers_into_t2_t6_and_t7() {
     )
     .await
     .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) \
          VALUES ($1, 'CW8.PA', 2, now(), now())",
     )
@@ -390,7 +391,7 @@ async fn openfigi_and_analysis_seams_wire_market_providers_into_t2_t6_and_t7() {
     .execute(&app.state.db)
     .await
     .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO security_profile (ticker, asset_type, isin, status, created_at, updated_at) \
          VALUES ('CW8.PA', 'UNKNOWN', 'LU1681043599', 'NEVER_FETCHED', now(), now())",
     )
@@ -403,7 +404,7 @@ async fn openfigi_and_analysis_seams_wire_market_providers_into_t2_t6_and_t7() {
         .unwrap();
     assert_eq!(refreshed, 1);
 
-    let (asset_type, status, domicile): (String, String, Option<String>) = sqlx::query_as(
+    let (asset_type, status, domicile): (String, String, Option<String>) = picsou::db::query_as(
         "SELECT asset_type, status, domicile_country FROM security_profile WHERE ticker = 'CW8.PA'",
     )
     .fetch_one(&app.state.db)
@@ -413,7 +414,7 @@ async fn openfigi_and_analysis_seams_wire_market_providers_into_t2_t6_and_t7() {
     assert_eq!(status, "OK");
     assert_eq!(domicile.as_deref(), Some("LU"));
 
-    let slice_count: i64 = sqlx::query_scalar(
+    let slice_count: i64 = picsou::db::query_scalar(
         "SELECT count(*) FROM security_composition_slice s \
          JOIN security_profile p ON p.id = s.profile_id WHERE p.ticker = 'CW8.PA'",
     )
@@ -462,7 +463,7 @@ async fn startup_recovers_interrupted_syncs_and_runs_isin_repair_before_price_ba
     let now = app.state.clock.now();
 
     // Seed stuck QUEUED/RUNNING sidecar, LBP, and Natixis sessions.
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO sidecar_session (bank, member_id, session_state, is_active, sync_status, \
          last_sync_started_at, last_sync_life_ambiguous, created_at, updated_at) \
          VALUES ('BOURSO', $1, 'enc', true, 'RUNNING', $2, 0, $2, $2), \
@@ -473,7 +474,7 @@ async fn startup_recovers_interrupted_syncs_and_runs_isin_repair_before_price_ba
     .execute(&app.state.db)
     .await
     .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO lbp_session (member_id, session_state, is_active, sync_status, created_at, updated_at) \
          VALUES ($1, 'enc', true, 'QUEUED', $2, $2)",
     )
@@ -492,7 +493,7 @@ async fn startup_recovers_interrupted_syncs_and_runs_isin_repair_before_price_ba
     )
     .await
     .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO transaction (account_id, date, amount, tx_type, is_manual, ticker, quantity, price_per_unit, created_at) \
          VALUES ($1, '2026-01-10', -1000, 'BUY', true, 'IE000BI8OT95', 8, 125, $2)",
     )
@@ -505,18 +506,19 @@ async fn startup_recovers_interrupted_syncs_and_runs_isin_repair_before_price_ba
     picsou::jobs::on_startup(&app.state).await.unwrap();
 
     // All three stuck sessions recovered to FAILED / INTERNAL_ERROR.
-    let stuck_sidecars: i64 = sqlx::query_scalar(
+    let stuck_sidecars: i64 = picsou::db::query_scalar(
         "SELECT count(*) FROM sidecar_session WHERE sync_status IN ('QUEUED', 'RUNNING')",
     )
     .fetch_one(&app.state.db)
     .await
     .unwrap();
-    let lbp_status: (String, Option<String>) =
-        sqlx::query_as("SELECT sync_status, last_sync_error FROM lbp_session WHERE member_id = $1")
-            .bind(member)
-            .fetch_one(&app.state.db)
-            .await
-            .unwrap();
+    let lbp_status: (String, Option<String>) = picsou::db::query_as(
+        "SELECT sync_status, last_sync_error FROM lbp_session WHERE member_id = $1",
+    )
+    .bind(member)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
     assert_eq!(stuck_sidecars, 0);
     assert_eq!(
         lbp_status,
@@ -525,7 +527,7 @@ async fn startup_recovers_interrupted_syncs_and_runs_isin_repair_before_price_ba
 
     // ISIN repaired AND price_backfill immediately populated MWRD.PA snapshots!
     let repaired_ticker: String =
-        sqlx::query_scalar("SELECT ticker FROM transaction WHERE account_id = $1")
+        picsou::db::query_scalar("SELECT ticker FROM transaction WHERE account_id = $1")
             .bind(pea.id)
             .fetch_one(&app.state.db)
             .await
@@ -533,7 +535,7 @@ async fn startup_recovers_interrupted_syncs_and_runs_isin_repair_before_price_ba
     assert_eq!(repaired_ticker, "MWRD.PA");
 
     let snap_count: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM price_snapshot WHERE ticker = 'MWRD.PA'")
+        picsou::db::query_scalar("SELECT count(*) FROM price_snapshot WHERE ticker = 'MWRD.PA'")
             .fetch_one(&app.state.db)
             .await
             .unwrap();
@@ -546,7 +548,7 @@ async fn startup_sync_respects_flag_and_records_run_in_catch_up_scheduler() {
     let disabled_app = TestApp::with_admin().await;
     assert!(!startup::run_startup_sync(&disabled_app.state).await);
     let stored: Option<String> =
-        sqlx::query_scalar("SELECT value FROM app_setting WHERE setting_key = $1")
+        picsou::db::query_scalar("SELECT value FROM app_setting WHERE setting_key = $1")
             .bind(format!("{KEY_PREFIX}{DAILY_BANK_SYNC}"))
             .fetch_optional(&disabled_app.state.db)
             .await
@@ -560,11 +562,12 @@ async fn startup_sync_respects_flag_and_records_run_in_catch_up_scheduler() {
         .spawn()
         .await;
     assert!(startup::run_startup_sync(&enabled_app.state).await);
-    let stored: String = sqlx::query_scalar("SELECT value FROM app_setting WHERE setting_key = $1")
-        .bind(format!("{KEY_PREFIX}{DAILY_BANK_SYNC}"))
-        .fetch_one(&enabled_app.state.db)
-        .await
-        .unwrap();
+    let stored: String =
+        picsou::db::query_scalar("SELECT value FROM app_setting WHERE setting_key = $1")
+            .bind(format!("{KEY_PREFIX}{DAILY_BANK_SYNC}"))
+            .fetch_one(&enabled_app.state.db)
+            .await
+            .unwrap();
     assert_eq!(
         DateTime::parse_from_rfc3339(&stored)
             .unwrap()
@@ -601,7 +604,7 @@ async fn daily_snapshots_skips_unpriced_holdings_and_refreshes_synced_insurer_co
     .await
     .unwrap()
     .id;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) \
          VALUES ($1, 'UNKNOWN.ZZ', 5, $2, $2)",
     )
@@ -620,7 +623,7 @@ async fn daily_snapshots_skips_unpriced_holdings_and_refreshes_synced_insurer_co
         .await
         .unwrap()
         .id;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO balance_snapshot (account_id, date, balance, invested_amount, created_at, source) \
          VALUES ($1, $2, 900, 900, $3, 'DERIVED')",
     )
@@ -640,7 +643,7 @@ async fn daily_snapshots_skips_unpriced_holdings_and_refreshes_synced_insurer_co
         .await
         .unwrap()
         .id;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO balance_snapshot (account_id, date, balance, invested_amount, created_at, source) \
          VALUES ($1, $2, 700, 700, $3, 'DERIVED')",
     )
@@ -654,7 +657,7 @@ async fn daily_snapshots_skips_unpriced_holdings_and_refreshes_synced_insurer_co
     let written = scheduler::daily_snapshots(&app.state).await.unwrap();
     assert_eq!(written, 2, "checking inserted + synced AV updated");
 
-    let checking_bal: Decimal = sqlx::query_scalar(
+    let checking_bal: Decimal = picsou::db::query_scalar(
         "SELECT balance FROM balance_snapshot WHERE account_id = $1 AND date = $2",
     )
     .bind(checking_id)
@@ -665,14 +668,14 @@ async fn daily_snapshots_skips_unpriced_holdings_and_refreshes_synced_insurer_co
     assert_eq!(checking_bal, d("1500"));
 
     let pea_snaps: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM balance_snapshot WHERE account_id = $1")
+        picsou::db::query_scalar("SELECT count(*) FROM balance_snapshot WHERE account_id = $1")
             .bind(pea_id)
             .fetch_one(&app.state.db)
             .await
             .unwrap();
     assert_eq!(pea_snaps, 0);
 
-    let av_synced_bal: Decimal = sqlx::query_scalar(
+    let av_synced_bal: Decimal = picsou::db::query_scalar(
         "SELECT balance FROM balance_snapshot WHERE account_id = $1 AND date = $2",
     )
     .bind(av_synced_id)
@@ -682,7 +685,7 @@ async fn daily_snapshots_skips_unpriced_holdings_and_refreshes_synced_insurer_co
     .unwrap();
     assert_eq!(av_synced_bal, d("1200"));
 
-    let av_manual_bal: Decimal = sqlx::query_scalar(
+    let av_manual_bal: Decimal = picsou::db::query_scalar(
         "SELECT balance FROM balance_snapshot WHERE account_id = $1 AND date = $2",
     )
     .bind(av_manual_id)
@@ -744,7 +747,7 @@ async fn refresh_prices_separates_crypto_from_equities_and_records_snapshots() {
     )
     .await
     .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) VALUES \
          ($1, 'BTC', 0.5, $3, $3), ($2, 'AAPL', 2, $3, $3)",
     )
@@ -758,7 +761,7 @@ async fn refresh_prices_separates_crypto_from_equities_and_records_snapshots() {
     scheduler::refresh_prices(&app.state).await.unwrap();
 
     let tickers: Vec<String> =
-        sqlx::query_scalar("SELECT ticker FROM price_snapshot ORDER BY ticker")
+        picsou::db::query_scalar("SELECT ticker FROM price_snapshot ORDER BY ticker")
             .fetch_all(&app.state.db)
             .await
             .unwrap();
@@ -810,7 +813,7 @@ async fn refresh_dividend_history_skips_crypto_without_isin_and_refreshes_stocks
     )
     .await
     .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) VALUES \
          ($1, 'TTE.PA', 10, $3, $3), ($2, 'BTC', 1, $3, $3)",
     )
@@ -827,7 +830,7 @@ async fn refresh_dividend_history_skips_crypto_without_isin_and_refreshes_stocks
     assert_eq!(refreshed, 1);
 
     let sources: Vec<(String, String)> =
-        sqlx::query_as("SELECT ticker, status FROM dividend_source ORDER BY ticker")
+        picsou::db::query_as("SELECT ticker, status FROM dividend_source ORDER BY ticker")
             .fetch_all(&app.state.db)
             .await
             .unwrap();
@@ -859,7 +862,7 @@ async fn catch_up_scheduler_persists_last_runs_in_postgres_and_runs_missed_snaps
         (WEEKLY_SECURITY_PROFILES, &current),
         (WEEKLY_DIVIDEND_HISTORY, &current),
     ] {
-        sqlx::query(
+        picsou::db::query(
             "INSERT INTO app_setting (setting_key, value) VALUES ($1, $2) \
              ON CONFLICT (setting_key) DO UPDATE SET value = EXCLUDED.value",
         )
@@ -872,7 +875,7 @@ async fn catch_up_scheduler_persists_last_runs_in_postgres_and_runs_missed_snaps
 
     app.state.jobs.catch_up.tick(Some(&app.state)).await;
 
-    let snap: Decimal = sqlx::query_scalar(
+    let snap: Decimal = picsou::db::query_scalar(
         "SELECT balance FROM balance_snapshot WHERE account_id = $1 AND date = $2",
     )
     .bind(acct_id)
@@ -885,13 +888,13 @@ async fn catch_up_scheduler_persists_last_runs_in_postgres_and_runs_missed_snaps
     // Simulate a process restart with a fresh CatchUpScheduler reading from the same DB:
     // today's slot was recorded, so a second tick does not re-run.
     let restarted = CatchUpScheduler::new(app.state.db.clone(), app.state.clock.clone());
-    sqlx::query("UPDATE balance_snapshot SET balance = 999 WHERE account_id = $1")
+    picsou::db::query("UPDATE balance_snapshot SET balance = 999 WHERE account_id = $1")
         .bind(acct_id)
         .execute(&app.state.db)
         .await
         .unwrap();
     restarted.tick(Some(&app.state)).await;
-    let unchanged: Decimal = sqlx::query_scalar(
+    let unchanged: Decimal = picsou::db::query_scalar(
         "SELECT balance FROM balance_snapshot WHERE account_id = $1 AND date = $2",
     )
     .bind(acct_id)
@@ -910,7 +913,7 @@ async fn cleanup_jobs_evict_stale_natixis_syncs_and_schedulers_shut_down_cleanly
     let now = app.state.clock.now();
 
     // Seed one stale Natixis sync (15 min old) and one fresh running sync (2 min old).
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO sidecar_session (bank, member_id, session_state, is_active, sync_status, \
          last_sync_started_at, last_sync_life_ambiguous, created_at, updated_at) VALUES \
          ('NATIXIS', $1, 'enc', true, 'RUNNING', $3, 0, $3, $3), \
@@ -933,14 +936,14 @@ async fn cleanup_jobs_evict_stale_natixis_syncs_and_schedulers_shut_down_cleanly
         .unwrap();
     assert_eq!(recovered, 1);
 
-    let stale_status: String = sqlx::query_scalar(
+    let stale_status: String = picsou::db::query_scalar(
         "SELECT sync_status FROM sidecar_session WHERE bank = 'NATIXIS' AND member_id = $1",
     )
     .bind(member)
     .fetch_one(&app.state.db)
     .await
     .unwrap();
-    let fresh_status: String = sqlx::query_scalar(
+    let fresh_status: String = picsou::db::query_scalar(
         "SELECT sync_status FROM sidecar_session WHERE bank = 'NATIXIS' AND member_id = $1",
     )
     .bind(other_member)
@@ -1008,7 +1011,7 @@ async fn real_estate_valuation_refresh_and_connector_savings_auto_config_seams_w
         .await;
     assert_eq!(meta.status, 200, "{}", meta.text());
 
-    sqlx::query("UPDATE real_estate_metadata SET insee_code = '67482' WHERE account_id = $1")
+    picsou::db::query("UPDATE real_estate_metadata SET insee_code = '67482' WHERE account_id = $1")
         .bind(prop_id)
         .execute(&app.state.db)
         .await
@@ -1035,7 +1038,7 @@ async fn real_estate_valuation_refresh_and_connector_savings_auto_config_seams_w
         .connectors
         .seams
         .savings
-        .configure_if_missing(&mut conn, livret.id, AccountType::LivretA)
+        .configure_if_missing(&mut conn.as_handle(), livret.id, AccountType::LivretA)
         .await
         .unwrap();
     assert!(inserted);
@@ -1044,7 +1047,7 @@ async fn real_estate_valuation_refresh_and_connector_savings_auto_config_seams_w
         .connectors
         .seams
         .savings
-        .configure_if_missing(&mut conn, livret.id, AccountType::LivretA)
+        .configure_if_missing(&mut conn.as_handle(), livret.id, AccountType::LivretA)
         .await
         .unwrap();
     assert!(!second, "existing config must not be overwritten");

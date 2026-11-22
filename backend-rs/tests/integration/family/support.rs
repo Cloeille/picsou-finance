@@ -17,7 +17,7 @@ pub fn num(value: &Value) -> String {
 }
 
 pub async fn admin_member(app: &TestApp) -> i64 {
-    sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+    picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
         .fetch_one(&app.state.db)
         .await
         .expect("admin member")
@@ -30,7 +30,7 @@ pub async fn account(
     account_type: &str,
     balance: &str,
 ) -> i64 {
-    sqlx::query_scalar(
+    picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color, created_at, updated_at) \
          VALUES ($1, $2, $3::account_type, 'EUR', $4, true, '#000000', now(), now()) RETURNING id",
     )
@@ -44,11 +44,11 @@ pub async fn account(
 }
 
 pub async fn exec(app: &TestApp, sql: &str) {
-    sqlx::raw_sql(sql).execute(&app.state.db).await.expect(sql);
+    app.state.db.execute_batch(sql).await.expect(sql);
 }
 
 pub async fn share_level(app: &TestApp, member_id: i64, resource_type: &str, level: &str) {
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO sharing_settings (member_id, resource_type, sharing_level) VALUES ($1, $2, $3::sharing_level)",
     )
     .bind(member_id)
@@ -60,7 +60,7 @@ pub async fn share_level(app: &TestApp, member_id: i64, resource_type: &str, lev
 }
 
 pub async fn share_resource(app: &TestApp, member_id: i64, resource_type: &str, id: i64) {
-    sqlx::query("INSERT INTO shared_resource (owner_member_id, resource_type, resource_id) VALUES ($1, $2, $3)")
+    picsou::db::query("INSERT INTO shared_resource (owner_member_id, resource_type, resource_id) VALUES ($1, $2, $3)")
         .bind(member_id)
         .bind(resource_type)
         .bind(id)
@@ -76,7 +76,7 @@ pub async fn goal(
     target: &str,
     accounts: &[i64],
 ) -> i64 {
-    let id: i64 = sqlx::query_scalar(
+    let id: i64 = picsou::db::query_scalar(
         "INSERT INTO goal (member_id, name, target_amount, deadline) VALUES ($1, $2, $3, '2099-01-01') RETURNING id",
     )
     .bind(member_id)
@@ -86,7 +86,7 @@ pub async fn goal(
     .await
     .expect("goal");
     for account in accounts {
-        sqlx::query("INSERT INTO goal_account (goal_id, account_id) VALUES ($1, $2)")
+        picsou::db::query("INSERT INTO goal_account (goal_id, account_id) VALUES ($1, $2)")
             .bind(id)
             .bind(account)
             .execute(&app.state.db)
@@ -97,7 +97,7 @@ pub async fn goal(
 }
 
 pub async fn contribution(app: &TestApp, goal_id: i64, member_id: i64, month: &str, amount: &str) {
-    sqlx::query("INSERT INTO goal_manual_contribution (goal_id, member_id, year_month, amount) VALUES ($1, $2, $3, $4)")
+    picsou::db::query("INSERT INTO goal_manual_contribution (goal_id, member_id, year_month, amount) VALUES ($1, $2, $3, $4)")
         .bind(goal_id)
         .bind(member_id)
         .bind(month)

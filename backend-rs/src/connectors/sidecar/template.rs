@@ -6,9 +6,10 @@
 use std::fmt;
 use std::sync::Arc;
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use sqlx::PgConnection;
 
 use super::error::{JobError, JobResult, SyncError};
 use super::jobs::Pool;
@@ -53,7 +54,7 @@ pub trait SyncStrategy: Send + Sync + 'static {
     async fn commit(
         &self,
         state: &AppState,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         session: &mut SidecarSession,
         job: &SyncJob,
         prepared: &Self::Prepared,
@@ -71,7 +72,7 @@ pub trait SyncStrategy: Send + Sync + 'static {
     /// Runs before a failure is recorded on the session, inside the same transaction.
     async fn on_failure(
         &self,
-        _conn: &mut PgConnection,
+        _conn: &mut DbHandle<'_>,
         _session: &mut SidecarSession,
         _code: SidecarErrorCode,
     ) -> JobResult<()> {
@@ -158,7 +159,7 @@ impl<S: SyncStrategy> SyncTemplate<S> {
 
     async fn lock_member_if_needed(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         member_id: i64,
     ) -> AppResult<()> {
         if self.locks_member {
@@ -178,7 +179,8 @@ impl<S: SyncStrategy> SyncTemplate<S> {
     ) -> AppResult<SidecarSession> {
         let label = self.queue_label;
         let mut tx = state.db.begin().await?;
-        self.lock_member_if_needed(&mut tx, member_id).await?;
+        self.lock_member_if_needed(&mut tx.as_handle(), member_id)
+            .await?;
         let mut current = session::find_for_update(&mut tx, self.bank, member_id)
             .await?
             .ok_or_else(|| {
@@ -248,7 +250,14 @@ impl<S: SyncStrategy> SyncTemplate<S> {
     ) -> AppResult<SidecarSession> {
         let mut tx = state.db.begin().await?;
         let job = self
-            .insert_queued(state, &mut tx, member_id, plain_state, history, prepare)
+            .insert_queued(
+                state,
+                &mut tx.as_handle(),
+                member_id,
+                plain_state,
+                history,
+                prepare,
+            )
             .await?;
         let stored = session::find(&mut tx, self.bank, member_id)
             .await?
@@ -263,7 +272,7 @@ impl<S: SyncStrategy> SyncTemplate<S> {
     pub async fn insert_queued(
         &self,
         state: &AppState,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         member_id: i64,
         plain_state: String,
         history: bool,
@@ -302,7 +311,8 @@ impl<S: SyncStrategy> SyncTemplate<S> {
     /// Whether a stored session was there to delete.
     pub async fn clear(&self, state: &AppState, member_id: i64) -> AppResult<bool> {
         let mut tx = state.db.begin().await?;
-        self.lock_member_if_needed(&mut tx, member_id).await?;
+        self.lock_member_if_needed(&mut tx.as_handle(), member_id)
+            .await?;
         let existing = session::find_for_update(&mut tx, self.bank, member_id).await?;
         if let Some(existing) = &existing {
             session::delete(&mut tx, existing.id).await?;
@@ -499,7 +509,8 @@ impl<S: SyncStrategy> SyncTemplate<S> {
     async fn mark_running(&self, state: &AppState, job: &SyncJob) -> AppResult<bool> {
         let label = self.bank.label();
         let mut tx = state.db.begin().await?;
-        self.lock_member_if_needed(&mut tx, job.member_id).await?;
+        self.lock_member_if_needed(&mut tx.as_handle(), job.member_id)
+            .await?;
         let Some(mut current) =
             session::find_by_id_for_update(&mut tx, job.session_id, job.member_id).await?
         else {
@@ -533,7 +544,8 @@ impl<S: SyncStrategy> SyncTemplate<S> {
     ) -> JobResult<bool> {
         let label = self.bank.label();
         let mut tx = state.db.begin().await?;
-        self.lock_member_if_needed(&mut tx, job.member_id).await?;
+        self.lock_member_if_needed(&mut tx.as_handle(), job.member_id)
+            .await?;
         let Some(mut current) =
             session::find_by_id_for_update(&mut tx, job.session_id, job.member_id).await?
         else {
@@ -554,7 +566,14 @@ impl<S: SyncStrategy> SyncTemplate<S> {
         }
         let synced_at = state.clock.now();
         self.strategy
-            .commit(state, &mut tx, &mut current, job, prepared, synced_at)
+            .commit(
+                state,
+                &mut tx.as_handle(),
+                &mut current,
+                job,
+                prepared,
+                synced_at,
+            )
             .await?;
         current.mark_successful(synced_at)?;
         session::save(&mut tx, &current, synced_at).await?;
@@ -567,7 +586,8 @@ impl<S: SyncStrategy> SyncTemplate<S> {
         let label = self.bank.label();
         let outcome = async {
             let mut tx = state.db.begin().await?;
-            self.lock_member_if_needed(&mut tx, job.member_id).await?;
+            self.lock_member_if_needed(&mut tx.as_handle(), job.member_id)
+                .await?;
             let Some(mut current) =
                 session::find_by_id_for_update(&mut tx, job.session_id, job.member_id).await?
             else {
@@ -586,7 +606,7 @@ impl<S: SyncStrategy> SyncTemplate<S> {
                 return Ok(());
             }
             self.strategy
-                .on_failure(&mut tx, &mut current, code)
+                .on_failure(&mut tx.as_handle(), &mut current, code)
                 .await?;
             let now = state.clock.now();
             current.mark_failed(code, now)?;

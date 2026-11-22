@@ -27,6 +27,7 @@ options:
   --java-jar <path>     default: backend/target/picsou-backend-*.jar
   --java-home <path>    default: JAVA_HOME, then /usr/libexec/java_home -v 21
   --rust-bin <path>     default: backend-rs/target/release/picsou
+  --sqlite              run Rust backend on embedded SQLite (no PostgreSQL needed)
   --pg <host:port>      default 127.0.0.1:55432 (or CONTRACT_PG); --pg-user default picsou
   --keep-logs           keep each instance's work directory and log
   --verbose             print stub hits and log paths`;
@@ -67,6 +68,7 @@ function parseArgs(argv: string[]): Options {
       javaJar: process.env.CONTRACT_JAVA_JAR,
       javaHome: process.env.CONTRACT_JAVA_HOME,
       rustBin: process.env.CONTRACT_RUST_BIN,
+      sqlite: false,
       readyTimeoutMs: 180_000,
       keepLogs: false,
     },
@@ -90,6 +92,7 @@ function parseArgs(argv: string[]): Options {
     else if (a === "--java-jar") opts.launch.javaJar = value();
     else if (a === "--java-home") opts.launch.javaHome = value();
     else if (a === "--rust-bin") opts.launch.rustBin = value();
+    else if (a === "--sqlite") opts.launch.sqlite = true;
     else if (a === "--pg") {
       const [h, p] = value().split(":");
       opts.launch.pgHost = h!;
@@ -101,6 +104,9 @@ function parseArgs(argv: string[]): Options {
     else opts.selectors.push(a);
   }
   if (opts.mode !== "list" && !opts.all && opts.selectors.length === 0) throw new Error(USAGE);
+  if (opts.launch.sqlite && (opts.mode === "record" || (opts.mode === "check" && opts.backend === "java"))) {
+    throw new Error("--sqlite only applies to the Rust backend");
+  }
   return opts;
 }
 
@@ -218,7 +224,8 @@ async function main() {
   };
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
-  const label = opts.mode === "record" ? "java -> golden" : opts.mode === "check" ? `golden vs ${opts.backend}` : `${opts.left} vs ${opts.right}`;
+  const backendTag = opts.launch.sqlite ? `${opts.backend}+sqlite` : opts.backend;
+  const label = opts.mode === "record" ? "java -> golden" : opts.mode === "check" ? `golden vs ${backendTag}` : `${opts.left} vs ${opts.right}`;
   console.log(`contract ${opts.mode} (${label}): ${scenarios.length} scenario(s), ${opts.jobs} at a time`);
   const started = Date.now();
   const outcomes = await pool(scenarios, opts.jobs, async (s) => {

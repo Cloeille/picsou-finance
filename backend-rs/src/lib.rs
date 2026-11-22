@@ -37,7 +37,6 @@ use std::sync::{Arc, OnceLock, Weak};
 use std::time::Instant;
 
 use axum::Router;
-use sqlx::PgPool;
 use tokio::net::TcpListener;
 
 use crate::auth::BearerAuthenticator;
@@ -58,7 +57,7 @@ pub struct AppState(Arc<Inner>);
 
 pub struct Inner {
     pub config: Config,
-    pub db: PgPool,
+    pub db: db::Db,
     pub clock: AppClock,
     pub jwt: Jwt,
     pub crypto: CryptoEncryption,
@@ -113,7 +112,7 @@ impl AppState {
         weak.upgrade().map(Self)
     }
 
-    pub fn new(config: Config, db: PgPool, clock: Arc<dyn Clock>) -> anyhow::Result<Self> {
+    pub fn new(config: Config, db: db::Db, clock: Arc<dyn Clock>) -> anyhow::Result<Self> {
         let clock = AppClock::new(clock, config.timezone);
         let connectors = connectors::Connectors::new(&config, db.clone())?;
         let crypto = CryptoEncryption::new(&config.crypto_key)?;
@@ -222,12 +221,26 @@ pub async fn run(
 
 /// Connects to the database, applies the migrations and builds the state.
 pub async fn start(config: Config, clock: Arc<dyn Clock>) -> anyhow::Result<AppState> {
-    let db = db::connect(&config.datasource).await?;
-    {
-        let mut conn = db.acquire().await?;
-        let applied = db::flyway::migrate(&mut conn).await?;
-        if applied > 0 {
-            tracing::info!("Successfully applied {applied} migrations to schema \"public\"");
+    let db = db::db_connect(&config).await?;
+    match &db {
+        db::Db::Postgres(pool) => {
+            let mut conn = pool.acquire().await?;
+            let applied = db::flyway::migrate(&mut conn).await?;
+            if applied > 0 {
+                tracing::info!("Successfully applied {applied} migrations to schema \"public\"");
+            }
+        }
+        db::Db::Sqlite(sq) => {
+            let sq = sq.clone();
+            let applied = tokio::task::spawn_blocking(move || -> anyhow::Result<usize> {
+                let applied = sq.migrate()?;
+                sq.ensure_seeded()?;
+                Ok(applied)
+            })
+            .await??;
+            if applied > 0 {
+                tracing::info!("Successfully applied {applied} SQLite migrations");
+            }
         }
     }
     let state = AppState::new(config, db, clock)?;

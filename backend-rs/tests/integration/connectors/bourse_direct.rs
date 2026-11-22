@@ -177,7 +177,7 @@ async fn complete_writes_the_portfolio_holdings_and_snapshot() {
         Decimal,
         Decimal,
         String,
-    ) = sqlx::query_as(
+    ) = picsou::db::query_as(
         "SELECT name, type::text, provider, is_manual, current_balance, cash_balance, color \
              FROM account WHERE external_account_id = 'bd_pea-123' AND member_id = $1",
     )
@@ -196,7 +196,7 @@ async fn complete_writes_the_portfolio_holdings_and_snapshot() {
         ("PEA", "PEA", "Bourse Direct", false, "#10b981")
     );
     assert_eq!((balance, cash), (d("1250"), d("250")));
-    let holding: (String, String, Decimal, String, Decimal, Decimal) = sqlx::query_as(
+    let holding: (String, String, Decimal, String, Decimal, Decimal) = picsou::db::query_as(
         "SELECT ticker, name, average_buy_in, quote_currency, provider_value_eur, provider_pnl_eur \
          FROM account_holding",
     )
@@ -216,7 +216,7 @@ async fn complete_writes_the_portfolio_holdings_and_snapshot() {
         "without OpenFIGI the ISIN is the ticker"
     );
     let snapshot: (Decimal, Decimal) =
-        sqlx::query_as("SELECT balance, invested_amount FROM balance_snapshot")
+        picsou::db::query_as("SELECT balance, invested_amount FROM balance_snapshot")
             .fetch_one(&app.state.db)
             .await
             .unwrap();
@@ -438,7 +438,7 @@ async fn every_invalid_snapshot_is_rejected_whole() {
     for (body, code) in cases {
         let (after, _, app) = failed_sync(body.clone()).await;
         assert_eq!(after["lastSyncError"], code, "{body}");
-        let accounts: i64 = sqlx::query_scalar("SELECT count(*) FROM account")
+        let accounts: i64 = picsou::db::query_scalar("SELECT count(*) FROM account")
             .fetch_one(&app.state.db)
             .await
             .unwrap();
@@ -495,7 +495,7 @@ async fn duplicate_positions_merge_with_weighted_prices_and_zero_lines_are_dropp
     client.post("/api/bourse-direct/sync").send().await;
     settle(&app).await;
 
-    let rows: Vec<(String, Decimal, Decimal, Decimal)> = sqlx::query_as(
+    let rows: Vec<(String, Decimal, Decimal, Decimal)> = picsou::db::query_as(
         "SELECT ticker, quantity, average_buy_in, provider_pnl_eur FROM account_holding",
     )
     .fetch_all(&app.state.db)
@@ -519,7 +519,7 @@ async fn a_merged_line_with_one_unknown_price_keeps_it_unknown() {
     settle(&app).await;
 
     let average: Option<String> =
-        sqlx::query_scalar("SELECT average_buy_in::text FROM account_holding")
+        picsou::db::query_scalar("SELECT average_buy_in::text FROM account_holding")
             .fetch_one(&app.state.db)
             .await
             .unwrap();
@@ -550,13 +550,13 @@ async fn an_oversized_symbol_falls_back_to_the_isin() {
     client.post("/api/bourse-direct/sync").send().await;
     settle(&app).await;
 
-    let ticker: String = sqlx::query_scalar("SELECT ticker FROM account_holding")
+    let ticker: String = picsou::db::query_scalar("SELECT ticker FROM account_holding")
         .fetch_one(&app.state.db)
         .await
         .unwrap();
     assert_eq!(ticker, "FR0000120271");
     let isin: String =
-        sqlx::query_scalar("SELECT isin FROM security_profile WHERE ticker = 'FR0000120271'")
+        picsou::db::query_scalar("SELECT isin FROM security_profile WHERE ticker = 'FR0000120271'")
             .fetch_one(&app.state.db)
             .await
             .unwrap();
@@ -572,7 +572,7 @@ async fn a_soft_deleted_account_is_not_resurrected() {
     mount_accounts(&sidecar, json!([account(vec![], "0", "0")])).await;
     let app = app_with_sidecar(URL, &sidecar).await;
     let (client, member_id) = admin(&app).await;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account (member_id, name, type, currency, current_balance, external_account_id, is_manual, \
          color, deleted_at) VALUES ($1, 'Gone', 'PEA', 'EUR', 0, 'bd_pea-123', false, '#fff', now())",
     )
@@ -586,10 +586,11 @@ async fn a_soft_deleted_account_is_not_resurrected() {
     settle(&app).await;
 
     assert_eq!(status(&client).await["syncStatus"], "SUCCESS");
-    let live: i64 = sqlx::query_scalar("SELECT count(*) FROM account WHERE deleted_at IS NULL")
-        .fetch_one(&app.state.db)
-        .await
-        .unwrap();
+    let live: i64 =
+        picsou::db::query_scalar("SELECT count(*) FROM account WHERE deleted_at IS NULL")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
     assert_eq!(live, 0);
 }
 
@@ -636,7 +637,7 @@ async fn a_replaced_session_keeps_an_old_job_from_committing() {
 
     assert_eq!(relogin.status, 200);
     let ids: Vec<String> =
-        sqlx::query_scalar("SELECT external_account_id FROM account ORDER BY id")
+        picsou::db::query_scalar("SELECT external_account_id FROM account ORDER BY id")
             .fetch_all(&app.state.db)
             .await
             .unwrap();
@@ -650,7 +651,7 @@ async fn startup_recovery_fails_in_flight_syncs() {
     let app = app_with_sidecar(URL, &sidecar).await;
     let (client, member_id) = admin(&app).await;
     let id = store_session(&app, BANK, member_id, "plain-state").await;
-    sqlx::query("UPDATE sidecar_session SET sync_status = 'RUNNING' WHERE id = $1")
+    picsou::db::query("UPDATE sidecar_session SET sync_status = 'RUNNING' WHERE id = $1")
         .bind(id)
         .execute(&app.state.db)
         .await

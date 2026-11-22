@@ -57,7 +57,7 @@ async fn login(sidecar: &MockServer, app: &TestApp, client: &Client) {
 }
 
 async fn insert_account(app: &TestApp, member_id: i64, id: &str, kind: &str, balance: &str) {
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account (member_id, name, type, provider, currency, current_balance, external_account_id, \
          is_manual, color) VALUES ($1, $2, $3::account_type, 'CIC', 'EUR', $4, $5, false, '#000')",
     )
@@ -72,7 +72,7 @@ async fn insert_account(app: &TestApp, member_id: i64, id: &str, kind: &str, bal
 }
 
 async fn balances(app: &TestApp) -> Vec<(String, Decimal)> {
-    sqlx::query_as(
+    picsou::db::query_as(
         "SELECT external_account_id, current_balance FROM account ORDER BY external_account_id",
     )
     .fetch_all(&app.state.db)
@@ -88,7 +88,7 @@ async fn store_with_credentials(app: &TestApp, member_id: i64, plain_state: &str
         .crypto
         .encrypt(&json!({ "login": LOGIN, "password": "secret" }).to_string())
         .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO sidecar_session (bank, member_id, session_state, encrypted_credentials, last_validated_at, \
          is_active, sync_status) VALUES ('CIC', $1, $2, $3, now(), true, 'IDLE')",
     )
@@ -143,7 +143,7 @@ async fn a_confirmed_login_stores_the_credentials_and_imports_each_account_with_
     let current = status(&client).await;
     assert_eq!(current["syncStatus"], "SUCCESS");
     assert_eq!(current["canReconnect"], true);
-    let rows: Vec<(String, String, String, Decimal, Option<Decimal>, bool)> = sqlx::query_as(
+    let rows: Vec<(String, String, String, Decimal, Option<Decimal>, bool)> = picsou::db::query_as(
         "SELECT external_account_id, type::text, color, current_balance, cash_balance, is_manual FROM account \
          ORDER BY external_account_id",
     )
@@ -365,7 +365,7 @@ async fn an_unlisted_account_closes_at_zero_only_when_its_table_was_read() {
             ("foreign".into(), d("9")),
         ]
     );
-    let closed_snapshot: Decimal = sqlx::query_scalar(
+    let closed_snapshot: Decimal = picsou::db::query_scalar(
         "SELECT s.balance FROM balance_snapshot s JOIN account a ON a.id = s.account_id \
          WHERE a.external_account_id = 'cic_livret'",
     )
@@ -392,7 +392,7 @@ async fn a_soft_deleted_account_is_not_resurrected() {
     let app = app_with_sidecar(URL, &sidecar).await;
     let (client, member_id) = admin(&app).await;
     insert_account(&app, member_id, "cic_1", "CHECKING", "5").await;
-    sqlx::query("UPDATE account SET deleted_at = now()")
+    picsou::db::query("UPDATE account SET deleted_at = now()")
         .execute(&app.state.db)
         .await
         .unwrap();
@@ -643,7 +643,7 @@ async fn a_reconnection_without_stored_credentials_asks_the_saver_to_type_them()
     let none = client.post("/api/cic/auth/reconnect").send().await;
     super::support::store_session(&app, BANK, member_id, "state-1").await;
     let without = client.post("/api/cic/auth/reconnect").send().await;
-    sqlx::query("UPDATE sidecar_session SET encrypted_credentials = 'garbage'")
+    picsou::db::query("UPDATE sidecar_session SET encrypted_credentials = 'garbage'")
         .execute(&app.state.db)
         .await
         .unwrap();
@@ -676,7 +676,7 @@ async fn a_password_rejected_during_a_reconnection_requires_new_credentials() {
         let (client, member_id) = admin(&app).await;
         store_with_credentials(&app, member_id, "state-1").await;
         if !active {
-            sqlx::query(
+            picsou::db::query(
                 "UPDATE sidecar_session SET is_active = false, sync_status = 'FAILED', \
                  last_sync_error = 'SESSION_EXPIRED'",
             )
@@ -846,7 +846,7 @@ async fn sync_without_a_session_or_with_an_expired_one_asks_to_reconnect() {
 
     let none = client.post("/api/cic/sync").send().await;
     store_with_credentials(&app, member_id, "s").await;
-    sqlx::query("UPDATE sidecar_session SET is_active = false")
+    picsou::db::query("UPDATE sidecar_session SET is_active = false")
         .execute(&app.state.db)
         .await
         .unwrap();
@@ -889,7 +889,7 @@ async fn the_scheduled_resync_asks_for_reauthentication_once_the_session_is_gone
     let app = app_with_sidecar(URL, &sidecar).await;
     let (_, member_id) = admin(&app).await;
     store_with_credentials(&app, member_id, "s").await;
-    sqlx::query(
+    picsou::db::query(
         "UPDATE sidecar_session SET is_active = false, sync_status = 'FAILED', last_sync_error = 'SESSION_EXPIRED'",
     )
     .execute(&app.state.db)
@@ -982,7 +982,7 @@ async fn startup_recovery_fails_in_flight_syncs() {
     let app = app_with_sidecar(URL, &sidecar).await;
     let (client, member_id) = admin(&app).await;
     store_with_credentials(&app, member_id, "s").await;
-    sqlx::query("UPDATE sidecar_session SET sync_status = 'RUNNING'")
+    picsou::db::query("UPDATE sidecar_session SET sync_status = 'RUNNING'")
         .execute(&app.state.db)
         .await
         .unwrap();

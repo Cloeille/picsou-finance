@@ -4,10 +4,11 @@
 use std::collections::HashSet;
 use std::str::FromStr;
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use serde::Serialize;
-use sqlx::PgConnection;
 
 use super::adapter::TrAccountData;
 use super::sync::{PROVIDER, upsert_account};
@@ -128,7 +129,7 @@ pub async fn import_accounts(
             cash_eur: None,
         };
         let now = state.clock.now();
-        match upsert_account(state, &mut tx, &data, member_id, None, now).await {
+        match upsert_account(state, &mut tx.as_handle(), &data, member_id, None, now).await {
             Ok(Some(account)) => saved.push(account),
             Ok(None) => {}
             Err(AppError::NotFound(message)) => {
@@ -153,8 +154,8 @@ pub async fn import_transactions_csv(
     member_id: i64,
 ) -> AppResult<ImportResult> {
     let mut tx = state.db.begin().await?;
-    accounts::get_or_throw(&mut *tx, account_id, member_id).await?;
-    let result = import_transactions(state, &mut tx, csv, member_id).await?;
+    accounts::get_or_throw(&mut tx, account_id, member_id).await?;
+    let result = import_transactions(state, &mut tx.as_handle(), csv, member_id).await?;
     tx.commit().await?;
     Ok(result)
 }
@@ -267,7 +268,7 @@ fn leg(
 /// rows: one uncategorized leg on TR Cash. TRANSFER_IN/OUT are covered by the TRADING legs.
 pub async fn import_transactions(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     csv: &str,
     member_id: i64,
 ) -> AppResult<ImportResult> {
@@ -301,7 +302,7 @@ pub async fn import_transactions(
     }
 
     let now = state.clock.now();
-    let by_slug = categorize::categories_by_slug(&state.db, member_id, now).await?;
+    let by_slug = categorize::categories_by_slug_on(&mut *conn, member_id, now).await?;
     let transfer_category = by_slug.get("investissement").map(|c| c.id);
     if transfer_category.is_none() {
         tracing::warn!(

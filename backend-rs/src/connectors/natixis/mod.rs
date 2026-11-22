@@ -6,6 +6,8 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use async_trait::async_trait;
 use axum::Json as AxumJson;
 use axum::extract::State;
@@ -17,7 +19,6 @@ use regex::Regex;
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::PgConnection;
 
 use super::sidecar::flow::non_blank;
 use super::sidecar::pending::{Pending, PendingLogins};
@@ -231,7 +232,14 @@ async fn complete(
         }
         let mut tx = state.db.begin().await?;
         let job = template()
-            .insert_queued(&state, &mut tx, member_id, plain_state, false, |_| Ok(()))
+            .insert_queued(
+                &state,
+                &mut tx.as_handle(),
+                member_id,
+                plain_state,
+                false,
+                |_| Ok(()),
+            )
             .await?;
         tx.commit().await?;
         job
@@ -433,7 +441,7 @@ impl SyncStrategy for Strategy {
     async fn commit(
         &self,
         state: &AppState,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         _session: &mut SidecarSession,
         job: &SyncJob,
         prepared: &Prepared,
@@ -657,7 +665,7 @@ fn prepare_operation(operation: Option<&Operation>) -> Result<PreparedOperation,
 /// deleted only past the settlement margin of the history's start.
 async fn reconcile_operations(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     history: &OperationsHistory,
     member_id: i64,
 ) -> JobResult<()> {

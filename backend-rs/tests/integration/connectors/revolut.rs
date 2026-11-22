@@ -125,7 +125,7 @@ async fn discover_then_confirm_persists_selected_subset_parents_first_and_money_
     );
 
     type AccountRow = (i64, String, String, Option<i64>, String);
-    let accounts: Vec<AccountRow> = sqlx::query_as(
+    let accounts: Vec<AccountRow> = picsou::db::query_as(
         "SELECT id, external_account_id, type::text, parent_account_id, provider \
          FROM account WHERE member_id = $1 ORDER BY external_account_id",
     )
@@ -236,7 +236,7 @@ async fn voluntary_confirm_lifts_tombstone_while_non_voluntary_respects_soft_del
         .json(&json!({ "selectedExternalIds": ["w-del"], "remember": false, "voluntary": true }))
         .send()
         .await;
-    sqlx::query("UPDATE account SET deleted_at = now() WHERE member_id = $1")
+    picsou::db::query("UPDATE account SET deleted_at = now() WHERE member_id = $1")
         .bind(member_id)
         .execute(&app.state.db)
         .await
@@ -328,7 +328,7 @@ async fn iban_match_adopts_existing_account_keeping_provenance_and_filters_fx_an
     let app = app_with_sidecar(URL, &sidecar).await;
     let (client, member_id) = admin(&app).await;
     // Seed an existing Enable Banking account with the same IBAN.
-    let existing_id: i64 = sqlx::query_scalar(
+    let existing_id: i64 = picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, provider, currency, current_balance, iban, external_account_id, is_manual, color, created_at) \
          VALUES ($1, 'Compte Courant', 'CHECKING', 'Enable Banking', 'EUR', 1000, $2, 'eb-uid-1', false, '#6366f1', now()) RETURNING id",
     )
@@ -354,7 +354,7 @@ async fn iban_match_adopts_existing_account_keeping_provenance_and_filters_fx_an
         204
     );
 
-    let adopted: (i64, String, String, Decimal) = sqlx::query_as(
+    let adopted: (i64, String, String, Decimal) = picsou::db::query_as(
         "SELECT id, external_account_id, provider, current_balance FROM account WHERE id = $1",
     )
     .bind(existing_id)
@@ -367,7 +367,7 @@ async fn iban_match_adopts_existing_account_keeping_provenance_and_filters_fx_an
 
     // Foreign-currency BTC leg and implicit currency-less foreign leg are both dropped;
     // mirrored transfer pair gets TRANSFER category while unpaired transfer does not.
-    let txns: Vec<(String, Option<String>)> = sqlx::query_as(
+    let txns: Vec<(String, Option<String>)> = picsou::db::query_as(
         "SELECT t.external_id, c.kind::text FROM \"transaction\" t \
          LEFT JOIN category c ON c.id = t.category_id \
          ORDER BY t.external_id, t.amount",
@@ -470,7 +470,7 @@ async fn resync_reporting_sends_allow_login_false_and_skips_without_remembered_c
         .await;
 
     // Soft-delete the account; scheduled resync must pass allowLogin=false, X-API-Key, and NOT resurrect it.
-    sqlx::query("UPDATE account SET deleted_at = now() WHERE member_id = $1")
+    picsou::db::query("UPDATE account SET deleted_at = now() WHERE member_id = $1")
         .bind(member_id)
         .execute(&app.state.db)
         .await
@@ -719,7 +719,7 @@ async fn webview_endpoints_are_desktop_only_and_drive_full_sync_on_desktop() {
     // Disconnect in Desktop mode clears the Desktop WebView bridge's in-memory session.
     sidecar.reset().await;
     let member_id: i64 =
-        sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+        picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
             .fetch_one(&desktop_app.state.db)
             .await
             .unwrap();

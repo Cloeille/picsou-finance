@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::io::Cursor;
 use std::sync::LazyLock;
 
+use crate::db::Db;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -15,7 +16,6 @@ use rand::RngExt;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
-use sqlx::PgPool;
 use totp_rs::{Builder, Secret};
 
 use crate::AppState;
@@ -54,7 +54,7 @@ async fn find<'e>(
         .await
 }
 
-pub async fn is_enabled(db: &PgPool, user_id: i64) -> Result<bool, sqlx::Error> {
+pub async fn is_enabled(db: &Db, user_id: i64) -> Result<bool, sqlx::Error> {
     crate::db::query_scalar("SELECT EXISTS (SELECT 1 FROM user_mfa WHERE user_id = $1 AND enabled)")
         .bind(user_id)
         .fetch_one(db)

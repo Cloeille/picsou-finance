@@ -40,13 +40,12 @@ pub async fn find_by_id_and_member<'e>(
     .await
 }
 
-// Wave 3: switch to impl DbExec (called by src/budget/repo.rs with opaque impl PgExecutor)
 pub async fn find_by_ids_and_member<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+    db: impl DbExec<'e>,
     ids: &[i64],
     member_id: i64,
 ) -> sqlx::Result<Vec<Transaction>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as(&format!(
         "{} ORDER BY t.id",
         select(
             "t.id = ANY($1) AND EXISTS (SELECT 1 FROM account a WHERE a.id = t.account_id AND a.member_id = $2 AND a.deleted_at IS NULL)"

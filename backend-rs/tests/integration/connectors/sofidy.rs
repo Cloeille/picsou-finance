@@ -80,7 +80,7 @@ async fn linked_position(
     shares: &str,
     subscription: Option<&str>,
 ) -> i64 {
-    let account: i64 = sqlx::query_scalar(
+    let account: i64 = picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color) \
          VALUES ($1, $2, 'SCPI', 'EUR', 5000, true, '#000') RETURNING id",
     )
@@ -89,7 +89,7 @@ async fn linked_position(
     .fetch_one(&app.state.db)
     .await
     .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO scpi_position (account_id, member_id, share_count, subscription_price_eur, withdrawal_price_eur, \
          sofidy_fund_code, valuation_status) VALUES ($1, $2, $3::numeric, $4::numeric, 250, $5, 'OK')",
     )
@@ -120,7 +120,7 @@ async fn sync_with(
 }
 
 async fn balance(app: &TestApp, account: i64) -> Decimal {
-    sqlx::query_scalar("SELECT current_balance FROM account WHERE id = $1")
+    picsou::db::query_scalar("SELECT current_balance FROM account WHERE id = $1")
         .bind(account)
         .fetch_one(&app.state.db)
         .await
@@ -154,7 +154,7 @@ async fn the_login_asks_for_the_emailed_code_and_its_completion_imports_the_port
     let after = status(&client).await;
     assert_eq!(after["syncStatus"], "SUCCESS", "{after}");
     let account: (String, Decimal, String) =
-        sqlx::query_as("SELECT name, current_balance, provider FROM account")
+        picsou::db::query_as("SELECT name, current_balance, provider FROM account")
             .fetch_one(&app.state.db)
             .await
             .unwrap();
@@ -320,7 +320,7 @@ async fn a_linked_fund_no_longer_listed_is_closed_at_zero_and_a_listed_one_updat
     assert_eq!(after["syncStatus"], "SUCCESS", "{after}");
     assert_eq!(balance(&app, kept).await, d("1300"));
     assert_eq!(balance(&app, sold).await, d("0"));
-    let positions: Vec<(String, Decimal, Option<Decimal>)> = sqlx::query_as(
+    let positions: Vec<(String, Decimal, Option<Decimal>)> = picsou::db::query_as(
         "SELECT sofidy_fund_code, share_count, subscription_price_eur FROM scpi_position ORDER BY sofidy_fund_code",
     )
     .fetch_all(&app.state.db)
@@ -342,7 +342,7 @@ async fn a_complete_empty_portfolio_is_a_full_exit_even_without_a_price() {
     let app = app_with_sidecar(URL, &sidecar).await;
     let (client, member_id) = admin(&app).await;
     let sold = linked_position(&app, member_id, "DY", "4", None).await;
-    sqlx::query("UPDATE scpi_position SET withdrawal_price_eur = NULL")
+    picsou::db::query("UPDATE scpi_position SET withdrawal_price_eur = NULL")
         .execute(&app.state.db)
         .await
         .unwrap();
@@ -351,7 +351,7 @@ async fn a_complete_empty_portfolio_is_a_full_exit_even_without_a_price() {
 
     assert_eq!(after["syncStatus"], "SUCCESS", "{after}");
     assert_eq!(balance(&app, sold).await, d("0"));
-    let status: String = sqlx::query_scalar("SELECT valuation_status FROM scpi_position")
+    let status: String = picsou::db::query_scalar("SELECT valuation_status FROM scpi_position")
         .fetch_one(&app.state.db)
         .await
         .unwrap();

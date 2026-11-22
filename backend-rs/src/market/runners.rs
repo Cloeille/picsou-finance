@@ -4,9 +4,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::db::AsDbHandle;
+use crate::db::Db;
 use async_trait::async_trait;
 use chrono::Months;
-use sqlx::PgPool;
 
 use super::openfigi::is_isin;
 use crate::AppState;
@@ -26,7 +27,7 @@ pub trait AppSettings: Send + Sync {
 }
 
 /// AppSettingRepository's own queries on app_setting.
-pub struct SqlAppSettings(pub PgPool);
+pub struct SqlAppSettings(pub Db);
 
 #[async_trait]
 impl AppSettings for SqlAppSettings {
@@ -265,7 +266,7 @@ async fn apply_repair(
         resolved.ticker
     );
 
-    let investment_ids: Vec<i64> = accounts::find_by_ids(&mut *tx, &account_ids)
+    let investment_ids: Vec<i64> = accounts::find_by_ids(&mut tx, &account_ids)
         .await?
         .into_iter()
         .filter(|a| a.account_type.is_investment())
@@ -279,7 +280,7 @@ async fn apply_repair(
             .await?;
         let now = state.clock.now();
         for account_id in &investment_ids {
-            holding_compute::recompute_holdings(&mut tx, *account_id, now).await?;
+            holding_compute::recompute_holdings(&mut tx.as_handle(), *account_id, now).await?;
         }
         tracing::debug!(
             "Recomputed holdings for {} account(s) after repairing {isin}",

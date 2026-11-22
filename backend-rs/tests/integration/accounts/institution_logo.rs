@@ -12,7 +12,7 @@ const PASSWORD: &str = "member-pass-1234";
 const PNG: &[u8] = &[0x89, b'P', b'N', b'G', 13, 10, 26, 10, 0, 0, 0, 13, 1, 2];
 
 async fn bank_account(app: &TestApp, member_id: i64, domain: Option<&str>) -> i64 {
-    sqlx::query_scalar(
+    picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color, institution_domain, created_at, updated_at) \
          VALUES ($1, 'Chase', 'CHECKING'::account_type, 'USD', 0, false, '#000000', $2, now(), now()) RETURNING id",
     )
@@ -24,11 +24,13 @@ async fn bank_account(app: &TestApp, member_id: i64, domain: Option<&str>) -> i6
 }
 
 async fn enable_logos(app: &TestApp, member_id: i64) {
-    sqlx::query("INSERT INTO budget_settings (member_id, logo_fetch_enabled) VALUES ($1, true)")
-        .bind(member_id)
-        .execute(&app.state.db)
-        .await
-        .expect("budget settings");
+    picsou::db::query(
+        "INSERT INTO budget_settings (member_id, logo_fetch_enabled) VALUES ($1, true)",
+    )
+    .bind(member_id)
+    .execute(&app.state.db)
+    .await
+    .expect("budget settings");
 }
 
 async fn icon(server: &MockServer, domain: &str, body: &[u8], content_type: &str) {

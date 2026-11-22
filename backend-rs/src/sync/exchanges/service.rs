@@ -2,11 +2,11 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use crate::db::DbHandle;
 use chrono::{DateTime, NaiveDate, Utc};
 use http::StatusCode;
 use rust_decimal::Decimal;
 use serde_json::Value;
-use sqlx::PgConnection;
 
 use super::model::{
     ExchangeCredentials, ExchangePosition, ExchangePositionResponse, ExchangeStatusResponse,
@@ -318,7 +318,16 @@ async fn run_sync(
                 store::save_session(&mut tx, *existing, draft, now).await?
             }
         };
-        let account = apply(&mut tx, state, exchange, member_id, &positions, now, today).await?;
+        let account = apply(
+            &mut tx.as_handle(),
+            state,
+            exchange,
+            member_id,
+            &positions,
+            now,
+            today,
+        )
+        .await?;
         store::mark_connected(&mut tx, session_id, now).await?;
         Ok::<_, Failure>(account)
     }
@@ -340,7 +349,7 @@ async fn run_sync(
 /// Values the positions, writes the account, its holdings (summed per asset), the per-product
 /// breakdown and today's snapshot.
 async fn apply(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     state: &AppState,
     exchange: ExchangeType,
     member_id: i64,
@@ -472,7 +481,7 @@ pub async fn remove_exchange(state: &AppState, session_id: i64, member_id: i64) 
         ExchangeType::external_id,
     );
     if let Some(account) =
-        accounts::find_by_external_id_and_member(&mut *tx, &external_id, member_id).await?
+        accounts::find_by_external_id_and_member(&mut tx, &external_id, member_id).await?
     {
         store::soft_delete_account(&mut tx, account.id, now).await?;
     }

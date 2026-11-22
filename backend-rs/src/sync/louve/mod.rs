@@ -21,7 +21,7 @@ mod transport;
 
 use std::sync::Arc;
 
-use sqlx::PgPool;
+use crate::db::Db;
 
 pub use registry::{AppSettingTable, ClientSettings};
 pub use service::resync_reporting;
@@ -50,7 +50,7 @@ pub struct Hooks {
 }
 
 impl Hooks {
-    pub fn new(db: PgPool) -> Self {
+    pub fn new(db: Db) -> Self {
         Self {
             settings: Arc::new(AppSettingTable::new(db)),
             scpi: Arc::new(scpi::SqlScpiFunds),

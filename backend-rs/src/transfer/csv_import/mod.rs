@@ -19,6 +19,7 @@ use self::csv::{CsvDialect, DatePattern, DecimalStyle};
 use crate::AppState;
 use crate::auth::Auth;
 use crate::clock::AppClock;
+use crate::db::AsDbHandle;
 use crate::error::{AppError, AppResult};
 use crate::http::client_ip::ClientIp;
 use crate::http::json::{Errors, Json, Path, Validate};
@@ -272,9 +273,9 @@ async fn import_rows(
         let now = state.clock.now();
         let mut tx = state.db.begin().await?;
         for row in &to_save {
-            transactions::insert(&mut *tx, row, now).await?;
+            transactions::insert(&mut tx, row, now).await?;
         }
-        holding_compute::recompute_holdings(&mut tx, account.id, now).await?;
+        holding_compute::recompute_holdings(&mut tx.as_handle(), account.id, now).await?;
         tx.commit().await?;
     }
     tracing::info!(

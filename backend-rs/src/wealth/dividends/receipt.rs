@@ -5,12 +5,13 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
+use crate::db::AsDbHandle;
+use crate::db::Db;
 use async_trait::async_trait;
 use chrono::{DateTime, Days, NaiveDate, Utc};
 use regex::Regex;
 use rust_decimal::Decimal;
 use serde::Serialize;
-use sqlx::PgPool;
 use unicode_normalization::UnicodeNormalization;
 
 use super::forecast::{self, Origin};
@@ -98,7 +99,7 @@ pub async fn received(
     days: i32,
 ) -> AppResult<Vec<ReceivedDividendResponse>> {
     let mut conn = state.db.acquire().await?;
-    let readable = access::readable_accounts(&mut conn, member_id).await?;
+    let readable = access::readable_accounts(&mut conn.as_handle(), member_id).await?;
     if readable.is_empty() {
         return Ok(Vec::new());
     }
@@ -106,7 +107,7 @@ pub async fn received(
     let ids: Vec<i64> = by_id.keys().copied().collect();
     let from = today - Days::new(clamp_days(days) as u64);
     let rows: Vec<Transaction> =
-        transactions::find_by_accounts_between(&mut *conn, &ids, from, today)
+        transactions::find_by_accounts_between(&mut conn, &ids, from, today)
             .await?
             .into_iter()
             .filter(|t| t.tx_type == Some(TransactionType::Dividend) && t.amount > Decimal::ZERO)
@@ -117,7 +118,7 @@ pub async fn received(
     let tickers: Vec<String> = rows.iter().filter_map(|t| t.ticker.clone()).collect();
     let by_ticker = sources_by_ticker(&state.db, &tickers).await?;
     let lines: Vec<(&Account, AccountHolding)> =
-        holdings::find_positive_by_accounts(&mut *conn, &ids)
+        holdings::find_positive_by_accounts(&mut conn, &ids)
             .await?
             .into_iter()
             .filter_map(|h| by_id.get(&h.account_id).map(|a| (*a, h)))
@@ -397,7 +398,7 @@ impl Classifier<'_> {
 /// classifyRecent: types, names and categorises the member's recent credits that are a held
 /// line's dividend. Never overrides a manual or non-income category. Returns how many changed.
 pub async fn classify_recent(
-    db: &PgPool,
+    db: &Db,
     member_id: i64,
     today: NaiveDate,
     now: DateTime<Utc>,
@@ -461,7 +462,7 @@ pub async fn classify_recent(
     Ok(changed.len())
 }
 
-async fn category_kinds(db: &PgPool, member_id: i64) -> sqlx::Result<HashMap<i64, CategoryKind>> {
+async fn category_kinds(db: &Db, member_id: i64) -> sqlx::Result<HashMap<i64, CategoryKind>> {
     let rows: Vec<(i64, String)> = crate::db::query_as::<(i64, String)>(
         "SELECT id, kind::text FROM category WHERE member_id = $1",
     )
@@ -531,7 +532,7 @@ pub struct ReceiptClassifier;
 impl DividendClassifier for ReceiptClassifier {
     async fn classify_recent(
         &self,
-        db: &PgPool,
+        db: &Db,
         member_id: i64,
         today: NaiveDate,
         now: DateTime<Utc>,

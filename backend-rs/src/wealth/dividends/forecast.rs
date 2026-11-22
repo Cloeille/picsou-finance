@@ -7,7 +7,6 @@ use std::collections::{HashMap, HashSet};
 use chrono::{Datelike, Days, Months, NaiveDate};
 use rust_decimal::Decimal;
 use serde::Serialize;
-use sqlx::PgConnection;
 
 use super::model::{Cadence, DividendEvent, sources_by_ticker};
 use crate::AppState;
@@ -104,10 +103,10 @@ pub async fn upcoming(
 ) -> AppResult<Vec<UpcomingDividendResponse>> {
     let mut conn = state.db.acquire().await?;
     if let Some(id) = account_id {
-        access::require_readable(&mut conn, id, member_id).await?;
+        access::require_readable(&mut conn.as_handle(), id, member_id).await?;
     }
     let end = today + Days::new(clamp_horizon(horizon_days) as u64);
-    let readable = access::readable_accounts(&mut conn, member_id).await?;
+    let readable = access::readable_accounts(&mut conn.as_handle(), member_id).await?;
     let scoped: Vec<Account> = readable
         .iter()
         .filter(|a| account_id.is_none_or(|id| a.id == id))
@@ -116,9 +115,17 @@ pub async fn upcoming(
     if scoped.is_empty() {
         return Ok(Vec::new());
     }
-    let shares = access::shares_for(&mut *conn, &scoped, member_id).await?;
-    let mut lines =
-        holding_lines(state, &mut conn, &scoped, &readable, &shares, today, end).await?;
+    let shares = access::shares_for(&mut conn, &scoped, member_id).await?;
+    let mut lines = holding_lines(
+        state,
+        &mut conn.as_handle(),
+        &scoped,
+        &readable,
+        &shares,
+        today,
+        end,
+    )
+    .await?;
     lines.extend(scpi_lines(&mut conn.as_handle(), &scoped, &shares, today, end).await?);
     lines.sort_by(|a, b| {
         a.expected_date
@@ -140,7 +147,7 @@ fn share_of(shares: &HashMap<i64, Decimal>, id: i64) -> Decimal {
 
 async fn holding_lines(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     accounts: &[Account],
     lag_accounts: &[Account],
     shares: &HashMap<i64, Decimal>,

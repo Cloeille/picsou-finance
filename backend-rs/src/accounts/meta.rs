@@ -132,7 +132,7 @@ pub async fn update_real_estate(
 ) -> AppResult<axum::Json<RealEstateMetadataResponse>> {
     let mut tx = state.db.begin().await?;
     let mut account =
-        super::scale::fixed(accounts::get_or_throw(&mut *tx, id, auth.member_id).await?);
+        super::scale::fixed(accounts::get_or_throw(&mut tx, id, auth.member_id).await?);
     let existing = real_estate_of(&mut tx, id).await?;
     let address_changed = existing.as_ref().is_none_or(|m| {
         m.address != req.address || m.postal_code != req.postal_code || m.city != req.city
@@ -224,7 +224,7 @@ pub async fn update_real_estate(
     let now = state.clock.now();
     if account.current_balance.is_zero() && cost_basis > Decimal::ZERO {
         account.current_balance = cost_basis;
-        accounts::update(&mut *tx, &account, now).await?;
+        accounts::update(&mut tx, &account, now).await?;
     }
     save_real_estate(&mut tx, &m).await?;
     let valued = last_valued_at(&mut tx, id).await?;
@@ -337,12 +337,12 @@ pub async fn update_debt(
     ValidJson(req): ValidJson<DebtRequest>,
 ) -> AppResult<axum::Json<DebtResponse>> {
     let mut tx = state.db.begin().await?;
-    let account = super::scale::fixed(accounts::get_or_throw(&mut *tx, id, auth.member_id).await?);
-    let existing = liabilities::debt_of_account(&mut *tx, id).await?;
+    let account = super::scale::fixed(accounts::get_or_throw(&mut tx, id, auth.member_id).await?);
+    let existing = liabilities::debt_of_account(&mut tx, id).await?;
     // Member-scoped like every lookup here: a request-supplied id never escapes the member.
     let linked = match req.linked_account_id {
         Some(linked_id) => Some(super::scale::fixed(
-            accounts::get_or_throw(&mut *tx, linked_id, auth.member_id).await?,
+            accounts::get_or_throw(&mut tx, linked_id, auth.member_id).await?,
         )),
         None => None,
     };
@@ -395,12 +395,11 @@ pub async fn loan_summary(
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<loans::LoanScheduleResponse>> {
     let mut conn = state.db.acquire().await?;
-    let account =
-        super::scale::fixed(accounts::get_or_throw(&mut *conn, id, auth.member_id).await?);
+    let account = super::scale::fixed(accounts::get_or_throw(&mut conn, id, auth.member_id).await?);
     if account.account_type != AccountType::Loan {
         return Err(AppError::BadRequest("Account is not a loan".to_owned()));
     }
-    let debt = liabilities::debt_of_account(&mut *conn, id)
+    let debt = liabilities::debt_of_account(&mut conn, id)
         .await?
         .ok_or_else(|| AppError::NotFound("Debt details not set for account".to_owned()))?;
     Ok(axum::Json(loans::compute(&debt, state.clock.today())))
@@ -623,7 +622,7 @@ pub async fn update_scpi(
 ) -> AppResult<axum::Json<ScpiPositionResponse>> {
     let member_id = auth.member_id;
     let mut tx = state.db.begin().await?;
-    let mut account = super::scale::fixed(accounts::get_or_throw(&mut *tx, id, member_id).await?);
+    let mut account = super::scale::fixed(accounts::get_or_throw(&mut tx, id, member_id).await?);
     if account.account_type != AccountType::Scpi {
         return Err(AppError::BadRequest(
             "Account is not a SCPI account".to_owned(),
@@ -695,7 +694,7 @@ pub async fn update_scpi(
         }
     }
     save_scpi(&mut tx, &p).await?;
-    accounts::update(&mut *tx, &account, state.clock.now()).await?;
+    accounts::update(&mut tx, &account, state.clock.now()).await?;
     tx.commit().await?;
     Ok(axum::Json(ScpiPositionResponse::from_position(&p, value)))
 }
@@ -743,8 +742,9 @@ pub async fn refresh_valuation(
 ) -> AppResult<axum::Json<serde_json::Value>> {
     {
         let mut conn = state.db.acquire().await?;
-        let account =
-            super::scale::fixed(access::require_owner(&mut conn, id, auth.member_id).await?);
+        let account = super::scale::fixed(
+            access::require_owner(&mut conn.as_handle(), id, auth.member_id).await?,
+        );
         if account.account_type != AccountType::RealEstate {
             return Err(AppError::BadRequest(
                 "Account is not a real estate account".to_owned(),
@@ -784,8 +784,9 @@ impl PropertyValuer for ValuationDisabled {
         member_id: i64,
     ) -> AppResult<serde_json::Value> {
         let mut tx = state.db.begin().await?;
-        let mut account =
-            super::scale::fixed(access::require_owner(&mut tx, account_id, member_id).await?);
+        let mut account = super::scale::fixed(
+            access::require_owner(&mut tx.as_handle(), account_id, member_id).await?,
+        );
         let meta = db::query_as::<RealEstateMetadata>(&format!(
             "SELECT {REAL_ESTATE_COLUMNS} FROM real_estate_metadata WHERE account_id = $1"
         ))
@@ -796,7 +797,7 @@ impl PropertyValuer for ValuationDisabled {
         let cost_basis = meta.cost_basis();
         if account.current_balance.is_zero() && cost_basis > Decimal::ZERO {
             account.current_balance = cost_basis;
-            accounts::update(&mut *tx, &account, state.clock.now()).await?;
+            accounts::update(&mut tx, &account, state.clock.now()).await?;
         }
         tx.commit().await?;
         serde_json::to_value(FailedValuation {

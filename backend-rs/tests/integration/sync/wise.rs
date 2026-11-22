@@ -89,11 +89,13 @@ impl Wise {
     }
 
     async fn connection(&self, member_id: i64) -> Option<(i64, String, String)> {
-        sqlx::query_as("SELECT id, api_token, status FROM wise_connection WHERE member_id = $1")
-            .bind(member_id)
-            .fetch_optional(&self.app.state.db)
-            .await
-            .expect("wise_connection")
+        picsou::db::query_as(
+            "SELECT id, api_token, status FROM wise_connection WHERE member_id = $1",
+        )
+        .bind(member_id)
+        .fetch_optional(&self.app.state.db)
+        .await
+        .expect("wise_connection")
     }
 
     async fn status(&self, member_id: i64) -> String {
@@ -101,7 +103,7 @@ impl Wise {
     }
 
     async fn jar_accounts(&self, member_id: i64) -> Vec<(String, String, String)> {
-        sqlx::query_as(
+        picsou::db::query_as(
             "SELECT external_account_id, name, type::text FROM account WHERE member_id = $1 \
              AND deleted_at IS NULL ORDER BY external_account_id",
         )
@@ -224,7 +226,7 @@ async fn connect_stores_the_token_encrypted_and_imports_every_profiles_jars() {
             ),
         ]
     );
-    let snapshot: (String,) = sqlx::query_as(
+    let snapshot: (String,) = picsou::db::query_as(
         "SELECT s.balance::text FROM balance_snapshot s JOIN account a ON a.id = s.account_id \
          WHERE a.external_account_id = 'wise_jar_102' AND s.date = $1",
     )
@@ -449,7 +451,7 @@ async fn a_resync_updates_the_balance_and_keeps_the_members_name_and_type() {
     wise.jars(TOKEN, &PERSONAL_JARS.replace("\"usd\"", "\"EUR\""))
         .await;
     assert_eq!(connect(&client, TOKEN).await.status, StatusCode::OK);
-    sqlx::query("UPDATE account SET name = 'Fonds d''urgence', type = 'LIVRET_A' WHERE external_account_id = 'wise_jar_102'")
+    picsou::db::query("UPDATE account SET name = 'Fonds d''urgence', type = 'LIVRET_A' WHERE external_account_id = 'wise_jar_102'")
         .execute(&wise.app.state.db)
         .await
         .expect("member edit");
@@ -469,7 +471,7 @@ async fn a_resync_updates_the_balance_and_keeps_the_members_name_and_type() {
     assert_eq!(number(&body[0]["currentBalance"]), "2500.00");
     assert_eq!(body[0]["lastSyncedAt"], "2026-01-16T10:00:00Z");
     assert_eq!(body[1]["currency"], "USD");
-    let snapshots: i64 = sqlx::query_scalar(
+    let snapshots: i64 = picsou::db::query_scalar(
         "SELECT count(*) FROM balance_snapshot s JOIN account a ON a.id = s.account_id \
          WHERE a.external_account_id = 'wise_jar_102'",
     )
@@ -511,18 +513,21 @@ async fn unusable_jars_are_skipped_and_a_deleted_jar_is_not_resurrected() {
     assert_eq!(names(&body), ["Voyage", "Jar EUR", &"N".repeat(100)]);
     assert_eq!(number(&body[0]["currentBalance"]), "1.11");
 
-    sqlx::query("UPDATE account SET deleted_at = now() WHERE external_account_id = 'wise_jar_2'")
-        .execute(&wise.app.state.db)
-        .await
-        .expect("soft delete");
+    picsou::db::query(
+        "UPDATE account SET deleted_at = now() WHERE external_account_id = 'wise_jar_2'",
+    )
+    .execute(&wise.app.state.db)
+    .await
+    .expect("soft delete");
     let resynced = client.post("/api/wise/sync").send().await;
     assert_eq!(resynced.status, StatusCode::OK);
     assert_eq!(names(&resynced.json()), ["Jar EUR", &"N".repeat(100)]);
-    let rows: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM account WHERE external_account_id = 'wise_jar_2'")
-            .fetch_one(&wise.app.state.db)
-            .await
-            .expect("count");
+    let rows: i64 = picsou::db::query_scalar(
+        "SELECT count(*) FROM account WHERE external_account_id = 'wise_jar_2'",
+    )
+    .fetch_one(&wise.app.state.db)
+    .await
+    .expect("count");
     assert_eq!(rows, 1);
     assert_eq!(wise.jar_accounts(member_id).await.len(), 2);
 }
@@ -584,7 +589,7 @@ async fn connecting_again_replaces_the_token_in_place_and_clears_the_error() {
     wise.jars(TOKEN, "[]").await;
     assert_eq!(connect(&client, TOKEN).await.status, StatusCode::OK);
     let (connection_id, _, _) = wise.connection(member_id).await.expect("stored");
-    sqlx::query("UPDATE wise_connection SET status = 'ERROR'")
+    picsou::db::query("UPDATE wise_connection SET status = 'ERROR'")
         .execute(&wise.app.state.db)
         .await
         .expect("error status");
@@ -611,7 +616,7 @@ async fn an_undecryptable_token_shows_an_error_and_asks_to_connect_again() {
     let (member_id, client) = wise.member("alice").await;
     wise.jars(TOKEN, "[]").await;
     assert_eq!(connect(&client, TOKEN).await.status, StatusCode::OK);
-    sqlx::query("UPDATE wise_connection SET api_token = 'bm90IGEgY2lwaGVydGV4dA=='")
+    picsou::db::query("UPDATE wise_connection SET api_token = 'bm90IGEgY2lwaGVydGV4dA=='")
         .execute(&wise.app.state.db)
         .await
         .expect("broken token");

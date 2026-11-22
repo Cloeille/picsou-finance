@@ -250,7 +250,7 @@ async fn intraday_negates_a_loan_and_holds_cash_constant_over_the_day() {
 async fn deleting_the_last_bank_account_removes_its_requisition_but_a_sibling_keeps_it() {
     let app = TestApp::with_admin().await;
     let me = admin_member(&app).await;
-    let req: i64 = sqlx::query_scalar(
+    let req: i64 = picsou::db::query_scalar(
         "INSERT INTO requisition (requisition_id, institution_id, institution_name, status, member_id, created_at, updated_at) \
          VALUES ('r-1', 'BANK::FR', 'Ma Banque', 'LINKED', $1, now(), now()) RETURNING id",
     )
@@ -292,7 +292,7 @@ async fn deleting_the_last_bank_account_removes_its_requisition_but_a_sibling_ke
         json!({"removesConnection": true, "connectionLabel": "Ma Banque"})
     );
     admin.delete(&format!("/api/accounts/{b}")).send().await;
-    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM requisition")
+    let left: i64 = picsou::db::query_scalar("SELECT count(*) FROM requisition")
         .fetch_one(&app.state.db)
         .await
         .unwrap();
@@ -326,13 +326,13 @@ async fn deleting_an_account_unlinks_loans_and_tombstones_its_scpi_funds() {
     );
     admin.delete(&format!("/api/accounts/{house}")).send().await;
     admin.delete(&format!("/api/accounts/{scpi}")).send().await;
-    let linked: Option<i64> = sqlx::query_scalar("SELECT linked_account_id FROM debt")
+    let linked: Option<i64> = picsou::db::query_scalar("SELECT linked_account_id FROM debt")
         .fetch_one(&app.state.db)
         .await
         .unwrap();
     assert_eq!(linked, None);
     let ignored: bool =
-        sqlx::query_scalar("SELECT ignored FROM scpi_provider_fund WHERE fund_code = 'CXS'")
+        picsou::db::query_scalar("SELECT ignored FROM scpi_provider_fund WHERE fund_code = 'CXS'")
             .fetch_one(&app.state.db)
             .await
             .unwrap();

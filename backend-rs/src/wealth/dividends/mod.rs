@@ -8,8 +8,8 @@ pub mod receipt;
 
 use std::sync::Arc;
 
+use crate::db::Db;
 use axum::extract::State as AxumState;
-use sqlx::PgPool;
 
 use crate::AppState;
 use crate::auth::Auth;
@@ -29,7 +29,7 @@ pub fn register(routes: &mut Routes) {
 pub struct State {}
 
 impl State {
-    pub fn new(_config: &Config, _db: &PgPool, _http: &reqwest::Client, _clock: &AppClock) -> Self {
+    pub fn new(_config: &Config, _db: &Db, _http: &reqwest::Client, _clock: &AppClock) -> Self {
         Self {}
     }
 

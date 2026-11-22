@@ -16,6 +16,7 @@ export interface LaunchConfig {
   javaJar?: string;
   javaHome?: string;
   rustBin?: string;
+  sqlite?: boolean;
   readyTimeoutMs: number;
   keepLogs: boolean;
 }
@@ -25,6 +26,7 @@ export interface Instance {
   baseUrl: string;
   database: string;
   databaseUrl: string;
+  sqlitePath?: string;
   logPath: string;
   stop(): Promise<void>;
 }
@@ -54,7 +56,14 @@ async function freePort(): Promise<number> {
 }
 
 /** What a throwaway instance needs: application.yml's variables, nothing inherited from the caller's shell. */
-function environment(port: number, database: string, cfg: LaunchConfig, stub: StubServer, workDir: string) {
+function environment(
+  port: number,
+  database: string,
+  cfg: LaunchConfig,
+  stub: StubServer,
+  workDir: string,
+  sqliteUrl?: string,
+) {
   const env: Record<string, string> = {
     PATH: process.env.PATH ?? "/usr/bin:/bin",
     HOME: workDir,
@@ -63,9 +72,6 @@ function environment(port: number, database: string, cfg: LaunchConfig, stub: St
     LANG: "C.UTF-8",
     LC_ALL: "C.UTF-8",
     SERVER_PORT: String(port),
-    SPRING_DATASOURCE_URL: `jdbc:postgresql://${cfg.pgHost}:${cfg.pgPort}/${database}`,
-    SPRING_DATASOURCE_USERNAME: cfg.pgUser,
-    SPRING_DATASOURCE_PASSWORD: "",
     JWT_SECRET: randomBytes(48).toString("base64"),
     CRYPTO_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
     SECURE_COOKIES: "false",
@@ -91,6 +97,13 @@ function environment(port: number, database: string, cfg: LaunchConfig, stub: St
     HTTPS_PROXY: stub.url,
     NO_PROXY: "127.0.0.1,localhost",
   };
+  if (sqliteUrl) {
+    env.DATABASE_URL = sqliteUrl;
+  } else {
+    env.SPRING_DATASOURCE_URL = `jdbc:postgresql://${cfg.pgHost}:${cfg.pgPort}/${database}`;
+    env.SPRING_DATASOURCE_USERNAME = cfg.pgUser;
+    env.SPRING_DATASOURCE_PASSWORD = "";
+  }
   for (const s of SIDECARS) env[`${s}_URL`] = `${stub.url}/sidecar/${s.toLowerCase()}`;
   return env;
 }
@@ -113,7 +126,7 @@ function javaBinary(cfg: LaunchConfig): string {
 
 function command(kind: BackendKind, cfg: LaunchConfig, stub: StubServer): string[] {
   if (kind === "rust") {
-    const bin = cfg.rustBin ?? join(cfg.repoRoot, "backend-rs", "target", "release", "picsou");
+    const bin = resolve(cfg.rustBin ?? join(cfg.repoRoot, "backend-rs", "target", "release", "picsou"));
     if (!existsSync(bin)) throw new Error(`no Rust binary at ${bin}: cargo build --release or pass --rust-bin`);
     return [bin];
   }
@@ -136,19 +149,28 @@ function command(kind: BackendKind, cfg: LaunchConfig, stub: StubServer): string
 export async function launch(kind: BackendKind, label: string, cfg: LaunchConfig, stub: StubServer): Promise<Instance> {
   // Resolved first: a missing binary must fail before a database exists to leak.
   const argv = command(kind, cfg, stub);
+  const useSqlite = Boolean(cfg.sqlite && kind === "rust");
   const suffix = randomBytes(4).toString("hex");
   const stem = `contract_${kind}_${label.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}`.slice(0, 50);
   const database = `${stem}_${suffix}`;
-  const admin = new SQL(adminDsn(cfg));
-  await admin.unsafe(`CREATE DATABASE "${database}"`);
-  await admin.close();
 
   const workDir = await mkdtemp(join(tmpdir(), `picsou-contract-${kind}-`));
+  let sqlitePath: string | undefined;
+  let sqliteUrl: string | undefined;
+  if (useSqlite) {
+    sqlitePath = join(workDir, `contract-${label.replace(/[^a-z0-9._-]+/gi, "_")}-${suffix}.db`);
+    sqliteUrl = `sqlite:///${sqlitePath.replace(/\\/g, "/").replace(/^\/+/, "")}`;
+  } else {
+    const admin = new SQL(adminDsn(cfg));
+    await admin.unsafe(`CREATE DATABASE "${database}"`);
+    await admin.close();
+  }
+
   const logPath = join(workDir, "backend.log");
   const port = await freePort();
   const proc = Bun.spawn(argv, {
     cwd: workDir,
-    env: environment(port, database, cfg, stub, workDir),
+    env: environment(port, database, cfg, stub, workDir, sqliteUrl),
     stdout: Bun.file(logPath),
     stderr: Bun.file(join(workDir, "backend.err.log")),
   });
@@ -158,8 +180,9 @@ export async function launch(kind: BackendKind, label: string, cfg: LaunchConfig
   const instance: Instance = {
     kind,
     baseUrl: `http://127.0.0.1:${port}`,
-    database,
-    databaseUrl: adminDsn(cfg, database),
+    database: sqlitePath ?? database,
+    databaseUrl: sqliteUrl ?? adminDsn(cfg, database),
+    sqlitePath,
     logPath,
     async stop() {
       if (stopped) return;
@@ -171,9 +194,11 @@ export async function launch(kind: BackendKind, label: string, cfg: LaunchConfig
         proc.kill("SIGKILL");
         await proc.exited;
       }
-      const sql = new SQL(adminDsn(cfg));
-      await sql.unsafe(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);
-      await sql.close();
+      if (!useSqlite) {
+        const sql = new SQL(adminDsn(cfg));
+        await sql.unsafe(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);
+        await sql.close();
+      }
       if (!keep) await rm(workDir, { recursive: true, force: true });
     },
   };

@@ -32,10 +32,11 @@ async fn the_backfill_records_the_daily_series_of_held_tickers_once() {
         .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
         .spawn()
         .await;
-    let member: i64 = sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
-        .fetch_one(&app.state.db)
-        .await
-        .unwrap();
+    let member: i64 =
+        picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
     let pea = accounts::insert(
         &app.state.db,
         &NewAccount::new(member, "PEA", AccountType::Pea),
@@ -43,24 +44,32 @@ async fn the_backfill_records_the_daily_series_of_held_tickers_once() {
     )
     .await
     .unwrap();
-    sqlx::query("INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) VALUES ($1, 'cw8.pa', 3, now(), now())")
+    picsou::db::query("INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) VALUES ($1, 'cw8.pa', 3, now(), now())")
         .bind(pea.id)
         .execute(&app.state.db)
         .await
         .unwrap();
     assert_eq!(price_backfill(&app.state).await.unwrap(), 2);
     let rows: Vec<(String, String)> =
-        sqlx::query_as("SELECT ticker, price_eur::text FROM price_snapshot ORDER BY date")
+        picsou::db::query_as("SELECT ticker, price_eur::text FROM price_snapshot ORDER BY date")
             .fetch_all(&app.state.db)
             .await
             .unwrap();
     assert_eq!(rows[0], ("CW8.PA".to_owned(), "498.50000000".to_owned()));
     // A series without holes is not fetched again (the stub expects one call).
-    sqlx::query("INSERT INTO price_snapshot (ticker, date, price_eur, created_at) SELECT 'CW8.PA', d::date, 500, now() \
-                 FROM generate_series(DATE '2025-01-15', DATE '2026-01-12', INTERVAL '5 days') d ON CONFLICT DO NOTHING")
+    let mut day = chrono::NaiveDate::from_ymd_opt(2025, 1, 15).unwrap();
+    let end = chrono::NaiveDate::from_ymd_opt(2026, 1, 12).unwrap();
+    while day <= end {
+        picsou::db::query(
+            "INSERT INTO price_snapshot (ticker, date, price_eur, created_at) \
+             VALUES ('CW8.PA', $1, 500, now()) ON CONFLICT DO NOTHING",
+        )
+        .bind(day)
         .execute(&app.state.db)
         .await
         .unwrap();
+        day += chrono::TimeDelta::days(5);
+    }
     assert_eq!(price_backfill(&app.state).await.unwrap(), 0);
 }
 
@@ -68,17 +77,17 @@ async fn the_backfill_records_the_daily_series_of_held_tickers_once() {
 async fn the_fx_cleanup_purges_once_behind_its_flag() {
     let app = TestApp::with_admin().await;
     let settings = SqlAppSettings(app.state.db.clone());
-    sqlx::query("INSERT INTO price_snapshot (ticker, date, price_eur, created_at) VALUES ('AAPL', '2020-01-02', 100, now())")
+    picsou::db::query("INSERT INTO price_snapshot (ticker, date, price_eur, created_at) VALUES ('AAPL', '2020-01-02', 100, now())")
         .execute(&app.state.db)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO app_setting (setting_key, value) VALUES ('price.fx_fix_cleanup_done', 'false') \
+    picsou::db::query("INSERT INTO app_setting (setting_key, value) VALUES ('price.fx_fix_cleanup_done', 'false') \
                  ON CONFLICT (setting_key) DO UPDATE SET value = 'false'")
         .execute(&app.state.db)
         .await
         .unwrap();
     assert_eq!(price_fx_cleanup(&app.state, &settings).await.unwrap(), 1);
-    sqlx::query("INSERT INTO price_snapshot (ticker, date, price_eur, created_at) VALUES ('AAPL', '2020-01-02', 100, now())")
+    picsou::db::query("INSERT INTO price_snapshot (ticker, date, price_eur, created_at) VALUES ('AAPL', '2020-01-02', 100, now())")
         .execute(&app.state.db)
         .await
         .unwrap();
@@ -110,10 +119,11 @@ async fn isin_repair_rewrites_transactions_drops_orphan_holdings_and_preserves_u
         .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
         .spawn()
         .await;
-    let member: i64 = sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
-        .fetch_one(&app.state.db)
-        .await
-        .unwrap();
+    let member: i64 =
+        picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
     let pea = accounts::insert(
         &app.state.db,
         &NewAccount::new(member, "PEA", AccountType::Pea),
@@ -131,7 +141,7 @@ async fn isin_repair_rewrites_transactions_drops_orphan_holdings_and_preserves_u
 
     // Two manual BUY rows on PEA (one unnamed, one with user-typed name), plus a stray row on
     // checking (must repair ticker without deriving holdings) and a non-ISIN 12-char ticker.
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO transaction (account_id, date, amount, tx_type, is_manual, ticker, name, quantity, price_per_unit, created_at) VALUES \
          ($1, '2026-01-05', -1000, 'BUY', true, 'IE000BI8OT95', NULL, 8, 125, now()), \
          ($1, '2026-01-10', -500, 'BUY', true, 'IE000BI8OT95', 'Mon ETF Monde', 4, 125, now()), \
@@ -143,7 +153,7 @@ async fn isin_repair_rewrites_transactions_drops_orphan_holdings_and_preserves_u
     .execute(&app.state.db)
     .await
     .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) VALUES ($1, 'IE000BI8OT95', 12, now(), now())",
     )
     .bind(pea.id)
@@ -155,12 +165,13 @@ async fn isin_repair_rewrites_transactions_drops_orphan_holdings_and_preserves_u
     assert_eq!(isin_ticker_repair(&app.state, &settings).await.unwrap(), 3);
 
     // PEA transactions now carry MWRD.PA; unnamed got OpenFIGI's name, named kept user's name.
-    let names: Vec<(String, Option<String>)> =
-        sqlx::query_as("SELECT ticker, name FROM transaction WHERE account_id = $1 ORDER BY id")
-            .bind(pea.id)
-            .fetch_all(&app.state.db)
-            .await
-            .unwrap();
+    let names: Vec<(String, Option<String>)> = picsou::db::query_as(
+        "SELECT ticker, name FROM transaction WHERE account_id = $1 ORDER BY id",
+    )
+    .bind(pea.id)
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
     assert_eq!(
         names,
         vec![
@@ -174,7 +185,7 @@ async fn isin_repair_rewrites_transactions_drops_orphan_holdings_and_preserves_u
     );
 
     // Old ISIN holding dropped; new MWRD.PA holding computed with quantity 12.
-    let pea_holdings: Vec<(String, String)> = sqlx::query_as(
+    let pea_holdings: Vec<(String, String)> = picsou::db::query_as(
         "SELECT ticker, quantity::text FROM account_holding WHERE account_id = $1 ORDER BY ticker",
     )
     .bind(pea.id)
@@ -191,7 +202,7 @@ async fn isin_repair_rewrites_transactions_drops_orphan_holdings_and_preserves_u
 
     // Checking account gets no derived holdings.
     let checking_holdings: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM account_holding WHERE account_id = $1")
+        picsou::db::query_scalar("SELECT count(*) FROM account_holding WHERE account_id = $1")
             .bind(checking.id)
             .fetch_one(&app.state.db)
             .await
@@ -230,10 +241,11 @@ async fn isin_repair_respects_per_boot_limit_and_resumes_past_cursor() {
         .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
         .spawn()
         .await;
-    let member: i64 = sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
-        .fetch_one(&app.state.db)
-        .await
-        .unwrap();
+    let member: i64 =
+        picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
     let pea = accounts::insert(
         &app.state.db,
         &NewAccount::new(member, "PEA", AccountType::Pea),
@@ -244,7 +256,7 @@ async fn isin_repair_respects_per_boot_limit_and_resumes_past_cursor() {
 
     for i in 0..30 {
         let isin = format!("IE00000000{i:02}");
-        sqlx::query(
+        picsou::db::query(
             "INSERT INTO transaction (account_id, date, amount, tx_type, is_manual, ticker, created_at) \
              VALUES ($1, '2026-01-10', -100, 'BUY', true, $2, now())",
         )

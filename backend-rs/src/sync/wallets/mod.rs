@@ -25,6 +25,7 @@ pub use self::response::AccountResponse;
 pub use self::service::{DEFAULT_LOGO_KEY, ResyncSummary, remove_wallet, resync_all};
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db::AsDbHandle;
 use crate::error::{AppError, AppResult};
 use crate::http::json::{Path, read_json};
 use crate::ledger::sync_values::java_trim;
@@ -222,7 +223,7 @@ async fn remove(
     Path(id): Path<i64>,
 ) -> AppResult<Response> {
     let mut tx = state.db.begin().await?;
-    remove_wallet(&mut tx, state.clock.now(), id, auth.member_id).await?;
+    remove_wallet(&mut tx.as_handle(), state.clock.now(), id, auth.member_id).await?;
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT.into_response())
 }

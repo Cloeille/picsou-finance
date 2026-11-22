@@ -4,8 +4,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::db::DbHandle;
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use super::accounts;
 use super::decimal::{HALF_UP, divide};
@@ -80,7 +80,7 @@ pub async fn delete_ownerships_of_account<'e>(
 
 /// Accounts the member owns, plus the live ones they hold a share of, in creation order.
 pub async fn readable_accounts(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
 ) -> sqlx::Result<Vec<Account>> {
     let owned = accounts::find_all_by_member(&mut *conn, member_id).await?;
@@ -103,7 +103,7 @@ pub async fn readable_accounts(
 }
 
 pub async fn readable_account_ids(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
 ) -> sqlx::Result<Vec<i64>> {
     Ok(readable_accounts(conn, member_id)
@@ -173,7 +173,7 @@ pub fn weigh(amount: Decimal, share_percent: Decimal) -> Decimal {
 
 /// Read guard: owner or co-owner, else the 404 (never a 403 that would reveal the id exists).
 pub async fn require_readable(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account_id: i64,
     member_id: i64,
 ) -> AppResult<Account> {
@@ -190,7 +190,7 @@ pub async fn require_readable(
 
 /// Write guard: the administrative owner only; a co-owner gets the 403.
 pub async fn require_owner(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account_id: i64,
     member_id: i64,
 ) -> AppResult<Account> {
@@ -209,7 +209,7 @@ pub async fn require_owner(
 }
 
 pub async fn is_readable(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account_id: i64,
     member_id: i64,
 ) -> sqlx::Result<bool> {

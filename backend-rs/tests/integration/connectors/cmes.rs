@@ -68,7 +68,7 @@ async fn a_completed_login_stores_the_credentials_encrypted_and_imports_the_plan
         client.get("/api/cmes/status").send().await.json()["syncStatus"],
         "SUCCESS"
     );
-    let ticker: String = sqlx::query_scalar("SELECT ticker FROM account_holding")
+    let ticker: String = picsou::db::query_scalar("SELECT ticker FROM account_holding")
         .fetch_one(&app.state.db)
         .await
         .unwrap();
@@ -249,7 +249,7 @@ async fn a_renamed_plan_inherits_its_account_and_an_unlisted_one_closes_at_zero(
     let app = app_with_sidecar(URL, &sidecar).await;
     let (client, member_id) = admin(&app).await;
     for (id, name) in [("cmes_pee-old", "PEE — ACME"), ("cmes_gone", "PERCO")] {
-        sqlx::query(
+        picsou::db::query(
             "INSERT INTO account (member_id, name, type, provider, currency, current_balance, external_account_id, \
              is_manual, color) VALUES ($1, $2, 'EMPLOYEE_SAVINGS', 'Crédit Mutuel Épargne Salariale', 'EUR', 50, $3, \
              false, '#000')",
@@ -264,11 +264,12 @@ async fn a_renamed_plan_inherits_its_account_and_an_unlisted_one_closes_at_zero(
 
     login(&sidecar, &app, &client).await;
 
-    let rows: Vec<(String, Decimal)> =
-        sqlx::query_as("SELECT external_account_id, current_balance FROM account ORDER BY id")
-            .fetch_all(&app.state.db)
-            .await
-            .unwrap();
+    let rows: Vec<(String, Decimal)> = picsou::db::query_as(
+        "SELECT external_account_id, current_balance FROM account ORDER BY id",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
     assert_eq!(
         rows,
         vec![

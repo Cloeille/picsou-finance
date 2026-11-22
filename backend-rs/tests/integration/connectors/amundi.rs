@@ -59,7 +59,7 @@ async fn one_plan_becomes_one_account_with_its_fund_lines_and_cost_basis() {
     .await;
 
     assert_eq!(status["syncStatus"], "SUCCESS");
-    let (name, kind, provider, color): (String, String, String, String) = sqlx::query_as(
+    let (name, kind, provider, color): (String, String, String, String) = picsou::db::query_as(
         "SELECT name, type::text, provider, color FROM account WHERE external_account_id = 'amundi_p1'",
     )
     .fetch_one(&app.state.db)
@@ -79,7 +79,7 @@ async fn one_plan_becomes_one_account_with_its_fund_lines_and_cost_basis() {
             "#8b5cf6"
         )
     );
-    let rows: Vec<(String, Option<Decimal>, Option<String>)> = sqlx::query_as(
+    let rows: Vec<(String, Option<Decimal>, Option<String>)> = picsou::db::query_as(
         "SELECT ticker, average_buy_in, quote_currency FROM account_holding ORDER BY ticker",
     )
     .fetch_all(&app.state.db)
@@ -93,10 +93,11 @@ async fn one_plan_becomes_one_account_with_its_fund_lines_and_cost_basis() {
         ],
         "a real ISIN wins, the fund code keys a line without one, no gain means no cost basis"
     );
-    let invested: Decimal = sqlx::query_scalar("SELECT invested_amount FROM balance_snapshot")
-        .fetch_one(&app.state.db)
-        .await
-        .unwrap();
+    let invested: Decimal =
+        picsou::db::query_scalar("SELECT invested_amount FROM balance_snapshot")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
     assert_eq!(invested, d("1500"), "one line without a gain: the balance");
 }
 
@@ -127,7 +128,7 @@ async fn the_same_fund_twice_is_merged_and_colliding_fallbacks_refused() {
     )]))
     .await;
     assert_eq!(status["syncStatus"], "SUCCESS");
-    let quantity: Decimal = sqlx::query_scalar("SELECT quantity FROM account_holding")
+    let quantity: Decimal = picsou::db::query_scalar("SELECT quantity FROM account_holding")
         .fetch_one(&app.state.db)
         .await
         .unwrap();

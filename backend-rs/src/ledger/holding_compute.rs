@@ -3,9 +3,9 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use crate::db::DbHandle;
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use super::decimal::{HALF_UP, divide};
 use super::holdings;
@@ -93,7 +93,7 @@ async fn delete_holding<'e>(db: impl crate::db::DbExec<'e>, id: i64) -> sqlx::Re
 /// the open ones in place (keeping their other columns, and their name unless a trade carries
 /// one) and creates the missing ones. Holdings of tickers no trade mentions are left alone.
 pub async fn recompute_holdings(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account_id: i64,
     now: DateTime<Utc>,
 ) -> sqlx::Result<()> {

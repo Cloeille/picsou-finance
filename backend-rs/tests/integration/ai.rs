@@ -75,7 +75,7 @@ impl AiCtx {
         // Trigger default category seeding on first read.
         let r = self.user.get("/api/categories").send().await;
         assert_eq!(r.status, StatusCode::OK);
-        sqlx::query_scalar("SELECT id FROM category WHERE member_id = $1 AND slug = $2")
+        picsou::db::query_scalar("SELECT id FROM category WHERE member_id = $1 AND slug = $2")
             .bind(self.member)
             .bind(slug)
             .fetch_one(&self.app.state.db)
@@ -131,7 +131,7 @@ impl AiCtx {
     }
 
     async fn tx_state(&self, tx_id: i64) -> (Option<i64>, Option<i64>, Option<i32>) {
-        sqlx::query_as(
+        picsou::db::query_as(
             "SELECT category_id, ai_suggested_category_id, ai_confidence \
              FROM \"transaction\" WHERE id = $1",
         )
@@ -841,7 +841,7 @@ async fn edge_cases_empty_categories_unreadable_body_kept_key_and_concurrency_cl
 
     // Out-of-bounds or invalid ai.max-concurrency rows in DB clamp to [1, 16] with default 4.
     for (raw, expected) in [("0", 1), ("99", 16), ("not-a-number", 4), ("8", 8)] {
-        sqlx::query(
+        picsou::db::query(
             "INSERT INTO app_setting (setting_key, value) VALUES ('ai.max-concurrency', $1) \
              ON CONFLICT (setting_key) DO UPDATE SET value = EXCLUDED.value",
         )

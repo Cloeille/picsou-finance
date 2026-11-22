@@ -15,6 +15,8 @@ pub mod scpi_funds;
 use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use async_trait::async_trait;
 use axum::Json as AxumJson;
 use axum::extract::State;
@@ -24,7 +26,6 @@ use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sqlx::PgConnection;
 
 use self::adapter::{Portfolio, Snapshot};
 use self::life::Outcome;
@@ -212,7 +213,7 @@ pub async fn authenticate(
         None
     };
     let mut tx = state.db.begin().await?;
-    members::lock_or_throw(&mut *tx, member_id).await?;
+    members::lock_or_throw(&mut tx, member_id).await?;
     if generation(state, member_id) != started {
         return Err(error(
             SidecarErrorCode::SessionExpired,
@@ -221,10 +222,17 @@ pub async fn authenticate(
         .into());
     }
     let job = template()
-        .insert_queued(state, &mut tx, member_id, plain_state, false, |session| {
-            session.encrypted_credentials = credentials;
-            Ok(())
-        })
+        .insert_queued(
+            state,
+            &mut tx.as_handle(),
+            member_id,
+            plain_state,
+            false,
+            |session| {
+                session.encrypted_credentials = credentials;
+                Ok(())
+            },
+        )
         .await?;
     tx.commit().await?;
     let status = get_status(state, member_id).await?;
@@ -266,7 +274,7 @@ pub async fn get_status(state: &AppState, member_id: i64) -> AppResult<StatusRes
 /// nothing once it lands. Whether there was a session to delete.
 pub async fn clear_session(state: &AppState, member_id: i64) -> AppResult<bool> {
     let mut tx = state.db.begin().await?;
-    members::lock_or_throw(&mut *tx, member_id).await?;
+    members::lock_or_throw(&mut tx, member_id).await?;
     *generations()
         .entry(generation_key(state, member_id))
         .or_insert(0) += 1;
@@ -342,7 +350,7 @@ async fn reauthenticate_and_fetch(state: &AppState, job: &SyncJob) -> JobResult<
         .ok_or_else(|| error(SidecarErrorCode::InvalidData, "CORUM returned no session"))?;
     let encrypted_state = state.crypto.encrypt(&new_state)?;
     let mut tx = state.db.begin().await?;
-    members::lock_or_throw(&mut *tx, job.member_id).await?;
+    members::lock_or_throw(&mut tx, job.member_id).await?;
     let updated =
         match session::find_by_id_for_update(&mut tx, job.session_id, job.member_id).await? {
             Some(mut current)
@@ -369,7 +377,7 @@ async fn reauthenticate_and_fetch(state: &AppState, job: &SyncJob) -> JobResult<
 /// Clears the job's stored credentials, under the member lock, if its session is still in flight.
 async fn clear_stored_credentials(state: &AppState, job: &SyncJob) -> JobResult<()> {
     let mut tx = state.db.begin().await?;
-    members::lock_or_throw(&mut *tx, job.member_id).await?;
+    members::lock_or_throw(&mut tx, job.member_id).await?;
     if let Some(mut current) =
         session::find_by_id_for_update(&mut tx, job.session_id, job.member_id).await?
         && current.is_sync_in_flight()
@@ -489,7 +497,7 @@ fn check_declared_total(
 /// withdrawal price still updates the share count but leaves the balance alone.
 async fn apply_real_estate(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     snapshot: &Snapshot,
     synced_at: DateTime<Utc>,
@@ -549,7 +557,7 @@ impl SyncStrategy for Strategy {
     async fn commit(
         &self,
         state: &AppState,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         session: &mut SidecarSession,
         job: &SyncJob,
         portfolio: &Portfolio,
@@ -605,7 +613,7 @@ impl SyncStrategy for Strategy {
     /// A rejected password must not be replayed by every scheduled sync: the site may lock it.
     async fn on_failure(
         &self,
-        _conn: &mut PgConnection,
+        _conn: &mut DbHandle<'_>,
         session: &mut SidecarSession,
         code: SidecarErrorCode,
     ) -> JobResult<()> {

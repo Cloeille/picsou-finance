@@ -3,10 +3,10 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::db::DbHandle;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use serde::Serialize;
-use sqlx::PgConnection;
 
 use super::java_hash::hash_order;
 use super::math::{jmin, percent_of, rounded_int, scale2};
@@ -147,7 +147,7 @@ fn is_equity_line(over: Option<&HoldingClassification>, provider: Option<WealthT
 }
 
 pub async fn diversification(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     prices: &dyn PriceRead,
     logos: &dyn crate::accounts::positions::CryptoLogoRead,
     member_id: i64,

@@ -6,9 +6,9 @@
 
 use std::collections::HashMap;
 
+use crate::db::Db;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
-use sqlx::PgPool;
 
 use crate::db::DbExec;
 use crate::ledger::accounts;
@@ -69,13 +69,21 @@ pub async fn sum_by_categories_between<'e>(
     from: NaiveDate,
     to: NaiveDate,
 ) -> sqlx::Result<Decimal> {
-    let sum_expr = if db.is_sqlite() {
-        "COALESCE(dec_sum(t.amount), '0')"
-    } else {
-        "COALESCE(SUM(t.amount), 0)"
-    };
+    if db.is_sqlite() {
+        let sum: Option<Decimal> = crate::db::query_scalar(&format!(
+            "SELECT dec_sum(t.amount) AS amount {} WHERE t.category_id = ANY($1) AND a.hidden = false \
+             AND t.budget_neutral = false AND t.date BETWEEN $2 AND $3",
+            member_join()
+        ))
+        .bind(category_ids)
+        .bind(from)
+        .bind(to)
+        .fetch_one(db)
+        .await?;
+        return Ok(sum.unwrap_or(Decimal::ZERO));
+    }
     crate::db::query_scalar::<Decimal>(&format!(
-        "SELECT {sum_expr} {} WHERE t.category_id = ANY($1) AND a.hidden = false \
+        "SELECT COALESCE(SUM(t.amount), 0) {} WHERE t.category_id = ANY($1) AND a.hidden = false \
          AND t.budget_neutral = false AND t.date BETWEEN $2 AND $3",
         member_join()
     ))
@@ -231,7 +239,7 @@ pub struct Refs {
 }
 
 impl Refs {
-    pub async fn load(db: &PgPool, rows: &[Transaction]) -> sqlx::Result<Self> {
+    pub async fn load(db: &Db, rows: &[Transaction]) -> sqlx::Result<Self> {
         let mut account_ids: Vec<i64> = rows.iter().map(|t| t.account_id).collect();
         account_ids.sort_unstable();
         account_ids.dedup();

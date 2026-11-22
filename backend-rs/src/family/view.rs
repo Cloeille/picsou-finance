@@ -6,7 +6,6 @@ use std::collections::{BTreeSet, HashMap};
 use axum::extract::State;
 use rust_decimal::Decimal;
 use serde::Serialize;
-use sqlx::PgConnection;
 
 use super::sharing::{self, ACCOUNT, GOAL, SharingLevel};
 use crate::AppState;
@@ -85,7 +84,7 @@ const GOAL_COLUMNS: &str = "id, member_id, name, target_amount";
 
 /// The accounts the member shares: every visible one for ALL, the stored ids they still own
 /// for MANUAL (a stale or foreign id is skipped, never leaked).
-async fn shared_accounts(conn: &mut PgConnection, member_id: i64) -> sqlx::Result<Vec<Account>> {
+async fn shared_accounts(conn: &mut DbHandle<'_>, member_id: i64) -> sqlx::Result<Vec<Account>> {
     match sharing::level(&mut *conn, member_id, ACCOUNT).await? {
         SharingLevel::None => Ok(Vec::new()),
         SharingLevel::All => accounts::find_visible_by_member(&mut *conn, member_id).await,
@@ -122,7 +121,7 @@ async fn shared_goals(conn: &mut DbHandle<'_>, member_id: i64) -> sqlx::Result<V
 
 /// Each goal's live (not soft-deleted) linked accounts, keyed by goal id.
 async fn goal_accounts(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     goal_ids: &[i64],
 ) -> sqlx::Result<HashMap<i64, Vec<Account>>> {
     let links: Vec<(i64, i64)> = db::query_as(
@@ -158,7 +157,7 @@ async fn contributions_of(
     all_members: &[FamilyMember],
 ) -> sqlx::Result<Vec<ContributionInfo>> {
     let sum_sql = if conn.is_sqlite() {
-        "SELECT member_id, dec_sum(amount) FROM goal_manual_contribution \
+        "SELECT member_id, dec_sum(amount) AS amount FROM goal_manual_contribution \
          WHERE goal_id = $1 AND member_id IS NOT NULL GROUP BY member_id"
     } else {
         "SELECT member_id, SUM(amount) FROM goal_manual_contribution \
@@ -189,20 +188,21 @@ pub async fn dashboard(
     let today = state.clock.today();
     let prices = &*state.ledger.prices;
     let mut conn = state.db.acquire().await?;
-    let all_members = members::find_all(&mut *conn).await?;
+    let all_members = members::find_all(&mut conn).await?;
     let mut shared_account_infos = Vec::new();
     let mut shared_goal_infos = Vec::new();
     let mut total = Decimal::ZERO;
 
     for member in all_members.iter().filter(|m| m.id != auth.member_id) {
-        let accounts = shared_accounts(&mut conn, member.id).await?;
+        let accounts = shared_accounts(&mut conn.as_handle(), member.id).await?;
         // Weighted by the owner's share: the viewer's own half of a co-owned house already
         // shows on their personal dashboard.
-        let shares = access::shares_for(&mut *conn, &accounts, member.id).await?;
+        let shares = access::shares_for(&mut conn, &accounts, member.id).await?;
         let listed: BTreeSet<i64> = accounts.iter().map(|a| a.id).collect();
         for account in &accounts {
             let signed =
-                valuation::signed_live_balance_eur(&mut conn, prices, account, today).await?;
+                valuation::signed_live_balance_eur(&mut conn.as_handle(), prices, account, today)
+                    .await?;
             let balance_eur =
                 access::weigh(signed, shares.get(&account.id).copied().unwrap_or_default());
             // A pocket is inside its parent wallet's balance; it counts only when the parent
@@ -229,19 +229,24 @@ pub async fn dashboard(
             continue;
         }
         let goal_ids: Vec<i64> = goals.iter().map(|g| g.id).collect();
-        let linked = goal_accounts(&mut conn, &goal_ids).await?;
+        let linked = goal_accounts(&mut conn.as_handle(), &goal_ids).await?;
         let mut distinct: Vec<Account> = Vec::new();
         for account in linked.values().flatten() {
             if !distinct.iter().any(|a| a.id == account.id) {
                 distinct.push(account.clone());
             }
         }
-        let goal_shares = access::shares_for(&mut *conn, &distinct, member.id).await?;
+        let goal_shares = access::shares_for(&mut conn, &distinct, member.id).await?;
         for goal in goals {
             let mut current_total = Decimal::ZERO;
             for account in linked.get(&goal.id).map(Vec::as_slice).unwrap_or_default() {
-                let signed =
-                    valuation::signed_live_balance_eur(&mut conn, prices, account, today).await?;
+                let signed = valuation::signed_live_balance_eur(
+                    &mut conn.as_handle(),
+                    prices,
+                    account,
+                    today,
+                )
+                .await?;
                 current_total += access::weigh(
                     signed,
                     goal_shares.get(&account.id).copied().unwrap_or_default(),
@@ -286,7 +291,7 @@ async fn contributions(
     Path(goal_id): Path<i64>,
 ) -> AppResult<axum::Json<Vec<ContributionInfo>>> {
     let mut conn = state.db.acquire().await?;
-    let all_members = members::find_all(&mut *conn).await?;
+    let all_members = members::find_all(&mut conn).await?;
     let goal: GoalRow = db::query_as(&format!("SELECT {GOAL_COLUMNS} FROM goal WHERE id = $1"))
         .bind(goal_id)
         .fetch_optional(&mut conn)

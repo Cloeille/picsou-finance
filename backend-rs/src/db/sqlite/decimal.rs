@@ -238,6 +238,133 @@ pub fn register_decimal_functions(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// Returns the fixed PostgreSQL `NUMERIC(p, s)` fractional scale for a column read from SQLite,
+/// matching every `NUMERIC` column in `schema.tsv` so SQLite returns identical decimal scales
+/// (and HALF_UP rounding) to PostgreSQL.
+pub fn pg_numeric_column_scale(sql: &str, col_name: &str) -> Option<u32> {
+    match col_name {
+        // Scale 8: NUMERIC(20, 8)
+        "cash_balance"
+        | "current_balance"
+        | "payment_due_amount"
+        | "provider_invested_eur"
+        | "provider_paid_in_eur"
+        | "scheduled_payment_eur"
+        | "average_buy_in"
+        | "current_price"
+        | "provider_pnl_eur"
+        | "provider_value_eur"
+        | "quantity"
+        | "balance"
+        | "invested_amount"
+        | "native_balance"
+        | "interest"
+        | "principal"
+        | "borrowed_amount"
+        | "file_fees"
+        | "insurance_monthly"
+        | "monthly_payment"
+        | "amount_eur"
+        | "planned_monthly_amount"
+        | "price_eur"
+        | "estimated_value"
+        | "high_value"
+        | "low_value"
+        | "price_per_sqm"
+        | "agency_fees"
+        | "notary_fees"
+        | "purchase_price"
+        | "rental_income"
+        | "works_cost"
+        | "annual_distribution_per_share_eur"
+        | "share_count"
+        | "subscription_price_eur"
+        | "withdrawal_price_eur"
+        | "fees"
+        | "price_per_unit" => Some(8),
+
+        // Scale 6: NUMERIC(9, 6) / NUMERIC(12, 6)
+        "latitude" | "longitude" => Some(6),
+
+        // Scale 4: NUMERIC(5, 4) / NUMERIC(6, 4)
+        "interest_rate" => Some(4),
+
+        // Scale 3: NUMERIC(6, 3) / NUMERIC(4, 3)
+        "share_percent" | "expected_return" | "geocode_score" | "percent" | "ter_percent" => {
+            Some(3)
+        }
+
+        // Scale 2: NUMERIC(20, 2) / NUMERIC(10, 2) / NUMERIC(5, 2) / NUMERIC(4, 2)
+        "monthly_limit"
+        | "monthly_amount"
+        | "target_amount"
+        | "alternative_pct"
+        | "crypto_pct"
+        | "equity_pct"
+        | "monthly_essential_expenses"
+        | "real_estate_pct"
+        | "annual_gross_income"
+        | "marginal_tax_rate"
+        | "monthly_net_before_tax"
+        | "monthly_savings_capacity"
+        | "tax_household_parts"
+        | "withholding_tax_rate"
+        | "land_area"
+        | "surface_area"
+        | "amount_max"
+        | "amount_min"
+        | "expected_amount"
+        | "previous_amount"
+        | "ceiling"
+        | "tax_rate_pct" => Some(2),
+
+        // Disambiguated columns (different PostgreSQL scales across tables)
+        "amount" => {
+            if sql.contains("goal_manual_contribution") || sql.contains("goal_month_override") {
+                Some(2)
+            } else if sql.contains("transaction")
+                || sql.contains("dividend_event")
+                || sql.contains("peer_loan_repayment")
+            {
+                Some(8)
+            } else {
+                None
+            }
+        }
+        "annual_rate" => {
+            if sql.contains("peer_loan_terms") {
+                Some(6)
+            } else if sql.contains("savings_interest_config") {
+                Some(4)
+            } else {
+                None
+            }
+        }
+        "confidence" => {
+            if sql.contains("recurring_series") {
+                Some(3)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Normalizes a raw SQLite decimal text string to exact PostgreSQL `NUMERIC(p, scale)`
+/// HALF_UP rounding and trailing-zero formatting.
+pub fn format_pg_numeric_scale(raw: &str, scale: u32) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let parsed = Decimal::from_str(trimmed)
+        .or_else(|_| Decimal::from_scientific(trimmed))
+        .ok()?;
+    let rounded = parsed.round_dp_with_strategy(scale, RoundingStrategy::MidpointAwayFromZero);
+    Some(format!("{rounded:.prec$}", prec = scale as usize))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -318,5 +445,49 @@ mod tests {
         // Division by zero must error.
         let div0 = conn.query_row("SELECT dec_div('1', '0', 2)", [], |r| r.get::<_, String>(0));
         assert!(div0.is_err());
+    }
+
+    #[test]
+    fn pg_numeric_scale_formatting_matches_postgres() {
+        assert_eq!(
+            format_pg_numeric_scale("100", 8).as_deref(),
+            Some("100.00000000")
+        );
+        assert_eq!(
+            format_pg_numeric_scale("-29.999", 2).as_deref(),
+            Some("-30.00")
+        );
+        assert_eq!(
+            format_pg_numeric_scale("1.0e-07", 8).as_deref(),
+            Some("0.00000010")
+        );
+        assert_eq!(format_pg_numeric_scale("30", 3).as_deref(), Some("30.000"));
+        assert_eq!(
+            pg_numeric_column_scale("SELECT amount FROM \"transaction\"", "amount"),
+            Some(8)
+        );
+        assert_eq!(
+            pg_numeric_column_scale("SELECT amount FROM goal_manual_contribution", "amount"),
+            Some(2)
+        );
+        assert_eq!(
+            pg_numeric_column_scale("SELECT annual_rate FROM peer_loan_terms", "annual_rate"),
+            Some(6)
+        );
+        assert_eq!(
+            pg_numeric_column_scale(
+                "SELECT annual_rate FROM savings_interest_config",
+                "annual_rate"
+            ),
+            Some(4)
+        );
+        assert_eq!(
+            pg_numeric_column_scale("SELECT confidence FROM property_valuation", "confidence"),
+            None
+        );
+        assert_eq!(
+            pg_numeric_column_scale("SELECT confidence FROM recurring_series", "confidence"),
+            Some(3)
+        );
     }
 }

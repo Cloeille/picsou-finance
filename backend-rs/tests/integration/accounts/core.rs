@@ -111,7 +111,7 @@ async fn update_same_balance_on_a_manual_ledger_adds_no_statement_and_a_new_one_
         .send()
         .await;
     let source: String =
-        sqlx::query_scalar("SELECT source FROM balance_snapshot WHERE account_id = $1")
+        picsou::db::query_scalar("SELECT source FROM balance_snapshot WHERE account_id = $1")
             .bind(id)
             .fetch_one(&app.state.db)
             .await
@@ -125,12 +125,13 @@ async fn update_same_balance_on_a_manual_ledger_adds_no_statement_and_a_new_one_
         .await
         .json();
     assert_eq!(num(&updated["currentBalance"]), "150");
-    let (source, native): (String, Option<rust_decimal::Decimal>) =
-        sqlx::query_as("SELECT source, native_balance FROM balance_snapshot WHERE account_id = $1")
-            .bind(id)
-            .fetch_one(&app.state.db)
-            .await
-            .unwrap();
+    let (source, native): (String, Option<rust_decimal::Decimal>) = picsou::db::query_as(
+        "SELECT source, native_balance FROM balance_snapshot WHERE account_id = $1",
+    )
+    .bind(id)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
     assert_eq!(source, "MANUAL");
     assert_eq!(native, Some(super::support::d("150")));
 }

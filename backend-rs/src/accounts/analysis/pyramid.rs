@@ -4,10 +4,10 @@
 
 use std::collections::{BTreeSet, HashMap};
 
+use crate::db::DbHandle;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use serde::Serialize;
-use sqlx::PgConnection;
 
 use super::math::{jmax, jmin, percent_of, rounded_int, scale2};
 use super::property::visible_property_debt;
@@ -151,7 +151,7 @@ struct Tally {
 }
 
 pub async fn pyramid(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     prices: &dyn PriceRead,
     logos: &dyn crate::accounts::positions::CryptoLogoRead,
     member_id: i64,

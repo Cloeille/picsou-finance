@@ -12,7 +12,7 @@ pub(crate) mod provider;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use sqlx::PgPool;
+use crate::db::Db;
 
 use crate::admin::settings::{
     AI_API_KEY, AI_BASE_URL, AI_MAX_CONCURRENCY, AI_MODEL, AI_PROVIDER, AiConfig, AiProvider,
@@ -32,14 +32,14 @@ pub fn register(_routes: &mut Routes) {}
 /// immediately, abstains with `"DISABLED"` when unconfigured or missing a required API key,
 /// and never propagates provider or parsing failures into the categorization job.
 pub struct DynamicCategorizer {
-    db: PgPool,
+    db: Db,
     crypto: CryptoEncryption,
     http: reqwest::Client,
     timeout: Duration,
 }
 
 impl DynamicCategorizer {
-    pub fn new(db: PgPool, crypto: CryptoEncryption, http: reqwest::Client) -> Self {
+    pub fn new(db: Db, crypto: CryptoEncryption, http: reqwest::Client) -> Self {
         Self {
             db,
             crypto,

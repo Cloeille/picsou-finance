@@ -7,6 +7,8 @@ use std::collections::HashSet;
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use async_trait::async_trait;
 use axum::Json as AxumJson;
 use axum::extract::State;
@@ -17,7 +19,6 @@ use regex::Regex;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use sqlx::PgConnection;
 
 use super::sidecar::flow::non_blank;
 use super::sidecar::pending::{Pending, PendingLogins};
@@ -501,10 +502,17 @@ async fn insert_session(
         .encrypt(&json!({ "login": login, "password": password }).to_string())?;
     let mut tx = state.db.begin().await?;
     let job = template()
-        .insert_queued(state, &mut tx, member_id, plain_state, false, |session| {
-            session.encrypted_credentials = Some(credentials);
-            Ok(())
-        })
+        .insert_queued(
+            state,
+            &mut tx.as_handle(),
+            member_id,
+            plain_state,
+            false,
+            |session| {
+                session.encrypted_credentials = Some(credentials);
+                Ok(())
+            },
+        )
         .await?;
     tx.commit().await?;
     Ok(job)
@@ -819,7 +827,7 @@ impl SyncStrategy for Strategy {
     async fn commit(
         &self,
         state: &AppState,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         _session: &mut SidecarSession,
         job: &SyncJob,
         fetched: &Fetched,
@@ -850,7 +858,7 @@ impl SyncStrategy for Strategy {
 
     async fn on_failure(
         &self,
-        _conn: &mut PgConnection,
+        _conn: &mut DbHandle<'_>,
         session: &mut SidecarSession,
         code: SidecarErrorCode,
     ) -> JobResult<()> {
@@ -863,7 +871,7 @@ impl SyncStrategy for Strategy {
 }
 
 async fn upsert_account(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     ctx: &SnapshotContext<'_>,
     data: &PreparedAccount,
     member_id: i64,
@@ -919,7 +927,7 @@ async fn upsert_account(
 /// table missing from the page leaves its accounts as they were. A sidecar that does not report
 /// the tables falls back to the categories of the accounts it returned.
 async fn close_unlisted_accounts(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     ctx: &SnapshotContext<'_>,
     fetched: &Fetched,
     imported: &[Account],

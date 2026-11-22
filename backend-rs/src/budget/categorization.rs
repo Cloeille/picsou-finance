@@ -208,7 +208,7 @@ pub async fn categorize(
 ) -> AppResult<StatusCode> {
     let member_id = auth.member_id;
     let mut conn = state.db.begin().await?;
-    let mut tx = transactions::find_by_id_and_member(&mut *conn, id, member_id)
+    let mut tx = transactions::find_by_id_and_member(&mut conn, id, member_id)
         .await?
         .ok_or_else(transaction_not_found)?;
     let category = require(&mut conn, req.category_id.unwrap_or_default(), member_id).await?;

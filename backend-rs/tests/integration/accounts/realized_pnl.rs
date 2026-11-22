@@ -7,7 +7,7 @@ use serde_json::Value;
 const PASSWORD: &str = "member-pass-1234";
 
 async fn account(app: &TestApp, member_id: i64, account_type: &str, currency: &str) -> i64 {
-    sqlx::query_scalar(
+    picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color, created_at, updated_at) \
          VALUES ($1, 'Account', $2::account_type, $3, 0, true, '#000000', now(), now()) RETURNING id",
     )
@@ -28,7 +28,7 @@ async fn trade(
     (ticker, qty, price): (&str, &str, &str),
     fees: Option<&str>,
 ) {
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO \"transaction\" (account_id, date, description, amount, tx_type, ticker, name, quantity, price_per_unit, fees, created_at) \
          VALUES ($1, $2::date, 'trade', 0, $3, $4, $4, $5::numeric, $6::numeric, $7::numeric, now())",
     )

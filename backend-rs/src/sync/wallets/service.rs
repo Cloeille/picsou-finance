@@ -2,10 +2,11 @@
 
 use std::collections::BTreeSet;
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use chrono::{DateTime, NaiveDate, Utc};
 use http::StatusCode;
 use rust_decimal::Decimal;
-use sqlx::{Connection, PgConnection};
 
 use super::repo::{self, Wallet};
 use super::response::{self, AccountResponse};
@@ -95,11 +96,11 @@ pub async fn add_wallet(
     let mut tx = state.db.begin().await?;
     let wallet = repo::insert(&mut tx, member_id, chain, &address, label.as_deref(), now).await?;
     let prepared = prepare(state, &wallet).await?;
-    let account = write(state, &mut tx, &wallet, &prepared, member_id)
+    let account = write(state, &mut tx.as_handle(), &wallet, &prepared, member_id)
         .await?
         .ok_or_else(account_deleted)?;
     let response = response::build(
-        &mut tx,
+        &mut tx.as_handle(),
         &*state.ledger.prices,
         &account,
         state.clock.today(),
@@ -120,11 +121,11 @@ fn account_deleted() -> AppError {
 /// one again, so it is a 422 naming the way out rather than a silent success.
 pub async fn sync(state: &AppState, wallet_id: i64, member_id: i64) -> AppResult<AccountResponse> {
     let mut tx = state.db.begin().await?;
-    let account = sync_locked(state, &mut tx, wallet_id, member_id)
+    let account = sync_locked(state, &mut tx.as_handle(), wallet_id, member_id)
         .await?
         .ok_or_else(account_deleted)?;
     let response = response::build(
-        &mut tx,
+        &mut tx.as_handle(),
         &*state.ledger.prices,
         &account,
         state.clock.today(),
@@ -137,7 +138,7 @@ pub async fn sync(state: &AppState, wallet_id: i64, member_id: i64) -> AppResult
 /// Syncs one wallet in the caller's transaction; None when its account was soft-deleted.
 async fn sync_locked(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     wallet_id: i64,
     member_id: i64,
 ) -> AppResult<Option<Account>> {
@@ -190,7 +191,7 @@ pub async fn resync_all(state: &AppState, member_id: i64) -> ResyncSummary {
 
 async fn resync_one(state: &AppState, wallet_id: i64, member_id: i64) -> AppResult<bool> {
     let mut tx = state.db.begin().await?;
-    let synced = sync_locked(state, &mut tx, wallet_id, member_id)
+    let synced = sync_locked(state, &mut tx.as_handle(), wallet_id, member_id)
         .await?
         .is_some();
     tx.commit().await?;
@@ -205,7 +206,7 @@ pub async fn list_wallets(state: &AppState, member_id: i64) -> AppResult<Vec<Wal
 /// the account's balance history, and the soft-deleted row keeps the resurrection guard armed.
 /// Also what deleting the wallet's last account calls (AccountConnectionService).
 pub async fn remove_wallet(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     now: DateTime<Utc>,
     wallet_id: i64,
     member_id: i64,
@@ -352,7 +353,7 @@ async fn try_prepare(
 /// catch-all around the whole sync makes it.
 async fn write(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     wallet: &Wallet,
     prepared: &Prepared,
     member_id: i64,
@@ -372,7 +373,7 @@ async fn write(
 
 async fn try_write(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     wallet: &Wallet,
     prepared: &Prepared,
     member_id: i64,
@@ -423,7 +424,7 @@ async fn try_write(
 /// The wallet's account, created on first sync; None when the user soft-deleted it, since the
 /// chain returning the address forever is not consent to bring it back.
 async fn resolve_account(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     wallet: &Wallet,
     prepared: &Prepared,
     member_id: i64,
@@ -468,7 +469,7 @@ async fn resolve_account(
     // A concurrent sync of the same wallet may insert first: reuse its row rather than split the
     // snapshot history over two accounts.
     let mut savepoint = conn.begin().await?;
-    match accounts::insert(&mut *savepoint, &draft, now).await {
+    match accounts::insert(&mut savepoint, &draft, now).await {
         Ok(account) => {
             savepoint.commit().await?;
             Ok(Some(account))

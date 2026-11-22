@@ -115,7 +115,7 @@ impl Harness {
     }
 
     async fn scalar_decimal(&self, sql: &str, id: i64) -> Option<Decimal> {
-        sqlx::query_scalar(sql)
+        picsou::db::query_scalar(sql)
             .bind(id)
             .fetch_optional(&self.app.state.db)
             .await
@@ -123,7 +123,7 @@ impl Harness {
     }
 
     async fn holdings(&self, account_id: i64) -> Vec<(String, Decimal)> {
-        sqlx::query_as(
+        picsou::db::query_as(
             "SELECT ticker, quantity FROM account_holding WHERE account_id = $1 ORDER BY ticker",
         )
         .bind(account_id)
@@ -133,7 +133,7 @@ impl Harness {
     }
 
     async fn snapshot(&self, account_id: i64) -> Option<Decimal> {
-        sqlx::query_scalar(
+        picsou::db::query_scalar(
             "SELECT balance FROM balance_snapshot WHERE account_id = $1 AND date = $2",
         )
         .bind(account_id)
@@ -144,7 +144,7 @@ impl Harness {
     }
 
     async fn account_count(&self) -> i64 {
-        sqlx::query_scalar("SELECT count(*) FROM account WHERE member_id = $1")
+        picsou::db::query_scalar("SELECT count(*) FROM account WHERE member_id = $1")
             .bind(self.member_id)
             .fetch_one(&self.app.state.db)
             .await
@@ -258,7 +258,7 @@ async fn evm_wallet_fans_out_aggregates_by_symbol_and_rounds_each_line_half_up()
     );
     assert_eq!(h.snapshot(id).await, Some(d("4235.22")));
     let external: Option<String> =
-        sqlx::query_scalar("SELECT external_account_id FROM account WHERE id = $1")
+        picsou::db::query_scalar("SELECT external_account_id FROM account WHERE id = $1")
             .bind(id)
             .fetch_one(&h.app.state.db)
             .await
@@ -633,7 +633,7 @@ async fn input_is_checked_before_anything_is_stored_or_called() {
 }
 
 async fn insert_wallet(h: &Harness, member_id: i64, chain: &str, address: &str) -> i64 {
-    sqlx::query_scalar(
+    picsou::db::query_scalar(
         "INSERT INTO wallet_address (member_id, chain, address) VALUES ($1, $2, $3) RETURNING id",
     )
     .bind(member_id)
@@ -691,7 +691,7 @@ async fn removing_a_wallet_soft_deletes_its_account_and_keeps_its_history() {
     assert!(response.body.is_empty());
     assert_eq!(h.wallets().await, json!([]));
     let deleted: bool =
-        sqlx::query_scalar("SELECT deleted_at IS NOT NULL FROM account WHERE id = $1")
+        picsou::db::query_scalar("SELECT deleted_at IS NOT NULL FROM account WHERE id = $1")
             .bind(id)
             .fetch_one(&h.app.state.db)
             .await
@@ -707,7 +707,7 @@ async fn a_wallet_whose_account_was_deleted_is_never_resurrected() {
         .await;
     h.prices(&[("ETH", "2000")]);
     let wallet = insert_wallet(&h, h.member_id, "EVM", EVM_ADDRESS).await;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account (member_id, name, type, currency, current_balance, external_account_id, is_manual, color, \
          hidden, deleted_at, created_at, updated_at) \
          VALUES ($1, 'Old', 'CRYPTO', 'EUR', 0, $2, false, '#f59e0b', false, now(), now(), now())",
@@ -763,7 +763,7 @@ async fn a_resync_keeps_the_account_name_and_the_logo_the_user_picked() {
     let id = h.add("EVM", EVM_ADDRESS, Some("Hot")).await.json()["id"]
         .as_i64()
         .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "UPDATE account SET name = 'Renamed', logo_key = 'ledger', ticker = 'ETH' WHERE id = $1",
     )
     .bind(id)

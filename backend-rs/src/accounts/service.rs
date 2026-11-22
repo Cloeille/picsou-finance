@@ -9,7 +9,6 @@ use axum::http::StatusCode;
 use chrono::{DateTime, Months, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use sqlx::PgConnection;
 
 use super::dto::{AccountResponse, responses_for_viewer, to_response};
 use super::jdecimal;
@@ -250,7 +249,7 @@ fn snapshot_ctx(state: &AppState) -> SnapshotContext<'_> {
 }
 
 async fn prefs_by_account(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
 ) -> AppResult<HashMap<i64, AccountDisplayPref>> {
     Ok(display_prefs::find_by_member(&mut *conn, member_id)
@@ -263,7 +262,7 @@ async fn prefs_by_account(
 /// findById: a readable account with the viewer's share and display prefs.
 pub async fn viewer_response(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     member_id: i64,
 ) -> AppResult<AccountResponse> {
@@ -288,15 +287,15 @@ pub async fn find_all(
 ) -> AppResult<axum::Json<Vec<AccountResponse>>> {
     let include_hidden = Params::parse(query.as_deref()).boolean("includeHidden", false)?;
     let mut conn = state.db.acquire().await?;
-    let mut list = access::readable_accounts(&mut conn, auth.member_id).await?;
+    let mut list = access::readable_accounts(&mut conn.as_handle(), auth.member_id).await?;
     super::scale::fix_accounts(&mut list);
     if !include_hidden {
         list.retain(|a| !a.hidden);
     }
-    let shares = access::shares_for(&mut *conn, &list, auth.member_id).await?;
-    let prefs = prefs_by_account(&mut conn, auth.member_id).await?;
+    let shares = access::shares_for(&mut conn, &list, auth.member_id).await?;
+    let prefs = prefs_by_account(&mut conn.as_handle(), auth.member_id).await?;
     let out = responses_for_viewer(
-        &mut conn,
+        &mut conn.as_handle(),
         &*state.ledger.prices,
         &list,
         &shares,
@@ -314,10 +313,11 @@ pub async fn find_by_id(
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<AccountResponse>> {
     let mut conn = state.db.acquire().await?;
-    let account =
-        super::scale::fixed(access::require_readable(&mut conn, id, auth.member_id).await?);
+    let account = super::scale::fixed(
+        access::require_readable(&mut conn.as_handle(), id, auth.member_id).await?,
+    );
     Ok(axum::Json(
-        viewer_response(&state, &mut conn, &account, auth.member_id).await?,
+        viewer_response(&state, &mut conn.as_handle(), &account, auth.member_id).await?,
     ))
 }
 
@@ -347,7 +347,7 @@ pub async fn create(
         None
     };
     let mut tx = state.db.begin().await?;
-    members::find_by_id(&mut *tx, auth.member_id)
+    members::find_by_id(&mut tx, auth.member_id)
         .await?
         .ok_or_else(|| AppError::NotFound("Family member not found".to_owned()))?;
     let mut new = accounts::NewAccount::new(auth.member_id, req.name(), kind);
@@ -364,7 +364,7 @@ pub async fn create(
     new.logo_key = normalize_logo_key(req.logo_key.as_deref(), None, kind);
     new.logo_url = logo_url;
     new.opened_at = req.opened_at;
-    let mut account = accounts::insert(&mut *tx, &new, state.clock.now()).await?;
+    let mut account = accounts::insert(&mut tx, &new, state.clock.now()).await?;
     // Java answers with the entity it just saved: the balance keeps the scale it was sent with.
     account.current_balance = opening;
 
@@ -372,7 +372,9 @@ pub async fn create(
     if account.current_balance > Decimal::ZERO
         || (account.account_type == AccountType::CreditCard && !account.current_balance.is_zero())
     {
-        let invested = valuation::invested_amount(&mut tx, ctx.prices, &account, ctx.today).await?;
+        let invested =
+            valuation::invested_amount(&mut tx.as_handle(), ctx.prices, &account, ctx.today)
+                .await?;
         let eur = ctx
             .prices
             .to_eur(
@@ -383,13 +385,21 @@ pub async fn create(
             )
             .await;
         snapshots::insert(
-            &mut *tx,
+            &mut tx,
             &NewSnapshot::derived(account.id, ctx.today, eur, invested),
             ctx.now,
         )
         .await?;
     }
-    let response = to_response(&mut tx, ctx.prices, &account, None, None, ctx.today).await?;
+    let response = to_response(
+        &mut tx.as_handle(),
+        ctx.prices,
+        &account,
+        None,
+        None,
+        ctx.today,
+    )
+    .await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, axum::Json(response)))
 }
@@ -402,14 +412,14 @@ pub async fn update(
 ) -> AppResult<axum::Json<AccountResponse>> {
     let mut tx = state.db.begin().await?;
     let mut account =
-        super::scale::fixed(accounts::get_or_throw(&mut *tx, id, auth.member_id).await?);
+        super::scale::fixed(accounts::get_or_throw(&mut tx, id, auth.member_id).await?);
     let kind = req.kind();
     let name_changed = req.name() != account.name;
     let previous_provider = account.provider.clone();
     let previous_type = account.account_type;
     if previous_type != AccountType::Scpi
         && kind == AccountType::Scpi
-        && !holdings::find_by_account(&mut *tx, account.id)
+        && !holdings::find_by_account(&mut tx, account.id)
             .await?
             .is_empty()
     {
@@ -475,7 +485,7 @@ pub async fn update(
         // Only a figure that changed is a statement: the form resends the balance it opened with.
         if new_balance != old {
             let snap = valuation::upsert_snapshot_from_native(
-                &mut tx,
+                &mut tx.as_handle(),
                 &ctx,
                 &account,
                 new_balance,
@@ -484,14 +494,22 @@ pub async fn update(
             .await?;
             if account.account_type.is_ledger() {
                 // A typed balance on a manual ledger is a statement about today (issue #543).
-                mark_manual(&mut tx, snap.id, new_balance, ctx.now).await?;
+                mark_manual(&mut tx.as_handle(), snap.id, new_balance, ctx.now).await?;
             }
         }
     }
 
-    let saved = accounts::update(&mut *tx, &account, ctx.now).await?;
+    let saved = accounts::update(&mut tx, &account, ctx.now).await?;
     account.updated_at = saved.updated_at;
-    let response = to_response(&mut tx, ctx.prices, &account, None, None, ctx.today).await?;
+    let response = to_response(
+        &mut tx.as_handle(),
+        ctx.prices,
+        &account,
+        None,
+        None,
+        ctx.today,
+    )
+    .await?;
 
     // A renamed Revolut pocket carries its new name onto its transactions and the wallet-side legs.
     if name_changed
@@ -500,7 +518,7 @@ pub async fn update(
             account.external_account_id.as_deref(),
         )
     {
-        db::query("UPDATE transaction SET merchant_label = $2 WHERE account_id = $1")
+        db::query("UPDATE \"transaction\" SET merchant_label = $2 WHERE account_id = $1")
             .bind(account.id)
             .bind(&account.name)
             .execute(&mut tx)
@@ -512,7 +530,7 @@ pub async fn update(
 }
 
 async fn mark_manual(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     snapshot_id: i64,
     native: Decimal,
     now: DateTime<Utc>,
@@ -525,7 +543,7 @@ async fn mark_manual(
 }
 
 /// TransactionRepository.updateMerchantLabelForPocketWalletSide.
-const POCKET_WALLET_SIDE_SQL: &str = "UPDATE transaction SET merchant_label = $3 WHERE account_id = $1 \
+const POCKET_WALLET_SIDE_SQL: &str = "UPDATE \"transaction\" SET merchant_label = $3 WHERE account_id = $1 \
     AND LOWER(description) LIKE LOWER('%mb:' || $2)";
 
 async fn update_pocket_wallet_side(
@@ -551,12 +569,12 @@ pub async fn set_hidden(
 ) -> AppResult<axum::Json<AccountResponse>> {
     let mut tx = state.db.begin().await?;
     let mut account =
-        super::scale::fixed(accounts::get_or_throw(&mut *tx, id, auth.member_id).await?);
+        super::scale::fixed(accounts::get_or_throw(&mut tx, id, auth.member_id).await?);
     account.hidden = req.hidden;
-    let saved = accounts::update(&mut *tx, &account, state.clock.now()).await?;
+    let saved = accounts::update(&mut tx, &account, state.clock.now()).await?;
     account.updated_at = saved.updated_at;
     let response = to_response(
-        &mut tx,
+        &mut tx.as_handle(),
         &*state.ledger.prices,
         &account,
         None,
@@ -575,9 +593,11 @@ pub async fn set_collapsed(
     Json(req): Json<DisplayRequest>,
 ) -> AppResult<axum::Json<AccountResponse>> {
     let mut tx = state.db.begin().await?;
-    let account = super::scale::fixed(access::require_readable(&mut tx, id, auth.member_id).await?);
-    display_prefs::upsert(&mut *tx, id, auth.member_id, None, Some(req.collapsed)).await?;
-    let response = viewer_response(&state, &mut tx, &account, auth.member_id).await?;
+    let account = super::scale::fixed(
+        access::require_readable(&mut tx.as_handle(), id, auth.member_id).await?,
+    );
+    display_prefs::upsert(&mut tx, id, auth.member_id, None, Some(req.collapsed)).await?;
+    let response = viewer_response(&state, &mut tx.as_handle(), &account, auth.member_id).await?;
     tx.commit().await?;
     Ok(axum::Json(response))
 }
@@ -597,7 +617,7 @@ pub async fn set_display_order(
     }
     let mut tx = state.db.begin().await?;
     if ids.is_empty() {
-        display_prefs::clear_positions(&mut *tx, auth.member_id).await?;
+        display_prefs::clear_positions(&mut tx, auth.member_id).await?;
         tx.commit().await?;
         return Ok(axum::Json(Vec::new()));
     }
@@ -605,18 +625,18 @@ pub async fn set_display_order(
     for id in &ids {
         let id = id.ok_or_else(accounts::account_not_found)?;
         readable.push(super::scale::fixed(
-            access::require_readable(&mut tx, id, auth.member_id).await?,
+            access::require_readable(&mut tx.as_handle(), id, auth.member_id).await?,
         ));
     }
-    let prefs = prefs_by_account(&mut tx, auth.member_id).await?;
-    let shares = access::shares_for(&mut *tx, &readable, auth.member_id).await?;
+    let prefs = prefs_by_account(&mut tx.as_handle(), auth.member_id).await?;
+    let shares = access::shares_for(&mut tx, &readable, auth.member_id).await?;
     let mut out = Vec::with_capacity(readable.len());
     for (position, account) in readable.iter().enumerate() {
         let collapsed = prefs.get(&account.id).is_some_and(|p| p.list_collapsed);
         let position = i32::try_from(position).map_err(AppError::internal)?;
-        display_prefs::upsert(&mut *tx, account.id, auth.member_id, Some(position), None).await?;
+        display_prefs::upsert(&mut tx, account.id, auth.member_id, Some(position), None).await?;
         let mut response = to_response(
-            &mut tx,
+            &mut tx.as_handle(),
             &*state.ledger.prices,
             account,
             shares.get(&account.id).copied(),
@@ -642,10 +662,10 @@ pub async fn get_history(
     let from = params.date("from")?;
     let to = params.date("to")?;
     let mut conn = state.db.acquire().await?;
-    super::scale::fixed(accounts::get_or_throw(&mut *conn, id, auth.member_id).await?);
+    super::scale::fixed(accounts::get_or_throw(&mut conn, id, auth.member_id).await?);
     let to = to.unwrap_or_else(|| state.clock.today());
     let from = from.unwrap_or_else(|| to.checked_sub_months(Months::new(12)).unwrap_or(to));
-    let mut rows = snapshots::find_by_account_between(&mut *conn, id, from, to).await?;
+    let mut rows = snapshots::find_by_account_between(&mut conn, id, from, to).await?;
     rows.iter_mut().for_each(super::scale::fix_snapshot);
     Ok(axum::Json(
         rows.into_iter().map(SnapshotResponse::from).collect(),
@@ -663,7 +683,7 @@ pub async fn add_snapshot(
     };
     let mut tx = state.db.begin().await?;
     let mut account =
-        super::scale::fixed(accounts::get_or_throw(&mut *tx, id, auth.member_id).await?);
+        super::scale::fixed(accounts::get_or_throw(&mut tx, id, auth.member_id).await?);
     if account.account_type == AccountType::PeerLoan {
         return Err(AppError::BadRequest(
             "A peer loan's balance comes from its repayment ledger, not a manual snapshot"
@@ -674,25 +694,34 @@ pub async fn add_snapshot(
     let balance = signed_balance(account.account_type, typed);
     let manual_ledger = account.is_manual && account.account_type.is_ledger();
     if !manual_ledger {
-        let latest = snapshots::find_latest_by_account(&mut *tx, id).await?;
+        let latest = snapshots::find_latest_by_account(&mut tx, id).await?;
         if latest.is_none_or(|l| date >= l.date) {
             account.current_balance = balance;
             account.last_synced_at = Some(ctx.now);
-            accounts::update(&mut *tx, &account, ctx.now).await?;
+            accounts::update(&mut tx, &account, ctx.now).await?;
         }
     }
     // Hand-entered statements are ground truth: rebuilds keep MANUAL rows, with their native figure.
     let snap =
-        valuation::upsert_snapshot_from_native(&mut tx, &ctx, &account, balance, date).await?;
-    let mut snap = mark_manual(&mut tx, snap.id, balance, ctx.now).await?;
+        valuation::upsert_snapshot_from_native(&mut tx.as_handle(), &ctx, &account, balance, date)
+            .await?;
+    let mut snap = mark_manual(&mut tx.as_handle(), snap.id, balance, ctx.now).await?;
     if manual_ledger {
-        account.current_balance =
-            manual_ledger::compute_manual_ledger_balance(&mut tx, &account, ctx.prices, ctx.today)
-                .await?;
+        account.current_balance = manual_ledger::compute_manual_ledger_balance(
+            &mut tx.as_handle(),
+            &account,
+            ctx.prices,
+            ctx.today,
+        )
+        .await?;
         account.last_synced_at = Some(ctx.now);
-        accounts::update(&mut *tx, &account, ctx.now).await?;
+        accounts::update(&mut tx, &account, ctx.now).await?;
         manual_ledger::reconstruct_snapshots_from_db(
-            &mut tx, &account, ctx.prices, ctx.today, ctx.now,
+            &mut tx.as_handle(),
+            &account,
+            ctx.prices,
+            ctx.today,
+            ctx.now,
         )
         .await?;
     }
@@ -725,9 +754,8 @@ pub async fn get_transactions(
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<Vec<TransactionResponse>>> {
     let mut conn = state.db.acquire().await?;
-    let account =
-        super::scale::fixed(accounts::get_or_throw(&mut *conn, id, auth.member_id).await?);
-    let rows = transactions::find_by_account_newest_first(&mut *conn, id).await?;
+    let account = super::scale::fixed(accounts::get_or_throw(&mut conn, id, auth.member_id).await?);
+    let rows = transactions::find_by_account_newest_first(&mut conn, id).await?;
     let ids: Vec<i64> = rows.iter().map(|t| t.id).collect();
     let links = peer_loan_links(&mut conn.as_handle(), &ids).await?;
     let names = category_names(&mut conn, &rows).await?;
@@ -815,7 +843,7 @@ pub async fn add_transaction(
     let resolver = state.accounts.isin.clone();
     let mut tx = state.db.begin().await?;
     let response = manual_transactions::add_transaction(
-        &mut tx,
+        &mut tx.as_handle(),
         entry_ctx(&state),
         &categorization,
         id,
@@ -837,7 +865,7 @@ pub async fn update_transaction(
     let resolver = state.accounts.isin.clone();
     let mut tx = state.db.begin().await?;
     let response = manual_transactions::update_transaction(
-        &mut tx,
+        &mut tx.as_handle(),
         entry_ctx(&state),
         id,
         tx_id,
@@ -856,8 +884,14 @@ pub async fn delete_transaction(
     Path((id, tx_id)): Path<(i64, i64)>,
 ) -> AppResult<StatusCode> {
     let mut tx = state.db.begin().await?;
-    manual_transactions::delete_transaction(&mut tx, entry_ctx(&state), id, tx_id, auth.member_id)
-        .await?;
+    manual_transactions::delete_transaction(
+        &mut tx.as_handle(),
+        entry_ctx(&state),
+        id,
+        tx_id,
+        auth.member_id,
+    )
+    .await?;
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }

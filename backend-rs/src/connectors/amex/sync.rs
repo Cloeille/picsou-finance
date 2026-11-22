@@ -5,13 +5,14 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::time::Duration;
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use regex::Regex;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use sqlx::PgConnection;
 
 use super::history::{self, PreparedTransaction};
 use crate::AppState;
@@ -276,7 +277,7 @@ impl SyncStrategy for Strategy {
     async fn commit(
         &self,
         state: &AppState,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         _session: &mut SidecarSession,
         job: &SyncJob,
         prepared: &Vec<PreparedAccount>,
@@ -519,7 +520,14 @@ pub async fn poll_webview_status(
                 logins.require_generation(member_id, current.generation)?;
                 let mut tx = state.db.begin().await?;
                 let job = tpl
-                    .insert_queued(state, &mut tx, member_id, plain_state, true, |_| Ok(()))
+                    .insert_queued(
+                        state,
+                        &mut tx.as_handle(),
+                        member_id,
+                        plain_state,
+                        true,
+                        |_| Ok(()),
+                    )
                     .await?;
                 tx.commit().await?;
                 job
@@ -753,7 +761,7 @@ fn prepare_transactions(
 
 async fn upsert_account(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     data: &PreparedAccount,
     member_id: i64,
     synced_at: DateTime<Utc>,

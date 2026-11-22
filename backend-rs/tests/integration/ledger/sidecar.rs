@@ -1,12 +1,33 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use picsou::db::Db;
 use picsou::ledger::sidecar::{SidecarBank, SidecarErrorCode, SourceSyncResult, SyncStatus};
 use picsou::testing::TestApp;
 use regex::Regex;
-use sqlx::PgPool;
 
-async fn constraint_definition(db: &PgPool, name: &str) -> String {
-    sqlx::query_scalar(
+async fn constraint_definition(db: &Db, name: &str) -> String {
+    if db.is_sqlite() {
+        let ddls: Vec<String> = picsou::db::query_scalar(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND sql LIKE $1",
+        )
+        .bind(format!("%CONSTRAINT {name} %"))
+        .fetch_all(db)
+        .await
+        .unwrap();
+        let prefix = format!("CONSTRAINT {name} ");
+        for ddl in ddls {
+            for line in ddl.lines() {
+                if let Some(pos) = line.find(&prefix) {
+                    return line[pos + prefix.len()..]
+                        .trim()
+                        .trim_end_matches(',')
+                        .to_owned();
+                }
+            }
+        }
+        panic!("{name} exists in sqlite_master");
+    }
+    picsou::db::query_scalar(
         "SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c WHERE c.conname = $1",
     )
     .bind(name)
@@ -25,9 +46,13 @@ fn quoted(text: &str) -> BTreeSet<String> {
 }
 
 /// The codes each bank branch of ck_sidecar_session_last_sync_error quotes.
-async fn allowed_by_check(db: &PgPool) -> BTreeMap<String, BTreeSet<String>> {
+async fn allowed_by_check(db: &Db) -> BTreeMap<String, BTreeSet<String>> {
     let definition = constraint_definition(db, "ck_sidecar_session_last_sync_error").await;
-    let branch = Regex::new(r"bank\)::text = '([A-Z_]+)'::text\) AND .*?ARRAY\[(.*?)\]").unwrap();
+    let branch = if db.is_sqlite() {
+        Regex::new(r"\(bank = '([A-Z_]+)'\) AND \(last_sync_error IN \(([^)]+)\)\)").unwrap()
+    } else {
+        Regex::new(r"bank\)::text = '([A-Z_]+)'::text\) AND .*?ARRAY\[(.*?)\]").unwrap()
+    };
     let mut allowed = BTreeMap::new();
     for c in branch.captures_iter(&definition) {
         let previous = allowed.insert(c[1].to_owned(), quoted(&c[2]));

@@ -7,11 +7,11 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
+use crate::db::DbHandle;
 use chrono::{DateTime, Days, NaiveDate, Utc};
 use regex::Regex;
 use rust_decimal::Decimal;
 use sha2::{Digest, Sha256};
-use sqlx::PgConnection;
 
 use crate::ledger::model::{NewTransaction, Transaction};
 use crate::ledger::transactions;
@@ -392,7 +392,7 @@ impl Book {
     /// Deletes first (a deleted row frees its id), then updates, then inserts.
     async fn write(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         account_id: i64,
         now: DateTime<Utc>,
     ) -> sqlx::Result<()> {
@@ -443,7 +443,7 @@ fn posted_rows(book: &Book, stored_posted: &[usize], inserted: &[usize]) -> Vec<
 /// never updates or deletes a row, except those same pending charges. Both re-key relabelled
 /// posted charges.
 pub async fn sync_transactions(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account_id: i64,
     transactions: &[PreparedTransaction],
     pending_complete: bool,

@@ -1,10 +1,10 @@
 //! SavingsInterestService: the year's interest of a savings book under the règle de la
 //! quinzaine. Read-only: nothing here writes a balance or a snapshot.
 
+use crate::db::DbHandle;
 use chrono::{Datelike, NaiveDate};
 use rust_decimal::Decimal;
 use serde::Serialize;
-use sqlx::PgConnection;
 
 use super::model::{RateBasis, SavingsConfig, SavingsProduct};
 use crate::error::{AppError, AppResult};
@@ -117,7 +117,7 @@ pub fn project(
 /// computeProjection: the opening capital is the year's earliest snapshot less the movements it
 /// already contains, else the current balance less the year's net flows.
 pub async fn compute_projection(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     config: &SavingsConfig,
     as_of: NaiveDate,

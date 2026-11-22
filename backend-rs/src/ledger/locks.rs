@@ -1,8 +1,8 @@
 //! ConnectionLocks: the member lock an account deletion takes before writing, in the order the
 //! CORUM and Louve syncs take it, so a deletion and a running sync cannot deadlock.
 
+use crate::db::DbHandle;
 use async_trait::async_trait;
-use sqlx::PgConnection;
 
 use super::members;
 use crate::error::AppResult;
@@ -19,7 +19,7 @@ pub trait ConnectionLocks: Send + Sync {
     /// lockMemberForAccountDeletion: joins the caller's transaction; held until it ends.
     async fn lock_member_for_account_deletion(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         connection: LockedConnection,
         member_id: i64,
     ) -> AppResult<()>;
@@ -34,7 +34,7 @@ pub struct MemberRowLock;
 impl ConnectionLocks for MemberRowLock {
     async fn lock_member_for_account_deletion(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         _connection: LockedConnection,
         member_id: i64,
     ) -> AppResult<()> {

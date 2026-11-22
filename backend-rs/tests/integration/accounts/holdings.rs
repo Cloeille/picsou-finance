@@ -117,13 +117,16 @@ async fn a_stored_mark_gives_a_versioned_url_and_is_served_with_an_etag() {
     let (alice, client) = signed_in(&app, "alice").await;
     let pea = simple(&app, alice, "PEA", "0").await;
     holding(&app, pea, "PS W", "1", None).await;
-    sql(
-        &app,
+    picsou::db::query(
         "INSERT INTO instrument_logo (ticker, status, image, content_type, image_dark, content_type_dark, \
-         attempted_at, fetched_at) VALUES ('PS W', 'STORED', '\\x0102', 'image/png', '\\x0304', 'image/svg+xml', \
+         attempted_at, fetched_at) VALUES ('PS W', 'STORED', $1, 'image/png', $2, 'image/svg+xml', \
          '2024-05-01T10:00:00Z', '2024-05-01T10:00:00Z')",
     )
-    .await;
+    .bind(&[1u8, 2][..])
+    .bind(&[3u8, 4][..])
+    .execute(&app.state.db)
+    .await
+    .unwrap();
     let line = &get_json(&client, &format!("/api/accounts/{pea}/holdings")).await[0];
     assert_eq!(line["logoUrl"], "/api/instrument-logos/PS%20W?v=1714557600");
     assert_eq!(
@@ -172,12 +175,14 @@ async fn a_stored_mark_gives_a_versioned_url_and_is_served_with_an_etag() {
 async fn a_dark_request_falls_back_to_the_light_mark() {
     let app = TestApp::with_admin().await;
     let (_, client) = signed_in(&app, "alice").await;
-    sql(
-        &app,
+    picsou::db::query(
         "INSERT INTO instrument_logo (ticker, status, image, content_type, attempted_at, fetched_at) \
-         VALUES ('PSL', 'STORED', '\\x09', 'image/png', now(), '2024-05-01T10:00:00Z')",
+         VALUES ('PSL', 'STORED', $1, 'image/png', now(), '2024-05-01T10:00:00Z')",
     )
-    .await;
+    .bind(&[9u8][..])
+    .execute(&app.state.db)
+    .await
+    .unwrap();
     let served = client
         .get("/api/instrument-logos/PSL?variant=dark")
         .send()
@@ -213,7 +218,7 @@ async fn an_edit_on_a_manual_account_sets_quantity_and_buy_in_and_drops_the_prov
         "the provider's value went with its P&L"
     );
     let (value, pnl): (Option<rust_decimal::Decimal>, Option<rust_decimal::Decimal>) =
-        sqlx::query_as("SELECT provider_value_eur, provider_pnl_eur FROM account_holding")
+        picsou::db::query_as("SELECT provider_value_eur, provider_pnl_eur FROM account_holding")
             .fetch_one(&app.state.db)
             .await
             .unwrap();
@@ -297,7 +302,7 @@ async fn an_override_is_stored_uppercased_and_clearing_every_field_drops_it() {
         saved.json(),
         json!({"ticker": "GOLD", "wealthTier": "ALTERNATIVE"})
     );
-    let stored: String = sqlx::query_scalar("SELECT ticker FROM holding_classification")
+    let stored: String = picsou::db::query_scalar("SELECT ticker FROM holding_classification")
         .fetch_one(&app.state.db)
         .await
         .unwrap();
@@ -309,7 +314,7 @@ async fn an_override_is_stored_uppercased_and_clearing_every_field_drops_it() {
         .send()
         .await;
     assert_eq!(cleared.json(), json!({"ticker": "GOLD"}));
-    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM holding_classification")
+    let rows: i64 = picsou::db::query_scalar("SELECT count(*) FROM holding_classification")
         .fetch_one(&app.state.db)
         .await
         .unwrap();

@@ -126,7 +126,7 @@ async fn view(
     Path((id, ticker)): Path<(i64, String)>,
 ) -> AppResult<axum::Json<HoldingClassificationView>> {
     let mut conn = state.db.acquire().await?;
-    access::require_readable(&mut conn, id, auth.member_id).await?;
+    access::require_readable(&mut conn.as_handle(), id, auth.member_id).await?;
     let upper = ticker.to_uppercase();
     let found = find(&mut conn, auth.member_id, &upper).await?;
     let profile = profiles::load(&mut conn.as_handle(), [upper.as_str()])
@@ -153,7 +153,7 @@ async fn classify(
     Json(request): Json<HoldingClassificationRequest>,
 ) -> AppResult<axum::Json<HoldingClassificationResponse>> {
     let mut tx = state.db.begin().await?;
-    access::require_owner(&mut tx, id, auth.member_id).await?;
+    access::require_owner(&mut tx.as_handle(), id, auth.member_id).await?;
     let upper = ticker.to_uppercase();
     let existing = find(&mut tx, auth.member_id, &upper).await?;
     if request.wealth_tier.is_none()

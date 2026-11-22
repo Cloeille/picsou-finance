@@ -2,11 +2,12 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use chrono::{DateTime, Days, NaiveDate, Utc};
 use regex::Regex;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use sqlx::PgConnection;
 
 use super::source::{ParsedHomeBankData, SourceAccount, SourceCategory, jlen};
 use crate::AppState;
@@ -561,7 +562,7 @@ fn validate_new_account_details(
 }
 
 async fn validate_accounts(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     parsed: &ParsedHomeBankData,
     mappings: &HashMap<&str, &AccountMapping>,
     member_id: i64,
@@ -629,7 +630,7 @@ fn validate_category_kind(source: &SourceCategory, target: &Category) -> AppResu
 }
 
 async fn validate_categories(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     parsed: &ParsedHomeBankData,
     mappings: &HashMap<&str, &CategoryMapping>,
     member_id: i64,
@@ -783,7 +784,7 @@ fn effective_kind(
 }
 
 async fn find_reusable_transfer_category(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
 ) -> AppResult<Option<Category>> {
     let existing = categorize::categories_of_member(&mut *conn, member_id, true).await?;
@@ -1009,7 +1010,7 @@ pub async fn execute(
         .ok_or_else(|| bad("Preview expired or invalid; please upload the file again"))?;
     let parsed = &*entry.payload;
     let mut tx = state.db.begin().await?;
-    members::lock(&mut *tx, member_id)
+    members::lock(&mut tx, member_id)
         .await?
         .ok_or_else(|| bad("Family member not found"))?;
     let account_mappings = mappings_by_source(
@@ -1022,10 +1023,11 @@ pub async fn execute(
         parsed.categories.iter().map(|c| c.id.as_str()),
         |m: &CategoryMapping| m.source_id.as_deref(),
     )?;
-    let mut targets = validate_accounts(&mut tx, parsed, &account_mappings, member_id).await?;
+    let mut targets =
+        validate_accounts(&mut tx.as_handle(), parsed, &account_mappings, member_id).await?;
     let mut categories =
-        validate_categories(&mut tx, parsed, &category_mappings, member_id).await?;
-    let reusable_transfer = find_reusable_transfer_category(&mut tx, member_id).await?;
+        validate_categories(&mut tx.as_handle(), parsed, &category_mappings, member_id).await?;
+    let reusable_transfer = find_reusable_transfer_category(&mut tx.as_handle(), member_id).await?;
     validate_transactions(parsed, &account_mappings, &category_mappings, &targets)?;
     validate_existing_transaction_ownership(
         &mut tx,
@@ -1043,7 +1045,7 @@ pub async fn execute(
     let outcome = async {
         let counts = write_import(
             state,
-            &mut tx,
+            &mut tx.as_handle(),
             parsed,
             &account_mappings,
             &category_mappings,
@@ -1072,7 +1074,7 @@ pub async fn execute(
 #[allow(clippy::too_many_arguments)]
 async fn write_import(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     parsed: &ParsedHomeBankData,
     account_mappings: &HashMap<&str, &AccountMapping>,
     category_mappings: &HashMap<&str, &CategoryMapping>,

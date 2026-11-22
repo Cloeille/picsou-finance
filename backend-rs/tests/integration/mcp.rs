@@ -41,7 +41,7 @@ fn mint_mcp_jwt(
 }
 
 async fn admin_ids(app: &TestApp) -> (i64, i64) {
-    sqlx::query_as("SELECT id, member_id FROM app_user WHERE username = 'admin'")
+    picsou::db::query_as("SELECT id, member_id FROM app_user WHERE username = 'admin'")
         .fetch_one(&app.state.db)
         .await
         .expect("admin user")
@@ -467,7 +467,7 @@ async fn security_properties_a_b_and_cookie_defense_in_depth() {
     let (admin_uid, admin_mid) = admin_ids(&app).await;
     let managed_mid = app.create_managed_member("Child").await;
 
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color) \
          VALUES ($1, 'Admin Checking', 'CHECKING', 'EUR', 100, true, '#111111'), \
                 ($2, 'Child Checking', 'CHECKING', 'EUR', 50, true, '#222222')",
@@ -554,7 +554,7 @@ async fn streamable_http_works_with_access_key_and_oauth2_jwt_and_enforces_isola
     let (alice_uid, alice_mid) = app.create_member("alice", "pass12345678").await;
     let (bob_uid, bob_mid) = app.create_member("bob", "pass12345678").await;
 
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color) \
          VALUES ($1, 'Alice Main', 'CHECKING', 'EUR', 1200, true, '#111111'), \
                 ($2, 'Bob Secret', 'CHECKING', 'EUR', 9999, true, '#222222')",
@@ -773,7 +773,7 @@ async fn sse_transport_drives_full_handshake_tool_call_and_keep_alive_pings() {
         .await;
     let (alice_uid, alice_mid) = app.create_member("sse-alice", "pass12345678").await;
     let (bob_uid, bob_mid) = app.create_member("sse-bob", "pass12345678").await;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color) \
          VALUES ($1, 'SSE Alice Account', 'CHECKING', 'EUR', 500, true, '#111111'), \
                 ($2, 'SSE Bob Account', 'CHECKING', 'EUR', 700, true, '#222222')",
@@ -953,7 +953,7 @@ async fn account_and_transaction_tools_lifecycle_and_member_isolation() {
         .await;
     let (alice_uid, _) = app.create_member("acc-alice", "pass12345678").await;
     let (bob_uid, bob_mid) = app.create_member("acc-bob", "pass12345678").await;
-    let bob_acc_id: i64 = sqlx::query_scalar(
+    let bob_acc_id: i64 = picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color) \
          VALUES ($1, 'Bob Vault', 'CHECKING', 'EUR', 500, true, '#111111') RETURNING id",
     )
@@ -1190,7 +1190,7 @@ async fn goal_and_insight_tools_lifecycle() {
         .spawn()
         .await;
     let (uid, mid) = app.create_member("goal-alice", "pass12345678").await;
-    let acc_id: i64 = sqlx::query_scalar(
+    let acc_id: i64 = picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color) \
          VALUES ($1, 'Livret A', 'LIVRET_A', 'EUR', 5000, true, '#111111') RETURNING id",
     )
@@ -1199,11 +1199,13 @@ async fn goal_and_insight_tools_lifecycle() {
     .await
     .unwrap();
     // Seed a recorded price snapshot for AAPL so get_price works without network.
-    sqlx::query("INSERT INTO price_snapshot (ticker, date, price_eur) VALUES ('AAPL', $1, 185.50)")
-        .bind(NaiveDate::from_ymd_opt(2026, 1, 15).unwrap())
-        .execute(&app.state.db)
-        .await
-        .unwrap();
+    picsou::db::query(
+        "INSERT INTO price_snapshot (ticker, date, price_eur) VALUES ('AAPL', $1, 185.50)",
+    )
+    .bind(NaiveDate::from_ymd_opt(2026, 1, 15).unwrap())
+    .execute(&app.state.db)
+    .await
+    .unwrap();
 
     let key = app
         .create_access_key(
@@ -1340,7 +1342,7 @@ async fn sync_and_oauth2_tools_enforce_cooldown_and_session_introspection() {
     let (uid, mid) = app.create_member("sync-alice", "pass12345678").await;
 
     // Seed a Wise connection in REAUTH_REQUIRED and a Degiro session to check get_sync_status.
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO wise_connection (member_id, api_token, status) VALUES ($1, 'super-secret-token', 'REAUTH_REQUIRED')",
     )
     .bind(mid)
@@ -1447,7 +1449,7 @@ async fn budget_tools_full_lifecycle_and_cross_scope_card_filtering() {
     let (uid, mid) = app.create_member("budget-alice", "pass12345678").await;
 
     // Create a checking account with a transaction AND a credit card with a payment due.
-    let checking_id: i64 = sqlx::query_scalar(
+    let checking_id: i64 = picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color) \
          VALUES ($1, 'Checking', 'CHECKING', 'EUR', 2000, true, '#111111') RETURNING id",
     )
@@ -1455,7 +1457,7 @@ async fn budget_tools_full_lifecycle_and_cross_scope_card_filtering() {
     .fetch_one(&app.state.db)
     .await
     .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color, payment_due_amount, payment_due_date) \
          VALUES ($1, 'Amex Gold', 'CREDIT_CARD', 'EUR', -350, false, '#222222', 350, '2026-01-25')",
     )
@@ -1463,7 +1465,7 @@ async fn budget_tools_full_lifecycle_and_cross_scope_card_filtering() {
     .execute(&app.state.db)
     .await
     .unwrap();
-    let tx_id: i64 = sqlx::query_scalar(
+    let tx_id: i64 = picsou::db::query_scalar(
         "INSERT INTO transaction (account_id, date, description, counterparty, amount, native_currency, is_manual) \
          VALUES ($1, '2026-01-10', 'CARREFOUR MARKET PARIS', 'CARREFOUR', -85.40, 'EUR', true) RETURNING id",
     )
@@ -1783,7 +1785,7 @@ async fn analysis_ai_and_peer_loan_tools_behavior() {
 
     // Seed accounts for savings interest, loan summary, real estate valuations, investment realized PnL,
     // crypto exchange positions, and a configured peer loan!
-    let savings_id: i64 = sqlx::query_scalar(
+    let savings_id: i64 = picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color) \
          VALUES ($1, 'Livret A', 'LIVRET_A', 'EUR', 10000, true, '#111111') RETURNING id",
     )
@@ -1791,7 +1793,7 @@ async fn analysis_ai_and_peer_loan_tools_behavior() {
     .fetch_one(&app.state.db)
     .await
     .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO savings_interest_config (account_id, product, annual_rate, rate_basis) \
          VALUES ($1, 'LIVRET_A', 3.00, 'NET')",
     )
@@ -1800,7 +1802,7 @@ async fn analysis_ai_and_peer_loan_tools_behavior() {
     .await
     .unwrap();
 
-    let prop_id: i64 = sqlx::query_scalar(
+    let prop_id: i64 = picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color) \
          VALUES ($1, 'Paris Flat', 'REAL_ESTATE', 'EUR', 350000, true, '#222222') RETURNING id",
     )
@@ -1808,7 +1810,7 @@ async fn analysis_ai_and_peer_loan_tools_behavior() {
     .fetch_one(&app.state.db)
     .await
     .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO property_valuation (account_id, member_id, valued_at, estimated_value, provider) \
          VALUES ($1, $2, '2026-01-01', 350000, 'DVF')",
     )
@@ -1818,7 +1820,7 @@ async fn analysis_ai_and_peer_loan_tools_behavior() {
     .await
     .unwrap();
 
-    let loan_id: i64 = sqlx::query_scalar(
+    let loan_id: i64 = picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color) \
          VALUES ($1, 'Mortgage', 'LOAN', 'EUR', 200000, true, '#333333') RETURNING id",
     )
@@ -1826,7 +1828,7 @@ async fn analysis_ai_and_peer_loan_tools_behavior() {
     .fetch_one(&app.state.db)
     .await
     .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO debt (account_id, member_id, borrowed_amount, interest_rate, monthly_payment, start_date, end_date) \
          VALUES ($1, $2, 250000, 0.025, 1300, '2024-01-01', '2044-01-01')",
     )
@@ -1836,7 +1838,7 @@ async fn analysis_ai_and_peer_loan_tools_behavior() {
     .await
     .unwrap();
 
-    let broker_id: i64 = sqlx::query_scalar(
+    let broker_id: i64 = picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color) \
          VALUES ($1, 'CTO', 'COMPTE_TITRES', 'EUR', 5000, true, '#444444') RETURNING id",
     )
@@ -1845,7 +1847,7 @@ async fn analysis_ai_and_peer_loan_tools_behavior() {
     .await
     .unwrap();
 
-    let peer_loan_id: i64 = sqlx::query_scalar(
+    let peer_loan_id: i64 = picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color) \
          VALUES ($1, 'Loan to Paul', 'PEER_LOAN', 'EUR', 1000, true, '#555555') RETURNING id",
     )
@@ -1853,7 +1855,7 @@ async fn analysis_ai_and_peer_loan_tools_behavior() {
     .fetch_one(&app.state.db)
     .await
     .unwrap();
-    let cash_id: i64 = sqlx::query_scalar(
+    let cash_id: i64 = picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color) \
          VALUES ($1, 'Cash', 'CHECKING', 'EUR', 2000, true, '#666666') RETURNING id",
     )

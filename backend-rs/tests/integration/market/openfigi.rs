@@ -69,7 +69,7 @@ async fn an_isin_resolves_once_to_a_quoted_listing() {
     assert_eq!(first.name.as_deref(), Some("TOTALENERGIES SE"));
     assert_eq!(openfigi.resolve("FR0000120271").await, first);
 
-    sqlx::query("INSERT INTO crypto_asset (ticker, coingecko_id, name, source) VALUES ('BTC', 'bitcoin', 'Bitcoin', 'CURATED') \
+    picsou::db::query("INSERT INTO crypto_asset (ticker, coingecko_id, name, source) VALUES ('BTC', 'bitcoin', 'Bitcoin', 'CURATED') \
                  ON CONFLICT (ticker) DO UPDATE SET name = 'Bitcoin'")
         .execute(&app.state.db)
         .await

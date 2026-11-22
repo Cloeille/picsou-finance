@@ -112,14 +112,15 @@ async fn the_config_is_upserted_retypes_the_account_and_is_member_scoped() {
     assert_eq!(response.status, 200, "{}", response.text());
     let response = put(json!({"product": "LEP", "annualRate": 3.5, "rateBasis": "NET"})).await;
     assert_eq!(response.status, 200);
-    let rows: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM savings_interest_config WHERE account_id = $1")
-            .bind(id)
-            .fetch_one(&f.app.state.db)
-            .await
-            .unwrap();
+    let rows: i64 = picsou::db::query_scalar(
+        "SELECT count(*) FROM savings_interest_config WHERE account_id = $1",
+    )
+    .bind(id)
+    .fetch_one(&f.app.state.db)
+    .await
+    .unwrap();
     assert_eq!(rows, 1);
-    let kind: String = sqlx::query_scalar("SELECT type::text FROM account WHERE id = $1")
+    let kind: String = picsou::db::query_scalar("SELECT type::text FROM account WHERE id = $1")
         .bind(id)
         .fetch_one(&f.app.state.db)
         .await

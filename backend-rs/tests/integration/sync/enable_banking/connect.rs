@@ -58,7 +58,7 @@ async fn initiate_stores_a_created_requisition_with_its_nonce_and_the_catalog_lo
     assert_eq!(uuid::Uuid::parse_str(&nonce).unwrap().get_version_num(), 4);
 
     let (id, member, logo, status, stored): (i64, i64, Option<String>, String, Option<String>) =
-        sqlx::query_as(
+        picsou::db::query_as(
             "SELECT id, member_id, logo_url, status::text, oauth_state FROM requisition WHERE requisition_id = 'auth-123'",
         )
         .fetch_one(&b.app.state.db)
@@ -121,7 +121,7 @@ async fn initiate_upstream_failure_is_422_and_stores_nothing() {
         detail(&response.json()),
         "Enable Banking auth failed: ASPSP_NOT_FOUND"
     );
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM requisition")
+    let count: i64 = picsou::db::query_scalar("SELECT count(*) FROM requisition")
         .fetch_one(&b.app.state.db)
         .await
         .unwrap();
@@ -208,24 +208,25 @@ async fn complete_links_the_accounts_imports_transactions_and_clears_the_nonce()
         (status.as_str(), nonce, session_id.as_str()),
         ("LINKED", None, "sess-1")
     );
-    let rows: Vec<(Option<String>, String, rust_decimal::Decimal)> =
-        sqlx::query_as("SELECT external_id, description, amount FROM transaction ORDER BY date")
-            .fetch_all(&b.app.state.db)
-            .await
-            .unwrap();
+    let rows: Vec<(Option<String>, String, rust_decimal::Decimal)> = picsou::db::query_as(
+        "SELECT external_id, description, amount FROM transaction ORDER BY date",
+    )
+    .fetch_all(&b.app.state.db)
+    .await
+    .unwrap();
     assert_eq!(rows.len(), 2, "the pending entry is skipped");
     assert_eq!(rows[0].1, "CARTE BOULANGERIE");
     assert_eq!(rows[0].2, "-12.34".parse().unwrap());
     assert_eq!(rows[1].1, "Employeur SA");
     let (iban, req_link): (Option<String>, Option<i64>) =
-        sqlx::query_as("SELECT iban, requisition_id FROM account")
+        picsou::db::query_as("SELECT iban, requisition_id FROM account")
             .fetch_one(&b.app.state.db)
             .await
             .unwrap();
     assert_eq!(iban.as_deref(), Some("FR7630006000011234567890189"));
     assert_eq!(req_link, Some(id));
     let snapshot: rust_decimal::Decimal =
-        sqlx::query_scalar("SELECT balance FROM balance_snapshot WHERE date = '2026-01-15'")
+        picsou::db::query_scalar("SELECT balance FROM balance_snapshot WHERE date = '2026-01-15'")
             .fetch_one(&b.app.state.db)
             .await
             .unwrap();
@@ -456,7 +457,7 @@ async fn an_already_authorized_replay_refreshes_the_same_institution_only() {
             .all(|r| r.url.path() != "/sessions/sess-bnp")
     );
     let synced: Option<chrono::DateTime<chrono::Utc>> =
-        sqlx::query_scalar("SELECT last_synced_at FROM requisition WHERE id = $1")
+        picsou::db::query_scalar("SELECT last_synced_at FROM requisition WHERE id = $1")
             .bind(same)
             .fetch_one(&b.app.state.db)
             .await
@@ -496,7 +497,7 @@ async fn the_callback_completes_for_the_member_the_nonce_was_issued_to() {
         .send()
         .await;
     assert_eq!(response.status, StatusCode::OK, "{}", response.text());
-    let owner: i64 = sqlx::query_scalar("SELECT member_id FROM account")
+    let owner: i64 = picsou::db::query_scalar("SELECT member_id FROM account")
         .fetch_one(&b.app.state.db)
         .await
         .unwrap();

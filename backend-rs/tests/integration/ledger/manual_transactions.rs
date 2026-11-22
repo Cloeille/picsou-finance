@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use chrono::NaiveDate;
+use picsou::db::AsDbHandle;
 use picsou::error::AppError;
 use picsou::http::json::{Errors, Lang, Validate};
 use picsou::ledger::accounts::{self, NewAccount};
@@ -96,7 +97,7 @@ impl Fixture {
         let categorization = self.categorization().await;
         let mut conn = self.app.state.db.acquire().await.unwrap();
         add_transaction(
-            &mut conn,
+            &mut conn.as_handle(),
             self.ctx(),
             &categorization,
             account_id,
@@ -115,7 +116,7 @@ impl Fixture {
     ) -> Result<TransactionResponse, AppError> {
         let mut conn = self.app.state.db.acquire().await.unwrap();
         update_transaction(
-            &mut conn,
+            &mut conn.as_handle(),
             self.ctx(),
             account_id,
             tx_id,
@@ -128,7 +129,14 @@ impl Fixture {
 
     async fn delete(&self, account_id: i64, tx_id: i64) -> Result<(), AppError> {
         let mut conn = self.app.state.db.acquire().await.unwrap();
-        delete_transaction(&mut conn, self.ctx(), account_id, tx_id, self.member).await
+        delete_transaction(
+            &mut conn.as_handle(),
+            self.ctx(),
+            account_id,
+            tx_id,
+            self.member,
+        )
+        .await
     }
 
     /// A row booked straight into the ledger: manual, or as a bank sync writes it.
@@ -436,7 +444,7 @@ async fn add_transaction_no_category_leaves_the_automatic_pipeline_in_charge() {
     let f = Fixture::new().await;
     let account = f.account(AccountType::Checking, "2500", false).await;
     let category = some_category(&f).await;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO categorization_rule (member_id, match_type, pattern, category_id, priority, source, created_at) \
          VALUES ($1, 'KEYWORD', 'totalenergies', $2, 0, 'USER', $3)",
     )
@@ -580,7 +588,7 @@ async fn every_write_refuses_another_members_account() {
     let added = f.add_as(account.id, other, &req).await.unwrap_err();
     let mut conn = f.app.state.db.acquire().await.unwrap();
     let updated = update_transaction(
-        &mut conn,
+        &mut conn.as_handle(),
         f.ctx(),
         account.id,
         tx,
@@ -590,7 +598,7 @@ async fn every_write_refuses_another_members_account() {
     )
     .await
     .unwrap_err();
-    let deleted = delete_transaction(&mut conn, f.ctx(), account.id, tx, other)
+    let deleted = delete_transaction(&mut conn.as_handle(), f.ctx(), account.id, tx, other)
         .await
         .unwrap_err();
 
@@ -686,7 +694,7 @@ async fn add_transaction_isin_input_resolves_ticker_name_and_description() {
     let mut conn = f.app.state.db.acquire().await.unwrap();
 
     let result = add_transaction(
-        &mut conn,
+        &mut conn.as_handle(),
         f.ctx(),
         &categorization,
         account.id,

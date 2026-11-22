@@ -4,11 +4,12 @@
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use axum::extract::{RawQuery, State};
 use http::StatusCode;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use sqlx::PgConnection;
 
 use crate::AppState;
 use crate::auth::Auth;
@@ -153,7 +154,7 @@ impl Validate for SharingSettingsRequest {
 /// The requested ids without duplicates, every one owned by the member, or the 400 before
 /// anything is written.
 async fn validated_ids(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     resource_type: &str,
     member_id: i64,
     ids: Option<&[Option<i64>]>,
@@ -210,7 +211,7 @@ async fn update_settings(
     let mut tx = state.db.begin().await?;
     let manual_ids = if sharing_level == SharingLevel::Manual {
         validated_ids(
-            &mut tx,
+            &mut tx.as_handle(),
             resource_type,
             member_id,
             req.shared_resource_ids.as_deref(),

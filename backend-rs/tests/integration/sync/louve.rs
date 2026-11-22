@@ -35,7 +35,7 @@ async fn app(server: &MockServer) -> TestApp {
 }
 
 async fn admin_member(app: &TestApp) -> i64 {
-    sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+    picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
         .fetch_one(&app.state.db)
         .await
         .expect("admin member")
@@ -167,11 +167,8 @@ async fn connect(server: &MockServer, client: &Client) -> Value {
     done.json()
 }
 
-async fn scalar<T>(app: &TestApp, sql: &str) -> T
-where
-    T: Send + Unpin + for<'r> sqlx::Decode<'r, sqlx::Postgres> + sqlx::Type<sqlx::Postgres>,
-{
-    sqlx::query_scalar(sql)
+async fn scalar<T: picsou::db::DbDecode>(app: &TestApp, sql: &str) -> T {
+    picsou::db::query_scalar(sql)
         .fetch_one(&app.state.db)
         .await
         .expect(sql)
@@ -192,7 +189,7 @@ async fn store_tokens(app: &TestApp, member_id: i64, access: &str, refresh: &str
         "refreshToken": refresh, "expiresAt": expires_at})
         .to_string();
     let encrypted = app.state.crypto.encrypt(&plain).expect("encrypt");
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO louve_connection (member_id, token_state, status) VALUES ($1, $2, 'CONNECTED') \
          ON CONFLICT (member_id) DO UPDATE SET token_state = EXCLUDED.token_state",
     )
@@ -286,11 +283,12 @@ async fn the_redirect_uri_is_the_configured_origin_with_its_port_and_one_registr
             b"https://money.example:8443/sync/louve/callback"
         ))
     );
-    let stored: String = sqlx::query_scalar("SELECT value FROM app_setting WHERE setting_key = $1")
-        .bind(&key)
-        .fetch_one(&app.state.db)
-        .await
-        .expect("registration");
+    let stored: String =
+        picsou::db::query_scalar("SELECT value FROM app_setting WHERE setting_key = $1")
+            .bind(&key)
+            .fetch_one(&app.state.db)
+            .await
+            .expect("registration");
     assert_eq!(stored, "client-9");
     assert_eq!(key.len(), 80);
 }
@@ -415,18 +413,19 @@ async fn a_consent_stores_encrypted_tokens_and_the_first_sync_creates_the_scpi_a
         scalar::<Option<String>>(&app, "SELECT oauth_state FROM louve_connection").await,
         None
     );
-    let (name, provider, balance): (String, String, Decimal) =
-        sqlx::query_as("SELECT name, provider, current_balance FROM account WHERE type = 'SCPI'")
-            .fetch_one(&app.state.db)
-            .await
-            .expect("account");
+    let (name, provider, balance): (String, String, Decimal) = picsou::db::query_as(
+        "SELECT name, provider, current_balance FROM account WHERE type = 'SCPI'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .expect("account");
     assert_eq!(
         (name.as_str(), provider.as_str()),
         ("Aurore", "Louve Invest")
     );
     assert_eq!(balance, d("960.00000000"));
     let (code, isin, company, annual, frequency): (String, String, String, Decimal, String) =
-        sqlx::query_as(
+        picsou::db::query_as(
             "SELECT louve_fund_code, isin, management_company, annual_distribution_per_share_eur, \
              distribution_frequency FROM scpi_position",
         )
@@ -714,7 +713,7 @@ async fn a_client_refused_on_refresh_is_forgotten_but_a_newer_registration_is_ke
         "louve.client-id:{}",
         hex::encode(Sha256::digest(REDIRECT.as_bytes()))
     );
-    sqlx::query("INSERT INTO app_setting (setting_key, value) VALUES ($1, 'client-1')")
+    picsou::db::query("INSERT INTO app_setting (setting_key, value) VALUES ($1, 'client-1')")
         .bind(&key)
         .execute(&app.state.db)
         .await
@@ -732,7 +731,7 @@ async fn a_client_refused_on_refresh_is_forgotten_but_a_newer_registration_is_ke
         0
     );
 
-    sqlx::query("INSERT INTO app_setting (setting_key, value) VALUES ($1, 'client-2')")
+    picsou::db::query("INSERT INTO app_setting (setting_key, value) VALUES ($1, 'client-2')")
         .bind(&key)
         .execute(&app.state.db)
         .await
@@ -754,7 +753,7 @@ async fn an_unreadable_stored_state_asks_for_a_new_consent() {
     let server = MockServer::start().await;
     let app = app(&server).await;
     let client = app.login_admin().await;
-    sqlx::query("INSERT INTO louve_connection (member_id, token_state, status) VALUES ($1, 'garbage', 'CONNECTED')")
+    picsou::db::query("INSERT INTO louve_connection (member_id, token_state, status) VALUES ($1, 'garbage', 'CONNECTED')")
         .bind(admin_member(&app).await)
         .execute(&app.state.db)
         .await
@@ -958,7 +957,7 @@ async fn disconnecting_revokes_both_tokens_whatever_the_status_and_twice_is_harm
     let app = app(&server).await;
     let client = app.login_admin().await;
     store_tokens(&app, admin_member(&app).await, "access-1", "refresh-1", 0).await;
-    sqlx::query("UPDATE louve_connection SET status = 'REAUTH_REQUIRED'")
+    picsou::db::query("UPDATE louve_connection SET status = 'REAUTH_REQUIRED'")
         .execute(&app.state.db)
         .await
         .unwrap();

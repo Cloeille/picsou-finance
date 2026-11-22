@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use picsou::db::AsDbHandle;
 use picsou::ledger::categorize::{self, CategorizationContext};
 use picsou::ledger::merchants::KnowledgeBase;
 use picsou::ledger::model::{
@@ -64,36 +65,40 @@ async fn find_or_create_default_recreates_a_deleted_default_at_the_end_and_refus
     categorize::ensure_seeded(&app.state.db, alice, now())
         .await
         .unwrap();
-    sqlx::query("DELETE FROM category WHERE member_id = $1 AND slug = 'epargne'")
+    picsou::db::query("DELETE FROM category WHERE member_id = $1 AND slug = 'epargne'")
         .bind(alice)
         .execute(&app.state.db)
         .await
         .unwrap();
-    sqlx::query("UPDATE category SET archived = true WHERE member_id = $1 AND slug = 'voyages'")
-        .bind(alice)
-        .execute(&app.state.db)
-        .await
-        .unwrap();
+    picsou::db::query(
+        "UPDATE category SET archived = true WHERE member_id = $1 AND slug = 'voyages'",
+    )
+    .bind(alice)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
 
     let mut conn = app.state.db.acquire().await.unwrap();
-    let recreated = categorize::find_or_create_default(&mut conn, alice, "epargne", now())
-        .await
-        .unwrap()
-        .unwrap();
+    let recreated =
+        categorize::find_or_create_default(&mut conn.as_handle(), alice, "epargne", now())
+            .await
+            .unwrap()
+            .unwrap();
     assert_eq!(recreated.sort_order, 20);
     assert_eq!(recreated.kind, CategoryKind::Transfer);
     assert!(
-        categorize::find_or_create_default(&mut conn, alice, "voyages", now())
+        categorize::find_or_create_default(&mut conn.as_handle(), alice, "voyages", now())
             .await
             .unwrap()
             .is_none()
     );
     assert!(
-        categorize::find_or_create_default(&mut conn, alice, "unknown", now())
+        categorize::find_or_create_default(&mut conn.as_handle(), alice, "unknown", now())
             .await
             .unwrap()
             .is_none()
     );
+    drop(conn);
     let by_slug = categorize::categories_by_slug(&app.state.db, alice, now())
         .await
         .unwrap();
@@ -163,7 +168,7 @@ async fn budget_settings_are_absent_until_saved() {
             .unwrap()
             .is_none()
     );
-    sqlx::query("INSERT INTO budget_settings (member_id, cycle_start_day) VALUES ($1, 25)")
+    picsou::db::query("INSERT INTO budget_settings (member_id, cycle_start_day) VALUES ($1, 25)")
         .bind(alice)
         .execute(&app.state.db)
         .await
@@ -181,7 +186,7 @@ async fn find_or_create_default_rolls_back_with_the_callers_transaction() {
     let app = TestApp::spawn().await;
     let alice = member(&app, "alice").await;
     let mut tx = app.state.db.begin().await.unwrap();
-    let created = categorize::find_or_create_default(&mut tx, alice, "epargne", now())
+    let created = categorize::find_or_create_default(&mut tx.as_handle(), alice, "epargne", now())
         .await
         .unwrap();
     assert!(created.is_some());

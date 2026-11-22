@@ -41,7 +41,7 @@ impl<'a> Acct<'a> {
 }
 
 pub async fn account(app: &TestApp, a: Acct<'_>) -> i64 {
-    sqlx::query_scalar(
+    picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, current_balance, cash_balance, is_manual, hidden, \
          parent_account_id) VALUES ($1, $2 || ' account', $2::account_type, $3, $4, $5, $6, $7) RETURNING id",
     )
@@ -68,7 +68,7 @@ pub async fn holding(
     quantity: &str,
     buy_in: Option<&str>,
 ) {
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account_holding (account_id, ticker, name, quantity, average_buy_in, created_at, updated_at) \
          VALUES ($1, $2, $2 || ' name', $3, $4, now(), now())",
     )
@@ -83,7 +83,7 @@ pub async fn holding(
 
 /// A recorded price the day before the test clock's today (2026-01-15).
 pub async fn price(app: &TestApp, ticker: &str, eur: &str) {
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO price_snapshot (ticker, date, price_eur) VALUES ($1, '2026-01-14', $2)",
     )
     .bind(ticker)
@@ -94,7 +94,7 @@ pub async fn price(app: &TestApp, ticker: &str, eur: &str) {
 }
 
 pub async fn share(app: &TestApp, account: i64, member: i64, percent: &str) {
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account_ownership (account_id, member_id, share_percent, created_at, updated_at) \
          VALUES ($1, $2, $3, now(), now())",
     )
@@ -107,8 +107,9 @@ pub async fn share(app: &TestApp, account: i64, member: i64, percent: &str) {
 }
 
 pub async fn sql(app: &TestApp, statement: &str) {
-    sqlx::raw_sql(statement)
-        .execute(&app.state.db)
+    app.state
+        .db
+        .execute_batch(statement)
         .await
         .expect("fixture sql");
 }
