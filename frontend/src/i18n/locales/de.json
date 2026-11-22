@@ -3728,7 +3728,7 @@
     "onboarding": {
       "title": "Willkommen bei Picsou",
       "subtitle": "Dein persönliches Finanz-Dashboard, lokal auf deinem Computer gespeichert.",
-      "nameLabel": "Vorname oder Bereichsname (optional)",
+      "nameLabel": "Name des Bereichs",
       "namePlaceholder": "Mein Bereich",
       "cta": "Loslegen",
       "starting": "Wird eingerichtet...",

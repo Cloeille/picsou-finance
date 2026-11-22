@@ -3728,7 +3728,7 @@
     "onboarding": {
       "title": "Welcome to Picsou",
       "subtitle": "Your personal finance dashboard, stored locally on your computer.",
-      "nameLabel": "First name or space name (optional)",
+      "nameLabel": "Space name",
       "namePlaceholder": "My Space",
       "cta": "Get started",
       "starting": "Setting up...",

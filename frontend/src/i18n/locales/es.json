@@ -3728,7 +3728,7 @@
     "onboarding": {
       "title": "Bienvenido a Picsou",
       "subtitle": "Tu panel financiero personal, almacenado localmente en tu ordenador.",
-      "nameLabel": "Nombre o nombre del espacio (opcional)",
+      "nameLabel": "Nombre del espacio",
       "namePlaceholder": "Mi espacio",
       "cta": "Empezar",
       "starting": "Preparando...",

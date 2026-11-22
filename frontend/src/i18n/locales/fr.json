@@ -3728,7 +3728,7 @@
     "onboarding": {
       "title": "Bienvenue sur Picsou",
       "subtitle": "Votre tableau de bord financier personnel, stocké localement sur votre ordinateur.",
-      "nameLabel": "Prénom ou nom de l’espace (optionnel)",
+      "nameLabel": "Nom de l'espace",
       "namePlaceholder": "Mon espace",
       "cta": "Commencer",
       "starting": "Préparation en cours...",

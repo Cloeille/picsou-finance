@@ -65,7 +65,7 @@ export function SetupLayout() {
   const isTopAlignedStep = location.pathname === '/setup/integrations'
 
   return (
-    <div className="relative min-h-dvh bg-background setup-gradient">
+    <div className="relative min-h-dvh bg-background">
       {!isDesktopMode && (
         <Progress
           value={progressPct}
