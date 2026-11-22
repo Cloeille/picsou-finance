@@ -91,9 +91,11 @@ backend stores it encrypted, queues a sync, exactly as after /auth/complete
   revoke the session server-side, so the saver closes the tab instead. If Natixis rotates refresh tokens,
   the browser and Picsou would invalidate each other; it does not today. The session ends like any
   other (`SESSION_EXPIRED`, then reconnect: sign in with the passkey again and paste a new token).
-- **Not verified live.** The adopted session has been exercised against a fake Natixis only; that
-  Natixis accepts a refresh token issued to the browser when it is used from another client is the
-  assumption the first real import tests.
+- **Verified live (2026-11-22).** A refresh token copied from a browser session signed in with a
+  passkey was accepted by the sidecar's refresh grant (a mistyped paste was refused with
+  `SESSION_EXPIRED`, as designed), and the first sync read the saver's two plans. Not observed yet:
+  how long such a session lasts, and whether the browser and Picsou keep working side by side
+  over several days.
 
 ### Operations history
 
