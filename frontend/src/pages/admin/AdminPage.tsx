@@ -9,7 +9,6 @@ import { cn } from '@/lib/utils'
 import { SecuritySection } from './sections/SecuritySection'
 import { EnableBankingSection } from './sections/EnableBankingSection'
 import { AiCategorizationSection } from './sections/AiCategorizationSection'
-import { IntegrationsSection } from './sections/IntegrationsSection'
 import { MembersSection } from './sections/MembersSection'
 import { AiActivitySection } from './sections/AiActivitySection'
 import { TelemetrySection } from './sections/TelemetrySection'
@@ -89,7 +88,6 @@ export function AdminPage() {
 
           {activeTab === 'integrations' && (
             <div className="space-y-6">
-              <IntegrationsSection integrations={data.integrations} />
               <EnableBankingSection settings={data.enableBanking} />
             </div>
           )}

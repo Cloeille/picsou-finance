@@ -2462,21 +2462,6 @@
         "privateKey": "la clave privada"
       }
     },
-    "integrations": {
-      "title": "Integraciones",
-      "description": "Activa o desactiva los conectores de datos",
-      "enablebanking": "Enable Banking",
-      "boursobank": "BoursoBank",
-      "boursedirect": "Bourse Direct",
-      "fortuneo": "Fortuneo",
-      "amex": "Sincroniza tus tarjetas American Express",
-      "corum": "Participaciones SCPI y seguro de vida de CORUM",
-      "sofidy": "Participaciones SCPI de Sofidy",
-      "traderepublic": "Trade Republic",
-      "lbp": "La Banque Postale",
-      "finary": "Finary",
-      "crypto": "Cripto"
-    },
     "members": {
       "title": "Miembros",
       "description": "Gestiona las cuentas de los miembros de la familia",
