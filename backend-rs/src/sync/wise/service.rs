@@ -51,7 +51,7 @@ pub(super) async fn connect(
     let encrypted = state.crypto.encrypt(token)?;
     let now = state.clock.now();
     let mut tx = state.db.begin().await?;
-    store::save_token(&mut *tx, member.id, &encrypted, now).await?;
+    store::save_token(&mut tx, member.id, &encrypted, now).await?;
     tracing::info!("Wise token stored for member {member_id}");
     let responses = import_jars(state, &mut tx, &jars, member.id, now).await?;
     tx.commit().await?;
@@ -91,7 +91,7 @@ pub(super) async fn connection_status(
 }
 
 pub(super) async fn delete_connection<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+    db: impl crate::db::DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<bool> {
     let deleted = store::delete_by_member(db, member_id).await?;
@@ -195,7 +195,7 @@ async fn try_sync(
         .ok_or_else(|| AppError::NotFound("Family member not found".into()))?;
     let now = state.clock.now();
     let responses = import_jars(state, &mut tx, &jars, member.id, now).await?;
-    store::mark_synced(&mut *tx, connection.id, now).await?;
+    store::mark_synced(&mut tx, connection.id, now).await?;
     tx.commit().await?;
     Ok(responses)
 }

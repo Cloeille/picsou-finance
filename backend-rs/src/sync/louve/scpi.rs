@@ -13,6 +13,7 @@ use rust_decimal::Decimal;
 use sqlx::PgConnection;
 use unicode_normalization::UnicodeNormalization;
 
+use crate::db::{self, AsDbHandle, DbExec, DbFromRow, DbHandle};
 use crate::error::{AppError, AppResult};
 use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::decimal::{HALF_UP, set_scale};
@@ -119,7 +120,7 @@ static NON_ALNUM: LazyLock<Regex> =
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlScpiFunds;
 
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug, DbFromRow)]
 struct FundRow {
     id: Option<i64>,
     label: Option<String>,
@@ -129,7 +130,7 @@ struct FundRow {
     last_synced_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug, DbFromRow)]
 struct PositionRow {
     id: Option<i64>,
     account_id: i64,
@@ -164,12 +165,18 @@ impl ScpiFunds for SqlScpiFunds {
         let mut claimed: HashSet<i64> = HashSet::new();
         for fund in funds {
             listed.insert(fund.fund_code.clone());
-            let mut row = fund_row(conn, member_id, &fund.fund_code, fund.label.as_deref()).await?;
+            let mut row = fund_row(
+                &mut *conn,
+                member_id,
+                &fund.fund_code,
+                fund.label.as_deref(),
+            )
+            .await?;
             row.last_seen_at = Some(synced_at);
             let outcome = apply_fund(conn, member_id, fund, &row, &mut claimed, synced_at).await?;
             row.last_outcome = Some(outcome.as_str().to_owned());
             row.last_synced_at = Some(synced_at);
-            save_fund_row(conn, member_id, &fund.fund_code, &row, synced_at).await?;
+            save_fund_row(&mut *conn, member_id, &fund.fund_code, &row, synced_at).await?;
             outcomes.push((fund.fund_code.clone(), outcome));
         }
         for fund in unsupported {
@@ -180,7 +187,13 @@ impl ScpiFunds for SqlScpiFunds {
             }
             // The linked account, if any, is left as it is: nothing here says what the
             // dismembered right is worth.
-            let mut row = fund_row(conn, member_id, &fund.fund_code, fund.label.as_deref()).await?;
+            let mut row = fund_row(
+                &mut *conn,
+                member_id,
+                &fund.fund_code,
+                fund.label.as_deref(),
+            )
+            .await?;
             row.last_seen_at = Some(synced_at);
             let outcome = if row.ignored {
                 Outcome::Ignored
@@ -189,10 +202,17 @@ impl ScpiFunds for SqlScpiFunds {
             };
             row.last_outcome = Some(outcome.as_str().to_owned());
             row.last_synced_at = Some(synced_at);
-            save_fund_row(conn, member_id, &fund.fund_code, &row, synced_at).await?;
+            save_fund_row(&mut *conn, member_id, &fund.fund_code, &row, synced_at).await?;
             outcomes.push((fund.fund_code.clone(), outcome));
         }
-        report_missing(conn, member_id, &listed, synced_at, &mut outcomes).await?;
+        report_missing(
+            &mut conn.as_handle(),
+            member_id,
+            &listed,
+            synced_at,
+            &mut outcomes,
+        )
+        .await?;
         Ok(outcomes)
     }
 }
@@ -208,7 +228,7 @@ async fn apply_fund(
     if row.ignored {
         return Ok(Outcome::Ignored);
     }
-    let linked: Option<PositionRow> = sqlx::query_as(&format!(
+    let linked: Option<PositionRow> = db::query_as(&format!(
         "SELECT {POSITION_COLUMNS} FROM scpi_position p WHERE p.member_id = $1 AND p.louve_fund_code = $2"
     ))
     .bind(member_id)
@@ -235,7 +255,7 @@ async fn apply_fund(
         return Ok(Outcome::Ambiguous);
     }
     if let Some(account_id) = candidates.first().copied() {
-        let existing: Option<PositionRow> = sqlx::query_as(&format!(
+        let existing: Option<PositionRow> = db::query_as(&format!(
             "SELECT {POSITION_COLUMNS} FROM scpi_position p WHERE p.account_id = $1 AND p.member_id = $2"
         ))
         .bind(account_id)
@@ -331,8 +351,8 @@ async fn apply(
         "PRICE_INCOMPLETE"
     };
     position.valuation_status = status.to_owned();
-    save_position(conn, position, member_id, now).await?;
-    sqlx::query(
+    save_position(&mut *conn, position, member_id, now).await?;
+    db::query(
         "UPDATE account SET currency = 'EUR', current_balance = COALESCE($2, current_balance), \
          cash_balance = CASE WHEN $2 IS NULL THEN cash_balance ELSE 0 END, updated_at = $3 WHERE id = $1",
     )
@@ -353,21 +373,21 @@ fn withdrawal_value(shares: Decimal, price: Option<Decimal>) -> Option<Decimal> 
     price.map(|p| set_scale(shares * p, MONEY_SCALE, HALF_UP))
 }
 
-async fn save_position(
-    conn: &mut PgConnection,
+async fn save_position<'e>(
+    db: impl DbExec<'e>,
     p: &PositionRow,
     member_id: i64,
     now: DateTime<Utc>,
 ) -> AppResult<()> {
     let query = match p.id {
-        Some(id) => sqlx::query(
+        Some(id) => db::query(
             "UPDATE scpi_position SET isin = $2, management_company = $3, share_count = $4, \
              subscription_price_eur = $5, withdrawal_price_eur = $6, annual_distribution_per_share_eur = $7, \
              distribution_frequency = $8, louve_fund_code = $9, valuation_status = $10, updated_at = $11 \
              WHERE id = $1",
         )
         .bind(id),
-        None => sqlx::query(
+        None => db::query(
             "INSERT INTO scpi_position (account_id, isin, management_company, share_count, subscription_price_eur, \
              withdrawal_price_eur, annual_distribution_per_share_eur, distribution_frequency, louve_fund_code, \
              valuation_status, created_at, updated_at, member_id) \
@@ -391,7 +411,7 @@ async fn save_position(
     } else {
         query
     };
-    query.execute(&mut *conn).await?;
+    query.execute(db).await?;
     Ok(())
 }
 
@@ -420,7 +440,7 @@ async fn adoption_candidates(
         if wanted != name && prefixed != name {
             continue;
         }
-        let linked: Option<bool> = sqlx::query_scalar(
+        let linked: Option<bool> = db::query_scalar(
             "SELECT corum_fund_code IS NOT NULL OR sofidy_fund_code IS NOT NULL OR louve_fund_code IS NOT NULL \
              FROM scpi_position WHERE account_id = $1 AND member_id = $2",
         )
@@ -438,13 +458,13 @@ async fn adoption_candidates(
 /// Reports, without touching any balance, every fund of this member the snapshot no longer
 /// lists, linked positions included even when they predate scpi_provider_fund.
 async fn report_missing(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     listed: &HashSet<String>,
     synced_at: DateTime<Utc>,
     outcomes: &mut Vec<(String, Outcome)>,
 ) -> AppResult<()> {
-    let mut known: Vec<(String, Option<String>)> = sqlx::query_as(
+    let mut known: Vec<(String, Option<String>)> = db::query_as(
         "SELECT fund_code, label FROM scpi_provider_fund WHERE member_id = $1 AND provider = $2 \
          AND NOT ignored ORDER BY id",
     )
@@ -452,7 +472,7 @@ async fn report_missing(
     .bind(PROVIDER)
     .fetch_all(&mut *conn)
     .await?;
-    let linked: Vec<(String, String)> = sqlx::query_as(
+    let linked: Vec<(String, String)> = db::query_as(
         "SELECT p.louve_fund_code, a.name FROM scpi_position p JOIN account a ON a.id = p.account_id \
          WHERE a.member_id = $1 AND a.deleted_at IS NULL AND p.louve_fund_code IS NOT NULL ORDER BY p.id",
     )
@@ -468,29 +488,29 @@ async fn report_missing(
         if listed.contains(&code) {
             continue;
         }
-        let mut row = fund_row(conn, member_id, &code, label.as_deref()).await?;
+        let mut row = fund_row(&mut *conn, member_id, &code, label.as_deref()).await?;
         row.last_outcome = Some(Outcome::MissingAtProvider.as_str().to_owned());
         row.last_synced_at = Some(synced_at);
-        save_fund_row(conn, member_id, &code, &row, synced_at).await?;
+        save_fund_row(&mut *conn, member_id, &code, &row, synced_at).await?;
         outcomes.push((code, Outcome::MissingAtProvider));
     }
     Ok(())
 }
 
-async fn fund_row(
-    conn: &mut PgConnection,
+async fn fund_row<'e>(
+    db: impl DbExec<'e>,
     member_id: i64,
     fund_code: &str,
     label: Option<&str>,
 ) -> AppResult<FundRow> {
-    let found: Option<FundRow> = sqlx::query_as(
+    let found: Option<FundRow> = db::query_as(
         "SELECT id, label, ignored, last_outcome, last_seen_at, last_synced_at FROM scpi_provider_fund \
          WHERE member_id = $1 AND provider = $2 AND fund_code = $3",
     )
     .bind(member_id)
     .bind(PROVIDER)
     .bind(fund_code)
-    .fetch_optional(&mut *conn)
+    .fetch_optional(db)
     .await?;
     let mut row = found.unwrap_or(FundRow {
         id: None,
@@ -506,20 +526,20 @@ async fn fund_row(
     Ok(row)
 }
 
-async fn save_fund_row(
-    conn: &mut PgConnection,
+async fn save_fund_row<'e>(
+    db: impl DbExec<'e>,
     member_id: i64,
     fund_code: &str,
     row: &FundRow,
     now: DateTime<Utc>,
 ) -> AppResult<()> {
     let query = match row.id {
-        Some(id) => sqlx::query(
+        Some(id) => db::query(
             "UPDATE scpi_provider_fund SET label = $2, ignored = $3, last_outcome = $4, last_seen_at = $5, \
              last_synced_at = $6, updated_at = $7 WHERE id = $1",
         )
         .bind(id),
-        None => sqlx::query(
+        None => db::query(
             "INSERT INTO scpi_provider_fund (member_id, fund_code, label, ignored, last_outcome, last_seen_at, \
              last_synced_at, created_at, updated_at, provider) \
              VALUES ($8, $1, $2, $3, $4, $5, $6, $7, $7, 'LOUVE')",
@@ -538,7 +558,7 @@ async fn save_fund_row(
     } else {
         query
     };
-    query.execute(&mut *conn).await?;
+    query.execute(db).await?;
     Ok(())
 }
 

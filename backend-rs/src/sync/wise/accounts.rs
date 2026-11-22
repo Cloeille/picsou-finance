@@ -5,9 +5,10 @@ use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::Serialize;
 use serde_json::Value;
-use sqlx::{FromRow, PgConnection};
+use sqlx::PgConnection;
 
 use crate::AppState;
+use crate::db::{self, DbFromRow};
 use crate::error::{AppError, AppResult};
 use crate::ledger::model::{Account, AccountType, CardNature, RecurringCadence};
 use crate::ledger::sync_values::java_is_blank;
@@ -45,7 +46,7 @@ impl AccountView for BaseAccountView {
             state.clock.today(),
         )
         .await?;
-        let savings_config = sqlx::query_as::<_, SavingsConfig>(
+        let savings_config = db::query_as::<SavingsConfig>(
             "SELECT product::text AS product, annual_rate, rate_basis::text AS rate_basis, tax_rate_pct, ceiling \
              FROM savings_interest_config WHERE account_id = $1",
         )
@@ -154,7 +155,7 @@ impl AccountResponse {
 
 /// SavingsConfigDto.
 #[serde_with::skip_serializing_none]
-#[derive(Debug, Serialize, FromRow)]
+#[derive(Debug, Serialize, DbFromRow)]
 #[serde(rename_all = "camelCase")]
 struct SavingsConfig {
     product: String,

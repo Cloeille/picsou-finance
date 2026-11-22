@@ -199,7 +199,7 @@ async fn do_sync(
             responses.push(response);
         }
     }
-    connection::mark_synced(&mut *tx, connection.id, now).await?;
+    connection::mark_synced(&mut tx, connection.id, now).await?;
     tx.commit().await?;
     tracing::info!(
         "IBKR sync complete for member {member_id}: {} account(s) updated",

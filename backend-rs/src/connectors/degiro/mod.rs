@@ -15,13 +15,14 @@ use regex::Regex;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sqlx::{FromRow, PgConnection, PgExecutor};
+use sqlx::PgConnection;
 
 use super::sidecar::client::CallError;
 use super::sidecar::web::consume;
 use super::sidecar::{SidecarHttp, SyncError};
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db::{self, DbExec, DbFromRow};
 use crate::error::{AppError, AppResult};
 use crate::http::client_ip::ClientIp;
 use crate::http::json::{Errors, Json, Validate};
@@ -103,7 +104,7 @@ pub struct SessionStatusResponse {
     last_synced_at: Option<DateTime<Utc>>,
 }
 
-#[derive(FromRow)]
+#[derive(DbFromRow)]
 struct DegiroSession {
     session_blob: String,
     status: String,
@@ -111,10 +112,10 @@ struct DegiroSession {
 }
 
 async fn find_session<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<Option<DegiroSession>> {
-    sqlx::query_as(
+    db::query_as(
         "SELECT session_blob, status, last_synced_at FROM degiro_session WHERE member_id = $1",
     )
     .bind(member_id)
@@ -123,14 +124,14 @@ async fn find_session<'e>(
 }
 
 async fn set_status<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     status: &str,
     last_error: Option<&str>,
     synced_at: Option<DateTime<Utc>>,
     now: DateTime<Utc>,
 ) -> sqlx::Result<u64> {
-    Ok(sqlx::query(
+    Ok(db::query(
         "UPDATE degiro_session SET status = $2, last_error = $3, \
          last_synced_at = COALESCE($4, last_synced_at), updated_at = $5 WHERE member_id = $1",
     )
@@ -274,7 +275,7 @@ async fn status(
 }
 
 async fn clear(State(state): State<AppState>, auth: Auth) -> AppResult<StatusCode> {
-    sqlx::query("DELETE FROM degiro_session WHERE member_id = $1")
+    db::query("DELETE FROM degiro_session WHERE member_id = $1")
         .bind(auth.member_id)
         .execute(&state.db)
         .await?;
@@ -309,7 +310,7 @@ async fn store_session_and_sync(
     if members::find_by_id(&mut *tx, member_id).await?.is_none() {
         return Err(AppError::NotFound("Family member not found".to_owned()));
     }
-    sqlx::query(
+    db::query(
         "INSERT INTO degiro_session (member_id, session_blob, status, last_error, created_at, updated_at) \
          VALUES ($1, $2, 'ACTIVE', NULL, $3, $3) ON CONFLICT (member_id) DO UPDATE SET \
          session_blob = EXCLUDED.session_blob, status = 'ACTIVE', last_error = NULL, updated_at = EXCLUDED.updated_at",
@@ -317,14 +318,14 @@ async fn store_session_and_sync(
     .bind(member_id)
     .bind(encrypted)
     .bind(now)
-    .execute(&mut *tx)
+    .execute(&mut tx)
     .await?;
     tracing::info!("DEGIRO session stored for member {member_id}");
     match fetch_portfolio(state, plain_blob).await {
         Ok(data) => {
             upsert_account(state, &mut tx, &data, member_id).await?;
             set_status(
-                &mut *tx,
+                &mut tx,
                 member_id,
                 "ACTIVE",
                 None,
@@ -336,7 +337,7 @@ async fn store_session_and_sync(
         Err(Failure::SessionExpired) => {
             tracing::warn!("DEGIRO session expired during the initial sync for member {member_id}");
             set_status(
-                &mut *tx,
+                &mut tx,
                 member_id,
                 "REAUTH_REQUIRED",
                 Some("SESSION_EXPIRED"),
@@ -392,7 +393,7 @@ pub async fn sync(state: &AppState, member_id: i64) -> AppResult<Value> {
     let mut tx = state.db.begin().await?;
     let account = upsert_account(state, &mut tx, &data, member_id).await?;
     set_status(
-        &mut *tx,
+        &mut tx,
         member_id,
         "ACTIVE",
         None,

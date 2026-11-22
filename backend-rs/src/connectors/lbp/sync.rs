@@ -526,7 +526,7 @@ async fn store_session(
             return Err(AppError::NotFound("Family member not found".to_owned()));
         }
         if let Some(existing) = session::find_by_member_for_update(&mut tx, member_id).await? {
-            session::delete(&mut *tx, existing.id).await?;
+            session::delete(&mut tx, existing.id).await?;
         }
         session::insert(
             &mut tx,
@@ -576,7 +576,7 @@ pub async fn queue_sync(state: &AppState, member_id: i64) -> AppResult<SessionSt
         // Unreadable (wrong key, corrupted): the session is dead, not a server fault.
         current.mark_queued()?;
         current.mark_failed(SidecarErrorCode::InvalidSessionState, now)?;
-        session::save(&mut *tx, &current, now).await?;
+        session::save(&mut tx, &current, now).await?;
         tx.commit().await?;
         tracing::warn!(
             "Stored La Banque Postale session is unreadable (member={member_id}; type=CryptoError)"
@@ -588,7 +588,7 @@ pub async fn queue_sync(state: &AppState, member_id: i64) -> AppResult<SessionSt
         .into());
     };
     current.mark_queued()?;
-    session::save(&mut *tx, &current, now).await?;
+    session::save(&mut tx, &current, now).await?;
     tx.commit().await?;
     submit(
         state,
@@ -699,7 +699,7 @@ async fn mark_running(state: &AppState, job: &SyncJob) -> JobResult<bool> {
     }
     let now = state.clock.now();
     current.mark_running(now)?;
-    session::save(&mut *tx, &current, now).await?;
+    session::save(&mut tx, &current, now).await?;
     tx.commit().await?;
     Ok(true)
 }
@@ -727,7 +727,7 @@ async fn mark_failed(state: &AppState, job: &SyncJob, code: SidecarErrorCode) {
         }
         let now = state.clock.now();
         current.mark_failed(code, now)?;
-        session::save(&mut *tx, &current, now).await?;
+        session::save(&mut tx, &current, now).await?;
         tx.commit().await?;
         Ok::<_, JobError>(())
     }
@@ -918,7 +918,7 @@ async fn commit(state: &AppState, job: &SyncJob, prepared: &Prepared) -> JobResu
     current.unsupported_products =
         Some(serde_json::to_string(&prepared.unsupported).map_err(AppError::internal)?);
     current.mark_successful(synced_at)?;
-    session::save(&mut *tx, &current, synced_at).await?;
+    session::save(&mut tx, &current, synced_at).await?;
     tx.commit().await?;
     Ok(Some(prepared.accounts.len()))
 }
@@ -1154,7 +1154,7 @@ pub async fn clear_session(state: &AppState, member_id: i64) -> AppResult<bool> 
     let mut tx = state.db.begin().await?;
     let existing = session::find_by_member_for_update(&mut tx, member_id).await?;
     if let Some(existing) = &existing {
-        session::delete(&mut *tx, existing.id).await?;
+        session::delete(&mut tx, existing.id).await?;
     }
     tx.commit().await?;
     Ok(existing.is_some())

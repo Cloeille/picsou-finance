@@ -6,8 +6,8 @@ use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use sqlx::{FromRow, PgConnection, PgExecutor};
 
+use crate::db::{self, DbExec, DbFromRow};
 use crate::error::{AppError, AppResult};
 use crate::ledger::sidecar::{SidecarBank, SidecarErrorCode};
 
@@ -55,7 +55,7 @@ impl FromStr for SidecarSyncStatus {
     }
 }
 
-#[derive(FromRow)]
+#[derive(DbFromRow)]
 struct Row {
     id: i64,
     bank: String,
@@ -312,13 +312,13 @@ fn decode(row: Option<Row>) -> sqlx::Result<Option<SidecarSession>> {
 }
 
 pub async fn find<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     bank: SidecarBank,
     member_id: i64,
 ) -> sqlx::Result<Option<SidecarSession>> {
     let sql = format!("SELECT {COLUMNS} FROM sidecar_session WHERE bank = $1 AND member_id = $2");
     decode(
-        sqlx::query_as(&sql)
+        db::query_as(&sql)
             .bind(bank.as_str())
             .bind(member_id)
             .fetch_optional(db)
@@ -327,8 +327,8 @@ pub async fn find<'e>(
 }
 
 /// findByBankAndMemberIdForUpdate.
-pub async fn find_for_update(
-    conn: &mut PgConnection,
+pub async fn find_for_update<'e>(
+    db: impl DbExec<'e>,
     bank: SidecarBank,
     member_id: i64,
 ) -> sqlx::Result<Option<SidecarSession>> {
@@ -336,17 +336,17 @@ pub async fn find_for_update(
         "SELECT {COLUMNS} FROM sidecar_session WHERE bank = $1 AND member_id = $2 FOR UPDATE"
     );
     decode(
-        sqlx::query_as(&sql)
+        db::query_as(&sql)
             .bind(bank.as_str())
             .bind(member_id)
-            .fetch_optional(conn)
+            .fetch_optional(db)
             .await?,
     )
 }
 
 /// findByIdAndMemberIdForUpdate: the row a job is fenced to.
-pub async fn find_by_id_for_update(
-    conn: &mut PgConnection,
+pub async fn find_by_id_for_update<'e>(
+    db: impl DbExec<'e>,
     id: i64,
     member_id: i64,
 ) -> sqlx::Result<Option<SidecarSession>> {
@@ -354,16 +354,16 @@ pub async fn find_by_id_for_update(
         "SELECT {COLUMNS} FROM sidecar_session WHERE id = $1 AND member_id = $2 FOR UPDATE"
     );
     decode(
-        sqlx::query_as(&sql)
+        db::query_as(&sql)
             .bind(id)
             .bind(member_id)
-            .fetch_optional(conn)
+            .fetch_optional(db)
             .await?,
     )
 }
 
-pub async fn insert(
-    conn: &mut PgConnection,
+pub async fn insert<'e>(
+    db: impl DbExec<'e>,
     session: &NewSession,
     now: DateTime<Utc>,
 ) -> sqlx::Result<SidecarSession> {
@@ -372,7 +372,7 @@ pub async fn insert(
          region, last_validated_at, is_active, sync_status, last_sync_life_ambiguous, created_at, updated_at) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, true, 'IDLE', 0, $8, $8) RETURNING {COLUMNS}"
     );
-    let row: Row = sqlx::query_as(&sql)
+    let row: Row = db::query_as(&sql)
         .bind(session.bank.as_str())
         .bind(session.member_id)
         .bind(&session.session_state)
@@ -381,18 +381,18 @@ pub async fn insert(
         .bind(&session.region)
         .bind(session.validated_at)
         .bind(now)
-        .fetch_one(conn)
+        .fetch_one(db)
         .await?;
     row.try_into()
 }
 
 /// Writes every mutable column back (JPA save), stamping updated_at.
 pub async fn save<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     session: &SidecarSession,
     now: DateTime<Utc>,
 ) -> sqlx::Result<()> {
-    sqlx::query(
+    db::query(
         "UPDATE sidecar_session SET session_state = $2, encrypted_credentials = $3, unsupported_contracts = $4, \
          last_validated_at = $5, is_active = $6, sync_status = $7, last_sync_started_at = $8, \
          last_sync_completed_at = $9, last_sync_error = $10, last_sync_life_ambiguous = $11, updated_at = $12 \
@@ -415,8 +415,8 @@ pub async fn save<'e>(
     Ok(())
 }
 
-pub async fn delete<'e>(db: impl PgExecutor<'e>, id: i64) -> sqlx::Result<()> {
-    sqlx::query("DELETE FROM sidecar_session WHERE id = $1")
+pub async fn delete<'e>(db: impl DbExec<'e>, id: i64) -> sqlx::Result<()> {
+    db::query("DELETE FROM sidecar_session WHERE id = $1")
         .bind(id)
         .execute(db)
         .await?;
@@ -426,11 +426,11 @@ pub async fn delete<'e>(db: impl PgExecutor<'e>, id: i64) -> sqlx::Result<()> {
 /// markInterruptedSyncsFailed: every QUEUED or RUNNING row of the bank becomes an INTERNAL_ERROR
 /// failure. A bulk update, so updated_at is left as it was.
 pub async fn mark_interrupted_failed<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     bank: SidecarBank,
     completed_at: DateTime<Utc>,
 ) -> sqlx::Result<u64> {
-    Ok(sqlx::query(
+    Ok(db::query(
         "UPDATE sidecar_session SET sync_status = 'FAILED', last_sync_completed_at = $2, \
          last_sync_error = 'INTERNAL_ERROR' WHERE bank = $1 AND sync_status IN ('QUEUED', 'RUNNING')",
     )
@@ -444,12 +444,12 @@ pub async fn mark_interrupted_failed<'e>(
 /// markInterruptedSyncsFailedBefore: only rows not touched since `stale_before`, since a live job
 /// keeps updating its row.
 pub async fn mark_interrupted_failed_before<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     bank: SidecarBank,
     completed_at: DateTime<Utc>,
     stale_before: DateTime<Utc>,
 ) -> sqlx::Result<u64> {
-    Ok(sqlx::query(
+    Ok(db::query(
         "UPDATE sidecar_session SET sync_status = 'FAILED', last_sync_completed_at = $2, \
          last_sync_error = 'INTERNAL_ERROR' WHERE bank = $1 AND sync_status IN ('QUEUED', 'RUNNING') \
          AND updated_at < $3",

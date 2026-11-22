@@ -83,15 +83,15 @@ fn blank(value: Option<&str>) -> bool {
 }
 
 /// The member's categories carrying the dividend slug.
-pub async fn dividend_categories(
-    conn: &mut PgConnection,
+pub async fn dividend_categories<'e>(
+    db: impl crate::db::DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<HashSet<i64>> {
     let ids: Vec<i64> =
-        sqlx::query_scalar("SELECT id FROM category WHERE member_id = $1 AND slug = $2")
+        crate::db::query_scalar("SELECT id FROM category WHERE member_id = $1 AND slug = $2")
             .bind(member_id)
             .bind(DIVIDEND_CATEGORY_SLUG)
-            .fetch_all(conn)
+            .fetch_all(db)
             .await?;
     Ok(ids.into_iter().collect())
 }

@@ -407,7 +407,7 @@ pub async fn complete(
         return Err(AppError::NotFound("Family member not found".to_owned()));
     }
     if let Some(previous) = session::find_for_update(&mut tx, bank.codes, member_id).await? {
-        session::delete(&mut *tx, previous.id).await?;
+        session::delete(&mut tx, previous.id).await?;
     }
     let now = state.clock.now();
     let draft = NewSession {
@@ -685,7 +685,7 @@ pub async fn forget_customer_id(
         && current.encrypted_credentials.as_deref() == Some(read_ciphertext)
     {
         current.encrypted_credentials = None;
-        session::save(&mut *tx, &current, state.clock.now()).await?;
+        session::save(&mut tx, &current, state.clock.now()).await?;
     }
     tx.commit().await?;
     Ok(())

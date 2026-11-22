@@ -86,7 +86,7 @@ impl SecurityIdentities for RecordedSecurityIdentities {
             if ticker.trim().is_empty() || !is_isin(isin) {
                 continue;
             }
-            let outcome = sqlx::query(
+            let outcome = crate::db::query(
                 "INSERT INTO security_profile (ticker, asset_type, isin, status, created_at, updated_at) \
                  VALUES ($1, 'UNKNOWN', $2, 'NEVER_FETCHED', $3, $3) \
                  ON CONFLICT (ticker) DO UPDATE SET isin = EXCLUDED.isin, updated_at = EXCLUDED.updated_at \
@@ -375,9 +375,9 @@ impl SavingsAutoConfig for RegulatedSavingsDefaults {
         };
         let decimal = |v: &str| v.parse::<Decimal>().expect("regulated rate literal");
         // ON CONFLICT, not insert-and-catch: a violation would abort the sync's transaction.
-        let inserted = sqlx::query(
+        let inserted = crate::db::query(
             "INSERT INTO savings_interest_config (account_id, product, annual_rate, rate_basis, ceiling) \
-             VALUES ($1, CAST($2 AS savings_product), $3, CAST('NET' AS rate_basis), $4) \
+             VALUES ($1, $2::savings_product, $3, 'NET'::rate_basis, $4) \
              ON CONFLICT (account_id) DO NOTHING",
         )
         .bind(account_id)

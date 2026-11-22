@@ -15,6 +15,7 @@ use super::model::{
 use super::port::{self, ExchangePort, FetchError};
 use super::store::{self, SessionDraft};
 use crate::AppState;
+use crate::db::AsDbHandle;
 use crate::error::{AppError, AppResult};
 use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::decimal::{HALF_UP, divide, set_scale};
@@ -318,7 +319,7 @@ async fn run_sync(
             }
         };
         let account = apply(&mut tx, state, exchange, member_id, &positions, now, today).await?;
-        store::mark_connected(&mut *tx, session_id, now).await?;
+        store::mark_connected(&mut tx, session_id, now).await?;
         Ok::<_, Failure>(account)
     }
     .await;
@@ -441,7 +442,7 @@ async fn apply(
     // A coin sold or withdrawn is absent from the answer, and upsert never removes anything.
     let keep: Vec<String> = quantities.keys().cloned().collect();
     holdings::prune_holdings(&mut *conn, account.id, &keep).await?;
-    store::replace_positions(&mut *conn, account.id, positions, now).await?;
+    store::replace_positions(&mut conn.as_handle(), account.id, positions, now).await?;
     if !nothing_priced {
         let ctx = SnapshotContext {
             prices: &*state.ledger.prices,
@@ -458,7 +459,7 @@ async fn apply(
 pub async fn remove_exchange(state: &AppState, session_id: i64, member_id: i64) -> AppResult<()> {
     let now = state.clock.now();
     let mut tx = state.db.begin().await?;
-    let session = store::session_of_member(&mut *tx, session_id, member_id)
+    let session = store::session_of_member(&mut tx, session_id, member_id)
         .await?
         .ok_or_else(session_not_found)?;
     let external_id = ExchangeType::parse(&session.exchange_type).map_or_else(
@@ -473,9 +474,9 @@ pub async fn remove_exchange(state: &AppState, session_id: i64, member_id: i64) 
     if let Some(account) =
         accounts::find_by_external_id_and_member(&mut *tx, &external_id, member_id).await?
     {
-        store::soft_delete_account(&mut *tx, account.id, now).await?;
+        store::soft_delete_account(&mut tx, account.id, now).await?;
     }
-    store::delete_session(&mut *tx, session.id).await?;
+    store::delete_session(&mut tx, session.id).await?;
     tx.commit().await?;
     tracing::info!("Removed exchange session {session_id} and soft-deleted its account");
     Ok(())

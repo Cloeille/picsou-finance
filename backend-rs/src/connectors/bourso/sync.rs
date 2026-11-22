@@ -506,7 +506,7 @@ async fn reauthenticate_and_fetch(
         Some(mut current) => {
             let now = state.clock.now();
             current.update_session_state(encrypted_state, now);
-            session::save(&mut *tx, &current, now).await?;
+            session::save(&mut tx, &current, now).await?;
             true
         }
         None => false,
@@ -524,7 +524,7 @@ async fn clear_stored_credentials(state: &AppState, job: &SyncJob) -> Result<(),
         session::find_by_id_for_update(&mut tx, job.session_id, job.member_id).await?
     {
         current.encrypted_credentials = None;
-        session::save(&mut *tx, &current, state.clock.now()).await?;
+        session::save(&mut tx, &current, state.clock.now()).await?;
     }
     tx.commit().await?;
     Ok(())

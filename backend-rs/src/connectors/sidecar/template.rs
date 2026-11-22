@@ -206,7 +206,7 @@ impl<S: SyncStrategy> SyncTemplate<S> {
                 let now = state.clock.now();
                 current.mark_queued()?;
                 current.mark_failed(SidecarErrorCode::InvalidSessionState, now)?;
-                session::save(&mut *tx, &current, now).await?;
+                session::save(&mut tx, &current, now).await?;
                 tx.commit().await?;
                 tracing::warn!(
                     "Stored {label} session is unreadable (member={member_id}; type=CryptoError)"
@@ -221,7 +221,7 @@ impl<S: SyncStrategy> SyncTemplate<S> {
         let now = state.clock.now();
         current.mark_queued()?;
         current.updated_at = now;
-        session::save(&mut *tx, &current, now).await?;
+        session::save(&mut tx, &current, now).await?;
         tx.commit().await?;
         self.submit(
             state,
@@ -250,7 +250,7 @@ impl<S: SyncStrategy> SyncTemplate<S> {
         let job = self
             .insert_queued(state, &mut tx, member_id, plain_state, history, prepare)
             .await?;
-        let stored = session::find(&mut *tx, self.bank, member_id)
+        let stored = session::find(&mut tx, self.bank, member_id)
             .await?
             .ok_or_else(|| AppError::internal("queued sidecar session missing after insert"))?;
         tx.commit().await?;
@@ -305,7 +305,7 @@ impl<S: SyncStrategy> SyncTemplate<S> {
         self.lock_member_if_needed(&mut tx, member_id).await?;
         let existing = session::find_for_update(&mut tx, self.bank, member_id).await?;
         if let Some(existing) = &existing {
-            session::delete(&mut *tx, existing.id).await?;
+            session::delete(&mut tx, existing.id).await?;
         }
         tx.commit().await?;
         Ok(existing.is_some())
@@ -520,7 +520,7 @@ impl<S: SyncStrategy> SyncTemplate<S> {
         }
         let now = state.clock.now();
         current.mark_running(now)?;
-        session::save(&mut *tx, &current, now).await?;
+        session::save(&mut tx, &current, now).await?;
         tx.commit().await?;
         Ok(true)
     }
@@ -557,7 +557,7 @@ impl<S: SyncStrategy> SyncTemplate<S> {
             .commit(state, &mut tx, &mut current, job, prepared, synced_at)
             .await?;
         current.mark_successful(synced_at)?;
-        session::save(&mut *tx, &current, synced_at).await?;
+        session::save(&mut tx, &current, synced_at).await?;
         tx.commit().await?;
         Ok(true)
     }
@@ -590,7 +590,7 @@ impl<S: SyncStrategy> SyncTemplate<S> {
                 .await?;
             let now = state.clock.now();
             current.mark_failed(code, now)?;
-            session::save(&mut *tx, &current, now).await?;
+            session::save(&mut tx, &current, now).await?;
             tx.commit().await?;
             Ok::<_, JobError>(())
         }

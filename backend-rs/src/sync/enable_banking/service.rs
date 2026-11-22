@@ -158,7 +158,7 @@ async fn link_session(
     requisition.oauth_state = None;
     requisition.status = RequisitionStatus::Linked;
     requisition.last_synced_at = Some(now);
-    requisitions::save(&mut *tx, &requisition, now).await?;
+    requisitions::save(&mut tx, &requisition, now).await?;
     tx.commit().await?;
     detect_recurring(state, requisition.member_id).await;
     tracing::info!(
@@ -214,14 +214,14 @@ pub async fn retry_sync(
     let session_id = req.requisition_id.clone();
     let responses = upsert_all(state, &mut tx, &data, &req, &session_id).await?;
     if mark_retryable_if_empty(&mut req, &data, "retry") {
-        requisitions::save(&mut *tx, &req, state.clock.now()).await?;
+        requisitions::save(&mut tx, &req, state.clock.now()).await?;
         tx.commit().await?;
         return Ok(responses);
     }
     let now = state.clock.now();
     req.status = RequisitionStatus::Linked;
     req.last_synced_at = Some(now);
-    requisitions::save(&mut *tx, &req, now).await?;
+    requisitions::save(&mut tx, &req, now).await?;
     tx.commit().await?;
     detect_recurring(state, member_id).await;
     tracing::info!(
@@ -365,7 +365,7 @@ async fn resync_one(state: &AppState, req: &mut Requisition) -> Result<(), EbErr
     let data = connector::fetch_balances(state, &req.requisition_id).await?;
     let mut tx = state.db.begin().await?;
     if mark_retryable_if_empty(req, &data, "resync") {
-        requisitions::save(&mut *tx, req, state.clock.now()).await?;
+        requisitions::save(&mut tx, req, state.clock.now()).await?;
         tx.commit().await?;
         return Ok(());
     }
@@ -373,7 +373,7 @@ async fn resync_one(state: &AppState, req: &mut Requisition) -> Result<(), EbErr
     upsert_all(state, &mut tx, &data, req, &session_id).await?;
     let now = state.clock.now();
     req.last_synced_at = Some(now);
-    requisitions::save(&mut *tx, req, now).await?;
+    requisitions::save(&mut tx, req, now).await?;
     tx.commit().await?;
     detect_recurring(state, req.member_id).await;
     tracing::info!(
@@ -447,7 +447,7 @@ async fn resync_latest(
     let data = connector::fetch_balances(state, &req.requisition_id).await?;
     let mut tx = state.db.begin().await?;
     if mark_retryable_if_empty(&mut req, &data, "refresh") {
-        requisitions::save(&mut *tx, &req, state.clock.now()).await?;
+        requisitions::save(&mut tx, &req, state.clock.now()).await?;
         tx.commit().await?;
         return Ok(Vec::new());
     }
@@ -455,7 +455,7 @@ async fn resync_latest(
     let responses = upsert_all(state, &mut tx, &data, &req, &session_id).await?;
     let now = state.clock.now();
     req.last_synced_at = Some(now);
-    requisitions::save(&mut *tx, &req, now).await?;
+    requisitions::save(&mut tx, &req, now).await?;
     tx.commit().await?;
     detect_recurring(state, member_id).await;
     tracing::info!(

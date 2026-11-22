@@ -95,7 +95,7 @@ pub async fn resync_reporting(state: &AppState, member_id: i64) -> SourceSyncRes
 
 /// WiseSyncService.deleteConnection, for account deletion: whether a connection was removed.
 pub async fn delete_connection<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+    db: impl crate::db::DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<bool> {
     service::delete_connection(db, member_id).await
@@ -103,7 +103,7 @@ pub async fn delete_connection<'e>(
 
 /// WiseConnectionRepository.findByMemberId, for the sync status lines.
 pub async fn find_connection<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+    db: impl crate::db::DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<Option<WiseConnection>> {
     store::find_by_member(db, member_id).await

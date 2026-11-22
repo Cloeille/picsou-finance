@@ -3,10 +3,11 @@
 //! back a token a concurrent connect stored meanwhile.
 
 use chrono::{DateTime, Utc};
-use sqlx::{FromRow, PgExecutor};
+
+use crate::db::{self, DbExec, DbFromRow};
 
 /// One member's Wise connection. The encrypted token stays inside this module.
-#[derive(Debug, Clone, PartialEq, FromRow)]
+#[derive(Debug, Clone, PartialEq, DbFromRow)]
 pub struct WiseConnection {
     pub id: i64,
     pub member_id: i64,
@@ -19,10 +20,10 @@ pub struct WiseConnection {
 const COLUMNS: &str = "id, member_id, api_token, status, last_synced_at";
 
 pub(super) async fn find_by_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<Option<WiseConnection>> {
-    sqlx::query_as(&format!(
+    db::query_as(&format!(
         "SELECT {COLUMNS} FROM wise_connection WHERE member_id = $1"
     ))
     .bind(member_id)
@@ -32,12 +33,12 @@ pub(super) async fn find_by_member<'e>(
 
 /// Stores a token Wise just accepted, on the member's row or a new one, marked connected.
 pub(super) async fn save_token<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     encrypted_token: &str,
     now: DateTime<Utc>,
 ) -> sqlx::Result<()> {
-    sqlx::query(
+    db::query(
         "INSERT INTO wise_connection (member_id, api_token, status, last_synced_at, created_at, updated_at) \
          VALUES ($1, $2, 'CONNECTED', $3, $3, $3) \
          ON CONFLICT (member_id) DO UPDATE SET api_token = EXCLUDED.api_token, status = 'CONNECTED', \
@@ -52,11 +53,11 @@ pub(super) async fn save_token<'e>(
 }
 
 pub(super) async fn mark_synced<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     connection_id: i64,
     now: DateTime<Utc>,
 ) -> sqlx::Result<()> {
-    sqlx::query(
+    db::query(
         "UPDATE wise_connection SET status = 'CONNECTED', last_synced_at = $2, updated_at = $2 WHERE id = $1",
     )
     .bind(connection_id)
@@ -68,13 +69,13 @@ pub(super) async fn mark_synced<'e>(
 
 /// WiseStatusWriter: a failed sync's status, written outside the sync's rolled-back transaction.
 pub(super) async fn mark<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     connection_id: i64,
     status: &str,
     now: DateTime<Utc>,
 ) {
     let updated =
-        sqlx::query("UPDATE wise_connection SET status = $2, updated_at = $3 WHERE id = $1")
+        db::query("UPDATE wise_connection SET status = $2, updated_at = $3 WHERE id = $1")
             .bind(connection_id)
             .bind(status)
             .bind(now)
@@ -94,10 +95,10 @@ pub(super) async fn mark<'e>(
 }
 
 pub(super) async fn delete_by_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<bool> {
-    let deleted = sqlx::query("DELETE FROM wise_connection WHERE member_id = $1")
+    let deleted = db::query("DELETE FROM wise_connection WHERE member_id = $1")
         .bind(member_id)
         .execute(db)
         .await?;

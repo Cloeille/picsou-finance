@@ -6,7 +6,8 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use serde_with::skip_serializing_none;
-use sqlx::FromRow;
+
+use crate::db::DbFromRow;
 
 /// ExchangeType, stored and serialized by name. KRAKEN has no adapter in Java either.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
@@ -128,7 +129,7 @@ impl ExchangePosition {
 }
 
 /// A crypto_exchange_session row; the credentials are AES-GCM ciphertexts.
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, DbFromRow)]
 pub struct SessionRow {
     pub id: i64,
     pub member_id: i64,
@@ -142,7 +143,7 @@ pub struct SessionRow {
 }
 
 /// A crypto_exchange_position row.
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, DbFromRow)]
 pub struct PositionRow {
     pub product: String,
     pub ticker: String,

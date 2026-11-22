@@ -2,8 +2,8 @@
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use sqlx::{FromRow, PgExecutor};
 
+use crate::db::{self, DbExec, DbFromRow};
 use crate::error::AppError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, sqlx::Type, crate::db::DbEnum)]
@@ -18,7 +18,7 @@ pub enum RequisitionStatus {
 
 /// The row, and the JSON GET /api/sync/status lists (member and oauth_state are @JsonIgnore).
 #[serde_with::skip_serializing_none]
-#[derive(Debug, Clone, FromRow, Serialize)]
+#[derive(Debug, Clone, DbFromRow, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Requisition {
     pub created_at: DateTime<Utc>,
@@ -60,10 +60,10 @@ pub fn not_found() -> AppError {
 }
 
 pub async fn find_all_by_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<Vec<Requisition>> {
-    sqlx::query_as(&format!(
+    db::query_as(&format!(
         "SELECT {COLUMNS} FROM requisition WHERE member_id = $1"
     ))
     .bind(member_id)
@@ -72,11 +72,11 @@ pub async fn find_all_by_member<'e>(
 }
 
 pub async fn find_by_id_and_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     id: i64,
     member_id: i64,
 ) -> sqlx::Result<Option<Requisition>> {
-    sqlx::query_as(&format!(
+    db::query_as(&format!(
         "SELECT {COLUMNS} FROM requisition WHERE id = $1 AND member_id = $2"
     ))
     .bind(id)
@@ -87,11 +87,11 @@ pub async fn find_by_id_and_member<'e>(
 
 /// Newest first; the id breaks ties between rows created in the same instant.
 pub async fn find_by_status_and_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     status: RequisitionStatus,
     member_id: i64,
 ) -> sqlx::Result<Vec<Requisition>> {
-    sqlx::query_as(&format!(
+    db::query_as(&format!(
         "SELECT {COLUMNS} FROM requisition WHERE status = $1 AND member_id = $2 \
          ORDER BY created_at DESC, id DESC"
     ))
@@ -102,12 +102,12 @@ pub async fn find_by_status_and_member<'e>(
 }
 
 pub async fn find_by_status_member_and_institution<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     status: RequisitionStatus,
     member_id: i64,
     institution_id: &str,
 ) -> sqlx::Result<Vec<Requisition>> {
-    sqlx::query_as(&format!(
+    db::query_as(&format!(
         "SELECT {COLUMNS} FROM requisition WHERE status = $1 AND member_id = $2 AND institution_id = $3 \
          ORDER BY created_at DESC, id DESC"
     ))
@@ -121,10 +121,10 @@ pub async fn find_by_status_member_and_institution<'e>(
 /// Deliberately not member-scoped: the random single-use nonce is the credential binding the
 /// callback to its requisition, and the member comes from the row it resolves to.
 pub async fn find_by_oauth_state<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     oauth_state: &str,
 ) -> sqlx::Result<Option<Requisition>> {
-    sqlx::query_as(&format!(
+    db::query_as(&format!(
         "SELECT {COLUMNS} FROM requisition WHERE oauth_state = $1"
     ))
     .bind(oauth_state)
@@ -133,11 +133,11 @@ pub async fn find_by_oauth_state<'e>(
 }
 
 pub async fn insert<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     new: &NewRequisition<'_>,
     now: DateTime<Utc>,
 ) -> sqlx::Result<Requisition> {
-    sqlx::query_as(&format!(
+    db::query_as(&format!(
         "INSERT INTO requisition (member_id, requisition_id, institution_id, institution_name, logo_url, status, \
          auth_link, oauth_state, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, 'CREATED', $6, $7, $8, $8) \
          RETURNING {COLUMNS}"
@@ -156,11 +156,11 @@ pub async fn insert<'e>(
 
 /// Writes every mutable column back (JPA save of a loaded entity).
 pub async fn save<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     r: &Requisition,
     now: DateTime<Utc>,
 ) -> sqlx::Result<()> {
-    sqlx::query(
+    db::query(
         "UPDATE requisition SET requisition_id = $2, institution_id = $3, institution_name = $4, logo_url = $5, \
          logo_backfill_attempted_at = $6, status = $7, auth_link = $8, oauth_state = $9, last_synced_at = $10, \
          updated_at = $11 WHERE id = $1",
@@ -181,8 +181,8 @@ pub async fn save<'e>(
     Ok(())
 }
 
-pub async fn delete<'e>(db: impl PgExecutor<'e>, id: i64) -> sqlx::Result<()> {
-    sqlx::query("DELETE FROM requisition WHERE id = $1")
+pub async fn delete<'e>(db: impl DbExec<'e>, id: i64) -> sqlx::Result<()> {
+    db::query("DELETE FROM requisition WHERE id = $1")
         .bind(id)
         .execute(db)
         .await?;
@@ -192,13 +192,13 @@ pub async fn delete<'e>(db: impl PgExecutor<'e>, id: i64) -> sqlx::Result<()> {
 /// RequisitionLifecycleWriter.checkpointSession, in its own statement so it survives a rollback
 /// of the account writes: the exchanged session id, and the spent nonce cleared.
 pub async fn checkpoint_session<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     id: i64,
     member_id: i64,
     session_id: &str,
     now: DateTime<Utc>,
 ) -> Result<(), AppError> {
-    let updated = sqlx::query(
+    let updated = db::query(
         "UPDATE requisition SET requisition_id = $3, oauth_state = NULL, updated_at = $4 \
          WHERE id = $1 AND member_id = $2",
     )
@@ -216,12 +216,12 @@ pub async fn checkpoint_session<'e>(
 
 /// RequisitionLifecycleWriter.markFailed, in its own statement.
 pub async fn mark_failed<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     id: i64,
     member_id: i64,
     now: DateTime<Utc>,
 ) -> Result<(), AppError> {
-    let updated = sqlx::query(
+    let updated = db::query(
         "UPDATE requisition SET status = 'FAILED', updated_at = $3 WHERE id = $1 AND member_id = $2",
     )
     .bind(id)

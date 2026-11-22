@@ -272,7 +272,7 @@ pub async fn clear_session(state: &AppState, member_id: i64) -> AppResult<bool> 
         .or_insert(0) += 1;
     let existing = session::find_for_update(&mut tx, BANK, member_id).await?;
     if let Some(existing) = &existing {
-        session::delete(&mut *tx, existing.id).await?;
+        session::delete(&mut tx, existing.id).await?;
     }
     tx.commit().await?;
     Ok(existing.is_some())
@@ -350,7 +350,7 @@ async fn reauthenticate_and_fetch(state: &AppState, job: &SyncJob) -> JobResult<
             {
                 let now = state.clock.now();
                 current.update_session_state(encrypted_state, now);
-                session::save(&mut *tx, &current, now).await?;
+                session::save(&mut tx, &current, now).await?;
                 true
             }
             _ => false,
@@ -375,7 +375,7 @@ async fn clear_stored_credentials(state: &AppState, job: &SyncJob) -> JobResult<
         && current.is_sync_in_flight()
     {
         current.encrypted_credentials = None;
-        session::save(&mut *tx, &current, state.clock.now()).await?;
+        session::save(&mut tx, &current, state.clock.now()).await?;
     }
     tx.commit().await?;
     Ok(())

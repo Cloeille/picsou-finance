@@ -10,9 +10,10 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use regex::Regex;
 use rust_decimal::Decimal;
-use sqlx::{FromRow, PgConnection};
+use sqlx::PgConnection;
 
 use crate::connectors::seams::{ScpiFundOutcome, ScpiFunds, ScpiProvider, SyncedFund};
+use crate::db::{self, AsDbHandle, DbExec, DbFromRow, DbHandle};
 use crate::error::{AppError, AppResult};
 use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::decimal::{HALF_UP, set_scale};
@@ -58,7 +59,7 @@ fn code_column(provider: ScpiProvider) -> &'static str {
     }
 }
 
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, DbFromRow)]
 struct Position {
     id: Option<i64>,
     account_id: i64,
@@ -117,7 +118,7 @@ impl Position {
 }
 
 /// One scpi_provider_fund row, loaded or about to be inserted.
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, DbFromRow)]
 struct FundRow {
     id: Option<i64>,
     fund_code: String,
@@ -126,44 +127,44 @@ struct FundRow {
     last_seen_at: Option<DateTime<Utc>>,
 }
 
-async fn position_by_code(
-    conn: &mut PgConnection,
+async fn position_by_code<'e>(
+    db: impl DbExec<'e>,
     member_id: i64,
     provider: ScpiProvider,
     code: &str,
 ) -> sqlx::Result<Option<Position>> {
     let column = code_column(provider);
-    sqlx::query_as(&format!(
+    db::query_as(&format!(
         "SELECT {POSITION_COLUMNS} FROM scpi_position p WHERE p.member_id = $1 AND p.{column} = $2"
     ))
     .bind(member_id)
     .bind(code)
-    .fetch_optional(conn)
+    .fetch_optional(db)
     .await
 }
 
-async fn position_by_account(
-    conn: &mut PgConnection,
+async fn position_by_account<'e>(
+    db: impl DbExec<'e>,
     account_id: i64,
     member_id: i64,
 ) -> sqlx::Result<Option<Position>> {
-    sqlx::query_as(&format!(
+    db::query_as(&format!(
         "SELECT {POSITION_COLUMNS} FROM scpi_position p WHERE p.account_id = $1 AND p.member_id = $2"
     ))
     .bind(account_id)
     .bind(member_id)
-    .fetch_optional(conn)
+    .fetch_optional(db)
     .await
 }
 
 /// findByAccountMemberIdAnd<Provider>FundCodeIsNotNull: the account owner's live accounts.
 async fn linked_positions(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     provider: ScpiProvider,
 ) -> sqlx::Result<Vec<(Position, String)>> {
     let column = code_column(provider);
-    let positions: Vec<Position> = sqlx::query_as(&format!(
+    let positions: Vec<Position> = db::query_as(&format!(
         "SELECT {POSITION_COLUMNS} FROM scpi_position p JOIN account a ON a.id = p.account_id \
          WHERE a.member_id = $1 AND a.deleted_at IS NULL AND p.{column} IS NOT NULL ORDER BY p.id"
     ))
@@ -172,7 +173,7 @@ async fn linked_positions(
     .await?;
     let mut linked = Vec::with_capacity(positions.len());
     for position in positions {
-        let name: String = sqlx::query_scalar("SELECT name FROM account WHERE id = $1")
+        let name: String = db::query_scalar("SELECT name FROM account WHERE id = $1")
             .bind(position.account_id)
             .fetch_one(&mut *conn)
             .await?;
@@ -182,24 +183,24 @@ async fn linked_positions(
 }
 
 /// The position's account as its lazy association loads it: by id alone.
-async fn account_of(conn: &mut PgConnection, position: &Position) -> AppResult<Account> {
-    sqlx::query_as::<_, Account>(&format!(
+async fn account_of<'e>(db: impl DbExec<'e>, position: &Position) -> AppResult<Account> {
+    db::query_as::<Account>(&format!(
         "SELECT {ACCOUNT_COLUMNS} FROM account a WHERE a.id = $1"
     ))
     .bind(position.account_id)
-    .fetch_optional(conn)
+    .fetch_optional(db)
     .await?
     .ok_or_else(|| AppError::internal("SCPI position without its account"))
 }
 
-async fn save_position(
-    conn: &mut PgConnection,
+async fn save_position<'e>(
+    db: impl DbExec<'e>,
     position: &mut Position,
     now: DateTime<Utc>,
 ) -> sqlx::Result<()> {
     match position.id {
         Some(id) => {
-            sqlx::query(
+            db::query(
                 "UPDATE scpi_position SET management_company = $2, share_count = $3, subscription_price_eur = $4, \
                  withdrawal_price_eur = $5, corum_fund_code = $6, sofidy_fund_code = $7, valuation_status = $8, \
                  updated_at = $9 WHERE id = $1",
@@ -213,11 +214,11 @@ async fn save_position(
             .bind(&position.sofidy_fund_code)
             .bind(&position.valuation_status)
             .bind(now)
-            .execute(conn)
+            .execute(db)
             .await?;
         }
         None => {
-            let id: i64 = sqlx::query_scalar(
+            let id: i64 = db::query_scalar(
                 "INSERT INTO scpi_position (account_id, member_id, management_company, share_count, \
                  subscription_price_eur, withdrawal_price_eur, dividend_policy, corum_fund_code, sofidy_fund_code, \
                  valuation_status, created_at, updated_at) \
@@ -233,7 +234,7 @@ async fn save_position(
             .bind(&position.sofidy_fund_code)
             .bind(&position.valuation_status)
             .bind(now)
-            .fetch_one(conn)
+            .fetch_one(db)
             .await?;
             position.id = Some(id);
         }
@@ -260,7 +261,7 @@ async fn apply_synced_position(
     withdrawal_price: Option<Decimal>,
     now: DateTime<Utc>,
 ) -> AppResult<()> {
-    let mut account = account_of(conn, position).await?;
+    let mut account = account_of(&mut *conn, position).await?;
     if account.account_type != AccountType::Scpi {
         // The fund link is data, and data can be wrong: no share balance on another asset type.
         return Err(AppError::internal("Account is not a SCPI account"));
@@ -279,26 +280,26 @@ async fn apply_synced_position(
             account.cash_balance = Some(Decimal::ZERO);
         }
     }
-    save_position(conn, position, now).await?;
+    save_position(&mut *conn, position, now).await?;
     accounts::update(&mut *conn, &account, now).await?;
     Ok(())
 }
 
-async fn fund_row(
-    conn: &mut PgConnection,
+async fn fund_row<'e>(
+    db: impl DbExec<'e>,
     member_id: i64,
     provider: ScpiProvider,
     code: &str,
     label: Option<&str>,
 ) -> sqlx::Result<FundRow> {
-    let found: Option<FundRow> = sqlx::query_as(
+    let found: Option<FundRow> = db::query_as(
         "SELECT id, fund_code, label, ignored, last_seen_at FROM scpi_provider_fund \
          WHERE member_id = $1 AND provider = $2 AND fund_code = $3",
     )
     .bind(member_id)
     .bind(provider.as_str())
     .bind(code)
-    .fetch_optional(conn)
+    .fetch_optional(db)
     .await?;
     let mut row = found.unwrap_or(FundRow {
         id: None,
@@ -313,8 +314,8 @@ async fn fund_row(
     Ok(row)
 }
 
-async fn save_fund_row(
-    conn: &mut PgConnection,
+async fn save_fund_row<'e>(
+    db: impl DbExec<'e>,
     member_id: i64,
     provider: ScpiProvider,
     row: &FundRow,
@@ -323,7 +324,7 @@ async fn save_fund_row(
 ) -> sqlx::Result<()> {
     match row.id {
         Some(id) => {
-            sqlx::query(
+            db::query(
                 "UPDATE scpi_provider_fund SET label = $2, last_outcome = $3, last_seen_at = $4, \
                  last_synced_at = $5, updated_at = $5 WHERE id = $1",
             )
@@ -332,11 +333,11 @@ async fn save_fund_row(
             .bind(outcome.as_str())
             .bind(row.last_seen_at)
             .bind(synced_at)
-            .execute(conn)
+            .execute(db)
             .await?;
         }
         None => {
-            sqlx::query(
+            db::query(
                 "INSERT INTO scpi_provider_fund (member_id, provider, fund_code, label, ignored, last_outcome, \
                  last_seen_at, last_synced_at, created_at, updated_at) VALUES ($1, $2, $3, $4, false, $5, $6, $7, $7, $7)",
             )
@@ -347,7 +348,7 @@ async fn save_fund_row(
             .bind(outcome.as_str())
             .bind(row.last_seen_at)
             .bind(synced_at)
-            .execute(conn)
+            .execute(db)
             .await?;
         }
     }
@@ -373,7 +374,7 @@ async fn adoption_candidates(
         {
             continue;
         }
-        let position = position_by_account(conn, account.id, member_id).await?;
+        let position = position_by_account(&mut *conn, account.id, member_id).await?;
         if position.is_some_and(|p| p.links_a_provider()) {
             continue;
         }
@@ -394,7 +395,9 @@ async fn apply_fund(
     if row.ignored {
         return Ok(ScpiFundOutcome::Ignored);
     }
-    if let Some(mut linked) = position_by_code(conn, member_id, provider, &fund.fund_code).await? {
+    if let Some(mut linked) =
+        position_by_code(&mut *conn, member_id, provider, &fund.fund_code).await?
+    {
         apply(conn, &mut linked, fund, now).await?;
         claimed.insert(linked.account_id);
         return Ok(if linked.valuation_status == PRICE_INCOMPLETE {
@@ -414,7 +417,7 @@ async fn apply_fund(
         return Ok(ScpiFundOutcome::Ambiguous);
     }
     if let Some(account) = candidates.into_iter().next() {
-        let mut position = match position_by_account(conn, account.id, member_id).await? {
+        let mut position = match position_by_account(&mut *conn, account.id, member_id).await? {
             Some(position) => position,
             None => Position::new(&account, provider, fund.quantity),
         };
@@ -470,14 +473,14 @@ async fn apply(
 /// Reports, without touching a balance, every fund of the provider the snapshot no longer
 /// lists; a link made by hand counts even without a fund row.
 async fn report_missing(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     provider: ScpiProvider,
     listed: &HashSet<String>,
     synced_at: DateTime<Utc>,
     outcomes: &mut Vec<(String, ScpiFundOutcome)>,
 ) -> AppResult<()> {
-    let rows: Vec<(String, Option<String>, bool)> = sqlx::query_as(
+    let rows: Vec<(String, Option<String>, bool)> = db::query_as(
         "SELECT fund_code, label, ignored FROM scpi_provider_fund WHERE member_id = $1 AND provider = $2 \
          ORDER BY id",
     )
@@ -490,7 +493,7 @@ async fn report_missing(
         .filter(|(_, _, ignored)| !ignored)
         .map(|(code, label, _)| (code, label))
         .collect();
-    for (position, name) in linked_positions(conn, member_id, provider).await? {
+    for (position, name) in linked_positions(&mut *conn, member_id, provider).await? {
         let Some(code) = position.fund_code(provider) else {
             continue;
         };
@@ -502,9 +505,9 @@ async fn report_missing(
         if listed.contains(&code) {
             continue;
         }
-        let row = fund_row(conn, member_id, provider, &code, label.as_deref()).await?;
+        let row = fund_row(&mut *conn, member_id, provider, &code, label.as_deref()).await?;
         save_fund_row(
-            conn,
+            &mut *conn,
             member_id,
             provider,
             &row,
@@ -534,7 +537,7 @@ impl ScpiFunds for RecordedScpiFunds {
         for fund in funds {
             listed.insert(fund.fund_code.clone());
             let mut row = fund_row(
-                conn,
+                &mut *conn,
                 member_id,
                 provider,
                 &fund.fund_code,
@@ -552,10 +555,18 @@ impl ScpiFunds for RecordedScpiFunds {
                 synced_at,
             )
             .await?;
-            save_fund_row(conn, member_id, provider, &row, outcome, synced_at).await?;
+            save_fund_row(&mut *conn, member_id, provider, &row, outcome, synced_at).await?;
             outcomes.push((fund.fund_code.clone(), outcome));
         }
-        report_missing(conn, member_id, provider, &listed, synced_at, &mut outcomes).await?;
+        report_missing(
+            &mut conn.as_handle(),
+            member_id,
+            provider,
+            &listed,
+            synced_at,
+            &mut outcomes,
+        )
+        .await?;
         Ok(outcomes)
     }
 
@@ -568,7 +579,9 @@ impl ScpiFunds for RecordedScpiFunds {
         now: DateTime<Utc>,
     ) -> AppResult<usize> {
         let mut closed = 0;
-        for (mut position, _) in linked_positions(conn, member_id, provider).await? {
+        for (mut position, _) in
+            linked_positions(&mut conn.as_handle(), member_id, provider).await?
+        {
             let Some(code) = position.fund_code(provider).map(str::to_owned) else {
                 continue;
             };

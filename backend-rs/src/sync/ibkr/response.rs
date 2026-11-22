@@ -6,8 +6,9 @@ use rust_decimal::Decimal;
 use serde::Serialize;
 use serde_json::Value;
 use serde_with::skip_serializing_none;
-use sqlx::{FromRow, PgConnection};
+use sqlx::PgConnection;
 
+use crate::db::{self, DbFromRow};
 use crate::error::{AppError, AppResult};
 use crate::ledger::model::{Account, AccountType, CardNature, RecurringCadence};
 use crate::ledger::prices::PriceRead;
@@ -26,7 +27,7 @@ pub struct IbkrConnectionStatusResponse {
 }
 
 #[skip_serializing_none]
-#[derive(Debug, Serialize, FromRow)]
+#[derive(Debug, Serialize, DbFromRow)]
 #[serde(rename_all = "camelCase")]
 struct SavingsConfig {
     product: String,
@@ -105,7 +106,7 @@ pub async fn account_response(
     today: NaiveDate,
 ) -> AppResult<Value> {
     let balance_eur = valuation::live_balance_eur(&mut *conn, prices, account, today).await?;
-    let savings_config: Option<SavingsConfig> = sqlx::query_as(
+    let savings_config: Option<SavingsConfig> = db::query_as(
         "SELECT product::text AS product, annual_rate, rate_basis::text AS rate_basis, tax_rate_pct, \
          ceiling FROM savings_interest_config WHERE account_id = $1",
     )
