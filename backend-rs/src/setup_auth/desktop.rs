@@ -5,21 +5,34 @@
 //! `APP_DESKTOP_MODE=true` and 403 unless both the raw TCP peer and the resolved client IP are
 //! loopback (`127.0.0.1` / `::1`).
 
-use axum::extract::{FromRequestParts, State};
+use std::sync::atomic::Ordering;
+
+use axum::extract::{FromRequestParts, Query, State};
 use axum::http::request::Parts;
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
+use subtle::ConstantTimeEq;
 
 use crate::AppState;
-use crate::auth::{Auth, Role, password, persistent, users};
+use crate::auth::{Auth, Role, cookies, password, persistent, users};
 use crate::error::{AppError, AppResult};
 use crate::http::client_ip::{ClientIp, PeerIp};
 use crate::http::json::{Errors, Json, Lang, Validate};
 use crate::http::rate_limit::policies;
 use crate::ledger::categorize;
 use crate::setup_auth::auth::{RequestInfo, cookie_jar, issue_session, user_payload};
-use crate::setup_auth::{audit, settings, setup};
+use crate::setup_auth::{audit, mfa, settings, setup};
+
+/// HttpOnly, SameSite=Strict gate cookie issued once per launch by `GET /api/auth/desktop-bootstrap`.
+pub const DESKTOP_GATE_COOKIE: &str = "picsou_desktop_gate";
+
+/// Alternative direct header carrying the per-launch `APP_DESKTOP_TOKEN` for native clients/tests.
+pub const DESKTOP_TOKEN_HEADER: &str = "x-picsou-desktop-token";
+
+fn constant_time_str_eq(a: &str, b: &str) -> bool {
+    a.len() == b.len() && bool::from(a.as_bytes().ct_eq(b.as_bytes()))
+}
 
 /// Guard extractor that runs before any body parser: 404 when Desktop Mode is off, 403 when the
 /// request did not originate from loopback.
@@ -49,6 +62,99 @@ impl FromRequestParts<AppState> for DesktopLoopback {
         }
         Ok(Self)
     }
+}
+
+/// Fail-closed extractor for unauthenticated Desktop onboarding & auto-login endpoints.
+///
+/// Requires `DesktopLoopback` AND `APP_DESKTOP_TOKEN` configured AND either:
+/// - Cookie `picsou_desktop_gate` matching the per-process secret in constant time, OR
+/// - Header `X-Picsou-Desktop-Token` matching `APP_DESKTOP_TOKEN` in constant time.
+pub struct DesktopSessionGate;
+
+impl FromRequestParts<AppState> for DesktopSessionGate {
+    type Rejection = AppError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        DesktopLoopback::from_request_parts(parts, state).await?;
+        let Some(expected_token) = state.config.desktop_token.as_deref() else {
+            return Err(AppError::status(
+                StatusCode::FORBIDDEN,
+                "Desktop session token is not configured.",
+            ));
+        };
+        let cookie_ok = cookies::read(&parts.headers, DESKTOP_GATE_COOKIE)
+            .is_some_and(|v| constant_time_str_eq(&v, &state.desktop_gate_cookie_secret));
+        let header_ok = parts
+            .headers
+            .get(DESKTOP_TOKEN_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| constant_time_str_eq(v, expected_token));
+        if !cookie_ok && !header_ok {
+            return Err(AppError::status(
+                StatusCode::FORBIDDEN,
+                "Desktop session authorization required.",
+            ));
+        }
+        Ok(Self)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BootstrapQuery {
+    token: Option<String>,
+}
+
+/// GET /api/auth/desktop-bootstrap?token=... — single-use per-launch token exchange that hands
+/// Tauri's main WebView an `HttpOnly; SameSite=Strict; Path=/api` gate cookie and redirects to `/`.
+pub async fn bootstrap(
+    State(state): State<AppState>,
+    _guard: DesktopLoopback,
+    Query(query): Query<BootstrapQuery>,
+) -> AppResult<Response> {
+    let Some(expected) = state.config.desktop_token.as_deref() else {
+        return Err(AppError::status(
+            StatusCode::FORBIDDEN,
+            "Desktop session token is not configured.",
+        ));
+    };
+    let Some(provided) = query.token.as_deref() else {
+        return Err(AppError::status(
+            StatusCode::FORBIDDEN,
+            "Invalid desktop bootstrap token.",
+        ));
+    };
+    if !constant_time_str_eq(provided, expected) {
+        return Err(AppError::status(
+            StatusCode::FORBIDDEN,
+            "Invalid desktop bootstrap token.",
+        ));
+    }
+    if state
+        .desktop_bootstrap_consumed
+        .swap(true, Ordering::AcqRel)
+    {
+        return Err(AppError::status(
+            StatusCode::FORBIDDEN,
+            "Desktop bootstrap token has already been used.",
+        ));
+    }
+    let cookie_value = format!(
+        "{DESKTOP_GATE_COOKIE}={}; HttpOnly; SameSite=Strict; Path=/api",
+        state.desktop_gate_cookie_secret
+    );
+    let mut response = StatusCode::SEE_OTHER.into_response();
+    let headers = response.headers_mut();
+    headers.insert(header::LOCATION, HeaderValue::from_static("/"));
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&cookie_value)
+            .map_err(|_| AppError::Internal("invalid desktop gate cookie".into()))?,
+    );
+    Ok(response)
 }
 
 #[derive(Debug, Deserialize)]
@@ -137,7 +243,7 @@ fn derive_username(display_name: &str) -> String {
 /// POST /api/setup/desktop-quick-start — 1-step local onboarding for Desktop Mode.
 pub async fn quick_start(
     State(state): State<AppState>,
-    _guard: DesktopLoopback,
+    _guard: DesktopSessionGate,
     ip: ClientIp,
     headers: HeaderMap,
     Json(req): Json<DesktopQuickStartRequest>,
@@ -190,7 +296,7 @@ pub async fn quick_start(
 /// POST /api/auth/desktop-autologin — seamless loopback sign-in when Desktop lock is disabled.
 pub async fn autologin(
     State(state): State<AppState>,
-    _guard: DesktopLoopback,
+    _guard: DesktopSessionGate,
     ip: ClientIp,
     headers: HeaderMap,
 ) -> AppResult<Response> {
@@ -217,6 +323,13 @@ pub async fn autologin(
             "No active local account found.",
         ));
     };
+    if mfa::is_enabled(&state.db, user.id).await? {
+        return Err(AppError::coded(
+            StatusCode::FORBIDDEN,
+            "DESKTOP_LOCK_ENABLED",
+            "Two-factor authentication is enabled; sign in with your password.",
+        ));
+    }
     let mut jar = cookie_jar(&state).await;
     issue_session(
         &state,

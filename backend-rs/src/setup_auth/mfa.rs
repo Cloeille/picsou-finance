@@ -35,6 +35,17 @@ fn mfa_error(message: &str) -> AppError {
     AppError::BadRequest(message.to_owned())
 }
 
+async fn require_desktop_lock_for_mfa(state: &AppState) -> AppResult<()> {
+    if state.config.desktop_mode
+        && !crate::setup_auth::settings::desktop_lock_enabled(state).await?
+    {
+        return Err(mfa_error(
+            "Enable Desktop password lock before configuring two-factor authentication.",
+        ));
+    }
+    Ok(())
+}
+
 #[derive(crate::db::DbFromRow)]
 struct UserMfa {
     id: i64,
@@ -271,6 +282,7 @@ pub async fn enroll_init(
     {
         return Ok(StatusCode::TOO_MANY_REQUESTS.into_response());
     }
+    require_desktop_lock_for_mfa(&state).await?;
     require_reauth(&auth.user, &req.current_password.unwrap_or_default()).await?;
     let existing = find(&state.db, auth.user.id).await?;
     if existing.as_ref().is_some_and(|m| m.enabled) {
@@ -325,6 +337,7 @@ pub async fn enroll_verify(
     auth: Auth,
     Json(req): Json<CodeRequest>,
 ) -> AppResult<Response> {
+    require_desktop_lock_for_mfa(&state).await?;
     let mfa = find(&state.db, auth.user.id)
         .await?
         .ok_or_else(|| mfa_error("MFA enrollment not started"))?;

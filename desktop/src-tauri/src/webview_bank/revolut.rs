@@ -28,7 +28,8 @@ use super::bnp::{
 };
 use super::revolut_parsers::{self, RevolutHarvestPayload};
 use super::{
-    document_ready_complete, poll_webview_slot, read_capped_text, EvalPollError, PENDING_SENTINEL,
+    document_ready_complete, is_allowed_https_navigation, is_domain_or_subdomain,
+    poll_webview_slot, read_capped_text, EvalPollError, PENDING_SENTINEL,
 };
 
 const APP_URL: &str = "https://app.revolut.com/";
@@ -202,6 +203,17 @@ impl RevolutWebviewManager {
             .incognito(true)
             .visible(true)
             .focused(true)
+            .on_navigation(|url| {
+                let allowed = is_allowed_navigation_url(url);
+                if !allowed {
+                    tracing::warn!(
+                        "Revolut WebView blocked navigation to scheme={} host={:?}",
+                        url.scheme(),
+                        url.host_str()
+                    );
+                }
+                allowed
+            })
             .build()?;
             win.on_window_event(move |event| {
                 if matches!(
@@ -1096,8 +1108,13 @@ pub fn normalize_member_key(member_id: &str) -> String {
 }
 
 pub fn is_revolut_host(host: &str) -> bool {
-    let lowered = host.to_ascii_lowercase();
-    lowered == "revolut.com" || lowered.ends_with(".revolut.com")
+    is_domain_or_subdomain(&host.to_ascii_lowercase(), "revolut.com")
+}
+
+/// Host allowlist for `WebviewWindowBuilder::on_navigation`: permits `about:blank` and HTTPS
+/// navigations within `revolut.com` and its subdomains, blocking all other schemes and hosts.
+pub fn is_allowed_navigation_url(url: &Url) -> bool {
+    is_allowed_https_navigation(url, |host| is_domain_or_subdomain(host, "revolut.com"))
 }
 
 /// True once the WebView is on `https://app.revolut.com/home` (or another authenticated retail
@@ -1177,6 +1194,38 @@ mod tests {
         assert!(on_revolut_home(
             &Url::parse("https://app.revolut.com/home?tab=accounts").unwrap()
         ));
+    }
+
+    #[test]
+    fn navigation_allowlist_restricts_to_revolut_https_and_about_blank() {
+        for allowed in [
+            "about:blank",
+            "https://revolut.com/",
+            "https://app.revolut.com/start",
+            "https://sso.revolut.com/signin",
+            "https://APP.REVOLUT.COM/home",
+        ] {
+            assert!(
+                is_allowed_navigation_url(&Url::parse(allowed).unwrap()),
+                "expected allowed: {allowed}"
+            );
+        }
+        for rejected in [
+            "http://app.revolut.com/",
+            "https://app.revolut.com:8443/",
+            "https://user:pass@app.revolut.com/",
+            "https://evil-revolut.com/",
+            "https://app.revolut.com.evil.example/",
+            "https://evil.example/",
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+        ] {
+            assert!(
+                !is_allowed_navigation_url(&Url::parse(rejected).unwrap()),
+                "expected rejected: {rejected}"
+            );
+        }
     }
 
     #[test]

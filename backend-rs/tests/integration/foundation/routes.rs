@@ -28,6 +28,7 @@ const FRAMEWORK_ROUTES: &[(&str, &str)] = &[
     ("POST", "/mcp/message"),
     // Desktop-only local endpoints (return 404 unless APP_DESKTOP_MODE=true; loopback-only).
     ("POST", "/api/setup/desktop-quick-start"),
+    ("GET", "/api/auth/desktop-bootstrap"),
     ("POST", "/api/auth/desktop-autologin"),
     ("GET", "/api/desktop/lock"),
     ("PUT", "/api/desktop/lock"),

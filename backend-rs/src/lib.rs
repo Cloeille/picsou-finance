@@ -65,6 +65,11 @@ pub struct Inner {
     /// Outbound HTTP (providers, sidecars); tests point base URLs at wiremock through Config.
     pub http: reqwest::Client,
     pub setup_complete: AtomicBool,
+    /// Per-process CSPRNG secret stored in the `picsou_desktop_gate` HttpOnly cookie after
+    /// `GET /api/auth/desktop-bootstrap` consumes the one-shot launch token.
+    pub desktop_gate_cookie_secret: String,
+    /// Single-use latch for `GET /api/auth/desktop-bootstrap`.
+    pub desktop_bootstrap_consumed: AtomicBool,
     pub login_timing: TimingEqualizer,
     pub access_key_usage: UsageThrottle,
     pub bearer_authenticators: Vec<Arc<dyn BearerAuthenticator>>,
@@ -113,7 +118,15 @@ impl AppState {
     }
 
     pub fn new(config: Config, db: db::Db, clock: Arc<dyn Clock>) -> anyhow::Result<Self> {
+        if config.desktop_mode && !http::client_ip::is_loopback_ip(&config.server_address) {
+            anyhow::bail!(
+                "APP_DESKTOP_MODE=true requires a loopback SERVER_ADDRESS (127.0.0.1, ::1, or localhost), got {}",
+                config.server_address
+            );
+        }
         let clock = AppClock::new(clock, config.timezone);
+        let desktop_gate_bytes: [u8; 32] = rand::random();
+        let desktop_gate_cookie_secret = hex::encode(desktop_gate_bytes);
         let connectors = connectors::Connectors::new(&config, db.clone())?;
         let crypto = CryptoEncryption::new(&config.crypto_key)?;
         let http = reqwest::Client::builder()
@@ -150,6 +163,8 @@ impl AppState {
             connectors,
             db,
             setup_complete: AtomicBool::new(false),
+            desktop_gate_cookie_secret,
+            desktop_bootstrap_consumed: AtomicBool::new(false),
             login_timing: TimingEqualizer::default(),
             access_key_usage: UsageThrottle::default(),
             bearer_authenticators: identity::bearer_authenticators(),
@@ -193,6 +208,9 @@ pub async fn run(
 ) -> anyhow::Result<()> {
     let started = PROCESS_START.get().copied().unwrap_or_else(Instant::now);
     let addr = listener.local_addr()?;
+    if state.config.desktop_mode && !http::client_ip::is_loopback_ip(&addr.ip()) {
+        anyhow::bail!("APP_DESKTOP_MODE=true refused to listen on non-loopback address {addr}");
+    }
     let db = state.db.clone();
     let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
     let schedulers = jobs::spawn_schedulers(state.clone(), stop_rx);

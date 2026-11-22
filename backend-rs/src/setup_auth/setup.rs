@@ -122,6 +122,8 @@ struct StatusResponse {
     sso: SsoInfo,
     desktop_mode: Option<bool>,
     desktop_lock_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    legacy_postgres_detected: bool,
 }
 
 pub async fn status(State(state): State<AppState>) -> AppResult<axum::Json<impl Serialize>> {
@@ -142,6 +144,8 @@ pub async fn status(State(state): State<AppState>) -> AppResult<axum::Json<impl 
     } else {
         (None, None)
     };
+    let legacy_postgres_detected =
+        state.config.desktop_mode && state.config.desktop_legacy_postgres;
     Ok(axum::Json(StatusResponse {
         state: current,
         needs_setup: current != SetupState::Complete,
@@ -153,6 +157,7 @@ pub async fn status(State(state): State<AppState>) -> AppResult<axum::Json<impl 
         },
         desktop_mode,
         desktop_lock_enabled,
+        legacy_postgres_detected,
     }))
 }
 

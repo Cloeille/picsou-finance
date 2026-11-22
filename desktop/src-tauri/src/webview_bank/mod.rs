@@ -24,7 +24,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
 use subtle::ConstantTimeEq;
-use tauri::{AppHandle, WebviewWindow};
+use tauri::{AppHandle, Url, WebviewWindow};
 use tokio::sync::oneshot;
 
 use crate::supervisor::LOOPBACK;
@@ -175,6 +175,36 @@ fn build_router(state: Arc<BridgeState>) -> axum::Router {
             delete(revolut_delete_session),
         )
         .with_state(state)
+}
+
+/// Returns `true` when `url` is `about:blank`, or an `https` URL on default port 443 with no
+/// embedded userinfo whose lowercased host satisfies `host_allowed`.
+pub(crate) fn is_allowed_https_navigation(
+    url: &Url,
+    host_allowed: impl FnOnce(&str) -> bool,
+) -> bool {
+    if url.as_str() == "about:blank" {
+        return true;
+    }
+    if url.scheme() != "https"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || !matches!(url.port(), None | Some(443))
+    {
+        return false;
+    }
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    host_allowed(&host.to_ascii_lowercase())
+}
+
+/// Returns `true` when `host_lower` equals `domain` or is a proper subdomain (`*.domain`).
+pub(crate) fn is_domain_or_subdomain(host_lower: &str, domain: &str) -> bool {
+    host_lower == domain
+        || host_lower
+            .strip_suffix(domain)
+            .is_some_and(|prefix| prefix.ends_with('.') && prefix.len() > 1)
 }
 
 pub(crate) const PENDING_SENTINEL: &str = "__PENDING__";

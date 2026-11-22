@@ -57,6 +57,101 @@ fn header_str(headers: &HeaderMap, name: header::HeaderName) -> Option<&str> {
     headers.get(name).and_then(|v| v.to_str().ok())
 }
 
+/// Validates a `Host` header (or HTTP/2 `:authority`) for Desktop Mode to block DNS rebinding.
+///
+/// Only `127.0.0.1`, `localhost`, or `[::1]` are accepted; when `expected_port != 0`, the effective
+/// port (explicit `:port`, or 80 when omitted) must match `expected_port`.
+pub fn is_allowed_desktop_host(raw: &str, expected_port: u16) -> bool {
+    if raw.is_empty()
+        || raw.bytes().any(|b| {
+            b.is_ascii_control()
+                || b.is_ascii_whitespace()
+                || matches!(b, b'@' | b'/' | b'?' | b'#')
+        })
+    {
+        return false;
+    }
+    let (host, port_str) = if let Some(rest) = raw.strip_prefix('[') {
+        let Some((inner, after)) = rest.split_once(']') else {
+            return false;
+        };
+        if inner != "::1" {
+            return false;
+        }
+        if after.is_empty() {
+            ("[::1]", None)
+        } else if let Some(port) = after.strip_prefix(':') {
+            ("[::1]", Some(port))
+        } else {
+            return false;
+        }
+    } else if let Some((h, p)) = raw.split_once(':') {
+        // Reject unbracketed IPv6 or extra colons.
+        if p.contains(':') {
+            return false;
+        }
+        (h, Some(p))
+    } else {
+        (raw, None)
+    };
+
+    let host_ok = host == "127.0.0.1" || host == "[::1]" || host.eq_ignore_ascii_case("localhost");
+    if !host_ok {
+        return false;
+    }
+
+    let parsed_port = match port_str {
+        None => None,
+        Some(p) => {
+            if p.is_empty()
+                || p.len() > 5
+                || p.starts_with('0')
+                || !p.bytes().all(|b| b.is_ascii_digit())
+            {
+                return false;
+            }
+            let Ok(num) = p.parse::<u16>() else {
+                return false;
+            };
+            if num == 0 {
+                return false;
+            }
+            Some(num)
+        }
+    };
+
+    if expected_port != 0 {
+        parsed_port.unwrap_or(80) == expected_port
+    } else {
+        true
+    }
+}
+
+/// Global Desktop Mode Host allowlist middleware (runs on every request before routing).
+async fn desktop_host_guard(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if !state.config.desktop_mode {
+        return next.run(request).await;
+    }
+    let mut host_headers = request.headers().get_all(header::HOST).iter();
+    let candidate = match (host_headers.next(), host_headers.next()) {
+        (Some(val), None) => val.to_str().ok(),
+        (Some(_), Some(_)) => None,
+        (None, _) => request.uri().authority().map(http::uri::Authority::as_str),
+    };
+    if !candidate.is_some_and(|h| is_allowed_desktop_host(h, state.config.server_port)) {
+        return Problem::with_detail(
+            StatusCode::FORBIDDEN,
+            "Host header is not allowed in Desktop Mode.",
+        )
+        .into_response();
+    }
+    next.run(request).await
+}
+
 /// AnonymousBodyLimitFilter: refuses large or chunked bodies on the endpoints anyone can reach.
 async fn anonymous_body_limit(request: Request, next: Next) -> Response {
     let path = decoded_path(request.uri().path());
@@ -286,44 +381,65 @@ const CREDENTIAL_COOKIES: &[&str] = &[
     cookies::REFRESH,
     cookies::MFA_CHALLENGE,
     cookies::PERSISTENT,
+    crate::setup_auth::desktop::DESKTOP_GATE_COOKIE,
 ];
 
+fn is_desktop_ambient_endpoint(path: &str) -> bool {
+    matches!(
+        path,
+        "/api/auth/desktop-autologin" | "/api/setup/desktop-quick-start"
+    )
+}
+
 /// CrossSiteCookieRequestMatcher: a state-changing, cookie-authenticated request from another
-/// origin is refused, unless that origin is on the CORS allow-list.
+/// origin is refused, unless that origin is on the CORS allow-list. In Desktop Mode, the
+/// loopback auto-login and quick-start endpoints are also guarded even without credential cookies.
 async fn cross_site_guard(State(state): State<AppState>, request: Request, next: Next) -> Response {
     let state_changing = matches!(
         *request.method(),
         Method::POST | Method::PUT | Method::PATCH | Method::DELETE
     );
-    if !state_changing
-        || !CREDENTIAL_COOKIES
-            .iter()
-            .any(|c| cookies::read(request.headers(), c).is_some())
-    {
+    let path = decoded_path(request.uri().path());
+    let desktop_ambient = state.config.desktop_mode && is_desktop_ambient_endpoint(&path);
+    let has_credential_cookie = CREDENTIAL_COOKIES
+        .iter()
+        .any(|c| cookies::read(request.headers(), c).is_some());
+    if !state_changing || (!has_credential_cookie && !desktop_ambient) {
         return next.run(request).await;
     }
-    let cross = match header_str(
+    let sec_fetch_site = header_str(
         request.headers(),
         header::HeaderName::from_static("sec-fetch-site"),
-    ) {
-        Some(site) => site != "same-origin" && site != "none",
-        None => {
-            let source = header_str(request.headers(), header::ORIGIN)
-                .or_else(|| header_str(request.headers(), header::REFERER));
-            let origin = request.extensions().get::<RequestOrigin>();
-            match (source, origin) {
-                (Some(s), Some(o)) => !is_same_origin(o, s),
-                (Some(_), None) => true,
-                (None, _) => false,
-            }
+    );
+    let sec_fetch_cross =
+        sec_fetch_site.is_some_and(|site| site != "same-origin" && site != "none");
+    let origin_cross = {
+        let source = header_str(request.headers(), header::ORIGIN)
+            .or_else(|| header_str(request.headers(), header::REFERER));
+        let origin = request.extensions().get::<RequestOrigin>();
+        match (source, origin) {
+            (Some(s), Some(o)) => !is_same_origin(o, s),
+            (Some(_), None) => true,
+            (None, _) => false,
         }
     };
+    let cross = if desktop_ambient {
+        sec_fetch_cross || origin_cross
+    } else if sec_fetch_site.is_some() {
+        sec_fetch_cross
+    } else {
+        origin_cross
+    };
     if cross {
-        let allow_listed = match header_str(request.headers(), header::ORIGIN) {
-            Some(origin) if request.uri().path().starts_with("/api/") => cors_origins(&state)
-                .await
-                .is_some_and(|list| origin_allowed(&list, origin)),
-            _ => false,
+        let allow_listed = if desktop_ambient {
+            false
+        } else {
+            match header_str(request.headers(), header::ORIGIN) {
+                Some(origin) if request.uri().path().starts_with("/api/") => cors_origins(&state)
+                    .await
+                    .is_some_and(|list| origin_allowed(&list, origin)),
+                _ => false,
+            }
         };
         if !allow_listed {
             return raw::response(StatusCode::FORBIDDEN, raw::CROSS_SITE);
@@ -346,6 +462,7 @@ const SECURITY_CHAIN_ENDPOINTS: &[&str] = &[
 fn allowed_during_setup(path: &str) -> bool {
     path.starts_with("/api/setup/")
         || path == "/api/setup"
+        || path == "/api/auth/desktop-bootstrap"
         || path.starts_with("/oauth2/sso/")
         || SECURITY_CHAIN_ENDPOINTS.contains(&path)
         || matches!(
@@ -441,8 +558,64 @@ pub fn build(routes: crate::routes::Routes, state: AppState) -> Router {
         .layer(from_fn_with_state(state.clone(), security_headers))
         .layer(from_fn_with_state(state.clone(), cors))
         .layer(from_fn(anonymous_body_limit))
+        .layer(from_fn_with_state(state.clone(), desktop_host_guard))
         .layer(from_fn_with_state(state.clone(), client_ip::resolve))
         .layer(from_fn(render_problems))
         .layer(CompressionLayer::new().compress_when(SizeAbove::new(20).and(CompressibleType)))
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn desktop_host_allowlist_accepts_loopback_and_rejects_rebinding() {
+        // Exact port match.
+        assert!(is_allowed_desktop_host("127.0.0.1:8080", 8080));
+        assert!(is_allowed_desktop_host("localhost:8080", 8080));
+        assert!(is_allowed_desktop_host("LOCALHOST:8080", 8080));
+        assert!(is_allowed_desktop_host("[::1]:8080", 8080));
+
+        // Port 80 omitted.
+        assert!(is_allowed_desktop_host("127.0.0.1", 80));
+        assert!(is_allowed_desktop_host("localhost", 80));
+        assert!(is_allowed_desktop_host("[::1]", 80));
+
+        // Wildcard expected_port=0 accepts any valid loopback port.
+        assert!(is_allowed_desktop_host("127.0.0.1:54321", 0));
+        assert!(is_allowed_desktop_host("localhost", 0));
+        assert!(is_allowed_desktop_host("[::1]:1234", 0));
+
+        // Port mismatch rejected when expected_port != 0.
+        assert!(!is_allowed_desktop_host("127.0.0.1:9999", 8080));
+        assert!(!is_allowed_desktop_host("localhost", 8080));
+        assert!(!is_allowed_desktop_host("[::1]", 8080));
+        assert!(!is_allowed_desktop_host("127.0.0.1:08080", 8080));
+        assert!(!is_allowed_desktop_host("127.0.0.1:0", 0));
+        assert!(!is_allowed_desktop_host("127.0.0.1:", 8080));
+
+        // DNS rebinding / spoofing / non-loopback hosts rejected.
+        for bad in [
+            "",
+            "evil.example:8080",
+            "127.0.0.1.evil.example:8080",
+            "localhost.evil.example:8080",
+            "evil.localhost:8080",
+            "127.0.0.2:8080",
+            "0.0.0.0:8080",
+            "[::]:8080",
+            "[::ffff:127.0.0.1]:8080",
+            "::1:8080",
+            "127.0.0.1@evil.example:8080",
+            "localhost:8080/api",
+            " 127.0.0.1:8080",
+            "127.0.0.1:8080 ",
+        ] {
+            assert!(
+                !is_allowed_desktop_host(bad, 8080),
+                "expected {bad:?} to be rejected"
+            );
+        }
+    }
 }
