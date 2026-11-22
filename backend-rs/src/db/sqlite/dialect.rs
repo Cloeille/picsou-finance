@@ -52,8 +52,8 @@ pub fn translate_cached(sql: &str) -> Arc<str> {
 /// Returns `true` only when `sql` is guaranteed to be a pure read-only query that can safely run
 /// on a SQLite WAL read-only connection.
 ///
-/// Conservative by design: write statements, CTEs (`WITH ...`), and `PRAGMA`s are routed to the
-/// writer connection.
+/// Conservative by design: write statements, DML CTEs (`WITH ... INSERT/UPDATE/DELETE/REPLACE`),
+/// and `PRAGMA`s are routed to the writer connection; read-only `WITH` CTEs are routed to readers.
 pub fn is_read_only_sql(sql: &str) -> bool {
     let bytes = sql.as_bytes();
     let mut i = 0usize;
@@ -82,9 +82,31 @@ pub fn is_read_only_sql(sql: &str) -> bool {
     let rest = &sql[i..];
     let first_word_len = rest.bytes().take_while(|b| b.is_ascii_alphabetic()).count();
     let first_word = &rest[..first_word_len];
-    first_word.eq_ignore_ascii_case("SELECT")
+    if first_word.eq_ignore_ascii_case("SELECT")
         || first_word.eq_ignore_ascii_case("VALUES")
         || first_word.eq_ignore_ascii_case("EXPLAIN")
+    {
+        return true;
+    }
+    if first_word.eq_ignore_ascii_case("WITH") {
+        let mut has_read = false;
+        for token in tokenize(sql) {
+            if let Token::Word(word) = token {
+                if word.eq_ignore_ascii_case("INSERT")
+                    || word.eq_ignore_ascii_case("UPDATE")
+                    || word.eq_ignore_ascii_case("DELETE")
+                    || word.eq_ignore_ascii_case("REPLACE")
+                {
+                    return false;
+                }
+                if word.eq_ignore_ascii_case("SELECT") || word.eq_ignore_ascii_case("VALUES") {
+                    has_read = true;
+                }
+            }
+        }
+        return has_read;
+    }
+    false
 }
 
 /// Token stream emitted by the quote- and comment-aware SQL lexer.
@@ -975,6 +997,25 @@ mod tests {
         assert!(!is_read_only_sql("DELETE FROM t WHERE id = 1"));
         assert!(!is_read_only_sql(
             "WITH x AS (DELETE FROM t RETURNING id) SELECT * FROM x"
+        ));
+        assert!(!is_read_only_sql(
+            "WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x"
+        ));
+        assert!(!is_read_only_sql("WITH x AS (SELECT 1) UPDATE t SET a = 1"));
+        assert!(!is_read_only_sql(
+            "WITH x AS (SELECT 1) REPLACE INTO t VALUES (1)"
+        ));
+        assert!(is_read_only_sql(
+            "WITH cte AS (SELECT id FROM account) SELECT * FROM cte"
+        ));
+        assert!(is_read_only_sql(
+            "WITH RECURSIVE r(n) AS (VALUES (1) UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT n FROM r"
+        ));
+        assert!(is_read_only_sql(
+            "WITH cte AS (SELECT 'INSERT' AS op, 'DELETE' AS verb) SELECT * FROM cte"
+        ));
+        assert!(is_read_only_sql(
+            "WITH /* UPDATE */ cte AS (SELECT id FROM account) -- REPLACE\n SELECT * FROM cte"
         ));
         assert!(!is_read_only_sql("PRAGMA user_version"));
     }

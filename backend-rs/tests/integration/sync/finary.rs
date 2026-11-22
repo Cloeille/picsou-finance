@@ -830,9 +830,10 @@ async fn transactions_keep_their_currency_and_rebuild_the_history() {
         .await;
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["transactionsImported"], 2);
-    let rows: Vec<TxRow> = picsou::db::query_as(
-        "SELECT date::text, description, amount, category, native_currency FROM \"transaction\" WHERE account_id = $1 ORDER BY date, description")
+    let mut rows: Vec<TxRow> = picsou::db::query_as(
+        "SELECT date::text, description, amount, category, native_currency FROM \"transaction\" WHERE account_id = $1 ORDER BY date")
         .bind(target.id).fetch_all(&f.app.state.db).await.unwrap();
+    rows.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
     assert_eq!(
         rows.len(),
         3,

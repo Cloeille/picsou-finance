@@ -542,13 +542,23 @@ async fn desktop_bootstrap_and_session_gate_enforce_single_use_token_and_fail_cl
     assert!(gate_cookie.contains("SameSite=Strict"), "{gate_cookie}");
     assert!(gate_cookie.contains("Path=/api"), "{gate_cookie}");
 
-    // 4. Replaying the exact same valid bootstrap token is rejected with 403.
+    // 4. Replaying the exact same valid bootstrap token is rejected with 403, AND the
+    // X-Picsou-Desktop-Token header is now permanently dead once bootstrap has been consumed.
     let replay = app
         .client()
         .get(&format!("/api/auth/desktop-bootstrap?token={token}"))
         .send()
         .await;
     assert_eq!(replay.status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        app.desktop_client()
+            .post("/api/setup/desktop-quick-start")
+            .json(&json!({"displayName": "HeaderAfterBootstrap"}))
+            .send()
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
 
     // 5. WebView (holding only the gate cookie, no header) completes quick-start and reloads into autologin.
     let qs = webview
@@ -564,6 +574,16 @@ async fn desktop_bootstrap_and_session_gate_enforce_single_use_token_and_fail_cl
     let auto = webview.post("/api/auth/desktop-autologin").send().await;
     assert_eq!(auto.status, StatusCode::OK);
     assert_eq!(auto.json()["username"], "louis");
+
+    // Raw X-Picsou-Desktop-Token header is also rejected on autologin after bootstrap consumption.
+    assert_eq!(
+        app.desktop_client()
+            .post("/api/auth/desktop-autologin")
+            .send()
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
 
     // Another local process without cookie or header still gets 403 on autologin.
     assert_eq!(
@@ -601,9 +621,29 @@ async fn desktop_bootstrap_and_session_gate_enforce_single_use_token_and_fail_cl
             .status,
         StatusCode::FORBIDDEN
     );
-    unconfigured
-        .complete_setup(ADMIN_USERNAME, ADMIN_PASSWORD)
-        .await;
+    assert_eq!(
+        unconfigured
+            .client()
+            .post("/api/setup/admin")
+            .json(&json!({"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD}))
+            .send()
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    let hash = picsou::auth::password::hash(ADMIN_PASSWORD).await.unwrap();
+    picsou::setup_auth::setup::seed_admin(
+        &unconfigured.state,
+        ADMIN_USERNAME,
+        &hash,
+        Some(ADMIN_USERNAME),
+        None,
+    )
+    .await
+    .unwrap();
+    picsou::setup_auth::setup::mark_complete(&unconfigured.state)
+        .await
+        .unwrap();
     assert_eq!(
         unconfigured
             .client()
@@ -795,18 +835,38 @@ async fn mfa_enrollment_requires_desktop_lock_and_autologin_refuses_mfa_users() 
         .send()
         .await;
     assert_eq!(verified.status, StatusCode::OK);
+    let recovery_code = verified.json()["recoveryCodes"][0]
+        .as_str()
+        .unwrap()
+        .to_owned();
 
-    // 3. Defense-in-depth: even if Desktop lock is subsequently disabled, autologin refuses any
-    // user with active 2FA with 403 DESKTOP_LOCK_ENABLED.
+    // 3. Disabling Desktop lock while 2FA is active is refused with 409 MFA_ACTIVE.
+    let disable_blocked = admin
+        .put("/api/desktop/lock")
+        .json(&json!({"enabled": false, "currentPassword": "desktop-mfa-pass-1"}))
+        .send()
+        .await;
+    assert_eq!(disable_blocked.status, StatusCode::CONFLICT);
+    let blocked_body = disable_blocked.json();
+    assert_eq!(blocked_body["code"], "MFA_ACTIVE");
     assert_eq!(
-        admin
-            .put("/api/desktop/lock")
-            .json(&json!({"enabled": false, "currentPassword": "desktop-mfa-pass-1"}))
-            .send()
-            .await
-            .status,
-        StatusCode::OK
+        blocked_body["detail"],
+        "Disable two-factor authentication before turning off Desktop password lock."
     );
+    assert_eq!(
+        admin.get("/api/desktop/lock").send().await.json()["enabled"],
+        true
+    );
+
+    // 4. Defense-in-depth: even if the DB setting were flipped to false directly while 2FA is
+    // active, autologin still refuses with 403 DESKTOP_LOCK_ENABLED.
+    picsou::setup_auth::settings::upsert(
+        &app.state.db,
+        picsou::setup_auth::settings::DESKTOP_LOCK_ENABLED,
+        "false",
+    )
+    .await
+    .unwrap();
     let refused_auto = app
         .desktop_client()
         .post("/api/auth/desktop-autologin")
@@ -814,6 +874,181 @@ async fn mfa_enrollment_requires_desktop_lock_and_autologin_refuses_mfa_users() 
         .await;
     assert_eq!(refused_auto.status, StatusCode::FORBIDDEN);
     assert_eq!(refused_auto.json()["code"], "DESKTOP_LOCK_ENABLED");
+    picsou::setup_auth::settings::upsert(
+        &app.state.db,
+        picsou::setup_auth::settings::DESKTOP_LOCK_ENABLED,
+        "true",
+    )
+    .await
+    .unwrap();
+
+    // 5. After disabling 2FA, disabling Desktop lock succeeds with 200 OK.
+    let mfa_disabled = admin
+        .post("/api/auth/mfa/disable")
+        .json(&json!({
+            "currentPassword": "desktop-mfa-pass-1",
+            "code": recovery_code,
+            "isRecoveryCode": true
+        }))
+        .send()
+        .await;
+    assert_eq!(mfa_disabled.status, StatusCode::NO_CONTENT);
+
+    let disable_ok = admin
+        .put("/api/desktop/lock")
+        .json(&json!({"enabled": false, "currentPassword": "desktop-mfa-pass-1"}))
+        .send()
+        .await;
+    assert_eq!(disable_ok.status, StatusCode::OK);
+    assert_eq!(disable_ok.json()["enabled"], false);
+}
+
+#[tokio::test]
+async fn classic_setup_endpoints_require_desktop_gate_and_cross_site_protection_in_desktop_mode() {
+    let app = TestApp::builder()
+        .env("APP_DESKTOP_MODE", "true")
+        .env("PICSOU_PROXY_IP", "127.0.0.1")
+        .env("ALLOWED_ORIGINS", "http://evil.example")
+        .spawn()
+        .await;
+
+    // GET /api/setup/status remains readable without the Desktop gate token.
+    assert_eq!(
+        app.client().get("/api/setup/status").send().await.status,
+        StatusCode::OK
+    );
+
+    // Every classic setup mutation is rejected with 403 without the Desktop gate token.
+    assert_eq!(
+        app.client()
+            .post("/api/setup/admin")
+            .json(&json!({"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD}))
+            .send()
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        app.client()
+            .post("/api/setup/security")
+            .json(&json!({"allowedOrigins": ["http://localhost:5173"], "secureCookies": false}))
+            .send()
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        app.client()
+            .post("/api/setup/integrations/finary/acknowledge")
+            .send()
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        app.client().post("/api/setup/complete").send().await.status,
+        StatusCode::FORBIDDEN
+    );
+
+    // Non-loopback client IP is rejected with 403 even with a valid Desktop gate token.
+    assert_eq!(
+        app.desktop_client()
+            .post("/api/setup/admin")
+            .header("x-forwarded-for", "203.0.113.42")
+            .json(&json!({"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD}))
+            .send()
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+
+    // Cross-site requests to classic setup routes are rejected even with a valid Desktop gate token.
+    let cross_site = app
+        .desktop_client()
+        .post("/api/setup/admin")
+        .header("sec-fetch-site", "cross-site")
+        .json(&json!({"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD}))
+        .send()
+        .await;
+    assert_eq!(cross_site.status, StatusCode::FORBIDDEN);
+    assert!(cross_site.text().contains("Cross-site request rejected"));
+
+    let cross_origin = app
+        .desktop_client()
+        .post("/api/setup/security")
+        .header("origin", "http://evil.example")
+        .json(&json!({"allowedOrigins": ["http://localhost:5173"], "secureCookies": false}))
+        .send()
+        .await;
+    assert_eq!(cross_origin.status, StatusCode::FORBIDDEN);
+    assert!(cross_origin.text().contains("Cross-site request rejected"));
+
+    // With a valid Desktop gate token from loopback, the classic setup endpoints pass the gate.
+    let gated = app.desktop_client();
+    assert_eq!(
+        gated
+            .post("/api/setup/admin")
+            .json(&json!({"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD}))
+            .send()
+            .await
+            .status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        gated
+            .post("/api/setup/security")
+            .json(&json!({"allowedOrigins": ["http://localhost:5173"], "secureCookies": false}))
+            .send()
+            .await
+            .status,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        gated
+            .post("/api/setup/integrations/finary/acknowledge")
+            .send()
+            .await
+            .status,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        gated.post("/api/setup/complete").send().await.status,
+        StatusCode::NO_CONTENT
+    );
+
+    // Outside Desktop Mode, classic setup routes continue to work without any Desktop token.
+    let normal = TestApp::spawn().await;
+    let client = normal.client();
+    assert_eq!(
+        client
+            .post("/api/setup/admin")
+            .json(&json!({"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD}))
+            .send()
+            .await
+            .status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        client
+            .post("/api/setup/security")
+            .json(&json!({"allowedOrigins": ["http://localhost:5173"], "secureCookies": false}))
+            .send()
+            .await
+            .status,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        client
+            .post("/api/setup/integrations/finary/acknowledge")
+            .send()
+            .await
+            .status,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        client.post("/api/setup/complete").send().await.status,
+        StatusCode::NO_CONTENT
+    );
 }
 
 #[tokio::test]
@@ -843,6 +1078,26 @@ async fn legacy_postgres_detected_flag_is_exposed_only_when_configured_in_deskto
         .json();
     assert_eq!(legacy_status["desktopMode"], true);
     assert_eq!(legacy_status["legacyPostgresDetected"], true);
+
+    // Once Desktop quick-start completes setup, legacyPostgresDetected is no longer exposed.
+    assert_eq!(
+        legacy_desktop
+            .desktop_client()
+            .post("/api/setup/desktop-quick-start")
+            .json(&json!({"displayName": "Louis"}))
+            .send()
+            .await
+            .status,
+        StatusCode::OK
+    );
+    let legacy_after = legacy_desktop
+        .client()
+        .get("/api/setup/status")
+        .send()
+        .await
+        .json();
+    assert_eq!(legacy_after["needsSetup"], false);
+    assert!(legacy_after.get("legacyPostgresDetected").is_none());
 
     let non_desktop = TestApp::builder()
         .env("APP_DESKTOP_LEGACY_POSTGRES", "true")
