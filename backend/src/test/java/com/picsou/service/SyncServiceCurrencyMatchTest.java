@@ -20,6 +20,7 @@ import com.picsou.port.RevolutPort;
 import com.picsou.port.RevolutPort.RevolutAccountData;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
+import com.picsou.repository.AccountDisplayPrefRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.DebtRepository;
@@ -115,7 +116,8 @@ class SyncServiceCurrencyMatchTest {
             accountRepository, snapshotRepository, mock(AccountHoldingRepository.class),
             null, null, null, debtRepository, null, new PriceService(priceProvider, null),
             new LoanAmortizationService(), null, null, null, null, null, null, null, null,
-            mock(PeerLoanTransactionLinks.class), mock(FinaryPersistenceHelper.class)));
+            mock(PeerLoanTransactionLinks.class), mock(FinaryPersistenceHelper.class),
+            mock(AccountDisplayPrefRepository.class)));
         // Only response enrichment is stubbed; snapshot persistence and FX conversion run normally.
         doReturn(mock(AccountResponse.class)).when(accountService).toResponse(any(Account.class));
         bankTransactionImportService = mock(BankTransactionImportService.class);

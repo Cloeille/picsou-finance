@@ -1,4 +1,4 @@
-import { Landmark } from "lucide-react"
+import { Bank } from '@phosphor-icons/react'
 import { SidecarSessionPanel } from "@/components/sync/SidecarSessionPanel"
 import { ScpiSyncSummary } from "@/components/scpi/ScpiSyncSummary"
 import { useProviderStatus } from "@/features/sync/hooks"
@@ -24,7 +24,7 @@ export function SofidyPanel({ onConnected }: SofidyPanelProps = {}) {
       provider="sofidy"
       translationPrefix="sync.sofidy"
       fieldIdPrefix="sofidy"
-      loginIcon={Landmark}
+      loginIcon={Bank}
       onConnected={onConnected}
       successSummary={<ScpiSyncSummary provider="SOFIDY" completedAt={status.data?.lastSyncCompletedAt} />}
     />

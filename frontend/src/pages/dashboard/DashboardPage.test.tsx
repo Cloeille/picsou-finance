@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 import type { ReactNode } from 'react'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DashboardData } from '@/types/api'
@@ -112,13 +112,21 @@ describe('DashboardPage portfolio performance', () => {
     hooks.useBankSyncStatus.mockReturnValue({ data: [] })
   })
 
+  it('names the performance row for screen readers', () => {
+    renderDashboard()
+
+    const row = screen.getByTestId('portfolio-performance')
+    expect(row).not.toHaveAttribute('aria-label')
+    expect(within(row).getByText('dashboard.portfolioPerformance')).toHaveClass('sr-only')
+  })
+
   it('shows unavailable performance instead of zero when the selected range has unknown PnL', () => {
     renderDashboard()
 
-    const row = screen.getByText('dashboard.portfolioPerformance').parentElement
+    const row = screen.getByTestId('portfolio-performance')
     expect(row).toHaveTextContent('—')
-    expect(row?.querySelector('[data-testid="currency"]')).toBeNull()
-    expect(row?.querySelector('svg')).toBeNull()
+    expect(row.querySelector('[data-testid="currency"]')).toBeNull()
+    expect(row.querySelector('svg')).toBeNull()
   })
 
   it('does not substitute known live PnL when the selected range PnL is unknown', () => {
@@ -136,9 +144,9 @@ describe('DashboardPage portfolio performance', () => {
 
     renderDashboard()
 
-    const row = screen.getByText('dashboard.portfolioPerformance').parentElement
+    const row = screen.getByTestId('portfolio-performance')
     expect(row).toHaveTextContent('—')
-    expect(row?.querySelector('[data-testid="currency"]')).toBeNull()
+    expect(row.querySelector('[data-testid="currency"]')).toBeNull()
   })
 
   it('keeps a known zero range PnL as zero', () => {
@@ -156,10 +164,10 @@ describe('DashboardPage portfolio performance', () => {
 
     renderDashboard()
 
-    const row = screen.getByText('dashboard.portfolioPerformance').parentElement
-    expect(row?.querySelector('[data-testid="currency"]')).toHaveTextContent('0')
+    const row = screen.getByTestId('portfolio-performance')
+    expect(row.querySelector('[data-testid="currency"]')).toHaveTextContent('0')
     expect(row).toHaveTextContent('(0.0%)')
-    expect(row?.querySelector('svg')).not.toBeNull()
+    expect(row.querySelector('svg')).not.toBeNull()
   })
 })
 

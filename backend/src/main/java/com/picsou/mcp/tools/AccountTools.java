@@ -177,7 +177,7 @@ public class AccountTools {
         description = "Set a SCPI account's shares, EUR prices per share and distribution. Balance = withdrawal "
             + "price x shares; with shares but no withdrawal price it is kept (PRICE_INCOMPLETE). Replaces every "
             + "field except the distribution (omitted = kept, cannot be cleared), so read get_account first. "
-            + "Never changes CORUM/Sofidy links.")
+            + "Never changes CORUM/Sofidy/Louve Invest links.")
     @RequiresScope(Scopes.ACCOUNTS_WRITE)
     public ScpiPositionResponse setScpiPosition(
         @ToolParam(description = "SCPI account id") Long accountId,
@@ -193,7 +193,7 @@ public class AccountTools {
         // Null fund codes leave the provider links alone, and this constructor marks the distribution
         // fields as "not sent" when they are null, so an omitted value keeps the stored one.
         ScpiPositionRequest request = new ScpiPositionRequest(
-            isin, managementCompany, null, null, shareCount, subscriptionPriceEur, withdrawalPriceEur,
+            isin, managementCompany, null, null, null, shareCount, subscriptionPriceEur, withdrawalPriceEur,
             dividendPolicy, jouissanceDate, annualDistributionPerShareEur, distributionFrequency);
         return scpiPositionService.save(accountId, userContext.currentMemberId(), validated(request));
     }

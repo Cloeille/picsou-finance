@@ -129,6 +129,18 @@ public class OpenFigiIsinConverter {
     private static final java.util.regex.Pattern TR_CRYPTO_ISIN_PATTERN =
         java.util.regex.Pattern.compile("^" + TR_CRYPTO_ISIN_PREFIX + "([A-Z]+)[0-9]+$");
 
+    /**
+     * Whether {@code isin} matches Trade Republic's internal native-crypto ISIN pattern
+     * ({@code XF000<SYMBOL><digits>}, e.g. {@code XF000BTC0017}). Standard market ISINs used by
+     * crypto ETFs/ETCs (such as {@code CH...}, {@code DE...}, {@code IE...}) never match.
+     */
+    public static boolean isTrCryptoIsin(String isin) {
+        if (isin == null || isin.isBlank()) {
+            return false;
+        }
+        return TR_CRYPTO_ISIN_PATTERN.matcher(isin.trim().toUpperCase(Locale.ROOT)).matches();
+    }
+
     /** ISIN country prefix → preferred exchange code for that market. */
     private static final Map<String, String> HOME_EXCHANGE = Map.ofEntries(
         Map.entry("US", "US"),  Map.entry("HK", "HK"),  Map.entry("JP", "JT"),

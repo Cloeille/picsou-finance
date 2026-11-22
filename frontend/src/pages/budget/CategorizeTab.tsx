@@ -2,7 +2,17 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router'
-import { Check, ChevronDown, Inbox, RefreshCw, Search, Settings, SlidersHorizontal, Sparkles, X } from 'lucide-react'
+import {
+  Check,
+  CaretDown,
+  Tray,
+  ArrowsClockwise,
+  MagnifyingGlass,
+  GearSix,
+  SlidersHorizontal,
+  Sparkle,
+  X,
+} from '@phosphor-icons/react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -395,7 +405,7 @@ export function CategorizeTab() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         {showSearch ? (
           <div className="relative w-full max-w-sm">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <MagnifyingGlass className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               type="search"
               value={query}
@@ -421,7 +431,7 @@ export function CategorizeTab() {
         <div className="flex items-center gap-2">
           {aiStatus.data?.running ? (
             <Button size="sm" variant="outline" disabled>
-              <Sparkles className="size-4 animate-pulse" aria-hidden="true" />
+              <Sparkle className="size-4 animate-pulse" aria-hidden="true" />
               {t('budget.categorize.aiProgress', {
                 processed: aiStatus.data.processed,
                 total: aiStatus.data.total,
@@ -431,9 +441,9 @@ export function CategorizeTab() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button type="button" size="sm" variant="outline">
-                  <Sparkles className="size-4 text-muted-foreground" aria-hidden="true" />
+                  <Sparkle className="size-4 text-muted-foreground" aria-hidden="true" />
                   <span>{t('budget.categorize.automate')}</span>
-                  <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                  <CaretDown className="size-3.5 text-muted-foreground" aria-hidden="true" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-64">
@@ -442,7 +452,7 @@ export function CategorizeTab() {
                     disabled={startAi.isPending}
                     onSelect={() => startAi.mutate()}
                   >
-                    <Sparkles className="size-4" aria-hidden="true" />
+                    <Sparkle className="size-4" aria-hidden="true" />
                     <span>{t('budget.categorize.categorizeAi')}</span>
                   </DropdownMenuItem>
                 )}
@@ -451,7 +461,7 @@ export function CategorizeTab() {
                   disabled={recategorize.isPending}
                   onSelect={() => recategorize.mutate()}
                 >
-                  <RefreshCw className={cn('size-4', recategorize.isPending && 'animate-spin')} aria-hidden="true" />
+                  <ArrowsClockwise className={cn('size-4', recategorize.isPending && 'animate-spin')} aria-hidden="true" />
                   <span>{t('budget.categorize.recategorize')}</span>
                 </DropdownMenuItem>
 
@@ -459,7 +469,7 @@ export function CategorizeTab() {
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onSelect={() => navigate('/admin?tab=ai')}>
-                      <Settings className="size-4" aria-hidden="true" />
+                      <GearSix className="size-4" aria-hidden="true" />
                       <span>{canRunAi ? t('budget.categorize.aiSettings') : t('budget.categorize.configureAi')}</span>
                     </DropdownMenuItem>
                   </>
@@ -493,7 +503,7 @@ export function CategorizeTab() {
           <CardContent>
             <EmptyState
               className="py-8"
-              icon={<Inbox className="size-10" />}
+              icon={<Tray className="size-10" />}
               title={t('budget.categorize.empty')}
               description={t('budget.categorize.emptyHint')}
             />
@@ -515,7 +525,7 @@ export function CategorizeTab() {
             <CardContent>
               <EmptyState
                 className="py-8"
-                icon={<Search className="size-8" />}
+                icon={<MagnifyingGlass className="size-8" />}
                 title={t('common.noResults')}
               />
             </CardContent>

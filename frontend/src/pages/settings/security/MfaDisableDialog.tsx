@@ -11,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Loader2 } from 'lucide-react'
+import { CircleNotch } from '@phosphor-icons/react'
 import { useMfaDisable } from '@/features/mfa/hooks'
 import { getErrorStatus, getErrorDetail } from '@/lib/errors'
 
@@ -115,7 +115,7 @@ export function MfaDisableDialog({
               {t('settings.mfaCancel')}
             </Button>
             <Button type="submit" variant="destructive" disabled={disable.isPending}>
-              {disable.isPending && <Loader2 size={14} className=".5 animate-spin" />}
+              {disable.isPending && <CircleNotch size={14} className=".5 animate-spin" />}
               {t('settings.mfaDisable')}
             </Button>
           </DialogFooter>

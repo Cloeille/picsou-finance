@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
-import { RefreshCw, LogOut, KeyRound, AlertTriangle, Loader2 } from 'lucide-react'
+import { ArrowsClockwise, SignOut, Key, Warning, CircleNotch } from '@phosphor-icons/react'
 import {
   useWiseStatus,
   useConnectWise,
@@ -81,10 +81,10 @@ export function WisePanel({ onConnected }: WisePanelProps = {}) {
         </a>
       </p>
       <Card size="sm">
-        <CardContent className="space-y-4 py-4">
+        <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="wise-token">
-              <KeyRound className="mr-1 inline-block size-4" />
+              <Key className="mr-1 inline-block size-4" />
               {t('sync.wise.token')}
             </Label>
             <Input
@@ -98,7 +98,7 @@ export function WisePanel({ onConnected }: WisePanelProps = {}) {
             />
           </div>
           <Button type="submit" disabled={connectMutation.isPending || !token.trim()} className="w-full">
-            {connectMutation.isPending && <Loader2 className="size-4 animate-spin" />}
+            {connectMutation.isPending && <CircleNotch className="size-4 animate-spin" />}
             {t(tokenRefused ? 'sync.wise.replaceToken' : 'sync.wise.connect')}
           </Button>
         </CardContent>
@@ -112,7 +112,7 @@ export function WisePanel({ onConnected }: WisePanelProps = {}) {
       onClick={() => setShowDisconnectConfirm(true)}
       disabled={disconnectMutation.isPending}
     >
-      <LogOut className="size-4" />
+      <SignOut className="size-4" />
       {t('sync.wise.disconnect')}
     </Button>
   )
@@ -123,7 +123,7 @@ export function WisePanel({ onConnected }: WisePanelProps = {}) {
 
       {isConnected && status && (
         <Card size="sm">
-          <CardContent className="flex items-center justify-between py-4">
+          <CardContent className="flex items-center justify-between">
             <div className="flex flex-wrap items-center gap-3">
               {tokenRefused ? (
                 <Badge className="bg-destructive/10 text-destructive">{t('sync.wise.statusTokenRefused')}</Badge>
@@ -151,8 +151,8 @@ export function WisePanel({ onConnected }: WisePanelProps = {}) {
 
       {error && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3 py-4">
-            <AlertTriangle className="size-5 shrink-0 text-destructive" />
+          <CardContent className="flex items-center gap-3">
+            <Warning className="size-5 shrink-0 text-destructive" />
             <p className="flex-1 text-sm text-destructive">{error}</p>
           </CardContent>
         </Card>
@@ -172,12 +172,12 @@ export function WisePanel({ onConnected }: WisePanelProps = {}) {
           >
             {syncMutation.isPending ? (
               <>
-                <Loader2 className="size-4 animate-spin" />
+                <CircleNotch className="size-4 animate-spin" />
                 {t('sync.wise.syncing')}
               </>
             ) : (
               <>
-                <RefreshCw className="size-4" />
+                <ArrowsClockwise className="size-4" />
                 {t('sync.wise.sync')}
               </>
             )}

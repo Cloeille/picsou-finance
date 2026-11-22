@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { Bitcoin, CheckCircle2, CircleAlert, Loader2 } from 'lucide-react'
+import { CheckCircle, WarningCircle, CircleNotch } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { useGenerateCryptoKey } from '@/features/setup/hooks'
 import { useSetupFlowStore } from '@/stores/setup-flow-store'
@@ -74,11 +74,6 @@ export function SetupStepCrypto() {
   return (
     <div className="mx-auto w-full max-w-lg space-y-6">
       <div className="text-center space-y-2">
-        <div className="flex justify-center">
-          <span className="inline-flex size-12 items-center justify-center text-foreground">
-            <Bitcoin className="h-6 w-6" />
-          </span>
-        </div>
         <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
           {t('setup.crypto.title')}
         </h1>
@@ -89,14 +84,14 @@ export function SetupStepCrypto() {
 
       {(phase === 'idle' || phase === 'running') && (
         <div className="flex flex-col items-center gap-2 py-6 text-muted-foreground">
-          <Loader2 className="h-6 w-6 animate-spin" />
+          <CircleNotch className="h-6 w-6 animate-spin" />
           <p className="text-sm">{t('setup.crypto.generating')}</p>
         </div>
       )}
 
       {(phase === 'existed' || phase === 'created') && (
         <div className="space-y-3 rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-6 text-center">
-          <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-500" />
+          <CheckCircle className="mx-auto h-10 w-10 text-emerald-500" />
           <p className="text-lg font-medium">{successCopy}</p>
           {keyPath && (
             <p className="text-sm text-muted-foreground">
@@ -112,7 +107,7 @@ export function SetupStepCrypto() {
           role="alert"
           className="flex items-start gap-3 rounded-xl border border-destructive/40 bg-destructive/5 p-6"
         >
-          <CircleAlert className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+          <WarningCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
           <p className="text-sm text-destructive">{t('setup.crypto.error')}</p>
         </div>
       )}

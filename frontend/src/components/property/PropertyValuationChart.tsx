@@ -77,6 +77,7 @@ export function PropertyValuationChart({ accountId, costBasis }: PropertyValuati
               fill="url(#fillPropertyValue)"
               stroke="var(--color-value)"
               strokeWidth={2}
+              dot={false}
             />
             {costBasis > 0 && (
               <ReferenceLine

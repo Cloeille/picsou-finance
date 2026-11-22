@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
-import { RefreshCw, LogOut, KeyRound, AlertTriangle, Loader2 } from 'lucide-react'
+import { ArrowsClockwise, SignOut, Key, Warning, CircleNotch } from '@phosphor-icons/react'
 import {
   useSimplefinStatus,
   useConnectSimplefin,
@@ -68,7 +68,7 @@ export function SimplefinPanel({ onConnected }: SimplefinPanelProps = {}) {
     <div className="space-y-6">
       {isConnected && status && (
         <Card size="sm">
-          <CardContent className="flex items-center justify-between py-4">
+          <CardContent className="flex items-center justify-between">
             <div className="flex flex-wrap items-center gap-3">
               {isError ? (
                 <Badge className="bg-destructive/10 text-destructive">{t('sync.simplefin.statusError')}</Badge>
@@ -94,8 +94,8 @@ export function SimplefinPanel({ onConnected }: SimplefinPanelProps = {}) {
 
       {error && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3 py-4">
-            <AlertTriangle className="size-5 shrink-0 text-destructive" />
+          <CardContent className="flex items-center gap-3">
+            <Warning className="size-5 shrink-0 text-destructive" />
             <p className="flex-1 text-sm text-destructive">{error}</p>
           </CardContent>
         </Card>
@@ -115,12 +115,12 @@ export function SimplefinPanel({ onConnected }: SimplefinPanelProps = {}) {
           >
             {syncMutation.isPending ? (
               <>
-                <Loader2 className="size-4 animate-spin" />
+                <CircleNotch className="size-4 animate-spin" />
                 {t('sync.simplefin.syncing')}
               </>
             ) : (
               <>
-                <RefreshCw className="size-4" />
+                <ArrowsClockwise className="size-4" />
                 {t('sync.simplefin.sync')}
               </>
             )}
@@ -130,7 +130,7 @@ export function SimplefinPanel({ onConnected }: SimplefinPanelProps = {}) {
             onClick={() => setShowDisconnectConfirm(true)}
             disabled={disconnectMutation.isPending}
           >
-            <LogOut className="size-4" />
+            <SignOut className="size-4" />
             {t('sync.simplefin.disconnect')}
           </Button>
         </div>
@@ -148,10 +148,10 @@ export function SimplefinPanel({ onConnected }: SimplefinPanelProps = {}) {
             </a>
           </p>
           <Card size="sm">
-            <CardContent className="space-y-4 py-4">
+            <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="simplefin-token">
-                  <KeyRound className="mr-1 inline-block size-4" />
+                  <Key className="mr-1 inline-block size-4" />
                   {t('sync.simplefin.token')}
                 </Label>
                 <Input
@@ -170,7 +170,7 @@ export function SimplefinPanel({ onConnected }: SimplefinPanelProps = {}) {
                 className="w-full"
               >
                 {(connectMutation.isPending || syncMutation.isPending) && (
-                  <Loader2 className="size-4 animate-spin" />
+                  <CircleNotch className="size-4 animate-spin" />
                 )}
                 {t('sync.simplefin.connect')}
               </Button>

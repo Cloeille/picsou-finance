@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useAppStore } from '@/stores/app-store'
 import { useConnectivityStore } from '@/stores/connectivity-store'
 import { useTranslation } from 'react-i18next'
-import { Loader2, WifiOff, RefreshCw } from 'lucide-react'
+import { CircleNotch, WifiSlash, ArrowsClockwise } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import picsouLogo from '@/assets/horizontal-white-picsou.svg'
 
@@ -54,16 +54,16 @@ export function ConnectionGuard({ children }: { children: ReactNode }) {
         <img src={picsouLogo} alt="Picsou" className="h-8 w-auto opacity-90 brightness-0 dark:invert" />
         {status === 'checking' ? (
           <>
-            <Loader2 className="size-8 text-primary animate-spin" />
+            <CircleNotch className="size-8 text-primary animate-spin" />
             <p className="text-sm text-muted-foreground">{t('error.connecting')}</p>
           </>
         ) : (
           <>
-            <WifiOff className="size-10 text-destructive" />
+            <WifiSlash className="size-10 text-destructive" />
             <h2 className="text-lg font-semibold">{t('error.noConnection')}</h2>
             <p className="text-sm text-muted-foreground">{t('error.noConnectionDesc')}</p>
             <Button onClick={checkHealth} variant="outline">
-              <RefreshCw className="size-4" />
+              <ArrowsClockwise className="size-4" />
               {t('common.retry')}
             </Button>
           </>

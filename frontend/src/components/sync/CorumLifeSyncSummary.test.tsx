@@ -22,7 +22,8 @@ const RUN = '2026-11-05T08:00:00Z'
 const account = (id: number, extra: Partial<Account> = {}): Account => ({
   id, name: `CORUM Life ${id}`, type: 'ASSURANCE_VIE', provider: 'CORUM', currency: 'EUR',
   currentBalance: 1000 * id, currentBalanceEur: 1000 * id, lastSyncedAt: RUN, isManual: false,
-  color: '#8b5cf6', ticker: null, logoUrl: null, logoKey: null, createdAt: RUN, hidden: false, ...extra,
+  color: '#8b5cf6', ticker: null, logoUrl: null, logoKey: null, createdAt: RUN, hidden: false,
+  listPosition: null, listCollapsed: false, ...extra,
 })
 
 describe('CorumLifeSyncSummary', () => {

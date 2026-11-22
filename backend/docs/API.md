@@ -513,6 +513,41 @@ a decade between the two, and the five-year tax clock runs from the former.
 
 ---
 
+#### `PUT /api/accounts/{id}/display`
+
+Collapse one account in the account list (Tout tab). Display-only: the
+account stays in every total, budget and chart. Any readable account
+(owned or shared) can be collapsed — it only ever changes the caller's
+own view, never anyone else's. Unlike `PUT .../visibility` (`hidden`),
+which excludes the account from totals.
+
+- **Auth:** Required
+- **Body:** `{ "collapsed": true }`
+
+**Response `200` — `AccountResponse`** with `listCollapsed` overlaid.
+
+**Errors:** 400, 404
+
+---
+
+#### `PUT /api/accounts/display-order`
+
+Replace the caller's whole manual order: listed accounts take positions
+`0..n`. Rows of accounts absent from a non-empty payload are left untouched
+(a hidden account keeps its position); only an explicit empty list clears
+all positions. A null list is rejected. Any readable account (owned or
+shared) can be ordered; preferences never leak from one viewer to another.
+
+- **Auth:** Required
+- **Body:** `{ "accountIds": [3, 1] }`
+
+**Response `200` — `AccountResponse[]`** in the requested order, with
+`listPosition` overlaid.
+
+**Errors:** 400 (null list, duplicate ids), 404 (unknown or unreadable id)
+
+---
+
 #### `GET /api/accounts/{id}/holdings`
 
 - **Auth:** Required
@@ -1688,6 +1723,8 @@ rate limiting returns `429`.
 | `type` | `ExchangeType` | `BINANCE` · `KRAKEN` · `MERIA` |
 | `apiKey` | `string` | Exchange API key (required, max 200 chars) |
 | `apiSecret` | `string?` | Exchange API secret (max 300 chars). **Required** for `BINANCE` and `KRAKEN`; must be **omitted** for `MERIA`, which authenticates with a single read-only API key |
+| `apiPassphrase` | `string?` | Exchange API passphrase (max 200 characters and 347 UTF-8 bytes). Required only when the adapter uses one. Omit it for all current exchanges. |
+| `region` | `string?` | Region code (max 20 characters). Required when the adapter declares regions. The service trims and upper-cases the code. Omit it for all current exchanges. |
 
 **Response `200` — `AccountResponse`.**
 
@@ -1695,7 +1732,7 @@ rate limiting returns `429`.
 
 | Status | When |
 |--------|------|
-| `400` | Blank API key; missing secret for an exchange that needs one; secret supplied for a single-key exchange |
+| `400` | Blank API key, missing required secret or passphrase, unexpected secret or passphrase, a passphrase beyond the UTF-8 byte limit, or a missing, unknown or unexpected region. When the adapter declares regions, region errors list the allowed codes. |
 | `422` | Bean-validation failure (`errors` map), the credentials were refused by the exchange, or the immediate sync failed |
 
 ---
@@ -1746,6 +1783,8 @@ quantity`. The per-line figures therefore still add up to the holding's own cost
 #### `GET /api/crypto/exchange/status`
 
 - **Auth:** Required
+
+Each item includes `region` when a region is stored for the connection.
 
 **Response `200` — `ExchangeStatusResponse[]`:**
 ```json

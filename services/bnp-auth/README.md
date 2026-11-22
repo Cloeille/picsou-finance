@@ -1,8 +1,9 @@
 # bnp-auth - BNP Paribas / Hello bank! sidecar
 
-> Status: **partly verified against one real account** (owner-assisted run, 2026-11-09: keypad login with
-> no second factor asked, session, current and savings accounts, operations). The second factor, Hello bank!,
-> securities, life insurance and loans are unverified. See
+> Status: **partly verified against one real account** (owner-assisted runs: 2026-11-09 outside Docker, keypad
+> login with no second factor asked, session, current and savings accounts, operations; 2026-11-20 in this
+> Docker image, Cle Digitale app approval). The SMS code, Hello bank!, securities, life insurance and loans are
+> unverified. See
 > [Verification boundary](../../docs/features/bnp-paribas.md#verification-boundary) and the
 > [ADR](../../docs/decisions/2026-11-09-bnp-paribas-sidecar.md).
 

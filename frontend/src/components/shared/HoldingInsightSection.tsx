@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
-import { Loader2, Columns3, AlignJustify } from 'lucide-react'
+import { CircleNotch, Columns, List } from '@phosphor-icons/react'
 import { Badge } from '@/components/ui/badge'
 import PartitionBar, {
   PartitionBarSegment,
@@ -41,7 +41,7 @@ export function HoldingInsightSection({ ticker, name, open }: HoldingInsightSect
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-6 border-t">
-        <Loader2 className="size-4 animate-spin text-muted-foreground" />
+        <CircleNotch className="size-4 animate-spin text-muted-foreground" />
       </div>
     )
   }
@@ -90,8 +90,8 @@ interface CompositionViewToggleProps {
 // Segmented control mirroring the chart-mode toggle in HoldingDetailModal.
 function CompositionViewToggle({ view, onChange, t }: CompositionViewToggleProps) {
   const options = [
-    { value: 'block' as const, label: t('holdings.insight.viewBlock'), Icon: Columns3 },
-    { value: 'line' as const, label: t('holdings.insight.viewLine'), Icon: AlignJustify },
+    { value: 'block' as const, label: t('holdings.insight.viewBlock'), Icon: Columns },
+    { value: 'line' as const, label: t('holdings.insight.viewLine'), Icon: List },
   ]
   return (
     <div className="inline-flex items-center rounded-lg bg-muted p-1">

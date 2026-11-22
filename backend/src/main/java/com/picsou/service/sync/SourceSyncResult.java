@@ -17,6 +17,7 @@ public record SourceSyncResult(String source, Status status, String message) {
       case "ibkr" -> code == null && (endsWithProviderCode(message, "1012")
           || endsWithProviderCode(message, "1015"));
       case "bourso", "cmes", "cic", "corum", "natixis", "lbp", "bnp" -> "SESSION_EXPIRED".equals(code) || "INVALID_CREDENTIALS".equals(code);
+      case "louve" -> "SESSION_EXPIRED".equals(code) || "INVALID_SESSION_STATE".equals(code);
       case "bourse-direct", "amundi", "fortuneo", "amex", "simplefin", "wise" -> "SESSION_EXPIRED".equals(code);
       default -> false;
     };

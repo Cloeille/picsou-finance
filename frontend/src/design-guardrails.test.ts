@@ -132,14 +132,21 @@ describe('UI & design system guardrails (see CONTRIBUTING.md & DESIGN.md)', () =
     ).toEqual([])
   })
 
-  it('forbids double top padding (pt-6) on CardContent (Card already provides symmetric py-4)', () => {
+  it('forbids double vertical padding on CardContent (Card already provides symmetric py-4 / py-3)', () => {
     const violations: string[] = []
     for (const [file, content] of tsxEntries) {
-      if (/<CardContent\b[^>]*\bpt-6\b/.test(content)) violations.push(file)
+      // LoginPage explicitly sets py-0 on its outer Card.
+      if (file.endsWith('pages/login/LoginPage.tsx')) continue
+      for (const match of content.matchAll(/<CardContent\b[^>]*className="([^"]*)"/g)) {
+        const cls = match[1]
+        if (/\b(?:py|p)-(?:[1-9]\d*(?:\.\d)?)\b/.test(cls) || /\bpt-6\b/.test(cls)) {
+          violations.push(`${file}: ${cls}`)
+        }
+      }
     }
     expect(
       violations,
-      'Card already sets py-4; adding pt-6 on CardContent creates an uneven top gap.',
+      'Card already sets py-4 (or py-3 with size="sm"); adding py-* or p-* on CardContent doubles vertical padding.',
     ).toEqual([])
   })
 
@@ -209,5 +216,87 @@ describe('UI & design system guardrails (see CONTRIBUTING.md & DESIGN.md)', () =
         ).toBe(false)
       }
     }
+  })
+
+  it('keeps standard progress bars unified at h-2 rounded-full', () => {
+    const progressPrimitive = sourceOf('components/ui/progress.tsx')
+    expect(progressPrimitive).toContain('h-2')
+    expect(progressPrimitive).toContain('rounded-full')
+
+    const violations: string[] = []
+    for (const [file, content] of tsxEntries) {
+      // Top-edge viewport loading bar in SetupLayout intentionally uses h-1 rounded-none.
+      if (file.endsWith('pages/setup/SetupLayout.tsx')) continue
+      for (const match of content.matchAll(/<Progress\b[^>]*className="([^"]*)"/g)) {
+        const cls = match[1]
+        if (/\bh-(?:1|1\.5|2\.5|3)\b/.test(cls)) {
+          violations.push(`${file}: ${cls}`)
+        }
+      }
+    }
+    expect(
+      violations,
+      'Progress bars should use the shared h-2 rounded-full default instead of per-page height overrides.',
+    ).toEqual([])
+  })
+
+  it('uses Phosphor Icons exclusively and forbids decorative icons inside CardTitle, DialogTitle, and TabsTrigger', () => {
+    const lucideViolations: string[] = []
+    const violations: string[] = []
+    const phosphorImportRx = /import\s*\{([^}]+)\}\s*from\s*['"]@phosphor-icons\/react['"]/
+    for (const [file, content] of tsxEntries) {
+      if (content.includes("from 'lucide-react'") || content.includes('from "lucide-react"')) {
+        lucideViolations.push(file)
+      }
+      const m = phosphorImportRx.exec(content)
+      if (!m) continue
+      const icons = m[1]
+        .split(',')
+        .map((s) => s.trim().split(/\s+as\s+/).pop()?.trim())
+        .filter((s): s is string => !!s && !s.startsWith('type '))
+      if (icons.length === 0) continue
+      const iconRx = new RegExp(`<(${icons.join('|')})\\b`)
+      for (const tag of ['CardTitle', 'DialogTitle', 'TabsTrigger']) {
+        const blockRx = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]{0,300}?)</${tag}>`, 'g')
+        for (const match of content.matchAll(blockRx)) {
+          if (iconRx.test(match[1])) {
+            violations.push(`${file} <${tag}>: ${match[1].replace(/\s+/g, ' ').trim().slice(0, 80)}`)
+          }
+        }
+      }
+      // Also guard custom role="tab" section tablists (excluding SyncPage bank/provider brand logos).
+      if (!file.endsWith('pages/sync/SyncPage.tsx')) {
+        for (const match of content.matchAll(/<button\b[^>]*role="tab"[^>]*>([\s\S]{0,220}?)<\/button>/g)) {
+          if (/<Icon\b/.test(match[1]) || iconRx.test(match[1])) {
+            violations.push(`${file} role="tab": ${match[1].replace(/\s+/g, ' ').trim().slice(0, 80)}`)
+          }
+        }
+      }
+    }
+    expect(
+      lucideViolations,
+      'Picsou uses @phosphor-icons/react exclusively (see DESIGN.md "Icons").',
+    ).toEqual([])
+    expect(
+      violations,
+      'Keep CardTitle, DialogTitle, and TabsTrigger text-only (see DESIGN.md "Icons").',
+    ).toEqual([])
+  })
+
+  it('keeps all Recharts Area and Line curves dot-free at rest (dot={false})', () => {
+    const violations: string[] = []
+    for (const [file, content] of tsxEntries) {
+      if (!/from\s+['"]recharts['"]/.test(content)) continue
+      for (const match of content.matchAll(/<(Area|Line)\b([\s\S]*?)\/>/g)) {
+        const [, tag, props] = match
+        if (!/\bdot=\{false\}/.test(props)) {
+          violations.push(`${file} <${tag}>: missing dot={false}`)
+        }
+      }
+    }
+    expect(
+      violations,
+      'Every Recharts <Area> and <Line> series must set dot={false} so curves stay smooth without static dots (see DESIGN.md "Charts").',
+    ).toEqual([])
   })
 })

@@ -1,12 +1,12 @@
 import { useTranslation } from 'react-i18next'
-import { FileQuestion } from 'lucide-react'
+import { FileDashed } from '@phosphor-icons/react'
 import { ErrorScreen } from './ErrorScreen'
 
 export function NotFoundPage() {
   const { t } = useTranslation()
   return (
     <ErrorScreen
-      icon={<FileQuestion className="size-12 text-muted-foreground" />}
+      icon={<FileDashed className="size-12 text-muted-foreground" />}
       code="404"
       message={t('error.notFound')}
     />

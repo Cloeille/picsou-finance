@@ -1,7 +1,7 @@
 import { useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
-import { KeyRound, Loader2 } from 'lucide-react'
+import { Key, CircleNotch } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -125,7 +125,7 @@ function SetPasswordSteps({ resumed, onDone }: { resumed: boolean; onDone: () =>
           {t('common.cancel')}
         </Button>
         <Button type="submit" disabled={save.isPending}>
-          {save.isPending ? <Loader2 className="animate-spin" /> : <KeyRound />}
+          {save.isPending ? <CircleNotch className="animate-spin" /> : <Key />}
           {t('settings.signInMethods.setPassword')}
         </Button>
       </DialogFooter>

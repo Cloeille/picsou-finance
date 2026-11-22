@@ -20,10 +20,10 @@ import {
 import {
   ArrowRight,
   X,
-  Loader2,
-  LogOut,
-  RefreshCw,
-} from 'lucide-react'
+  CircleNotch,
+  SignOut,
+  ArrowsClockwise,
+} from '@phosphor-icons/react'
 import {
   useFinaryConnectionStatus,
   useFinaryLogin,
@@ -134,7 +134,7 @@ export function FinaryTab() {
       {/* Connection status card */}
       {isConnected && connectionStatus && (
         <Card size="sm">
-          <CardContent className="flex items-center justify-between py-4">
+          <CardContent className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               {isTotpRequired ? (
                 <Badge variant="secondary">
@@ -216,7 +216,7 @@ export function FinaryTab() {
                 </div>
               </div>
               <Button type="submit" disabled={loading || !email || !password} className="w-full">
-                {loading && <Loader2 className="size-4 animate-spin" />}
+                {loading && <CircleNotch className="size-4 animate-spin" />}
                 {t('sync.finary.login')}
               </Button>
             </form>
@@ -227,12 +227,12 @@ export function FinaryTab() {
                 <Button onClick={handleAutoSync} disabled={loading} className="flex-1">
                   {loading ? (
                     <>
-                      <Loader2 className="size-4 animate-spin" />
+                      <CircleNotch className="size-4 animate-spin" />
                       {t('sync.finary.syncing')}
                     </>
                   ) : (
                     <>
-                      <RefreshCw className="size-4" />
+                      <ArrowsClockwise className="size-4" />
                       {t('sync.finary.sync')}
                     </>
                   )}
@@ -242,7 +242,7 @@ export function FinaryTab() {
                   onClick={() => setShowDeleteConfirm(true)}
                   disabled={deleteMutation.isPending}
                 >
-                  <LogOut className="size-4" />
+                  <SignOut className="size-4" />
                   {t('sync.finary.deleteConnection')}
                 </Button>
               </div>

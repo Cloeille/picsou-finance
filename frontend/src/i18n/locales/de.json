@@ -1,5 +1,6 @@
 {
   "common": {
+    "actions": "Aktionen",
     "loading": "Wird geladen...",
     "add": "Hinzufügen",
     "save": "Speichern",
@@ -301,6 +302,16 @@
     },
     "showClosedLoans": "Geschlossene Darlehen anzeigen",
     "hideClosedLoans": "Geschlossene Darlehen ausblenden",
+    "reorder": "Neu anordnen",
+    "doneReordering": "Fertig",
+    "moveUp": "Nach oben",
+    "moveDown": "Nach unten",
+    "collapseAccount": "Konto einklappen",
+    "expandAccount": "Konto ausklappen",
+    "collapsedRecap": "{{count}} eingeklapptes Konto",
+    "collapsedRecap_other": "{{count}} eingeklappte Konten",
+    "collapsedHint": "Weiterhin in allen Summen und Diagrammen enthalten.",
+    "manageCollapsed": "Verwalten",
     "fees": "Gebühren",
     "export": {
       "button": "Daten exportieren",
@@ -415,7 +426,8 @@
         "PESSIMISTIC": "Pessimistisch ({{value}})",
         "CAUTIOUS": "Vorsichtig ({{value}})",
         "REFERENCE": "Referenz ({{value}})",
-        "OPTIMISTIC": "Optimistisch ({{value}})"
+        "OPTIMISTIC": "Optimistisch ({{value}})",
+        "CUSTOM": "Benutzerdefiniert ({{value}})"
       },
       "contributed": "Ihre Einzahlungen",
       "views": {
@@ -428,7 +440,12 @@
       "today": "Heute",
       "atHorizon": "In {{count}} Jahren",
       "atAge": "{{age}} Jahre",
-      "referenceAt": "Prognose in {{count}} Jahren (Referenz)"
+      "referenceAt": "Prognose in {{count}} Jahren (Referenz)",
+      "customRateLabel": "Eigener Zinssatz",
+      "customRateHint": "Geben Sie einen jährlichen Zinssatz (z. B. 12 %) für eine eigene Simulation ein.",
+      "customRateResult": "In {{count}} Jahren ({{value}}):",
+      "customRateGains": "Gewinn",
+      "customRateClear": "Eigenen Zinssatz löschen"
     },
     "classification": {
       "title": "Wertpapier einordnen",
@@ -519,7 +536,8 @@
     },
     "ledger": {
       "interestPart": "davon {{amount}} Zinsen",
-      "noCashLeg": "Ohne Zahlungsbewegung"
+      "noCashLeg": "Ohne Zahlungsbewegung",
+      "closureWriteOffNote": "Abschreibung bei Abschluss"
     },
     "noPlan": "Keine Prognose festgelegt. Fügen Sie eine Laufzeit oder eine Monatsrate hinzu.",
     "closedHint": "Dieses Darlehen ist geschlossen. Löschen Sie den Forderungsverzicht, um es wieder zu öffnen.",
@@ -561,7 +579,9 @@
       "interestCalculated": "Berechnete Zinsen",
       "interestDue": "Fällige Zinsen",
       "principalRepaid": "Kapital zurückgezahlt",
-      "writtenOff": "Abgeschrieben"
+      "writtenOff": "Abgeschrieben",
+      "title": "Darlehensübersicht",
+      "period": "{{from}} bis {{to}}"
     },
     "forecast": {
       "title": "Prognose",
@@ -667,6 +687,8 @@
     "corumFundHint": "Optional. Die CORUM-Synchronisierung verknüpft ihre Fonds selbst; geben Sie einen Code nur ein, um eine Verknüpfung zu erzwingen.",
     "sofidyFundCode": "Sofidy-Fondscode",
     "sofidyFundHint": "Optional. Die Sofidy-Synchronisierung verknüpft ihre Fonds selbst; geben Sie einen Code nur ein, um eine Verknüpfung zu erzwingen.",
+    "louveFundCode": "Louve-Invest-Fondscode",
+    "louveFundHint": "Optional. Die Louve-Invest-Synchronisierung verknüpft ihre Fonds selbst; geben Sie einen Code (z. B. aurore) nur ein, um eine Verknüpfung zu erzwingen.",
     "dividendPolicy": "Dividenden",
     "cash": "Ausgezahlt",
     "reinvest": "Reinvestiert",
@@ -708,7 +730,8 @@
         "PRICE_INCOMPLETE": "Anteile aktualisiert, Rücknahmepreis fehlt: Saldo beibehalten",
         "AMBIGUOUS": "mehrere SCPI-Konten tragen diesen Namen, keines wurde verknüpft. Wählen Sie ihn beim Hinzufügen einer SCPI oder benennen Sie eines um.",
         "IGNORED": "ignoriert, nicht synchronisiert",
-        "MISSING_AT_PROVIDER": "beim Anbieter nicht mehr aufgeführt, Konto beibehalten"
+        "MISSING_AT_PROVIDER": "beim Anbieter nicht mehr aufgeführt, Konto beibehalten",
+        "UNSUPPORTED_OWNERSHIP": "im bloßen Eigentum oder Nießbrauch gehalten, nicht bewertet: Konto unverändert"
       }
     },
     "ignoreFund": "Diesen Fonds ignorieren",
@@ -857,13 +880,10 @@
     "deadline": "Zieldatum",
     "currentTotal": "Aktuell",
     "progress": "Fortschritt",
-    "onTrack": "Auf Kurs",
-    "behind": "Im Rückstand",
     "monthsLeft": "Monate übrig",
     "monthlyNeeded": "benötigt/Monat",
     "avgContribution": "Ø Beitrag/Monat",
     "noGoals": "Keine Ziele definiert",
-    "waiting": "Laufend",
     "calendar": "Kalender",
     "legendProgress": "Erreichter Anteil des Monatsziels (z. B. 94 %)",
     "legendOvershoot": "Über dem Ziel (z. B. +8 %)",
@@ -955,11 +975,12 @@
       "amex": "American Express Kreditkarte: Kontostand und Transaktionen",
       "corum": "CORUM-SCPI und CORUM-Life-Lebensversicherung: Anteile, Bewertung und Umsätze",
       "sofidy": "Sofidy-SCPI-Anteile zum Rücknahmepreis",
+      "louve": "Über Louve Invest gekaufte SCPI-Anteile, nur lesend, zum Rücknahmepreis",
       "property": "Haus, Wohnung, Grundstück…",
       "revolut": "Phone + passcode, on-demand sync",
       "fortuneo": "Fortuneo-Konten synchronisieren",
       "caisseEpargne": "Girokonto, Livret A, LDDS, PEL, LEP, PER, Lebensversicherung, Kredite und Karten bei der Caisse d'Epargne",
-      "banquePopulaire": "Girokonto, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, Festgeld, Genossenschaftsanteile und PER bei der Banque Populaire",
+      "banquePopulaire": "Girokonto, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, Festgeld, Genossenschaftsanteile, PER sowie Privat- und Immobilienkredite bei der Banque Populaire",
       "lbp": "Girokonto, Livret A und LEP bei La Banque Postale",
       "bnp": "Girokonten, Sparprodukte, Wertpapiere und Lebensversicherung bei BNP Paribas oder Hello bank!"
     },
@@ -988,6 +1009,9 @@
       "search": "Bank suchen",
       "country": "Land",
       "countriesLoadError": "Nicht alle Länder konnten geladen werden — nur Frankreich verfügbar.",
+      "notConfigured": "Enable Banking ist noch nicht konfiguriert. Richten Sie es unter Administration (Banken & Integrationen) ein, um Ihre Banken zu suchen und zu verbinden.",
+      "notConfiguredMember": "Enable Banking ist noch nicht konfiguriert. Bitten Sie Ihre Picsou-Administration, es einzurichten, damit Sie Ihre Banken suchen und verbinden können.",
+      "configureEnableBanking": "Konfigurieren",
       "searchPlaceholder": "z. B. BNP Paribas...",
       "searchError": "Die Bankensuche ist derzeit nicht möglich.",
       "connected": "Aktive Verbindungen",
@@ -1133,6 +1157,15 @@
       "type": "Exchange-Typ",
       "apiKey": "API-Key",
       "apiSecret": "API-Secret",
+      "apiPassphrase": "API-Passphrase",
+      "region": "Region",
+      "regionPlaceholder": "Region auswählen",
+      "regionHelp": "Wähle die Region, der dein Konto bei der Kryptobörse zugeordnet ist.",
+      "regions": {
+        "GLOBAL": "Global",
+        "EEA": "Europäischer Wirtschaftsraum",
+        "US": "Vereinigte Staaten"
+      },
       "apiKeyOnly": "Meria verbindet sich mit einem einzigen schreibgeschützten API-Key — kein Secret nötig.",
       "showSecret": "API-Secret anzeigen",
       "hideSecret": "API-Secret verbergen",
@@ -1361,6 +1394,13 @@
         "serverError": "BoursoBank ist nicht erreichbar. Bitte erneut versuchen."
       }
     },
+    "bpceContracts": {
+      "personalLoan": "Ratenkredit",
+      "homeLoan": "Immobilienkredit",
+      "revolvingCredit": "Rahmenkredit",
+      "notImported_one": "{{count}} Vertrag nicht importiert, Details unten.",
+      "notImported_other": "{{count}} Verträge nicht importiert, Details unten."
+    },
     "caisseEpargne": {
       "title": "Caisse d'Epargne",
       "customerId": "Kennung",
@@ -1433,7 +1473,7 @@
       "disconnectConfirmAction": "Gespeicherte Sitzung löschen",
       "noSession": "Keine aktive Sitzung",
       "sessionActive": "Sitzung aktiv",
-      "scope": "Synchronisiert Ihre Girokonten, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, Festgelder, Genossenschaftsanteile und PER bei der Banque Populaire auf Abruf. Nur die Sitzung und Ihre Kennung werden verschlüsselt gespeichert, nie Ihr Passwort. Verträge, die Picsou nicht importieren kann, werden aufgelistet, aber nie angelegt.",
+      "scope": "Synchronisiert Ihre Girokonten, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, Festgelder, Genossenschaftsanteile, PER sowie Privat- und Immobilienkredite bei der Banque Populaire auf Abruf. Nur die Sitzung und Ihre Kennung werden verschlüsselt gespeichert, nie Ihr Passwort. Verträge, die Picsou nicht importieren kann, werden aufgelistet, aber nie angelegt.",
       "notice": {
         "neverStored": "Picsou sieht und speichert Ihr Passwort nie. Sie klicken es selbst auf der Tastatur der Bank; nur die Tastenpositionen werden einmalig gesendet.",
         "noRetry": "Picsou wiederholt eine Anmeldung nie. Schlägt sie fehl, wird nichts erneut gesendet, bis Sie das Formular selbst absenden.",
@@ -1858,6 +1898,41 @@
         "serverError": "Sofidy ist nicht erreichbar. Bitte erneut versuchen."
       }
     },
+    "louve": {
+      "title": "Louve Invest",
+      "intro": "Picsou liest Ihr SCPI-Portfolio bei Louve Invest über die offizielle Verbindung von Louve. Sie erlauben den Lesezugriff auf der Seite von Louve: Picsou sieht Ihr Louve-Passwort nie.",
+      "connect": "Mit Louve Invest verbinden",
+      "reconnect": "Erneut mit Louve Invest verbinden",
+      "completing": "Verbindung wird abgeschlossen…",
+      "sync": "Synchronisieren",
+      "syncing": "Synchronisierung…",
+      "disconnect": "Trennen",
+      "disconnectConfirm": "Picsou vergisst den Louve-Invest-Zugriff und bittet Louve, ihn zu widerrufen. Ihre SCPI-Konten bleiben erhalten.",
+      "connected": "Verbunden",
+      "notConnected": "Nicht verbunden",
+      "needsReconnect": "Erneute Verbindung nötig",
+      "lastSync": "Letzte Synchronisierung",
+      "neverSynced": "Noch nicht synchronisiert",
+      "connectedToast": "Louve Invest verbunden. Die erste Synchronisierung läuft.",
+      "scope": "Nur Lesezugriff auf Ihr Portfolio (portfolio:read). Synchronisiert die SCPI-Anteile im Volleigentum zum Rücknahmepreis; ein Fonds ohne Konto erhält eines oder wird mit dem gleichnamigen SCPI-Konto verknüpft („Aurore“ oder „Louve Invest - Aurore“). Anteile im bloßen Eigentum oder Nießbrauch und Lebensversicherungsverträge werden nicht synchronisiert.",
+      "errors": {
+        "consentDenied": "Der Zugriff wurde bei Louve Invest nicht erteilt. Es wurde nichts verbunden.",
+        "callbackInvalid": "Louve Invest hat eine unvollständige Antwort zurückgegeben. Starten Sie die Verbindung erneut.",
+        "connectFailed": "Louve Invest konnte nicht verbunden werden. Bitte erneut versuchen.",
+        "syncFailed": "Die Louve-Invest-Synchronisierung konnte nicht gestartet werden. Bitte erneut versuchen.",
+        "lastSyncFailed": "Die letzte Louve-Invest-Synchronisierung ist fehlgeschlagen. Ihre bestehenden Daten wurden beibehalten; versuchen Sie es gleich erneut.",
+        "disconnectFailed": "Louve Invest konnte nicht getrennt werden. Bitte erneut versuchen.",
+        "authAttemptExpired": "Dieser Verbindungsversuch ist abgelaufen oder wurde bereits verwendet. Bitte neu beginnen.",
+        "sessionExpired": "Der Louve-Invest-Zugriff wurde widerrufen oder ist abgelaufen. Verbinden Sie sich erneut, um weiter zu synchronisieren.",
+        "rateLimited": "Louve Invest begrenzt die Anfragen. Versuchen Sie es in einigen Minuten erneut.",
+        "portfolioIncomplete": "Louve Invest hat ein unvollständiges Portfolio geliefert. Ihre bestehenden Daten wurden beibehalten.",
+        "formatChanged": "Das Datenformat von Louve Invest hat sich geändert. Ihre bestehenden Daten wurden beibehalten.",
+        "invalidData": "Louve Invest hat widersprüchliche Daten geliefert. Ihre bestehenden Daten wurden beibehalten.",
+        "serverError": "Louve Invest ist nicht erreichbar. Bitte erneut versuchen.",
+        "originNotAllowed": "Fügen Sie diese Picsou-Adresse unter Administration > Sicherheit zu den erlaubten Ursprüngen hinzu und verbinden Sie sich erneut. Louve Invest leitet Sie zu dieser Adresse zurück.",
+        "originNotSecure": "Louve Invest setzt voraus, dass Picsou über HTTPS erreichbar ist. Öffnen Sie Picsou über seine HTTPS-Adresse und verbinden Sie sich erneut."
+      }
+    },
     "fortuneo": {
       "title": "Fortuneo",
       "login": "Login",
@@ -1916,7 +1991,7 @@
         "unverified": "Noch nicht an einem echten Konto geprüft: Die Anmeldeseite wurde geprüft, die Zwei-Faktor-Anmeldung und der Import folgen dem Open-Source-Modul woob."
       },
       "approvalPrompt": "Bestätige die Anmeldung in der mobilen App Deiner Bank.",
-      "approvalHint": "Diese Seite wartet auf Deine Bestätigung und importiert dann Deine Konten.",
+      "approvalHint": "Diese Seite wartet auf Deine Bestätigung und importiert dann Deine Konten. Wenn keine Benachrichtigung erscheint, prüfe das mit Clé Digitale verknüpfte Gerät oder öffne die Banking-App unter Vous, Clé Digitale, Opérations en attente.",
       "countdownLabel": "Verbleibende Zeit:",
       "codePrompt": "Gib den Code ein, den die Bank Dir per SMS geschickt hat.",
       "codeHint": "Der Code wird einmal an die Bank gesendet und nie gespeichert.",
@@ -1938,7 +2013,7 @@
         "rateLimitedRetryAfter": "Zu viele Versuche. Versuche es in etwa {{minutes}} Min. erneut.",
         "tooManySyncs": "Zu viele Synchronisierungen. Warte, bevor Du es erneut versuchst.",
         "tooManySyncsRetryAfter": "Zu viele Synchronisierungen. Versuche es in etwa {{minutes}} Min. erneut.",
-        "appValidationTimeout": "Die Bestätigung kam nicht rechtzeitig an. Beginne neu.",
+        "appValidationTimeout": "Die Bestätigung kam nicht rechtzeitig an. Prüfe, ob Clé Digitale auf Deinem Smartphone aktiv ist oder schau in der BNP Paribas App unter den ausstehenden Freigaben nach, und beginne dann neu.",
         "authAttemptExpired": "Dieser Anmeldeversuch ist abgelaufen. Beginne neu.",
         "sessionExpired": "Die Sitzung ist abgelaufen. Melde Dich erneut an.",
         "formatChanged": "Die Website der Bank sieht nicht mehr wie erwartet aus. Es wurde nichts importiert.",
@@ -3340,9 +3415,9 @@
       "detect": "Detect",
       "add": "Add",
       "subtitle": "Subscriptions and recurring payments.",
-      "series": "Recurring series",
+      "series": "Abos und wiederkehrende Zahlungen",
       "upcoming": "Upcoming payments",
-      "noSeries": "No recurring series detected yet.",
+      "noSeries": "Noch keine wiederkehrenden Zahlungen erfasst.",
       "noUpcoming": "No upcoming payments",
       "noUpcomingHint": "Upcoming charges will appear here once detected.",
       "error": "Couldn't load recurring items.",
@@ -3366,15 +3441,33 @@
       "runtime": {
         "stale": "Inactive",
         "late": "Late",
-        "dueSoon": "Due soon"
+        "dueSoon": "Bald fällig"
       },
       "activity": {
-        "title": "What changed",
+        "title": "Letzte Änderungen",
         "autoConfirmed": "Automatisch bestätigt",
         "priceChange": "Price change",
-        "autoConfirmedDesc": "Detected and confirmed automatically",
-        "priceChangeDesc": "Price went from {{from}} to {{to}}",
-        "acknowledge": "Got it"
+        "autoConfirmedDesc": "Automatisch zu den wiederkehrenden Zahlungen hinzugefügt.",
+        "priceChangeDesc": "Betrag geändert von {{from}} auf {{to}}.",
+        "acknowledge": "Verstanden"
+      },
+      "nextDueShort": "Nächste am {{date}}",
+      "kpi": {
+        "expenses": "Wiederkehrende Ausgaben",
+        "income": "Wiederkehrende Einnahmen",
+        "upcoming30d": "Anstehend (30 Tage)",
+        "perMonth": "pro Monat",
+        "activeCount_one": "{{count}} aktiv",
+        "activeCount_other": "{{count}} aktiv",
+        "activeCount": "{{count}} aktiv",
+        "dueCount_one": "{{count}} fällig",
+        "dueCount_other": "{{count}} fällig",
+        "dueCount": "{{count}} fällig"
+      },
+      "labels": {
+        "transferFrom": "Überweisung von {{name}}",
+        "transferIncoming": "Eingehende Überweisung von {{name}}",
+        "transferOutgoing": "Ausgehende Überweisung an {{name}}"
       }
     },
     "categorize": {
@@ -3599,6 +3692,7 @@
     "howToUpdate": "Aktualisieren",
     "updateInstructions": "Um deine Docker-Instanz zu aktualisieren, führe aus:",
     "copied": "Kopiert",
-    "copy": "Kopieren"
+    "copy": "Kopieren",
+    "cardTitle": "Entdecke Picsou {{version}}"
   }
 }

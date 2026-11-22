@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { PencilSimple, Plus, Trash } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { useMoney } from '@/hooks/use-money'
 import { useAccounts } from '@/features/accounts/hooks'
@@ -145,23 +146,29 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
 
   const pct = Math.max(0, Math.min(100, data.repaidPct))
   const ledger = [...data.repayments].reverse()
+  const showForecast = data.configured && (!data.closedAt || data.plannedMonthlyAmount != null || data.curve.length > 1)
+  const periodLabel = data.lentAt
+    ? data.expectedBack
+      ? t('peerLoan.summary.period', {
+        from: formatLocalDate(data.lentAt, locale),
+        to: formatLocalDate(data.expectedBack, locale),
+      })
+      : formatLocalDate(data.lentAt, locale)
+    : null
 
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-            <span>{data.accountName}</span>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle>{t('peerLoan.summary.title')}</CardTitle>
             <Badge variant={data.closedAt ? 'secondary' : 'default'}>
               {data.closedAt ? t('peerLoan.summary.closed') : t('peerLoan.summary.open')}
             </Badge>
-            {data.lentAt && (
-              <span className="text-xs font-normal text-muted-foreground">
-                {formatLocalDate(data.lentAt)}
-                {data.expectedBack ? ` → ${formatLocalDate(data.expectedBack)}` : ''}
-              </span>
-            )}
-          </CardTitle>
+          </div>
+          {periodLabel && (
+            <span className="text-xs text-muted-foreground">{periodLabel}</span>
+          )}
         </CardHeader>
         <CardContent className="space-y-4">
           {!data.configured ? (
@@ -185,19 +192,24 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
               </div>
 
               <div className="space-y-2">
-                <Progress value={pct} className="h-2" />
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                  <span className="text-emerald-500">
-                    {t('common.labelColon', { label: t('peerLoan.summary.principalRepaid') })} <CurrencyDisplay value={data.principalRepaid} />
-                  </span>
+                <Progress value={pct} />
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  {(data.principalRepaid > 0 || data.writtenOff === 0) && (
+                    <span>
+                      {t('common.labelColon', { label: t('peerLoan.summary.principalRepaid') })}{' '}
+                      <CurrencyDisplay value={data.principalRepaid} className="font-medium text-foreground" />
+                    </span>
+                  )}
                   {!data.closedAt && data.interestAccrued > 0 && (
-                    <span className="text-foreground">
-                      {t('common.labelColon', { label: t('peerLoan.summary.interestDue') })} <CurrencyDisplay value={data.interestAccrued} />
+                    <span>
+                      {t('common.labelColon', { label: t('peerLoan.summary.interestDue') })}{' '}
+                      <CurrencyDisplay value={data.interestAccrued} className="font-medium text-foreground" />
                     </span>
                   )}
                   {data.writtenOff > 0 && (
-                    <span className="text-red-500">
-                      {t('common.labelColon', { label: t('peerLoan.summary.writtenOff') })} <CurrencyDisplay value={data.writtenOff} />
+                    <span className="text-destructive">
+                      {t('common.labelColon', { label: t('peerLoan.summary.writtenOff') })}{' '}
+                      <CurrencyDisplay value={data.writtenOff} className="font-medium" />
                     </span>
                   )}
                   {data.annualRate != null && data.annualRate > 0 && (
@@ -205,51 +217,52 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
                       {t(data.ratePeriod === 'MONTHLY'
                         ? 'peerLoan.fields.rateMonthly'
                         : 'peerLoan.fields.rateAnnual')}{' '}
-                      {formatPercent(
-                        data.ratePeriod === 'MONTHLY' ? data.annualRate * 100 / 12 : data.annualRate * 100,
-                        { fractionDigits: 2 },
-                        locale,
-                      )}
+                      <span className="font-medium text-foreground">
+                        {formatPercent(
+                          data.ratePeriod === 'MONTHLY' ? data.annualRate * 100 / 12 : data.annualRate * 100,
+                          { fractionDigits: 2 },
+                          locale,
+                        )}
+                      </span>
                     </span>
                   )}
                 </div>
               </div>
 
               {!data.linkedAccountId && (
-                <p className="rounded-md border border-dashed p-2 text-sm text-muted-foreground">
+                <p className="rounded-lg border border-dashed border-border/80 px-3 py-2 text-sm text-muted-foreground">
                   {t('peerLoan.cashflowHint')}
                 </p>
               )}
 
-              <div className="flex flex-wrap gap-2">
-                {!data.closedAt && (
-                  <>
-                    <Button size="sm" onClick={() => { setEditingRepayment(null); setRepaymentOpen(true) }}>
-                      + {t('peerLoan.addRepayment')}
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => setTermsOpen(true)}>
-                      {t('peerLoan.editTerms')}
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => setCloseOpen(true)}>
-                      {t('peerLoan.actions.close')}
-                    </Button>
-                  </>
-                )}
-                {data.closedAt && (
-                  <p className="text-sm text-muted-foreground">{t('peerLoan.closedHint')}</p>
-                )}
-              </div>
+              {!data.closedAt ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" onClick={() => { setEditingRepayment(null); setRepaymentOpen(true) }}>
+                    <Plus className="size-3.5" aria-hidden="true" />
+                    {t('peerLoan.addRepayment')}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setTermsOpen(true)}>
+                    <PencilSimple className="size-3.5" aria-hidden="true" />
+                    {t('peerLoan.editTerms')}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setCloseOpen(true)}>
+                    {t('peerLoan.actions.close')}
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">{t('peerLoan.closedHint')}</p>
+              )}
             </>
           )}
         </CardContent>
       </Card>
 
-      {data.configured && (
+      {showForecast && (
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">{t('peerLoan.forecast.title')}</CardTitle>
+          <CardHeader>
+            <CardTitle>{t('peerLoan.forecast.title')}</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2">
+          <CardContent className="space-y-3">
             {data.plannedMonthlyAmount != null && data.plannedMonths != null ? (
               <>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -301,53 +314,87 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
 
       {data.configured && (
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">{t('peerLoan.repaymentsTitle')}</CardTitle>
+        <CardHeader>
+          <CardTitle>{t('peerLoan.repaymentsTitle')}</CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent>
           {ledger.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-muted-foreground">{t('peerLoan.empty')}</p>
+            <p className="text-sm text-muted-foreground">{t('peerLoan.empty')}</p>
           ) : (
-            ledger.map(repayment => (
-              <div
-                key={repayment.id}
-                className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3 last:border-0"
-              >
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <span className="text-sm text-muted-foreground">{formatLocalDate(repayment.paidOn)}</span>
-                  <Badge variant={KIND_VARIANT[repayment.kind]}>{t(`peerLoan.kinds.${repayment.kind}`)}</Badge>
-                  {repayment.hasCashLeg === false && (
-                    <Badge variant="outline">{t('peerLoan.ledger.noCashLeg')}</Badge>
-                  )}
-                  {repayment.note && <span className="truncate text-xs text-muted-foreground">{repayment.note}</span>}
-                  {repayment.interestPart != null && repayment.interestPart > 0 && (
-                    <span className="text-xs text-muted-foreground">
-                      {t('peerLoan.ledger.interestPart', { amount: money.amount(repayment.interestPart) })}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={repayment.kind === 'WRITE_OFF' ? 'text-red-500' : 'text-emerald-500'}>
-                    {repayment.kind === 'WRITE_OFF' ? '−' : '+'}
-                    <CurrencyDisplay value={repayment.amount} className="text-sm font-semibold" />
-                  </span>
-                  {!data.closedAt && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => { setEditingRepayment(repayment); setRepaymentOpen(true) }}
-                    >
-                      {t('common.edit')}
-                    </Button>
-                  )}
-                  {/* Deletion stays available after closure: a loan auto-closed by its final
-                      repayment has no write-off, and the member must still be able to fix it. */}
-                  <Button size="sm" variant="ghost" onClick={() => setDeletingRepayment(repayment)}>
-                    {t('common.delete')}
-                  </Button>
-                </div>
-              </div>
-            ))
+            <div className="divide-y divide-border/60">
+              {ledger.map(repayment => {
+                // 'Closure write-off' is PeerLoanService.CLOSURE_NOTE, the note the backend stores on the
+                // write-off it creates when a loan is closed: shown in the reader's language instead.
+                const noteText = repayment.kind === 'WRITE_OFF' && repayment.note === 'Closure write-off'
+                  ? t('peerLoan.ledger.closureWriteOffNote')
+                  : repayment.note
+                const metaParts = [
+                  noteText,
+                  repayment.interestPart != null && repayment.interestPart > 0
+                    ? t('peerLoan.ledger.interestPart', { amount: money.amount(repayment.interestPart) })
+                    : null,
+                ].filter(Boolean)
+
+                return (
+                  <div
+                    key={repayment.id}
+                    className="flex flex-col gap-3 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-medium text-foreground">
+                          {formatLocalDate(repayment.paidOn, locale)}
+                        </span>
+                        <Badge variant={KIND_VARIANT[repayment.kind]}>
+                          {t(`peerLoan.kinds.${repayment.kind}`)}
+                        </Badge>
+                        {repayment.hasCashLeg === false && (
+                          <Badge variant="outline">{t('peerLoan.ledger.noCashLeg')}</Badge>
+                        )}
+                      </div>
+                      {metaParts.length > 0 && (
+                        <p className="truncate text-xs text-muted-foreground">
+                          {metaParts.join(' · ')}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 items-center justify-between gap-2 sm:justify-end">
+                      <span
+                        className={repayment.kind === 'WRITE_OFF'
+                          ? 'text-sm font-semibold tabular-nums text-destructive'
+                          : 'text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400'}
+                      >
+                        {repayment.kind === 'WRITE_OFF' ? '−' : '+'}
+                        <CurrencyDisplay value={repayment.amount} />
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {!data.closedAt && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => { setEditingRepayment(repayment); setRepaymentOpen(true) }}
+                          >
+                            <PencilSimple className="size-3.5" aria-hidden="true" />
+                            {t('common.edit')}
+                          </Button>
+                        )}
+                        {/* Deletion stays available after closure: a loan auto-closed by its final
+                            repayment has no write-off, and the member must still be able to fix it. */}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-destructive hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => setDeletingRepayment(repayment)}
+                        >
+                          <Trash className="size-3.5" aria-hidden="true" />
+                          {t('common.delete')}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           )}
         </CardContent>
       </Card>
@@ -404,9 +451,9 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
 
 function Stat({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="flex flex-col">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-base font-semibold tabular-nums">{value}</span>
+    <div className="rounded-lg border border-border/60 p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 text-base font-semibold tabular-nums text-foreground">{value}</p>
     </div>
   )
 }

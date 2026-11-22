@@ -8,7 +8,7 @@ Track bank accounts, brokerage, crypto, and net worth — all in one place.
 
 [![License: Apache 2.0 + Commons Clause](https://img.shields.io/badge/License-Apache%202.0%20%2B%20Commons%20Clause-blue.svg)](LICENSE)
 
-[Getting started](#getting-started) · [Features](#features) · [Another machine](#another-machine) · [Development](#development) · [Security](SECURITY.md)
+[Getting started](#getting-started) · [Screenshots](#screenshots) · [Features](#features) · [Another machine](#another-machine) · [Development](#development) · [Security](SECURITY.md)
 
 </div>
 
@@ -21,6 +21,21 @@ Track bank accounts, brokerage, crypto, and net worth — all in one place.
 > It stores sensitive financial data (balances, transactions, bank session tokens). It supports multi-member families, optional TOTP 2FA, and audit logging of setup/admin actions, but it has **not** undergone a professional security audit.
 >
 > **Do not expose it on the public internet.** Use it on your local machine or home network behind a firewall. If you choose to expose it, you do so at your own risk.
+
+---
+
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="Picsou dashboard with total net worth, the net worth history chart and the account distribution donut" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/analysis-diversification.png" alt="Analysis page, Diversification tab in the compartments view, showing sector and geographic treemaps" width="49%">
+  <img src="docs/screenshots/analysis-projection.png" alt="Analysis page, Projection tab, showing the 20-year net worth projection with four scenarios" width="49%">
+</p>
+
+<p align="center"><sub>The dashboard, then the Analysis page: diversification by sector and region, and the net worth projection. Taken in demo mode: every figure is fictional. The interface is shown in French and is also available in English, German and Spanish.</sub></p>
 
 ---
 
@@ -103,7 +118,7 @@ Picsou publishes pre-built, multi-arch (amd64/arm64) images to the GitHub Contai
 | `ghcr.io/cloeille/picsou-finance/cmes-auth` | Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar |
 | `ghcr.io/cloeille/picsou-finance/natixis-auth` | Natixis Interépargne login/2FA and plans sidecar |
 
-Bank connectors (the `*-auth` sidecars) are opt-in: with no profile, Compose pulls and runs only the app and the database. Pick the banks you sync through a comma-separated `COMPOSE_PROFILES` list, or use `all-connectors` for every one. Add `tls` to that same list when you use the bundled Caddy proxy. Connector profiles: `amex`, `amundi`, `banque-populaire`, `bourse-direct`, `bnp`, `bourso`, `caisse-epargne`, `cic`, `cmes`, `corum`, `degiro`, `fortuneo`, `lbp`, `natixis`, `revolut`, `sofidy`, and `tr` (Trade Republic). The `tls` profile enables the bundled Caddy proxy. The app and the enabled connectors authenticate each other with one shared secret, `APP_SIDECAR_API_KEY`, required as soon as one connector is enabled; each connector refuses to start without it. Set the shared key before the first launch:
+Bank connectors (the `*-auth` sidecars) are opt-in: with no profile, Compose pulls and runs only the app and the database. Pick the banks you sync through a comma-separated `COMPOSE_PROFILES` list, or use `all-connectors` for every one. Add `tls` to that same list when you use the bundled Caddy proxy. Connector profiles: `amex`, `amundi`, `banque-populaire`, `bourse-direct`, `bnp`, `bourso`, `caisse-epargne`, `cic`, `cmes`, `corum`, `degiro`, `fortuneo`, `lbp`, `natixis`, `revolut`, `sofidy`, and `tr` (Trade Republic). Louve Invest needs no profile: the app talks to Louve's official API itself, over HTTPS. The `tls` profile enables the bundled Caddy proxy. The app and the enabled connectors authenticate each other with one shared secret, `APP_SIDECAR_API_KEY`, required as soon as one connector is enabled; each connector refuses to start without it. Set the shared key before the first launch:
 
 ```bash
 [ -f docker/.env ] || cp docker/.env.example docker/.env

@@ -18,6 +18,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.picsou.model.ScpiProvider;
 import com.picsou.model.Account;
+import com.picsou.model.AccountDisplayPref;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
 import com.picsou.model.BalanceSnapshot;
@@ -28,6 +29,7 @@ import com.picsou.model.RealEstateMetadata;
 import com.picsou.model.SnapshotSource;
 import com.picsou.model.ValuationMode;
 import com.picsou.port.BankConnectorPort;
+import com.picsou.repository.AccountDisplayPrefRepository;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
@@ -46,7 +48,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -110,6 +114,7 @@ public class AccountService {
     private final PeerLoanRepaymentRepository peerLoanRepaymentRepository;
     private final PeerLoanTransactionLinks peerLoanTransactionLinks;
     private final FinaryPersistenceHelper finaryPersistenceHelper;
+    private final AccountDisplayPrefRepository prefRepository;
 
     public AccountService(
         AccountRepository accountRepository,
@@ -131,7 +136,8 @@ public class AccountService {
         PeerLoanTermsRepository peerLoanTermsRepository,
         PeerLoanRepaymentRepository peerLoanRepaymentRepository,
         PeerLoanTransactionLinks peerLoanTransactionLinks,
-        FinaryPersistenceHelper finaryPersistenceHelper
+        FinaryPersistenceHelper finaryPersistenceHelper,
+        AccountDisplayPrefRepository prefRepository
     ) {
         this.accountRepository = accountRepository;
         this.snapshotRepository = snapshotRepository;
@@ -153,6 +159,7 @@ public class AccountService {
         this.peerLoanRepaymentRepository = peerLoanRepaymentRepository;
         this.peerLoanTransactionLinks = peerLoanTransactionLinks;
         this.finaryPersistenceHelper = finaryPersistenceHelper;
+        this.prefRepository = prefRepository;
     }
 
     /**
@@ -178,14 +185,24 @@ public class AccountService {
             accounts = accounts.stream().filter(a -> !a.isHidden()).toList();
         }
         Map<Long, BigDecimal> shares = accessResolver.sharesFor(accounts, memberId);
+        Map<Long, AccountDisplayPref> prefs = prefsByAccount(memberId);
         return accounts.stream()
-            .map(a -> toResponse(a, shares.get(a.getId()), memberId))
+            .map(a -> {
+                AccountDisplayPref pref = prefs.get(a.getId());
+                return overlayDisplayPrefs(toResponse(a, shares.get(a.getId()), memberId),
+                    pref == null ? null : pref.getListPosition(),
+                    pref != null && pref.isListCollapsed());
+            })
             .toList();
     }
 
     public AccountResponse findById(Long id, Long memberId) {
         Account account = accessResolver.requireReadable(id, memberId);
-        return toResponse(account, accessResolver.shareFor(account, memberId), memberId);
+        AccountDisplayPref pref = prefRepository.findByMemberIdAndAccountId(memberId, id).orElse(null);
+        return overlayDisplayPrefs(
+            toResponse(account, accessResolver.shareFor(account, memberId), memberId),
+            pref == null ? null : pref.getListPosition(),
+            pref != null && pref.isListCollapsed());
     }
 
     @Transactional
@@ -325,6 +342,73 @@ public class AccountService {
         return toResponse(accountRepository.save(account));
     }
 
+    @Transactional
+    public AccountResponse setListCollapsed(Long id, Long memberId, boolean collapsed) {
+        Account account = accessResolver.requireReadable(id, memberId);
+        prefRepository.upsertDisplayPref(id, memberId, null, collapsed);
+        Integer position = prefRepository.findByMemberIdAndAccountId(memberId, id)
+            .map(AccountDisplayPref::getListPosition).orElse(null);
+        return overlayDisplayPrefs(
+            toResponse(account, accessResolver.shareFor(account, memberId), memberId),
+            position, collapsed);
+    }
+
+    /**
+     * Applies the member's own order: listed accounts take positions 0..n in
+     * the given order. Preference rows of accounts absent from a non-empty
+     * payload are left untouched (a hidden account keeps its position and
+     * finds it again when un-hidden); only an explicit empty list clears all
+     * positions. A null list is rejected so a malformed call can never wipe
+     * the order. Unknown and duplicate ids fail the whole update — nothing is
+     * saved. Any readable account (owned or shared) can be arranged;
+     * preferences never leak from one viewer to another.
+     *
+     * @return the listed accounts in the requested order, with prefs overlaid
+     */
+    @Transactional
+    public List<AccountResponse> setDisplayOrder(Long memberId, List<Long> orderedIds) {
+        if (orderedIds == null) {
+            throw new IllegalArgumentException("accountIds must not be null; send an empty list to clear the order");
+        }
+        List<Long> ids = orderedIds;
+        if (new HashSet<>(ids).size() != ids.size()) {
+            throw new IllegalArgumentException("Duplicate account id in display order");
+        }
+        if (ids.isEmpty()) {
+            prefRepository.clearPositionsByMemberId(memberId);
+            return List.of();
+        }
+        Map<Long, Account> readable = new HashMap<>();
+        for (Long id : ids) {
+            readable.put(id, accessResolver.requireReadable(id, memberId));
+        }
+        Map<Long, AccountDisplayPref> prefs = prefsByAccount(memberId);
+        Map<Long, BigDecimal> shares = accessResolver.sharesFor(new ArrayList<>(readable.values()), memberId);
+        List<AccountResponse> response = new ArrayList<>();
+        int position = 0;
+        for (Long id : ids) {
+            AccountDisplayPref existing = prefs.get(id);
+            boolean collapsed = existing != null && existing.isListCollapsed();
+            prefRepository.upsertDisplayPref(id, memberId, position, null);
+            response.add(overlayDisplayPrefs(
+                toResponse(readable.get(id), shares.get(id), memberId), position, collapsed));
+            position++;
+        }
+        return response;
+    }
+
+    private Map<Long, AccountDisplayPref> prefsByAccount(Long memberId) {
+        Map<Long, AccountDisplayPref> prefs = new HashMap<>();
+        for (AccountDisplayPref pref : prefRepository.findByMemberId(memberId)) {
+            prefs.put(pref.getAccount().getId(), pref);
+        }
+        return prefs;
+    }
+
+    private AccountResponse overlayDisplayPrefs(AccountResponse response, Integer listPosition, boolean listCollapsed) {
+        return response.withDisplayPrefs(listPosition, listCollapsed);
+    }
+
     /**
      * Re-resolves a manual account's bank logo when there is a reason to: the bank it names
      * changed, or it never had one. An account whose provider and logo both already hold is
@@ -375,10 +459,17 @@ public class AccountService {
         scpiPositionRepository.findByAccountIdAndMemberId(id, memberId).ifPresent(position -> {
             scpiFundService.tombstone(memberId, ScpiProvider.CORUM, position.getCorumFundCode());
             scpiFundService.tombstone(memberId, ScpiProvider.SOFIDY, position.getSofidyFundCode());
+            scpiFundService.tombstone(memberId, ScpiProvider.LOUVE, position.getLouveFundCode());
             position.setCorumFundCode(null);
             position.setSofidyFundCode(null);
+            position.setLouveFundCode(null);
             scpiPositionRepository.save(position);
         });
+        // The linked_account_id foreign keys are ON DELETE SET NULL, which a soft-delete never
+        // fires. A loan or peer loan still pointing here would then fail to load (the account
+        // row is filtered out by @SQLRestriction) and break every page that lists it.
+        debtRepository.unlinkAccount(id);
+        peerLoanTermsRepository.unlinkAccount(id);
         account.setDeletedAt(Instant.now());
         accountRepository.save(account);
     }

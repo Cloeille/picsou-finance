@@ -4,7 +4,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SidebarWhatsNewCard } from './SidebarWhatsNewCard'
 import { useAppStore } from '@/stores/app-store'
-import { getLatestWhatsNew, PICSOU_GITHUB_URL } from '@/lib/whats-new'
+import { getLatestWhatsNew } from '@/lib/whats-new'
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -29,22 +29,21 @@ describe('SidebarWhatsNewCard', () => {
     useAppStore.setState({ lastSeenWhatsNewVersion: null, demoMode: true })
   })
 
-  it('shows latest release preview and GitHub star link', () => {
+  it('shows the release version tag, title, and summary without a separate GitHub star footer row', () => {
     const latest = getLatestWhatsNew()
     renderCard()
 
     expect(screen.getByText(`v${latest.version}`)).toBeInTheDocument()
+    expect(screen.getByText('whatsNew.cardTitle')).toBeInTheDocument()
     expect(screen.getByText(latest.summary.fr)).toBeInTheDocument()
-
-    const starLink = screen.getByRole('link', { name: 'whatsNew.starGithub' })
-    expect(starLink).toHaveAttribute('href', PICSOU_GITHUB_URL)
+    expect(screen.queryByRole('link', { name: 'whatsNew.starGithub' })).not.toBeInTheDocument()
   })
 
   it('opens the changelog modal and marks the latest version as seen', () => {
     const latest = getLatestWhatsNew()
     renderCard()
 
-    fireEvent.click(screen.getByRole('button', { name: /whatsNew\.title/ }))
+    fireEvent.click(screen.getByRole('button', { name: /whatsNew\.cardTitle/ }))
 
     expect(useAppStore.getState().lastSeenWhatsNewVersion).toBe(latest.version)
     expect(screen.getByRole('dialog')).toBeInTheDocument()

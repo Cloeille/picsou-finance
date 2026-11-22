@@ -22,7 +22,7 @@ import hashlib
 import re
 import unicodedata
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from html import unescape as html_unescape
 from typing import Any, Literal
 from urllib.parse import urlsplit
@@ -76,6 +76,7 @@ _ACCOUNT_LINK_RE = re.compile(
     r"href=\"(?P<href>[^\"]*?/compte/[^\"]*?(?P<id>[a-f0-9]{32})/?)\""
 )
 LIFE_INSURANCE_PATH = "/compte/assurance-vie/"
+PER_PATH = "/compte/per/"
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -232,6 +233,7 @@ AccountKind = Literal[
     "PEA",
     "COMPTE_TITRES",
     "ASSURANCE_VIE",
+    "PER",
 ]
 
 # The French regulated passbooks, matched on the label BoursoBank prints, in the
@@ -256,11 +258,14 @@ def account_type(section: str, name: str, href: str = "") -> AccountKind:
     PEA-PME folds into PEA: Picsou has no separate envelope for it, and the two
     share a tax regime and a reporting shape. An assurance-vie sits in the
     trading section too and is told apart by its link, its label being only
-    "Contrat N° …".
+    "Contrat N° …". So is a PER: read as a securities account, it was sent to the
+    trading board, which has no summary for it (#351).
     """
     label = _deaccent(name)
     if section == "trading" and LIFE_INSURANCE_PATH in href:
         return "ASSURANCE_VIE"
+    if section == "trading" and PER_PATH in href:
+        return "PER"
     if section == "trading":
         return "PEA" if re.search(r"\bPEA\b|\bPEA-?PME\b", label) else "COMPTE_TITRES"
     if section == "savings":
@@ -592,7 +597,9 @@ def _parse_position(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         raise AccountsFormatError(FORMAT_CHANGED, "Trading position is not an object")
 
-    symbol = text_value(raw.get("symbol"), 100)
+    # An unlisted instrument (crowdfunding on a PEA-PME, #573) has no BoursoBank
+    # symbol, only an ISIN. The ISIN then stands in, as for a single-fund contract.
+    symbol = text_value(raw.get("symbol"), 100) or _position_isin(raw, "")
     label = text_value(raw.get("label"), 200)
     quantity = _summary_money(raw.get("quantity"), "quantity")
     if symbol is None or label is None:
@@ -940,7 +947,7 @@ def _li_symbol(quote_symbol: str | None, isin: str | None, label: str) -> str:
     return f"{prefix.rstrip()}-{digest}"
 
 
-def _li_quote_symbol(cell: str) -> str | None:
+def _li_quote_symbol(cell: str, subject: str = "Assurance-vie") -> str | None:
     """The Boursorama symbol of the cell's quote link, None when it has no quote link.
 
     Read from each link's path, after HTML-unescaping, never from its query or fragment.
@@ -954,13 +961,15 @@ def _li_quote_symbol(cell: str) -> str | None:
         if match:
             symbols.add(match.group("symbol"))
     if len(symbols) > 1:
-        raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie line has quote links naming different symbols")
+        raise AccountsFormatError(FORMAT_CHANGED, f"{subject} line has quote links naming different symbols")
     if not symbols and _LI_QUOTE_LINK_MARK in html_unescape(cell):
-        raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie line has a quote link without a readable symbol")
+        raise AccountsFormatError(FORMAT_CHANGED, f"{subject} line has a quote link without a readable symbol")
     return symbols.pop() if symbols else None
 
 
-def _li_amount(cell: str, field: str, *, required: bool = True) -> Decimal | None:
+def _li_amount(
+    cell: str, field: str, *, required: bool = True, subject: str = "Assurance-vie"
+) -> Decimal | None:
     """An amount cell: None when it is blank or a dash, an error when it says anything else.
 
     Only an absent value may be optional. Text that does not parse ("n/a", a new
@@ -970,11 +979,11 @@ def _li_amount(cell: str, field: str, *, required: bool = True) -> Decimal | Non
     text = text_value(cell, 100)
     if not text or text in ("-", "—"):
         if required:
-            raise AccountsFormatError(FORMAT_CHANGED, f"Assurance-vie line has no {field}")
+            raise AccountsFormatError(FORMAT_CHANGED, f"{subject} line has no {field}")
         return None
     value = parse_amount(text.replace("€", "").replace("%", ""))
     if value is None:
-        raise AccountsFormatError(FORMAT_CHANGED, f"Assurance-vie line has an unreadable {field}")
+        raise AccountsFormatError(FORMAT_CHANGED, f"{subject} line has an unreadable {field}")
     return value
 
 
@@ -1058,3 +1067,220 @@ def parse_life_insurance(html: str) -> dict[str, Any]:
     # The backend re-runs this check after the euro-fund rows have been summed into
     # one cash figure; it needs the row count to grant the same allowance.
     return {"cashEur": cash, "totalEur": total, "positions": positions, "valuationLineCount": len(rows)}
+
+
+# ─── PER ───────────────────────────────────────────────────────────────────
+
+# One box per page, read from the page's text so the markup around it may move. The
+# text is whitespace-normalised first: non-breaking spaces in amounts become spaces.
+_PER_SOLDE_RE = re.compile(r"\bSolde au \d{2}/\d{2}/\d{4} (?P<amount>[-−]?\d[\d ]*,\d{2}) ?€")
+# A payment BoursoBank has not converted into units yet shows this instead of its units.
+_PER_PENDING = "EN COURS"
+_PER_CELLS = 7
+_PER_HEADER_RE = re.compile(r"<th\b[^>]*>(?P<head>.*?)</th>", re.DOTALL)
+# A compartment's columns, as their headers start once deaccented and uppercased.
+_PER_HEADER = ("VALEUR", "QUANTIT", "PX", "COURS", "+/-", "+/-", "MONTANT")
+_PER_TOTAL_RE = re.compile(r"\s*TOTAL\s*:?\s*")
+
+
+def _per_pending(cell: str) -> bool:
+    return _deaccent(text_value(cell, 30) or "").strip() == _PER_PENDING
+
+
+def _per_compartment(table: str) -> bool:
+    """Whether a `data-table-trading-operations` table has a compartment's 7 columns.
+
+    Any other table carrying the attribute is not a compartment and is left out; a
+    compartment that stops matching is caught by the Solde reconciliation instead.
+    """
+    heads = [_deaccent(text_value(head.group("head"), 40) or "").strip() for head in _PER_HEADER_RE.finditer(table)]
+    return len(heads) == _PER_CELLS and all(head.startswith(want) for head, want in zip(heads, _PER_HEADER))
+
+
+def _per_amount(cell: str, field: str, *, required: bool = False) -> Decimal | None:
+    return _li_amount(cell, field, required=required, subject="PER")
+
+
+# The backend's own merge rounds a weighted cost price to this scale (NUMERIC(20,8)).
+_PER_PRICE_SCALE = Decimal("0.00000001")
+
+
+def _per_merge(merged: dict[Any, dict[str, Any]], line: dict[str, Any]) -> None:
+    """Add a support line to its holding: a fund held in several compartments is one position.
+
+    Lines merge on their ISIN alone, as the backend's `preparePositions` does: a line
+    without one cannot be proven to be the same instrument as another, so it stays a
+    position of its own, and `guard_symbol_collisions` refuses it if its ticker collides.
+    Units and amounts add up, the cost price is weighted by units, and the gain adds up
+    when every line has one.
+    """
+    key = line["isin"] or object()
+    held = merged.get(key)
+    if held is None:
+        merged[key] = line
+        return
+    quantity = held["quantity"] + line["quantity"]
+    if held["buyingPriceEur"] is None or line["buyingPriceEur"] is None or not quantity:
+        held["buyingPriceEur"] = None
+    else:
+        held["buyingPriceEur"] = (
+            (held["buyingPriceEur"] * held["quantity"] + line["buyingPriceEur"] * line["quantity"]) / quantity
+        ).quantize(_PER_PRICE_SCALE, rounding=ROUND_HALF_UP)
+    if held["currentPrice"] is None:
+        held["currentPrice"] = line["currentPrice"]
+    if held["pnlEur"] is None or line["pnlEur"] is None:
+        held["pnlEur"] = None
+    else:
+        held["pnlEur"] += line["pnlEur"]
+    held["quantity"] = quantity
+    held["currentValueEur"] += line["currentValueEur"]
+
+
+def parse_per(html: str) -> dict[str, Any]:
+    """Read a PER's positions page (`/compte/per/<id>/positions`).
+
+    Server-rendered, close to an assurance vie's: a "Solde au <date>" box with the plan's
+    total, then one `table[data-table-trading-operations]` per compartment (Épargne
+    Volontaire Déductible, non Déductible, Retraite Obligatoire). A line has 7 cells --
+    Valeur (label, ISIN, quote link), Quantité, Px. Revient, Cours, +/- Latentes, +/- %,
+    Montant -- and each table ends with a two-cell "Total" row.
+
+    Compartments are a tax detail Picsou does not model: a fund held in several of them
+    becomes one position. A payment not yet converted into units ("En cours" for its
+    units, cost price and percentage) and a euro fund become the cash leg. Every compartment must
+    reconcile with its total and the totals with the Solde, within a cent per line; any
+    other row shape or unreadable cell is refused rather than guessed.
+    """
+    plain = " ".join(html_unescape(_TAG_RE.sub(" ", html)).split())
+    # The box may be rendered more than once (one per layout); every copy must agree.
+    soldes = {parse_amount(amount) for amount in _PER_SOLDE_RE.findall(plain)}
+    solde = soldes.pop() if len(soldes) == 1 else None
+    if solde is None:
+        raise AccountsFormatError(FORMAT_CHANGED, "PER page has no single readable Solde")
+    tables = [table.group("body") for table in _LI_TABLE_RE.finditer(html) if _per_compartment(table.group("body"))]
+    if not tables:
+        raise AccountsFormatError(FORMAT_CHANGED, "PER page has no supports table")
+
+    merged: dict[Any, dict[str, Any]] = {}
+    cash = Decimal("0")
+    line_count = 0
+    pending_lines = 0
+    lines_sum = Decimal("0")
+    totals = Decimal("0")
+
+    def shape() -> str:
+        # What a refusal logs to explain itself (#624's intermittent Solde gap): the
+        # page's shape, never an amount.
+        return f"{len(tables)} compartment(s), {line_count} line(s), {pending_lines} pending"
+
+    for number, table in enumerate(tables, start=1):
+        compartment_total: Decimal | None = None
+        compartment_lines = Decimal("0")
+        lines = 0
+        pending = 0
+        for row in _LI_ROW_RE.finditer(table):
+            cells = [cell.group("cell") for cell in _LI_CELL_RE.finditer(row.group("row"))]
+            if not cells:
+                continue  # the header row has <th> cells only
+            if compartment_total is not None:
+                raise AccountsFormatError(FORMAT_CHANGED, "PER table has a row after its total")
+            if _PER_TOTAL_RE.fullmatch(_deaccent(text_value(cells[0], 30) or "")):
+                # "Total" or "Total :" alone -- a fund named "Total ..." is not one -- with its
+                # amount in the last cell, however many cells the row has.
+                compartment_total = _per_amount(cells[-1], "total", required=True)
+                continue
+            if len(cells) != _PER_CELLS:
+                raise AccountsFormatError(FORMAT_CHANGED, f"PER line has {len(cells)} cells, expected {_PER_CELLS}")
+            value = _per_amount(cells[6], "amount", required=True)
+            lines += 1
+            compartment_lines += value
+            if _per_pending(cells[1]):
+                # Only the units, the cost price and the percentage await conversion;
+                # the price and the gain are still read, so any other text is refused.
+                for index, field in ((3, "price"), (4, "gain")):
+                    _per_amount(cells[index], field)
+                for index, field in ((2, "buying price"), (5, "gain percentage")):
+                    if not _per_pending(cells[index]):
+                        _per_amount(cells[index], field)
+                pending += 1
+                cash += value
+                continue
+            label_match = _LI_LABEL_RE.search(cells[0])
+            label_source = label_match.group("label") if label_match else cells[0]
+            full_label = text_value(label_source, len(label_source))
+            if not full_label:
+                raise AccountsFormatError(FORMAT_CHANGED, "PER line has no label")
+            mention = _LI_MENTION_RE.search(cells[0])
+            isin = text_value(mention.group("mention"), 20) if mention else None
+            if isin and not _LI_ISIN_RE.match(isin):
+                isin = None
+            quantity = _per_amount(cells[1], "quantity")
+            buying = _per_amount(cells[2], "buying price")
+            price = _per_amount(cells[3], "price")
+            gain = _per_amount(cells[4], "gain")
+            _per_amount(cells[5], "gain percentage")
+            symbol = _li_quote_symbol(cells[0], "PER")
+            if quantity is None:
+                # A euro fund, told apart as on an assurance vie: no units, ISIN, quote
+                # link or price, and a label naming the euro as a whole word.
+                if isin is None and symbol is None and not price and _LI_EURO_FUND_RE.search(_deaccent(full_label)):
+                    cash += value
+                    continue
+                raise AccountsFormatError(FORMAT_CHANGED, "PER line has no units and is not a euro fund")
+            if quantity < 0:
+                # Refused as on a single-fund contract; it also keeps a fund merged across
+                # compartments from netting to zero units while still holding value.
+                raise AccountsFormatError(INVALID_DATA, "PER line reports a negative quantity")
+            if not quantity:
+                if value != 0:
+                    raise AccountsFormatError(FORMAT_CHANGED, "PER line has a value but no units")
+                continue  # a support sold out of this compartment
+            _per_merge(merged, {
+                "isin": isin,
+                "symbol": _li_symbol(symbol, isin, full_label),
+                "label": full_label[:200],
+                "quantity": quantity,
+                "buyingPriceEur": buying,
+                "currentPrice": price,
+                "quoteCurrency": "EUR",
+                "currentValueEur": value,
+                "pnlEur": gain,
+            })
+        if compartment_total is None:
+            raise AccountsFormatError(FORMAT_CHANGED, "PER table has no total row")
+        if not lines_close(compartment_lines, compartment_total, lines):
+            raise AccountsFormatError(
+                INCOMPLETE,
+                f"PER compartment {number} of {len(tables)} does not reconcile with its total "
+                f"({lines} line(s), {pending} pending; "
+                f"lines vs total={relative_difference(compartment_lines, compartment_total)})",
+            )
+        totals += compartment_total
+        line_count += lines
+        pending_lines += pending
+        lines_sum += compartment_lines
+
+    if not lines_close(totals, solde, len(tables)):
+        raise AccountsFormatError(
+            INCOMPLETE,
+            f"PER compartment totals do not reconcile with the Solde "
+            f"({shape()}; totals vs Solde={relative_difference(totals, solde)})",
+        )
+    # Each check above has its own floor, so their gaps can add up past what the backend
+    # allows: it checks every line against the Solde at once, and a refusal there fails
+    # every account. The same check here only skips this PER.
+    if not lines_close(lines_sum, solde, line_count):
+        raise AccountsFormatError(
+            INCOMPLETE,
+            f"PER lines do not reconcile with the Solde "
+            f"({shape()}; lines vs Solde={relative_difference(lines_sum, solde)})",
+        )
+    positions = list(merged.values())
+    # Each holding must own its ticker: two left unmerged on one ticker (a line without an
+    # ISIN, or two ISINs behind one quote symbol) would be refused by the backend, failing
+    # every account; refused here, only this PER is skipped.
+    if len({position["symbol"].upper() for position in positions}) != len(positions):
+        raise AccountsFormatError(INVALID_DATA, "Two PER holdings share a ticker")
+    # Like an assurance vie, the backend re-runs the reconciliation after the merge and
+    # needs the number of lines that were each rounded to the cent.
+    return {"cashEur": cash, "totalEur": solde, "positions": positions, "valuationLineCount": line_count}

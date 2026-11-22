@@ -31,13 +31,13 @@ import { revolutPhaseLabel } from '@/features/sync/revolut-phase'
 import {
   ArrowRight,
   ArrowLeft,
-  Loader2,
-  CheckCircle2,
+  CircleNotch,
+  CheckCircle,
   Eye,
-  EyeOff,
-  RefreshCw,
-  AlertTriangle,
-} from 'lucide-react'
+  EyeSlash,
+  ArrowsClockwise,
+  Warning,
+} from '@phosphor-icons/react'
 
 
 // ---------------------------------------------------------------------------
@@ -57,7 +57,7 @@ export function BackButton({ onClick }: { onClick: () => void }) {
 export function SuccessState({ message }: { message: string }) {
   return (
     <div className="flex flex-col items-center gap-3 py-10 text-center">
-      <CheckCircle2 className="size-8 text-green-500" />
+      <CheckCircle className="size-8 text-green-500" />
       <p className="text-sm font-medium">{message}</p>
     </div>
   )
@@ -215,14 +215,14 @@ export function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: 
       <BackButton onClick={onBack} />
       <div className="space-y-4">
         {errorMsg && (
-          <AlertBanner icon={<AlertTriangle className="size-4 shrink-0" />} onDismiss={() => setErrorMsg(null)}>
+          <AlertBanner icon={<Warning className="size-4 shrink-0" />} onDismiss={() => setErrorMsg(null)}>
             {errorMsg}
           </AlertBanner>
         )}
 
         {isSyncing && (
           <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin shrink-0" />
+            <CircleNotch className="size-4 animate-spin shrink-0" />
             {revolutPhaseLabel(t, progress.data)}
           </div>
         )}
@@ -238,7 +238,7 @@ export function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: 
         {!resultReady && (
           remembered ? (
             <Button onClick={handleQuickSync} disabled={busy} className="w-full">
-              {busy ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+              {busy ? <CircleNotch className="size-4 animate-spin" /> : <ArrowsClockwise className="size-4" />}
               {busy ? t('sync.revolut.syncing') : t('sync.revolut.sync')}
             </Button>
           ) : (
@@ -357,12 +357,12 @@ export function FinaryWizard({ onDone, onBack }: { onDone: () => void; onBack: (
                     aria-label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
                     className="absolute top-1/2 right-3 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                   >
-                    {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    {showPassword ? <EyeSlash className="size-4" /> : <Eye className="size-4" />}
                   </button>
                 </div>
               </div>
               <Button type="submit" disabled={loading || !email || !password} className="w-full" size="sm">
-                {loading && <Loader2 className="size-3.5 animate-spin" />}
+                {loading && <CircleNotch className="size-3.5 animate-spin" />}
                 {t('sync.finary.login')}
               </Button>
             </form>
@@ -376,9 +376,9 @@ export function FinaryWizard({ onDone, onBack }: { onDone: () => void; onBack: (
               )}
               <Button onClick={wizard.syncWithTotp} disabled={loading} className="w-full" size="sm">
                 {loading ? (
-                  <><Loader2 className="size-3.5 animate-spin" />{t('sync.finary.syncing')}</>
+                  <><CircleNotch className="size-3.5 animate-spin" />{t('sync.finary.syncing')}</>
                 ) : (
-                  <><RefreshCw className="size-3.5" />{t('sync.finary.sync')}</>
+                  <><ArrowsClockwise className="size-3.5" />{t('sync.finary.sync')}</>
                 )}
               </Button>
 

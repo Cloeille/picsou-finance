@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { type Theme, applyTheme, getStoredTheme } from '@/lib/theme'
 import { useTranslation } from 'react-i18next'
 import { SUPPORTED_LOCALES, resolveLocale } from '@/i18n/locales'
@@ -25,34 +25,18 @@ import { getErrorStatus } from '@/lib/errors'
 import { cn, formatDate, getLocale } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
 import {
-  Paintbrush,
-  Globe,
-  User,
-  LogOut,
+  SignOut,
   Users,
-  ChevronRight,
+  CaretRight,
   Check,
   X,
-  Pencil,
+  PencilSimple,
   Shield,
-  KeyRound,
-  IdCard,
-  Link2,
-  ExternalLink,
-  SlidersHorizontal,
-  Sun,
-  Moon,
-  Monitor,
-  Calendar,
-  Eye,
-  EyeOff,
+  ArrowSquareOut,
   Camera,
-  Trash2,
-  RefreshCw,
-  Megaphone,
-  Star,
-} from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+  Trash,
+  ArrowsClockwise,
+} from '@phosphor-icons/react'
 import { api } from '@/lib/api-client'
 import { APP_VERSION } from '@/lib/app-version'
 import { PICSOU_GITHUB_URL } from '@/lib/whats-new'
@@ -69,7 +53,6 @@ import { ConnectedAppsSection } from './sections/ConnectedAppsSection'
 interface ToggleOption {
   value: string
   label: string
-  icon?: LucideIcon
 }
 
 function ToggleGroup({
@@ -83,19 +66,18 @@ function ToggleGroup({
 }) {
   return (
     <div className="flex w-full items-center gap-1 rounded-lg border border-border/60 bg-background/80 p-1">
-      {options.map(({ value: optValue, label, icon: Icon }) => (
+      {options.map(({ value: optValue, label }) => (
         <button
           key={optValue}
           type="button"
           onClick={() => onChange(optValue)}
           className={cn(
-            'inline-flex h-8 flex-1 basis-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-medium transition-[background-color,color]',
+            'inline-flex h-8 flex-1 basis-0 items-center justify-center whitespace-nowrap rounded-md px-3 text-sm font-medium transition-[background-color,color]',
             value === optValue
               ? 'bg-primary text-primary-foreground'
               : 'text-muted-foreground hover:text-foreground',
           )}
         >
-          {Icon && <Icon className="size-3.5 shrink-0" aria-hidden="true" />}
           <span>{label}</span>
         </button>
       ))}
@@ -108,12 +90,10 @@ function ToggleGroup({
 // ---------------------------------------------------------------------------
 
 function SectionCard({
-  icon,
   title,
   description,
   children,
 }: {
-  icon: LucideIcon
   title: string
   description: string
   children: React.ReactNode
@@ -121,10 +101,7 @@ function SectionCard({
   return (
     <Card className="rounded-xl bg-card">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base font-semibold">
-          {React.createElement(icon, { className: 'size-4 shrink-0 text-muted-foreground' })}
-          {title}
-        </CardTitle>
+        <CardTitle className="text-base font-semibold">{title}</CardTitle>
         <CardDescription className="text-sm">{description}</CardDescription>
       </CardHeader>
       <CardContent>{children}</CardContent>
@@ -256,9 +233,9 @@ export function SettingsPage() {
 
   // Theme / locale options
   const themeOptions: ToggleOption[] = [
-    { value: 'light', label: t('settings.themeLight'), icon: Sun },
-    { value: 'dark', label: t('settings.themeDark'), icon: Moon },
-    { value: 'system', label: t('settings.themeSystem'), icon: Monitor },
+    { value: 'light', label: t('settings.themeLight') },
+    { value: 'dark', label: t('settings.themeDark') },
+    { value: 'system', label: t('settings.themeSystem') },
   ]
 
   const localeOptions: ToggleOption[] = SUPPORTED_LOCALES.map((l) => ({
@@ -272,20 +249,20 @@ export function SettingsPage() {
   ]
 
   const amountsOptions: ToggleOption[] = [
-    { value: 'visible', label: t('settings.amountsVisible'), icon: Eye },
-    { value: 'hidden', label: t('settings.amountsHidden'), icon: EyeOff },
+    { value: 'visible', label: t('settings.amountsVisible') },
+    { value: 'hidden', label: t('settings.amountsHidden') },
   ]
 
   const todayIso = new Date().toLocaleDateString('en-CA')
   const sampleDate = formatDate(todayIso, getLocale())
 
 
-  const tabs: Array<{ id: SettingsTab; label: string; icon: LucideIcon }> = [
-    { id: 'appearance', label: t('settings.tabs.appearance'), icon: Paintbrush },
-    { id: 'profile', label: t('settings.tabs.profile'), icon: User },
-    { id: 'security', label: t('settings.tabs.security'), icon: Shield },
-    { id: 'api', label: t('settings.tabs.api'), icon: KeyRound },
-    { id: 'system', label: t('settings.tabs.system'), icon: SlidersHorizontal },
+  const tabs: Array<{ id: SettingsTab; label: string }> = [
+    { id: 'appearance', label: t('settings.tabs.appearance') },
+    { id: 'profile', label: t('settings.tabs.profile') },
+    { id: 'security', label: t('settings.tabs.security') },
+    { id: 'api', label: t('settings.tabs.api') },
+    { id: 'system', label: t('settings.tabs.system') },
   ]
 
   return (
@@ -297,7 +274,7 @@ export function SettingsPage() {
         aria-label={t('settings.title')}
         className="flex w-full flex-wrap items-center gap-1 rounded-lg border border-border/60 bg-background/80 p-1"
       >
-        {tabs.map(({ id, label, icon: Icon }) => {
+        {tabs.map(({ id, label }) => {
           const active = activeTab === id
           return (
             <button
@@ -307,13 +284,12 @@ export function SettingsPage() {
               aria-selected={active}
               onClick={() => setActiveTab(id)}
               className={cn(
-                'inline-flex h-8 flex-auto items-center justify-center gap-2 rounded-md px-3.5 text-sm font-medium whitespace-nowrap transition-[background-color,color]',
+                'inline-flex h-8 flex-auto items-center justify-center rounded-md px-3.5 text-sm font-medium whitespace-nowrap transition-[background-color,color]',
                 active
                   ? 'bg-primary text-primary-foreground'
                   : 'text-muted-foreground hover:text-foreground'
               )}
             >
-              <Icon className="size-4 shrink-0" aria-hidden="true" />
               <span>{label}</span>
             </button>
           )
@@ -324,8 +300,7 @@ export function SettingsPage() {
         <div className="grid gap-4 sm:grid-cols-2">
           <Card className="rounded-xl bg-card">
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                <Paintbrush className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <CardTitle className="text-base font-semibold">
                 {t('settings.theme')}
               </CardTitle>
             </CardHeader>
@@ -340,8 +315,7 @@ export function SettingsPage() {
 
           <Card className="rounded-xl bg-card">
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                <Globe className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <CardTitle className="text-base font-semibold">
                 {t('settings.language')}
               </CardTitle>
             </CardHeader>
@@ -356,8 +330,7 @@ export function SettingsPage() {
 
           <Card className="rounded-xl bg-card">
             <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 pb-3">
-              <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                <Calendar className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <CardTitle className="text-base font-semibold">
                 {t('settings.dateFormat')}
               </CardTitle>
               <span className="rounded-md bg-muted/60 px-2.5 py-1 text-xs font-medium tabular-nums text-muted-foreground">
@@ -375,10 +348,7 @@ export function SettingsPage() {
 
           <Card className="rounded-xl bg-card">
             <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 pb-3">
-              <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                {hideAmounts
-                  ? <EyeOff className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                  : <Eye className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
+              <CardTitle className="text-base font-semibold">
                 {t('settings.amounts')}
               </CardTitle>
               <span className="rounded-md bg-muted/60 px-2.5 py-1 text-xs font-medium tabular-nums text-muted-foreground">
@@ -399,7 +369,6 @@ export function SettingsPage() {
       {activeTab === 'profile' && (
         <div className="space-y-6">
           <SectionCard
-            icon={User}
             title={t('settings.account')}
             description={t('settings.accountDescription')}
           >
@@ -431,7 +400,7 @@ export function SettingsPage() {
                         setProfilePhoto(photoKey, null)
                       }}
                     >
-                      <Trash2 className="size-4" aria-hidden="true" />
+                      <Trash className="size-4" aria-hidden="true" />
                     </Button>
                   )}
                   <button
@@ -484,14 +453,14 @@ export function SettingsPage() {
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-foreground">{user?.username}</span>
                     <Button size="icon" variant="outline" onClick={startEditUsername}>
-                      <Pencil className="size-4" />
+                      <PencilSimple className="size-4" />
                     </Button>
                   </div>
                 )}
               </div>
               <div className="flex justify-end border-t border-border/60 pt-4">
                 <Button variant="destructive" onClick={handleLogout} disabled={logoutMutation.isPending}>
-                  <LogOut className="size-4" />
+                  <SignOut className="size-4" />
                   {t('settings.logout')}
                 </Button>
               </div>
@@ -499,7 +468,6 @@ export function SettingsPage() {
           </SectionCard>
 
           <SectionCard
-            icon={IdCard}
             title={t('settings.profile.title')}
             description={t('settings.profile.description')}
           >
@@ -510,7 +478,6 @@ export function SettingsPage() {
 
       {activeTab === 'security' && (
         <SectionCard
-          icon={Shield}
           title={t('settings.security')}
           description={t('settings.securityDescription')}
         >
@@ -521,7 +488,6 @@ export function SettingsPage() {
       {activeTab === 'api' && (
         <div className="space-y-6">
           <SectionCard
-            icon={KeyRound}
             title={t('accessKeys.sectionTitle')}
             description={t('accessKeys.sectionDescription')}
           >
@@ -529,7 +495,6 @@ export function SettingsPage() {
           </SectionCard>
 
           <SectionCard
-            icon={Link2}
             title={t('connectedApps.sectionTitle')}
             description={t('connectedApps.sectionDescription')}
           >
@@ -553,7 +518,7 @@ export function SettingsPage() {
                 <p className="text-base font-semibold text-foreground">{t('settings.family')}</p>
                 <p className="mt-0.5 text-sm text-muted-foreground">{t('settings.familyDescription')}</p>
               </div>
-              <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+              <CaretRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
             </button>
 
             {user?.role === 'ADMIN' && (
@@ -569,13 +534,12 @@ export function SettingsPage() {
                   <p className="text-base font-semibold text-foreground">{t('settings.adminSection')}</p>
                   <p className="mt-0.5 text-sm text-muted-foreground">{t('settings.adminDescription')}</p>
                 </div>
-                <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                <CaretRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
               </button>
             )}
           </div>
 
           <SectionCard
-            icon={Globe}
             title={t('settings.about')}
             description={t('settings.aboutDescription')}
           >
@@ -616,7 +580,7 @@ export function SettingsPage() {
                   <p className="text-xs text-muted-foreground">GitHub</p>
                   <span className="mt-1 inline-flex items-center gap-1.5 font-semibold text-foreground">
                     <span className="truncate">Cloeille/picsou-finance</span>
-                    <ExternalLink className="size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" aria-hidden="true" />
+                    <ArrowSquareOut className="size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" aria-hidden="true" />
                   </span>
                 </a>
               </div>
@@ -628,7 +592,6 @@ export function SettingsPage() {
                   variant="outline"
                   onClick={() => setWhatsNewOpen(true)}
                 >
-                  <Megaphone className="size-3.5" aria-hidden="true" />
                   {t('whatsNew.title')}
                 </Button>
                 {isAdmin && !demoMode && (
@@ -639,7 +602,7 @@ export function SettingsPage() {
                     disabled={instanceStatusQuery.isFetching}
                     onClick={() => void instanceStatusQuery.refetch()}
                   >
-                    <RefreshCw
+                    <ArrowsClockwise
                       className={cn('size-3.5', instanceStatusQuery.isFetching && 'animate-spin')}
                       aria-hidden="true"
                     />
@@ -648,8 +611,8 @@ export function SettingsPage() {
                 )}
                 <Button size="sm" variant="outline" asChild>
                   <a href={PICSOU_GITHUB_URL} target="_blank" rel="noreferrer">
-                    <Star className="size-3.5" aria-hidden="true" />
                     {t('whatsNew.starGithub')}
+                    <ArrowSquareOut className="size-3.5" aria-hidden="true" />
                   </a>
                 </Button>
               </div>

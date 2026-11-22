@@ -1,5 +1,6 @@
 {
   "common": {
+    "actions": "Actions",
     "loading": "Loading...",
     "add": "Add",
     "save": "Save",
@@ -321,6 +322,16 @@
     },
     "showClosedLoans": "Show closed loans",
     "hideClosedLoans": "Hide closed loans",
+    "reorder": "Reorder",
+    "doneReordering": "Done",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "collapseAccount": "Collapse account",
+    "expandAccount": "Expand account",
+    "collapsedRecap": "{{count}} collapsed account",
+    "collapsedRecap_other": "{{count}} collapsed accounts",
+    "collapsedHint": "Still counted in every total and chart.",
+    "manageCollapsed": "Manage",
     "fees": "Fees",
     "export": {
       "button": "Export data",
@@ -426,7 +437,8 @@
         "PESSIMISTIC": "Pessimistic ({{value}})",
         "CAUTIOUS": "Cautious ({{value}})",
         "REFERENCE": "Reference ({{value}})",
-        "OPTIMISTIC": "Optimistic ({{value}})"
+        "OPTIMISTIC": "Optimistic ({{value}})",
+        "CUSTOM": "Custom ({{value}})"
       },
       "contributed": "Your contributions",
       "views": {
@@ -439,7 +451,12 @@
       "today": "Today",
       "atHorizon": "In {{count}} years",
       "atAge": "age {{age}}",
-      "referenceAt": "Projected at {{count}} years (reference)"
+      "referenceAt": "Projected at {{count}} years (reference)",
+      "customRateLabel": "Custom rate",
+      "customRateHint": "Enter an annual rate (e.g. 12%) to simulate your own return.",
+      "customRateResult": "In {{count}} years ({{value}}):",
+      "customRateGains": "in gains",
+      "customRateClear": "Clear custom rate"
     },
     "classification": {
       "title": "Classify this security",
@@ -530,7 +547,8 @@
     },
     "ledger": {
       "interestPart": "of which {{amount}} interest",
-      "noCashLeg": "No cash movement"
+      "noCashLeg": "No cash movement",
+      "closureWriteOffNote": "Closure write-off"
     },
     "noPlan": "No forecast set. Add a duration or a monthly payment to estimate one.",
     "closedHint": "This loan is closed. Delete its write-off to reopen it.",
@@ -572,7 +590,9 @@
       "interestCalculated": "Interest calculated",
       "interestDue": "Interest due",
       "principalRepaid": "Capital repaid",
-      "writtenOff": "Written off"
+      "writtenOff": "Written off",
+      "title": "Loan summary",
+      "period": "{{from}} to {{to}}"
     },
     "forecast": {
       "title": "Forecast",
@@ -678,6 +698,8 @@
     "corumFundHint": "Optional. A CORUM sync links its funds on its own; type a code only to force a link.",
     "sofidyFundCode": "Sofidy fund code",
     "sofidyFundHint": "Optional. A Sofidy sync links its funds on its own; type a code only to force a link.",
+    "louveFundCode": "Louve Invest fund code",
+    "louveFundHint": "Optional. The Louve Invest sync links its funds by itself; only type a code (for example aurore) to force a link.",
     "dividendPolicy": "Dividends",
     "cash": "Paid out",
     "reinvest": "Reinvested",
@@ -719,7 +741,8 @@
         "PRICE_INCOMPLETE": "shares updated, withdrawal price missing: balance kept",
         "AMBIGUOUS": "several SCPI accounts have this name, none was linked. Pick it when adding a SCPI, or rename one.",
         "IGNORED": "ignored, not synced",
-        "MISSING_AT_PROVIDER": "no longer listed by the provider, account kept"
+        "MISSING_AT_PROVIDER": "no longer listed by the provider, account kept",
+        "UNSUPPORTED_OWNERSHIP": "held in bare ownership or usufruct, not valued: account left as it was"
       }
     },
     "ignoreFund": "Ignore this fund",
@@ -868,13 +891,10 @@
     "deadline": "Deadline",
     "currentTotal": "Current",
     "progress": "Progress",
-    "onTrack": "On track",
-    "behind": "Behind",
     "monthsLeft": "months left",
     "monthlyNeeded": "needed/month",
     "avgContribution": "avg. contribution/month",
     "noGoals": "No goals defined",
-    "waiting": "In progress",
     "calendar": "Calendar",
     "legendProgress": "Share of the month's objective reached (e.g. 94%)",
     "legendOvershoot": "Above the objective (e.g. +8%)",
@@ -1082,9 +1102,9 @@
       "detect": "Detect",
       "add": "Add",
       "subtitle": "Subscriptions and recurring payments.",
-      "series": "Recurring series",
+      "series": "Subscriptions and recurring",
       "upcoming": "Upcoming payments",
-      "noSeries": "No recurring series detected yet.",
+      "noSeries": "No recurring payments recorded yet.",
       "noUpcoming": "No upcoming payments",
       "noUpcomingHint": "Upcoming charges will appear here once detected.",
       "error": "Couldn't load recurring items.",
@@ -1111,12 +1131,30 @@
         "dueSoon": "Due soon"
       },
       "activity": {
-        "title": "What changed",
-        "autoConfirmed": "Auto-confirmed",
+        "title": "Recent changes",
+        "autoConfirmed": "Detected automatically",
         "priceChange": "Price change",
-        "autoConfirmedDesc": "Detected and confirmed automatically",
-        "priceChangeDesc": "Price went from {{from}} to {{to}}",
+        "autoConfirmedDesc": "Added automatically to your recurring payments.",
+        "priceChangeDesc": "Amount changed from {{from}} to {{to}}.",
         "acknowledge": "Got it"
+      },
+      "nextDueShort": "Next on {{date}}",
+      "kpi": {
+        "expenses": "Recurring expenses",
+        "income": "Recurring income",
+        "upcoming30d": "Upcoming (30 days)",
+        "perMonth": "per month",
+        "activeCount_one": "{{count}} active",
+        "activeCount_other": "{{count}} active",
+        "activeCount": "{{count}} active",
+        "dueCount_one": "{{count}} due",
+        "dueCount_other": "{{count}} due",
+        "dueCount": "{{count}} due"
+      },
+      "labels": {
+        "transferFrom": "Transfer from {{name}}",
+        "transferIncoming": "Incoming transfer from {{name}}",
+        "transferOutgoing": "Outgoing transfer to {{name}}"
       }
     },
     "categorize": {
@@ -1240,10 +1278,11 @@
       "amex": "American Express credit card: balance and transactions",
       "corum": "CORUM SCPI and CORUM Life insurance: units, valuation and operations",
       "sofidy": "Sofidy SCPI units, at the withdrawal price",
+      "louve": "SCPI units bought through Louve Invest, read-only, at the withdrawal price",
       "property": "House, apartment, land…",
       "fortuneo": "Sync your Fortuneo accounts",
       "caisseEpargne": "Current account, Livret A, LDDS, PEL, LEP, PER, life insurance, loans and cards at Caisse d'Epargne",
-      "banquePopulaire": "Current account, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, term deposit, cooperative shares and PER at Banque Populaire",
+      "banquePopulaire": "Current account, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, term deposit, cooperative shares, PER, and personal and home loans at Banque Populaire",
       "lbp": "Current account, Livret A and LEP at La Banque Postale",
       "bnp": "Current accounts, savings, securities and life insurance at BNP Paribas or Hello bank!"
     },
@@ -1272,6 +1311,9 @@
       "search": "Search a bank",
       "country": "Country",
       "countriesLoadError": "Couldn't load all countries — showing France only.",
+      "notConfigured": "Enable Banking is not configured yet. Set it up in Administration (Banks & integrations) to search and connect your banks.",
+      "notConfiguredMember": "Enable Banking is not configured yet. Ask your Picsou administrator to set it up so you can search and connect your banks.",
+      "configureEnableBanking": "Configure",
       "searchPlaceholder": "e.g. BNP Paribas...",
       "searchError": "Unable to search banks right now.",
       "connected": "Active connections",
@@ -1449,6 +1491,15 @@
       "type": "Exchange type",
       "apiKey": "API Key",
       "apiSecret": "API Secret",
+      "apiPassphrase": "API passphrase",
+      "region": "Region",
+      "regionPlaceholder": "Choose a region",
+      "regionHelp": "Choose the region your exchange account belongs to.",
+      "regions": {
+        "GLOBAL": "Global",
+        "EEA": "European Economic Area",
+        "US": "United States"
+      },
       "apiKeyOnly": "Meria connects with a single read-only API key — no secret needed.",
       "showSecret": "Show API secret",
       "hideSecret": "Hide API secret",
@@ -1677,6 +1728,13 @@
         "serverError": "Could not reach BoursoBank. Please try again."
       }
     },
+    "bpceContracts": {
+      "personalLoan": "Personal loan",
+      "homeLoan": "Home loan",
+      "revolvingCredit": "Revolving credit",
+      "notImported_one": "{{count}} contract not imported, details below.",
+      "notImported_other": "{{count}} contracts not imported, details below."
+    },
     "caisseEpargne": {
       "title": "Caisse d'Epargne",
       "customerId": "Identifier",
@@ -1749,7 +1807,7 @@
       "disconnectConfirmAction": "Delete the stored session",
       "noSession": "No active session",
       "sessionActive": "Session active",
-      "scope": "Syncs your Banque Populaire current accounts, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, term deposits, cooperative shares and PER on demand. Only the session and your identifier are kept, encrypted; never your password. Contracts Picsou cannot import are listed but never created.",
+      "scope": "Syncs your Banque Populaire current accounts, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, term deposits, cooperative shares, PER, and personal and home loans on demand. Only the session and your identifier are kept, encrypted; never your password. Contracts Picsou cannot import are listed but never created.",
       "notice": {
         "neverStored": "Picsou never sees or stores your password. You click it on the bank's keypad yourself; only the positions of the keys are sent, once.",
         "noRetry": "Picsou never retries a sign-in. If it fails, nothing is sent again until you submit the form yourself.",
@@ -2107,6 +2165,41 @@
         "serverError": "Could not reach Sofidy. Please try again."
       }
     },
+    "louve": {
+      "title": "Louve Invest",
+      "intro": "Picsou reads your Louve Invest SCPI portfolio through Louve's official connection. You approve read-only access on Louve's own page: Picsou never sees your Louve password.",
+      "connect": "Connect with Louve Invest",
+      "reconnect": "Reconnect with Louve Invest",
+      "completing": "Finishing the connection…",
+      "sync": "Sync",
+      "syncing": "Syncing…",
+      "disconnect": "Disconnect",
+      "disconnectConfirm": "Picsou forgets the Louve Invest access and asks Louve to revoke it. Your SCPI accounts are kept.",
+      "connected": "Connected",
+      "notConnected": "Not connected",
+      "needsReconnect": "Reconnection needed",
+      "lastSync": "Last sync",
+      "neverSynced": "Not synced yet",
+      "connectedToast": "Louve Invest connected. The first sync is running.",
+      "scope": "Read-only access to your portfolio (portfolio:read). Syncs the SCPI shares held in full ownership, valued at the withdrawal price; a fund without an account gets one, or is linked to the SCPI account with the same name (\"Aurore\" or \"Louve Invest - Aurore\"). Shares held in bare ownership or usufruct and life-insurance contracts are not synced.",
+      "errors": {
+        "consentDenied": "Access was not granted on Louve Invest. Nothing was connected.",
+        "callbackInvalid": "Louve Invest sent back an incomplete answer. Start the connection again.",
+        "connectFailed": "Could not connect Louve Invest. Please try again.",
+        "syncFailed": "Could not start the Louve Invest sync. Please try again.",
+        "lastSyncFailed": "The last Louve Invest sync failed. Your existing data was kept; try again in a moment.",
+        "disconnectFailed": "Could not disconnect Louve Invest. Please try again.",
+        "authAttemptExpired": "This connection attempt expired or was already used. Start again.",
+        "sessionExpired": "The Louve Invest access was revoked or expired. Reconnect to resume syncing.",
+        "rateLimited": "Louve Invest is limiting requests. Try again in a few minutes.",
+        "portfolioIncomplete": "Louve Invest returned an incomplete portfolio. Your existing data was kept.",
+        "formatChanged": "The Louve Invest data format changed. Your existing data was kept.",
+        "invalidData": "Louve Invest returned inconsistent data. Your existing data was kept.",
+        "serverError": "Could not reach Louve Invest. Please try again.",
+        "originNotAllowed": "Add this Picsou address to the allowed origins in Administration > Security, then connect again. Louve Invest sends you back to that address.",
+        "originNotSecure": "Louve Invest needs Picsou to be reached over HTTPS. Open Picsou through its HTTPS address and connect again."
+      }
+    },
     "amex": {
       "title": "American Express",
       "login": "User ID",
@@ -2200,7 +2293,7 @@
         "unverified": "Not yet verified against a real account: the login page was checked, but the second factor and the data import follow the open-source woob module."
       },
       "approvalPrompt": "Approve the sign-in in your bank's mobile app.",
-      "approvalHint": "This page waits for your approval, then imports your accounts.",
+      "approvalHint": "This page waits for your approval, then imports your accounts. If no notification appears, check which device is paired with Clé Digitale or open the bank app under Vous, Clé Digitale, Opérations en attente.",
       "countdownLabel": "Time left:",
       "codePrompt": "Enter the code the bank sent you by SMS.",
       "codeHint": "The code is sent once to the bank and never stored.",
@@ -2222,7 +2315,7 @@
         "rateLimitedRetryAfter": "Too many attempts. Try again in about {{minutes}} min.",
         "tooManySyncs": "Too many syncs. Wait before trying again.",
         "tooManySyncsRetryAfter": "Too many syncs. Try again in about {{minutes}} min.",
-        "appValidationTimeout": "The approval did not arrive in time. Start again.",
+        "appValidationTimeout": "The approval did not arrive in time. Check that Clé Digitale is active on your phone or look under pending approvals in your BNP Paribas app, then start again.",
         "authAttemptExpired": "This sign-in attempt expired. Start again.",
         "sessionExpired": "The session expired. Sign in again.",
         "formatChanged": "The bank's site no longer looks as expected. Nothing was imported.",
@@ -3599,6 +3692,7 @@
     "howToUpdate": "How to update",
     "updateInstructions": "To update your Docker instance, run:",
     "copied": "Copied",
-    "copy": "Copy"
+    "copy": "Copy",
+    "cardTitle": "Discover Picsou {{version}}"
   }
 }

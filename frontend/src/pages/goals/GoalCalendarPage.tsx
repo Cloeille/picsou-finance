@@ -14,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { Separator } from '@/components/ui/separator'
-import { ArrowLeft, Calendar, LayoutGrid, Clock, Loader2, Plus } from 'lucide-react'
+import { ArrowCounterClockwise, ArrowLeft, CircleNotch, Plus, X } from '@phosphor-icons/react'
 import { cn, formatPercent, localeFromLanguage, parseAmount } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
 import type { GoalMonthEntry } from '@/types/api'
@@ -151,7 +151,7 @@ function YearGridView({ months, selectedYm, onSelect, onAddPreviousMonth, isAddi
           <CardHeader className="pb-2">
             <CardTitle className="text-xs font-bold tracking-wider uppercase text-muted-foreground">{year}</CardTitle>
           </CardHeader>
-          <CardContent className="pb-4 pt-3 px-4">
+          <CardContent className="px-4">
             <div className="grid grid-cols-[repeat(auto-fill,minmax(6rem,1fr))] gap-3">
               {year === earliestYear && (
                 <button
@@ -163,7 +163,7 @@ function YearGridView({ months, selectedYm, onSelect, onAddPreviousMonth, isAddi
                   className="flex flex-col items-center justify-center gap-[9px] rounded-xl border border-dashed border-border px-2 py-3 transition-colors cursor-pointer text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isAddingMonth
-                    ? <Loader2 className="size-5 animate-spin" />
+                    ? <CircleNotch className="size-5 animate-spin" />
                     : <Plus className="size-5" />}
                   <span className="text-xs font-semibold uppercase tracking-[0.1em] leading-tight text-center">
                     {t('goals.addPreviousMonth')}
@@ -263,7 +263,7 @@ function TimelineView({ months, selectedYm, onSelect }: {
 
   return (
     <Card>
-      <CardContent className="p-4 space-y-1">
+      <CardContent className="space-y-1">
         {sorted.map(entry => {
           const isSelected = selectedYm === entry.yearMonth
           const obj = entry.objective ?? 0
@@ -338,7 +338,7 @@ function CalendarGridView({ months, selectedYm, onSelect }: {
                     </div>
                     {entry.effective != null ? (
                       <div>
-                        <div className="h-1.5 rounded-full bg-muted overflow-hidden mb-1">
+                        <div className="h-2 w-full rounded-full bg-muted overflow-hidden mb-1">
                           <div className="h-full rounded-full bg-primary/70 transition-[width]" style={{ width: `${Math.min(100, pct * 100)}%` }} />
                         </div>
                         <div className="flex justify-between text-xs text-muted-foreground">
@@ -399,13 +399,13 @@ function MonthDetailPanel({ goalId, entry, onClose, className }: {
               <Badge variant="secondary" className="text-xs">{t('goals.declared')}</Badge>
             )}
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}>
-            &times;
+          <Button variant="ghost" size="icon-sm" aria-label={t('common.close')} onClick={onClose}>
+            <X className="size-4" aria-hidden="true" />
           </Button>
         </div>
       </CardHeader>
       <Separator />
-      <CardContent className="pt-4">
+      <CardContent>
         <div className="grid grid-cols-1 gap-6">
           {/* Objective override */}
           <div className="space-y-3">
@@ -439,16 +439,18 @@ function MonthDetailPanel({ goalId, entry, onClose, className }: {
                   setOverride.mutate({ id: goalId, ym: entry.yearMonth, amount })
                 }}
               >
-                {setOverride.isPending && <Loader2 className="size-3 animate-spin" />}
+                {setOverride.isPending && <CircleNotch className="size-3 animate-spin" />}
                 {t('goals.saveOverride')}
               </Button>
               {entry.override != null && (
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
+                  className="text-destructive hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
                   disabled={busy}
                   onClick={() => deleteOverride.mutate({ id: goalId, ym: entry.yearMonth })}
                 >
+                  <ArrowCounterClockwise className="size-3.5" aria-hidden="true" />
                   {t('goals.resetOverride')}
                 </Button>
               )}
@@ -489,16 +491,18 @@ function MonthDetailPanel({ goalId, entry, onClose, className }: {
                   setManual.mutate({ id: goalId, ym: entry.yearMonth, amount })
                 }}
               >
-                {setManual.isPending && <Loader2 className="size-3 animate-spin" />}
+                {setManual.isPending && <CircleNotch className="size-3 animate-spin" />}
                 {t('goals.saveManual')}
               </Button>
               {entry.manualActual != null && (
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
+                  className="text-destructive hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
                   disabled={busy}
                   onClick={() => deleteManual.mutate({ id: goalId, ym: entry.yearMonth })}
                 >
+                  <ArrowCounterClockwise className="size-3.5" aria-hidden="true" />
                   {t('goals.resetManual')}
                 </Button>
               )}
@@ -554,7 +558,7 @@ export function GoalCalendarPage() {
         <PageHeader title={t('goals.calendar')} />
         <Skeleton className="h-9 w-72" />
         <Card>
-          <CardContent className="pb-4 pt-3 px-4">
+          <CardContent className="px-4">
             <div className="grid grid-cols-[repeat(auto-fill,minmax(6rem,1fr))] gap-3">
               {Array.from({ length: 12 }).map((_, i) => (
                 <div key={i} className="flex flex-col items-center gap-[9px] rounded-xl border border-border px-2 py-3">
@@ -612,17 +616,14 @@ export function GoalCalendarPage() {
       {/* View toggle with shadcn Tabs */}
       <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as typeof viewMode)}>
         <TabsList className="w-full">
-          <TabsTrigger value="grid" className="gap-1.5">
-            <LayoutGrid className="size-4" />
-            <span className="hidden sm:inline">{t('goals.viewGrid')}</span>
+          <TabsTrigger value="grid">
+            {t('goals.viewGrid')}
           </TabsTrigger>
-          <TabsTrigger value="timeline" className="gap-1.5">
-            <Clock className="size-4" />
-            <span className="hidden sm:inline">{t('goals.viewTimeline')}</span>
+          <TabsTrigger value="timeline">
+            {t('goals.viewTimeline')}
           </TabsTrigger>
-          <TabsTrigger value="calendar" className="gap-1.5">
-            <Calendar className="size-4" />
-            <span className="hidden sm:inline">{t('goals.viewCalendar')}</span>
+          <TabsTrigger value="calendar">
+            {t('goals.viewCalendar')}
           </TabsTrigger>
         </TabsList>
       </Tabs>
@@ -637,7 +638,7 @@ export function GoalCalendarPage() {
           disabled={extendHistory.isPending}
           onClick={() => extendHistory.mutate(goalId)}
         >
-          {extendHistory.isPending && <Loader2 className="size-3 animate-spin" />}
+          {extendHistory.isPending && <CircleNotch className="size-3 animate-spin" />}
           {t('goals.addYear', { year: yearToAdd })}
         </Button>
       </Card>

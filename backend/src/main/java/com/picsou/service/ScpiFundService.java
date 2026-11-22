@@ -16,7 +16,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * The funds a CORUM or Sofidy sync has seen, and the member's choice to ignore one.
+ * The funds a CORUM, Sofidy or Louve Invest sync has seen, and the member's choice to ignore one.
  *
  * <p>Ignoring a fund unlinks its account and sets the tombstone the sync reads, so
  * the account is neither updated nor recreated. The account itself is kept: it may
@@ -121,6 +121,7 @@ public class ScpiFundService {
         return switch (provider) {
             case CORUM -> positionRepository.findByMemberIdAndCorumFundCode(memberId, fundCode);
             case SOFIDY -> positionRepository.findByMemberIdAndSofidyFundCode(memberId, fundCode);
+            case LOUVE -> positionRepository.findByMemberIdAndLouveFundCode(memberId, fundCode);
         };
     }
 

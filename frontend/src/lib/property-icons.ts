@@ -1,12 +1,12 @@
 import {
   Building,
-  Building2,
+  Buildings,
   House,
-  LandPlot,
-  SquareParking,
-  Store,
-  type LucideIcon,
-} from 'lucide-react'
+  MapTrifold,
+  LetterCircleP,
+  Storefront,
+  type Icon,
+} from '@phosphor-icons/react'
 import type { PropertyKind } from '@/types/api'
 
 /**
@@ -17,7 +17,7 @@ import type { PropertyKind } from '@/types/api'
  * account (see `docs/features/bank-logos.md`). What a property *does* have is a kind the
  * user already picked in the metadata form, so that is what identifies it on the card.
  *
- * These are lucide components rather than files under `public/`: they inherit `currentColor`,
+ * These are Phosphor icon components rather than files under `public/`: they inherit `currentColor`,
  * so a single map serves both themes and the account color, where an SVG asset would need a
  * light and a dark variant per kind.
  *
@@ -26,11 +26,11 @@ import type { PropertyKind } from '@/types/api'
  * and old rows may hold French labels or Finary's own vocabulary; parsing it here would mean
  * keeping a second alias table in step with the Java one.
  */
-export const PROPERTY_KIND_ICONS: Record<PropertyKind, LucideIcon> = {
+export const PROPERTY_KIND_ICONS: Record<PropertyKind, Icon> = {
   HOUSE: House,
-  APARTMENT: Building2,
+  APARTMENT: Buildings,
   BUILDING: Building,
-  LAND: LandPlot,
-  PARKING: SquareParking,
-  COMMERCIAL: Store,
+  LAND: MapTrifold,
+  PARKING: LetterCircleP,
+  COMMERCIAL: Storefront,
 }

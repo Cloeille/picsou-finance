@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
-import { Check, Loader2, ShieldCheck } from 'lucide-react'
+import { Check, CircleNotch } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { AlertBanner } from '@/components/shared/AlertBanner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -119,8 +119,7 @@ export function ConsentPage() {
     <div className="flex min-h-dvh items-center justify-center bg-background px-4 py-10">
       <Card className="w-full max-w-2xl rounded-xl border border-border/60 py-7 ring-0 sm:py-8">
         <CardHeader className="px-6 sm:px-8">
-          <CardTitle className="flex items-center gap-2 text-base font-semibold">
-            <ShieldCheck className="size-4 shrink-0 text-muted-foreground" />
+          <CardTitle className="text-base font-semibold">
             {data ? t('oauthConsent.title', { app: data.clientName }) : t('oauthConsent.titleGeneric')}
           </CardTitle>
           <CardDescription className="text-sm leading-relaxed">{t('oauthConsent.description')}</CardDescription>
@@ -130,7 +129,7 @@ export function ConsentPage() {
             <AlertBanner variant="bordered" role="alert">{t('oauthConsent.missingParams')}</AlertBanner>
           ) : isLoading ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
+              <CircleNotch className="size-4 animate-spin" />
               {t('oauthConsent.loading')}
             </div>
           ) : isError ? (

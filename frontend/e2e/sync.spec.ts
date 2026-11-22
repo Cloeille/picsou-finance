@@ -35,6 +35,7 @@ test.describe('Sync page tabs', () => {
       'American Express',
       'CORUM',
       'Sofidy',
+      'Louve Invest',
       'Actual Budget',
       'Finary',
       'Import HomeBank',

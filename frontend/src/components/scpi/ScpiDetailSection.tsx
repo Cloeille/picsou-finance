@@ -10,7 +10,7 @@ import { DateInput } from '@/components/shared/DateInput'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { useIgnoreScpiFund, useUpdateScpiPosition } from '@/features/accounts/hooks'
-import { ChevronDown } from 'lucide-react'
+import { CaretDown } from '@phosphor-icons/react'
 import { formatApiError } from '@/lib/errors'
 import { cn, parseAmount } from '@/lib/utils'
 import type { Account, DistributionFrequency, DividendPolicy, ScpiPositionRequest, ScpiProvider } from '@/types/api'
@@ -49,6 +49,7 @@ export function ScpiDetailSection({ account }: { account: Account }) {
   const [managementCompany, setManagementCompany] = useState(position?.managementCompany ?? '')
   const [corumFundCode, setCorumFundCode] = useState(position?.corumFundCode ?? '')
   const [sofidyFundCode, setSofidyFundCode] = useState(position?.sofidyFundCode ?? '')
+  const [louveFundCode, setLouveFundCode] = useState(position?.louveFundCode ?? '')
   const [showAdvanced, setShowAdvanced] = useState(false)
 
   function startEditing() {
@@ -63,6 +64,7 @@ export function ScpiDetailSection({ account }: { account: Account }) {
     setManagementCompany(position?.managementCompany ?? '')
     setCorumFundCode(position?.corumFundCode ?? '')
     setSofidyFundCode(position?.sofidyFundCode ?? '')
+    setLouveFundCode(position?.louveFundCode ?? '')
     setEditing(true)
   }
 
@@ -81,6 +83,7 @@ export function ScpiDetailSection({ account }: { account: Account }) {
       managementCompany: managementCompany.trim() || null,
       corumFundCode: corumFundCode.trim(),
       sofidyFundCode: sofidyFundCode.trim(),
+      louveFundCode: louveFundCode.trim(),
       shareCount: shares,
       subscriptionPriceEur: num(subscriptionPrice) ?? null,
       withdrawalPriceEur: num(withdrawalPrice) ?? null,
@@ -163,6 +166,7 @@ export function ScpiDetailSection({ account }: { account: Account }) {
             {([
               ['CORUM', 'scpi.corumFundCode', position.corumFundCode],
               ['SOFIDY', 'scpi.sofidyFundCode', position.sofidyFundCode],
+              ['LOUVE', 'scpi.louveFundCode', position.louveFundCode],
             ] as const).map(([provider, label, code]) => (
               <div key={provider}>
                 <dt className="text-muted-foreground">{t(label)}</dt>
@@ -172,8 +176,8 @@ export function ScpiDetailSection({ account }: { account: Account }) {
                     <Button
                       type="button"
                       size="sm"
-                      variant="ghost"
-                      className="h-auto px-2 py-0 text-xs"
+                      variant="outline"
+                      className="h-7 px-2.5 text-xs"
                       disabled={ignoreFund.isPending}
                       onClick={() => setFundToIgnore({ provider, fundCode: code })}
                     >
@@ -216,7 +220,7 @@ export function ScpiDetailSection({ account }: { account: Account }) {
                 className="flex w-full cursor-pointer items-center justify-between gap-2 px-3.5 py-2.5 text-left text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
               >
                 <span>{t('scpi.advancedLinks')}</span>
-                <ChevronDown
+                <CaretDown
                   className={cn(
                     'size-4 shrink-0 text-muted-foreground transition-transform duration-150',
                     showAdvanced && 'rotate-180',
@@ -234,6 +238,11 @@ export function ScpiDetailSection({ account }: { account: Account }) {
                   <Label htmlFor="scpi-edit-sofidy-fund">{t('scpi.sofidyFundCode')}</Label>
                   <Input id="scpi-edit-sofidy-fund" value={sofidyFundCode} maxLength={40} onChange={(e) => setSofidyFundCode(e.target.value)} />
                   <p className="text-sm text-muted-foreground">{t('scpi.sofidyFundHint')}</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="scpi-edit-louve-fund">{t('scpi.louveFundCode')}</Label>
+                  <Input id="scpi-edit-louve-fund" value={louveFundCode} maxLength={40} onChange={(e) => setLouveFundCode(e.target.value)} />
+                  <p className="text-sm text-muted-foreground">{t('scpi.louveFundHint')}</p>
                 </div>
               </div>
             </div>

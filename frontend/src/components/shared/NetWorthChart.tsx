@@ -193,7 +193,6 @@ export function NetWorthChart({ data, intraday = [], range, onRangeChange, showI
   const { t, i18n } = useTranslation()
   const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
   const is24H = range === '24H'
-  const showDots = range === '24H' || range === '7D'
 
   const targetAt = useMemo(() => {
     if (!target) return null
@@ -399,7 +398,7 @@ export function NetWorthChart({ data, intraday = [], range, onRangeChange, showI
           fill="url(#fillTotal)"
           stroke="var(--color-total)"
           strokeWidth={2}
-          dot={showDots ? { r: 3, fill: 'var(--color-total)', strokeWidth: 0 } : false}
+          dot={false}
           activeDot={{ r: 4 }}
         />
         {hasProjectionSeries && (

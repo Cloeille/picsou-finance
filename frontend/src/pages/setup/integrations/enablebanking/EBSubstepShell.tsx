@@ -49,7 +49,7 @@ export function EBSubstepShell({ current, total, children, onSkip }: EBSubstepSh
           {t('setup.enablebanking.skip')}
         </button>
       </div>
-      <Progress value={pct} className="h-1 rounded-full" />
+      <Progress value={pct} />
 
       <div>{children}</div>
 
