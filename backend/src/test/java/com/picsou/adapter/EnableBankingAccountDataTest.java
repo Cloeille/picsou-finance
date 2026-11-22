@@ -1387,6 +1387,87 @@ class EnableBankingAccountDataTest {
         });
     }
 
+    /**
+     * The shape of a live Boursorama session (captured redacted, every value here is synthetic): three
+     * current accounts, two immediate-debit cards that only send a zero OTHR balance, and a deferred-debit
+     * card with OTHR and XPCD. Cards carry no IBAN and declare the currency XXX.
+     */
+    @Test
+    void fetchBalances_boursoramaShapedSession_importsCardsAsCardsAndCurrentAccountsAsBefore() {
+        responses.put("/sessions/session", """
+            {"accounts": ["uid-cav-1", "uid-cav-2", "uid-card-1", "uid-cav-3", "uid-card-2", "uid-card-3"],
+             "aspsp": {"name": "Boursorama Banque", "country": "FR"}}
+            """);
+        putCurrentAccount("uid-cav-1", "FR00SYNTHETICCAV1", "Account holder", "0.00");
+        putCurrentAccount("uid-cav-2", "FR00SYNTHETICCAV2", "Co-account holder", "1520.34");
+        putCurrentAccount("uid-cav-3", "FR00SYNTHETICCAV3", "Attorney", "0.00");
+        putCard("uid-card-1", "immediat_debit", "Carte bancaire à débit immédiat", """
+            {"name": "Balance", "balance_type": "OTHR", "balance_amount": {"currency": "EUR", "amount": "0.00"},
+             "reference_date": "2026-01-01", "last_committed_transaction": null}""");
+        putCard("uid-card-2", "immediat_debit", "Carte bancaire à débit immédiat", """
+            {"name": "Balance", "balance_type": "OTHR", "balance_amount": {"currency": "EUR", "amount": "0.00"},
+             "reference_date": "2026-01-01", "last_committed_transaction": null}""");
+        putCard("uid-card-3", "delayed_debit", "Carte bancaire à débit différé", """
+            {"name": "Balance", "balance_type": "OTHR", "balance_amount": {"currency": "EUR", "amount": "-67.41"},
+             "reference_date": "2026-01-01", "last_committed_transaction": null},
+            {"name": "Balance temps réél", "balance_type": "XPCD",
+             "balance_amount": {"currency": "EUR", "amount": "-581.81"},
+             "reference_date": "2026-01-01", "last_committed_transaction": null}""");
+
+        assertThat(connector.fetchBalances("session"))
+            .extracting(AccountData::externalId, AccountData::type, AccountData::cardNature, AccountData::name,
+                AccountData::legacyName, AccountData::iban, AccountData::currency, a -> a.balance().toPlainString())
+            .containsExactly(
+                tuple("uid-cav-1", com.picsou.model.AccountType.CHECKING, null, "CAV - BOURSOBANK", null,
+                    "FR00SYNTHETICCAV1", "EUR", "0.00"),
+                tuple("uid-cav-2", com.picsou.model.AccountType.CHECKING, null, "CAV - BOURSOBANK", null,
+                    "FR00SYNTHETICCAV2", "EUR", "1520.34"),
+                tuple("uid-card-1", com.picsou.model.AccountType.CREDIT_CARD,
+                    com.picsou.model.CardNature.IMMEDIATE_DEBIT, "Carte Visa uid-card-1 Synthetic Holder",
+                    "immediat_debit", null, "EUR", "0.00"),
+                tuple("uid-cav-3", com.picsou.model.AccountType.CHECKING, null, "CAV - BOURSOBANK", null,
+                    "FR00SYNTHETICCAV3", "EUR", "0.00"),
+                tuple("uid-card-2", com.picsou.model.AccountType.CREDIT_CARD,
+                    com.picsou.model.CardNature.IMMEDIATE_DEBIT, "Carte Visa uid-card-2 Synthetic Holder",
+                    "immediat_debit", null, "EUR", "0.00"),
+                tuple("uid-card-3", com.picsou.model.AccountType.CREDIT_CARD,
+                    com.picsou.model.CardNature.DEFERRED_DEBIT, "Carte Visa uid-card-3 Synthetic Holder",
+                    "delayed_debit", null, "EUR", "-581.81"));
+    }
+
+    private void putCurrentAccount(String uid, String iban, String psuStatus, String amount) {
+        responses.put("/accounts/" + uid + "/details", """
+            {"account_id": {"iban": "%s", "other": null}, "all_account_ids": null,
+             "account_servicer": {"bic_fi": "SYNTFRPPXXX", "clearing_system_member_id": null, "name": null},
+             "name": "Synthetic Holder Name", "details": "", "usage": "PRIV", "cash_account_type": "CACC",
+             "product": "CAV - BOURSOBANK", "currency": "XXX", "psu_status": "%s", "credit_limit": null,
+             "postal_address": null, "uid": "%s", "identification_hash": "synthetic-hash-%s",
+             "identification_hashes": ["synthetic-hash-%s"]}
+            """.formatted(iban, psuStatus, uid, uid, uid));
+        responses.put("/accounts/" + uid + "/balances", """
+            {"balances": [
+              {"name": "Balance", "balance_type": "CLBD", "balance_amount": {"currency": "EUR", "amount": "%s"},
+               "last_change_date_time": null, "reference_date": "2026-01-01",
+               "last_committed_transaction": "2026-01-01"},
+              {"name": "Balance temps réél", "balance_type": "XPCD",
+               "balance_amount": {"currency": "EUR", "amount": "%s"}, "last_change_date_time": null,
+               "reference_date": "2026-01-01", "last_committed_transaction": "2026-01-01"}
+            ]}
+            """.formatted(amount, amount));
+    }
+
+    private void putCard(String uid, String token, String product, String balances) {
+        responses.put("/accounts/" + uid + "/details", """
+            {"account_id": {"iban": null, "other": {"identification": "SYNTHETIC-%s", "scheme_name": "BANK",
+             "issuer": null}}, "all_account_ids": null, "account_servicer": null,
+             "name": "Carte Visa %s Synthetic Holder", "details": "%s", "usage": "PRIV",
+             "cash_account_type": "CARD", "product": "%s", "currency": "XXX", "psu_status": "Co-account holder",
+             "credit_limit": null, "postal_address": null, "uid": "%s", "identification_hash": "synthetic-hash-%s",
+             "identification_hashes": ["synthetic-hash-%s"]}
+            """.formatted(uid, uid, token, product, uid, uid, uid));
+        responses.put("/accounts/" + uid + "/balances", "{\"balances\": [" + balances + "]}");
+    }
+
     /** A named ASPSP makes the balances account-scoped, as on the live Boursorama requisition. */
     private void accountScopedSession() {
         responses.put("/sessions/session", """

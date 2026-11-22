@@ -501,7 +501,7 @@ Because the text fields (Application ID + Redirect URI) live in Postgres while t
 ## Tests
 
 - `SyncServiceCardAccountTest` -- a new card is created as one with its nature and name; an account imported as `CHECKING` becomes a card and loses its technical name; a type, nature or name the user chose is kept
-- `EnableBankingAccountDataTest` -- card resources (type, nature per `details` token, name order, `legacyName`, `XXX` currency); a current account keeps its type and name order
+- `EnableBankingAccountDataTest` -- card resources (type, nature per `details` token, name order, `legacyName`, `XXX` currency); a current account keeps its type and name order; a whole session shaped like a redacted live Boursorama capture (three current accounts, immediate cards with a lone `OTHR`, a deferred card with `OTHR` and `XPCD`)
 - `SyncServiceTest` -- unit tests for upsert logic, retry flow, checkpoint ordering on fetch/upsert failures, and logo matching for both the current and the legacy institution id format
 - `RequisitionLifecycleWriterTest` -- session/nonce transitions and `REQUIRES_NEW` propagation invariant
 - `AddAccountModal.test.tsx` -- the Pro badge shows for a business-only institution, and not for a retail one nor for an unrecognised PSU type
