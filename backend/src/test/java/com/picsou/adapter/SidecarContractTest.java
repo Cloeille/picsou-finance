@@ -239,6 +239,7 @@ class SidecarContractTest {
         coded(SidecarBank.NATIXIS, Call.INITIATE, HttpStatus.TOO_MANY_REQUESTS, RATE_LIMITED),
         coded(SidecarBank.NATIXIS, Call.COMPLETE, HttpStatus.BAD_REQUEST, INVALID_OTP),
         coded(SidecarBank.NATIXIS, Call.COMPLETE, HttpStatus.GONE, AUTH_ATTEMPT_EXPIRED),
+        coded(SidecarBank.NATIXIS, Call.COMPLETE, HttpStatus.NOT_IMPLEMENTED, MFA_TYPE_UNSUPPORTED),
         coded(SidecarBank.SOFIDY, Call.FETCH, HttpStatus.BAD_GATEWAY, PORTFOLIO_INCOMPLETE),
         coded(SidecarBank.SOFIDY, Call.INITIATE, HttpStatus.UNAUTHORIZED, INVALID_CREDENTIALS),
         coded(SidecarBank.SOFIDY, Call.COMPLETE, HttpStatus.UNAUTHORIZED, MFA_INVALID),
