@@ -303,11 +303,12 @@ pub fn start(
         .local_addr()
         .map_err(|e| format!("no free port: {e}"))?
         .port();
+    let desktop_token = ephemeral_token().map_err(|e| format!("desktop token: {e}"))?;
     // vars() panics on a variable that is not UTF-8: such a variable is skipped instead.
     let user_env: Vec<(String, String)> = std::env::vars_os()
         .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
         .collect();
-    let mut env = merge_backend_env(user_env, layout, port);
+    let mut env = merge_backend_env(user_env, layout, port, &desktop_token);
     env.extend(
         sidecars::serve(layout, stack, &sidecar_key, sidecars::IDLE)
             .map_err(|e| format!("sidecar ports: {e}"))?,
@@ -366,7 +367,7 @@ pub fn start(
     // After readiness, so the download never slows the start; before any sync can need it.
     sidecars::prefetch_browser(layout, stack);
     Ok(Ready {
-        url: format!("http://{LOOPBACK}:{port}/"),
+        url: format!("http://{LOOPBACK}:{port}/api/auth/desktop-bootstrap?token={desktop_token}"),
         runtime,
         state,
         listener,
@@ -455,8 +456,9 @@ pub const NATIVE_SIDECARS: &[(&str, &str)] = &[
 ];
 
 /// The backend's environment: loopback only, embedded SQLite under the app-data folder, plain
-/// HTTP cookies, and the 6 pure-HTTP bank connectors routed to their native Rust implementations.
-pub fn backend_env(layout: &Layout, port: u16) -> Vec<(String, String)> {
+/// HTTP cookies, per-launch desktop session token, and the 6 pure-HTTP bank connectors routed to
+/// their native Rust implementations.
+pub fn backend_env(layout: &Layout, port: u16, desktop_token: &str) -> Vec<(String, String)> {
     let path = |p: PathBuf| p.to_string_lossy().into_owned();
     let mut vars: Vec<(String, String)> = [
         ("SERVER_ADDRESS", LOOPBACK.to_owned()),
@@ -476,10 +478,14 @@ pub fn backend_env(layout: &Layout, port: u16) -> Vec<(String, String)> {
         ("SECURE_COOKIES", "false".to_owned()),
         ("APP_STARTUP_SYNC_ENABLED", "false".to_owned()),
         ("APP_DESKTOP_MODE", "true".to_owned()),
+        ("APP_DESKTOP_TOKEN", desktop_token.to_owned()),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_owned(), v))
     .collect();
+    if has_legacy_postgres_only(layout) {
+        vars.push(("APP_DESKTOP_LEGACY_POSTGRES".to_owned(), "true".to_owned()));
+    }
     vars.extend(
         NATIVE_SIDECARS
             .iter()
@@ -489,19 +495,24 @@ pub fn backend_env(layout: &Layout, port: u16) -> Vec<(String, String)> {
 }
 
 /// Combines the caller's environment with `backend_env`, keeping any non-blank user override for
-/// the native sidecar URL variables.
+/// the native sidecar URL variables while never allowing user env to override desktop security or
+/// storage controls.
 pub fn merge_backend_env(
     user_env: Vec<(String, String)>,
     layout: &Layout,
     port: u16,
+    desktop_token: &str,
 ) -> Vec<(String, String)> {
     let overrides: std::collections::HashSet<String> = user_env
         .iter()
         .filter(|(k, v)| !v.trim().is_empty() && NATIVE_SIDECARS.iter().any(|(nk, _)| nk == k))
         .map(|(k, _)| k.clone())
         .collect();
-    let mut env = user_env;
-    for (k, v) in backend_env(layout, port) {
+    let mut env: Vec<(String, String)> = user_env
+        .into_iter()
+        .filter(|(k, _)| k != "APP_DESKTOP_TOKEN" && k != "APP_DESKTOP_LEGACY_POSTGRES")
+        .collect();
+    for (k, v) in backend_env(layout, port, desktop_token) {
         if !overrides.contains(&k) {
             env.push((k, v));
         }
@@ -536,6 +547,13 @@ pub fn stop(stack: &Shared) {
         let _ = shutdown.send(());
         let _ = stopped.recv_timeout(STOP_TIMEOUT);
     }
+}
+
+/// A fresh 32-byte CSPRNG hex token kept in memory only (never persisted to disk).
+pub fn ephemeral_token() -> std::io::Result<String> {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).map_err(std::io::Error::other)?;
+    Ok(hex::encode(bytes))
 }
 
 /// A random hex secret, written 0600 on first use and read back afterwards.
@@ -673,7 +691,9 @@ mod tests {
     fn the_backend_binds_loopback_uses_sqlite_and_keeps_its_data_in_the_app_folder() {
         let root = PathBuf::from("/picsou");
         let env: std::collections::HashMap<_, _> =
-            backend_env(&layout(&root), 8123).into_iter().collect();
+            backend_env(&layout(&root), 8123, "launch-token-hex")
+                .into_iter()
+                .collect();
 
         assert_eq!(env["SERVER_ADDRESS"], "127.0.0.1");
         assert_eq!(env["SERVER_PORT"], "8123");
@@ -692,6 +712,8 @@ mod tests {
         assert_eq!(env["SECURE_COOKIES"], "false");
         assert_eq!(env["APP_STARTUP_SYNC_ENABLED"], "false");
         assert_eq!(env["APP_DESKTOP_MODE"], "true");
+        assert_eq!(env["APP_DESKTOP_TOKEN"], "launch-token-hex");
+        assert!(!env.contains_key("APP_DESKTOP_LEGACY_POSTGRES"));
         assert_eq!(env["APP_VERSION"], APP_VERSION);
         for (var, expected) in NATIVE_SIDECARS {
             assert_eq!(env[*var], *expected, "{var}");
@@ -756,10 +778,13 @@ mod tests {
     fn backend_env_loads_into_picsou_config_with_sqlite_target() {
         let root = scratch("config");
         let l = layout(&root);
-        let env = backend_env(&l, 8123);
+        let token = ephemeral_token().unwrap();
+        let env = backend_env(&l, 8123, &token);
         let config = Config::load(&Env::from_map(env)).unwrap();
 
         assert!(config.desktop_mode);
+        assert_eq!(config.desktop_token.as_deref(), Some(token.as_str()));
+        assert!(!config.desktop_legacy_postgres);
         assert!(config.database.is_sqlite());
         let expected_path = PathBuf::from(l.database().to_string_lossy().replace('\\', "/"));
         assert_eq!(
@@ -769,7 +794,7 @@ mod tests {
     }
 
     #[test]
-    fn user_env_can_override_a_native_sidecar_url_but_desktop_controls_database_url() {
+    fn user_env_can_override_a_native_sidecar_url_but_desktop_controls_security_and_storage() {
         let root = PathBuf::from("/picsou");
         let user_env = vec![
             (
@@ -781,9 +806,14 @@ mod tests {
                 "DATABASE_URL".to_owned(),
                 "postgres://other:pw@host:5432/db".to_owned(),
             ),
+            (
+                "APP_DESKTOP_TOKEN".to_owned(),
+                "attacker-chosen-token".to_owned(),
+            ),
+            ("APP_DESKTOP_LEGACY_POSTGRES".to_owned(), "true".to_owned()),
         ];
         let env: std::collections::HashMap<_, _> =
-            merge_backend_env(user_env, &layout(&root), 8123)
+            merge_backend_env(user_env, &layout(&root), 8123, "real-ephemeral-token")
                 .into_iter()
                 .collect();
 
@@ -794,6 +824,17 @@ mod tests {
         assert_eq!(env["SOFIDY_AUTH_URL"], "native://sofidy-auth");
         assert_eq!(env["NATIXIS_AUTH_URL"], "native://natixis-auth");
         assert_eq!(env["DATABASE_URL"], "sqlite:///picsou/data/picsou.db");
+        assert_eq!(env["APP_DESKTOP_TOKEN"], "real-ephemeral-token");
+        assert!(!env.contains_key("APP_DESKTOP_LEGACY_POSTGRES"));
+    }
+
+    #[test]
+    fn ephemeral_token_is_32_random_bytes_hex_and_unique_per_call() {
+        let first = ephemeral_token().unwrap();
+        let second = ephemeral_token().unwrap();
+        assert_eq!(first.len(), 64);
+        assert!(first.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_ne!(first, second);
     }
 
     #[test]
@@ -803,9 +844,22 @@ mod tests {
         fs::create_dir_all(l.legacy_postgres()).unwrap();
         assert!(has_legacy_postgres_only(&l));
 
+        let env_with_legacy: std::collections::HashMap<_, _> =
+            backend_env(&l, 8123, "tok").into_iter().collect();
+        assert_eq!(
+            env_with_legacy
+                .get("APP_DESKTOP_LEGACY_POSTGRES")
+                .map(String::as_str),
+            Some("true")
+        );
+
         fs::write(l.database(), "sqlite").unwrap();
         assert!(!has_legacy_postgres_only(&l));
         assert!(l.legacy_postgres().exists());
+
+        let env_after_sqlite: std::collections::HashMap<_, _> =
+            backend_env(&l, 8123, "tok").into_iter().collect();
+        assert!(!env_after_sqlite.contains_key("APP_DESKTOP_LEGACY_POSTGRES"));
     }
 
     #[test]

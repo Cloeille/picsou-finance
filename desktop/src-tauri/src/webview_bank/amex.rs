@@ -26,8 +26,8 @@ use super::bnp::{
     WebviewStartResponse, WebviewStatusResponse,
 };
 use super::{
-    document_ready_complete, poll_webview_slot, read_capped_text, EvalPollError, ReadBodyError,
-    PENDING_SENTINEL,
+    document_ready_complete, is_allowed_https_navigation, is_domain_or_subdomain,
+    poll_webview_slot, read_capped_text, EvalPollError, ReadBodyError, PENDING_SENTINEL,
 };
 
 const LOGIN_URL: &str = "https://www.americanexpress.com/fr-fr/account/login/";
@@ -195,6 +195,17 @@ impl AmexWebviewManager {
             .incognito(true)
             .visible(true)
             .focused(true)
+            .on_navigation(|url| {
+                let allowed = is_allowed_navigation_url(url);
+                if !allowed {
+                    tracing::warn!(
+                        "AMEX WebView blocked navigation to scheme={} host={:?}",
+                        url.scheme(),
+                        url.host_str()
+                    );
+                }
+                allowed
+            })
             .build()?;
             win.on_window_event(move |event| {
                 if matches!(
@@ -860,8 +871,19 @@ async fn webview_fetch_json_with_timeout(
 // ─── host / URL / session helpers ────────────────────────────────────────────
 
 pub fn is_amex_host(host: &str) -> bool {
-    let lowered = host.to_ascii_lowercase();
-    lowered == "americanexpress.com" || lowered.ends_with(".americanexpress.com")
+    is_domain_or_subdomain(&host.to_ascii_lowercase(), "americanexpress.com")
+}
+
+/// Host allowlist for `WebviewWindowBuilder::on_navigation`: permits `about:blank` and HTTPS
+/// navigations within American Express domains (`americanexpress.com`, `americanexpress.fr`,
+/// `aexp-static.com`, `aexp.com` and their subdomains), blocking all other schemes and hosts.
+pub fn is_allowed_navigation_url(url: &Url) -> bool {
+    is_allowed_https_navigation(url, |host| {
+        is_domain_or_subdomain(host, "americanexpress.com")
+            || is_domain_or_subdomain(host, "americanexpress.fr")
+            || is_domain_or_subdomain(host, "aexp-static.com")
+            || is_domain_or_subdomain(host, "aexp.com")
+    })
 }
 
 /// True once the WebView has left the login / 2FA / logon screens and reached an authenticated
@@ -993,6 +1015,44 @@ mod tests {
             &Url::parse("https://www.americanexpress.com/myca/intl/acctmgmt/emea/myacct.do")
                 .unwrap()
         ));
+    }
+
+    #[test]
+    fn navigation_allowlist_restricts_to_amex_https_and_about_blank() {
+        for allowed in [
+            "about:blank",
+            "https://americanexpress.com/",
+            "https://www.americanexpress.com/fr-fr/account/login/",
+            "https://global.americanexpress.com/dashboard",
+            "https://americanexpress.fr/",
+            "https://www.americanexpress.fr/mon-compte",
+            "https://icm.aexp-static.com/content/dam/amex",
+            "https://aexp-static.com/",
+            "https://aexp.com/",
+            "https://auth.aexp.com/verify",
+        ] {
+            assert!(
+                is_allowed_navigation_url(&Url::parse(allowed).unwrap()),
+                "expected allowed: {allowed}"
+            );
+        }
+        for rejected in [
+            "http://www.americanexpress.com/",
+            "https://global.americanexpress.com:8443/",
+            "https://user:pass@global.americanexpress.com/",
+            "https://evil-americanexpress.com/",
+            "https://americanexpress.com.evil.example/",
+            "https://evil-aexp.com/",
+            "https://evil.example/",
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "data:text/html,<svg/onload=alert(1)>",
+        ] {
+            assert!(
+                !is_allowed_navigation_url(&Url::parse(rejected).unwrap()),
+                "expected rejected: {rejected}"
+            );
+        }
     }
 
     #[test]

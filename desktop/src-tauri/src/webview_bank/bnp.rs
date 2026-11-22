@@ -24,8 +24,8 @@ use tauri::{
 use uuid::Uuid;
 
 use super::{
-    document_ready_complete, poll_webview_slot, read_capped_text, EvalPollError, ReadBodyError,
-    PENDING_SENTINEL,
+    document_ready_complete, is_allowed_https_navigation, is_domain_or_subdomain,
+    poll_webview_slot, read_capped_text, EvalPollError, ReadBodyError, PENDING_SENTINEL,
 };
 
 use super::bnp_parsers::{
@@ -306,6 +306,17 @@ impl BnpWebviewManager {
             .incognito(true)
             .visible(true)
             .focused(true)
+            .on_navigation(|url| {
+                let allowed = is_allowed_navigation_url(url);
+                if !allowed {
+                    tracing::warn!(
+                        "BNP WebView blocked navigation to scheme={} host={:?}",
+                        url.scheme(),
+                        url.host_str()
+                    );
+                }
+                allowed
+            })
             .build()?;
             win.on_window_event(move |event| {
                 if matches!(
@@ -1035,6 +1046,17 @@ fn is_login_host(host: &str) -> bool {
     lowered.starts_with("connexion.") || lowered.starts_with("content.connexion.")
 }
 
+/// Host allowlist for `WebviewWindowBuilder::on_navigation`: permits `about:blank` and HTTPS
+/// navigations on BNP Paribas (`.bnpparibas` brand TLD and `bnpparibas.com`) and Hello bank!
+/// (`hellobank.fr`) domains, blocking all other schemes and hosts.
+pub fn is_allowed_navigation_url(url: &Url) -> bool {
+    is_allowed_https_navigation(url, |host| {
+        is_brand_tld_host(host)
+            || is_domain_or_subdomain(host, "bnpparibas.com")
+            || is_domain_or_subdomain(host, "hellobank.fr")
+    })
+}
+
 pub fn is_allowed_url(url: &Url, brand: Brand) -> bool {
     if url.scheme() != "https"
         || !url.username().is_empty()
@@ -1322,6 +1344,45 @@ mod tests {
             &Url::parse("https://www.hellobank.fr/fr/client/comptes").unwrap(),
             HELLOBANK_BRAND
         ));
+    }
+
+    #[test]
+    fn navigation_allowlist_restricts_to_bnp_and_hellobank_https_and_about_blank() {
+        for allowed in [
+            "about:blank",
+            "https://mabanque.bnpparibas/auth/login",
+            "https://connexion.mabanque.bnpparibas/as/authorization.oauth2",
+            "https://mabanquepro.bnpparibas/fr/connexion",
+            "https://mabanqueprivee.bnpparibas/fr/secure/comptes",
+            "https://bnpparibas.com/",
+            "https://group.bnpparibas.com/",
+            "https://hellobank.fr/",
+            "https://www.hellobank.fr/auth/login?requiredDAC=3",
+            "https://connexion.hellobank.fr/login",
+        ] {
+            assert!(
+                is_allowed_navigation_url(&Url::parse(allowed).unwrap()),
+                "expected allowed: {allowed}"
+            );
+        }
+        for rejected in [
+            "http://mabanque.bnpparibas/auth/login",
+            "https://bnpparibas/",
+            "https://mabanque.bnpparibas:8443/",
+            "https://user@mabanque.bnpparibas/",
+            "https://mabanque.bnpparibas.evil.example/",
+            "https://evil-hellobank.fr/",
+            "https://hellobank.fr.evil.example/",
+            "https://evil.example/",
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "data:text/html,hi",
+        ] {
+            assert!(
+                !is_allowed_navigation_url(&Url::parse(rejected).unwrap()),
+                "expected rejected: {rejected}"
+            );
+        }
     }
 
     #[test]

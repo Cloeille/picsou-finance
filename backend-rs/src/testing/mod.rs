@@ -24,6 +24,7 @@ pub const JWT_SECRET: &str = "test-jwt-secret-0123456789-abcdefghijklmnopqrstu";
 pub const CRYPTO_KEY: &str = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
 pub const ADMIN_USERNAME: &str = "admin";
 pub const ADMIN_PASSWORD: &str = "correct-horse-battery";
+pub const DESKTOP_TOKEN: &str = "test-desktop-token-0123456789abcdef0123456789abcdef0123456789abcd";
 /// The discard port on loopback: a connection there is refused at once.
 const UNREACHABLE: &str = "http://127.0.0.1:9";
 
@@ -235,15 +236,33 @@ impl TestAppBuilder {
             env.set("SPRING_DATASOURCE_USERNAME", DB_USER);
             TestAppDb::Postgres(db)
         };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let bound_addr = listener.local_addr().expect("addr");
+        let desktop_enabled = env.get("APP_DESKTOP_MODE").is_some_and(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "true" | "on" | "yes" | "1"
+            )
+        });
+        if desktop_enabled {
+            if env.raw("SERVER_ADDRESS").is_none() {
+                env.set("SERVER_ADDRESS", "127.0.0.1");
+            }
+            if env.raw("SERVER_PORT").is_none() {
+                env.set("SERVER_PORT", bound_addr.port().to_string());
+            }
+            if env.raw("APP_DESKTOP_TOKEN").is_none() {
+                env.set("APP_DESKTOP_TOKEN", DESKTOP_TOKEN);
+            }
+        }
         let config = Config::load(&env).expect("test configuration");
         let clock = Arc::new(FixedClock::new(epoch()));
         let state = crate::start(config, clock.clone())
             .await
             .expect("app start");
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("bind");
-        let base_url = format!("http://{}", listener.local_addr().expect("addr"));
+        let base_url = format!("http://{bound_addr}");
         let router = crate::app(state.clone());
         let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
         tokio::spawn(async move {
@@ -317,6 +336,20 @@ impl TestApp {
     /// A client without cookies.
     pub fn client(&self) -> Client {
         Client::new(&self.base_url)
+    }
+
+    /// The configured per-launch Desktop token, if any.
+    pub fn desktop_token(&self) -> Option<&str> {
+        self.state.config.desktop_token.as_deref()
+    }
+
+    /// A client authorized with the app's `X-Picsou-Desktop-Token` header.
+    pub fn desktop_client(&self) -> Client {
+        let mut client = self.client();
+        if let Some(token) = self.desktop_token() {
+            client.add_default_header(crate::setup_auth::desktop::DESKTOP_TOKEN_HEADER, token);
+        }
+        client
     }
 
     /// The wizard's request sequence: admin, security, complete.
@@ -421,6 +454,7 @@ pub struct Client {
     base_url: String,
     http: reqwest::Client,
     cookies: Arc<Mutex<BTreeMap<String, String>>>,
+    default_headers: Vec<(String, String)>,
 }
 
 impl Client {
@@ -434,7 +468,13 @@ impl Client {
             base_url: base_url.to_owned(),
             http,
             cookies: Arc::default(),
+            default_headers: Vec::new(),
         }
+    }
+
+    pub fn add_default_header(&mut self, name: &str, value: &str) {
+        self.default_headers
+            .push((name.to_owned(), value.to_owned()));
     }
 
     pub fn cookie(&self, name: &str) -> Option<String> {
@@ -460,12 +500,16 @@ impl Client {
     }
 
     pub fn request(&self, method: Method, path: &str) -> Request {
+        let mut builder = self
+            .http
+            .request(method, format!("{}{path}", self.base_url));
+        for (k, v) in &self.default_headers {
+            builder = builder.header(k.as_str(), v.as_str());
+        }
         Request {
             allow_decimal_strings: false,
             client: self.clone(),
-            builder: self
-                .http
-                .request(method, format!("{}{path}", self.base_url)),
+            builder,
         }
     }
 

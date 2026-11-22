@@ -70,16 +70,16 @@ async fn non_loopback_requests_are_rejected_even_when_desktop_mode_is_enabled() 
 
     // Complete quick-start from loopback so the user exists.
     let local_qs = app
-        .client()
+        .desktop_client()
         .post("/api/setup/desktop-quick-start")
         .json(&json!({"displayName": "Louis"}))
         .send()
         .await;
     assert_eq!(local_qs.status, StatusCode::OK);
 
-    // Autologin from non-loopback is rejected with 403.
+    // Autologin from non-loopback is rejected with 403 even with a valid desktop token.
     let remote_auto = app
-        .client()
+        .desktop_client()
         .post("/api/auth/desktop-autologin")
         .header("x-forwarded-for", "203.0.113.42")
         .send()
@@ -87,7 +87,7 @@ async fn non_loopback_requests_are_rejected_even_when_desktop_mode_is_enabled() 
     assert_eq!(remote_auto.status, StatusCode::FORBIDDEN);
 
     // Authenticated desktop lock endpoint from non-loopback is also rejected with 403.
-    let authed = app.client();
+    let authed = app.desktop_client();
     let auto_res = authed.post("/api/auth/desktop-autologin").send().await;
     assert_eq!(auto_res.status, StatusCode::OK);
 
@@ -113,7 +113,7 @@ async fn quick_start_seeds_user_categories_and_issues_working_session() {
         .env("APP_DESKTOP_MODE", "true")
         .spawn()
         .await;
-    let client = app.client();
+    let client = app.desktop_client();
 
     let status_before = client.get("/api/setup/status").send().await.json();
     assert_eq!(status_before["needsSetup"], true);
@@ -167,7 +167,7 @@ async fn quick_start_defaults_blank_display_name_by_accept_language() {
         .spawn()
         .await;
     let quick = app
-        .client()
+        .desktop_client()
         .post("/api/setup/desktop-quick-start")
         .header("accept-language", "fr-FR,fr;q=0.9")
         .json(&json!({"displayName": "   "}))
@@ -188,15 +188,15 @@ async fn autologin_and_password_lock_lifecycle() {
 
     // 1. Quick-start creates the local admin unlocked.
     let qs = app
-        .client()
+        .desktop_client()
         .post("/api/setup/desktop-quick-start")
         .json(&json!({"displayName": "Louis"}))
         .send()
         .await;
     assert_eq!(qs.status, StatusCode::OK);
 
-    // 2. A fresh client (simulating app relaunch without cookies) auto-logs in seamlessly.
-    let relaunched = app.client();
+    // 2. A fresh desktop client (simulating app relaunch without session cookies) auto-logs in seamlessly.
+    let relaunched = app.desktop_client();
     let auto = relaunched.post("/api/auth/desktop-autologin").send().await;
     assert_eq!(auto.status, StatusCode::OK);
     assert_eq!(auto.json()["username"], "louis");
@@ -239,7 +239,7 @@ async fn autologin_and_password_lock_lifecycle() {
 
     // 6. Auto-login is now refused with 403 DESKTOP_LOCK_ENABLED.
     let locked_auto = app
-        .client()
+        .desktop_client()
         .post("/api/auth/desktop-autologin")
         .send()
         .await;
@@ -276,7 +276,7 @@ async fn autologin_and_password_lock_lifecycle() {
     );
 
     let auto_again = app
-        .client()
+        .desktop_client()
         .post("/api/auth/desktop-autologin")
         .send()
         .await;
@@ -292,7 +292,7 @@ async fn non_admin_member_is_forbidden_from_desktop_lock_and_lock_cannot_be_over
         .await;
 
     let qs = app
-        .client()
+        .desktop_client()
         .post("/api/setup/desktop-quick-start")
         .json(&json!({"displayName": "Louis"}))
         .send()
@@ -319,7 +319,7 @@ async fn non_admin_member_is_forbidden_from_desktop_lock_and_lock_cannot_be_over
     );
 
     // Admin enables the lock with a known password.
-    let admin = app.client();
+    let admin = app.desktop_client();
     assert_eq!(
         admin
             .post("/api/auth/desktop-autologin")
@@ -379,7 +379,7 @@ async fn desktop_lock_and_autologin_enforce_rate_limits() {
         .spawn()
         .await;
     let qs = app
-        .client()
+        .desktop_client()
         .post("/api/setup/desktop-quick-start")
         .json(&json!({"displayName": "Louis"}))
         .send()
@@ -387,7 +387,7 @@ async fn desktop_lock_and_autologin_enforce_rate_limits() {
     assert_eq!(qs.status, StatusCode::OK);
 
     // Enable lock once, then burn remaining DESKTOP_LOCK tokens (5/15m) with bad password checks.
-    let admin = app.client();
+    let admin = app.desktop_client();
     assert_eq!(
         admin
             .post("/api/auth/desktop-autologin")
@@ -420,19 +420,439 @@ async fn desktop_lock_and_autologin_enforce_rate_limits() {
         .await;
     assert_eq!(throttled_lock.status, StatusCode::TOO_MANY_REQUESTS);
 
+    // Unauthorized clients without the desktop token are rejected BEFORE consuming rate-limit budget.
+    for _ in 0..5 {
+        assert_eq!(
+            app.client()
+                .post("/api/auth/desktop-autologin")
+                .send()
+                .await
+                .status,
+            StatusCode::FORBIDDEN
+        );
+    }
+
     // Burn the remaining DESKTOP_AUTOLOGIN bucket (20/1m; 1 already consumed above).
     for _ in 0..19 {
         let resp = app
-            .client()
+            .desktop_client()
             .post("/api/auth/desktop-autologin")
             .send()
             .await;
         assert_eq!(resp.status, StatusCode::FORBIDDEN);
     }
     let throttled_auto = app
-        .client()
+        .desktop_client()
         .post("/api/auth/desktop-autologin")
         .send()
         .await;
     assert_eq!(throttled_auto.status, StatusCode::TOO_MANY_REQUESTS);
+}
+
+async fn raw_http_head(base_url: &str, request: &[u8]) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let addr = base_url
+        .strip_prefix("http://")
+        .expect("http base_url for TestApp");
+    let mut stream = tokio::net::TcpStream::connect(addr)
+        .await
+        .expect("connect to TestApp");
+    stream.write_all(request).await.expect("write raw request");
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        match stream.read(&mut chunk).await {
+            Ok(0) => break,
+            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset && !buf.is_empty() => break,
+            Err(e) => panic!("read raw response: {e}"),
+        }
+    }
+    let raw = String::from_utf8(buf).expect("UTF-8 HTTP response");
+    raw.split_once("\r\n\r\n")
+        .map(|(head, _)| head.to_owned())
+        .unwrap_or(raw)
+}
+
+#[tokio::test]
+async fn desktop_bootstrap_and_session_gate_enforce_single_use_token_and_fail_closed() {
+    let app = TestApp::builder()
+        .env("APP_DESKTOP_MODE", "true")
+        .spawn()
+        .await;
+    let token = app.desktop_token().expect("test desktop token").to_owned();
+
+    // 1. Missing token/cookie -> 403 on quick-start and bootstrap.
+    assert_eq!(
+        app.client()
+            .post("/api/setup/desktop-quick-start")
+            .json(&json!({"displayName": "NoToken"}))
+            .send()
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        app.client()
+            .get("/api/auth/desktop-bootstrap")
+            .send()
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+
+    // 2. Wrong token -> 403 and does NOT burn the single-use bootstrap latch.
+    assert_eq!(
+        app.client()
+            .post("/api/setup/desktop-quick-start")
+            .header("x-picsou-desktop-token", "wrong-token")
+            .json(&json!({"displayName": "WrongToken"}))
+            .send()
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        app.client()
+            .get("/api/auth/desktop-bootstrap?token=wrong-token")
+            .send()
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+
+    // 3. Valid bootstrap -> 303 See Other to `/` with HttpOnly; SameSite=Strict; Path=/api cookie.
+    let webview = app.client();
+    let boot = webview
+        .get(&format!("/api/auth/desktop-bootstrap?token={token}"))
+        .send()
+        .await;
+    assert_eq!(boot.status, StatusCode::SEE_OTHER);
+    assert_eq!(boot.header("location"), Some("/"));
+    assert_eq!(boot.header("cache-control"), Some("no-store"));
+    let set_cookies = boot.set_cookies();
+    assert_eq!(set_cookies.len(), 1);
+    let gate_cookie = &set_cookies[0];
+    assert!(
+        gate_cookie.starts_with("picsou_desktop_gate="),
+        "unexpected cookie: {gate_cookie}"
+    );
+    assert!(gate_cookie.contains("HttpOnly"), "{gate_cookie}");
+    assert!(gate_cookie.contains("SameSite=Strict"), "{gate_cookie}");
+    assert!(gate_cookie.contains("Path=/api"), "{gate_cookie}");
+
+    // 4. Replaying the exact same valid bootstrap token is rejected with 403.
+    let replay = app
+        .client()
+        .get(&format!("/api/auth/desktop-bootstrap?token={token}"))
+        .send()
+        .await;
+    assert_eq!(replay.status, StatusCode::FORBIDDEN);
+
+    // 5. WebView (holding only the gate cookie, no header) completes quick-start and reloads into autologin.
+    let qs = webview
+        .post("/api/setup/desktop-quick-start")
+        .json(&json!({"displayName": "Louis"}))
+        .send()
+        .await;
+    assert_eq!(qs.status, StatusCode::OK);
+
+    // Simulate reload where auth cookies are gone but the desktop gate cookie remains.
+    webview.remove_cookie("access_token");
+    webview.remove_cookie("refresh_token");
+    let auto = webview.post("/api/auth/desktop-autologin").send().await;
+    assert_eq!(auto.status, StatusCode::OK);
+    assert_eq!(auto.json()["username"], "louis");
+
+    // Another local process without cookie or header still gets 403 on autologin.
+    assert_eq!(
+        app.client()
+            .post("/api/auth/desktop-autologin")
+            .send()
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+
+    // 6. Fail closed when APP_DESKTOP_TOKEN is unset / blank.
+    let unconfigured = TestApp::builder()
+        .env("APP_DESKTOP_MODE", "true")
+        .env("APP_DESKTOP_TOKEN", "")
+        .spawn()
+        .await;
+    assert!(unconfigured.desktop_token().is_none());
+    assert_eq!(
+        unconfigured
+            .client()
+            .get("/api/auth/desktop-bootstrap?token=anything")
+            .send()
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        unconfigured
+            .client()
+            .post("/api/setup/desktop-quick-start")
+            .json(&json!({"displayName": "Louis"}))
+            .send()
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    unconfigured
+        .complete_setup(ADMIN_USERNAME, ADMIN_PASSWORD)
+        .await;
+    assert_eq!(
+        unconfigured
+            .client()
+            .post("/api/auth/desktop-autologin")
+            .send()
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+}
+
+#[tokio::test]
+async fn desktop_host_allowlist_blocks_dns_rebinding_and_cross_site_requests() {
+    let app = TestApp::builder()
+        .env("APP_DESKTOP_MODE", "true")
+        .env("ALLOWED_ORIGINS", "http://evil.example")
+        .spawn()
+        .await;
+    let port = app.state.config.server_port;
+    assert_ne!(port, 0);
+
+    // Spoofed Host headers (DNS rebinding) are rejected with 403 on EVERY route before routing.
+    for (host, path) in [
+        (format!("evil.example:{port}"), "/api/setup/status"),
+        (format!("evil.example:{port}"), "/actuator/health"),
+        (
+            format!("127.0.0.1.evil.example:{port}"),
+            "/api/setup/status",
+        ),
+        ("127.0.0.1:9999".to_owned(), "/api/setup/status"),
+    ] {
+        let req = format!("GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
+        let head = raw_http_head(&app.base_url, req.as_bytes()).await;
+        assert!(
+            head.starts_with("HTTP/1.1 403 Forbidden\r\n"),
+            "expected 403 for Host={host} path={path}, got: {head}"
+        );
+    }
+
+    // Missing Host header (HTTP/1.0) is rejected with 403.
+    let head = raw_http_head(
+        &app.base_url,
+        b"GET /api/setup/status HTTP/1.0\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert!(
+        head.starts_with("HTTP/1.0 403 Forbidden\r\n")
+            || head.starts_with("HTTP/1.1 403 Forbidden\r\n"),
+        "expected 403 for missing Host, got: {head}"
+    );
+
+    // Valid loopback Host headers (127.0.0.1, localhost, [::1]) on the bound port are allowed.
+    for host in [
+        format!("127.0.0.1:{port}"),
+        format!("localhost:{port}"),
+        format!("[::1]:{port}"),
+    ] {
+        let req =
+            format!("GET /api/setup/status HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
+        let head = raw_http_head(&app.base_url, req.as_bytes()).await;
+        assert!(
+            head.starts_with("HTTP/1.1 200 OK\r\n"),
+            "expected 200 for Host={host}, got: {head}"
+        );
+    }
+
+    // Cross-site Sec-Fetch-Site or cross-origin Origin on quick-start / autologin are rejected
+    // with 403 EVEN WITHOUT credential cookies (and even if Origin is in ALLOWED_ORIGINS).
+    let cross_qs = app
+        .desktop_client()
+        .post("/api/setup/desktop-quick-start")
+        .header("sec-fetch-site", "cross-site")
+        .json(&json!({"displayName": "Louis"}))
+        .send()
+        .await;
+    assert_eq!(cross_qs.status, StatusCode::FORBIDDEN);
+    assert!(cross_qs.text().contains("Cross-site request rejected"));
+
+    let origin_qs = app
+        .desktop_client()
+        .post("/api/setup/desktop-quick-start")
+        .header("origin", "http://evil.example")
+        .json(&json!({"displayName": "Louis"}))
+        .send()
+        .await;
+    assert_eq!(origin_qs.status, StatusCode::FORBIDDEN);
+    assert!(origin_qs.text().contains("Cross-site request rejected"));
+
+    // Complete quick-start legitimately, then verify cross-site autologin is also rejected.
+    assert_eq!(
+        app.desktop_client()
+            .post("/api/setup/desktop-quick-start")
+            .json(&json!({"displayName": "Louis"}))
+            .send()
+            .await
+            .status,
+        StatusCode::OK
+    );
+
+    let cross_auto = app
+        .desktop_client()
+        .post("/api/auth/desktop-autologin")
+        .header("sec-fetch-site", "cross-site")
+        .send()
+        .await;
+    assert_eq!(cross_auto.status, StatusCode::FORBIDDEN);
+    assert!(cross_auto.text().contains("Cross-site request rejected"));
+
+    let same_site_auto = app
+        .desktop_client()
+        .post("/api/auth/desktop-autologin")
+        .header("sec-fetch-site", "same-site")
+        .send()
+        .await;
+    assert_eq!(same_site_auto.status, StatusCode::FORBIDDEN);
+
+    let origin_auto = app
+        .desktop_client()
+        .post("/api/auth/desktop-autologin")
+        .header("origin", "http://evil.example")
+        .send()
+        .await;
+    assert_eq!(origin_auto.status, StatusCode::FORBIDDEN);
+    assert!(origin_auto.text().contains("Cross-site request rejected"));
+}
+
+#[tokio::test]
+async fn mfa_enrollment_requires_desktop_lock_and_autologin_refuses_mfa_users() {
+    let app = TestApp::builder()
+        .env("APP_DESKTOP_MODE", "true")
+        .spawn()
+        .await;
+
+    let admin = app.desktop_client();
+    assert_eq!(
+        admin
+            .post("/api/setup/desktop-quick-start")
+            .json(&json!({"displayName": "Louis"}))
+            .send()
+            .await
+            .status,
+        StatusCode::OK
+    );
+
+    // 1. With Desktop lock disabled, TOTP enrollment init and verify are rejected with 400.
+    let init_blocked = admin
+        .post("/api/auth/mfa/enroll/init")
+        .json(&json!({"currentPassword": "any-password"}))
+        .send()
+        .await;
+    assert_eq!(init_blocked.status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        init_blocked.json()["detail"],
+        "Enable Desktop password lock before configuring two-factor authentication."
+    );
+
+    let verify_blocked = admin
+        .post("/api/auth/mfa/enroll/verify")
+        .json(&json!({"code": "123456"}))
+        .send()
+        .await;
+    assert_eq!(verify_blocked.status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        verify_blocked.json()["detail"],
+        "Enable Desktop password lock before configuring two-factor authentication."
+    );
+
+    // 2. Enable Desktop lock, then enroll MFA successfully.
+    assert_eq!(
+        admin
+            .put("/api/desktop/lock")
+            .json(&json!({"enabled": true, "newPassword": "desktop-mfa-pass-1"}))
+            .send()
+            .await
+            .status,
+        StatusCode::OK
+    );
+    let init = admin
+        .post("/api/auth/mfa/enroll/init")
+        .json(&json!({"currentPassword": "desktop-mfa-pass-1"}))
+        .send()
+        .await;
+    assert_eq!(init.status, StatusCode::OK);
+    let secret = init.json()["secret"].as_str().unwrap().to_owned();
+    let code = picsou::setup_auth::mfa::current_code(&app.state, &secret).unwrap();
+    let verified = admin
+        .post("/api/auth/mfa/enroll/verify")
+        .json(&json!({"code": code}))
+        .send()
+        .await;
+    assert_eq!(verified.status, StatusCode::OK);
+
+    // 3. Defense-in-depth: even if Desktop lock is subsequently disabled, autologin refuses any
+    // user with active 2FA with 403 DESKTOP_LOCK_ENABLED.
+    assert_eq!(
+        admin
+            .put("/api/desktop/lock")
+            .json(&json!({"enabled": false, "currentPassword": "desktop-mfa-pass-1"}))
+            .send()
+            .await
+            .status,
+        StatusCode::OK
+    );
+    let refused_auto = app
+        .desktop_client()
+        .post("/api/auth/desktop-autologin")
+        .send()
+        .await;
+    assert_eq!(refused_auto.status, StatusCode::FORBIDDEN);
+    assert_eq!(refused_auto.json()["code"], "DESKTOP_LOCK_ENABLED");
+}
+
+#[tokio::test]
+async fn legacy_postgres_detected_flag_is_exposed_only_when_configured_in_desktop_mode() {
+    let normal_desktop = TestApp::builder()
+        .env("APP_DESKTOP_MODE", "true")
+        .spawn()
+        .await;
+    let normal_status = normal_desktop
+        .client()
+        .get("/api/setup/status")
+        .send()
+        .await
+        .json();
+    assert!(normal_status.get("legacyPostgresDetected").is_none());
+
+    let legacy_desktop = TestApp::builder()
+        .env("APP_DESKTOP_MODE", "true")
+        .env("APP_DESKTOP_LEGACY_POSTGRES", "true")
+        .spawn()
+        .await;
+    let legacy_status = legacy_desktop
+        .client()
+        .get("/api/setup/status")
+        .send()
+        .await
+        .json();
+    assert_eq!(legacy_status["desktopMode"], true);
+    assert_eq!(legacy_status["legacyPostgresDetected"], true);
+
+    let non_desktop = TestApp::builder()
+        .env("APP_DESKTOP_LEGACY_POSTGRES", "true")
+        .spawn()
+        .await;
+    let non_desktop_status = non_desktop
+        .client()
+        .get("/api/setup/status")
+        .send()
+        .await
+        .json();
+    assert!(non_desktop_status.get("legacyPostgresDetected").is_none());
 }
