@@ -438,6 +438,14 @@ pub async fn confirm_sync(
     let remembered = credentials.as_ref().filter(|_| remember);
     apply_post_sync_session_state(state, &mut tx.as_handle(), member_id, remembered).await?;
     tx.commit().await?;
+    crate::ledger::transfers::after_import(
+        &state.db,
+        &*state.ledger.dividends,
+        member_id,
+        state.clock.today(),
+        state.clock.now(),
+    )
+    .await;
     Ok(())
 }
 
@@ -537,6 +545,37 @@ async fn apply_post_sync_session_state(
     Ok(())
 }
 
+/// Updates an already-persisted Revolut account from a fresh harvest, repairing currency,
+/// parent linkage (including detaching pockets whose currency no longer matches the wallet),
+/// and legacy raw `"CURRENT"` placeholder names while keeping custom user names intact.
+fn apply_existing_update(
+    account: &mut Account,
+    data: &RevolutAccountData,
+    currency: &str,
+    parent_account_id: Option<i64>,
+    now: DateTime<Utc>,
+) {
+    account.current_balance = data.balance;
+    account.currency = currency.to_owned();
+    account.last_synced_at = Some(now);
+    account.external_account_id = data.external_id.clone();
+    if data.iban.is_some() {
+        account.iban = data.iban.clone();
+    }
+    if parent_account_id.is_some() {
+        account.parent_account_id = parent_account_id;
+    } else if data.parent_external_id.is_none() {
+        account.parent_account_id = None;
+    }
+    if account.name.eq_ignore_ascii_case("CURRENT")
+        && let Some(new_name) = data.name.as_deref()
+        && !new_name.trim().is_empty()
+        && !new_name.eq_ignore_ascii_case("CURRENT")
+    {
+        account.name = new_name.to_owned();
+    }
+}
+
 /// Dedups a wallet against the Enable Banking sub-account of the same IBAN and currency, and never
 /// resurrects an account the member deleted. Returns the account id, None when skipped.
 async fn upsert_account(
@@ -553,15 +592,7 @@ async fn upsert_account(
     let existing = find_active_account(&mut *conn, data, member_id).await?;
     let account = match existing {
         Some(mut account) => {
-            account.current_balance = data.balance;
-            account.last_synced_at = Some(now);
-            account.external_account_id = data.external_id.clone();
-            if data.iban.is_some() {
-                account.iban = data.iban.clone();
-            }
-            if parent_account_id.is_some() {
-                account.parent_account_id = parent_account_id;
-            }
+            apply_existing_update(&mut account, data, &currency, parent_account_id, now);
             accounts::update(&mut *conn, &account, now).await?
         }
         None => {
@@ -1092,6 +1123,14 @@ async fn unattended_sync(state: &AppState, member_id: i64) -> Result<(), JobErro
     apply_post_sync_session_state(state, &mut tx.as_handle(), member_id, Some(&credentials))
         .await?;
     tx.commit().await?;
+    crate::ledger::transfers::after_import(
+        &state.db,
+        &*state.ledger.dividends,
+        member_id,
+        state.clock.today(),
+        state.clock.now(),
+    )
+    .await;
     Ok(())
 }
 
@@ -1100,5 +1139,119 @@ fn result(status: SyncStatus, message: &str) -> SourceSyncResult {
         source: SOURCE.to_owned(),
         status,
         message: message.to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stored_account(name: &str, currency: &str, parent_account_id: Option<i64>) -> Account {
+        let now = DateTime::UNIX_EPOCH;
+        Account {
+            id: 1,
+            member_id: 1,
+            name: name.to_owned(),
+            account_type: AccountType::Checking,
+            provider: Some(PROVIDER.to_owned()),
+            currency: currency.to_owned(),
+            current_balance: Decimal::ZERO,
+            cash_balance: None,
+            last_synced_at: None,
+            payment_due_amount: None,
+            payment_due_date: None,
+            card_nature: None,
+            reward_points: None,
+            external_account_id: Some("ext-1".to_owned()),
+            is_manual: false,
+            color: "#6366f1".to_owned(),
+            iban: None,
+            ticker: None,
+            logo_url: None,
+            logo_key: None,
+            institution_name: None,
+            institution_domain: None,
+            requisition_id: None,
+            opened_at: None,
+            provider_invested_eur: None,
+            provider_paid_in_eur: None,
+            scheduled_payment_eur: None,
+            scheduled_payment_cadence: None,
+            deleted_at: None,
+            parent_account_id,
+            hidden: false,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    fn data(
+        name: &str,
+        currency: &str,
+        balance: Decimal,
+        parent_external_id: Option<&str>,
+    ) -> RevolutAccountData {
+        RevolutAccountData {
+            external_id: Some("ext-1".to_owned()),
+            name: Some(name.to_owned()),
+            account_type: AccountType::Checking,
+            iban: None,
+            balance,
+            currency: currency.to_owned(),
+            parent_external_id: parent_external_id.map(str::to_owned),
+            txns: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn existing_update_repairs_wallet_currency_detaches_mismatched_pocket_and_renames_current() {
+        let now = DateTime::UNIX_EPOCH;
+
+        // 1. Misclassified USD wallet repairs to EUR + real balance
+        let mut wallet = stored_account("Revolut", "USD", None);
+        apply_existing_update(
+            &mut wallet,
+            &data("Revolut", "EUR", Decimal::new(254, 2), None),
+            "EUR",
+            None,
+            now,
+        );
+        assert_eq!(wallet.currency, "EUR");
+        assert_eq!(wallet.current_balance, Decimal::new(254, 2));
+
+        // 2. Previously attached USD pocket detaches cleanly and drops raw "CURRENT" label
+        let mut usd_pocket = stored_account("CURRENT", "USD", Some(99));
+        apply_existing_update(
+            &mut usd_pocket,
+            &data("Revolut USD", "USD", Decimal::ZERO, None),
+            "USD",
+            None,
+            now,
+        );
+        assert_eq!(usd_pocket.parent_account_id, None);
+        assert_eq!(usd_pocket.name, "Revolut USD");
+
+        // 3. Previously detached EUR pocket attaches to parent wallet and drops raw "CURRENT"
+        let mut eur_pocket = stored_account("CURRENT", "EUR", None);
+        apply_existing_update(
+            &mut eur_pocket,
+            &data("Revolut EUR", "EUR", Decimal::new(254, 2), Some("wallet-1")),
+            "EUR",
+            Some(42),
+            now,
+        );
+        assert_eq!(eur_pocket.parent_account_id, Some(42));
+        assert_eq!(eur_pocket.name, "Revolut EUR");
+
+        // 4. Custom user-chosen name is preserved
+        let mut custom = stored_account("Mon compte principal", "EUR", None);
+        apply_existing_update(
+            &mut custom,
+            &data("Revolut EUR", "EUR", Decimal::new(254, 2), Some("wallet-1")),
+            "EUR",
+            Some(42),
+            now,
+        );
+        assert_eq!(custom.name, "Mon compte principal");
     }
 }

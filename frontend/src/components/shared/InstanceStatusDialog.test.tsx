@@ -115,6 +115,18 @@ describe('InstanceStatusDialog', () => {
     })
   })
 
+  it('never shows (nor even fetches) on Picsou Desktop, even with advanced mode enabled', async () => {
+    useAppStore.setState({ desktopMode: true, advancedMode: true })
+    instanceStatus({
+      update: { latestVersion: '1.3.0', releaseUrl: RELEASE },
+      issues: [{ code: 'SIDECAR_OUTDATED', sidecar: 'bnp-auth', expectedBase: 'sidecar-camoufox' }],
+    })
+    renderDialog()
+    await new Promise((r) => setTimeout(r, 20))
+    expect(api.getInstanceStatus).not.toHaveBeenCalled()
+    expect(screen.queryByText('admin.instanceStatus.title')).not.toBeInTheDocument()
+  })
+
   it('never shows (nor even fetches) for a non-admin', async () => {
     useAuthStore.setState({ user: MEMBER })
     instanceStatus({ update: null, issues: [ISSUE] })

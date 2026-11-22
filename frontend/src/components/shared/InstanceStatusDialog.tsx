@@ -37,6 +37,8 @@ export function InstanceStatusDialog() {
   const isAdvancedMode = useAppStore(selectIsAdvancedMode)
   const dismissedFingerprint = useAppStore((s) => s.dismissedInstanceStatusFingerprint)
   const dismiss = useAppStore((s) => s.setDismissedInstanceStatusFingerprint)
+  // Docker Compose sidecar diagnostics and manual release banners do not apply on Picsou Desktop
+  // (where connectors run natively/bundled and Tauri handles app updates).
   const enabled = isAdmin && !demoMode && !desktopMode && isAdvancedMode
   const { data: status } = useInstanceStatus(enabled)
   const telemetryConsent = useTelemetryConsentPrompt()

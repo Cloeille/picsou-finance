@@ -2819,21 +2819,6 @@
         "privateKey": "la clé privée"
       }
     },
-    "integrations": {
-      "title": "Intégrations",
-      "description": "Activer ou désactiver les connecteurs de données",
-      "enablebanking": "Enable Banking",
-      "boursobank": "BoursoBank",
-      "boursedirect": "Bourse Direct",
-      "fortuneo": "Fortuneo",
-      "amex": "Synchronisez vos cartes American Express",
-      "corum": "Parts de SCPI et assurance-vie CORUM",
-      "sofidy": "Parts de SCPI Sofidy",
-      "traderepublic": "Trade Republic",
-      "lbp": "La Banque Postale",
-      "finary": "Finary",
-      "crypto": "Crypto"
-    },
     "members": {
       "title": "Membres",
       "description": "Gérer les comptes des membres de la famille",
@@ -3741,8 +3726,7 @@
     },
     "advancedMode": {
       "title": "Mode avancé",
-      "description": "Afficher les outils d’administration, les clés d’accès MCP, les applications OAuth et les journaux techniques.",
-      "label": "Activer le mode avancé"
+      "description": "Afficher les outils d’administration, les clés d’accès MCP, les applications OAuth et les journaux techniques."
     },
     "lock": {
       "title": "Sécurité Desktop",

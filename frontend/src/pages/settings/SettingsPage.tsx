@@ -379,25 +379,23 @@ export function SettingsPage() {
 
           {desktopMode && (
             <Card className="rounded-xl bg-card sm:col-span-2">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base font-semibold">
-                  {t('desktop.advancedMode.title')}
-                </CardTitle>
-                <CardDescription className="text-sm">
-                  {t('desktop.advancedMode.description')}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between gap-4">
-                  <Label htmlFor="desktop-advanced-mode" className="text-sm font-medium">
-                    {t('desktop.advancedMode.label')}
+              <CardContent className="flex items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <Label
+                    htmlFor="desktop-advanced-mode"
+                    className="cursor-pointer text-base font-semibold leading-none"
+                  >
+                    {t('desktop.advancedMode.title')}
                   </Label>
-                  <Switch
-                    id="desktop-advanced-mode"
-                    checked={advancedMode}
-                    onCheckedChange={(checked) => setAdvancedMode?.(checked)}
-                  />
+                  <p className="text-sm text-muted-foreground">
+                    {t('desktop.advancedMode.description')}
+                  </p>
                 </div>
+                <Switch
+                  id="desktop-advanced-mode"
+                  checked={advancedMode}
+                  onCheckedChange={(checked) => setAdvancedMode?.(checked)}
+                />
               </CardContent>
             </Card>
           )}

@@ -370,6 +370,42 @@ async fn apply_results(
     Ok(out)
 }
 
+/// Cache key for deduplicating repeated merchants within one AI job run.
+/// Returns `None` for empty/short labels or opaque anonymized card references (e.g.
+/// "4974xxxxxxxx2334 ...") so each opaque row is inspected independently.
+fn dedup_key(input: &CategorizationInput) -> Option<(String, bool)> {
+    let key = crate::ledger::merchants::match_key(&input.merchant_label);
+    if key.len() < 3 || is_opaque_card_label(&key) {
+        return None;
+    }
+    Some((key, input.amount.is_sign_positive()))
+}
+
+fn is_opaque_card_label(key: &str) -> bool {
+    key.contains("xxxx")
+        || key
+            .split_whitespace()
+            .all(|tok| tok.chars().all(|c| !c.is_alphabetic()))
+}
+
+fn is_cacheable_result(r: &CategorizationResult) -> bool {
+    r.error.is_none() && r.status != "ERROR" && r.status != "DISABLED"
+}
+
+fn reused_result(original: &CategorizationResult) -> CategorizationResult {
+    CategorizationResult {
+        suggestion: original.suggestion.clone(),
+        prompt: original.prompt.clone(),
+        response: original.response.clone(),
+        prompt_tokens: Some(0),
+        completion_tokens: Some(0),
+        total_tokens: Some(0),
+        latency_ms: 0,
+        status: original.status.clone(),
+        error: original.error.clone(),
+    }
+}
+
 async fn run_job(
     state: &AppState,
     member_id: i64,
@@ -381,6 +417,7 @@ async fn run_job(
     let chunk_size = ai.max_concurrency().await.clamp(1, 16);
     let batch = uuid::Uuid::new_v4();
     let (provider, model) = ai.provider().await;
+    let mut cache: HashMap<(String, bool), CategorizationResult> = HashMap::new();
     for chunk in ids.chunks(chunk_size) {
         let rows = repo::member_rows_by_ids(&state.db, chunk, member_id).await?;
         let inputs: HashMap<i64, CategorizationInput> = rows
@@ -399,15 +436,56 @@ async fn run_job(
                 )
             })
             .collect();
-        let calls = chunk
-            .iter()
-            .filter_map(|id| inputs.get(id).map(|input| (*id, input)))
-            .map(|(id, input)| {
-                let ai = ai.clone();
-                async move { (id, ai.categorize(input, &ctx.options, &ctx.examples).await) }
-            });
-        let results: HashMap<i64, CategorizationResult> =
-            futures::future::join_all(calls).await.into_iter().collect();
+        type DedupKey = (String, bool);
+        let mut results: HashMap<i64, CategorizationResult> = HashMap::new();
+        let mut to_call: Vec<(i64, &CategorizationInput, Option<DedupKey>)> = Vec::new();
+        let mut chunk_leaders: HashMap<DedupKey, i64> = HashMap::new();
+        let mut same_chunk_dups: Vec<(i64, i64)> = Vec::new();
+
+        for &id in chunk {
+            let Some(input) = inputs.get(&id) else {
+                continue;
+            };
+            if let Some(key) = dedup_key(input) {
+                if let Some(cached) = cache.get(&key) {
+                    results.insert(id, reused_result(cached));
+                    continue;
+                }
+                if let Some(&leader_id) = chunk_leaders.get(&key) {
+                    same_chunk_dups.push((id, leader_id));
+                    continue;
+                }
+                chunk_leaders.insert(key.clone(), id);
+                to_call.push((id, input, Some(key)));
+            } else {
+                to_call.push((id, input, None));
+            }
+        }
+
+        let calls = to_call.into_iter().map(|(id, input, key)| {
+            let ai = ai.clone();
+            async move {
+                (
+                    id,
+                    key,
+                    ai.categorize(input, &ctx.options, &ctx.examples).await,
+                )
+            }
+        });
+        for (id, key, result) in futures::future::join_all(calls).await {
+            if let Some(k) = key
+                && is_cacheable_result(&result)
+            {
+                cache.insert(k, result.clone());
+            }
+            results.insert(id, result);
+        }
+        for (dup_id, leader_id) in same_chunk_dups {
+            if let Some(leader_result) = results.get(&leader_id) {
+                results.insert(dup_id, reused_result(leader_result));
+            }
+        }
+
         let suggestions: Vec<(i64, CategorySuggestion)> = results
             .iter()
             .filter_map(|(id, r)| r.suggestion.clone().map(|s| (*id, s)))
@@ -504,4 +582,64 @@ pub async fn start_handler(
 
 pub async fn status_handler(State(state): State<AppState>, auth: Auth) -> axum::Json<AiJobStatus> {
     axum::Json(status(&state, auth.member_id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn input(label: &str, amount: i64) -> CategorizationInput {
+        CategorizationInput {
+            merchant_label: label.to_owned(),
+            description: label.to_owned(),
+            amount: Decimal::from(amount),
+        }
+    }
+
+    #[test]
+    fn dedup_key_groups_same_merchant_and_direction_but_skips_opaque_cards() {
+        assert_eq!(
+            dedup_key(&input("Ppg Glisshop", -380)),
+            dedup_key(&input("PPG GLISSHOP", -45))
+        );
+        // Income vs expense stay distinct
+        assert_ne!(
+            dedup_key(&input("PayPal", -20)),
+            dedup_key(&input("PayPal", 20))
+        );
+        // Masked card labels and numeric-only strings are never deduplicated
+        assert_eq!(
+            dedup_key(&input("4974xxxxxxxx2334 Fra 82,00eur", -82)),
+            None
+        );
+        assert_eq!(dedup_key(&input("12345", -10)), None);
+        assert_eq!(dedup_key(&input("", -10)), None);
+    }
+
+    #[test]
+    fn reused_result_zeros_tokens_and_latency_while_keeping_suggestion() {
+        let orig = CategorizationResult {
+            suggestion: Some(CategorySuggestion {
+                category_slug: "shopping".to_owned(),
+                confidence: Decimal::new(90, 2),
+            }),
+            prompt: Some("p".to_owned()),
+            response: Some("r".to_owned()),
+            prompt_tokens: Some(120),
+            completion_tokens: Some(15),
+            total_tokens: Some(135),
+            latency_ms: 420,
+            status: "OK".to_owned(),
+            error: None,
+        };
+        assert!(is_cacheable_result(&orig));
+        let copy = reused_result(&orig);
+        assert_eq!(copy.suggestion, orig.suggestion);
+        assert_eq!(copy.total_tokens, Some(0));
+        assert_eq!(copy.latency_ms, 0);
+        assert!(!is_cacheable_result(&CategorizationResult::empty("ERROR")));
+        assert!(!is_cacheable_result(&CategorizationResult::empty(
+            "DISABLED"
+        )));
+    }
 }

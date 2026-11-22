@@ -194,7 +194,7 @@ describe('Desktop Mode auto-login & Advanced Mode', () => {
     )
 
     expect(screen.queryByRole('tab', { name: 'settings.tabs.api' })).not.toBeInTheDocument()
-    const toggle = screen.getByRole('switch', { name: 'desktop.advancedMode.label' })
+    const toggle = screen.getByRole('switch', { name: 'desktop.advancedMode.title' })
     expect(toggle).toHaveAttribute('aria-checked', 'false')
 
     fireEvent.click(toggle)

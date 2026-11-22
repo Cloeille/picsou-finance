@@ -13,6 +13,23 @@ pub(crate) const ANTHROPIC_VERSION: &str = "2023-06-01";
 pub(crate) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 /// Hard cap on upstream AI provider JSON response bodies (1 MiB) before parsing.
 pub(crate) const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
+/// Bounded retries for transient upstream rate-limit / overload responses (HTTP 429 & 529).
+const MAX_RATE_LIMIT_RETRIES: usize = 2;
+const MAX_RETRY_AFTER_SECS: u64 = 10;
+
+fn is_retryable_status(status: reqwest::StatusCode) -> bool {
+    status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.as_u16() == 529
+}
+
+fn retry_delay(attempt: usize, retry_after_header: Option<&str>) -> Duration {
+    if let Some(secs) = retry_after_header.and_then(|v| v.trim().parse::<u64>().ok()) {
+        return Duration::from_secs(secs.clamp(1, MAX_RETRY_AFTER_SECS));
+    }
+    match attempt {
+        0 => Duration::from_millis(1500),
+        _ => Duration::from_millis(3500),
+    }
+}
 
 /// Reads an upstream AI HTTP response body up to `MAX_RESPONSE_BYTES` and parses it as JSON.
 pub(crate) async fn read_json_capped(mut response: reqwest::Response) -> Result<Value, String> {
@@ -55,53 +72,65 @@ pub(crate) async fn call_provider(
     let model = cfg.effective_model();
     let key = cfg.api_key.as_deref().unwrap_or("");
 
-    let request = match cfg.provider {
-        AiProvider::OpenAi | AiProvider::OpenRouter => http
-            .post(format!("{base}/v1/chat/completions"))
-            .bearer_auth(key)
-            .json(&json!({
+    for attempt in 0..=MAX_RATE_LIMIT_RETRIES {
+        let request = match cfg.provider {
+            AiProvider::OpenAi | AiProvider::OpenRouter => http
+                .post(format!("{base}/v1/chat/completions"))
+                .bearer_auth(key)
+                .json(&json!({
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                })),
+            AiProvider::Anthropic => http
+                .post(format!("{base}/v1/messages"))
+                .header("x-api-key", key)
+                .header("anthropic-version", ANTHROPIC_VERSION)
+                .json(&json!({
+                    "model": model,
+                    "max_tokens": ANTHROPIC_MAX_TOKENS,
+                    "system": system,
+                    "messages": [
+                        {"role": "user", "content": user_prompt},
+                    ],
+                })),
+            AiProvider::Ollama => http.post(format!("{base}/api/chat")).json(&json!({
                 "model": model,
                 "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user_prompt},
                 ],
+                "stream": false,
             })),
-        AiProvider::Anthropic => http
-            .post(format!("{base}/v1/messages"))
-            .header("x-api-key", key)
-            .header("anthropic-version", ANTHROPIC_VERSION)
-            .json(&json!({
-                "model": model,
-                "max_tokens": ANTHROPIC_MAX_TOKENS,
-                "system": system,
-                "messages": [
-                    {"role": "user", "content": user_prompt},
-                ],
-            })),
-        AiProvider::Ollama => http.post(format!("{base}/api/chat")).json(&json!({
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user_prompt},
-            ],
-            "stream": false,
-        })),
-    };
+        };
 
-    let response = request
-        .timeout(timeout)
-        .send()
-        .await
-        .map_err(|e| format!("Connection failed: {}", e.without_url()))?;
+        let response = request
+            .timeout(timeout)
+            .send()
+            .await
+            .map_err(|e| format!("Connection failed: {}", e.without_url()))?;
 
-    let status = response.status();
-    if !status.is_success() {
-        return Err(format!("The provider answered HTTP {}", status.as_u16()));
+        let status = response.status();
+        if !status.is_success() {
+            if is_retryable_status(status) && attempt < MAX_RATE_LIMIT_RETRIES {
+                let retry_after = response
+                    .headers()
+                    .get(reqwest::header::RETRY_AFTER)
+                    .and_then(|v| v.to_str().ok());
+                let delay = retry_delay(attempt, retry_after);
+                tokio::time::sleep(delay).await;
+                continue;
+            }
+            return Err(format!("The provider answered HTTP {}", status.as_u16()));
+        }
+
+        let body = read_json_capped(response).await?;
+        return Ok(extract_response(cfg.provider, &body));
     }
 
-    let body = read_json_capped(response).await?;
-
-    Ok(extract_response(cfg.provider, &body))
+    Err("The provider answered HTTP 429".to_owned())
 }
 
 pub(crate) fn extract_response(provider: AiProvider, body: &Value) -> ProviderResponse {
@@ -269,5 +298,23 @@ mod tests {
         assert_eq!(r.prompt_tokens, Some(90));
         assert_eq!(r.completion_tokens, Some(15));
         assert_eq!(r.total_tokens, Some(105));
+    }
+
+    #[test]
+    fn retries_only_429_and_529_with_bounded_backoff() {
+        assert!(is_retryable_status(reqwest::StatusCode::TOO_MANY_REQUESTS));
+        assert!(is_retryable_status(
+            reqwest::StatusCode::from_u16(529).unwrap()
+        ));
+        assert!(!is_retryable_status(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR
+        ));
+        assert!(!is_retryable_status(reqwest::StatusCode::UNAUTHORIZED));
+
+        assert_eq!(retry_delay(0, None), Duration::from_millis(1500));
+        assert_eq!(retry_delay(1, None), Duration::from_millis(3500));
+        assert_eq!(retry_delay(0, Some("3")), Duration::from_secs(3));
+        assert_eq!(retry_delay(0, Some("120")), Duration::from_secs(10));
+        assert_eq!(retry_delay(0, Some("0")), Duration::from_secs(1));
     }
 }

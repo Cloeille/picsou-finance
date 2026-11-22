@@ -8,7 +8,9 @@ use crate::budget::ai_job::{CategorizationInput, CategoryOption, Example};
 pub(crate) const SYSTEM_PROMPT: &str = "\
 You categorize a single bank transaction for a personal-finance app.
 Choose exactly ONE category from the provided list, using only the given category slugs.
-Decide primarily from the merchant name. If none clearly fits, use the slug \"unknown\".
+Decide from the merchant name, description, and direction (expense vs income).
+Map digital/SaaS/AI/cloud/gaming subscriptions to \"abonnements\" when listed, and card top-ups or transfers between own accounts to \"virement-interne\" when listed.
+Only use \"unknown\" when the merchant and description are genuinely opaque (for example a bare card number or person's name with no context).
 Return the chosen slug and a confidence between 0 and 1.";
 
 pub(crate) const JSON_FORMAT_INSTRUCTIONS: &str = "\
@@ -54,6 +56,12 @@ pub(crate) fn build_user_prompt(
     let _ = writeln!(sb, "- merchant: \"{}\"", input.merchant_label);
     let _ = writeln!(sb, "- description: \"{}\"", input.description);
     let _ = writeln!(sb, "- amount: {} EUR", input.amount);
+    let direction = if input.amount.is_sign_negative() {
+        "expense"
+    } else {
+        "income"
+    };
+    let _ = writeln!(sb, "- direction: {direction}");
     sb.push_str("\nReply with the single best category slug from the list above (or \"unknown\").");
     sb
 }
@@ -114,6 +122,7 @@ mod tests {
              - merchant: \"CARREFOUR\"\n\
              - description: \"CB CARREFOUR\"\n\
              - amount: -42.10 EUR\n\
+             - direction: expense\n\
              \n\
              Reply with the single best category slug from the list above (or \"unknown\").\n"
         ));

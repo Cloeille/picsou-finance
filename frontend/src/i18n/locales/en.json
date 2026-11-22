@@ -2819,21 +2819,6 @@
         "privateKey": "the private key"
       }
     },
-    "integrations": {
-      "title": "Integrations",
-      "description": "Enable or disable data connectors",
-      "enablebanking": "Enable Banking",
-      "boursobank": "BoursoBank",
-      "boursedirect": "Bourse Direct",
-      "fortuneo": "Fortuneo",
-      "amex": "Sync your American Express cards",
-      "corum": "CORUM SCPI and life-insurance holdings",
-      "sofidy": "Sofidy SCPI holdings",
-      "traderepublic": "Trade Republic",
-      "lbp": "La Banque Postale",
-      "finary": "Finary",
-      "crypto": "Crypto"
-    },
     "members": {
       "title": "Members",
       "description": "Manage family member accounts",
@@ -3741,8 +3726,7 @@
     },
     "advancedMode": {
       "title": "Advanced mode",
-      "description": "Show administration tools, MCP access keys, OAuth connected apps, and technical logs.",
-      "label": "Enable advanced mode"
+      "description": "Show administration tools, MCP access keys, OAuth connected apps, and technical logs."
     },
     "lock": {
       "title": "Desktop Security",

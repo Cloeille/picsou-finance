@@ -2462,21 +2462,6 @@
         "privateKey": "der private Schlüssel"
       }
     },
-    "integrations": {
-      "title": "Integrationen",
-      "description": "Datenkonnektoren aktivieren oder deaktivieren",
-      "enablebanking": "Enable Banking",
-      "boursobank": "BoursoBank",
-      "boursedirect": "Bourse Direct",
-      "fortuneo": "Fortuneo",
-      "amex": "Synchronisiere deine American-Express-Karten",
-      "corum": "CORUM-SCPI- und Lebensversicherungsbestände",
-      "sofidy": "Sofidy-SCPI-Bestände",
-      "traderepublic": "Trade Republic",
-      "lbp": "La Banque Postale",
-      "finary": "Finary",
-      "crypto": "Krypto"
-    },
     "members": {
       "title": "Mitglieder",
       "description": "Verwalte die Konten der Familienmitglieder",
@@ -3741,8 +3726,7 @@
     },
     "advancedMode": {
       "title": "Erweiterter Modus",
-      "description": "Verwaltungswerkzeuge, MCP-Zugangsschlüssel, verbundene OAuth-Apps und technische Protokolle anzeigen.",
-      "label": "Erweiterten Modus aktivieren"
+      "description": "Verwaltungswerkzeuge, MCP-Zugangsschlüssel, verbundene OAuth-Apps und technische Protokolle anzeigen."
     },
     "lock": {
       "title": "Desktop-Sicherheit",

@@ -58,15 +58,6 @@ export function useReloadCorsFromEnv() {
   })
 }
 
-export function useToggleIntegration() {
-  return useInvalidatingMutation({
-    mutationFn: ({ key, enabled }: { key: string; enabled: boolean }) =>
-      adminApi.toggleIntegration(key, enabled),
-    invalidates: [adminKeys.settings()],
-    awaitRefresh: true,
-  })
-}
-
 export function useUpdateAi() {
   return useInvalidatingMutation({
     mutationFn: (body: AdminAiRequest) => adminApi.updateAi(body),

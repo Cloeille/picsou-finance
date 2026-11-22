@@ -1,5 +1,6 @@
 //! Prices, FX, metals and instrument data providers (track T4).
 
+pub mod boursorama;
 pub mod cerema;
 pub mod coingecko;
 pub mod cooldown;
@@ -23,6 +24,7 @@ use chrono::Months;
 use rust_decimal::Decimal;
 use serde_json::{Map, Value, json};
 
+use self::boursorama::Boursorama;
 use self::cerema::CeremaDv3f;
 use self::coingecko::CoinGecko;
 use self::cooldown::YahooCooldown;
@@ -55,6 +57,7 @@ pub fn register(routes: &mut Routes) {
 pub struct Market {
     prices: Arc<PriceService>,
     openfigi: Arc<OpenFigi>,
+    boursorama: Arc<Boursorama>,
     justetf: Arc<JustEtf>,
     cerema: Arc<CeremaDv3f>,
     insee: Arc<InseeBdm>,
@@ -88,6 +91,13 @@ impl Market {
             yahoo.clone(),
             coingecko.clone(),
         ));
+        let boursorama = if config.justetf_base_url.contains("justetf.com") {
+            Arc::new(Boursorama::new(http.clone()))
+        } else {
+            // In offline wiremock tests (where justetf_base_url is overridden to loopback),
+            // avoid reaching out to live www.boursorama.com.
+            Arc::new(Boursorama::with_base_url(http.clone(), ""))
+        };
         let justetf = Arc::new(JustEtf::new(http.clone(), &config.justetf_base_url));
         let cerema = Arc::new(CeremaDv3f::new(http.clone(), &config.cerema_api_url));
         let insee = Arc::new(InseeBdm::new(
@@ -109,6 +119,7 @@ impl Market {
                 )),
             )),
             openfigi,
+            boursorama,
             justetf,
             cerema,
             insee,
@@ -144,6 +155,11 @@ impl Market {
     /// OpenFIGI ISIN to ticker: resolve(isin), resolve_isin_or_symbol.
     pub fn openfigi(&self) -> &Arc<OpenFigi> {
         &self.openfigi
+    }
+
+    /// Boursorama public ETF composition provider (first in line, up to 10 slices per axis).
+    pub fn boursorama(&self) -> &Arc<Boursorama> {
+        &self.boursorama
     }
 
     /// justETF ETF composition & facts by ISIN.

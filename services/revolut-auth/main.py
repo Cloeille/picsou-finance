@@ -638,7 +638,7 @@ async def harvest_accounts(page, device_id, on_progress: Optional[Callable[[int]
     # `current_ccy` records each wallet's CURRENT-typed pocket currency -- its "home"
     # currency, and the one its IBAN is issued in (see _with_wallet_parents).
     wallets = await _fetch_wallets(page, device_id)
-    current_ccy: Dict[str, str] = {}
+    current_ccys: Dict[str, set] = {}
     for wallet_id, pockets in wallets:
         for pocket in pockets:
             pid = _pick(pocket, "id")
@@ -647,8 +647,15 @@ async def harvest_accounts(page, device_id, on_progress: Optional[Callable[[int]
             if (not pid or pocket.get("closed") or pid in mb_pocket_ids
                     or ptype in NOISE_POCKET_TYPES or currency not in fiat):
                 continue
+            explicit_name = _pick(pocket, "name")
+            if explicit_name and str(explicit_name).upper() != "CURRENT":
+                pocket_name = explicit_name
+            elif str(ptype).upper() == "CURRENT":
+                pocket_name = f"Revolut {currency}"
+            else:
+                pocket_name = ptype or "Revolut"
             accounts.append({
-                "externalId": pid, "name": _pick(pocket, "name", "type", default="Revolut"),
+                "externalId": pid, "name": pocket_name,
                 "type": "CHECKING", "iban": None,
                 "balance": _minor_to_major(_pick(pocket, "balance", "amount", default=0)),
                 "currency": currency,
@@ -657,22 +664,29 @@ async def harvest_accounts(page, device_id, on_progress: Optional[Callable[[int]
             })
             transaction_pocket_ids[pid] = pid
             if wallet_id and ptype == "CURRENT":
-                current_ccy[wallet_id] = currency
+                current_ccys.setdefault(wallet_id, set()).add(currency)
     if on_progress:
         on_progress(len(accounts))
 
-    # Each wallet's dominant currency: its CURRENT pocket's currency, or (no CURRENT
-    # pocket found) whichever currency is most common among its own children. One IBAN
-    # fetch per wallet, in that currency only -- not the old N x M loop over every
-    # currency seen anywhere among CHECKING accounts.
+    # Each wallet's dominant currency: prefer the CURRENT pocket currency with the most
+    # sibling accounts (pockets + vaults), breaking ties by highest balance then EUR, so an
+    # empty trailing USD pocket never hijacks a primary EUR wallet.
     wallet_ids = {wallet_id for wallet_id, _ in wallets if wallet_id}
     wallet_currencies: Dict[str, str] = {}
     for wallet_id in wallet_ids:
-        if wallet_id in current_ccy:
-            wallet_currencies[wallet_id] = current_ccy[wallet_id]
+        siblings = [a for a in accounts if a["parentExternalId"] == wallet_id]
+        counts = Counter(a["currency"] for a in siblings)
+        totals: Dict[str, float] = {}
+        for a in siblings:
+            totals[a["currency"]] = totals.get(a["currency"], 0.0) + a["balance"]
+        candidates = current_ccys.get(wallet_id) or set(counts.keys())
+        if candidates:
+            wallet_currencies[wallet_id] = max(
+                candidates,
+                key=lambda c: (counts.get(c, 0), totals.get(c, 0.0), c == "EUR", c),
+            )
         else:
-            siblings = [a["currency"] for a in accounts if a["parentExternalId"] == wallet_id]
-            wallet_currencies[wallet_id] = Counter(siblings).most_common(1)[0][0] if siblings else "EUR"
+            wallet_currencies[wallet_id] = "EUR"
     ibans: Dict[str, Optional[str]] = {}
     for wallet_id, ccy in wallet_currencies.items():
         ibans[wallet_id] = await _fetch_iban(page, device_id, wallet_id, ccy)

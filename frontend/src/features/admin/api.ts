@@ -71,10 +71,6 @@ export const adminApi = {
     api.post<EnableBankingKeypairResponse>('/admin/settings/enablebanking/keypair/import', { privatePem })
       .then(r => r.data),
 
-  toggleIntegration: (key: string, enabled: boolean) =>
-    api.patch<void>(`/admin/settings/integrations/${key}`, null, { params: { enabled } })
-      .then(r => r.data),
-
   reloadCorsFromEnv: () =>
     api.post<{ allowedOrigins: string[] }>('/admin/settings/cors/reload-from-env')
       .then(r => r.data),

@@ -554,7 +554,7 @@ pub fn assemble_accounts_and_wallets(
         });
     }
 
-    let mut current_ccy: HashMap<String, String> = HashMap::new();
+    let mut current_candidates: HashMap<String, Vec<(String, Decimal)>> = HashMap::new();
     for (wallet_id, pockets) in wallets {
         for pocket in pockets {
             let Some(obj) = pocket.as_object() else {
@@ -575,14 +575,18 @@ pub fn assemble_accounts_and_wallets(
                 continue;
             }
             let parent = wallet_id.as_ref().filter(|wid| *wid != &pid).cloned();
-            let name =
-                pick_non_empty_str(obj, &["name", "type"]).unwrap_or_else(|| "Revolut".to_owned());
+            let balance = minor_to_major(pick(obj, &["balance", "amount"]));
+            let name = match pick_non_empty_str(obj, &["name"]) {
+                Some(explicit) if !explicit.eq_ignore_ascii_case("CURRENT") => explicit,
+                _ if ptype.eq_ignore_ascii_case("CURRENT") => format!("Revolut {currency}"),
+                _ => pick_non_empty_str(obj, &["type"]).unwrap_or_else(|| "Revolut".to_owned()),
+            };
             accounts.push(RevolutAccountPayload {
                 external_id: pid.clone(),
                 name,
                 account_type: "CHECKING".to_owned(),
                 iban: None,
-                balance: minor_to_major(pick(obj, &["balance", "amount"])),
+                balance,
                 currency: currency.clone(),
                 parent_external_id: parent,
                 transactions: Vec::new(),
@@ -590,7 +594,10 @@ pub fn assemble_accounts_and_wallets(
             transaction_pocket_ids.insert(pid.clone(), pid);
             if let Some(wid) = wallet_id {
                 if ptype == "CURRENT" {
-                    current_ccy.insert(wid.clone(), currency);
+                    current_candidates
+                        .entry(wid.clone())
+                        .or_default()
+                        .push((currency, balance));
                 }
             }
         }
@@ -599,22 +606,52 @@ pub fn assemble_accounts_and_wallets(
     let wallet_ids: HashSet<String> = wallets.iter().filter_map(|(wid, _)| wid.clone()).collect();
     let mut wallet_currencies: HashMap<String, String> = HashMap::new();
     for wallet_id in wallet_ids {
-        if let Some(ccy) = current_ccy.get(&wallet_id) {
-            wallet_currencies.insert(wallet_id, ccy.clone());
-        } else {
-            let mut counts: HashMap<&str, usize> = HashMap::new();
-            for acc in &accounts {
-                if acc.parent_external_id.as_deref() == Some(wallet_id.as_str()) {
-                    *counts.entry(acc.currency.as_str()).or_insert(0) += 1;
-                }
+        // Count sibling accounts (pockets + vaults) and sum balances per currency for this wallet.
+        let mut counts: HashMap<String, usize> = HashMap::new();
+        let mut totals: HashMap<String, Decimal> = HashMap::new();
+        for acc in &accounts {
+            if acc.parent_external_id.as_deref() == Some(wallet_id.as_str()) {
+                *counts.entry(acc.currency.clone()).or_insert(0) += 1;
+                *totals.entry(acc.currency.clone()).or_insert(Decimal::ZERO) += acc.balance;
             }
-            let dominant = counts
-                .into_iter()
-                .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(a.0)))
-                .map(|(ccy, _)| ccy.to_owned())
-                .unwrap_or_else(|| "EUR".to_owned());
-            wallet_currencies.insert(wallet_id, dominant);
         }
+        // Prefer the dominant CURRENT pocket currency (most sibling accounts -> highest total
+        // balance -> EUR -> alphabetical), rather than letting an empty trailing USD pocket
+        // overwrite the user's primary EUR wallet.
+        let chosen = if let Some(cands) = current_candidates.get(&wallet_id) {
+            let unique_ccys: HashSet<&str> = cands.iter().map(|(c, _)| c.as_str()).collect();
+            unique_ccys
+                .into_iter()
+                .max_by(|a, b| {
+                    let count_a = counts.get(*a).copied().unwrap_or(0);
+                    let count_b = counts.get(*b).copied().unwrap_or(0);
+                    let bal_a = totals.get(*a).copied().unwrap_or(Decimal::ZERO);
+                    let bal_b = totals.get(*b).copied().unwrap_or(Decimal::ZERO);
+                    count_a
+                        .cmp(&count_b)
+                        .then_with(|| bal_a.cmp(&bal_b))
+                        .then_with(|| (*a == "EUR").cmp(&(*b == "EUR")))
+                        .then_with(|| b.cmp(a))
+                })
+                .map(str::to_owned)
+        } else {
+            None
+        };
+        let dominant = chosen.unwrap_or_else(|| {
+            counts
+                .into_iter()
+                .max_by(|a, b| {
+                    let bal_a = totals.get(&a.0).copied().unwrap_or(Decimal::ZERO);
+                    let bal_b = totals.get(&b.0).copied().unwrap_or(Decimal::ZERO);
+                    a.1.cmp(&b.1)
+                        .then_with(|| bal_a.cmp(&bal_b))
+                        .then_with(|| (a.0 == "EUR").cmp(&(b.0 == "EUR")))
+                        .then_with(|| b.0.cmp(&a.0))
+                })
+                .map(|(ccy, _)| ccy)
+                .unwrap_or_else(|| "EUR".to_owned())
+        });
+        wallet_currencies.insert(wallet_id, dominant);
     }
 
     (accounts, transaction_pocket_ids, wallet_currencies)
@@ -1017,5 +1054,52 @@ mod tests {
             fiat_fallback()
         );
         assert_eq!(parse_fiat_currencies(Some(&json!([]))), fiat_fallback());
+    }
+
+    #[test]
+    fn trailing_empty_usd_current_pocket_never_hijacks_eur_wallet_parent() {
+        let money_boxes = vec![json!({
+            "id": "mb-eur",
+            "name": "Compte d'épargne",
+            "accountId": "w-1",
+            "balance": {"amount": 0, "currency": "EUR"},
+            "pocket": {"id": "p-sav"}
+        })];
+        let wallets = vec![(
+            Some("w-1".to_owned()),
+            vec![
+                json!({"id": "p-eur", "type": "CURRENT", "currency": "EUR", "balance": 254}),
+                json!({"id": "p-usd", "type": "CURRENT", "currency": "USD", "balance": 0}),
+            ],
+        )];
+        let fiat = fiat_fallback();
+        let (accounts, _, wallet_currencies) =
+            assemble_accounts_and_wallets(&money_boxes, &wallets, &fiat);
+        assert_eq!(
+            wallet_currencies.get("w-1").map(String::as_str),
+            Some("EUR")
+        );
+
+        let final_accounts = with_wallet_parents(accounts, &wallet_currencies, &HashMap::new());
+        let parent = final_accounts
+            .iter()
+            .find(|a| a.external_id == "w-1")
+            .unwrap();
+        assert_eq!(parent.currency, "EUR");
+        assert_eq!(parent.balance, dec("2.54"));
+
+        let eur_pocket = final_accounts
+            .iter()
+            .find(|a| a.external_id == "p-eur")
+            .unwrap();
+        assert_eq!(eur_pocket.name, "Revolut EUR");
+        assert_eq!(eur_pocket.parent_external_id.as_deref(), Some("w-1"));
+
+        let usd_pocket = final_accounts
+            .iter()
+            .find(|a| a.external_id == "p-usd")
+            .unwrap();
+        assert_eq!(usd_pocket.name, "Revolut USD");
+        assert_eq!(usd_pocket.parent_external_id, None);
     }
 }

@@ -241,6 +241,19 @@ pub async fn recategorize_uncategorized(state: &AppState, member_id: i64) -> App
         }
     }
     tx.commit().await?;
+    match crate::ledger::transfers::pair_all(
+        &state.db,
+        member_id,
+        state.clock.today(),
+        state.clock.now(),
+    )
+    .await
+    {
+        Ok(paired) => assigned += i32::try_from(paired).unwrap_or(0),
+        Err(e) => tracing::error!(
+            "Internal transfer pairing failed during recategorize for member {member_id}: {e}"
+        ),
+    }
     Ok(assigned)
 }
 

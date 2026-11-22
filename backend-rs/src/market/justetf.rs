@@ -94,6 +94,8 @@ pub struct EtfComposition {
     pub source: String,
     pub as_of: Option<NaiveDate>,
     pub facts: Option<FundFacts>,
+    pub index_name: Option<String>,
+    pub investment_focus: Option<String>,
 }
 
 pub struct JustEtf {
@@ -171,6 +173,8 @@ pub fn parse(html: &str, isin: &str) -> Option<EtfComposition> {
     let sectors = parse_axis(html, &SECTOR_ROW, sector_key);
     let companies = parse_companies(html);
     let facts = parse_facts(html);
+    let index_name = value(html, "tl_etf-basics_value_index-name");
+    let investment_focus = value(html, "tl_etf-basics_value_investment-focus");
 
     if countries.is_empty() && sectors.is_empty() && companies.is_empty() && facts.is_empty() {
         return None;
@@ -182,6 +186,8 @@ pub fn parse(html: &str, isin: &str) -> Option<EtfComposition> {
         source: SOURCE.to_owned(),
         as_of: parse_as_of(html),
         facts: (!facts.is_empty()).then_some(facts),
+        index_name,
+        investment_focus,
     })
 }
 
@@ -318,8 +324,13 @@ pub fn sector_key(english_label: &str) -> Option<String> {
         "finance" | "financials" | "financial services" => "financial_services",
         "healthcare" | "health care" => "healthcare",
         "industrials" => "industrials",
-        "consumer discretionary" | "consumer cyclical" => "consumer_cyclical",
-        "consumer staples" | "consumer defensive" => "consumer_defensive",
+        "consumer discretionary" | "consumer cyclical" | "consumer cyclicals" => {
+            "consumer_cyclical"
+        }
+        "consumer staples"
+        | "consumer defensive"
+        | "consumer non-cyclicals"
+        | "consumer non-cyclical" => "consumer_defensive",
         "telecommunication" | "telecommunications" | "communication services" => {
             "communication_services"
         }
@@ -330,6 +341,57 @@ pub fn sector_key(english_label: &str) -> Option<String> {
         _ => return Some(normalized.replace(' ', "_")),
     };
     Some(mapped.to_owned())
+}
+
+/// Maps a tracked equity index name (or investment focus) to a widely-published physical
+/// reference ETF ISIN when a synthetic swap ETF (e.g. PEA unfunded swap) publishes no holdings.
+/// Returns `None` for non-equity funds or narrow/unrecognized indices.
+pub fn proxy_isin_for_index(
+    index_name: Option<&str>,
+    investment_focus: Option<&str>,
+) -> Option<&'static str> {
+    if let Some(focus) = investment_focus {
+        let f = normalize(focus);
+        if !f.is_empty() && !f.contains("equity") {
+            return None;
+        }
+    }
+    let idx = index_name.map(normalize).unwrap_or_default();
+    let focus = investment_focus.map(normalize).unwrap_or_default();
+    if idx.contains("msci em")
+        || idx.contains("emerging market")
+        || focus.contains("emerging market")
+    {
+        return Some("IE00BKM4GZ66"); // iShares Core MSCI EM IMI UCITS ETF
+    }
+    if idx.contains("msci acwi") {
+        return Some("IE00B6R52259"); // iShares MSCI ACWI UCITS ETF
+    }
+    if idx.contains("ftse all-world") || idx.contains("ftse all world") {
+        return Some("IE00BK5BQT80"); // Vanguard FTSE All-World UCITS ETF
+    }
+    if idx.contains("msci world") {
+        return Some("IE00B4L5Y983"); // iShares Core MSCI World UCITS ETF
+    }
+    if idx.contains("s&p 500") || idx.contains("s&p500") {
+        return Some("IE00B5BMR087"); // iShares Core S&P 500 UCITS ETF
+    }
+    if idx.contains("nasdaq-100") || idx.contains("nasdaq 100") {
+        return Some("IE00B53SZB19"); // iShares Nasdaq 100 UCITS ETF
+    }
+    if idx.contains("euro stoxx 50") {
+        return Some("IE00B53L3W79"); // iShares Core EURO STOXX 50 UCITS ETF
+    }
+    if idx.contains("stoxx europe 600") {
+        return Some("LU0908500753"); // Amundi Core Stoxx Europe 600 UCITS ETF
+    }
+    if idx.contains("msci europe") {
+        return Some("IE00B4K48X80"); // iShares Core MSCI Europe UCITS ETF
+    }
+    if idx.contains("msci japan") || idx.contains("topix") {
+        return Some("IE00B4L5YX21"); // iShares Core MSCI Japan IMI UCITS ETF
+    }
+    None
 }
 
 /// JustEtfLabels.countryKey: ISO 3166-1 alpha-2 code for an English country name, or None.
@@ -614,3 +676,35 @@ static COUNTRIES: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(
         ("zimbabwe", "ZW"),
     ])
 });
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_consumer_non_cyclicals_and_resolves_index_proxies() {
+        assert_eq!(
+            sector_key("Consumer Non-Cyclicals").as_deref(),
+            Some("consumer_defensive")
+        );
+        assert_eq!(
+            sector_key("Consumer Cyclicals").as_deref(),
+            Some("consumer_cyclical")
+        );
+        assert_eq!(
+            proxy_isin_for_index(
+                Some("MSCI EM ex-Egypt ESG Broad CTB Select"),
+                Some("Equity, Emerging Markets, Social/Environmental")
+            ),
+            Some("IE00BKM4GZ66")
+        );
+        assert_eq!(
+            proxy_isin_for_index(Some("MSCI World"), Some("Equity, World")),
+            Some("IE00B4L5Y983")
+        );
+        assert_eq!(
+            proxy_isin_for_index(Some("MSCI EM"), Some("Bonds, Emerging Markets")),
+            None
+        );
+    }
+}

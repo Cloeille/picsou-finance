@@ -33,7 +33,7 @@ use crate::ledger::sync_values::{
     clean, error_code, limit, lines_close, money_close, sum_complete, weighted_average,
 };
 use crate::ledger::valuation::{self, SnapshotContext};
-use crate::ledger::{holdings, members, sidecar_import, snapshots, transfers};
+use crate::ledger::{holdings, members, sidecar_import, snapshots};
 
 const BANK: SidecarBank = SidecarBank::Bourso;
 const EXTERNAL_ID_PREFIX: &str = "bourso_";
@@ -194,22 +194,6 @@ impl SyncStrategy for Strategy {
             upsert_account(state, conn, data, job.member_id, synced_at, &ctx).await?;
         }
         Ok(())
-    }
-
-    async fn after_commit(
-        &self,
-        state: &AppState,
-        job: &SyncJob,
-        _prepared: &Vec<PreparedAccount>,
-    ) {
-        transfers::after_import(
-            &state.db,
-            &*state.ledger.dividends,
-            job.member_id,
-            state.clock.today(),
-            state.clock.now(),
-        )
-        .await;
     }
 
     fn describe(&self, prepared: &Vec<PreparedAccount>) -> String {

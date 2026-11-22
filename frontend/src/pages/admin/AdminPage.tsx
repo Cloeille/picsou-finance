@@ -9,7 +9,6 @@ import { cn } from '@/lib/utils'
 import { SecuritySection } from './sections/SecuritySection'
 import { EnableBankingSection } from './sections/EnableBankingSection'
 import { AiCategorizationSection } from './sections/AiCategorizationSection'
-import { IntegrationsSection } from './sections/IntegrationsSection'
 import { MembersSection } from './sections/MembersSection'
 import { AiActivitySection } from './sections/AiActivitySection'
 import { TelemetrySection } from './sections/TelemetrySection'
@@ -27,6 +26,7 @@ export function AdminPage() {
   const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab = resolveTab(searchParams.get('tab'))
+  const desktopMode = useAppStore((s) => s.desktopMode)
   const isAdvancedMode = useAppStore(selectIsAdvancedMode)
   const { data, isLoading, isError, refetch } = useAdminSettings()
 
@@ -83,13 +83,12 @@ export function AdminPage() {
           {activeTab === 'members' && (
             <div className="space-y-6">
               <MembersSection />
-              <SecuritySection settings={data.security} />
+              {!desktopMode && <SecuritySection settings={data.security} />}
             </div>
           )}
 
           {activeTab === 'integrations' && (
             <div className="space-y-6">
-              <IntegrationsSection integrations={data.integrations} />
               <EnableBankingSection settings={data.enableBanking} />
             </div>
           )}

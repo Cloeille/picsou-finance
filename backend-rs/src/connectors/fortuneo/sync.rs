@@ -31,7 +31,7 @@ use crate::ledger::sidecar::{SidecarBank, SidecarErrorCode, SourceSyncResult};
 use crate::ledger::sync_values::{
     clean, java_trim, limit, money_close, sum_complete, weighted_average,
 };
-use crate::ledger::{holdings, members, snapshots, transactions, transfers};
+use crate::ledger::{holdings, members, snapshots, transactions};
 
 const BANK: SidecarBank = SidecarBank::Fortuneo;
 const PORTFOLIO_TIMEOUT: Duration = Duration::from_secs(120);
@@ -185,23 +185,6 @@ impl SyncStrategy for Strategy {
             upsert_account(state, conn, data, job.member_id, synced_at).await?;
         }
         Ok(())
-    }
-
-    /// New rows arrive untyped, so each job classifies again.
-    async fn after_commit(
-        &self,
-        state: &AppState,
-        job: &SyncJob,
-        _prepared: &Vec<PreparedAccount>,
-    ) {
-        transfers::after_import(
-            &state.db,
-            &*state.ledger.dividends,
-            job.member_id,
-            state.clock.today(),
-            state.clock.now(),
-        )
-        .await;
     }
 
     fn describe(&self, prepared: &Vec<PreparedAccount>) -> String {
