@@ -446,8 +446,18 @@ impl CoinGecko {
         Some(accepted)
     }
 
+    fn is_pro_host(&self) -> bool {
+        url::Url::parse(&self.base_url)
+            .ok()
+            .and_then(|u| {
+                u.host_str()
+                    .map(|h| h.eq_ignore_ascii_case("pro-api.coingecko.com"))
+            })
+            .unwrap_or(false)
+    }
+
     fn has_pro_history_access(&self) -> bool {
-        self.api_key.is_some() && self.base_url.contains("pro-api.coingecko.com")
+        self.api_key.is_some() && self.is_pro_host()
     }
 
     async fn get_json(&self, url: &str, timeout: Duration, operation: &str) -> Option<Value> {
@@ -457,7 +467,7 @@ impl CoinGecko {
             .header("Accept", "application/json")
             .timeout(timeout);
         if let Some(key) = &self.api_key {
-            let header = if self.base_url.contains("pro-api.coingecko.com") {
+            let header = if self.is_pro_host() {
                 "x-cg-pro-api-key"
             } else {
                 "x-cg-demo-api-key"

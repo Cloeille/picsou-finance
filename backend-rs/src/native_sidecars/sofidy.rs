@@ -19,8 +19,8 @@ use serde_json::{Value, json};
 use url::Url;
 
 use super::common::{
-    MemoryCookieJar, PendingStore, build_http_client, normalize_base_url, safe_log,
-    same_origin_url, unescape_then_strip_html_text,
+    MAX_RESPONSE_BYTES, MemoryCookieJar, PendingStore, build_http_client, normalize_base_url,
+    read_capped_text, safe_log, same_origin_url, unescape_then_strip_html_text,
 };
 use super::{NativeSidecar, NativeSidecarError};
 
@@ -143,9 +143,11 @@ impl NativeSofidy {
                 }
                 continue;
             }
-            let text = resp.text().await.map_err(|_| {
-                NativeSidecarError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE")
-            })?;
+            let text = read_capped_text(resp, MAX_RESPONSE_BYTES)
+                .await
+                .map_err(|_| {
+                    NativeSidecarError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE")
+                })?;
             return Ok((status, text));
         }
         Err(NativeSidecarError::new(

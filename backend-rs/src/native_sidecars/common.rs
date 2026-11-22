@@ -48,14 +48,12 @@ impl<T> PendingStore<T> {
     pub async fn put(&self, process_id: String, value: T) -> bool {
         let now = Instant::now();
         let mut map = self.entries.lock().await;
+        map.retain(|_, entry| now.duration_since(entry.created_at) < self.ttl);
         if let Some(max) = self.max_size
             && map.len() >= max
             && !map.contains_key(&process_id)
         {
-            map.retain(|_, entry| now.duration_since(entry.created_at) < self.ttl);
-            if map.len() >= max {
-                return false;
-            }
+            return false;
         }
         map.insert(
             process_id,
@@ -547,6 +545,47 @@ pub fn safe_log(value: &str, limit: usize) -> String {
     out
 }
 
+/// Maximum upstream HTTP response size buffered by native sidecars (16 MiB).
+pub const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+
+/// Failure while reading a size-bounded upstream HTTP response body.
+#[derive(Debug)]
+pub enum ReadBodyError {
+    Transport(reqwest::Error),
+    TooLarge { limit: usize },
+}
+
+/// Streams a `reqwest::Response` chunk-by-chunk, failing immediately once total bytes exceed
+/// `max_bytes` so a hostile or runaway upstream response can never cause unbounded memory growth.
+pub async fn read_capped_bytes(
+    mut resp: reqwest::Response,
+    max_bytes: usize,
+) -> Result<Vec<u8>, ReadBodyError> {
+    if let Some(len) = resp.content_length()
+        && len > max_bytes as u64
+    {
+        return Err(ReadBodyError::TooLarge { limit: max_bytes });
+    }
+    let mut buf = Vec::new();
+    while let Some(chunk) = resp.chunk().await.map_err(ReadBodyError::Transport)? {
+        if buf.len().saturating_add(chunk.len()) > max_bytes {
+            return Err(ReadBodyError::TooLarge { limit: max_bytes });
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    Ok(buf)
+}
+
+/// Streams a size-bounded upstream HTTP response body and decodes it as UTF-8 (lossy fallback,
+/// matching `reqwest::Response::text`).
+pub async fn read_capped_text(
+    resp: reqwest::Response,
+    max_bytes: usize,
+) -> Result<String, ReadBodyError> {
+    let bytes = read_capped_bytes(resp, max_bytes).await?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 pub fn build_http_client(
     jar: Arc<MemoryCookieJar>,
     user_agent: &str,
@@ -571,4 +610,22 @@ pub fn build_http_client(
         .default_headers(headers)
         .build()
         .map_err(|_| NativeSidecarError::new(StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn pending_store_sweeps_expired_on_every_put_and_enforces_cap() {
+        let store = PendingStore::new(Duration::from_millis(20), Some(2));
+        assert!(store.put("p1".to_owned(), "secret-1").await);
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        // Putting p2 sweeps expired p1 even though len(1) < cap(2).
+        assert!(store.put("p2".to_owned(), "secret-2").await);
+        assert_eq!(store.entries.lock().await.len(), 1);
+        assert!(store.put("p3".to_owned(), "secret-3").await);
+        // At cap=2, p4 is rejected.
+        assert!(!store.put("p4".to_owned(), "secret-4").await);
+    }
 }

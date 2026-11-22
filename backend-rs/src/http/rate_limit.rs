@@ -92,6 +92,8 @@ pub mod policies {
         SIMPLEFIN_REQUEST = "simplefinRequestBuckets": [6 / 1];
         WISE_REQUEST = "wiseRequestBuckets": [6 / 1];
         SETUP = "setupBuckets": [10 / 1];
+        DESKTOP_AUTOLOGIN = "desktopAutologinBuckets": [20 / 1];
+        DESKTOP_LOCK = "desktopLockBuckets": [5 / 15];
         MFA_VERIFY = "mfaVerifyBuckets": [5 / 15];
         MFA_ENROLL = "mfaEnrollBuckets": [10 / 60];
         EXPORT = "exportBuckets": [5 / 60];

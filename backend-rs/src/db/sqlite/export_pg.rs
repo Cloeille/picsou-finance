@@ -230,10 +230,14 @@ pub async fn export_pg_to_sqlite(
     };
 
     // 3. Atomically promote the verified, single-file SQLite database to `sqlite_path`.
+    #[cfg(unix)]
+    super::restrict_sqlite_permissions(&tmp_path)?;
     if let Err(err) = std::fs::rename(&tmp_path, sqlite_path) {
         cleanup_sqlite_files(&tmp_path);
         return Err(ExportError::Io(err));
     }
+    #[cfg(unix)]
+    super::restrict_sqlite_permissions(sqlite_path)?;
 
     Ok(report)
 }

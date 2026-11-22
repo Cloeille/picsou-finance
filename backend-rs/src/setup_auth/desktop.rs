@@ -12,7 +12,7 @@ use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
-use crate::auth::{Auth, password, persistent, users};
+use crate::auth::{Auth, Role, password, persistent, users};
 use crate::error::{AppError, AppResult};
 use crate::http::client_ip::{ClientIp, PeerIp};
 use crate::http::json::{Errors, Json, Lang, Validate};
@@ -194,6 +194,16 @@ pub async fn autologin(
     ip: ClientIp,
     headers: HeaderMap,
 ) -> AppResult<Response> {
+    let ip_str = ip.as_java_string();
+    if !state
+        .limits
+        .try_consume(&policies::DESKTOP_AUTOLOGIN, &ip_str)
+    {
+        return Err(AppError::status(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many requests. Please wait before trying again.",
+        ));
+    }
     if settings::desktop_lock_enabled(&state).await? {
         return Err(AppError::coded(
             StatusCode::FORBIDDEN,
@@ -230,12 +240,23 @@ struct DesktopLockResponse {
     enabled: bool,
 }
 
+fn require_admin_session(auth: &Auth) -> AppResult<()> {
+    if auth.role() != Some(Role::Admin) {
+        return Err(AppError::status(
+            StatusCode::FORBIDDEN,
+            "Admin access required.",
+        ));
+    }
+    Ok(())
+}
+
 /// GET /api/desktop/lock — returns whether Desktop password lock is enabled.
 pub async fn lock_status(
     State(state): State<AppState>,
     _guard: DesktopLoopback,
-    _auth: Auth,
+    auth: Auth,
 ) -> AppResult<axum::Json<impl Serialize>> {
+    require_admin_session(&auth)?;
     let enabled = settings::desktop_lock_enabled(&state).await?;
     Ok(axum::Json(DesktopLockResponse { enabled }))
 }
@@ -269,10 +290,24 @@ pub async fn update_lock(
     headers: HeaderMap,
     Json(req): Json<DesktopLockRequest>,
 ) -> AppResult<Response> {
+    require_admin_session(&auth)?;
     let ip_str = ip.as_java_string();
+    if !state.limits.try_consume(&policies::DESKTOP_LOCK, &ip_str) {
+        return Err(AppError::status(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many attempts. Please wait before trying again.",
+        ));
+    }
     let mut user = auth.user;
 
     if req.enabled {
+        if settings::desktop_lock_enabled(&state).await? {
+            return Err(AppError::coded(
+                StatusCode::CONFLICT,
+                "DESKTOP_LOCK_ALREADY_ENABLED",
+                "Password lock is already enabled.",
+            ));
+        }
         let hash = password::hash(&req.new_password.unwrap_or_default()).await?;
         user.token_version += 1;
         sqlx::query(
@@ -312,7 +347,11 @@ pub async fn update_lock(
     )
     .await
     {
-        return Err(AppError::BadCredentials);
+        return Err(AppError::coded(
+            StatusCode::UNAUTHORIZED,
+            "REAUTH_FAILED",
+            "Invalid current password.",
+        ));
     }
     settings::upsert(&state.db, settings::DESKTOP_LOCK_ENABLED, "false").await?;
     audit::record(

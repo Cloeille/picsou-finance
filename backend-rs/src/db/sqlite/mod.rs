@@ -28,6 +28,8 @@ pub enum SqliteError {
     Join(String),
     #[error("SQLite migration error: {0}")]
     Migration(#[from] migrate::SqliteMigrationError),
+    #[error("SQLite filesystem I/O error: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 impl SqliteError {
@@ -67,11 +69,15 @@ impl SqliteDb {
     /// Opens (or creates) a file-backed SQLite database with Picsou's standard PRAGMAs and exact
     /// decimal functions registered.
     pub fn open(path: &Path) -> Result<Self, SqliteError> {
+        #[cfg(unix)]
+        ensure_private_file(path)?;
         let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
             | OpenFlags::SQLITE_OPEN_CREATE
             | OpenFlags::SQLITE_OPEN_NO_MUTEX;
         let conn = Connection::open_with_flags(path, flags)?;
         configure_connection(&conn, DEFAULT_BUSY_TIMEOUT_MS, true)?;
+        #[cfg(unix)]
+        restrict_sqlite_permissions(path)?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })
@@ -160,6 +166,40 @@ pub fn configure_connection(
     }
 
     decimal::register_decimal_functions(conn)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn ensure_private_file(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    match std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .mode(0o600)
+        .open(path)
+    {
+        Ok(_) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        Err(err) => Err(err),
+    }
+}
+
+/// Restricts the SQLite database file and any `-wal`/`-shm` sidecars to owner-only (`0o600`).
+#[cfg(unix)]
+pub(crate) fn restrict_sqlite_permissions(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = std::fs::Permissions::from_mode(0o600);
+    if path.exists() {
+        std::fs::set_permissions(path, mode.clone())?;
+    }
+    for suffix in ["-wal", "-shm"] {
+        let mut sidecar = path.as_os_str().to_os_string();
+        sidecar.push(suffix);
+        let sidecar_path = std::path::PathBuf::from(sidecar);
+        if sidecar_path.exists() {
+            std::fs::set_permissions(&sidecar_path, mode.clone())?;
+        }
+    }
     Ok(())
 }
 

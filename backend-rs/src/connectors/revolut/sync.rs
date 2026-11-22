@@ -1008,6 +1008,13 @@ pub async fn disconnect(state: &AppState, member_id: i64) -> AppResult<()> {
             .execute(&state.db)
             .await?;
     }
+    if webview_supported(state) && !state.connectors.base_url(SERVICE).is_empty() {
+        let http = SidecarHttp::new(state, SERVICE, PROVIDER);
+        let path = format!("/session/{member_id}");
+        let _ = http
+            .send::<Value>(Method::DELETE, &path, None, Duration::from_secs(5))
+            .await;
+    }
     tracing::info!("Revolut session cleared for member {member_id}");
     Ok(())
 }

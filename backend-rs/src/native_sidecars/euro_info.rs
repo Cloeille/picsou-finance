@@ -16,8 +16,8 @@ use url::Url;
 
 use super::NativeSidecarError;
 use super::common::{
-    MemoryCookieJar, PendingStore, build_http_client, html_text, normalize_base_url, safe_log,
-    same_origin_url, unescape_html,
+    MAX_RESPONSE_BYTES, MemoryCookieJar, PendingStore, build_http_client, html_text,
+    normalize_base_url, read_capped_text, safe_log, same_origin_url, unescape_html,
 };
 
 pub const LOGIN_FORM: &str = "bloc_ident";
@@ -1155,10 +1155,12 @@ async fn read_page(
     let status = resp.status();
     let url = resp.url().clone();
     let headers = resp.headers().clone();
-    let text = resp.text().await.map_err(|_| {
-        tracing::warn!("{site_name} HTTP response read failed");
-        NativeSidecarError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE")
-    })?;
+    let text = read_capped_text(resp, MAX_RESPONSE_BYTES)
+        .await
+        .map_err(|_| {
+            tracing::warn!("{site_name} HTTP response read failed");
+            NativeSidecarError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE")
+        })?;
     Ok(HttpPage {
         status,
         url,

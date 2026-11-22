@@ -655,7 +655,43 @@ async fn cli_export_sqlite_subcommand_works() {
     assert!(stdout.contains("fk_violations=0"), "{stdout}");
 
     // Exported database passes schema verification and integrity checks.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&out_path)
+            .expect("stat exported sqlite")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "exported SQLite DB must have 0o600 permissions"
+        );
+    }
     let sqlite = SqliteDb::open(&out_path).expect("open CLI-exported SQLite");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for candidate in [
+            out_path.clone(),
+            std::path::PathBuf::from(format!("{}-wal", out_path.display())),
+            std::path::PathBuf::from(format!("{}-shm", out_path.display())),
+        ] {
+            if candidate.exists() {
+                let mode = std::fs::metadata(&candidate)
+                    .expect("stat sqlite file")
+                    .permissions()
+                    .mode()
+                    & 0o777;
+                assert_eq!(
+                    mode,
+                    0o600,
+                    "SQLite file {} must have 0o600 permissions",
+                    candidate.display()
+                );
+            }
+        }
+    }
     let verified = sqlite.verify_schema().expect("verify CLI-exported SQLite");
     assert_eq!(
         verified.tables_verified,

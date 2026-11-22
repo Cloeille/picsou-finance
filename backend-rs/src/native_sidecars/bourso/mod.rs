@@ -30,6 +30,7 @@ use self::accounts_parser::{
 use self::cookies::SessionCookieJar;
 use self::html::html_unescape;
 use self::virtual_pad::{encode_password, extract_challenge, parse_virtual_pad};
+use crate::native_sidecars::common;
 use crate::native_sidecars::{
     NativeCallResult, NativeError, NativeResponse, method_not_allowed, not_found,
 };
@@ -56,6 +57,7 @@ pub const REQUEST_TIMEOUT_SECONDS: u64 = 30;
 pub const MAX_MOVEMENT_PAGES: usize = 20;
 pub const ACCOUNTS_HISTORY_DEADLINE_SECONDS: u64 = 60;
 pub const MAX_PENDING: usize = 16;
+const MAX_REDIRECTS: usize = 10;
 
 const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 \
                           (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
@@ -89,6 +91,8 @@ static HREF_DOUBLE_RE: LazyLock<Regex> =
 static HREF_SINGLE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)href\s*=\s*'([^']+)'").unwrap());
 static CURRENCY_CODE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Z]{3}$").unwrap());
+static SAFE_PATH_SEGMENT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[A-Za-z0-9_-]{1,128}$").unwrap());
 
 /// Configuration for `NativeBourso`, allowing tests to point at `wiremock` and tighten timeouts.
 #[derive(Debug, Clone)]
@@ -290,13 +294,16 @@ fn parse_accounts_request(body: Option<Value>) -> Result<ParsedAccounts, NativeE
 
 struct SessionClient {
     no_redirect: reqwest::Client,
-    follow: reqwest::Client,
     cookies: Arc<SessionCookieJar>,
     base_url: String,
+    base_origin: Url,
 }
 
 impl SessionClient {
     fn new(config: &BoursoConfig) -> Result<Self, NativeError> {
+        let base_url = config.base_url.trim_end_matches('/').to_owned();
+        let base_origin = Url::parse(&base_url)
+            .map_err(|_| NativeError::new(StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR"))?;
         let cookies = Arc::new(SessionCookieJar::new());
         let mut headers = http::HeaderMap::new();
         headers.insert(
@@ -309,26 +316,18 @@ impl SessionClient {
         );
 
         let no_redirect = reqwest::Client::builder()
-            .default_headers(headers.clone())
+            .default_headers(headers)
             .cookie_provider(cookies.clone())
             .redirect(reqwest::redirect::Policy::none())
             .timeout(config.request_timeout)
             .build()
             .map_err(|_| NativeError::new(StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR"))?;
 
-        let follow = reqwest::Client::builder()
-            .default_headers(headers)
-            .cookie_provider(cookies.clone())
-            .redirect(reqwest::redirect::Policy::limited(10))
-            .timeout(config.request_timeout)
-            .build()
-            .map_err(|_| NativeError::new(StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR"))?;
-
         Ok(Self {
             no_redirect,
-            follow,
             cookies,
-            base_url: config.base_url.trim_end_matches('/').to_owned(),
+            base_url,
+            base_origin,
         })
     }
 
@@ -346,13 +345,41 @@ impl SessionClient {
         &self,
         path_or_url: &str,
         follow_redirects: bool,
-    ) -> Result<reqwest::Response, reqwest::Error> {
-        let client = if follow_redirects {
-            &self.follow
-        } else {
-            &self.no_redirect
-        };
-        client.get(self.url(path_or_url)).send().await
+    ) -> Result<reqwest::Response, NativeError> {
+        let mut url = common::same_origin_url(&self.base_origin, &self.base_origin, path_or_url)
+            .ok_or_else(|| NativeError::new(StatusCode::BAD_GATEWAY, FORMAT_CHANGED))?;
+        let mut resp = self
+            .no_redirect
+            .get(url.clone())
+            .send()
+            .await
+            .map_err(http_err)?;
+        if !follow_redirects {
+            return Ok(resp);
+        }
+        for hop in 0..=MAX_REDIRECTS {
+            if !resp.status().is_redirection() {
+                return Ok(resp);
+            }
+            let Some(loc_val) = resp.headers().get(http::header::LOCATION) else {
+                return Ok(resp);
+            };
+            if hop == MAX_REDIRECTS {
+                return Err(NativeError::new(StatusCode::BAD_GATEWAY, FORMAT_CHANGED));
+            }
+            let location = loc_val
+                .to_str()
+                .map_err(|_| NativeError::new(StatusCode::BAD_GATEWAY, FORMAT_CHANGED))?;
+            url = common::same_origin_url(&self.base_origin, &url, location)
+                .ok_or_else(|| NativeError::new(StatusCode::BAD_GATEWAY, FORMAT_CHANGED))?;
+            resp = self
+                .no_redirect
+                .get(url.clone())
+                .send()
+                .await
+                .map_err(http_err)?;
+        }
+        Err(NativeError::new(StatusCode::BAD_GATEWAY, FORMAT_CHANGED))
     }
 
     async fn get_with_header(
@@ -360,12 +387,15 @@ impl SessionClient {
         path_or_url: &str,
         header_name: &'static str,
         header_value: &'static str,
-    ) -> Result<reqwest::Response, reqwest::Error> {
+    ) -> Result<reqwest::Response, NativeError> {
+        let url = common::same_origin_url(&self.base_origin, &self.base_origin, path_or_url)
+            .ok_or_else(|| NativeError::new(StatusCode::BAD_GATEWAY, FORMAT_CHANGED))?;
         self.no_redirect
-            .get(self.url(path_or_url))
+            .get(url)
             .header(header_name, header_value)
             .send()
             .await
+            .map_err(http_err)
     }
 }
 
@@ -405,6 +435,71 @@ pub fn extract_form_token(page: &str) -> Result<String, AccountsFormatError> {
     ))
 }
 
+fn validate_path_segment(value: &str, label: &str) -> Result<(), AccountsFormatError> {
+    if !SAFE_PATH_SEGMENT_RE.is_match(value) {
+        return Err(AccountsFormatError::new(
+            FORMAT_CHANGED,
+            format!("BoursoBank payload carried an invalid {label}"),
+        ));
+    }
+    Ok(())
+}
+
+fn is_boursobank_host(host: Option<&str>) -> bool {
+    let Some(host) = host else {
+        return false;
+    };
+    let lowered = host.to_ascii_lowercase();
+    if lowered == "boursobank.com" {
+        return true;
+    }
+    let Some(prefix) = lowered.strip_suffix(".boursobank.com") else {
+        return false;
+    };
+    !prefix.is_empty()
+        && prefix.split('.').all(|label| {
+            let b = label.as_bytes();
+            !b.is_empty()
+                && b.len() <= 63
+                && b[0].is_ascii_alphanumeric()
+                && b[b.len() - 1].is_ascii_alphanumeric()
+                && b.iter()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
+        })
+}
+
+pub fn validate_api_url(api_url: &str, base_url: &str) -> Result<String, AccountsFormatError> {
+    let parsed = Url::parse(api_url).map_err(|_| {
+        AccountsFormatError::new(FORMAT_CHANGED, "Home page carried an unparseable API_URL")
+    })?;
+    if !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(AccountsFormatError::new(
+            FORMAT_CHANGED,
+            "Home page API_URL carried forbidden credentials, query, or fragment",
+        ));
+    }
+    let base = Url::parse(base_url).map_err(|_| {
+        AccountsFormatError::new(FORMAT_CHANGED, "Invalid configured BoursoBank base URL")
+    })?;
+    let same_origin_as_base = parsed.scheme() == base.scheme()
+        && parsed.host_str() == base.host_str()
+        && parsed.port_or_known_default() == base.port_or_known_default();
+    let allowlisted_bourso = parsed.scheme() == "https"
+        && matches!(parsed.port(), None | Some(443))
+        && is_boursobank_host(parsed.host_str());
+    if !same_origin_as_base && !allowlisted_bourso {
+        return Err(AccountsFormatError::new(
+            FORMAT_CHANGED,
+            "Home page API_URL left the expected BoursoBank origin",
+        ));
+    }
+    Ok(api_url.trim_end_matches('/').to_owned())
+}
+
 pub fn extract_brs_config(page: &str) -> Result<(String, String), AccountsFormatError> {
     let api_url = API_URL_RE
         .captures(page)
@@ -422,6 +517,7 @@ pub fn extract_brs_config(page: &str) -> Result<(String, String), AccountsFormat
             "Home page carried no API_URL/USER_HASH",
         ));
     };
+    validate_path_segment(user_hash, "USER_HASH")?;
     let unescaped = api_url.replace("\\/", "/").trim_end_matches('/').to_owned();
     Ok((unescaped, user_hash.to_owned()))
 }
@@ -482,6 +578,7 @@ pub fn strong_auth_params(page: &str) -> Result<(String, String), AccountsFormat
                 "Authentication challenge is missing resourceId/formState",
             )
         })?;
+    validate_path_segment(resource_id, "resourceId")?;
     Ok((resource_id.to_owned(), form_state.to_owned()))
 }
 
@@ -503,11 +600,10 @@ pub fn redirects_to_identity_selector(
     let Ok(origin) = Url::parse(base_url) else {
         return false;
     };
-    let Ok(target) = origin.join(location.unwrap_or("")) else {
+    let Some(target) = common::same_origin_url(&origin, &origin, location.unwrap_or("")) else {
         return false;
     };
-    same_host_and_port(&target, &origin)
-        && target.path().trim_end_matches('/') == IDENTITY_SELECTOR_PATH
+    target.path().trim_end_matches('/') == IDENTITY_SELECTOR_PATH
 }
 
 pub fn redirects_to_profile_notice(
@@ -521,10 +617,10 @@ pub fn redirects_to_profile_notice(
     let Ok(origin) = Url::parse(base_url) else {
         return false;
     };
-    let Ok(target) = origin.join(location.unwrap_or("")) else {
+    let Some(target) = common::same_origin_url(&origin, &origin, location.unwrap_or("")) else {
         return false;
     };
-    same_host_and_port(&target, &origin) && target.path().starts_with(PROFILE_NOTICE_PATH)
+    target.path().starts_with(PROFILE_NOTICE_PATH)
 }
 
 pub fn notice_dismiss_link(page: &str, base_url: &str) -> Option<String> {
@@ -542,20 +638,12 @@ pub fn notice_dismiss_link(page: &str, base_url: &str) -> Option<String> {
     None
 }
 
-fn same_host_and_port(a: &Url, b: &Url) -> bool {
-    a.host_str() == b.host_str() && a.port_or_known_default() == b.port_or_known_default()
-}
-
 pub fn same_origin_url(value: &str, base: &str, expected_origin: &str) -> Result<String, String> {
     let base_parsed = Url::parse(base).map_err(|_| "Invalid base URL".to_owned())?;
     let origin = Url::parse(expected_origin).map_err(|_| "Invalid origin URL".to_owned())?;
-    let resolved = base_parsed
-        .join(value)
-        .map_err(|_| "Invalid relative URL".to_owned())?;
-    if resolved.scheme() != origin.scheme() || !same_host_and_port(&resolved, &origin) {
-        return Err("BoursoBank link left the expected origin".to_owned());
-    }
-    Ok(resolved.into())
+    common::same_origin_url(&origin, &base_parsed, value)
+        .map(String::from)
+        .ok_or_else(|| "BoursoBank link left the expected origin".to_owned())
 }
 
 // ─── NativeBourso sidecar ───────────────────────────────────────────────────
@@ -783,8 +871,8 @@ impl NativeBourso {
     }
 
     async fn bootstrap(&self, session: &SessionClient) -> Result<String, NativeError> {
-        let response = session.get(LOGIN_PATH, false).await.map_err(http_err)?;
-        let body = response.text().await.map_err(http_err)?;
+        let response = session.get(LOGIN_PATH, false).await?;
+        let body = read_text(response).await?;
         if body.contains(LOGGED_IN_MARKER) {
             return Ok(body);
         }
@@ -817,8 +905,8 @@ impl NativeBourso {
             "/",
         );
 
-        let second = session.get(LOGIN_PATH, false).await.map_err(http_err)?;
-        second.text().await.map_err(http_err)
+        let second = session.get(LOGIN_PATH, false).await?;
+        read_text(second).await
     }
 
     async fn login(
@@ -830,13 +918,8 @@ impl NativeBourso {
         let login_page = self.bootstrap(session).await?;
         let form_token = extract_form_token(&login_page).map_err(format_err)?;
 
-        let pad_page = session
-            .get(VIRTUAL_PAD_PATH, false)
-            .await
-            .map_err(http_err)?
-            .text()
-            .await
-            .map_err(http_err)?;
+        let pad_resp = session.get(VIRTUAL_PAD_PATH, false).await?;
+        let pad_page = read_text(pad_resp).await?;
 
         let keys = parse_virtual_pad(&pad_page).map_err(|e| {
             tracing::warn!("BoursoBank virtual keyboard could not be decoded: {e}");
@@ -872,7 +955,7 @@ impl NativeBourso {
 
         if response.status() != StatusCode::FOUND {
             let status = response.status();
-            let body = response.text().await.map_err(http_err)?;
+            let body = read_text(response).await?;
             if BAD_CREDENTIALS_MARKERS
                 .iter()
                 .any(|marker| body.contains(marker))
@@ -896,25 +979,17 @@ impl NativeBourso {
     }
 
     async fn home(&self, session: &SessionClient) -> Result<String, NativeError> {
-        let resp = session.get("/", true).await.map_err(http_err)?;
-        resp.text().await.map_err(http_err)
+        let resp = session.get("/", true).await?;
+        read_text(resp).await
     }
 
     async fn start_app_push(
         &self,
         session: &SessionClient,
     ) -> Result<AppPushChallenge, NativeError> {
-        let _ = session
-            .get(SECURISATION_PATH, true)
-            .await
-            .map_err(http_err)?;
-        let page = session
-            .get(VALIDATION_PATH, true)
-            .await
-            .map_err(http_err)?
-            .text()
-            .await
-            .map_err(http_err)?;
+        let _ = session.get(SECURISATION_PATH, true).await?;
+        let validation_resp = session.get(VALIDATION_PATH, true).await?;
+        let page = read_text(validation_resp).await?;
 
         if !page.contains("brs-otp-webtoapp") {
             if let Some(cap) = OTHER_OTP_RE.captures(&page) {
@@ -934,7 +1009,8 @@ impl NativeBourso {
             ));
         }
 
-        let (api_url, user_hash) = extract_brs_config(&page).map_err(format_err)?;
+        let (raw_api_url, user_hash) = extract_brs_config(&page).map_err(format_err)?;
+        let api_url = validate_api_url(&raw_api_url, &self.config.base_url).map_err(format_err)?;
         let (resource_id, form_state) = strong_auth_params(&page).map_err(format_err)?;
         let validation_token = extract_form_token(&page).map_err(format_err)?;
 
@@ -956,7 +1032,7 @@ impl NativeBourso {
             .map_err(http_err)?;
 
         let status = response.status();
-        let text = response.text().await.map_err(http_err)?;
+        let text = read_text(response).await?;
         if status != StatusCode::OK || !json_success_body(&text) {
             tracing::warn!(
                 "BoursoBank refused to send the app push (HTTP {})",
@@ -1001,7 +1077,7 @@ impl NativeBourso {
                 .map_err(http_err)?;
 
             let status = response.status();
-            let text = response.text().await.map_err(http_err)?;
+            let text = read_text(response).await?;
             if status == StatusCode::OK && json_success_body(&text) {
                 return Ok(true);
             }
@@ -1043,7 +1119,6 @@ impl NativeBourso {
         session
             .get_with_header(ACCOUNTS_PATH, "X-Requested-With", "XMLHttpRequest")
             .await
-            .map_err(http_err)
     }
 
     async fn dismiss_profile_notice(
@@ -1056,13 +1131,12 @@ impl NativeBourso {
             .get(http::header::LOCATION)
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
-        let target = Url::parse(&self.config.base_url)
-            .and_then(|base| base.join(location))
+        let target = same_origin_url(location, &self.config.base_url, &self.config.base_url)
             .map_err(|_| NativeError::new(StatusCode::BAD_GATEWAY, FORMAT_CHANGED))?;
 
-        let page = session.get(target.as_str(), true).await.map_err(http_err)?;
+        let page = session.get(&target, true).await?;
         let final_url = page.url().clone();
-        let page_text = page.text().await.map_err(http_err)?;
+        let page_text = read_text(page).await?;
 
         let notice = final_url
             .path()
@@ -1082,7 +1156,7 @@ impl NativeBourso {
 
         let dismiss_url = same_origin_url(&link, final_url.as_str(), &self.config.base_url)
             .map_err(|_| NativeError::new(StatusCode::BAD_GATEWAY, FORMAT_CHANGED))?;
-        let _ = session.get(&dismiss_url, true).await.map_err(http_err)?;
+        let _ = session.get(&dismiss_url, true).await?;
         tracing::info!(
             "BoursoBank: postponed the '{notice}' notice served in place of the dashboard"
         );
@@ -1116,20 +1190,15 @@ impl NativeBourso {
             .get(http::header::LOCATION)
             .and_then(|v| v.to_str().ok());
         if !redirects_to_identity_selector(response.status(), loc, &self.config.base_url) {
-            let text = response.text().await.map_err(http_err)?;
+            let text = read_text(response).await?;
             return Ok((text, false));
         }
 
-        let selector = session
-            .get(IDENTITY_SELECTOR_PATH, true)
-            .await
-            .map_err(http_err)?
-            .text()
-            .await
-            .map_err(http_err)?;
+        let selector_resp = session.get(IDENTITY_SELECTOR_PATH, true).await?;
+        let selector = read_text(selector_resp).await?;
         let switch_path = choose_personal_identity_for_origin(&selector, &self.config.base_url)
             .map_err(format_err)?;
-        let _ = session.get(&switch_path, true).await.map_err(http_err)?;
+        let _ = session.get(&switch_path, true).await?;
 
         let after = self.get_dashboard(session).await?;
         let after_loc = after
@@ -1145,7 +1214,7 @@ impl NativeBourso {
         tracing::info!(
             "BoursoBank: switched to the personal identity before reading the dashboard"
         );
-        let text = after.text().await.map_err(http_err)?;
+        let text = read_text(after).await?;
         Ok((text, true))
     }
 
@@ -1156,6 +1225,7 @@ impl NativeBourso {
         user_hash: &str,
         account_id: &str,
     ) -> Result<accounts_parser::TradingSummary, NativeError> {
+        validate_path_segment(account_id, "accountId").map_err(format_err)?;
         let url = format!("{api_url}/_user_/_{user_hash}_/trading/accounts/summary/{account_id}");
         let response = session
             .no_redirect
@@ -1195,7 +1265,7 @@ impl NativeBourso {
             ));
         }
 
-        let body = response.text().await.map_err(http_err)?;
+        let body = read_text(response).await?;
         let payload: Value = serde_json::from_str(&body).map_err(|_| {
             format_err(AccountsFormatError::new(
                 FORMAT_CHANGED,
@@ -1219,7 +1289,7 @@ impl NativeBourso {
             same_origin_url("positions", &base_with_slash, &self.config.base_url)
                 .map_err(|_| NativeError::new(StatusCode::BAD_GATEWAY, FORMAT_CHANGED))?;
 
-        let response = session.get(&positions_url, false).await.map_err(http_err)?;
+        let response = session.get(&positions_url, false).await?;
         let status = response.status();
         let location = response
             .headers()
@@ -1244,7 +1314,7 @@ impl NativeBourso {
                 ));
             }
         }
-        let text = response.text().await.map_err(http_err)?;
+        let text = read_text(response).await?;
         Ok((status, text))
     }
 
@@ -1312,8 +1382,7 @@ impl NativeBourso {
         if !response.status().is_success() {
             return Err(format!("IBAN HTTP {}", response.status().as_u16()));
         }
-        let text = response
-            .text()
+        let text = read_text(response)
             .await
             .map_err(|_| "IBAN body read failed".to_owned())?;
         Ok(parse_iban_page(&text))
@@ -1384,8 +1453,7 @@ impl NativeBourso {
             if !response.status().is_success() {
                 return Err(format!("Movements HTTP {}", response.status().as_u16()));
             }
-            let text = response
-                .text()
+            let text = read_text(response)
                 .await
                 .map_err(|_| "Movements body read failed".to_owned())?;
             let (page_txs, next_token) =
@@ -1457,7 +1525,8 @@ impl NativeBourso {
         if switched {
             home = self.home(session).await?;
         }
-        let (api_url, user_hash) = extract_brs_config(&home).map_err(format_err)?;
+        let (raw_api_url, user_hash) = extract_brs_config(&home).map_err(format_err)?;
+        let api_url = validate_api_url(&raw_api_url, &self.config.base_url).map_err(format_err)?;
 
         let (accounts, third_party) = parse_dashboard(&dashboard_html).map_err(format_err)?;
         if third_party > 0 {
@@ -1583,6 +1652,18 @@ fn format_err(exc: AccountsFormatError) -> NativeError {
         exc.message
     );
     NativeError::new(StatusCode::BAD_GATEWAY, exc.code)
+}
+
+async fn read_text(response: reqwest::Response) -> Result<String, NativeError> {
+    common::read_capped_text(response, common::MAX_RESPONSE_BYTES)
+        .await
+        .map_err(|err| match err {
+            common::ReadBodyError::Transport(e) => http_err(e),
+            common::ReadBodyError::TooLarge { limit } => {
+                tracing::warn!("BoursoBank upstream response exceeded {limit} bytes");
+                NativeError::new(StatusCode::BAD_GATEWAY, FORMAT_CHANGED)
+            }
+        })
 }
 
 fn http_err(err: reqwest::Error) -> NativeError {

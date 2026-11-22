@@ -253,13 +253,14 @@ async fn autologin_and_password_lock_lifecycle() {
         StatusCode::OK
     );
 
-    // 8. Disabling lock with wrong current password is rejected with 401.
+    // 8. Disabling lock with wrong current password is rejected with 401 REAUTH_FAILED.
     let wrong_pw = logged_in
         .put("/api/desktop/lock")
         .json(&json!({"enabled": false, "currentPassword": "wrong-password"}))
         .send()
         .await;
     assert_eq!(wrong_pw.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(wrong_pw.json()["code"], "REAUTH_FAILED");
 
     // 9. Disabling lock with the right current password succeeds and re-enables auto-login.
     let disable = logged_in
@@ -281,4 +282,157 @@ async fn autologin_and_password_lock_lifecycle() {
         .await;
     assert_eq!(auto_again.status, StatusCode::OK);
     assert_eq!(auto_again.json()["username"], "louis");
+}
+
+#[tokio::test]
+async fn non_admin_member_is_forbidden_from_desktop_lock_and_lock_cannot_be_overwritten() {
+    let app = TestApp::builder()
+        .env("APP_DESKTOP_MODE", "true")
+        .spawn()
+        .await;
+
+    let qs = app
+        .client()
+        .post("/api/setup/desktop-quick-start")
+        .json(&json!({"displayName": "Louis"}))
+        .send()
+        .await;
+    assert_eq!(qs.status, StatusCode::OK);
+
+    // Create an activated non-admin family member and sign in as them.
+    app.create_member("alice", "alice-secret-password").await;
+    let alice = app.login("alice", "alice-secret-password").await;
+
+    // Non-admin receives 403 on GET and PUT /api/desktop/lock.
+    assert_eq!(
+        alice.get("/api/desktop/lock").send().await.status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        alice
+            .put("/api/desktop/lock")
+            .json(&json!({"enabled": true, "newPassword": "hijack-password-1"}))
+            .send()
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+
+    // Admin enables the lock with a known password.
+    let admin = app.client();
+    assert_eq!(
+        admin
+            .post("/api/auth/desktop-autologin")
+            .send()
+            .await
+            .status,
+        StatusCode::OK
+    );
+    let enable = admin
+        .put("/api/desktop/lock")
+        .json(&json!({"enabled": true, "newPassword": "original-admin-pw"}))
+        .send()
+        .await;
+    assert_eq!(enable.status, StatusCode::OK);
+
+    // Non-admin still cannot disable the lock using their own password to escalate via autologin.
+    assert_eq!(
+        alice
+            .put("/api/desktop/lock")
+            .json(&json!({"enabled": false, "currentPassword": "alice-secret-password"}))
+            .send()
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+
+    // Calling PUT /api/desktop/lock with enabled: true while lock is already enabled is rejected
+    // with 409 Conflict, and the admin's password remains unchanged.
+    let overwrite = admin
+        .put("/api/desktop/lock")
+        .json(&json!({"enabled": true, "newPassword": "overwritten-password"}))
+        .send()
+        .await;
+    assert_eq!(overwrite.status, StatusCode::CONFLICT);
+    assert_eq!(overwrite.json()["code"], "DESKTOP_LOCK_ALREADY_ENABLED");
+
+    // Original password still works; overwritten password is rejected.
+    let bad_login = app
+        .client()
+        .post("/api/auth/login")
+        .json(&json!({"username": "louis", "password": "overwritten-password"}))
+        .send()
+        .await;
+    assert_eq!(bad_login.status, StatusCode::UNAUTHORIZED);
+
+    let good_login = app.login("louis", "original-admin-pw").await;
+    assert_eq!(
+        good_login.get("/api/desktop/lock").send().await.json()["enabled"],
+        true
+    );
+}
+
+#[tokio::test]
+async fn desktop_lock_and_autologin_enforce_rate_limits() {
+    let app = TestApp::builder()
+        .env("APP_DESKTOP_MODE", "true")
+        .spawn()
+        .await;
+    let qs = app
+        .client()
+        .post("/api/setup/desktop-quick-start")
+        .json(&json!({"displayName": "Louis"}))
+        .send()
+        .await;
+    assert_eq!(qs.status, StatusCode::OK);
+
+    // Enable lock once, then burn remaining DESKTOP_LOCK tokens (5/15m) with bad password checks.
+    let admin = app.client();
+    assert_eq!(
+        admin
+            .post("/api/auth/desktop-autologin")
+            .send()
+            .await
+            .status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        admin
+            .put("/api/desktop/lock")
+            .json(&json!({"enabled": true, "newPassword": "rate-limit-pass-1"}))
+            .send()
+            .await
+            .status,
+        StatusCode::OK
+    );
+    for _ in 0..4 {
+        let resp = admin
+            .put("/api/desktop/lock")
+            .json(&json!({"enabled": false, "currentPassword": "wrong-pw"}))
+            .send()
+            .await;
+        assert_eq!(resp.status, StatusCode::UNAUTHORIZED);
+    }
+    let throttled_lock = admin
+        .put("/api/desktop/lock")
+        .json(&json!({"enabled": false, "currentPassword": "rate-limit-pass-1"}))
+        .send()
+        .await;
+    assert_eq!(throttled_lock.status, StatusCode::TOO_MANY_REQUESTS);
+
+    // Burn the remaining DESKTOP_AUTOLOGIN bucket (20/1m; 1 already consumed above).
+    for _ in 0..19 {
+        let resp = app
+            .client()
+            .post("/api/auth/desktop-autologin")
+            .send()
+            .await;
+        assert_eq!(resp.status, StatusCode::FORBIDDEN);
+    }
+    let throttled_auto = app
+        .client()
+        .post("/api/auth/desktop-autologin")
+        .send()
+        .await;
+    assert_eq!(throttled_auto.status, StatusCode::TOO_MANY_REQUESTS);
 }

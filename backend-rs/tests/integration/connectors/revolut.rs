@@ -715,4 +715,21 @@ async fn webview_endpoints_are_desktop_only_and_drive_full_sync_on_desktop() {
             .json()["code"],
         "AUTH_ATTEMPT_EXPIRED"
     );
+
+    // Disconnect in Desktop mode clears the Desktop WebView bridge's in-memory session.
+    sidecar.reset().await;
+    let member_id: i64 =
+        sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+            .fetch_one(&desktop_app.state.db)
+            .await
+            .unwrap();
+    Mock::given(method("DELETE"))
+        .and(path(format!("/session/{member_id}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "cleared": true })))
+        .expect(1)
+        .mount(&sidecar)
+        .await;
+    let disconnected = client.delete("/api/revolut/session").send().await;
+    assert_eq!(disconnected.status, 204, "{}", disconnected.text());
+    sidecar.verify().await;
 }

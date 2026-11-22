@@ -45,6 +45,9 @@ use self::operations_parser::{
 use self::pending::{LoginState, PendingEntry, PendingStore};
 use self::savings_parser::{SavingsFormatError, fund_code, fund_ids, parse_plans};
 use crate::clock::{Clock, SystemClock};
+use crate::native_sidecars::common::{
+    MAX_RESPONSE_BYTES, ReadBodyError, read_capped_bytes, read_capped_text,
+};
 use crate::native_sidecars::{
     NativeCallResult, NativeError, NativeResponse, method_not_allowed, not_found,
 };
@@ -439,11 +442,12 @@ impl NativeNatixis {
             .map_err(|_| NatixisError::format_changed("Login sent to an unparseable URL"))?;
         let scheme_ok = parsed.scheme() == "https"
             || (self.inner.config.allow_http && parsed.scheme() == "http");
+        let port_ok = self.inner.config.allow_http || matches!(parsed.port(), None | Some(443));
         let host_ok = parsed
             .host_str()
             .is_some_and(|h| self.inner.config.trusted_hosts.contains(h));
         let no_creds = parsed.username().is_empty() && parsed.password().is_none();
-        if !scheme_ok || !host_ok || !no_creds {
+        if !scheme_ok || !port_ok || !host_ok || !no_creds {
             return Err(NatixisError::format_changed(
                 "Login sent to an unexpected host",
             ));
@@ -691,10 +695,9 @@ impl NativeNatixis {
         let status = response.status();
         let response_url = response.url().clone();
         check_upstream(status, "authorize")?;
-        let text = response
-            .text()
+        let text = read_capped_text(response, MAX_RESPONSE_BYTES)
             .await
-            .map_err(|err| classify_transport("authorize", &err))?;
+            .map_err(|err| classify_body_err("authorize", err))?;
 
         let action = FORM_ACTION_RE
             .captures(&text)
@@ -734,10 +737,9 @@ impl NativeNatixis {
             .map_err(|err| classify_transport("SAML SSO", &err))?;
         let status = response.status();
         check_upstream(status, "SAML SSO")?;
-        let text = response
-            .text()
+        let text = read_capped_text(response, MAX_RESPONSE_BYTES)
             .await
-            .map_err(|err| classify_transport("SAML SSO", &err))?;
+            .map_err(|err| classify_body_err("SAML SSO", err))?;
         let csrf = CSRF_RE
             .captures(&text)
             .and_then(|c| c.get(1))
@@ -1561,17 +1563,25 @@ fn classify_transport(what: &str, err: &reqwest::Error) -> NatixisError {
     NatixisError::unavailable(format!("{what} unreachable ({kind})"))
 }
 
+fn classify_body_err(what: &str, err: ReadBodyError) -> NatixisError {
+    match err {
+        ReadBodyError::Transport(e) => classify_transport(what, &e),
+        ReadBodyError::TooLarge { limit } => {
+            NatixisError::format_changed(format!("{what} response exceeded {limit} bytes"))
+        }
+    }
+}
+
 async fn read_json(response: reqwest::Response, what: &str) -> Result<Value, NatixisError> {
-    let bytes = response
-        .bytes()
+    let bytes = read_capped_bytes(response, MAX_RESPONSE_BYTES)
         .await
-        .map_err(|err| classify_transport(what, &err))?;
+        .map_err(|err| classify_body_err(what, err))?;
     serde_json::from_slice(&bytes)
         .map_err(|_| NatixisError::format_changed(format!("{what} is not JSON")))
 }
 
 async fn error_codes(response: reqwest::Response) -> Vec<String> {
-    let Ok(bytes) = response.bytes().await else {
+    let Ok(bytes) = read_capped_bytes(response, MAX_RESPONSE_BYTES).await else {
         return Vec::new();
     };
     let Ok(value) = serde_json::from_slice::<Value>(&bytes) else {

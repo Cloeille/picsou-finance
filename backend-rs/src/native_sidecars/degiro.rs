@@ -18,7 +18,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use url::Url;
 
-use super::common::{MemoryCookieJar, PendingStore, build_http_client, normalize_base_url};
+use super::common::{
+    MAX_RESPONSE_BYTES, MemoryCookieJar, PendingStore, build_http_client, normalize_base_url,
+    read_capped_bytes,
+};
 use super::{NativeSidecar, NativeSidecarError};
 
 pub const DEFAULT_BASE_URL: &str = "https://trader.degiro.nl";
@@ -27,6 +30,7 @@ const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
     AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const PENDING_TTL: Duration = Duration::from_secs(300);
+const MAX_PENDING: usize = 16;
 
 static SESSION_ID_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z0-9._~!*+=,:-]{1,256}$").expect("static regex"));
@@ -53,7 +57,7 @@ impl NativeDegiro {
         let url = Url::parse(&normalized).expect("valid DEGIRO base URL");
         Self {
             base_url: url,
-            pending: PendingStore::new(PENDING_TTL, None),
+            pending: PendingStore::new(PENDING_TTL, Some(MAX_PENDING)),
         }
     }
 
@@ -102,7 +106,11 @@ impl NativeDegiro {
         })?;
         let status = resp.status();
         let session_id = jar.get_case_insensitive("JSESSIONID");
-        let payload: Value = resp.json().await.unwrap_or_else(|_| json!({}));
+        let payload: Value = read_capped_bytes(resp, MAX_RESPONSE_BYTES)
+            .await
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_else(|| json!({}));
 
         tracing::info!(
             "DEGIRO login response: HTTP {}, session_cookie={}",
@@ -159,7 +167,11 @@ impl NativeDegiro {
                 )
             })?;
         let status = resp.status();
-        let payload: Value = resp.json().await.unwrap_or_else(|_| json!({}));
+        let payload: Value = read_capped_bytes(resp, MAX_RESPONSE_BYTES)
+            .await
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_else(|| json!({}));
         tracing::info!(
             "DEGIRO /pa/secure/client response: HTTP {}",
             status.as_u16()
@@ -223,7 +235,12 @@ impl NativeDegiro {
                 "Could not fetch DEGIRO portfolio",
             ));
         }
-        let data: Value = resp.json().await.map_err(|_| {
+        let bytes = read_capped_bytes(resp, MAX_RESPONSE_BYTES)
+            .await
+            .map_err(|_| {
+                NativeSidecarError::new(StatusCode::BAD_GATEWAY, "Could not fetch DEGIRO portfolio")
+            })?;
+        let data: Value = serde_json::from_slice(&bytes).map_err(|_| {
             NativeSidecarError::new(StatusCode::BAD_GATEWAY, "Could not fetch DEGIRO portfolio")
         })?;
         let cash_rows = data
@@ -291,7 +308,10 @@ impl NativeDegiro {
                 return HashMap::new();
             }
         };
-        let Ok(payload) = resp.json::<Value>().await else {
+        let Ok(bytes) = read_capped_bytes(resp, MAX_RESPONSE_BYTES).await else {
+            return HashMap::new();
+        };
+        let Ok(payload) = serde_json::from_slice::<Value>(&bytes) else {
             return HashMap::new();
         };
         let Some(data) = payload.get("data").and_then(Value::as_object) else {

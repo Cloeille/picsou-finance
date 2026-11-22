@@ -23,7 +23,8 @@ use picsou::native_sidecars::bourso::virtual_pad::{
 use picsou::native_sidecars::bourso::{
     BoursoConfig, MAX_MOVEMENT_PAGES, NativeBourso, extract_brs_config, extract_form_token,
     is_fraud_education_page, json_success_body, notice_dismiss_link,
-    redirects_to_identity_selector, redirects_to_profile_notice, strong_auth_params,
+    redirects_to_identity_selector, redirects_to_profile_notice, same_origin_url,
+    strong_auth_params, validate_api_url,
 };
 use rust_decimal::Decimal;
 use serde_json::{Value, json};
@@ -2779,4 +2780,134 @@ async fn every_livret_harvests_history_and_cross_origin_redirects_are_refused() 
         .unwrap();
     assert_eq!(checking["transactionWarning"], "TRANSACTIONS_UNAVAILABLE");
     assert!(checking["iban"].is_null());
+}
+
+#[tokio::test]
+async fn rejects_cross_origin_redirects_and_tampered_api_url_or_path_segments() {
+    // 1. Unit checks for scheme downgrade, embedded credentials, API_URL allowlist, and path segments.
+    let base = "https://clients.boursobank.com";
+    assert!(!redirects_to_identity_selector(
+        StatusCode::FOUND,
+        Some("http://clients.boursobank.com/connexion/lister-identites"),
+        base
+    ));
+    assert!(!redirects_to_profile_notice(
+        StatusCode::FOUND,
+        Some("http://clients.boursobank.com/infos-profil/kyc"),
+        base
+    ));
+    assert!(same_origin_url("https://user:pass@clients.boursobank.com/x", base, base).is_err());
+    assert!(same_origin_url("http://clients.boursobank.com/x", base, base).is_err());
+
+    assert!(validate_api_url("https://api.boursobank.com/services/api/v1.7", base).is_ok());
+    assert!(validate_api_url("http://api.boursobank.com/services/api/v1.7", base).is_err());
+    assert!(validate_api_url("https://evil.example/api", base).is_err());
+    assert!(validate_api_url("http://169.254.169.254/latest/meta-data", base).is_err());
+    assert!(validate_api_url("https://user:pass@api.boursobank.com/api", base).is_err());
+    assert!(validate_api_url("https://api.boursobank.com/api?x=1", base).is_err());
+
+    for bad_hash in ["../../admin", "abc?x=1", "abc#frag", "abc%2fdef", "a/b"] {
+        let html = format!(
+            r#"<script>window.BRS_CONFIG = {{"API_URL": "https://api.boursobank.com", "USER_HASH": "{bad_hash}"}};</script>"#
+        );
+        assert!(
+            extract_brs_config(&html).is_err(),
+            "expected USER_HASH {bad_hash:?} to be rejected"
+        );
+    }
+
+    let bad_resource = json!({
+        "challenges": [{"parameters": {"formScreen": {"actions": {"check": {"api": {"params": {"resourceId": "../escape", "formState": "ok"}}}}}}}]
+    })
+    .to_string()
+    .replace('"', "&quot;");
+    assert!(
+        strong_auth_params(&format!(
+            r#"<div data-strong-authentication-payload="{bad_resource}"></div>"#
+        ))
+        .is_err()
+    );
+
+    // 2. Live cross-origin redirect on GET / must be blocked BEFORE contacting the target host.
+    let bank = MockServer::start().await;
+    let evil = MockServer::start().await;
+    let evil_hits = Arc::new(AtomicUsize::new(0));
+    let evil_hits_clone = Arc::clone(&evil_hits);
+    Mock::given(method("GET"))
+        .and(path("/ssrf"))
+        .respond_with(move |_req: &Request| {
+            evil_hits_clone.fetch_add(1, Ordering::SeqCst);
+            ResponseTemplate::new(200).set_body_string("secret-metadata")
+        })
+        .mount(&evil)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(
+            ResponseTemplate::new(302).insert_header("Location", format!("{}/ssrf", evil.uri())),
+        )
+        .mount(&bank)
+        .await;
+
+    let state = valid_session_state(url::Url::parse(&bank.uri()).unwrap().host_str().unwrap());
+    let (status, detail) = bourso_for_server(&bank)
+        .call(
+            Method::POST,
+            "/accounts",
+            Some(json!({ "sessionState": state })),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert_eq!(detail, FORMAT_CHANGED);
+    assert_eq!(
+        evil_hits.load(Ordering::SeqCst),
+        0,
+        "cross-origin redirect target must never be contacted"
+    );
+
+    // 3. Live tampered API_URL pointing at a different host must be rejected before trading API call.
+    let tampered_bank = MockServer::start().await;
+    let rogue_api = MockServer::start().await;
+    let rogue_hits = Arc::new(AtomicUsize::new(0));
+    let rogue_hits_clone = Arc::clone(&rogue_hits);
+    Mock::given(method("GET"))
+        .respond_with(move |_req: &Request| {
+            rogue_hits_clone.fetch_add(1, Ordering::SeqCst);
+            ResponseTemplate::new(200).set_body_json(default_trading_summary())
+        })
+        .mount(&rogue_api)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(home_html(&rogue_api.uri())))
+        .mount(&tampered_bank)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/dashboard/liste-comptes"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(DASHBOARD_HTML))
+        .mount(&tampered_bank)
+        .await;
+
+    let tampered_state = valid_session_state(
+        url::Url::parse(&tampered_bank.uri())
+            .unwrap()
+            .host_str()
+            .unwrap(),
+    );
+    let (status, detail) = bourso_for_server(&tampered_bank)
+        .call(
+            Method::POST,
+            "/accounts",
+            Some(json!({ "sessionState": tampered_state })),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert_eq!(detail, FORMAT_CHANGED);
+    assert_eq!(
+        rogue_hits.load(Ordering::SeqCst),
+        0,
+        "tampered API_URL host must never be contacted"
+    );
 }
