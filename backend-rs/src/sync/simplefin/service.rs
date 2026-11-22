@@ -3,9 +3,10 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use chrono::{DateTime, Days, NaiveDate, Utc};
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use super::connection::{self, Connection};
 use super::holdings::{self, Mapped, Position};
@@ -254,7 +255,7 @@ async fn do_sync(
             );
             continue;
         }
-        if let Some(response) = upsert_account(state, &mut tx, data, member_id).await? {
+        if let Some(response) = upsert_account(state, &mut tx.as_handle(), data, member_id).await? {
             responses.push(response);
         }
     }
@@ -269,7 +270,7 @@ async fn do_sync(
 
 async fn upsert_account(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     data: &SimplefinAccount,
     member_id: i64,
 ) -> Result<Option<serde_json::Value>, Failure> {
@@ -370,7 +371,7 @@ struct EurLine<'a> {
 /// EUR rate or a converted figure past the column changes nothing. True when the account's
 /// cash balance was set and needs saving.
 async fn replace_holdings(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     prices: &dyn PriceRead,
     account: &mut Account,
     data: &SimplefinAccount,

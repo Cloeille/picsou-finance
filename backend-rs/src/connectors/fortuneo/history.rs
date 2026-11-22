@@ -4,9 +4,9 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
+use crate::db::DbHandle;
 use chrono::{DateTime, Days, NaiveDate, Utc};
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use crate::ledger::decimal::{HALF_UP, divide};
 use crate::ledger::model::{Account, AccountType, Transaction, TransactionType};
@@ -16,7 +16,7 @@ use crate::ledger::{prices, transactions};
 /// Inside the caller's sync transaction: a failed reconstruction rolls back with the import.
 /// Returns how many snapshots were created.
 pub async fn reconstruct(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     balance_today: Decimal,
     today: NaiveDate,
@@ -40,7 +40,7 @@ pub async fn reconstruct(
 /// Walks a cash ledger backwards from today's balance: the balance at the end of a day is today's
 /// minus everything booked after it, exact as long as the ledger is complete.
 async fn cash(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     ledger: &[Transaction],
     balance_today: Decimal,
@@ -76,7 +76,7 @@ struct Position {
 /// prices from price_snapshot. A day where one held line has no price is skipped, and the cash
 /// pocket is left out since this ledger never records what funded the account.
 async fn securities(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     ledger: &[Transaction],
     today: NaiveDate,
@@ -202,7 +202,7 @@ fn value_on(
 }
 
 async fn existing_dates(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account_id: i64,
     from: NaiveDate,
     to: NaiveDate,
@@ -230,7 +230,7 @@ fn add_if_absent(
 }
 
 async fn persist(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     created: &[NewSnapshot],
     now: DateTime<Utc>,

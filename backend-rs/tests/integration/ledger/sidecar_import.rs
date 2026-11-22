@@ -4,6 +4,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use chrono::{DateTime, NaiveDate, Utc};
+use picsou::db::AsDbHandle;
 use picsou::ledger::accounts::{self, NewAccount};
 use picsou::ledger::categorize::{self, CategorizationContext};
 use picsou::ledger::merchants::KnowledgeBase;
@@ -73,7 +74,7 @@ impl Fixture {
     }
 
     async fn keyword_rule(&self, pattern: &str, category_id: i64) {
-        sqlx::query(
+        picsou::db::query(
             "INSERT INTO categorization_rule (member_id, match_type, pattern, category_id, priority) \
              VALUES ($1, 'KEYWORD', $2, $3, 0)",
         )
@@ -105,7 +106,7 @@ impl Fixture {
         prefix: &str,
     ) -> usize {
         let mut conn = self.app.state.db.acquire().await.unwrap();
-        sidecar_import::import(&mut conn, account, rows, ctx, prefix, now())
+        sidecar_import::import(&mut conn.as_handle(), account, rows, ctx, prefix, now())
             .await
             .unwrap()
     }
@@ -527,7 +528,7 @@ async fn a_manual_category_survives_a_re_sync_unchanged() {
         sidecar(None, "Bakery", "-2.10", None, None),
     ];
     assert_eq!(f.import(&account, &fetched, &ctx, "revolut").await, 2);
-    sqlx::query(
+    picsou::db::query(
         "UPDATE \"transaction\" SET category_id = $1, category_manual = true WHERE account_id = $2",
     )
     .bind(category)
@@ -538,9 +539,16 @@ async fn a_manual_category_survives_a_re_sync_unchanged() {
     let categorized = f.rows(&account).await;
 
     let mut conn = f.app.state.db.begin().await.unwrap();
-    let inserted = sidecar_import::import(&mut conn, &account, &fetched, &ctx, "revolut", now())
-        .await
-        .unwrap();
+    let inserted = sidecar_import::import(
+        &mut conn.as_handle(),
+        &account,
+        &fetched,
+        &ctx,
+        "revolut",
+        now(),
+    )
+    .await
+    .unwrap();
     conn.commit().await.unwrap();
 
     assert_eq!(inserted, 0);

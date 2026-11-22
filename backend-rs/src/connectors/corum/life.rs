@@ -12,9 +12,9 @@
 
 use std::collections::HashSet;
 
+use crate::db::DbHandle;
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use super::adapter::{LifeContract, LifeHolding, LifeOperation, ScheduledPayment};
 use super::operations::{self, TICKER_PREFIX};
@@ -290,7 +290,7 @@ fn validate_figures(contract: &LifeContract) -> Result<(), SyncError> {
 /// Writes validated contracts; the outcome per contract code, in portfolio order.
 pub async fn write(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     contracts: &[Option<LifeContract>],
     synced_at: DateTime<Utc>,
@@ -315,7 +315,7 @@ pub async fn write(
 
 async fn write_contract(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     code: &str,
     contract: &LifeContract,
@@ -515,7 +515,7 @@ fn cadence_of(payment: Option<&ScheduledPayment>) -> Option<RecurringCadence> {
 /// Manual, unlinked assurance-vie accounts named "CORUM Life" up to case and punctuation, or
 /// filed under the CORUM provider whatever their name.
 async fn adoption_candidates(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
 ) -> sqlx::Result<Vec<Account>> {
     let wanted = normalize(ACCOUNT_NAME);

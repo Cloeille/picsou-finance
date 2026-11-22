@@ -98,7 +98,7 @@ async fn manual_account(app: &TestApp, member: i64, name: &str, kind: AccountTyp
 }
 
 async fn balance_of(app: &TestApp, id: i64) -> (Decimal, String) {
-    sqlx::query_as("SELECT current_balance, currency FROM account WHERE id = $1")
+    picsou::db::query_as("SELECT current_balance, currency FROM account WHERE id = $1")
         .bind(id)
         .fetch_one(&app.state.db)
         .await
@@ -106,7 +106,7 @@ async fn balance_of(app: &TestApp, id: i64) -> (Decimal, String) {
 }
 
 async fn snapshots(app: &TestApp, id: i64) -> Vec<(NaiveDate, Decimal, String)> {
-    sqlx::query_as(
+    picsou::db::query_as(
         "SELECT date, balance, source FROM balance_snapshot WHERE account_id = $1 ORDER BY date DESC",
     )
     .bind(id)
@@ -223,7 +223,7 @@ async fn preview_reports_rows_and_import_maps_the_balance_and_rebuilds_end_of_da
             (d2, Decimal::from(1050))
         ]
     );
-    let created: (i64, Option<String>, bool) = sqlx::query_as(
+    let created: (i64, Option<String>, bool) = picsou::db::query_as(
         "SELECT id, external_account_id, is_manual FROM account WHERE name = 'Livret'",
     )
     .fetch_one(&app.state.db)
@@ -400,7 +400,7 @@ async fn a_missing_rate_aborts_the_import_and_keeps_the_preview() {
         response.json()["detail"],
         "No EUR rate for USD -- cannot rebuild the balance history, try again once the rate is available"
     );
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM account")
+    let count: i64 = picsou::db::query_scalar("SELECT count(*) FROM account")
         .fetch_one(&app.state.db)
         .await
         .unwrap();
@@ -422,7 +422,7 @@ async fn hand_entered_statements_and_manual_rows_survive_and_dividends_are_resto
     let cto = manual_account(&app, member, "CTO", AccountType::CompteTitres).await;
     let today = app.state.clock.today();
     let (paid, statement, old) = (day(&app, -3), day(&app, -10), day(&app, -20));
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO balance_snapshot (account_id, date, balance, invested_amount, source, native_balance) \
          VALUES ($1, $2, 1200, 1200, 'MANUAL', 1200), ($1, $3, 5, 5, 'DERIVED', NULL)",
     )
@@ -432,7 +432,7 @@ async fn hand_entered_statements_and_manual_rows_survive_and_dividends_are_resto
     .execute(&app.state.db)
     .await
     .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO \"transaction\" (account_id, date, description, amount, native_currency, is_manual, tx_type, ticker, name) VALUES \
          ($1, $2, 'DIVIDENDE', 59.50, 'EUR', false, 'DIVIDEND', 'TTE.PA', 'TotalEnergies'), \
          ($1, $2, 'Kept by hand', 1, 'EUR', true, NULL, NULL, NULL), \
@@ -476,7 +476,7 @@ async fn hand_entered_statements_and_manual_rows_survive_and_dividends_are_resto
         (statement, Decimal::from(1200), "MANUAL".to_owned())
     );
 
-    let rows: Vec<(String, bool, Option<String>, Option<String>)> = sqlx::query_as(
+    let rows: Vec<(String, bool, Option<String>, Option<String>)> = picsou::db::query_as(
         "SELECT description, is_manual, tx_type, ticker FROM \"transaction\" WHERE account_id = $1 ORDER BY id",
     )
     .bind(cto)

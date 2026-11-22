@@ -245,7 +245,7 @@ async fn setup() -> Ctx {
     let app = TestApp::with_admin().await;
     let client = app.login_admin().await;
     let member = admin_member(&app).await;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO category (member_id, slug, name, kind, color, is_default, sort_order) \
          SELECT $1, 'virement-interne', 'Virement interne', 'TRANSFER', '#64748b', true, 0 \
          WHERE NOT EXISTS (SELECT 1 FROM category WHERE member_id = $1 AND slug = 'virement-interne')",
@@ -391,7 +391,7 @@ type TxRow = (
 );
 
 async fn tx_row(ctx: &Ctx, external: &str) -> TxRow {
-    sqlx::query_as(
+    picsou::db::query_as(
         "SELECT t.account_id, t.date, t.amount, t.description, t.counterparty, t.native_currency, t.category_manual, \
          t.category, c.name, p.name, t.is_manual FROM \"transaction\" t LEFT JOIN category c ON c.id = t.category_id \
          LEFT JOIN category p ON p.id = c.parent_id WHERE t.external_id = $1",
@@ -408,7 +408,7 @@ async fn first_import(ctx: &Ctx) {
 }
 
 async fn account_by_external(ctx: &Ctx, external: &str) -> (i64, Decimal) {
-    sqlx::query_as(
+    picsou::db::query_as(
         "SELECT id, current_balance FROM account WHERE external_account_id = $1 AND member_id = $2",
     )
     .bind(external)
@@ -419,7 +419,7 @@ async fn account_by_external(ctx: &Ctx, external: &str) -> (i64, Decimal) {
 }
 
 async fn balance(ctx: &Ctx, id: i64) -> Decimal {
-    sqlx::query_scalar("SELECT current_balance FROM account WHERE id = $1")
+    picsou::db::query_scalar("SELECT current_balance FROM account WHERE id = $1")
         .bind(id)
         .fetch_one(&ctx.app.state.db)
         .await
@@ -427,7 +427,7 @@ async fn balance(ctx: &Ctx, id: i64) -> Decimal {
 }
 
 async fn row_account(ctx: &Ctx, external_id: &str) -> Option<i64> {
-    sqlx::query_scalar("SELECT account_id FROM \"transaction\" WHERE external_id = $1")
+    picsou::db::query_scalar("SELECT account_id FROM \"transaction\" WHERE external_id = $1")
         .bind(external_id)
         .fetch_optional(&ctx.app.state.db)
         .await
@@ -435,7 +435,7 @@ async fn row_account(ctx: &Ctx, external_id: &str) -> Option<i64> {
 }
 
 async fn row_count(ctx: &Ctx) -> i64 {
-    sqlx::query_scalar(
+    picsou::db::query_scalar(
         "SELECT count(*) FROM \"transaction\" t JOIN account a ON a.id = t.account_id WHERE a.member_id = $1",
     )
     .bind(ctx.member)
@@ -445,7 +445,7 @@ async fn row_count(ctx: &Ctx) -> i64 {
 }
 
 async fn user_account(ctx: &Ctx, name: &str, account_type: &str, balance: &str) -> i64 {
-    sqlx::query_scalar(
+    picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color, created_at, updated_at) \
          VALUES ($1, $2, $3::account_type, 'EUR', $4::numeric, true, '#6366f1', now(), now()) RETURNING id",
     )
@@ -459,7 +459,7 @@ async fn user_account(ctx: &Ctx, name: &str, account_type: &str, balance: &str) 
 }
 
 async fn user_category(ctx: &Ctx, name: &str, kind: &str) -> i64 {
-    sqlx::query_scalar(
+    picsou::db::query_scalar(
         "INSERT INTO category (member_id, name, kind, color) VALUES ($1, $2, $3::category_kind, '#6366f1') RETURNING id",
     )
     .bind(ctx.member)
@@ -729,7 +729,7 @@ async fn imports_accounts_categories_and_transactions_exactly() {
         dec("500.00")
     );
     let (currency, manual): (String, bool) =
-        sqlx::query_as("SELECT currency, is_manual FROM account WHERE id = $1")
+        picsou::db::query_as("SELECT currency, is_manual FROM account WHERE id = $1")
             .bind(checking)
             .fetch_one(&ctx.app.state.db)
             .await
@@ -758,7 +758,7 @@ async fn imports_accounts_categories_and_transactions_exactly() {
         (salary.3.as_str(), salary.4.as_deref()),
         ("January pay", Some("Employer"))
     );
-    let kind: String = sqlx::query_scalar(
+    let kind: String = picsou::db::query_scalar(
         "SELECT c.kind::text FROM \"transaction\" t JOIN category c ON c.id = t.category_id \
         WHERE t.external_id = 'actual_t-salary'",
     )
@@ -771,7 +771,7 @@ async fn imports_accounts_categories_and_transactions_exactly() {
         (start.3.as_str(), start.8.as_deref()),
         ("Starting Balance", Some("Virement interne"))
     );
-    let transfer: Vec<String> = sqlx::query_scalar(
+    let transfer: Vec<String> = picsou::db::query_scalar(
         "SELECT t.external_id FROM \"transaction\" t JOIN category c ON c.id = t.category_id \
         WHERE c.slug = 'virement-interne' ORDER BY t.external_id",
     )
@@ -787,7 +787,7 @@ async fn imports_accounts_categories_and_transactions_exactly() {
         ]
     );
     let snapshots: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM balance_snapshot WHERE account_id = $1")
+        picsou::db::query_scalar("SELECT count(*) FROM balance_snapshot WHERE account_id = $1")
             .bind(checking)
             .fetch_one(&ctx.app.state.db)
             .await
@@ -805,7 +805,7 @@ async fn imports_accounts_categories_and_transactions_exactly() {
 #[tokio::test]
 async fn creates_its_own_transfer_category_when_the_default_one_is_archived() {
     let ctx = setup().await;
-    sqlx::query(
+    picsou::db::query(
         "UPDATE category SET archived = true WHERE slug = 'virement-interne' AND member_id = $1",
     )
     .bind(ctx.member)
@@ -813,7 +813,7 @@ async fn creates_its_own_transfer_category_when_the_default_one_is_archived() {
     .await
     .unwrap();
     first_import(&ctx).await;
-    let (slug, kind): (String, String) = sqlx::query_as(
+    let (slug, kind): (String, String) = picsou::db::query_as(
         "SELECT c.slug, c.kind::text FROM \"transaction\" t \
         JOIN category c ON c.id = t.category_id WHERE t.external_id = 'actual_t-transfer-in'",
     )
@@ -830,12 +830,12 @@ async fn creates_its_own_transfer_category_when_the_default_one_is_archived() {
 async fn reimporting_converges_and_points_at_the_created_accounts() {
     let ctx = setup().await;
     first_import(&ctx).await;
-    let categories: i64 = sqlx::query_scalar("SELECT count(*) FROM category")
+    let categories: i64 = picsou::db::query_scalar("SELECT count(*) FROM category")
         .fetch_one(&ctx.app.state.db)
         .await
         .unwrap();
     user_account(&ctx, "Everyday", "CHECKING", "0").await;
-    sqlx::query(
+    picsou::db::query(
         "UPDATE \"transaction\" SET date = '2030-06-01' WHERE external_id = 'actual_t-groceries'",
     )
     .execute(&ctx.app.state.db)
@@ -854,7 +854,7 @@ async fn reimporting_converges_and_points_at_the_created_accounts() {
         imported(&ctx, &create_everything(&p)).await,
         result([0, 2, 0, 0, 0, 8, 0, 0], json!([]))
     );
-    let after: i64 = sqlx::query_scalar("SELECT count(*) FROM category")
+    let after: i64 = picsou::db::query_scalar("SELECT count(*) FROM category")
         .fetch_one(&ctx.app.state.db)
         .await
         .unwrap();
@@ -1176,7 +1176,7 @@ async fn rows_moved_out_of_or_into_a_user_account_stay_and_are_reported() {
 async fn rows_of_a_soft_deleted_created_account_do_not_block_a_reimport() {
     let ctx = setup().await;
     first_import(&ctx).await;
-    sqlx::query(
+    picsou::db::query(
         "UPDATE account SET deleted_at = now() WHERE external_account_id = 'actual_acc-savings'",
     )
     .execute(&ctx.app.state.db)
@@ -1224,7 +1224,7 @@ async fn skipped_accounts_keep_their_rows_out_and_the_other_leg_stays_neutral() 
         result([1, 0, 1, 6, 7, 1, 0, 0], json!([]))
     );
     assert_eq!(row_account(&ctx, "actual_t-transfer-in").await, None);
-    let slug: String = sqlx::query_scalar(
+    let slug: String = picsou::db::query_scalar(
         "SELECT c.slug FROM \"transaction\" t JOIN category c ON c.id = t.category_id \
         WHERE t.external_id = 'actual_t-transfer-out'",
     )
@@ -1251,11 +1251,11 @@ async fn maps_onto_existing_accounts_and_categories_without_touching_their_balan
     );
     assert_eq!(imported(&ctx, &request).await["accountsMapped"], 1);
     assert_eq!(balance(&ctx, everyday).await, dec("12.00"));
-    let (account, category_id): (i64, Option<i64>) = sqlx::query_as(
+    let (account, category_id): (i64, Option<i64>) = picsou::db::query_as(
         "SELECT account_id, category_id FROM \"transaction\" WHERE external_id = 'actual_t-split/1'")
         .fetch_one(&ctx.app.state.db).await.unwrap();
     assert_eq!((account, category_id), (everyday, Some(food)));
-    let lunch: (Option<i64>, bool, Option<String>) = sqlx::query_as(
+    let lunch: (Option<i64>, bool, Option<String>) = picsou::db::query_as(
         "SELECT category_id, category_manual, category FROM \"transaction\" WHERE external_id = 'actual_t-split/2'")
         .fetch_one(&ctx.app.state.db).await.unwrap();
     assert_eq!(lunch, (None, false, Some("Restaurants".into())));
@@ -1348,7 +1348,7 @@ async fn invalid_mappings_are_refused_before_anything_is_written() {
     );
 
     assert_eq!(row_count(&ctx).await, 0);
-    let accounts: i64 = sqlx::query_scalar("SELECT count(*) FROM account")
+    let accounts: i64 = picsou::db::query_scalar("SELECT count(*) FROM account")
         .fetch_one(&ctx.app.state.db)
         .await
         .unwrap();

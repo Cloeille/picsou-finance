@@ -3,10 +3,10 @@
 
 use std::str::FromStr;
 
+use crate::db::DbHandle;
 use chrono::{Datelike, Months, NaiveDate};
 use rust_decimal::Decimal;
 use serde::Serialize;
-use sqlx::PgConnection;
 
 use super::math::{jmax, scale2};
 use super::pyramid::WealthPyramidResponse;
@@ -145,7 +145,7 @@ struct Pot {
 }
 
 pub async fn project(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     pyramid: &WealthPyramidResponse,
     member_id: i64,
     requested_years: i64,
@@ -190,7 +190,7 @@ fn index(tier: WealthTier) -> usize {
 
 /// The member's recurring plans, each resolved to the tier its account feeds and weighted by
 /// the member's share of that account.
-async fn plans_for(conn: &mut PgConnection, member_id: i64) -> sqlx::Result<Vec<Plan>> {
+async fn plans_for(conn: &mut DbHandle<'_>, member_id: i64) -> sqlx::Result<Vec<Plan>> {
     let readable = access::readable_accounts(&mut *conn, member_id).await?;
     let shares = access::shares_for(&mut *conn, &readable, member_id).await?;
     type GoalRow = (

@@ -33,7 +33,7 @@ pub mod valuation;
 
 use std::sync::Arc;
 
-use sqlx::PgPool;
+use crate::db::Db;
 use tokio::sync::OnceCell;
 
 use self::locks::{ConnectionLocks, MemberRowLock};
@@ -57,7 +57,7 @@ pub struct Ledger {
 }
 
 impl Ledger {
-    pub fn new(db: PgPool) -> Self {
+    pub fn new(db: Db) -> Self {
         Self {
             prices: Arc::new(RecordedPrices::new(db)),
             dividends: Arc::new(NoDividendClassifier),
@@ -67,9 +67,20 @@ impl Ledger {
     }
 
     /// The merchant knowledge base, loaded once (MerchantKnowledgeBase's @PostConstruct).
-    pub async fn knowledge_base(&self, db: &PgPool) -> sqlx::Result<Arc<KnowledgeBase>> {
+    pub async fn knowledge_base(&self, db: &Db) -> sqlx::Result<Arc<KnowledgeBase>> {
         self.knowledge_base
             .get_or_try_init(|| async { KnowledgeBase::load(db).await.map(Arc::new) })
+            .await
+            .cloned()
+    }
+
+    /// Same as [`knowledge_base`], reusing an already-open connection/transaction handle.
+    pub async fn knowledge_base_on(
+        &self,
+        conn: &mut crate::db::DbHandle<'_>,
+    ) -> sqlx::Result<Arc<KnowledgeBase>> {
+        self.knowledge_base
+            .get_or_try_init(|| async { KnowledgeBase::load_on(conn).await.map(Arc::new) })
             .await
             .cloned()
     }

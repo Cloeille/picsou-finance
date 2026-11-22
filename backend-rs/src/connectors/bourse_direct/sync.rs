@@ -5,13 +5,13 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use crate::db::DbHandle;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use regex::Regex;
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::PgConnection;
 
 use crate::AppState;
 use crate::connectors::sidecar::portfolio::{self, PortfolioAccount};
@@ -116,7 +116,7 @@ impl SyncStrategy for Strategy {
     async fn commit(
         &self,
         state: &AppState,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         _session: &mut SidecarSession,
         job: &SyncJob,
         prepared: &Vec<PreparedAccount>,
@@ -461,7 +461,7 @@ fn invested_amount(
 
 async fn upsert_account(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     data: &PreparedAccount,
     member_id: i64,
     synced_at: DateTime<Utc>,

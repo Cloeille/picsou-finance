@@ -1,9 +1,9 @@
 //! The write most investment sidecars end a sync with: the account upserted by external id (a
 //! soft-deleted one is never resurrected), its holdings replaced wholesale and the day's snapshot.
 
+use crate::db::DbHandle;
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use super::error::JobResult;
 use crate::AppState;
@@ -27,7 +27,7 @@ pub struct PortfolioAccount<'a> {
 /// None when the account was soft-deleted by the member: the sync skips it.
 pub async fn write(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     data: &PortfolioAccount<'_>,
     drafts: &[HoldingDraft],
@@ -51,7 +51,7 @@ pub async fn write(
 /// The holdings replaced wholesale, then the day's snapshot.
 pub async fn replace_holdings(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account_id: i64,
     drafts: &[HoldingDraft],
     balance_eur: Decimal,
@@ -73,7 +73,7 @@ pub async fn replace_holdings(
 /// Refreshes an existing account with the provider's figures.
 pub async fn refresh(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     mut account: Account,
     data: &PortfolioAccount<'_>,
     synced_at: DateTime<Utc>,
@@ -93,7 +93,7 @@ pub async fn refresh(
 /// Creates the provider's account.
 pub async fn create(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     data: &PortfolioAccount<'_>,
     synced_at: DateTime<Utc>,
@@ -112,7 +112,7 @@ pub async fn create(
 /// The account half of [`write`]: insert or refresh, skipping a soft-deleted one.
 pub async fn upsert_account(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     data: &PortfolioAccount<'_>,
     synced_at: DateTime<Utc>,

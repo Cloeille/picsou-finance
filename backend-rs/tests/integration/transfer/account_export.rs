@@ -79,13 +79,45 @@ async fn restore(app: &TestApp, member_id: i64) -> Value {
                 row["member_id"] = json!(member_id);
             }
         }
-        sqlx::query(&format!(
-            "INSERT INTO \"{table}\" SELECT * FROM jsonb_populate_recordset(NULL::\"{table}\", $1)"
-        ))
-        .bind(&rows)
-        .execute(&app.state.db)
-        .await
-        .unwrap_or_else(|e| panic!("restore {table}: {e}"));
+        if app.state.db.is_sqlite() {
+            for row in rows.as_array().unwrap() {
+                let obj = row.as_object().unwrap();
+                let cols: Vec<String> = obj.keys().map(|k| format!("\"{k}\"")).collect();
+                let placeholders: Vec<String> = (1..=cols.len()).map(|i| format!("${i}")).collect();
+                let sql = format!(
+                    "INSERT INTO \"{table}\" ({}) VALUES ({})",
+                    cols.join(", "),
+                    placeholders.join(", ")
+                );
+                let mut q = picsou::db::query(&sql);
+                for val in obj.values() {
+                    q = match val {
+                        Value::Null => q.bind(None::<String>),
+                        Value::Bool(b) => q.bind(*b),
+                        Value::Number(n) => {
+                            if let Some(i) = n.as_i64() {
+                                q.bind(i)
+                            } else {
+                                q.bind(n.to_string())
+                            }
+                        }
+                        Value::String(s) => q.bind(s.as_str()),
+                        other => q.bind(other.to_string()),
+                    };
+                }
+                q.execute(&app.state.db)
+                    .await
+                    .unwrap_or_else(|e| panic!("restore {table}: {e}"));
+            }
+        } else {
+            picsou::db::query(&format!(
+                "INSERT INTO \"{table}\" SELECT * FROM jsonb_populate_recordset(NULL::\"{table}\", $1)"
+            ))
+            .bind(&rows)
+            .execute(&app.state.db)
+            .await
+            .unwrap_or_else(|e| panic!("restore {table}: {e}"));
+        }
         dump[table] = rows;
     }
     dump

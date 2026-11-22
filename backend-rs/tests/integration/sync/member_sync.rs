@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use chrono::Days;
 use picsou::AppState;
+use picsou::db::AsDbHandle;
 use picsou::ledger::accounts::{self, NewAccount};
 use picsou::ledger::locks::LockedConnection;
 use picsou::ledger::model::{AccountType, CategoryKind};
@@ -123,7 +124,7 @@ impl SidecarSources for RecordingSidecars {
 }
 
 async fn member_id(app: &TestApp) -> i64 {
-    sqlx::query_scalar("SELECT id FROM family_member ORDER BY id LIMIT 1")
+    picsou::db::query_scalar("SELECT id FROM family_member ORDER BY id LIMIT 1")
         .fetch_one(&app.state.db)
         .await
         .expect("seeded member")
@@ -283,7 +284,7 @@ async fn after_import_pairs_internal_transfers_even_when_a_source_fails() {
         (checking_a.id, Decimal::new(-25000, 2), "out-1"),
         (checking_b.id, Decimal::new(25000, 2), "in-1"),
     ] {
-        sqlx::query(
+        picsou::db::query(
             "INSERT INTO transaction (account_id, date, description, amount, native_currency, \
              external_id, is_manual, budget_neutral, category_manual, created_at) \
              VALUES ($1, $2, 'Transfer', $3, 'EUR', $4, false, false, false, $5)",
@@ -303,7 +304,7 @@ async fn after_import_pairs_internal_transfers_even_when_a_source_fails() {
     assert_eq!(results[0].status, SyncStatus::Failed);
     assert_eq!(results[1].status, SyncStatus::SkippedNotConnected);
 
-    let paired_kinds: Vec<String> = sqlx::query_scalar(
+    let paired_kinds: Vec<String> = picsou::db::query_scalar(
         "SELECT c.kind::text FROM transaction t JOIN category c ON c.id = t.category_id \
          WHERE t.account_id IN ($1, $2) ORDER BY t.account_id",
     )
@@ -370,7 +371,7 @@ async fn connected_wise_syncs_through_member_sync() {
     assert_eq!(results[0].source, "wise");
     assert_eq!(results[0].status, SyncStatus::Synced);
 
-    let balance: Decimal = sqlx::query_scalar(
+    let balance: Decimal = picsou::db::query_scalar(
         "SELECT current_balance FROM account WHERE member_id = $1 AND external_account_id = 'wise_jar_42'",
     )
     .bind(mid)
@@ -389,7 +390,7 @@ async fn louve_connection_lock_uses_member_row_lock() {
     app.state
         .ledger
         .connection_locks
-        .lock_member_for_account_deletion(&mut tx, LockedConnection::Louve, mid)
+        .lock_member_for_account_deletion(&mut tx.as_handle(), LockedConnection::Louve, mid)
         .await
         .expect("locks existing member row");
     tx.commit().await.unwrap();
@@ -399,7 +400,7 @@ async fn louve_connection_lock_uses_member_row_lock() {
         .state
         .ledger
         .connection_locks
-        .lock_member_for_account_deletion(&mut tx, LockedConnection::Louve, 999_999)
+        .lock_member_for_account_deletion(&mut tx.as_handle(), LockedConnection::Louve, 999_999)
         .await
         .expect_err("unknown member must fail");
     assert!(matches!(err, picsou::error::AppError::NotFound(_)));

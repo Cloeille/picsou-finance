@@ -8,6 +8,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::time::Duration;
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use regex::Regex;
@@ -15,7 +17,6 @@ use rust_decimal::Decimal;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sqlx::PgConnection;
 
 use crate::AppState;
 use crate::connectors::sidecar::keypad::{Keypad, RawKeypad, safe_keypad};
@@ -605,7 +606,14 @@ pub async fn complete_auth(
         logins.require_generation(member_id, current.generation)?;
         let mut tx = state.db.begin().await?;
         let job = template
-            .insert_queued(state, &mut tx, member_id, plain_state, false, |_| Ok(()))
+            .insert_queued(
+                state,
+                &mut tx.as_handle(),
+                member_id,
+                plain_state,
+                false,
+                |_| Ok(()),
+            )
             .await?;
         tx.commit().await?;
         job
@@ -776,7 +784,14 @@ pub async fn poll_webview_status(
                 logins.require_generation(member_id, current.generation)?;
                 let mut tx = state.db.begin().await?;
                 let job = template
-                    .insert_queued(state, &mut tx, member_id, plain_state, false, |_| Ok(()))
+                    .insert_queued(
+                        state,
+                        &mut tx.as_handle(),
+                        member_id,
+                        plain_state,
+                        false,
+                        |_| Ok(()),
+                    )
                     .await?;
                 tx.commit().await?;
                 job
@@ -885,7 +900,7 @@ impl SyncStrategy for Strategy {
     async fn commit(
         &self,
         state: &AppState,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         _session: &mut SidecarSession,
         job: &SyncJob,
         prepared: &Prepared,
@@ -897,10 +912,14 @@ impl SyncStrategy for Strategy {
         {
             return Err(AppError::NotFound("Family member not found".to_owned()).into());
         }
-        let knowledge_base = state.ledger.knowledge_base(&state.db).await?;
-        let context =
-            categorize::load_context(&state.db, knowledge_base, job.member_id, state.clock.now())
-                .await?;
+        let knowledge_base = state.ledger.knowledge_base_on(&mut *conn).await?;
+        let context = categorize::load_context_on(
+            &mut *conn,
+            knowledge_base,
+            job.member_id,
+            state.clock.now(),
+        )
+        .await?;
         // Read before the upserts: only what a previous sync imported can be closed.
         let imported =
             accounts::find_all_by_member_and_provider(&mut *conn, job.member_id, prepared.provider)
@@ -1232,7 +1251,7 @@ fn snapshot_context(state: &AppState) -> SnapshotContext<'_> {
 
 async fn upsert_account(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     data: &PreparedAccount,
     provider: &'static str,
     member_id: i64,
@@ -1352,7 +1371,7 @@ async fn upsert_account(
 /// keeps its balance; a capped list may hide one, so nothing is closed then.
 async fn close_unlisted_accounts(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     prepared: &Prepared,
     imported: Vec<Account>,
     member_id: i64,

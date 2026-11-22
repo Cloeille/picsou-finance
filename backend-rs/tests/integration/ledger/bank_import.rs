@@ -3,6 +3,8 @@
 use std::str::FromStr;
 
 use chrono::{DateTime, NaiveDate, Utc};
+use picsou::db::AsDbHandle;
+use picsou::db::DbHandle;
 use picsou::ledger::accounts::{self, NewAccount};
 use picsou::ledger::bank_import::{self, DEFAULT_INITIAL_HISTORY_DAYS, TransactionData};
 use picsou::ledger::categorize;
@@ -10,7 +12,6 @@ use picsou::ledger::model::{Account, AccountType, NewTransaction, Transaction};
 use picsou::ledger::transactions;
 use picsou::testing::{ADMIN_USERNAME, TestApp};
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 const DESCRIPTION: &str = "Cafe de la Place";
 const EMOJI: &str = "\u{1F600}";
@@ -61,7 +62,7 @@ impl Fixture {
         Self { app, member_id }
     }
 
-    async fn conn(&self) -> sqlx::pool::PoolConnection<sqlx::Postgres> {
+    async fn conn(&self) -> picsou::db::DbConn {
         self.app.state.db.acquire().await.unwrap()
     }
 
@@ -113,13 +114,13 @@ impl Fixture {
     /// importFor after the fetch: the window it would have requested, then the fetched rows.
     async fn import_for(&self, account: &Account, fetched: &[TransactionData]) -> usize {
         let mut conn = self.conn().await;
-        import_for_on(&mut conn, account, fetched).await
+        import_for_on(&mut conn.as_handle(), account, fetched).await
     }
 
     async fn import_provided(&self, account: &Account, fetched: &[TransactionData]) -> usize {
         let mut conn = self.conn().await;
         bank_import::import_provided(
-            &mut conn,
+            &mut conn.as_handle(),
             account,
             fetched,
             ledger_today(),
@@ -132,7 +133,7 @@ impl Fixture {
 }
 
 async fn import_for_on(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     fetched: &[TransactionData],
 ) -> usize {
@@ -839,7 +840,7 @@ async fn a_manual_category_survives_a_re_sync_unchanged() {
     let account = f.eb_account().await;
     let fetched = [data(Some("eb-1"), "Coffee"), data(None, "Bakery")];
     assert_eq!(f.import_for(&account, &fetched).await, 2);
-    sqlx::query(
+    picsou::db::query(
         "UPDATE \"transaction\" SET category_id = $1, category_manual = true WHERE account_id = $2",
     )
     .bind(category)
@@ -850,7 +851,10 @@ async fn a_manual_category_survives_a_re_sync_unchanged() {
     let categorized = f.rows(&account).await;
 
     let mut conn = f.app.state.db.begin().await.unwrap();
-    assert_eq!(import_for_on(&mut conn, &account, &fetched).await, 0);
+    assert_eq!(
+        import_for_on(&mut conn.as_handle(), &account, &fetched).await,
+        0
+    );
     conn.commit().await.unwrap();
 
     let after = f.rows(&account).await;

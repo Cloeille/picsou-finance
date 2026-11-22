@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 const PASSWORD: &str = "member-pass-1234";
 
 async fn account(app: &TestApp, member_id: i64, account_type: &str, currency: &str) -> i64 {
-    sqlx::query_scalar(
+    picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color, created_at, updated_at) \
          VALUES ($1, 'Account', $2::account_type, $3, 0, true, '#000000', now(), now()) RETURNING id",
     )
@@ -28,7 +28,7 @@ async fn position(
     principal: Option<&str>,
     interest: Option<&str>,
 ) {
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO crypto_exchange_position (account_id, product, ticker, quantity, principal, interest) \
          VALUES ($1, $2, $3, $4::numeric, $5::numeric, $6::numeric)",
     )
@@ -89,7 +89,7 @@ async fn lines_share_the_assets_unit_cost_and_are_valued_at_the_recorded_crypto_
     .await;
     position(&app, meria, "SPOT", "BTC", "0.20000000", None, None).await;
     position(&app, meria, "LENDING", "NOPE", "5", None, None).await;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account_holding (account_id, ticker, quantity, average_buy_in, created_at, updated_at) \
          VALUES ($1, 'BTC', 0.5, 20000, now(), now())",
     )
@@ -98,7 +98,7 @@ async fn lines_share_the_assets_unit_cost_and_are_valued_at_the_recorded_crypto_
     .await
     .unwrap();
     // BTC is a registered coin; the snapshot stands in for the live quote, marked stale.
-    sqlx::query("INSERT INTO price_snapshot (ticker, date, price_eur, created_at) VALUES ('BTC', '2026-01-14', 30000, now())")
+    picsou::db::query("INSERT INTO price_snapshot (ticker, date, price_eur, created_at) VALUES ('BTC', '2026-01-14', 30000, now())")
         .execute(&app.state.db)
         .await
         .unwrap();

@@ -1,6 +1,7 @@
 //! The SCPI reconciliation the provider syncs run: create, adopt by name, update, tombstone,
 //! ambiguity, missing at the provider.
 
+use picsou::db::AsDbHandle;
 use picsou::ledger::accounts::NewAccount;
 use picsou::ledger::model::AccountType;
 use picsou::testing::TestApp;
@@ -44,10 +45,11 @@ fn names_fold_accents_and_punctuation_and_values_round_to_eight_places() {
 #[tokio::test]
 async fn a_sync_adopts_creates_updates_and_reports_the_missing_fund() {
     let app = TestApp::with_admin().await;
-    let member: i64 = sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
-        .fetch_one(&app.state.db)
-        .await
-        .unwrap();
+    let member: i64 =
+        picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
     let mine = account(
         &app,
         NewAccount::new(member, "Corum Origin", AccountType::Scpi),
@@ -57,7 +59,7 @@ async fn a_sync_adopts_creates_updates_and_reports_the_missing_fund() {
     let now = app.state.clock.now();
     let mut tx = app.state.db.begin().await.unwrap();
     let first = reconcile(
-        &mut tx,
+        &mut tx.as_handle(),
         member,
         Provider::Corum,
         &[
@@ -78,7 +80,7 @@ async fn a_sync_adopts_creates_updates_and_reports_the_missing_fund() {
         ]
     );
     let balance: String =
-        sqlx::query_scalar("SELECT current_balance::text FROM account WHERE id = $1")
+        picsou::db::query_scalar("SELECT current_balance::text FROM account WHERE id = $1")
             .bind(mine)
             .fetch_one(&app.state.db)
             .await
@@ -87,7 +89,7 @@ async fn a_sync_adopts_creates_updates_and_reports_the_missing_fund() {
 
     let mut tx = app.state.db.begin().await.unwrap();
     let second = reconcile(
-        &mut tx,
+        &mut tx.as_handle(),
         member,
         Provider::Corum,
         &[fund("CO", "CORUM ORIGIN", "11", Some("1000"))],
@@ -104,11 +106,12 @@ async fn a_sync_adopts_creates_updates_and_reports_the_missing_fund() {
             ("XL".to_owned(), Outcome::MissingAtProvider)
         ]
     );
-    let statuses: Vec<(String, String)> =
-        sqlx::query_as("SELECT fund_code, last_outcome FROM scpi_provider_fund ORDER BY fund_code")
-            .fetch_all(&app.state.db)
-            .await
-            .unwrap();
+    let statuses: Vec<(String, String)> = picsou::db::query_as(
+        "SELECT fund_code, last_outcome FROM scpi_provider_fund ORDER BY fund_code",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
     assert_eq!(
         statuses,
         vec![

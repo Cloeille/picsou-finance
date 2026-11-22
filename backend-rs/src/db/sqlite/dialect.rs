@@ -265,6 +265,16 @@ fn tokenize(sql: &str) -> Vec<Token> {
     tokens
 }
 
+fn prev_non_space(tokens: &[Token], mut idx: usize) -> Option<usize> {
+    while idx > 0 {
+        idx -= 1;
+        if !tokens[idx].is_space() {
+            return Some(idx);
+        }
+    }
+    None
+}
+
 fn next_non_space(tokens: &[Token], mut idx: usize) -> Option<usize> {
     while idx < tokens.len() {
         if !tokens[idx].is_space() {
@@ -614,6 +624,25 @@ pub fn translate_pg_to_sqlite(sql: &str) -> String {
                 out.push_str(w);
                 i += 1;
             }
+            Token::Word(w) if w.eq_ignore_ascii_case("transaction") => {
+                let is_table_pos = prev_non_space(&tokens, i).is_some_and(|p| {
+                    matches!(
+                        &tokens[p],
+                        Token::Word(prev)
+                            if prev.eq_ignore_ascii_case("FROM")
+                                || prev.eq_ignore_ascii_case("JOIN")
+                                || prev.eq_ignore_ascii_case("INTO")
+                                || prev.eq_ignore_ascii_case("UPDATE")
+                                || prev.eq_ignore_ascii_case("TABLE")
+                    )
+                });
+                if is_table_pos {
+                    out.push_str("\"transaction\"");
+                } else {
+                    out.push_str(w);
+                }
+                i += 1;
+            }
             other => {
                 out.push_str(other.as_str());
                 i += 1;
@@ -947,5 +976,25 @@ mod tests {
             "WITH x AS (DELETE FROM t RETURNING id) SELECT * FROM x"
         ));
         assert!(!is_read_only_sql("PRAGMA user_version"));
+    }
+
+    #[test]
+    fn quotes_bare_transaction_table_without_touching_begin_transaction() {
+        assert_eq!(
+            translate_pg_to_sqlite("SELECT * FROM transaction t WHERE t.id = $1"),
+            "SELECT * FROM \"transaction\" t WHERE t.id = ?1"
+        );
+        assert_eq!(
+            translate_pg_to_sqlite("INSERT INTO transaction (id) VALUES ($1)"),
+            "INSERT INTO \"transaction\" (id) VALUES (?1)"
+        );
+        assert_eq!(
+            translate_pg_to_sqlite("UPDATE transaction SET amount = $1"),
+            "UPDATE \"transaction\" SET amount = ?1"
+        );
+        assert_eq!(
+            translate_pg_to_sqlite("BEGIN TRANSACTION"),
+            "BEGIN TRANSACTION"
+        );
     }
 }

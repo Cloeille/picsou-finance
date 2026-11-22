@@ -5,11 +5,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, OnceLock, Weak};
 use std::time::Duration;
 
+use crate::db::{AsDbHandle, Db, DbHandle};
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use rust_decimal::Decimal;
 use serde_json::Value;
-use sqlx::{PgConnection, PgPool};
 
 use crate::accounts::analysis::profiles::RefreshRunner;
 use crate::accounts::analysis::seams::{
@@ -180,7 +180,7 @@ pub(crate) fn wire_all(inner: &mut Inner) -> StateRef {
 struct AccountsToResponse;
 
 async fn account_to_json(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     prices: &dyn PriceRead,
     account: &Account,
     today: NaiveDate,
@@ -196,12 +196,21 @@ impl WealthAccountResponses for AccountsToResponse {
     async fn to_response(&self, state: &AppState, account: &Account) -> AppResult<Value> {
         let mut conn = state.db.acquire().await?;
         account_to_json(
-            &mut conn,
+            &mut conn.as_handle(),
             &*state.ledger.prices,
             account,
             state.clock.today(),
         )
         .await
+    }
+
+    async fn to_response_on(
+        &self,
+        state: &AppState,
+        conn: &mut DbHandle<'_>,
+        account: &Account,
+    ) -> AppResult<Value> {
+        account_to_json(conn, &*state.ledger.prices, account, state.clock.today()).await
     }
 }
 
@@ -210,7 +219,7 @@ impl EbAccountResponses for AccountsToResponse {
     async fn to_response(
         &self,
         state: &AppState,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         account: &Account,
     ) -> AppResult<Value> {
         account_to_json(conn, &*state.ledger.prices, account, state.clock.today()).await
@@ -224,7 +233,7 @@ impl ExchangeAccountResponder for AccountsToResponse {
         // Exchange sync returns the freshly written account with its computed balance scale
         // (Hibernate keeps the managed instance rather than re-reading numeric(20,8)).
         let response = crate::accounts::dto::to_response(
-            &mut conn,
+            &mut conn.as_handle(),
             &*state.ledger.prices,
             account,
             None,
@@ -240,7 +249,7 @@ impl ExchangeAccountResponder for AccountsToResponse {
 impl IbkrAccountResponses for AccountsToResponse {
     async fn to_response(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         prices: &dyn PriceRead,
         account: &Account,
         today: NaiveDate,
@@ -253,7 +262,7 @@ impl IbkrAccountResponses for AccountsToResponse {
 impl SimplefinAccountResponses for AccountsToResponse {
     async fn to_response(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         prices: &dyn PriceRead,
         account: &Account,
         today: NaiveDate,
@@ -270,7 +279,7 @@ impl WiseAccountView for AccountsToResponse {
     async fn to_response(
         &self,
         state: &AppState,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         account: &Account,
     ) -> AppResult<Value> {
         account_to_json(conn, &*state.ledger.prices, account, state.clock.today()).await
@@ -282,7 +291,7 @@ impl ConnectorAccountResponses for AccountsToResponse {
     async fn to_response(&self, state: &AppState, account: &Account) -> AppResult<Value> {
         let mut conn = state.db.acquire().await?;
         account_to_json(
-            &mut conn,
+            &mut conn.as_handle(),
             &*state.ledger.prices,
             account,
             state.clock.today(),
@@ -460,7 +469,7 @@ struct SyncConnectionRemoval(StateRef);
 impl ConnectionRemoval for SyncConnectionRemoval {
     async fn remove(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         connection: &ConnectionRef,
         member_id: i64,
     ) -> AppResult<RemovedConnection> {
@@ -708,7 +717,7 @@ fn profile_is_due(
 
 #[async_trait]
 impl SecurityProfileRefresher for MarketSecurityProfiles {
-    async fn refresh_stale(&self, db: &PgPool, tickers: &BTreeSet<String>, limit: usize) -> usize {
+    async fn refresh_stale(&self, db: &Db, tickers: &BTreeSet<String>, limit: usize) -> usize {
         if tickers.is_empty() || limit == 0 {
             return 0;
         }
@@ -778,7 +787,7 @@ impl MarketSecurityProfiles {
     async fn refresh_one(
         &self,
         state: &AppState,
-        db: &PgPool,
+        db: &Db,
         upper: &str,
         stored_isin: Option<&str>,
     ) -> AppResult<bool> {
@@ -941,7 +950,7 @@ impl HistorySource for AccountsHistorySource {
         let mut conn = state.db.acquire().await?;
         let points = crate::accounts::history::build_history(
             state,
-            &mut conn,
+            &mut conn.as_handle(),
             account_ids,
             months,
             split,
@@ -1040,7 +1049,7 @@ impl WalletPrices for MarketWalletPrices {
 }
 
 struct RecordedIbkrIdentities {
-    db: PgPool,
+    db: Db,
     clock: AppClock,
 }
 
@@ -1052,6 +1061,13 @@ impl IbkrSecurityIdentities for RecordedIbkrIdentities {
             .record(&map, self.clock.now())
             .await;
     }
+
+    async fn record_on(&self, conn: &mut DbHandle<'_>, isin_by_ticker: &[(String, String)]) {
+        let map: BTreeMap<String, String> = isin_by_ticker.iter().cloned().collect();
+        RecordedSecurityIdentities::new(self.db.clone())
+            .record_on(conn, &map, self.clock.now())
+            .await;
+    }
 }
 
 struct WealthLouveScpi;
@@ -1060,7 +1076,7 @@ struct WealthLouveScpi;
 impl LouveScpi for WealthLouveScpi {
     async fn reconcile(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         member_id: i64,
         funds: &[LouveSyncedFund],
         unsupported: &[LouveUnsupportedFund],
@@ -1153,7 +1169,7 @@ struct WealthConnectorScpi;
 impl ConnectorScpiFunds for WealthConnectorScpi {
     async fn reconcile(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         member_id: i64,
         provider: ConnectorScpiProvider,
         funds: &[ConnectorSyncedFund],
@@ -1194,7 +1210,7 @@ impl ConnectorScpiFunds for WealthConnectorScpi {
 
     async fn close_unlisted(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         member_id: i64,
         provider: ConnectorScpiProvider,
         listed: &HashSet<String>,
@@ -1226,7 +1242,7 @@ struct WealthSavingsAutoConfig;
 impl SavingsAutoConfig for WealthSavingsAutoConfig {
     async fn configure_if_missing(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         account_id: i64,
         account_type: AccountType,
     ) -> sqlx::Result<bool> {

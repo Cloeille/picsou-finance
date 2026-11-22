@@ -369,7 +369,7 @@ async fn an_mcp_client_registers_gets_consent_and_calls_mcp() {
         StatusCode::NO_CONTENT
     );
     let remaining: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM oauth2_authorization WHERE id = $1")
+        picsou::db::query_scalar("SELECT count(*) FROM oauth2_authorization WHERE id = $1")
             .bind(&id)
             .fetch_one(&app.state.db)
             .await
@@ -565,13 +565,13 @@ const JAVA_ATTRIBUTES: &str = r#"{"@class":"java.util.Collections$UnmodifiableMa
 #[tokio::test]
 async fn a_code_the_java_backend_issued_is_exchanged() {
     let app = TestApp::with_admin().await;
-    let client: String = sqlx::query_scalar(
+    let client: String = picsou::db::query_scalar(
         "SELECT id FROM oauth2_registered_client WHERE client_id = 'picsou-ios'",
     )
     .fetch_one(&app.state.db)
     .await
     .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO oauth2_authorization (id, registered_client_id, principal_name, authorization_grant_type, authorized_scopes, \
          attributes, authorization_code_value, authorization_code_issued_at, authorization_code_expires_at, authorization_code_metadata) \
          VALUES ('java-row', $1, 'admin', 'authorization_code', 'read,write', $2, 'java-code', $3, $4, \
@@ -587,7 +587,7 @@ async fn a_code_the_java_backend_issued_is_exchanged() {
     let issued = exchange(&app, "java-code", "picsou-ios", "picsou://callback").await;
     assert_eq!(issued.status, StatusCode::OK, "{}", issued.text());
     assert_eq!(issued.json()["scope"], "read write");
-    let (metadata, scopes): (String, String) = sqlx::query_as(
+    let (metadata, scopes): (String, String) = picsou::db::query_as(
         "SELECT access_token_metadata, access_token_scopes FROM oauth2_authorization WHERE id = 'java-row'",
     )
     .fetch_one(&app.state.db)

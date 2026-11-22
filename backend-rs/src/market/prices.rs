@@ -9,10 +9,10 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 
+use crate::db::Db;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use rust_decimal::Decimal;
-use sqlx::PgPool;
 
 use super::coingecko::CoinGecko;
 use super::metals::{self, PreciousMetals};
@@ -38,7 +38,7 @@ const MAX_LEARNABLE_TICKER_LENGTH: usize = 30;
 type CachedPrice = (Option<Decimal>, DateTime<Utc>);
 
 pub struct PriceService {
-    db: PgPool,
+    db: Db,
     clock: AppClock,
     yahoo: Arc<YahooFinance>,
     coingecko: Arc<CoinGecko>,
@@ -49,7 +49,7 @@ pub struct PriceService {
 
 impl PriceService {
     pub fn new(
-        db: PgPool,
+        db: Db,
         clock: AppClock,
         yahoo: Arc<YahooFinance>,
         coingecko: Arc<CoinGecko>,
@@ -508,7 +508,7 @@ impl PriceRead for PriceService {
 }
 
 async fn upsert_snapshot(
-    db: &PgPool,
+    db: &Db,
     ticker: &str,
     date: NaiveDate,
     price: Decimal,
@@ -530,7 +530,7 @@ async fn upsert_snapshot(
 }
 
 async fn insert_snapshot_if_absent(
-    db: &PgPool,
+    db: &Db,
     ticker: &str,
     date: NaiveDate,
     price: Decimal,

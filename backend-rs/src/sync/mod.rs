@@ -12,7 +12,7 @@ pub mod wise;
 
 use std::sync::{Arc, RwLock};
 
-use sqlx::PgPool;
+use crate::db::Db;
 
 use crate::routes::Routes;
 
@@ -43,7 +43,7 @@ pub struct SyncHooks {
 }
 
 impl SyncHooks {
-    pub fn new(db: PgPool) -> Self {
+    pub fn new(db: Db) -> Self {
         Self {
             sidecars: RwLock::new(Arc::new(member_sync::NoSidecarSessions)),
             finary: finary::Hooks::new(),

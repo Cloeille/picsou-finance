@@ -4,10 +4,10 @@
 
 use std::collections::{BTreeSet, HashMap};
 
+use crate::db::Db;
 use async_trait::async_trait;
 use chrono::{Days, NaiveDate};
 use rust_decimal::Decimal;
-use sqlx::PgPool;
 
 use super::model::PriceSnapshot;
 use super::sync_values::java_is_blank;
@@ -101,11 +101,11 @@ pub trait PriceRead: Send + Sync {
 /// quote, no FX rate, and a crypto price only for a coin the registry knows.
 #[derive(Debug, Clone)]
 pub struct RecordedPrices {
-    db: PgPool,
+    db: Db,
 }
 
 impl RecordedPrices {
-    pub fn new(db: PgPool) -> Self {
+    pub fn new(db: Db) -> Self {
         Self { db }
     }
 }

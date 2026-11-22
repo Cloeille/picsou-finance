@@ -5,10 +5,10 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use crate::db::DbHandle;
 use async_trait::async_trait;
 use chrono::NaiveDateTime;
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use crate::AppState;
 use crate::error::AppResult;
@@ -166,7 +166,7 @@ impl RemovedConnection {
 pub trait ConnectionRemoval: Send + Sync {
     async fn remove(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         connection: &ConnectionRef,
         member_id: i64,
     ) -> AppResult<RemovedConnection>;
@@ -179,7 +179,7 @@ pub struct NoSyncConnections;
 impl ConnectionRemoval for NoSyncConnections {
     async fn remove(
         &self,
-        _conn: &mut PgConnection,
+        _conn: &mut DbHandle<'_>,
         _connection: &ConnectionRef,
         _member_id: i64,
     ) -> AppResult<RemovedConnection> {

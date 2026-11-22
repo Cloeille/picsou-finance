@@ -105,17 +105,19 @@ impl Fixture {
     }
 
     async fn price(&self, ticker: &str, price: &str) {
-        sqlx::query("INSERT INTO price_snapshot (ticker, date, price_eur) VALUES ($1, $2, $3)")
-            .bind(ticker)
-            .bind(self.app.state.clock.today())
-            .bind(dec(price))
-            .execute(&self.app.state.db)
-            .await
-            .unwrap();
+        picsou::db::query(
+            "INSERT INTO price_snapshot (ticker, date, price_eur) VALUES ($1, $2, $3)",
+        )
+        .bind(ticker)
+        .bind(self.app.state.clock.today())
+        .bind(dec(price))
+        .execute(&self.app.state.db)
+        .await
+        .unwrap();
     }
 
     async fn holdings(&self, account_id: i64) -> Vec<(String, Decimal, Option<Decimal>)> {
-        sqlx::query_as(
+        picsou::db::query_as(
             "SELECT ticker, quantity, average_buy_in FROM account_holding WHERE account_id = $1 \
              ORDER BY ticker",
         )
@@ -126,10 +128,12 @@ impl Fixture {
     }
 
     async fn account_count(&self) -> i64 {
-        sqlx::query_scalar("SELECT count(*) FROM account WHERE external_account_id LIKE 'ibkr_%'")
-            .fetch_one(&self.app.state.db)
-            .await
-            .unwrap()
+        picsou::db::query_scalar(
+            "SELECT count(*) FROM account WHERE external_account_id LIKE 'ibkr_%'",
+        )
+        .fetch_one(&self.app.state.db)
+        .await
+        .unwrap()
     }
 }
 
@@ -182,7 +186,7 @@ async fn credentials_are_trimmed_and_encrypted_at_rest() {
     let f = Fixture::new().await;
     f.connect().await;
     let (token, query_id): (String, String) =
-        sqlx::query_as("SELECT token, query_id FROM ibkr_connection WHERE member_id = $1")
+        picsou::db::query_as("SELECT token, query_id FROM ibkr_connection WHERE member_id = $1")
             .bind(f.member_id)
             .fetch_one(&f.app.state.db)
             .await
@@ -193,7 +197,7 @@ async fn credentials_are_trimmed_and_encrypted_at_rest() {
 
     // Reconnecting replaces the row rather than adding one.
     f.connect().await;
-    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM ibkr_connection")
+    let rows: i64 = picsou::db::query_scalar("SELECT count(*) FROM ibkr_connection")
         .fetch_one(&f.app.state.db)
         .await
         .unwrap();
@@ -333,15 +337,16 @@ async fn sync_maps_positions_onto_one_account_with_converted_cost_basis() {
     // A USD line without fxRateToBase keeps an unknown cost basis, not 40 "EUR".
     assert_eq!(holdings[2].2, None);
 
-    let (balance, external): (Decimal, String) =
-        sqlx::query_as("SELECT current_balance, external_account_id FROM account WHERE id = $1")
-            .bind(id)
-            .fetch_one(&f.app.state.db)
-            .await
-            .unwrap();
+    let (balance, external): (Decimal, String) = picsou::db::query_as(
+        "SELECT current_balance, external_account_id FROM account WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_one(&f.app.state.db)
+    .await
+    .unwrap();
     assert_eq!(balance, dec("2250"));
     assert_eq!(external, "ibkr_U1234567");
-    let snapshot: Decimal = sqlx::query_scalar(
+    let snapshot: Decimal = picsou::db::query_scalar(
         "SELECT balance FROM balance_snapshot WHERE account_id = $1 AND date = $2",
     )
     .bind(id)
@@ -576,7 +581,7 @@ async fn several_sections_for_one_account_are_refused() {
 async fn undecryptable_credentials_read_as_error_and_ask_to_reconnect() {
     let f = Fixture::new().await;
     f.connect().await;
-    sqlx::query("UPDATE ibkr_connection SET token = 'not-a-ciphertext'")
+    picsou::db::query("UPDATE ibkr_connection SET token = 'not-a-ciphertext'")
         .execute(&f.app.state.db)
         .await
         .unwrap();
@@ -593,7 +598,7 @@ async fn undecryptable_credentials_read_as_error_and_ask_to_reconnect() {
         "{detail}"
     );
     assert!(f.server.received_requests().await.unwrap().is_empty());
-    let stored: String = sqlx::query_scalar("SELECT status FROM ibkr_connection")
+    let stored: String = picsou::db::query_scalar("SELECT status FROM ibkr_connection")
         .fetch_one(&f.app.state.db)
         .await
         .unwrap();
@@ -608,7 +613,7 @@ async fn undecryptable_credentials_read_as_error_and_ask_to_reconnect() {
 async fn a_soft_deleted_account_is_not_resurrected() {
     let f = Fixture::new().await;
     f.connect().await;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account (member_id, name, type, currency, current_balance, external_account_id, \
          is_manual, color, hidden, deleted_at, created_at, updated_at) VALUES ($1, 'Gone', \
          'COMPTE_TITRES', 'EUR', 0, 'ibkr_U1234567', false, '#d81222', false, now(), now(), now())",
@@ -621,7 +626,7 @@ async fn a_soft_deleted_account_is_not_resurrected() {
     let (status, body) = f.sync().await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body, json!([]));
-    let holdings: i64 = sqlx::query_scalar("SELECT count(*) FROM account_holding")
+    let holdings: i64 = picsou::db::query_scalar("SELECT count(*) FROM account_holding")
         .fetch_one(&f.app.state.db)
         .await
         .unwrap();

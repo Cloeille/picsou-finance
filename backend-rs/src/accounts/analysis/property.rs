@@ -1,9 +1,9 @@
 //! The slice of RealEstateSummaryService.summarizeVisible the pyramid reads: what is still owed
 //! on the visible properties and SCPI shares, and the physical loan-to-value.
 
+use crate::db::DbHandle;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use super::math::scale2;
 use crate::ledger::access::{self, weigh};
@@ -22,7 +22,7 @@ pub struct PropertyDebt {
 }
 
 pub async fn visible_property_debt(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     prices: &dyn PriceRead,
     member_id: i64,
     today: NaiveDate,
@@ -61,7 +61,7 @@ pub async fn visible_property_debt(
 
 /// The visible loans pointing at the property, each weighted by the member's share of the loan.
 async fn loans_for(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     property: &Account,
     member_id: i64,
     today: NaiveDate,

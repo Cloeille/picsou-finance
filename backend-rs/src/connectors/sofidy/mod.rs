@@ -8,6 +8,8 @@ use std::collections::HashSet;
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use async_trait::async_trait;
 use axum::Json as AxumJson;
 use axum::extract::State;
@@ -18,7 +20,6 @@ use regex::Regex;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::PgConnection;
 
 use super::seams::{ScpiProvider, SyncedFund};
 use super::sidecar::flow::non_blank;
@@ -277,7 +278,7 @@ async fn current_attempt<'e>(
 /// Replaces whatever the member had with a fresh reservation.
 async fn reserve_auth_attempt(state: &AppState, member_id: i64) -> AppResult<AuthAttempt> {
     let mut tx = state.db.begin().await?;
-    members::lock_or_throw(&mut *tx, member_id).await?;
+    members::lock_or_throw(&mut tx, member_id).await?;
     if let Some(existing) = session::find_for_update(&mut tx, BANK, member_id).await? {
         session::delete(&mut tx, existing.id).await?;
     }
@@ -327,7 +328,7 @@ pub async fn initiate_auth(
         "Sofidy asked for a code without giving an attempt to complete",
     )?;
     let mut tx = state.db.begin().await?;
-    members::lock_or_throw(&mut *tx, member_id).await?;
+    members::lock_or_throw(&mut tx, member_id).await?;
     let current = current_attempt(state, &mut tx, member_id, &attempt).await?;
     session::delete(&mut tx, current.id).await?;
     insert_pending(
@@ -360,7 +361,7 @@ pub async fn complete_auth(
 ) -> AppResult<SessionStatusResponse> {
     let attempt = {
         let mut tx = state.db.begin().await?;
-        members::lock_or_throw(&mut *tx, member_id).await?;
+        members::lock_or_throw(&mut tx, member_id).await?;
         let now = state.clock.now();
         let pending = session::find_for_update(&mut tx, BANK, member_id)
             .await?
@@ -403,10 +404,17 @@ async fn store_session(
     attempt: &AuthAttempt,
 ) -> AppResult<SessionStatusResponse> {
     let mut tx = state.db.begin().await?;
-    members::lock_or_throw(&mut *tx, member_id).await?;
+    members::lock_or_throw(&mut tx, member_id).await?;
     current_attempt(state, &mut tx, member_id, attempt).await?;
     let job = template()
-        .insert_queued(state, &mut tx, member_id, plain_state, false, |_| Ok(()))
+        .insert_queued(
+            state,
+            &mut tx.as_handle(),
+            member_id,
+            plain_state,
+            false,
+            |_| Ok(()),
+        )
         .await?;
     tx.commit().await?;
     let status = get_status(state, member_id).await?;
@@ -544,7 +552,7 @@ impl SyncStrategy for Strategy {
     async fn commit(
         &self,
         state: &AppState,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         _session: &mut SidecarSession,
         job: &SyncJob,
         snapshot: &Snapshot,

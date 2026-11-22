@@ -6,13 +6,14 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::time::Duration;
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use chrono::{DateTime, Utc};
 use http::Method;
 use regex::Regex;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sqlx::PgConnection;
 
 use super::adapter::{self, GENERIC_FAILURE, RevolutAccountData, RevolutTxn};
 use super::progress::{Credentials, DiscoveredRevolutAccount};
@@ -345,7 +346,7 @@ async fn build_preview(
     let mut preview = Vec::with_capacity(harvested.len());
     let mut conn = state.db.acquire().await?;
     for data in harvested {
-        let imported = find_active_account(&mut conn, data, member_id)
+        let imported = find_active_account(&mut conn.as_handle(), data, member_id)
             .await?
             .is_some();
         preview.push(DiscoveredRevolutAccount {
@@ -365,7 +366,7 @@ async fn build_preview(
 /// A wallet matches the same IBAN and currency first (the Enable Banking sub-account it
 /// duplicates); pockets and vaults have no IBAN and match on their external id alone.
 async fn find_active_account(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     data: &RevolutAccountData,
     member_id: i64,
 ) -> sqlx::Result<Option<Account>> {
@@ -415,7 +416,7 @@ pub async fn confirm_sync(
     if voluntary {
         for data in discovered.iter().filter(|d| is_selected(d)) {
             accounts::restore_soft_deleted_revolut_account(
-                &mut *tx,
+                &mut tx,
                 member_id,
                 data.external_id.as_deref().unwrap_or_default(),
                 data.iban.as_deref(),
@@ -427,7 +428,7 @@ pub async fn confirm_sync(
     let chosen: Vec<&RevolutAccountData> = discovered.iter().filter(|d| is_selected(d)).collect();
     persist_selected(
         state,
-        &mut tx,
+        &mut tx.as_handle(),
         &discovered,
         chosen,
         member_id,
@@ -435,7 +436,7 @@ pub async fn confirm_sync(
     )
     .await?;
     let remembered = credentials.as_ref().filter(|_| remember);
-    apply_post_sync_session_state(state, &mut tx, member_id, remembered).await?;
+    apply_post_sync_session_state(state, &mut tx.as_handle(), member_id, remembered).await?;
     tx.commit().await?;
     Ok(())
 }
@@ -451,7 +452,7 @@ async fn load_categorization(
 /// Upserts the chosen accounts, wallets first so a pocket's parent resolves to its stored wallet.
 async fn persist_selected(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     discovered: &[RevolutAccountData],
     mut chosen: Vec<&RevolutAccountData>,
     member_id: i64,
@@ -490,7 +491,7 @@ async fn persist_selected(
 /// credentials are stored encrypted; otherwise any earlier ones are cleared.
 async fn apply_post_sync_session_state(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     remembered: Option<&Credentials>,
 ) -> AppResult<()> {
@@ -540,7 +541,7 @@ async fn apply_post_sync_session_state(
 /// resurrects an account the member deleted. Returns the account id, None when skipped.
 async fn upsert_account(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     data: &RevolutAccountData,
     member_id: i64,
     parent_account_id: Option<i64>,
@@ -756,7 +757,7 @@ pub async fn discover_webview(state: &AppState, member_id: i64) {
 
 async fn ensure_session_row(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
 ) -> AppResult<()> {
     let now = state.clock.now();
@@ -912,7 +913,7 @@ pub async fn poll_webview_status(
                 } else {
                     logins.require_generation(member_id, current.generation)?;
                     let mut tx = state.db.begin().await?;
-                    ensure_session_row(state, &mut tx, member_id).await?;
+                    ensure_session_row(state, &mut tx.as_handle(), member_id).await?;
                     tx.commit().await?;
                     true
                 }
@@ -1079,8 +1080,17 @@ async fn unattended_sync(state: &AppState, member_id: i64) -> Result<(), JobErro
     let categorization = load_categorization(state, member_id).await?;
     let mut tx = state.db.begin().await?;
     let all: Vec<&RevolutAccountData> = harvested.iter().collect();
-    persist_selected(state, &mut tx, &harvested, all, member_id, &categorization).await?;
-    apply_post_sync_session_state(state, &mut tx, member_id, Some(&credentials)).await?;
+    persist_selected(
+        state,
+        &mut tx.as_handle(),
+        &harvested,
+        all,
+        member_id,
+        &categorization,
+    )
+    .await?;
+    apply_post_sync_session_state(state, &mut tx.as_handle(), member_id, Some(&credentials))
+        .await?;
     tx.commit().await?;
     Ok(())
 }

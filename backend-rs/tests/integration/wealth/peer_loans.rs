@@ -18,7 +18,7 @@ impl Fixture {
         let app = TestApp::with_admin().await;
         let admin = app.login_admin().await;
         let member: i64 =
-            sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+            picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
                 .fetch_one(&app.state.db)
                 .await
                 .unwrap();
@@ -69,7 +69,7 @@ impl Fixture {
     }
 
     async fn cash_rows(&self, account_id: i64) -> Vec<(String, String, Option<String>)> {
-        sqlx::query_as(
+        picsou::db::query_as(
             "SELECT t.description, t.amount::text, c.slug FROM \"transaction\" t LEFT JOIN category c ON c.id = t.category_id \
              WHERE t.account_id = $1 ORDER BY t.id",
         )
@@ -491,7 +491,7 @@ async fn a_backdated_repayment_recomputes_every_later_snapshot() {
         .await;
     assert_eq!(r.status, 201, "{}", r.text());
 
-    let rows: Vec<(chrono::NaiveDate, String)> = sqlx::query_as(
+    let rows: Vec<(chrono::NaiveDate, String)> = picsou::db::query_as(
         "SELECT date, balance::text FROM balance_snapshot WHERE account_id = $1 ORDER BY date",
     )
     .bind(loan)
@@ -550,7 +550,7 @@ async fn updating_a_repayment_moves_its_cash_leg_and_refuses_linked_rows() {
 }
 
 async fn bank_row(f: &Fixture, account_id: i64, amount: &str, description: &str) -> i64 {
-    sqlx::query_scalar(
+    picsou::db::query_scalar(
         "INSERT INTO \"transaction\" (account_id, date, description, amount, native_currency, created_at, is_manual) \
          VALUES ($1, '2026-01-08', $2, $3::numeric, 'EUR', now(), false) RETURNING id",
     )
@@ -709,7 +709,7 @@ async fn open_loans_and_the_overview_list_configured_loans_open_first() {
         .send()
         .await;
     assert_eq!(response.status, 200);
-    sqlx::query("UPDATE account SET name = 'zed' WHERE id = $1")
+    picsou::db::query("UPDATE account SET name = 'zed' WHERE id = $1")
         .bind(zed)
         .execute(&f.app.state.db)
         .await

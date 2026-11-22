@@ -17,11 +17,11 @@ pub mod yahoo;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use crate::db::Db;
 use axum::extract::State;
 use chrono::Months;
 use rust_decimal::Decimal;
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
 
 use self::cerema::CeremaDv3f;
 use self::coingecko::CoinGecko;
@@ -64,7 +64,7 @@ pub struct Market {
 }
 
 impl Market {
-    pub fn new(config: &Config, db: &PgPool, http: &reqwest::Client, clock: &AppClock) -> Self {
+    pub fn new(config: &Config, db: &Db, http: &reqwest::Client, clock: &AppClock) -> Self {
         let cooldown = Arc::new(YahooCooldown::new(clock.clone()));
         let yahoo = Arc::new(YahooFinance::new(
             http.clone(),

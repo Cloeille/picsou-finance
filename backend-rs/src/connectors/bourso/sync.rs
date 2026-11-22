@@ -6,13 +6,13 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
+use crate::db::DbHandle;
 use async_trait::async_trait;
 use chrono::{DateTime, TimeDelta, Utc};
 use regex::Regex;
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::PgConnection;
 
 use crate::AppState;
 use crate::connectors::sidecar::pending::{Pending, PendingLogins};
@@ -170,7 +170,7 @@ impl SyncStrategy for Strategy {
     async fn commit(
         &self,
         state: &AppState,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         _session: &mut SidecarSession,
         job: &SyncJob,
         prepared: &Vec<PreparedAccount>,
@@ -182,10 +182,14 @@ impl SyncStrategy for Strategy {
         {
             return Err(AppError::NotFound("Family member not found".to_owned()).into());
         }
-        let knowledge_base = state.ledger.knowledge_base(&state.db).await?;
-        let ctx =
-            categorize::load_context(&state.db, knowledge_base, job.member_id, state.clock.now())
-                .await?;
+        let knowledge_base = state.ledger.knowledge_base_on(&mut *conn).await?;
+        let ctx = categorize::load_context_on(
+            &mut *conn,
+            knowledge_base,
+            job.member_id,
+            state.clock.now(),
+        )
+        .await?;
         for data in prepared {
             upsert_account(state, conn, data, job.member_id, synced_at, &ctx).await?;
         }
@@ -214,7 +218,7 @@ impl SyncStrategy for Strategy {
 
     async fn on_failure(
         &self,
-        _conn: &mut PgConnection,
+        _conn: &mut DbHandle<'_>,
         session: &mut SidecarSession,
         code: SidecarErrorCode,
     ) -> JobResult<()> {
@@ -834,7 +838,7 @@ fn color_for(account_type: AccountType) -> &'static str {
 /// BoursoBank family with that IBAN, so a legacy or Enable Banking connection is taken over.
 /// None when the member deleted it.
 async fn find_target(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     data: &PreparedAccount,
     member_id: i64,
 ) -> sqlx::Result<Option<Option<Account>>> {
@@ -877,7 +881,7 @@ async fn find_target(
 
 async fn upsert_account(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     data: &PreparedAccount,
     member_id: i64,
     synced_at: DateTime<Utc>,

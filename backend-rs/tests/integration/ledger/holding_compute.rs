@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
+use picsou::db::AsDbHandle;
 use picsou::ledger::accounts::{self, NewAccount};
 use picsou::ledger::holding_compute::{net_positions, recompute_holdings};
 use picsou::ledger::holdings;
@@ -241,7 +242,9 @@ async fn existing_holding_updated_in_place() {
     record(&app, account, buy("NVDA", "3", Some("400.00"))).await;
 
     let mut conn = app.state.db.acquire().await.unwrap();
-    recompute_holdings(&mut conn, account, now()).await.unwrap();
+    recompute_holdings(&mut conn.as_handle(), account, now())
+        .await
+        .unwrap();
 
     let saved = holdings::find_by_account(&app.state.db, account)
         .await
@@ -273,7 +276,9 @@ async fn fully_sold_deletes_holding() {
     .await;
 
     let mut conn = app.state.db.acquire().await.unwrap();
-    recompute_holdings(&mut conn, account, now()).await.unwrap();
+    recompute_holdings(&mut conn.as_handle(), account, now())
+        .await
+        .unwrap();
 
     let saved = holdings::find_by_account(&app.state.db, account)
         .await
@@ -290,7 +295,9 @@ async fn new_position_is_created_from_the_trades() {
     record(&app, account, trade(TransactionType::Buy, None, Some("5"))).await;
 
     let mut conn = app.state.db.acquire().await.unwrap();
-    recompute_holdings(&mut conn, account, now()).await.unwrap();
+    recompute_holdings(&mut conn.as_handle(), account, now())
+        .await
+        .unwrap();
 
     let saved = holdings::find_by_account(&app.state.db, account)
         .await
@@ -317,7 +324,9 @@ async fn position_name_preserves_existing_name_when_transactions_have_none() {
     record(&app, account, buy("VWCE.DE", "4", Some("100.00"))).await;
 
     let mut conn = app.state.db.acquire().await.unwrap();
-    recompute_holdings(&mut conn, account, now()).await.unwrap();
+    recompute_holdings(&mut conn.as_handle(), account, now())
+        .await
+        .unwrap();
 
     let saved = holdings::find_by_account(&app.state.db, account)
         .await

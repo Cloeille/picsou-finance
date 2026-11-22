@@ -1,5 +1,6 @@
 //! AccountAccessResolverTest, on real rows.
 
+use picsou::db::AsDbHandle;
 use picsou::error::AppError;
 use picsou::ledger::access;
 use picsou::ledger::model::AccountType;
@@ -8,7 +9,7 @@ use picsou::testing::TestApp;
 use super::support::{account_of, d, member};
 
 async fn share(app: &TestApp, account_id: i64, member_id: i64, percent: &str) {
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account_ownership (account_id, member_id, share_percent, created_at, updated_at) \
          VALUES ($1, $2, $3, now(), now())",
     )
@@ -81,11 +82,13 @@ async fn readable_accounts_include_co_owned_ones_once_in_creation_order() {
     let mut conn = app.state.db.acquire().await.unwrap();
 
     assert_eq!(
-        access::readable_account_ids(&mut conn, bob).await.unwrap(),
+        access::readable_account_ids(&mut conn.as_handle(), bob)
+            .await
+            .unwrap(),
         vec![alices.id, bobs.id]
     );
     assert_eq!(
-        access::readable_account_ids(&mut conn, alice)
+        access::readable_account_ids(&mut conn.as_handle(), alice)
             .await
             .unwrap(),
         vec![alices.id]
@@ -99,7 +102,7 @@ async fn readable_accounts_skip_a_soft_deleted_co_owned_account() {
     let bob = member(&app, "bob").await;
     let house = account_of(&app, alice, AccountType::RealEstate, "1").await;
     share(&app, house.id, bob, "50").await;
-    sqlx::query("UPDATE account SET deleted_at = now() WHERE id = $1")
+    picsou::db::query("UPDATE account SET deleted_at = now() WHERE id = $1")
         .bind(house.id)
         .execute(&app.state.db)
         .await
@@ -107,13 +110,13 @@ async fn readable_accounts_skip_a_soft_deleted_co_owned_account() {
     let mut conn = app.state.db.acquire().await.unwrap();
 
     assert!(
-        access::readable_account_ids(&mut conn, bob)
+        access::readable_account_ids(&mut conn.as_handle(), bob)
             .await
             .unwrap()
             .is_empty()
     );
     assert!(
-        !access::is_readable(&mut conn, house.id, alice)
+        !access::is_readable(&mut conn.as_handle(), house.id, alice)
             .await
             .unwrap()
     );
@@ -131,43 +134,47 @@ async fn guards_let_a_co_owner_read_but_not_write_and_hide_everything_else() {
     let mut conn = app.state.db.acquire().await.unwrap();
 
     assert_eq!(
-        access::require_readable(&mut conn, house.id, bob)
+        access::require_readable(&mut conn.as_handle(), house.id, bob)
             .await
             .unwrap()
             .id,
         house.id
     );
     assert_eq!(
-        access::require_owner(&mut conn, house.id, alice)
+        access::require_owner(&mut conn.as_handle(), house.id, alice)
             .await
             .unwrap()
             .id,
         house.id
     );
-    match access::require_owner(&mut conn, house.id, bob).await {
+    match access::require_owner(&mut conn.as_handle(), house.id, bob).await {
         Err(AppError::Forbidden(detail)) => {
             assert_eq!(detail, "Only the owning member can modify this account")
         }
         other => panic!("co-owner write must be forbidden, got {other:?}"),
     }
     for result in [
-        access::require_readable(&mut conn, house.id, carol).await,
-        access::require_owner(&mut conn, house.id, carol).await,
-        access::require_readable(&mut conn, house.id + 1000, alice).await,
+        access::require_readable(&mut conn.as_handle(), house.id, carol).await,
+        access::require_owner(&mut conn.as_handle(), house.id, carol).await,
+        access::require_readable(&mut conn.as_handle(), house.id + 1000, alice).await,
     ] {
         match result {
             Err(AppError::NotFound(detail)) => assert_eq!(detail, "Account not found"),
             other => panic!("expected the 404, got {other:?}"),
         }
     }
-    assert!(access::is_readable(&mut conn, house.id, bob).await.unwrap());
     assert!(
-        !access::is_readable(&mut conn, house.id, carol)
+        access::is_readable(&mut conn.as_handle(), house.id, bob)
             .await
             .unwrap()
     );
     assert!(
-        !access::is_readable(&mut conn, 999_999, alice)
+        !access::is_readable(&mut conn.as_handle(), house.id, carol)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !access::is_readable(&mut conn.as_handle(), 999_999, alice)
             .await
             .unwrap()
     );

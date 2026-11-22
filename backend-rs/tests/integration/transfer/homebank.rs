@@ -96,14 +96,14 @@ fn full_request(token: &Value) -> Value {
 }
 
 async fn count(app: &TestApp, sql: &str) -> i64 {
-    sqlx::query_scalar(sql)
+    picsou::db::query_scalar(sql)
         .fetch_one(&app.state.db)
         .await
         .unwrap()
 }
 
 async fn balance_of(app: &TestApp, external_id: &str) -> Decimal {
-    sqlx::query_scalar("SELECT current_balance FROM account WHERE external_account_id = $1")
+    picsou::db::query_scalar("SELECT current_balance FROM account WHERE external_account_id = $1")
         .bind(external_id)
         .fetch_one(&app.state.db)
         .await
@@ -167,7 +167,7 @@ async fn ios_preview_writes_nothing_then_import_persists_an_exact_ledger_and_rep
         "75.25".parse().unwrap()
     );
     assert_eq!(count(&app, "SELECT count(*) FROM \"transaction\"").await, 6);
-    let (description, counterparty, label, kind, manual): (String, String, String, String, bool) = sqlx::query_as(
+    let (description, counterparty, label, kind, manual): (String, String, String, String, bool) = picsou::db::query_as(
         "SELECT t.description, t.counterparty, t.category, c.kind::text, t.category_manual FROM \"transaction\" t \
          JOIN category c ON c.id = t.category_id WHERE t.external_id = 'homebank_d12b3c4d-1111-4111-8111-111111111111'",
     )
@@ -190,7 +190,7 @@ async fn ios_preview_writes_nothing_then_import_persists_an_exact_ledger_and_rep
             true
         )
     );
-    let parent: String = sqlx::query_scalar(&format!(
+    let parent: String = picsou::db::query_scalar(&format!(
         "SELECT p.name FROM category c JOIN category p ON p.id = c.parent_id WHERE c.slug = 'homebank_{FRESH}'"
     ))
     .fetch_one(&app.state.db)
@@ -207,7 +207,7 @@ async fn ios_preview_writes_nothing_then_import_persists_an_exact_ledger_and_rep
         4,
         "two transfer legs and two openings"
     );
-    let opening: (Decimal, String) = sqlx::query_as(&format!(
+    let opening: (Decimal, String) = picsou::db::query_as(&format!(
         "SELECT amount, date::text FROM \"transaction\" WHERE external_id = 'homebank_opening_{CHECKING}'"
     ))
     .fetch_one(&app.state.db)
@@ -316,10 +316,15 @@ async fn qif_split_and_transfer_ledger_imports_once() {
     assert_eq!(result.status, 201, "{}", result.text());
     assert_eq!(result.json()["transactionsImported"], 5);
     assert_eq!(result.json()["categoriesCreated"], 3);
-    let balances: Vec<(String, Decimal, Decimal)> = sqlx::query_as(
-        "SELECT a.name, a.current_balance, COALESCE(SUM(t.amount), 0) FROM account a \
-         LEFT JOIN \"transaction\" t ON t.account_id = a.id GROUP BY a.id ORDER BY a.id",
-    )
+    let sum_expr = if app.state.db.is_sqlite() {
+        "COALESCE(dec_sum(t.amount), '0')"
+    } else {
+        "COALESCE(SUM(t.amount), 0)"
+    };
+    let balances: Vec<(String, Decimal, Decimal)> = picsou::db::query_as(&format!(
+        "SELECT a.name, a.current_balance, {sum_expr} FROM account a \
+         LEFT JOIN \"transaction\" t ON t.account_id = a.id GROUP BY a.id ORDER BY a.id"
+    ))
     .fetch_all(&app.state.db)
     .await
     .unwrap();
@@ -376,7 +381,7 @@ async fn mapped_manual_account_gets_an_additive_opening_and_synced_targets_keep_
     let balance = |id: i64| {
         let app = &app;
         async move {
-            sqlx::query_scalar::<_, Decimal>("SELECT current_balance FROM account WHERE id = $1")
+            picsou::db::query_scalar::<Decimal>("SELECT current_balance FROM account WHERE id = $1")
                 .bind(id)
                 .fetch_one(&app.state.db)
                 .await
@@ -477,7 +482,7 @@ async fn uncategorized_rows_stay_automatic_and_archived_slugs_are_refused() {
     );
     request["categoryMappings"][2] = json!({"sourceId": SALARY, "action": "UNCATEGORIZED"});
     assert_eq!(execute(&client, &request).await.status, 201);
-    let (category, manual): (Option<i64>, bool) = sqlx::query_as(
+    let (category, manual): (Option<i64>, bool) = picsou::db::query_as(
         "SELECT category_id, category_manual FROM \"transaction\" WHERE external_id = 'homebank_d12b3c4d-2222-4222-8222-222222222222'",
     )
     .fetch_one(&app.state.db)
@@ -485,7 +490,7 @@ async fn uncategorized_rows_stay_automatic_and_archived_slugs_are_refused() {
     .unwrap();
     assert_eq!((category, manual), (None, false));
 
-    sqlx::query("UPDATE category SET archived = true WHERE slug = 'homebank-transfer'")
+    picsou::db::query("UPDATE category SET archived = true WHERE slug = 'homebank-transfer'")
         .execute(&app.state.db)
         .await
         .unwrap();

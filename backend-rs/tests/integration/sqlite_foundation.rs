@@ -226,8 +226,8 @@ async fn exact_decimal_precision_and_aggregate_functions() {
 
 #[tokio::test]
 async fn live_pg_to_sqlite_round_trip_export() {
-    let app = TestApp::with_admin().await;
-    let pg = &app.state.db;
+    let app = TestApp::builder().postgres().with_admin().spawn().await;
+    let pg = app.state.db.expect_pg();
 
     // Seed rich multi-table data across members, accounts, holdings, transactions, budgets,
     // categories, goals, peer loans, snapshots, profiles, binary logos, sessions, and settings.

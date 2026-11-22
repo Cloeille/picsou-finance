@@ -103,7 +103,7 @@ async fn manual_shares_skip_ids_the_member_does_not_own_and_co_owned_accounts_co
     let (_, bob) = app.create_member("bob", PASSWORD).await;
     let house = account(&app, bob, "House", "REAL_ESTATE", "300000").await;
     let admins = account(&app, admin_id, "Admin's", "CHECKING", "999").await;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account_ownership (account_id, member_id, share_percent, created_at, updated_at) \
          VALUES ($1, $2, 50, now(), now()), ($1, $3, 50, now(), now())",
     )

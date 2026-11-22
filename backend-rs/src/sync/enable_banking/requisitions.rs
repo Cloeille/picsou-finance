@@ -64,7 +64,7 @@ pub async fn find_all_by_member<'e>(
     member_id: i64,
 ) -> sqlx::Result<Vec<Requisition>> {
     db::query_as(&format!(
-        "SELECT {COLUMNS} FROM requisition WHERE member_id = $1"
+        "SELECT {COLUMNS} FROM requisition WHERE member_id = $1 ORDER BY updated_at ASC, id ASC"
     ))
     .bind(member_id)
     .fetch_all(db)

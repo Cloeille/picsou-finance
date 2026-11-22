@@ -4,12 +4,13 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap};
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use axum::extract::State;
 use axum::http::StatusCode;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use sqlx::PgConnection;
 
 use super::scale::column;
 use crate::AppState;
@@ -81,7 +82,7 @@ impl Validate for HoldingRequest {
 
 /// getHoldings: the lines of an account the member owns (a co-owner gets the 404, as in Java).
 pub async fn owned_holdings(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     prices: &dyn PriceRead,
     crypto_logos: &dyn crate::accounts::positions::CryptoLogoRead,
     account_id: i64,
@@ -265,7 +266,7 @@ async fn list(
 ) -> AppResult<axum::Json<Vec<HoldingResponse>>> {
     let mut conn = state.db.acquire().await?;
     let lines = owned_holdings(
-        &mut conn,
+        &mut conn.as_handle(),
         &*state.ledger.prices,
         &*state.accounts.crypto_logos,
         id,
@@ -287,8 +288,8 @@ async fn update(
     Json(request): Json<HoldingRequest>,
 ) -> AppResult<axum::Json<HoldingResponse>> {
     let mut tx = state.db.begin().await?;
-    let account = accounts::get_or_throw(&mut *tx, id, auth.member_id).await?;
-    let holding = holdings::find_by_account_and_ticker(&mut *tx, id, &ticker)
+    let account = accounts::get_or_throw(&mut tx, id, auth.member_id).await?;
+    let holding = holdings::find_by_account_and_ticker(&mut tx, id, &ticker)
         .await?
         .ok_or_else(holding_not_found)?;
     let mut draft = HoldingDraft::from(&holding);
@@ -306,7 +307,7 @@ async fn update(
         draft.provider_value_eur = None;
     }
     draft.provider_pnl_eur = None;
-    let mut saved = holdings::update(&mut *tx, holding.id, &draft, state.clock.now()).await?;
+    let mut saved = holdings::update(&mut tx, holding.id, &draft, state.clock.now()).await?;
     tx.commit().await?;
     fix_holding(&mut saved);
     // Java answers with the entity it set, so the request's scale, not the column's.
@@ -330,8 +331,8 @@ async fn remove(
     Path((id, ticker)): Path<(i64, String)>,
 ) -> AppResult<StatusCode> {
     let mut tx = state.db.begin().await?;
-    accounts::get_or_throw(&mut *tx, id, auth.member_id).await?;
-    let holding = holdings::find_by_account_and_ticker(&mut *tx, id, &ticker)
+    accounts::get_or_throw(&mut tx, id, auth.member_id).await?;
+    let holding = holdings::find_by_account_and_ticker(&mut tx, id, &ticker)
         .await?
         .ok_or_else(holding_not_found)?;
     db::query("DELETE FROM account_holding WHERE id = $1")

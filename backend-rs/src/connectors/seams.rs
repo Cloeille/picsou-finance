@@ -5,12 +5,12 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
 use std::sync::Arc;
 
+use crate::db::{AsDbHandle, Db, DbHandle};
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::Serialize;
 use serde_json::Value;
-use sqlx::{PgConnection, PgPool};
 
 use crate::AppState;
 use crate::error::{AppError, AppResult};
@@ -65,17 +65,50 @@ impl IsinResolver for UnresolvedIsins {
 pub trait SecurityIdentities: Send + Sync {
     /// Never fails the caller: reference data the next sync supplies again.
     async fn record(&self, isin_by_ticker: &BTreeMap<String, String>, now: DateTime<Utc>);
+
+    /// Same as [`record`], reusing an already-open connection/transaction handle so callers inside
+    /// a write transaction never deadlock on SQLite's single-writer gate.
+    async fn record_on(
+        &self,
+        _conn: &mut DbHandle<'_>,
+        isin_by_ticker: &BTreeMap<String, String>,
+        now: DateTime<Utc>,
+    ) {
+        self.record(isin_by_ticker, now).await;
+    }
 }
 
 /// SecurityIdentityService's own write on security_profile: a new row seeded with its identity
 /// only, or the ISIN filled in on a row that has none.
 pub struct RecordedSecurityIdentities {
-    db: PgPool,
+    db: Db,
 }
 
 impl RecordedSecurityIdentities {
-    pub fn new(db: PgPool) -> Self {
+    pub fn new(db: Db) -> Self {
         Self { db }
+    }
+
+    async fn upsert_one<'e>(
+        exec: impl crate::db::DbExec<'e>,
+        ticker: &str,
+        isin: &str,
+        now: DateTime<Utc>,
+    ) {
+        let outcome = crate::db::query(
+            "INSERT INTO security_profile (ticker, asset_type, isin, status, created_at, updated_at) \
+             VALUES ($1, 'UNKNOWN', $2, 'NEVER_FETCHED', $3, $3) \
+             ON CONFLICT (ticker) DO UPDATE SET isin = EXCLUDED.isin, updated_at = EXCLUDED.updated_at \
+             WHERE security_profile.isin IS NULL",
+        )
+        .bind(ticker.to_uppercase())
+        .bind(isin)
+        .bind(now)
+        .execute(exec)
+        .await;
+        if let Err(e) = outcome {
+            tracing::debug!("Could not record ISIN {isin} for {ticker}: {e}");
+        }
     }
 }
 
@@ -86,20 +119,21 @@ impl SecurityIdentities for RecordedSecurityIdentities {
             if ticker.trim().is_empty() || !is_isin(isin) {
                 continue;
             }
-            let outcome = crate::db::query(
-                "INSERT INTO security_profile (ticker, asset_type, isin, status, created_at, updated_at) \
-                 VALUES ($1, 'UNKNOWN', $2, 'NEVER_FETCHED', $3, $3) \
-                 ON CONFLICT (ticker) DO UPDATE SET isin = EXCLUDED.isin, updated_at = EXCLUDED.updated_at \
-                 WHERE security_profile.isin IS NULL",
-            )
-            .bind(ticker.to_uppercase())
-            .bind(isin)
-            .bind(now)
-            .execute(&self.db)
-            .await;
-            if let Err(e) = outcome {
-                tracing::debug!("Could not record ISIN {isin} for {ticker}: {e}");
+            Self::upsert_one(&self.db, ticker, isin, now).await;
+        }
+    }
+
+    async fn record_on(
+        &self,
+        conn: &mut DbHandle<'_>,
+        isin_by_ticker: &BTreeMap<String, String>,
+        now: DateTime<Utc>,
+    ) {
+        for (ticker, isin) in isin_by_ticker {
+            if ticker.trim().is_empty() || !is_isin(isin) {
+                continue;
             }
+            Self::upsert_one(&mut *conn, ticker, isin, now).await;
         }
     }
 }
@@ -154,7 +188,7 @@ impl AccountResponses for AccountRowResponses {
     async fn to_response(&self, state: &AppState, account: &Account) -> AppResult<Value> {
         let mut conn = state.db.acquire().await?;
         let eur = valuation::signed_live_balance_eur(
-            &mut conn,
+            &mut conn.as_handle(),
             &*state.ledger.prices,
             account,
             state.clock.today(),
@@ -322,7 +356,7 @@ pub trait ScpiFunds: Send + Sync {
     /// reconcile: the outcome per fund code, in snapshot order, then the funds no longer listed.
     async fn reconcile(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         member_id: i64,
         provider: ScpiProvider,
         funds: &[SyncedFund],
@@ -333,7 +367,7 @@ pub trait ScpiFunds: Send + Sync {
     /// `listed` lacks is closed at zero shares, its account kept; how many were closed.
     async fn close_unlisted(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         member_id: i64,
         provider: ScpiProvider,
         listed: &HashSet<String>,
@@ -348,7 +382,7 @@ pub trait SavingsAutoConfig: Send + Sync {
     /// Whether a configuration was created; one the user saved is never overwritten.
     async fn configure_if_missing(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         account_id: i64,
         account_type: AccountType,
     ) -> sqlx::Result<bool>;
@@ -363,7 +397,7 @@ pub struct RegulatedSavingsDefaults;
 impl SavingsAutoConfig for RegulatedSavingsDefaults {
     async fn configure_if_missing(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         account_id: i64,
         account_type: AccountType,
     ) -> sqlx::Result<bool> {
@@ -406,7 +440,7 @@ pub struct Seams {
 }
 
 impl Seams {
-    pub fn new(db: PgPool) -> Self {
+    pub fn new(db: Db) -> Self {
         Self {
             isin: Arc::new(UnresolvedIsins),
             security_identities: Arc::new(RecordedSecurityIdentities::new(db)),

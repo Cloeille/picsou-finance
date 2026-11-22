@@ -10,7 +10,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 use super::support::{account, d};
 
 async fn admin_member(app: &TestApp) -> i64 {
-    sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+    picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
         .fetch_one(&app.state.db)
         .await
         .unwrap()
@@ -25,7 +25,7 @@ async fn the_summary_weighs_properties_loans_and_scpi_by_the_members_share() {
     flat.is_manual = true;
     flat.current_balance = d("300000");
     let flat = account(&app, flat).await.id;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO real_estate_metadata (account_id, member_id, purchase_price, notary_fees, city, rental_income, valuation_mode) \
          VALUES ($1, $2, 250000, 20000, 'Lyon', 900, 'MANUAL')",
     )
@@ -38,7 +38,7 @@ async fn the_summary_weighs_properties_loans_and_scpi_by_the_members_share() {
     loan.is_manual = true;
     loan.current_balance = d("120000");
     let loan = account(&app, loan).await.id;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO debt (member_id, account_id, linked_account_id, borrowed_amount, lender_name, monthly_payment) \
          VALUES ($1, $2, $3, 150000, 'Banque', 800)",
     )
@@ -52,7 +52,7 @@ async fn the_summary_weighs_properties_loans_and_scpi_by_the_members_share() {
     scpi.is_manual = true;
     scpi.current_balance = d("5000");
     let scpi = account(&app, scpi).await.id;
-    sqlx::query("INSERT INTO scpi_position (account_id, member_id, share_count, management_company) VALUES ($1, $2, 25, 'CORUM')")
+    picsou::db::query("INSERT INTO scpi_position (account_id, member_id, share_count, management_company) VALUES ($1, $2, 25, 'CORUM')")
         .bind(scpi)
         .bind(member)
         .execute(&app.state.db)
@@ -106,7 +106,7 @@ async fn the_valuation_history_is_newest_first() {
     .await
     .id;
     for (date, value) in [("2024-06-01", "200000"), ("2025-06-01", "210000")] {
-        sqlx::query(
+        picsou::db::query(
             "INSERT INTO property_valuation (account_id, member_id, valued_at, estimated_value, provider, confidence, sample_size) \
              VALUES ($1, $2, $3::date, $4::numeric, 'CEREMA_DVF', 'MEDIUM', 12)",
         )
@@ -274,7 +274,7 @@ async fn property_valuation_adjusts_reindexes_geocodes_and_respects_manual_lock(
     est_acc.is_manual = true;
     est_acc.current_balance = d("300000");
     let est_id = account(&app, est_acc).await.id;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO real_estate_metadata (account_id, member_id, purchase_price, property_type, address, city, surface_area, valuation_mode) \
          VALUES ($1, $2, 300000, 'HOUSE', '10 Rue Test', 'Bordeaux', 100, 'ESTIMATED')",
     )
@@ -289,7 +289,7 @@ async fn property_valuation_adjusts_reindexes_geocodes_and_respects_manual_lock(
     man_acc.is_manual = true;
     man_acc.current_balance = d("250000");
     let man_id = account(&app, man_acc).await.id;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO real_estate_metadata (account_id, member_id, purchase_price, property_type, insee_code, surface_area, valuation_mode) \
          VALUES ($1, $2, 250000, 'HOUSE', '33063', 100, 'MANUAL')",
     )
@@ -304,7 +304,7 @@ async fn property_valuation_adjusts_reindexes_geocodes_and_respects_manual_lock(
     alsace.is_manual = true;
     alsace.current_balance = d("0");
     let alsace_id = account(&app, alsace).await.id;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO real_estate_metadata (account_id, member_id, purchase_price, notary_fees, property_type, insee_code, surface_area, valuation_mode) \
          VALUES ($1, $2, 200000, 15000, 'HOUSE', '67482', 80, 'ESTIMATED')",
     )
@@ -321,7 +321,7 @@ async fn property_valuation_adjusts_reindexes_geocodes_and_respects_manual_lock(
     assert_eq!(est_resp.reindex_ratio.unwrap().to_string(), "1.050000");
 
     let new_bal: rust_decimal::Decimal =
-        sqlx::query_scalar("SELECT current_balance FROM account WHERE id = $1")
+        picsou::db::query_scalar("SELECT current_balance FROM account WHERE id = $1")
             .bind(est_id)
             .fetch_one(&app.state.db)
             .await
@@ -332,7 +332,7 @@ async fn property_valuation_adjusts_reindexes_geocodes_and_respects_manual_lock(
     assert_eq!(man_resp.status, ValuationStatus::Ok);
     assert!(!man_resp.applied_to_balance);
     let man_bal: rust_decimal::Decimal =
-        sqlx::query_scalar("SELECT current_balance FROM account WHERE id = $1")
+        picsou::db::query_scalar("SELECT current_balance FROM account WHERE id = $1")
             .bind(man_id)
             .fetch_one(&app.state.db)
             .await
@@ -342,7 +342,7 @@ async fn property_valuation_adjusts_reindexes_geocodes_and_respects_manual_lock(
     let alsace_resp = estimate(&app.state, alsace_id, member).await.unwrap();
     assert_eq!(alsace_resp.status, ValuationStatus::UnsupportedArea);
     let floor_bal: rust_decimal::Decimal =
-        sqlx::query_scalar("SELECT current_balance FROM account WHERE id = $1")
+        picsou::db::query_scalar("SELECT current_balance FROM account WHERE id = $1")
             .bind(alsace_id)
             .fetch_one(&app.state.db)
             .await

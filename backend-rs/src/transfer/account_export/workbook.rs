@@ -7,7 +7,6 @@ use std::collections::{HashMap, HashSet};
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use rust_xlsxwriter::{Workbook, Worksheet, XlsxError};
-use sqlx::PgConnection;
 
 use super::labels::{LabelKey as L, SheetLabels};
 use super::sheet::{Cursor, Styles, Value};
@@ -210,12 +209,12 @@ pub async fn build(
     let mut data = Vec::new();
     for id in account_ids {
         if seen.insert(*id) {
-            data.push(gather(state, &mut conn, *id, member_id, today).await?);
+            data.push(gather(state, &mut conn.as_handle(), *id, member_id, today).await?);
         }
     }
     let mut debts = Vec::new();
-    for debt in liabilities::debts_of_member(&mut *conn, member_id).await? {
-        debts.push(debt_data(&mut conn, debt, today).await?);
+    for debt in liabilities::debts_of_member(&mut conn, member_id).await? {
+        debts.push(debt_data(&mut conn.as_handle(), debt, today).await?);
     }
     let profile: Profile = crate::db::query_as(
         "SELECT birth_date, marginal_tax_rate, household_status, tax_household_parts, dependents, \
@@ -235,7 +234,7 @@ pub async fn build(
 
 async fn gather(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     id: i64,
     member_id: i64,
     today: NaiveDate,
@@ -324,7 +323,7 @@ async fn gather(
     })
 }
 
-async fn debt_data(conn: &mut PgConnection, debt: Debt, today: NaiveDate) -> AppResult<DebtData> {
+async fn debt_data(conn: &mut DbHandle<'_>, debt: Debt, today: NaiveDate) -> AppResult<DebtData> {
     let loan_account = accounts::find_by_id(&mut *conn, debt.account_id).await?;
     let linked_account = match debt.linked_account_id {
         Some(id) => accounts::find_by_id(&mut *conn, id).await?,
@@ -340,7 +339,7 @@ async fn debt_data(conn: &mut PgConnection, debt: Debt, today: NaiveDate) -> App
 }
 
 async fn peer_loan(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account_id: i64,
     today: NaiveDate,
 ) -> AppResult<Option<PeerLoanData>> {

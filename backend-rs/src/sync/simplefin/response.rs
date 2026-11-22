@@ -2,13 +2,13 @@
 //! accounts track; AccountResponses is the seam, and LedgerAccountResponses answers with
 //! AccountResponse.from(account, liveBalanceEur), the part built from the account row alone.
 
+use crate::db::DbHandle;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::Serialize;
 use serde_json::Value;
 use serde_with::skip_serializing_none;
-use sqlx::PgConnection;
 
 use crate::ledger::model::{Account, AccountType, CardNature, RecurringCadence};
 use crate::ledger::prices::PriceRead;
@@ -20,7 +20,7 @@ use crate::ledger::valuation;
 pub trait AccountResponses: Send + Sync {
     async fn to_response(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         prices: &dyn PriceRead,
         account: &Account,
         today: NaiveDate,
@@ -35,7 +35,7 @@ pub struct LedgerAccountResponses;
 impl AccountResponses for LedgerAccountResponses {
     async fn to_response(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         prices: &dyn PriceRead,
         account: &Account,
         today: NaiveDate,

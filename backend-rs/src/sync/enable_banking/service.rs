@@ -1,7 +1,8 @@
 //! SyncService: connecting a bank through Enable Banking, refreshing it, and the requisitions.
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use serde::Serialize;
-use sqlx::PgConnection;
 
 use super::balances::AccountData;
 use super::connector::{self, InstitutionData};
@@ -152,7 +153,7 @@ async fn link_session(
         return Ok(Vec::new());
     }
     let mut tx = state.db.begin().await?;
-    let responses = upsert_all(state, &mut tx, &data, &requisition, session_id).await?;
+    let responses = upsert_all(state, &mut tx.as_handle(), &data, &requisition, session_id).await?;
     let now = state.clock.now();
     requisition.requisition_id = session_id.to_owned();
     requisition.oauth_state = None;
@@ -212,7 +213,7 @@ pub async fn retry_sync(
     };
     let mut tx = state.db.begin().await?;
     let session_id = req.requisition_id.clone();
-    let responses = upsert_all(state, &mut tx, &data, &req, &session_id).await?;
+    let responses = upsert_all(state, &mut tx.as_handle(), &data, &req, &session_id).await?;
     if mark_retryable_if_empty(&mut req, &data, "retry") {
         requisitions::save(&mut tx, &req, state.clock.now()).await?;
         tx.commit().await?;
@@ -370,7 +371,7 @@ async fn resync_one(state: &AppState, req: &mut Requisition) -> Result<(), EbErr
         return Ok(());
     }
     let session_id = req.requisition_id.clone();
-    upsert_all(state, &mut tx, &data, req, &session_id).await?;
+    upsert_all(state, &mut tx.as_handle(), &data, req, &session_id).await?;
     let now = state.clock.now();
     req.last_synced_at = Some(now);
     requisitions::save(&mut tx, req, now).await?;
@@ -452,7 +453,7 @@ async fn resync_latest(
         return Ok(Vec::new());
     }
     let session_id = req.requisition_id.clone();
-    let responses = upsert_all(state, &mut tx, &data, &req, &session_id).await?;
+    let responses = upsert_all(state, &mut tx.as_handle(), &data, &req, &session_id).await?;
     let now = state.clock.now();
     req.last_synced_at = Some(now);
     requisitions::save(&mut tx, &req, now).await?;
@@ -595,7 +596,7 @@ fn find_institution<'a>(
 
 async fn upsert_all(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     data: &[AccountData],
     req: &Requisition,
     session_id: &str,
@@ -613,7 +614,7 @@ async fn upsert_all(
 /// resurrect it. Matches the external uid first, then (uid rotation) the IBAN and currency.
 async fn upsert_account(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     data: &AccountData,
     req: &Requisition,
     session_id: &str,
@@ -732,7 +733,7 @@ async fn upsert_account(
 /// BankTransactionImportService.importFor: a provider failure logs and imports nothing.
 async fn import_transactions(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     session_id: &str,
 ) -> Result<usize, EbError> {

@@ -3,11 +3,12 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use axum::extract::{RawQuery, State};
 use chrono::{Duration, Months, NaiveDate, NaiveDateTime, Timelike};
 use rust_decimal::{Decimal, RoundingStrategy};
 use serde::Serialize;
-use sqlx::PgConnection;
 
 use super::jdecimal;
 use super::query::Params;
@@ -104,7 +105,7 @@ fn share_of(shares: &Shares, account_id: i64) -> Decimal {
 
 /// assertReadable: a 404 for any account the viewer neither owns nor holds a share of.
 async fn assert_readable(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     list: &[Account],
     member_id: i64,
 ) -> AppResult<Shares> {
@@ -134,7 +135,7 @@ struct ForwardFill {
 }
 
 async fn forward_fill(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     from: NaiveDate,
     list: &[Account],
 ) -> sqlx::Result<ForwardFill> {
@@ -183,7 +184,7 @@ fn floor<K: Ord + Copy, V: Copy>(map: Option<&BTreeMap<K, V>>, key: K) -> Option
 /// buildHistory.
 pub async fn build_history(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account_ids: &[i64],
     months: i32,
     split: bool,
@@ -341,7 +342,15 @@ pub async fn get_history(
     let split = params.boolean("split", false)?;
     let mut conn = state.db.acquire().await?;
     Ok(axum::Json(
-        build_history(&state, &mut conn, &ids, months, split, auth.member_id).await?,
+        build_history(
+            &state,
+            &mut conn.as_handle(),
+            &ids,
+            months,
+            split,
+            auth.member_id,
+        )
+        .await?,
     ))
 }
 
@@ -361,12 +370,12 @@ pub async fn get_intraday(
     let ids = Params::parse(query.as_deref()).required_longs("accountIds")?;
     let member_id = auth.member_id;
     let mut conn = state.db.acquire().await?;
-    let mut list = accounts::find_by_ids(&mut *conn, &ids).await?;
+    let mut list = accounts::find_by_ids(&mut conn, &ids).await?;
     super::scale::fix_accounts(&mut list);
     if list.is_empty() {
         return Ok(axum::Json(Vec::new()));
     }
-    let shares = assert_readable(&mut conn, &list, member_id).await?;
+    let shares = assert_readable(&mut conn.as_handle(), &list, member_id).await?;
     let prices = &*state.ledger.prices;
     let now = state.clock.local_now();
     let from = now - Duration::hours(24);
@@ -387,11 +396,11 @@ pub async fn get_intraday(
         let id = account.id;
         if providers::is_insurer_contract(account) {
             per_ids.insert(id);
-            let lines = holdings::find_by_account(&mut *conn, id).await?;
+            let lines = holdings::find_by_account(&mut conn, id).await?;
             if share_of(&shares, id) > Decimal::ZERO && !has_complete_cost_basis(account, &lines) {
                 unknown_basis.insert(id);
             }
-            let by_date = snapshots::find_by_account(&mut *conn, id)
+            let by_date = snapshots::find_by_account(&mut conn, id)
                 .await?
                 .into_iter()
                 .map(|mut s| {
@@ -400,17 +409,20 @@ pub async fn get_intraday(
                 })
                 .collect();
             per_snapshots.insert(id, by_date);
-            let v = valuation::valuation(&mut conn, prices, account, today).await?;
+            let v = valuation::valuation(&mut conn.as_handle(), prices, account, today).await?;
             per_live_balance.insert(id, weigh(v.live_eur, &shares, id));
             per_live_invested.insert(id, weigh(v.invested_eur, &shares, id));
             account_holdings.insert(id, Vec::new());
             continue;
         }
-        let lines = holdings::find_by_account(&mut *conn, id).await?;
+        let lines = holdings::find_by_account(&mut conn, id).await?;
         if lines.is_empty() {
-            let balance = match snapshots::find_by_account_and_date(&mut *conn, id, today).await? {
+            let balance = match snapshots::find_by_account_and_date(&mut conn, id, today).await? {
                 Some(s) => s.balance,
-                None => valuation::live_balance_eur(&mut conn, prices, account, today).await?,
+                None => {
+                    valuation::live_balance_eur(&mut conn.as_handle(), prices, account, today)
+                        .await?
+                }
             };
             bank_balance.insert(id, weigh(balance, &shares, id));
             account_holdings.insert(id, Vec::new());
@@ -446,7 +458,7 @@ pub async fn get_intraday(
         account_holdings.insert(id, data);
         let invested = if any_cost_unknown || account.provider_invested_eur.is_some() {
             weigh(
-                valuation::valuation(&mut conn, prices, account, today)
+                valuation::valuation(&mut conn.as_handle(), prices, account, today)
                     .await?
                     .invested_eur,
                 &shares,
@@ -593,7 +605,7 @@ pub async fn get_pnl(
     let ids = params.required_longs("accountIds")?;
     let from_date = params.date("from")?;
     let mut conn = state.db.acquire().await?;
-    let mut list = accounts::find_by_ids(&mut *conn, &ids).await?;
+    let mut list = accounts::find_by_ids(&mut conn, &ids).await?;
     super::scale::fix_accounts(&mut list);
     let empty = |total| PnlResponse {
         total,
@@ -607,7 +619,7 @@ pub async fn get_pnl(
     if list.is_empty() {
         return Ok(axum::Json(empty(Decimal::ZERO)));
     }
-    let shares = assert_readable(&mut conn, &list, auth.member_id).await?;
+    let shares = assert_readable(&mut conn.as_handle(), &list, auth.member_id).await?;
     let prices = &*state.ledger.prices;
     let today = state.clock.today();
     let mut live_total = Decimal::ZERO;
@@ -616,9 +628,9 @@ pub async fn get_pnl(
     let mut range_holdings: Vec<(i64, AccountHolding)> = Vec::new();
     let mut unknown_basis = false;
     for account in &list {
-        let lines = holdings::find_by_account(&mut *conn, account.id).await?;
+        let lines = holdings::find_by_account(&mut conn, account.id).await?;
         let per = providers::is_insurer_contract(account);
-        let v = valuation::valuation(&mut conn, prices, account, today).await?;
+        let v = valuation::valuation(&mut conn.as_handle(), prices, account, today).await?;
         let live = weigh(v.live_eur, &shares, account.id);
         if account.account_type == AccountType::Loan {
             live_total = sub(live_total, live);
@@ -681,7 +693,7 @@ pub async fn get_pnl(
     for (account_id, h) in &range_holdings {
         let ticker = &h.ticker;
         if !snaps.contains_key(ticker) {
-            let snap = prices::latest_price_on_or_before(&mut *conn, ticker, from_date).await?;
+            let snap = prices::latest_price_on_or_before(&mut conn, ticker, from_date).await?;
             snaps.insert(ticker.clone(), snap.map(|s| s.price_eur));
         }
         let Some(then) = snaps[ticker] else { continue };

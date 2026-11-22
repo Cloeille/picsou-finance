@@ -2,9 +2,9 @@
 
 use std::cmp::Ordering;
 
+use crate::db::DbHandle;
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use super::accounts;
 use super::model::{AccountHolding, AccountType, HOLDING_COLUMNS, HOLDING_RETURNING, HoldingDraft};
@@ -225,7 +225,7 @@ pub async fn delete_by_accounts_and_tickers<'e>(
 
 /// Replaces the account's holdings wholesale (delete, then insert each), the sidecar syncs' write.
 pub async fn replace_all(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account_id: i64,
     holdings: &[HoldingDraft],
     now: DateTime<Utc>,
@@ -243,7 +243,7 @@ pub async fn replace_all(
 /// (no P&L at first sync). 404 when the member does not own the account.
 #[allow(clippy::too_many_arguments)]
 pub async fn upsert_holding(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account_id: i64,
     member_id: i64,
     ticker: &str,

@@ -26,7 +26,7 @@ async fn an_unconfigured_member_reads_the_defaults_without_a_row_being_written()
         targets.to_string(),
         r#"{"safetyNetMonths":6,"realEstatePct":30.00,"equityPct":50.00,"cryptoPct":10.00,"alternativePct":10.00}"#
     );
-    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM member_allocation_profile")
+    let rows: i64 = picsou::db::query_scalar("SELECT count(*) FROM member_allocation_profile")
         .fetch_one(&app.state.db)
         .await
         .unwrap();
@@ -89,7 +89,7 @@ async fn replacing_the_targets_creates_then_updates_one_row_and_answers_the_requ
         "cleared expenses stay unknown"
     );
     assert_eq!(num(&read["equityPct"]), "50.00");
-    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM member_allocation_profile")
+    let rows: i64 = picsou::db::query_scalar("SELECT count(*) FROM member_allocation_profile")
         .fetch_one(&app.state.db)
         .await
         .unwrap();

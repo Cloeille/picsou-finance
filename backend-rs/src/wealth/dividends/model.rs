@@ -2,10 +2,10 @@
 
 use std::collections::HashMap;
 
+use crate::db::Db;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use serde::Serialize;
-use sqlx::PgPool;
 
 use crate::db::DbFromRow;
 
@@ -76,7 +76,7 @@ pub struct DividendSource {
 
 /// findAllWithEventsByTickerIn, keyed by upper-cased ticker.
 pub async fn sources_by_ticker(
-    db: &PgPool,
+    db: &Db,
     tickers: &[String],
 ) -> sqlx::Result<HashMap<String, DividendSource>> {
     let upper: Vec<String> = tickers

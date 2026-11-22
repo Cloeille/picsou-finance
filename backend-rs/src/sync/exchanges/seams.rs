@@ -12,6 +12,7 @@ use serde_json::Value;
 use serde_with::skip_serializing_none;
 
 use crate::AppState;
+use crate::db::AsDbHandle;
 use crate::db::{self, DbFromRow};
 use crate::error::{AppError, AppResult};
 use crate::ledger::model::{Account, CardNature, RecurringCadence};
@@ -124,7 +125,7 @@ impl AccountResponder for LedgerAccountResponder {
     async fn account_response(&self, state: &AppState, account: &Account) -> AppResult<Value> {
         let mut conn = state.db.acquire().await?;
         let balance_eur = valuation::live_balance_eur(
-            &mut conn,
+            &mut conn.as_handle(),
             &*state.ledger.prices,
             account,
             state.clock.today(),

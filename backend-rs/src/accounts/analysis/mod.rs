@@ -20,6 +20,7 @@ use serde::Serialize;
 
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db::AsDbHandle;
 use crate::error::{AppError, AppResult};
 use crate::http::client_ip::ClientIp;
 use crate::http::rate_limit::policies;
@@ -46,7 +47,7 @@ async fn pyramid_handler(
     let mut conn = state.db.acquire().await?;
     Ok(axum::Json(
         pyramid::pyramid(
-            &mut conn,
+            &mut conn.as_handle(),
             &*state.ledger.prices,
             &*state.accounts.crypto_logos,
             auth.member_id,
@@ -63,7 +64,7 @@ async fn diversification_handler(
     let mut conn = state.db.acquire().await?;
     Ok(axum::Json(
         diversification::diversification(
-            &mut conn,
+            &mut conn.as_handle(),
             &*state.ledger.prices,
             &*state.accounts.crypto_logos,
             auth.member_id,
@@ -92,7 +93,7 @@ async fn projection_handler(
     let today = state.clock.today();
     let mut conn = state.db.acquire().await?;
     let pyramid = pyramid::pyramid(
-        &mut conn,
+        &mut conn.as_handle(),
         &*state.ledger.prices,
         &*state.accounts.crypto_logos,
         auth.member_id,
@@ -100,7 +101,14 @@ async fn projection_handler(
     )
     .await?;
     Ok(axum::Json(
-        projection::project(&mut conn, &pyramid, auth.member_id, years, today).await?,
+        projection::project(
+            &mut conn.as_handle(),
+            &pyramid,
+            auth.member_id,
+            years,
+            today,
+        )
+        .await?,
     ))
 }
 
@@ -111,7 +119,7 @@ async fn estimate_handler(
     let mut conn = state.db.acquire().await?;
     Ok(axum::Json(
         expenses::estimate(
-            &mut conn,
+            &mut conn.as_handle(),
             &*state.ledger.prices,
             auth.member_id,
             state.clock.today(),

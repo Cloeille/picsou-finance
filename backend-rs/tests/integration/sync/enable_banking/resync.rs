@@ -26,7 +26,7 @@ async fn insert_account(
     iban: Option<&str>,
     deleted: bool,
 ) -> i64 {
-    sqlx::query_scalar(
+    picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, provider, currency, current_balance, is_manual, color, \
          external_account_id, iban, deleted_at, created_at, updated_at) \
          VALUES ($1, 'Old name', 'SAVINGS', 'Banque', 'EUR', 1, false, '#123456', $2, $3, \
@@ -79,7 +79,7 @@ async fn resync_matches_a_rotated_uid_by_iban_and_currency() {
     empty_catalog(&b.server).await;
     let result = resync_all_reporting(&b.app.state, b.member_id).await;
     assert_eq!(result.status, SyncStatus::Synced, "{result:?}");
-    let rows: Vec<AccountRow> = sqlx::query_as(
+    let rows: Vec<AccountRow> = picsou::db::query_as(
         "SELECT id, external_account_id, current_balance, type::text, requisition_id FROM account",
     )
     .fetch_all(&b.app.state.db)
@@ -92,12 +92,13 @@ async fn resync_matches_a_rotated_uid_by_iban_and_currency() {
     assert_eq!(rows[0].3, "SAVINGS", "the member's type is kept");
     assert_eq!(rows[0].4, Some(id));
     // The single backfill attempt is recorded once the search completed.
-    let attempted: Option<chrono::DateTime<chrono::Utc>> =
-        sqlx::query_scalar("SELECT logo_backfill_attempted_at FROM requisition WHERE id = $1")
-            .bind(id)
-            .fetch_one(&b.app.state.db)
-            .await
-            .unwrap();
+    let attempted: Option<chrono::DateTime<chrono::Utc>> = picsou::db::query_scalar(
+        "SELECT logo_backfill_attempted_at FROM requisition WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_one(&b.app.state.db)
+    .await
+    .unwrap();
     assert_eq!(attempted, Some(b.app.state.clock.now()));
 }
 
@@ -142,10 +143,11 @@ async fn resync_never_resurrects_a_deleted_account() {
     empty_catalog(&b.server).await;
     let result = resync_all_reporting(&b.app.state, b.member_id).await;
     assert_eq!(result.status, SyncStatus::Synced);
-    let live: i64 = sqlx::query_scalar("SELECT count(*) FROM account WHERE deleted_at IS NULL")
-        .fetch_one(&b.app.state.db)
-        .await
-        .unwrap();
+    let live: i64 =
+        picsou::db::query_scalar("SELECT count(*) FROM account WHERE deleted_at IS NULL")
+            .fetch_one(&b.app.state.db)
+            .await
+            .unwrap();
     assert_eq!(live, 0);
 }
 
@@ -194,12 +196,13 @@ async fn a_failing_resync_marks_only_that_requisition_failed() {
     assert_eq!(result.message, "One or more syncs failed");
     assert_eq!(status_of(&b.app, broken).await.0, "FAILED");
     assert_eq!(status_of(&b.app, fine).await.0, "LINKED");
-    let attempted: Option<chrono::DateTime<chrono::Utc>> =
-        sqlx::query_scalar("SELECT logo_backfill_attempted_at FROM requisition WHERE id = $1")
-            .bind(fine)
-            .fetch_one(&b.app.state.db)
-            .await
-            .unwrap();
+    let attempted: Option<chrono::DateTime<chrono::Utc>> = picsou::db::query_scalar(
+        "SELECT logo_backfill_attempted_at FROM requisition WHERE id = $1",
+    )
+    .bind(fine)
+    .fetch_one(&b.app.state.db)
+    .await
+    .unwrap();
     assert_eq!(
         attempted, None,
         "a catalog outage does not burn the backfill attempt"

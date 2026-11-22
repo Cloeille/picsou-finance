@@ -10,7 +10,6 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use regex::Regex;
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::db::{self, AsDbHandle, DbExec, DbFromRow, DbHandle};
@@ -97,7 +96,7 @@ impl Outcome {
 pub trait ScpiFunds: Send + Sync {
     async fn reconcile(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         member_id: i64,
         funds: &[SyncedFund],
         unsupported: &[UnsupportedFund],
@@ -153,7 +152,7 @@ const POSITION_COLUMNS: &str = "p.id, p.account_id, p.isin, p.management_company
 impl ScpiFunds for SqlScpiFunds {
     async fn reconcile(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         member_id: i64,
         funds: &[SyncedFund],
         unsupported: &[UnsupportedFund],
@@ -218,7 +217,7 @@ impl ScpiFunds for SqlScpiFunds {
 }
 
 async fn apply_fund(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     fund: &SyncedFund,
     row: &FundRow,
@@ -310,7 +309,7 @@ fn new_position(account_id: i64, fund: &SyncedFund) -> PositionRow {
 /// The fund's published figures, then ScpiPositionService.applySyncedPosition. Returns the
 /// valuation status written.
 async fn apply(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     position: &mut PositionRow,
     fund: &SyncedFund,
     member_id: i64,
@@ -418,7 +417,7 @@ async fn save_position<'e>(
 /// Manual SCPI accounts of the member, linked to no provider, whose normalized name equals the
 /// normalized label, or "Louve Invest <label>" (a distributor). Exact after normalization.
 async fn adoption_candidates(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     label: Option<&str>,
     claimed: &HashSet<i64>,

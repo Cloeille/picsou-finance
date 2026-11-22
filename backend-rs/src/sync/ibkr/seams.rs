@@ -3,10 +3,10 @@
 
 use std::sync::Arc;
 
+use crate::db::DbHandle;
 use async_trait::async_trait;
 use chrono::NaiveDate;
 use serde_json::Value;
-use sqlx::PgConnection;
 
 use super::response;
 use crate::error::AppResult;
@@ -40,6 +40,10 @@ impl IsinResolver for UnresolvedIsins {
 #[async_trait]
 pub trait SecurityIdentities: Send + Sync {
     async fn record(&self, isin_by_ticker: &[(String, String)]);
+
+    async fn record_on(&self, _conn: &mut DbHandle<'_>, isin_by_ticker: &[(String, String)]) {
+        self.record(isin_by_ticker).await;
+    }
 }
 
 /// No security registry: nothing is remembered.
@@ -56,7 +60,7 @@ impl SecurityIdentities for NoSecurityIdentities {
 pub trait AccountResponses: Send + Sync {
     async fn to_response(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         prices: &dyn PriceRead,
         account: &Account,
         today: NaiveDate,
@@ -71,7 +75,7 @@ pub struct LedgerAccountResponses;
 impl AccountResponses for LedgerAccountResponses {
     async fn to_response(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         prices: &dyn PriceRead,
         account: &Account,
         today: NaiveDate,

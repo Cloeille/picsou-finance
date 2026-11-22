@@ -394,7 +394,7 @@ async fn a_sync_writes_every_account_with_its_own_envelope() {
     .await;
 
     assert_eq!(after["syncStatus"], "SUCCESS");
-    let rows: Vec<AccountRow> = sqlx::query_as(
+    let rows: Vec<AccountRow> = picsou::db::query_as(
         "SELECT external_account_id, type::text, provider, cash_balance, color, iban FROM account \
              WHERE member_id = $1 ORDER BY id",
     )
@@ -432,11 +432,12 @@ async fn a_sync_writes_every_account_with_its_own_envelope() {
         ],
         "a cash account has no cash leg"
     );
-    let snapshots: Vec<(Decimal, Decimal)> =
-        sqlx::query_as("SELECT balance, invested_amount FROM balance_snapshot ORDER BY account_id")
-            .fetch_all(&app.state.db)
-            .await
-            .unwrap();
+    let snapshots: Vec<(Decimal, Decimal)> = picsou::db::query_as(
+        "SELECT balance, invested_amount FROM balance_snapshot ORDER BY account_id",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
     assert_eq!(
         snapshots,
         vec![
@@ -446,14 +447,15 @@ async fn a_sync_writes_every_account_with_its_own_envelope() {
         ],
         "a cash account's basis is derived, a PEA's is cash plus 10 x 80"
     );
-    let holding: (String, Decimal, Decimal) =
-        sqlx::query_as("SELECT ticker, provider_value_eur, provider_pnl_eur FROM account_holding")
-            .fetch_one(&app.state.db)
-            .await
-            .unwrap();
+    let holding: (String, Decimal, Decimal) = picsou::db::query_as(
+        "SELECT ticker, provider_value_eur, provider_pnl_eur FROM account_holding",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
     assert_eq!(holding, ("FR0000120271".into(), d("1000"), d("200")));
     let isin: String =
-        sqlx::query_scalar("SELECT isin FROM security_profile WHERE ticker = 'FR0000120271'")
+        picsou::db::query_scalar("SELECT isin FROM security_profile WHERE ticker = 'FR0000120271'")
             .fetch_one(&app.state.db)
             .await
             .unwrap();
@@ -473,11 +475,12 @@ async fn the_transactions_of_a_cash_account_are_imported_once() {
     settle(&app).await;
     assert_eq!(status(&client).await["syncStatus"], "SUCCESS");
 
-    let keys: Vec<(String, Decimal)> =
-        sqlx::query_as("SELECT external_transaction_id, amount FROM \"transaction\" ORDER BY date")
-            .fetch_all(&app.state.db)
-            .await
-            .unwrap();
+    let keys: Vec<(String, Decimal)> = picsou::db::query_as(
+        "SELECT external_transaction_id, amount FROM \"transaction\" ORDER BY date",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
     assert_eq!(
         keys,
         vec![
@@ -493,7 +496,7 @@ async fn a_legacy_account_with_the_same_verified_iban_is_taken_over() {
     answer(&sidecar, "/accounts", json!([checking("20810.50")])).await;
     let app = app_with_sidecar(URL, &sidecar).await;
     let (client, member_id) = admin(&app).await;
-    let legacy: i64 = sqlx::query_scalar(
+    let legacy: i64 = picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, provider, currency, current_balance, is_manual, color, iban, \
          external_account_id) VALUES ($1, 'Boursorama Banque', 'CHECKING', 'Boursorama Banque', 'EUR', 1, false, \
          '#123456', $2, 'eb-account-id') RETURNING id",
@@ -508,7 +511,7 @@ async fn a_legacy_account_with_the_same_verified_iban_is_taken_over() {
     client.post("/api/bourso/sync").send().await;
     settle(&app).await;
 
-    let rows: Vec<(i64, String, String, String)> = sqlx::query_as(
+    let rows: Vec<(i64, String, String, String)> = picsou::db::query_as(
         "SELECT id, external_account_id, provider, color FROM account WHERE member_id = $1",
     )
     .bind(member_id)
@@ -534,7 +537,7 @@ async fn an_invalid_iban_matches_nothing_and_a_deleted_alias_is_not_resurrected(
     answer(&sidecar, "/accounts", json!([wrong_checksum])).await;
     let app = app_with_sidecar(URL, &sidecar).await;
     let (client, member_id) = admin(&app).await;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account (member_id, name, type, provider, currency, current_balance, is_manual, color, iban) \
          VALUES ($1, 'Old', 'CHECKING', 'Boursorama', 'EUR', 1, false, '#123456', 'FR7630006000011234567890188')",
     )
@@ -562,7 +565,7 @@ async fn an_invalid_iban_matches_nothing_and_a_deleted_alias_is_not_resurrected(
         let (client, member_id) = admin(&app).await;
         (app, client, member_id, sidecar)
     };
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account (member_id, name, type, provider, currency, current_balance, is_manual, color, iban, \
          deleted_at) VALUES ($1, 'Old', 'CHECKING', 'Boursorama', 'EUR', 1, false, '#123456', $2, now())",
     )
@@ -600,7 +603,7 @@ async fn a_life_contract_reconciles_within_a_cent_per_line() {
     .await;
     assert_eq!(after["syncStatus"], "SUCCESS");
     let (kind, cash, color): (String, Decimal, String) =
-        sqlx::query_as("SELECT type::text, cash_balance, color FROM account")
+        picsou::db::query_as("SELECT type::text, cash_balance, color FROM account")
             .fetch_one(&app.state.db)
             .await
             .unwrap();
@@ -660,16 +663,17 @@ async fn a_portfolio_that_does_not_reconcile_keeps_the_last_good_one() {
 
     let after = status(&client).await;
     assert_eq!(after["lastSyncError"], "PORTFOLIO_INCOMPLETE");
-    let kept: (String, Decimal) = sqlx::query_as("SELECT ticker, quantity FROM account_holding")
-        .fetch_one(&app.state.db)
-        .await
-        .unwrap();
+    let kept: (String, Decimal) =
+        picsou::db::query_as("SELECT ticker, quantity FROM account_holding")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
     assert_eq!(
         kept,
         ("1rPACME".into(), d("10")),
         "the symbol is the ticker without an ISIN"
     );
-    let balance: Decimal = sqlx::query_scalar("SELECT current_balance FROM account")
+    let balance: Decimal = picsou::db::query_scalar("SELECT current_balance FROM account")
         .fetch_one(&app.state.db)
         .await
         .unwrap();
@@ -689,7 +693,7 @@ async fn lines_merge_only_when_they_carry_the_same_isin() {
     .await;
     assert_eq!(merged["syncStatus"], "SUCCESS");
     let holding: (Decimal, Decimal) =
-        sqlx::query_as("SELECT quantity, provider_value_eur FROM account_holding")
+        picsou::db::query_as("SELECT quantity, provider_value_eur FROM account_holding")
             .fetch_one(&app.state.db)
             .await
             .unwrap();
@@ -748,7 +752,7 @@ async fn an_account_the_member_deleted_is_not_resurrected() {
     answer(&sidecar, "/accounts", json!([checking("1")])).await;
     let app = app_with_sidecar(URL, &sidecar).await;
     let (client, member_id) = admin(&app).await;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account (member_id, name, type, provider, currency, current_balance, is_manual, color, \
          external_account_id, deleted_at) VALUES ($1, 'Gone', 'CHECKING', 'BoursoBank', 'EUR', 1, false, '#000000', \
          'bourso_chk-1', now())",
@@ -781,7 +785,7 @@ async fn store_session_with_credentials(app: &TestApp, member_id: i64) {
         .crypto
         .encrypt(r#"{"customerId":"12345678","password":"246810"}"#)
         .unwrap();
-    sqlx::query("UPDATE sidecar_session SET encrypted_credentials = $2 WHERE id = $1")
+    picsou::db::query("UPDATE sidecar_session SET encrypted_credentials = $2 WHERE id = $1")
         .bind(id)
         .bind(credentials)
         .execute(&app.state.db)
@@ -939,7 +943,7 @@ async fn interrupted_syncs_become_retryable_failures() {
     let app = app_with_sidecar(URL, &sidecar).await;
     let (client, member_id) = admin(&app).await;
     let id = store_session(&app, BANK, member_id, "plain-state").await;
-    sqlx::query("UPDATE sidecar_session SET sync_status = 'RUNNING' WHERE id = $1")
+    picsou::db::query("UPDATE sidecar_session SET sync_status = 'RUNNING' WHERE id = $1")
         .bind(id)
         .execute(&app.state.db)
         .await

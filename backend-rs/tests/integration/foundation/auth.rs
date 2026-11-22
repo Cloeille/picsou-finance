@@ -35,7 +35,7 @@ async fn wrong_password_and_unknown_user_answer_alike() {
 async fn pending_activation_costs_a_bcrypt_round_too() {
     let app = TestApp::with_admin().await;
     app.create_member("pending", "irrelevant-1").await;
-    sqlx::query("UPDATE app_user SET password_hash = '' WHERE username = 'pending'")
+    picsou::db::query("UPDATE app_user SET password_hash = '' WHERE username = 'pending'")
         .execute(&app.state.db)
         .await
         .unwrap();
@@ -328,7 +328,7 @@ async fn login_is_rate_limited_per_ip() {
 async fn deactivated_accounts_get_no_session() {
     let app = TestApp::with_admin().await;
     app.create_member("sleeper", "sleeper-password").await;
-    sqlx::query("UPDATE app_user SET is_activated = false WHERE username = 'sleeper'")
+    picsou::db::query("UPDATE app_user SET is_activated = false WHERE username = 'sleeper'")
         .execute(&app.state.db)
         .await
         .unwrap();
@@ -389,13 +389,13 @@ async fn username_changes() {
 #[tokio::test]
 async fn invitation_activation() {
     let app = TestApp::with_admin().await;
-    let member: i64 = sqlx::query_scalar(
+    let member: i64 = picsou::db::query_scalar(
         "INSERT INTO family_member (display_name, is_managed) VALUES ('Kid', true) RETURNING id",
     )
     .fetch_one(&app.state.db)
     .await
     .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO app_user (username, password_hash, member_id, role, is_activated, activation_token, activation_token_expires) \
          VALUES ('kid', '', $1, 'MEMBER', false, 'invite-token', $2)",
     )

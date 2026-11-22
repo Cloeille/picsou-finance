@@ -7,7 +7,7 @@ use serde_json::json;
 use super::support::{PASSWORD, account, goal};
 
 async fn stored_ids(app: &TestApp, member_id: i64, resource_type: &str) -> Vec<i64> {
-    sqlx::query_scalar(
+    picsou::db::query_scalar(
         "SELECT resource_id FROM shared_resource WHERE owner_member_id = $1 AND resource_type = $2 ORDER BY id",
     )
     .bind(member_id)

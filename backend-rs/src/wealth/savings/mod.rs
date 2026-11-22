@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use self::model::{RateBasis, RegulatedRates, SavingsConfig, SavingsProduct};
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db::AsDbHandle;
 use crate::db::DbExec;
 use crate::error::{AppError, AppResult};
 use crate::http::json::{Errors, Json, Path, Validate};
@@ -39,6 +40,15 @@ pub trait AccountResponses: Send + Sync {
         state: &AppState,
         account: &Account,
     ) -> AppResult<serde_json::Value>;
+
+    async fn to_response_on(
+        &self,
+        state: &AppState,
+        _conn: &mut crate::db::DbHandle<'_>,
+        account: &Account,
+    ) -> AppResult<serde_json::Value> {
+        self.to_response(state, account).await
+    }
 }
 
 /// The savings domain's state: the AccountResponses seam, wired once at start (until then the
@@ -128,7 +138,7 @@ async fn upsert_config(
     Json(req): Json<SavingsConfigRequest>,
 ) -> AppResult<axum::Json<serde_json::Value>> {
     let mut tx = state.db.begin().await?;
-    let mut account = accounts::get_or_throw(&mut *tx, id, auth.member_id).await?;
+    let mut account = accounts::get_or_throw(&mut tx, id, auth.member_id).await?;
     let rate_basis = req.rate_basis.unwrap_or(RateBasis::Net);
     if let Some(product) = req.product {
         interest::validate(product, rate_basis)?;
@@ -184,12 +194,18 @@ pub async fn projection(
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<interest::SavingsInterestProjection>> {
     let mut conn = state.db.acquire().await?;
-    let account = accounts::get_or_throw(&mut *conn, id, auth.member_id).await?;
+    let account = accounts::get_or_throw(&mut conn, id, auth.member_id).await?;
     let config = model::find_by_account(&mut conn, id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("No savings config for account {id}")))?;
     Ok(axum::Json(
-        interest::compute_projection(&mut conn, &account, &config, state.clock.today()).await?,
+        interest::compute_projection(
+            &mut conn.as_handle(),
+            &account,
+            &config,
+            state.clock.today(),
+        )
+        .await?,
     ))
 }
 

@@ -10,13 +10,12 @@ use std::collections::{HashMap, HashSet};
 use async_trait::async_trait;
 use chrono::{DateTime, Days, NaiveDate, Utc};
 use rust_decimal::Decimal;
-use sqlx::PgPool;
 
 use super::accounts;
 use super::categorize::{self, TRANSFER_SLUG};
 use super::model::{AccountType, CategoryKind, Transaction, TransactionType};
 use super::transactions;
-use crate::db::DbExec;
+use crate::db::{AsDbHandle, Db, DbExec};
 use crate::error::AppResult;
 
 /// Matches the bank sync lookback: older rows were paired by an earlier sync.
@@ -33,7 +32,7 @@ const TRADING: &str = "TRADING";
 /// Rows up to MAX_DAY_GAP days past either end of the lookback window are loaded only as
 /// rivals that make a group ambiguous: a pair is taken only when both legs sit inside it.
 pub async fn pair_recent(
-    db: &PgPool,
+    db: &Db,
     member_id: i64,
     today: NaiveDate,
     now: DateTime<Utc>,
@@ -66,8 +65,7 @@ pub async fn pair_recent(
     if paired.is_empty() {
         return Ok(0);
     }
-    // Seeds the defaults in a transaction of its own, as Java's REQUIRES_NEW ensureSeeded.
-    let Some(target) = categorize::categories_by_slug(db, member_id, now)
+    let Some(target) = categorize::categories_by_slug_on(&mut tx.as_handle(), member_id, now)
         .await?
         .remove(TRANSFER_SLUG)
         .filter(|c| c.kind == CategoryKind::Transfer)
@@ -198,7 +196,7 @@ pub trait DividendClassifier: Send + Sync {
     /// Classifies the member's recent cash credits that match a dividend; returns how many changed.
     async fn classify_recent(
         &self,
-        db: &PgPool,
+        db: &Db,
         member_id: i64,
         today: NaiveDate,
         now: DateTime<Utc>,
@@ -212,7 +210,7 @@ pub struct NoDividendClassifier;
 impl DividendClassifier for NoDividendClassifier {
     async fn classify_recent(
         &self,
-        _db: &PgPool,
+        _db: &Db,
         _member_id: i64,
         _today: NaiveDate,
         _now: DateTime<Utc>,
@@ -225,7 +223,7 @@ impl DividendClassifier for NoDividendClassifier {
 /// recognised dividend is never paired. Best effort: each pass is isolated, and a failure,
 /// its commit included, is logged and never reaches the caller.
 pub async fn after_import(
-    db: &PgPool,
+    db: &Db,
     classifier: &dyn DividendClassifier,
     member_id: i64,
     today: NaiveDate,

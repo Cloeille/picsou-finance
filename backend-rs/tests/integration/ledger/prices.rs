@@ -8,7 +8,7 @@ use picsou::testing::TestApp;
 use super::support::{d, day, today};
 
 async fn record(app: &TestApp, ticker: &str, date: &str, price: &str) {
-    sqlx::query("INSERT INTO price_snapshot (ticker, date, price_eur, created_at) VALUES ($1, $2, $3, now())")
+    picsou::db::query("INSERT INTO price_snapshot (ticker, date, price_eur, created_at) VALUES ($1, $2, $3, now())")
         .bind(ticker)
         .bind(day(date))
         .bind(d(price))
@@ -45,11 +45,11 @@ async fn a_recorded_price_within_seven_days_stands_in_as_stale_and_an_older_one_
 #[tokio::test]
 async fn a_crypto_only_read_prices_registered_coins_only() {
     let app = TestApp::spawn().await;
-    sqlx::query("DELETE FROM crypto_asset WHERE upper(ticker) IN ('BTC', 'REG')")
+    picsou::db::query("DELETE FROM crypto_asset WHERE upper(ticker) IN ('BTC', 'REG')")
         .execute(&app.state.db)
         .await
         .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO crypto_asset (ticker, coingecko_id, name, source, resolved_at) \
          VALUES ('BTC', 'bitcoin', 'Bitcoin', 'CURATED', now())",
     )

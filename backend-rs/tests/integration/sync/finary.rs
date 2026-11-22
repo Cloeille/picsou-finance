@@ -54,7 +54,7 @@ impl Finary {
             .await;
         let admin = app.login_admin().await;
         let member_id =
-            sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+            picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
                 .fetch_one(&app.state.db)
                 .await
                 .expect("admin member");
@@ -192,7 +192,7 @@ impl Finary {
     }
 
     async fn count(&self, sql: &str) -> i64 {
-        sqlx::query_scalar(sql)
+        picsou::db::query_scalar(sql)
             .fetch_one(&self.app.state.db)
             .await
             .expect("count")
@@ -234,10 +234,11 @@ async fn credentials_are_encrypted_masked_and_scoped_to_the_member() {
     assert_eq!(r.json(), json!({"connected": false}));
 
     f.connect().await;
-    let stored: (String, String) = sqlx::query_as("SELECT email, password FROM finary_session")
-        .fetch_one(&f.app.state.db)
-        .await
-        .unwrap();
+    let stored: (String, String) =
+        picsou::db::query_as("SELECT email, password FROM finary_session")
+            .fetch_one(&f.app.state.db)
+            .await
+            .unwrap();
     assert_ne!(stored.0, "user@example.com");
     assert_eq!(
         f.app.state.crypto.decrypt(&stored.0).unwrap(),
@@ -723,7 +724,7 @@ async fn mapping_onto_another_connectors_account_keeps_its_id_and_holdings() {
             a.cash_balance = Some(d("12"));
         })
         .await;
-    sqlx::query("INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) VALUES ($1, 'AAPL', 3, now(), now())")
+    picsou::db::query("INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) VALUES ($1, 'AAPL', 3, now(), now())")
         .bind(tr.id).execute(&f.app.state.db).await.unwrap();
     let preview = f.preview().await;
     let suggestion = preview["suggestedMappings"]
@@ -815,7 +816,7 @@ async fn transactions_keep_their_currency_and_rebuild_the_history() {
         {"id": 3, "name": "usd", "date": "2026-01-12T10:00:00Z", "value": 100.0, "currency": {"code": "USD"}, "account": {"id": "usd-1"}}
     ])).await;
     let target = f.account("Courant", AccountType::Checking, |_| {}).await;
-    sqlx::query("INSERT INTO \"transaction\" (account_id, date, description, amount, native_currency, is_manual, created_at) VALUES ($1, '2026-01-01', 'manual', 7, 'EUR', true, now()), ($1, '2026-01-02', 'synced', 9, 'EUR', false, now())")
+    picsou::db::query("INSERT INTO \"transaction\" (account_id, date, description, amount, native_currency, is_manual, created_at) VALUES ($1, '2026-01-01', 'manual', 7, 'EUR', true, now()), ($1, '2026-01-02', 'synced', 9, 'EUR', false, now())")
         .bind(target.id).execute(&f.app.state.db).await.unwrap();
     let preview = f.preview().await;
     assert_eq!(preview["totalTransactionCount"], 3);
@@ -829,7 +830,7 @@ async fn transactions_keep_their_currency_and_rebuild_the_history() {
         .await;
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["transactionsImported"], 2);
-    let rows: Vec<TxRow> = sqlx::query_as(
+    let rows: Vec<TxRow> = picsou::db::query_as(
         "SELECT date::text, description, amount, category, native_currency FROM \"transaction\" WHERE account_id = $1 ORDER BY date, description")
         .bind(target.id).fetch_all(&f.app.state.db).await.unwrap();
     assert_eq!(
@@ -850,7 +851,7 @@ async fn transactions_keep_their_currency_and_rebuild_the_history() {
         "the UTC date of the instant"
     );
     assert_eq!(rows[2].3.as_deref(), Some(""));
-    let snapshots: Vec<(String, Decimal)> = sqlx::query_as(
+    let snapshots: Vec<(String, Decimal)> = picsou::db::query_as(
         "SELECT date::text, balance FROM balance_snapshot WHERE account_id = $1 ORDER BY date",
     )
     .bind(target.id)
@@ -929,7 +930,7 @@ async fn holdings_come_from_a_complete_snapshot_in_eur() {
     assert_eq!(status, 200, "{body}");
     let id = body["importedAccounts"][0]["id"].as_i64().unwrap();
     assert_eq!(f.reload(id).await.cash_balance, Some(d("6894.14")));
-    let holdings: Vec<HoldingRow> = sqlx::query_as(
+    let holdings: Vec<HoldingRow> = picsou::db::query_as(
         "SELECT ticker, name, quantity, average_buy_in, current_price, provider_value_eur, provider_pnl_eur, quote_currency FROM account_holding WHERE account_id = $1 ORDER BY ticker")
         .bind(id).fetch_all(&f.app.state.db).await.unwrap();
     assert_eq!(holdings.len(), 3);
@@ -961,7 +962,7 @@ async fn an_incomplete_snapshot_keeps_the_existing_holdings_and_cash() {
     let pea = f
         .account("PEA", AccountType::Pea, |a| a.cash_balance = Some(d("500")))
         .await;
-    sqlx::query("INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) VALUES ($1, 'CW8', 3, now(), now())")
+    picsou::db::query("INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) VALUES ($1, 'CW8', 3, now(), now())")
         .bind(pea.id).execute(&f.app.state.db).await.unwrap();
     let preview = f.preview().await;
     let (status, _) = f
@@ -1030,7 +1031,7 @@ async fn auto_sync_flags_a_session_that_needs_a_totp() {
         "TOTP_REQUIRED",
         "no sign-in is attempted while flagged"
     );
-    sqlx::query("UPDATE finary_session SET status = 'EXPIRED'")
+    picsou::db::query("UPDATE finary_session SET status = 'EXPIRED'")
         .execute(&f.app.state.db)
         .await
         .unwrap();

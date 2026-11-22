@@ -162,11 +162,32 @@ fn drop_database(name: String) {
     .join();
 }
 
+/// Returns `true` when integration tests should run against embedded SQLite instead of PostgreSQL.
+pub fn is_sqlite_test_db() -> bool {
+    std::env::var("PICSOU_TEST_DB")
+        .ok()
+        .is_some_and(|v| v.trim().eq_ignore_ascii_case("sqlite"))
+}
+
+enum TestAppDb {
+    Postgres(#[allow(dead_code)] TestDatabase),
+    Sqlite(std::path::PathBuf),
+}
+
+impl Drop for TestAppDb {
+    fn drop(&mut self) {
+        if let Self::Sqlite(dir) = self {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+}
+
 /// Environment for a test app; any variable can be overridden, an external base URL included
 /// (point it at a wiremock server's uri()).
 pub struct TestAppBuilder {
     env: Env,
     seed_admin: bool,
+    force_postgres: bool,
 }
 
 impl TestAppBuilder {
@@ -181,15 +202,39 @@ impl TestAppBuilder {
         self
     }
 
+    /// Forces PostgreSQL even when `PICSOU_TEST_DB=sqlite` is set (for PG-specific tools like
+    /// `export_pg_to_sqlite`).
+    pub fn postgres(mut self) -> Self {
+        self.force_postgres = true;
+        self
+    }
+
     pub async fn spawn(self) -> TestApp {
         crate::logging::init(None);
-        let database = fresh_database().await;
         let mut env = self.env;
-        env.set(
-            "SPRING_DATASOURCE_URL",
-            format!("jdbc:postgresql://{DB_HOST}:{DB_PORT}/{}", database.name()),
-        );
-        env.set("SPRING_DATASOURCE_USERNAME", DB_USER);
+        let database = if is_sqlite_test_db() && !self.force_postgres {
+            let dir = std::env::temp_dir().join(format!(
+                "picsou_sqlite_t_{}_{}",
+                std::process::id(),
+                COUNTER.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&dir).expect("create sqlite test dir");
+            let db_path = dir.join("picsou.db");
+            let path_str = db_path.to_string_lossy().replace('\\', "/");
+            env.set(
+                "DATABASE_URL",
+                format!("sqlite:///{}", path_str.trim_start_matches('/')),
+            );
+            TestAppDb::Sqlite(dir)
+        } else {
+            let db = fresh_database().await;
+            env.set(
+                "SPRING_DATASOURCE_URL",
+                format!("jdbc:postgresql://{DB_HOST}:{DB_PORT}/{}", db.name()),
+            );
+            env.set("SPRING_DATASOURCE_USERNAME", DB_USER);
+            TestAppDb::Postgres(db)
+        };
         let config = Config::load(&env).expect("test configuration");
         let clock = Arc::new(FixedClock::new(epoch()));
         let state = crate::start(config, clock.clone())
@@ -230,7 +275,7 @@ pub struct TestApp {
     pub state: AppState,
     pub clock: Arc<FixedClock>,
     _stop: tokio::sync::oneshot::Sender<()>,
-    _database: TestDatabase,
+    _database: TestAppDb,
 }
 
 impl TestApp {
@@ -255,6 +300,7 @@ impl TestApp {
                 ("GEOCODING_API_URL", UNREACHABLE),
             ]),
             seed_admin: false,
+            force_postgres: false,
         }
     }
 
@@ -315,14 +361,14 @@ impl TestApp {
     /// Creates a member with a login (role MEMBER, activated) and returns (user id, member id).
     pub async fn create_member(&self, username: &str, password: &str) -> (i64, i64) {
         let hash = bcrypt::hash(password, 4).expect("bcrypt");
-        let member_id: i64 = sqlx::query_scalar(
+        let member_id: i64 = crate::db::query_scalar(
             "INSERT INTO family_member (display_name, is_managed) VALUES ($1, false) RETURNING id",
         )
         .bind(username)
         .fetch_one(&self.state.db)
         .await
         .expect("member");
-        let user_id: i64 = sqlx::query_scalar(
+        let user_id: i64 = crate::db::query_scalar(
             "INSERT INTO app_user (username, password_hash, member_id, role, is_activated, acknowledged_warning) \
              VALUES ($1, $2, $3, 'MEMBER', true, true) RETURNING id",
         )
@@ -337,7 +383,7 @@ impl TestApp {
 
     /// Creates a managed profile without a login (an admin may impersonate it); returns its member id.
     pub async fn create_managed_member(&self, display_name: &str) -> i64 {
-        sqlx::query_scalar(
+        crate::db::query_scalar(
             "INSERT INTO family_member (display_name, is_managed) VALUES ($1, true) RETURNING id",
         )
         .bind(display_name)
@@ -354,7 +400,7 @@ impl TestApp {
             })
             .collect();
         let raw = format!("psk_{body}");
-        sqlx::query(
+        crate::db::query(
             "INSERT INTO access_key (member_id, created_by, name, key_prefix, key_hash, scopes) \
              SELECT member_id, id, 'test', $2, $3, $4 FROM app_user WHERE id = $1",
         )

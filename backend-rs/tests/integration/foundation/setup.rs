@@ -160,12 +160,12 @@ async fn seeds_one_admin_only() {
     assert_eq!(second.status, StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(second.json()["detail"], "An unexpected error occurred");
     let state: String =
-        sqlx::query_scalar("SELECT value FROM app_setting WHERE setting_key = 'setup.state'")
+        picsou::db::query_scalar("SELECT value FROM app_setting WHERE setting_key = 'setup.state'")
             .fetch_one(&app.state.db)
             .await
             .unwrap();
     assert_eq!(state, "IN_PROGRESS");
-    let audit: (String, Option<String>, Option<String>) = sqlx::query_as(
+    let audit: (String, Option<String>, Option<String>) = picsou::db::query_as(
         "SELECT event, actor_username, user_agent FROM setup_audit ORDER BY id LIMIT 1",
     )
     .fetch_one(&app.state.db)
@@ -201,7 +201,7 @@ async fn security_step() {
         .send()
         .await;
     assert_eq!(saved.status, StatusCode::NO_CONTENT);
-    let origins: String = sqlx::query_scalar(
+    let origins: String = picsou::db::query_scalar(
         "SELECT value FROM app_setting WHERE setting_key = 'cors.allowed-origins'",
     )
     .fetch_one(&app.state.db)

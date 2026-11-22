@@ -332,6 +332,25 @@ impl SqliteDb {
         })
     }
 
+    /// Executes a raw SQL script (translating PostgreSQL syntax via `dialect`) under the writer gate.
+    pub async fn execute_batch(&self, sql: &str) -> Result<(), sqlx::Error> {
+        let translated = dialect::translate_pg_to_sqlite(sql);
+        let _gate = self.acquire_writer_gate().await;
+        run_on_writer(Arc::clone(&self.conn), move |conn| {
+            conn.execute_batch(&translated)
+                .map_err(error::rusqlite_to_sqlx)
+        })
+        .await
+    }
+
+    /// Returns a stable identifier for this SQLite database (file path or unique in-memory address).
+    pub fn identifier(&self) -> String {
+        match &self.file_path {
+            Some(path) => path.to_string_lossy().into_owned(),
+            None => format!("sqlite:memory:{:p}", Arc::as_ptr(&self.conn)),
+        }
+    }
+
     /// Drains pooled WAL reader connections and runs `PRAGMA wal_checkpoint(TRUNCATE)` for a clean
     /// shutdown.
     pub async fn close(&self) {
@@ -772,21 +791,40 @@ fn query_rows(
 ) -> Result<Vec<SqliteRow>, sqlx::Error> {
     let mut stmt = conn.prepare_cached(sql).map_err(error::rusqlite_to_sqlx)?;
     let col_count = stmt.column_count();
-    let columns = Arc::new(
-        stmt.column_names()
-            .into_iter()
-            .map(str::to_owned)
-            .collect::<Vec<_>>(),
-    );
+    let mut col_names = Vec::with_capacity(col_count);
+    let mut col_scales = Vec::with_capacity(col_count);
+    for name in stmt.column_names() {
+        let scale = decimal::pg_numeric_column_scale(sql, name);
+        col_names.push(name.to_owned());
+        col_scales.push(scale);
+    }
+    let columns = Arc::new(col_names);
     let mut raw_rows = stmt
         .query(params_from_iter(params.iter()))
         .map_err(error::rusqlite_to_sqlx)?;
     let mut out = Vec::new();
     while let Some(row) = raw_rows.next().map_err(error::rusqlite_to_sqlx)? {
         let mut values = Vec::with_capacity(col_count);
-        for idx in 0..col_count {
+        for (idx, scale) in col_scales.iter().enumerate() {
             let val_ref = row.get_ref(idx).map_err(error::rusqlite_to_sqlx)?;
-            values.push(SqliteValue::from(val_ref));
+            let mut val = SqliteValue::from(val_ref);
+            if let Some(s) = *scale {
+                match &val {
+                    SqliteValue::Text(raw) => {
+                        if let Some(formatted) = decimal::format_pg_numeric_scale(raw, s) {
+                            val = SqliteValue::Text(formatted);
+                        }
+                    }
+                    SqliteValue::Integer(n) => {
+                        if let Some(formatted) = decimal::format_pg_numeric_scale(&n.to_string(), s)
+                        {
+                            val = SqliteValue::Text(formatted);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            values.push(val);
         }
         out.push(SqliteRow {
             columns: Arc::clone(&columns),
@@ -798,6 +836,13 @@ fn query_rows(
 
 fn execute_stmt(conn: &Connection, sql: &str, params: &[SqliteValue]) -> Result<u64, sqlx::Error> {
     let mut stmt = conn.prepare_cached(sql).map_err(error::rusqlite_to_sqlx)?;
+    if stmt.column_count() > 0 {
+        let mut rows = stmt
+            .query(params_from_iter(params.iter()))
+            .map_err(error::rusqlite_to_sqlx)?;
+        while rows.next().map_err(error::rusqlite_to_sqlx)?.is_some() {}
+        return Ok(conn.changes());
+    }
     let changed = stmt
         .execute(params_from_iter(params.iter()))
         .map_err(error::rusqlite_to_sqlx)?;

@@ -43,7 +43,7 @@ async fn sync(app: &picsou::testing::TestApp, client: &picsou::testing::Client) 
 
 /// The card's rows, oldest first, as (description, amount, external id).
 async fn rows(app: &picsou::testing::TestApp, member_id: i64) -> Vec<(String, Decimal, String)> {
-    sqlx::query_as(
+    picsou::db::query_as(
         "SELECT t.description, t.amount, COALESCE(t.external_id, '') FROM \"transaction\" t JOIN account a ON a.id = t.account_id \
          WHERE a.member_id = $1 AND a.external_account_id = 'amex_card-1' ORDER BY t.date, t.id",
     )
@@ -57,7 +57,7 @@ async fn some_category(app: &picsou::testing::TestApp, member_id: i64) -> i64 {
     picsou::ledger::categorize::ensure_seeded(&app.state.db, member_id, app.state.clock.now())
         .await
         .unwrap();
-    sqlx::query_scalar("SELECT id FROM category WHERE member_id = $1 ORDER BY id LIMIT 1")
+    picsou::db::query_scalar("SELECT id FROM category WHERE member_id = $1 ORDER BY id LIMIT 1")
         .bind(member_id)
         .fetch_one(&app.state.db)
         .await
@@ -65,7 +65,7 @@ async fn some_category(app: &picsou::testing::TestApp, member_id: i64) -> i64 {
 }
 
 async fn categorise(app: &picsou::testing::TestApp, description: &str, category: i64) {
-    sqlx::query("UPDATE \"transaction\" SET category_id = $1 WHERE description = $2")
+    picsou::db::query("UPDATE \"transaction\" SET category_id = $1 WHERE description = $2")
         .bind(category)
         .bind(description)
         .execute(&app.state.db)
@@ -74,7 +74,7 @@ async fn categorise(app: &picsou::testing::TestApp, description: &str, category:
 }
 
 async fn category_of(app: &picsou::testing::TestApp, description: &str) -> Option<i64> {
-    sqlx::query_scalar("SELECT category_id FROM \"transaction\" WHERE description = $1")
+    picsou::db::query_scalar("SELECT category_id FROM \"transaction\" WHERE description = $1")
         .bind(description)
         .fetch_one(&app.state.db)
         .await
@@ -268,7 +268,7 @@ async fn completion_imports_the_full_history_of_the_card() {
         Decimal,
         chrono::NaiveDate,
         i64,
-    ) = sqlx::query_as(
+    ) = picsou::db::query_as(
         "SELECT name, type::text, provider, color, current_balance, payment_due_amount, payment_due_date, \
          reward_points FROM account WHERE external_account_id = 'amex_card-1' AND member_id = $1",
     )
@@ -491,7 +491,7 @@ async fn history_recovery_merges_without_touching_existing_rows() {
     let (client, member_id) = admin(&app).await;
     store_session(&app, BANK, member_id, "plain-state").await;
     sync(&app, &client).await;
-    sqlx::query("INSERT INTO \"transaction\" (account_id, date, description, amount, native_currency, created_at, is_manual) \
+    picsou::db::query("INSERT INTO \"transaction\" (account_id, date, description, amount, native_currency, created_at, is_manual) \
                  SELECT id, DATE '2026-01-09', 'CASH NOTE', -1, 'EUR', now(), true FROM account WHERE external_account_id = 'amex_card-1'")
         .execute(&app.state.db)
         .await
@@ -541,7 +541,7 @@ async fn an_earlier_id_format_is_re_keyed_once() {
     let (client, member_id) = admin(&app).await;
     store_session(&app, BANK, member_id, "plain-state").await;
     sync(&app, &client).await;
-    sqlx::query("UPDATE \"transaction\" SET external_id = 'amex_tx_1x2y3z'")
+    picsou::db::query("UPDATE \"transaction\" SET external_id = 'amex_tx_1x2y3z'")
         .execute(&app.state.db)
         .await
         .unwrap();
@@ -586,7 +586,7 @@ async fn a_malformed_transaction_date_fails_the_sync_but_a_bad_due_date_is_dropp
 
     assert_eq!(sync(&app, &client).await["syncStatus"], "SUCCESS");
     let due: Option<chrono::NaiveDate> =
-        sqlx::query_scalar("SELECT payment_due_date FROM account WHERE member_id = $1")
+        picsou::db::query_scalar("SELECT payment_due_date FROM account WHERE member_id = $1")
             .bind(member_id)
             .fetch_one(&app.state.db)
             .await
@@ -614,7 +614,7 @@ async fn a_soft_deleted_card_is_not_resurrected() {
     let (client, member_id) = admin(&app).await;
     store_session(&app, BANK, member_id, "plain-state").await;
     sync(&app, &client).await;
-    sqlx::query("UPDATE account SET deleted_at = now()")
+    picsou::db::query("UPDATE account SET deleted_at = now()")
         .execute(&app.state.db)
         .await
         .unwrap();

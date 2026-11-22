@@ -2,10 +2,10 @@
 
 use std::collections::HashMap;
 
+use crate::db::DbHandle;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::Serialize;
-use sqlx::PgConnection;
 
 use super::jdecimal;
 use super::scale::{column, column_opt};
@@ -186,7 +186,7 @@ pub struct DebtResponse {
 
 impl DebtResponse {
     /// DebtResponse.from; the linked account is read as Hibernate would load it (live rows only).
-    pub async fn from_debt(conn: &mut PgConnection, d: &Debt) -> AppResult<Self> {
+    pub async fn from_debt(conn: &mut DbHandle<'_>, d: &Debt) -> AppResult<Self> {
         let linked = match d.linked_account_id {
             Some(id) => accounts::find_by_id(&mut *conn, id).await?,
             None => None,
@@ -582,7 +582,7 @@ async fn savings_config_of(
 
 /// AccountService.toResponse(account, sharePercent, viewerId).
 pub async fn to_response(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     prices: &dyn PriceRead,
     account: &Account,
     share_percent: Option<Decimal>,
@@ -625,7 +625,7 @@ pub async fn to_response(
 
 /// The viewer's responses over readable accounts, with their shares and display prefs.
 pub async fn responses_for_viewer(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     prices: &dyn PriceRead,
     accounts: &[Account],
     shares: &HashMap<i64, Decimal>,

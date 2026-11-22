@@ -7,7 +7,6 @@ use std::collections::{BTreeMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 use unicode_normalization::UnicodeNormalization;
 
 use super::Provider;
@@ -184,7 +183,7 @@ async fn record(
 
 /// reconcile: one outcome per fund code, in the order reported, then the missing ones.
 pub async fn reconcile(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     provider: Provider,
     funds: &[SyncedFund],
@@ -254,7 +253,7 @@ pub async fn reconcile(
 }
 
 async fn apply_fund(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     provider: Provider,
     fund: &SyncedFund,
@@ -357,7 +356,7 @@ async fn apply_fund(
 /// The fund's figures onto the position (applySyncedPosition); true when the position could be
 /// valued, which also sets the account's balance to the withdrawal value.
 async fn apply(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     position_id: i64,
     account_id: i64,
     fund: &SyncedFund,
@@ -413,7 +412,7 @@ async fn apply(
 
 /// The unlinked SCPI accounts named like the fund ("<provider> <fund>" too for a distributor).
 async fn adoption_candidates(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     provider: Provider,
     label: Option<&str>,

@@ -1,11 +1,11 @@
 //! Cross-track seam: AccountService.toResponse (track T2 owns the account read model).
 
+use crate::db::DbHandle;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::Serialize;
 use serde_json::Value;
-use sqlx::PgConnection;
 
 use crate::AppState;
 use crate::db::{self, DbFromRow};
@@ -21,7 +21,7 @@ pub trait AccountView: Send + Sync {
     async fn to_response(
         &self,
         state: &AppState,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         account: &Account,
     ) -> AppResult<Value>;
 }
@@ -36,7 +36,7 @@ impl AccountView for BaseAccountView {
     async fn to_response(
         &self,
         state: &AppState,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         account: &Account,
     ) -> AppResult<Value> {
         let current_balance_eur = valuation::live_balance_eur(

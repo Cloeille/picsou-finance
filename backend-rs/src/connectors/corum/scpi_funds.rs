@@ -10,7 +10,6 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use regex::Regex;
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use crate::connectors::seams::{ScpiFundOutcome, ScpiFunds, ScpiProvider, SyncedFund};
 use crate::db::{self, AsDbHandle, DbExec, DbFromRow, DbHandle};
@@ -254,7 +253,7 @@ fn withdrawal_value(share_count: Decimal, withdrawal_price: Option<Decimal>) -> 
 /// ScpiPositionService.applySyncedPosition: the balance is the withdrawal value and nothing else,
 /// since entry fees sit between it and the subscription price.
 async fn apply_synced_position(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     position: &mut Position,
     share_count: Decimal,
     subscription_price: Option<Decimal>,
@@ -357,7 +356,7 @@ async fn save_fund_row<'e>(
 
 /// Manual SCPI accounts linked to no provider, named like the fund once normalized.
 async fn adoption_candidates(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     label: Option<&str>,
     claimed: &HashSet<i64>,
@@ -384,7 +383,7 @@ async fn adoption_candidates(
 }
 
 async fn apply_fund(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     provider: ScpiProvider,
     fund: &SyncedFund,
@@ -454,7 +453,7 @@ async fn apply_fund(
 }
 
 async fn apply(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     position: &mut Position,
     fund: &SyncedFund,
     now: DateTime<Utc>,
@@ -524,7 +523,7 @@ async fn report_missing(
 impl ScpiFunds for RecordedScpiFunds {
     async fn reconcile(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         member_id: i64,
         provider: ScpiProvider,
         funds: &[SyncedFund],
@@ -572,7 +571,7 @@ impl ScpiFunds for RecordedScpiFunds {
 
     async fn close_unlisted(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         member_id: i64,
         provider: ScpiProvider,
         listed: &HashSet<String>,

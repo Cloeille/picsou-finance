@@ -23,7 +23,7 @@ pub async fn app_with_sidecar(url_var: &str, sidecar: &MockServer) -> TestApp {
 /// The signed-in admin and their member id.
 pub async fn admin(app: &TestApp) -> (Client, i64) {
     let client = app.login_admin().await;
-    let member_id = sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = $1")
+    let member_id = picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = $1")
         .bind(ADMIN_USERNAME)
         .fetch_one(&app.state.db)
         .await
@@ -60,7 +60,7 @@ pub async fn store_session(
     plain_state: &str,
 ) -> i64 {
     let encrypted = app.state.crypto.encrypt(plain_state).expect("encrypt");
-    sqlx::query_scalar(
+    picsou::db::query_scalar(
         "INSERT INTO sidecar_session (bank, member_id, session_state, last_validated_at, is_active, sync_status) \
          VALUES ($1, $2, $3, now(), true, 'IDLE') RETURNING id",
     )
@@ -117,7 +117,7 @@ pub async fn sync_stored(
 
 /// Rows of one query, decoded as text tuples for compact assertions.
 pub async fn count(app: &TestApp, sql: &str) -> i64 {
-    sqlx::query_scalar(sql)
+    picsou::db::query_scalar(sql)
         .fetch_one(&app.state.db)
         .await
         .expect("count")

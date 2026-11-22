@@ -4,11 +4,11 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::LazyLock;
 
+use crate::db::DbHandle;
 use chrono::{DateTime, Months, NaiveDate, Utc};
 use regex::Regex;
 use rust_decimal::Decimal;
 use serde::Deserialize;
-use sqlx::PgConnection;
 
 use super::Bank;
 use crate::AppState;
@@ -297,7 +297,7 @@ async fn resolve(state: &AppState, group: Aggregated) -> Resolved {
 /// updated in place by ticker, never recreated: the insurer reports no acquisition cost, so a
 /// buy-in the member typed survives. Only a ticker no longer reported is removed.
 pub async fn apply(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account_id: i64,
     prepared: &Prepared,
     synced_at: DateTime<Utc>,

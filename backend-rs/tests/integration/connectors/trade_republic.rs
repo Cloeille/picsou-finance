@@ -177,7 +177,7 @@ async fn store_state(
     status: &str,
 ) -> i64 {
     let encrypted = app.state.crypto.encrypt(plain).unwrap();
-    sqlx::query_scalar(
+    picsou::db::query_scalar(
         "INSERT INTO sidecar_session (bank, member_id, session_state, last_validated_at, is_active, sync_status) \
          VALUES ('TRADE_REPUBLIC', $1, $2, now(), $3, $4) RETURNING id",
     )
@@ -202,7 +202,7 @@ async fn account(
     member_id: i64,
     external_id: &str,
 ) -> Option<(i64, String, String, Decimal, Option<Decimal>)> {
-    sqlx::query_as(
+    picsou::db::query_as(
         "SELECT id, name, type::text, current_balance, cash_balance FROM account \
          WHERE external_account_id = $1 AND member_id = $2 AND deleted_at IS NULL",
     )
@@ -223,7 +223,7 @@ async fn holdings(
     Option<Decimal>,
     Option<Decimal>,
 )> {
-    sqlx::query_as(
+    picsou::db::query_as(
         "SELECT ticker, quantity, average_buy_in, current_price, provider_value_eur FROM account_holding \
          WHERE account_id = $1 ORDER BY ticker",
     )
@@ -528,7 +528,7 @@ async fn complete_stores_the_session_lifts_tombstones_and_runs_the_first_import(
     };
     let (app, cookies) = app(&sidecar, socket).await;
     let (client, member_id) = admin(&app).await;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO account (member_id, name, type, provider, currency, current_balance, external_account_id, \
          is_manual, color, created_at, updated_at, deleted_at) VALUES ($1, 'TR Titres', 'COMPTE_TITRES', \
          'Trade Republic', 'EUR', 0, 'tr_securities', false, '#3b82f6', now(), now(), now())",
@@ -582,7 +582,16 @@ async fn complete_stores_the_session_lifts_tombstones_and_runs_the_first_import(
         .await,
         1
     );
-    assert_eq!(count(&app, &format!("SELECT count(*) FROM \"transaction\" WHERE account_id = {securities} AND amount = 200")).await, 1);
+    let sec_amounts: Vec<Decimal> =
+        picsou::db::query_scalar("SELECT amount FROM \"transaction\" WHERE account_id = $1")
+            .bind(securities)
+            .fetch_all(&app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(
+        sec_amounts.into_iter().filter(|a| *a == d("200")).count(),
+        1
+    );
     assert_eq!(
         count(
             &app,
@@ -800,7 +809,7 @@ async fn an_errored_portfolio_frame_keeps_the_previous_holdings() {
     )
     .await;
     let (client, member_id) = admin(&app).await;
-    let account_id: i64 = sqlx::query_scalar(
+    let account_id: i64 = picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, provider, currency, current_balance, external_account_id, \
          is_manual, color, created_at, updated_at) VALUES ($1, 'TR Titres', 'COMPTE_TITRES', 'Trade Republic', \
          'EUR', 500, 'tr_securities', false, '#3b82f6', now(), now()) RETURNING id",
@@ -809,7 +818,7 @@ async fn an_errored_portfolio_frame_keeps_the_previous_holdings() {
     .fetch_one(&app.state.db)
     .await
     .unwrap();
-    sqlx::query("INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) VALUES ($1, 'KEEP', 5, now(), now())")
+    picsou::db::query("INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) VALUES ($1, 'KEEP', 5, now(), now())")
         .bind(account_id)
         .execute(&app.state.db)
         .await
@@ -985,7 +994,7 @@ async fn the_transactions_csv_books_both_legs_once_and_only_for_the_owner() {
         json!({ "inserted": 0, "skipped": 2, "nonEur": 1 })
     );
     assert_eq!(spoofed.status, 404);
-    let (cash_amount, cash_kind, cash_category): (Decimal, String, String) = sqlx::query_as(
+    let (cash_amount, cash_kind, cash_category): (Decimal, String, String) = picsou::db::query_as(
         "SELECT t.amount, t.tx_type::text, c.kind::text FROM \"transaction\" t JOIN category c ON c.id = t.category_id \
          WHERE t.external_id = 'tx-1_cash'",
     )
@@ -996,7 +1005,7 @@ async fn the_transactions_csv_books_both_legs_once_and_only_for_the_owner() {
         (cash_amount, cash_kind.as_str(), cash_category.as_str()),
         (d("-200.50"), "WITHDRAWAL", "EXPENSE")
     );
-    let (inv_account, inv_amount, inv_kind, description): (i64, Decimal, String, String) = sqlx::query_as(
+    let (inv_account, inv_amount, inv_kind, description): (i64, Decimal, String, String) = picsou::db::query_as(
         "SELECT account_id, amount, tx_type::text, description FROM \"transaction\" WHERE external_id = 'tx-1_inv'",
     )
     .fetch_one(&app.state.db)

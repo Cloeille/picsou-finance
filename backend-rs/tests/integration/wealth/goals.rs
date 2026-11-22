@@ -18,7 +18,7 @@ impl Fixture {
         let app = TestApp::with_admin().await;
         let admin = app.login_admin().await;
         let member: i64 =
-            sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+            picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
                 .fetch_one(&app.state.db)
                 .await
                 .unwrap();
@@ -178,10 +178,11 @@ async fn an_objective_override_changes_the_objective_not_the_amount_saved() {
 async fn goal_creation_embeds_wired_account_response() {
     let app = TestApp::with_admin().await;
     let admin = app.login_admin().await;
-    let member: i64 = sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
-        .fetch_one(&app.state.db)
-        .await
-        .unwrap();
+    let member: i64 =
+        picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
     let mut draft = NewAccount::new(member, "Livret", AccountType::Savings);
     draft.is_manual = true;
     draft.current_balance = d("250");

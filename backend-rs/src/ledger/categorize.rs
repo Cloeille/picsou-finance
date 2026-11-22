@@ -5,8 +5,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::db::Db;
 use chrono::{DateTime, Utc};
-use sqlx::{PgConnection, PgPool};
 
 use super::merchants::{self, KnowledgeBase};
 use super::model::{
@@ -202,13 +202,12 @@ pub async fn categories_of_member<'e>(
     .await
 }
 
-// Wave 3: switch to impl DbExec (called by src/budget/categories.rs with opaque impl PgExecutor)
 pub async fn category_of_member<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+    db: impl DbExec<'e>,
     id: i64,
     member_id: i64,
 ) -> sqlx::Result<Option<Category>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as(&format!(
         "SELECT {CATEGORY_COLUMNS} FROM category c WHERE c.id = $1 AND c.member_id = $2"
     ))
     .bind(id)
@@ -243,10 +242,21 @@ async fn insert_default<'e>(
 
 /// CategoryService.ensureSeeded: gives a member without any category the defaults, in a
 /// transaction of its own (REQUIRES_NEW) so the seed survives the caller's rollback.
-pub async fn ensure_seeded(db: &PgPool, member_id: i64, now: DateTime<Utc>) -> sqlx::Result<()> {
+pub async fn ensure_seeded(db: &Db, member_id: i64, now: DateTime<Utc>) -> sqlx::Result<()> {
     let mut tx = db.begin().await?;
     seed_if_empty(&mut tx.as_handle(), member_id, now).await?;
     tx.commit().await
+}
+
+/// Same as [`ensure_seeded`], reusing an already-open connection/transaction handle (required
+/// when the caller already holds an active write transaction, so SQLite never deadlocks on its
+/// single-writer gate).
+pub async fn ensure_seeded_on(
+    conn: &mut DbHandle<'_>,
+    member_id: i64,
+    now: DateTime<Utc>,
+) -> sqlx::Result<()> {
+    seed_if_empty(conn, member_id, now).await
 }
 
 async fn seed_if_empty(
@@ -272,7 +282,7 @@ async fn seed_if_empty(
 /// Everything happens in the caller's transaction: Java's inner ensureSeeded call is a
 /// self-invocation, so its REQUIRES_NEW never applies there.
 pub async fn find_or_create_default(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     slug: &str,
     now: DateTime<Utc>,
@@ -294,13 +304,29 @@ pub async fn find_or_create_default(
 /// CategorizationService.categoriesBySlug: the member's active categories keyed by slug (the
 /// first one wins on a duplicate slug), seeding the defaults first.
 pub async fn categories_by_slug(
-    db: &PgPool,
+    db: &Db,
     member_id: i64,
     now: DateTime<Utc>,
 ) -> sqlx::Result<HashMap<String, Category>> {
     ensure_seeded(db, member_id, now).await?;
     let mut by_slug = HashMap::new();
     for category in categories_of_member(db, member_id, false).await? {
+        if let Some(slug) = category.slug.clone().filter(|s| !java_is_blank(s)) {
+            by_slug.entry(slug).or_insert(category);
+        }
+    }
+    Ok(by_slug)
+}
+
+/// Same as [`categories_by_slug`], reusing an already-open connection/transaction handle.
+pub async fn categories_by_slug_on(
+    conn: &mut DbHandle<'_>,
+    member_id: i64,
+    now: DateTime<Utc>,
+) -> sqlx::Result<HashMap<String, Category>> {
+    seed_if_empty(&mut *conn, member_id, now).await?;
+    let mut by_slug = HashMap::new();
+    for category in categories_of_member(&mut *conn, member_id, false).await? {
         if let Some(slug) = category.slug.clone().filter(|s| !java_is_blank(s)) {
             by_slug.entry(slug).or_insert(category);
         }
@@ -323,12 +349,11 @@ pub async fn rules_of_member<'e>(
 }
 
 /// BudgetSettingsRepository.findByMemberId.
-// Wave 3: switch to impl DbExec (called by src/budget/settings.rs with opaque impl PgExecutor)
 pub async fn budget_settings_of_member<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<Option<BudgetSettings>> {
-    sqlx::query_as(
+    crate::db::query_as(
         "SELECT id, member_id, cycle_start_day, logo_fetch_enabled, ai_categorization_enabled, ai_mode, \
          ai_confidence_threshold, updated_at FROM budget_settings WHERE member_id = $1",
     )
@@ -347,7 +372,7 @@ pub struct CategorizationContext {
 
 /// CategorizationService.loadContext.
 pub async fn load_context(
-    db: &PgPool,
+    db: &Db,
     knowledge_base: Arc<KnowledgeBase>,
     member_id: i64,
     now: DateTime<Utc>,
@@ -355,6 +380,20 @@ pub async fn load_context(
     Ok(CategorizationContext {
         rules: rules_of_member(db, member_id).await?,
         categories_by_slug: categories_by_slug(db, member_id, now).await?,
+        knowledge_base,
+    })
+}
+
+/// Same as [`load_context`], reusing an already-open connection/transaction handle.
+pub async fn load_context_on(
+    conn: &mut DbHandle<'_>,
+    knowledge_base: Arc<KnowledgeBase>,
+    member_id: i64,
+    now: DateTime<Utc>,
+) -> sqlx::Result<CategorizationContext> {
+    Ok(CategorizationContext {
+        rules: rules_of_member(&mut *conn, member_id).await?,
+        categories_by_slug: categories_by_slug_on(&mut *conn, member_id, now).await?,
         knowledge_base,
     })
 }
@@ -516,7 +555,6 @@ fn java_split_whitespace(value: &str) -> Vec<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::Db;
     use crate::db::sqlite::{SqliteDb, migrate};
 
     #[tokio::test]

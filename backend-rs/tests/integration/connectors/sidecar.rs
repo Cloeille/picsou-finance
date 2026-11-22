@@ -193,7 +193,7 @@ async fn a_cleartext_sidecar_url_across_a_network_refuses_to_start() {
         ("BOURSE_DIRECT_AUTH_URL", "http://sidecar.example.com:8001"),
     ]))
     .expect("config");
-    let db = sqlx::PgPool::connect_lazy("postgres://picsou@127.0.0.1:55432/postgres").unwrap();
+    let db = picsou::db::Db::from(picsou::db::sqlite::SqliteDb::open_in_memory().unwrap());
 
     let error = picsou::connectors::Connectors::new(&config, db)
         .err()

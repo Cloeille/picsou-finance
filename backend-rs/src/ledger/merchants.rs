@@ -211,6 +211,22 @@ impl KnowledgeBase {
         Ok(KnowledgeBase::new(brands, aliases))
     }
 
+    /// Loads every brand and alias row on an existing connection/transaction handle.
+    pub async fn load_on(conn: &mut crate::db::DbHandle<'_>) -> Result<KnowledgeBase, sqlx::Error> {
+        let brands = crate::db::query_as::<MerchantBrand>(
+            "SELECT id, slug, display_name, default_category_slug, color, monogram, logo_domain \
+             FROM merchant_brand ORDER BY id",
+        )
+        .fetch_all(&mut *conn)
+        .await?;
+        let aliases = crate::db::query_as::<MerchantAlias>(
+            "SELECT id, brand_id, pattern, match_type FROM merchant_alias ORDER BY id",
+        )
+        .fetch_all(&mut *conn)
+        .await?;
+        Ok(KnowledgeBase::new(brands, aliases))
+    }
+
     /// Builds the knowledge base from rows; orphan aliases are skipped and the first WORD
     /// alias of a pattern wins.
     pub fn new(brands: Vec<MerchantBrand>, aliases: Vec<MerchantAlias>) -> KnowledgeBase {

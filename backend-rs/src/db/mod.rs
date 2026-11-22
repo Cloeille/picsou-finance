@@ -93,6 +93,31 @@ impl Db {
         }
     }
 
+    /// Executes a raw SQL script (possibly containing multiple semicolon-separated statements) on
+    /// either PostgreSQL or SQLite (translating PostgreSQL syntax via `db::sqlite::dialect`).
+    pub async fn execute_batch(&self, sql: &str) -> Result<(), sqlx::Error> {
+        match self {
+            Self::Postgres(pool) => {
+                sqlx::raw_sql(sql).execute(pool).await?;
+                Ok(())
+            }
+            Self::Sqlite(sq) => sq.execute_batch(sql).await,
+        }
+    }
+
+    /// Returns a stable identifier for this database instance (database name on PostgreSQL,
+    /// file path or in-memory identity on SQLite).
+    pub fn identifier(&self) -> String {
+        match self {
+            Self::Postgres(pool) => pool
+                .connect_options()
+                .get_database()
+                .unwrap_or_default()
+                .to_owned(),
+            Self::Sqlite(sq) => sq.identifier(),
+        }
+    }
+
     /// Gracefully closes the pool (on SQLite, drains WAL readers and checkpoints WAL).
     pub async fn close(&self) {
         match self {

@@ -19,7 +19,7 @@ impl Fixture {
         let app = TestApp::with_admin().await;
         let admin = app.login_admin().await;
         let member: i64 =
-            sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+            picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
                 .fetch_one(&app.state.db)
                 .await
                 .unwrap();
@@ -27,7 +27,7 @@ impl Fixture {
     }
 
     async fn sql(&self, statement: &str) {
-        sqlx::query(statement)
+        picsou::db::query(statement)
             .execute(&self.app.state.db)
             .await
             .unwrap();
@@ -40,7 +40,7 @@ impl Fixture {
     }
 
     async fn holding(&self, account_id: i64, ticker: &str, name: &str, quantity: &str) {
-        sqlx::query(
+        picsou::db::query(
             "INSERT INTO account_holding (account_id, ticker, name, quantity, created_at, updated_at) \
              VALUES ($1, $2, $3, $4::numeric, now(), now())",
         )
@@ -55,7 +55,7 @@ impl Fixture {
 
     /// A source with (ex_date, amount_eur, payment_date, declared) events.
     async fn source(&self, ticker: &str, events: &[(&str, &str, Option<&str>, bool)]) {
-        let id: i64 = sqlx::query_scalar(
+        let id: i64 = picsou::db::query_scalar(
             "INSERT INTO dividend_source (ticker, currency, status) VALUES ($1, 'EUR', 'OK') RETURNING id",
         )
         .bind(ticker)
@@ -63,15 +63,15 @@ impl Fixture {
         .await
         .unwrap();
         for (ex, amount, payment, declared) in events {
-            sqlx::query(
+            picsou::db::query(
                 "INSERT INTO dividend_event (source_id, ex_date, amount, amount_eur, payment_date, declared) \
                  VALUES ($1, $2::date, $3::numeric, $3::numeric, $4::date, $5)",
             )
             .bind(id)
-            .bind(ex)
-            .bind(amount)
-            .bind(payment)
-            .bind(declared)
+            .bind(*ex)
+            .bind(*amount)
+            .bind(*payment)
+            .bind(*declared)
             .execute(&self.app.state.db)
             .await
             .unwrap();
@@ -177,7 +177,7 @@ async fn an_scpi_pays_its_declared_distribution_on_the_25th() {
     let mut draft = NewAccount::new(f.member, "Corum Origin", AccountType::Scpi);
     draft.is_manual = true;
     let scpi = account(&f.app, draft).await.id;
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO scpi_position (account_id, member_id, isin, share_count, dividend_policy, \
          annual_distribution_per_share_eur, distribution_frequency) VALUES ($1, $2, 'FR0000000001', 10, 'CASH', 12, 'MONTHLY')",
     )
@@ -230,7 +230,7 @@ async fn a_recent_credit_is_classified_once_then_listed_as_received() {
         &[("2026-01-02", "0.79", Some("2026-01-06"), false)],
     )
     .await;
-    let credit: i64 = sqlx::query_scalar(
+    let credit: i64 = picsou::db::query_scalar(
         "INSERT INTO \"transaction\" (account_id, date, description, amount, native_currency, created_at, is_manual) \
          VALUES ($1, '2026-01-06', 'DIVIDENDE TOTALENERGIES', 7.90, 'EUR', now(), false) RETURNING id",
     )
@@ -255,7 +255,7 @@ async fn a_recent_credit_is_classified_once_then_listed_as_received() {
             .unwrap(),
         0
     );
-    let (tx_type, ticker, slug): (String, String, String) = sqlx::query_as(
+    let (tx_type, ticker, slug): (String, String, String) = picsou::db::query_as(
         "SELECT t.tx_type, t.ticker, c.slug FROM \"transaction\" t JOIN category c ON c.id = t.category_id WHERE t.id = $1",
     )
     .bind(credit)
@@ -335,7 +335,7 @@ async fn the_history_refresh_stores_yahoo_events_in_eur_with_nasdaqs_declared_di
         .await
         .unwrap();
     assert_eq!(refreshed, 1);
-    let rows: Vec<(String, String, Option<String>, bool)> = sqlx::query_as(
+    let rows: Vec<(String, String, Option<String>, bool)> = picsou::db::query_as(
         "SELECT e.ex_date::text, e.amount_eur::text, e.payment_date::text, e.declared FROM dividend_event e \
          JOIN dividend_source s ON s.id = e.source_id WHERE s.ticker = 'KO' ORDER BY e.ex_date",
     )
@@ -366,7 +366,7 @@ async fn the_history_refresh_stores_yahoo_events_in_eur_with_nasdaqs_declared_di
         ]
     );
     let statuses: Vec<(String, String)> =
-        sqlx::query_as("SELECT ticker, status FROM dividend_source ORDER BY ticker")
+        picsou::db::query_as("SELECT ticker, status FROM dividend_source ORDER BY ticker")
             .fetch_all(&app.state.db)
             .await
             .unwrap();

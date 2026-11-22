@@ -4,6 +4,7 @@
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use crate::db::DbHandle;
 use async_trait::async_trait;
 use axum::Json as AxumJson;
 use axum::extract::State;
@@ -13,7 +14,6 @@ use chrono::{DateTime, Utc};
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::PgConnection;
 
 use super::sidecar::flow::{self, Login};
 use super::sidecar::plans::{PlanData, PlanRules, PreparedPlan};
@@ -227,7 +227,7 @@ impl SyncStrategy for Strategy {
     async fn commit(
         &self,
         state: &AppState,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         _session: &mut SidecarSession,
         job: &SyncJob,
         prepared: &Vec<PreparedPlan>,

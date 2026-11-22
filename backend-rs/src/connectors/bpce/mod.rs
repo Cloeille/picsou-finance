@@ -17,10 +17,10 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
+use crate::db::DbHandle;
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::PgConnection;
 use tokio::sync::Mutex as AsyncMutex;
 
 pub use adapter::{InitiateResult, initiate as sidecar_initiate};
@@ -148,12 +148,7 @@ fn logins(state: &AppState, bank: &Bank) -> Arc<Logins> {
     let inner: &crate::Inner = state;
     let key = (
         std::ptr::from_ref(inner) as usize,
-        state
-            .db
-            .connect_options()
-            .get_database()
-            .unwrap_or_default()
-            .to_owned(),
+        state.db.identifier(),
         bank.codes,
     );
     LOGINS
@@ -403,7 +398,7 @@ pub async fn complete(
         return Err(connection_removed(bank).into());
     }
     let mut tx = state.db.begin().await?;
-    if members::find_by_id(&mut *tx, member_id).await?.is_none() {
+    if members::find_by_id(&mut tx, member_id).await?.is_none() {
         return Err(AppError::NotFound("Family member not found".to_owned()));
     }
     if let Some(previous) = session::find_for_update(&mut tx, bank.codes, member_id).await? {
@@ -751,7 +746,7 @@ impl SyncStrategy for Strategy {
     async fn commit(
         &self,
         state: &AppState,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         session: &mut SidecarSession,
         job: &SyncJob,
         fetched: &Fetched,

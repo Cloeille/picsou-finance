@@ -3,9 +3,9 @@
 
 use std::collections::{HashMap, VecDeque};
 
+use crate::db::DbHandle;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use crate::ledger::model::{NewTransaction, Transaction, TransactionType};
 use crate::ledger::sync_values::java_is_blank;
@@ -50,7 +50,7 @@ fn recognitions(deleted: &[Transaction]) -> HashMap<RowKey, VecDeque<Recognition
 }
 
 pub async fn import_transactions(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account_id: i64,
     rows: Vec<NewTransaction>,
     now: DateTime<Utc>,

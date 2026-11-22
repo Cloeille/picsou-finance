@@ -418,7 +418,7 @@ pub async fn estimate(
     member_id: i64,
 ) -> AppResult<PropertyValuationResponse> {
     let mut tx = state.db.begin().await?;
-    let account = access::require_owner(&mut tx, account_id, member_id).await?;
+    let account = access::require_owner(&mut tx.as_handle(), account_id, member_id).await?;
     if account.account_type != AccountType::RealEstate {
         return Err(AppError::BadRequest(
             "Account is not a real estate account".to_owned(),

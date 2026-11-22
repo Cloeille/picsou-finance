@@ -6,7 +6,6 @@
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use sqlx::PgConnection;
 use subtle::ConstantTimeEq;
 
 use super::error::{Failure, Kind, LouveResult};
@@ -89,7 +88,7 @@ fn constant_time_equals(expected: Option<&str>, actual: &str) -> bool {
     }
 }
 
-async fn lock_member(conn: &mut PgConnection, member_id: i64) -> LouveResult<()> {
+async fn lock_member(conn: &mut DbHandle<'_>, member_id: i64) -> LouveResult<()> {
     match members::lock(&mut *conn, member_id).await? {
         Some(_) => Ok(()),
         None => Err(Failure::App(crate::error::AppError::NotFound(
@@ -110,7 +109,7 @@ pub async fn start_connection(
     let oauth_state = oauth::random_token();
     let encrypted_verifier = state.crypto.encrypt(&verifier)?;
     let mut tx = state.db.begin().await?;
-    lock_member(&mut tx, member_id).await?;
+    lock_member(&mut tx.as_handle(), member_id).await?;
     let existing = repo::lock_by_member(&mut tx.as_handle(), member_id)
         .await?
         .map(|row| row.id);
@@ -360,7 +359,7 @@ async fn fresh_state(state: &AppState, run: Run, refused: Option<&str>) -> Louve
 async fn commit(state: &AppState, run: Run, snapshot: &adapter::Snapshot) -> LouveResult<()> {
     let mapped = mapper::map(snapshot)?;
     let mut tx = state.db.begin().await?;
-    lock_member(&mut tx, run.member_id).await?;
+    lock_member(&mut tx.as_handle(), run.member_id).await?;
     let row = current(&mut tx.as_handle(), run).await?;
     // One instant for the funds and the connection: the panel matches the run by it.
     let now = state.clock.now();
@@ -370,7 +369,7 @@ async fn commit(state: &AppState, run: Run, snapshot: &adapter::Snapshot) -> Lou
         .louve
         .scpi
         .reconcile(
-            &mut tx,
+            &mut tx.as_handle(),
             run.member_id,
             &mapped.funds,
             &mapped.unsupported,
@@ -502,7 +501,7 @@ impl Removal {
 /// lock, deletes the row and keeps its decrypted token set for the revocation after commit.
 pub async fn delete_connection_in(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
 ) -> AppResult<Removal> {
     let removal: LouveResult<Removal> = async {
@@ -530,7 +529,7 @@ pub async fn delete_connection_in(
 /// whatever the status. A row with only a pending attempt holds no token. True when a row went.
 pub async fn delete_connection(state: &AppState, member_id: i64) -> AppResult<bool> {
     let mut tx = state.db.begin().await?;
-    let removal = delete_connection_in(state, &mut tx, member_id).await?;
+    let removal = delete_connection_in(state, &mut tx.as_handle(), member_id).await?;
     tx.commit().await?;
     let removed = removal.removed;
     removal.revoke_after_commit(state).await;

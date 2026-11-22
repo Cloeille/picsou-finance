@@ -1,9 +1,10 @@
 //! WiseSyncService: connect, sync, status, disconnect and the scheduler entry point.
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::Serialize;
 use serde_json::Value;
-use sqlx::PgConnection;
 
 use super::error::{SyncFailure, WiseError};
 use super::store::{self, WiseConnection};
@@ -53,7 +54,7 @@ pub(super) async fn connect(
     let mut tx = state.db.begin().await?;
     store::save_token(&mut tx, member.id, &encrypted, now).await?;
     tracing::info!("Wise token stored for member {member_id}");
-    let responses = import_jars(state, &mut tx, &jars, member.id, now).await?;
+    let responses = import_jars(state, &mut tx.as_handle(), &jars, member.id, now).await?;
     tx.commit().await?;
     Ok(responses)
 }
@@ -190,11 +191,11 @@ async fn try_sync(
     })?;
     let jars = fetch_jars(state, &token).await?;
     let mut tx = state.db.begin().await?;
-    let member = members::find_by_id(&mut *tx, member_id)
+    let member = members::find_by_id(&mut tx, member_id)
         .await?
         .ok_or_else(|| AppError::NotFound("Family member not found".into()))?;
     let now = state.clock.now();
-    let responses = import_jars(state, &mut tx, &jars, member.id, now).await?;
+    let responses = import_jars(state, &mut tx.as_handle(), &jars, member.id, now).await?;
     store::mark_synced(&mut tx, connection.id, now).await?;
     tx.commit().await?;
     Ok(responses)
@@ -206,7 +207,7 @@ async fn fetch_jars(state: &AppState, token: &str) -> Result<Vec<WiseJar>, WiseE
 
 async fn import_jars(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     jars: &[WiseJar],
     member_id: i64,
     now: DateTime<Utc>,
@@ -241,7 +242,7 @@ async fn import_jars(
 
 async fn upsert_jar(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     jar: &WiseJar,
     member_id: i64,
     now: DateTime<Utc>,

@@ -200,7 +200,7 @@ async fn sms_login_allows_retrying_a_mistyped_code_and_app_approval_takes_no_cod
     assert_eq!(ok.status, 200, "{}", ok.text());
     settle(&app).await;
     assert_eq!(status(&client).await["syncStatus"], "SUCCESS");
-    let provider: String = sqlx::query_scalar("SELECT provider FROM account LIMIT 1")
+    let provider: String = picsou::db::query_scalar("SELECT provider FROM account LIMIT 1")
         .fetch_one(&app.state.db)
         .await
         .unwrap();
@@ -314,7 +314,7 @@ async fn sync_imports_products_securities_rotates_jar_adopts_verified_iban_and_c
     let (client, member_id) = admin(&app).await;
     store_session(&app, BANK, member_id, "plain-state").await;
     // Seed an existing Enable Banking Hello bank account with the same valid IBAN (adopted, not duplicated).
-    let eb_id: i64 = sqlx::query_scalar(
+    let eb_id: i64 = picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, provider, currency, current_balance, iban, external_account_id, is_manual, color, created_at) \
          VALUES ($1, 'Hello bank', 'CHECKING', 'Hello bank', 'EUR', 100, $2, 'eb-id', false, '#6366f1', now()) RETURNING id",
     )
@@ -324,7 +324,7 @@ async fn sync_imports_products_securities_rotates_jar_adopts_verified_iban_and_c
     .await
     .unwrap();
     // Seed a previously imported BNP savings account that is no longer listed -> closed at 0.
-    let gone_id: i64 = sqlx::query_scalar(
+    let gone_id: i64 = picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, provider, currency, current_balance, external_account_id, is_manual, color, created_at) \
          VALUES ($1, 'Old Livret', 'SAVINGS', 'BNP Paribas', 'EUR', 800, 'bnp_gone', false, '#6366f1', now()) RETURNING id",
     )
@@ -333,7 +333,7 @@ async fn sync_imports_products_securities_rotates_jar_adopts_verified_iban_and_c
     .await
     .unwrap();
     // Seed an account that turned unsupported -> must NOT be closed.
-    let unsup_id: i64 = sqlx::query_scalar(
+    let unsup_id: i64 = picsou::db::query_scalar(
         "INSERT INTO account (member_id, name, type, provider, currency, current_balance, external_account_id, is_manual, color, created_at) \
          VALUES ($1, 'Turned Unsup', 'SAVINGS', 'BNP Paribas', 'EUR', 700, 'bnp_t1', false, '#6366f1', now()) RETURNING id",
     )
@@ -355,16 +355,17 @@ async fn sync_imports_products_securities_rotates_jar_adopts_verified_iban_and_c
     );
 
     // Enable Banking account adopted in place.
-    let adopted: (String, Decimal) =
-        sqlx::query_as("SELECT external_account_id, current_balance FROM account WHERE id = $1")
-            .bind(eb_id)
-            .fetch_one(&app.state.db)
-            .await
-            .unwrap();
+    let adopted: (String, Decimal) = picsou::db::query_as(
+        "SELECT external_account_id, current_balance FROM account WHERE id = $1",
+    )
+    .bind(eb_id)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
     assert_eq!(adopted, ("bnp_c1".into(), d("1200.50")));
 
     // Loan stored as positive liability.
-    let loan_bal: Decimal = sqlx::query_scalar(
+    let loan_bal: Decimal = picsou::db::query_scalar(
         "SELECT current_balance FROM account WHERE external_account_id = 'bnp_l1'",
     )
     .fetch_one(&app.state.db)
@@ -373,7 +374,7 @@ async fn sync_imports_products_securities_rotates_jar_adopts_verified_iban_and_c
     assert_eq!(loan_bal, d("10000.00"));
 
     // PEA has cashBalance + 2 holdings.
-    let pea_cash: Option<Decimal> = sqlx::query_scalar(
+    let pea_cash: Option<Decimal> = picsou::db::query_scalar(
         "SELECT cash_balance FROM account WHERE external_account_id = 'bnp_pea1'",
     )
     .fetch_one(&app.state.db)
@@ -383,14 +384,15 @@ async fn sync_imports_products_securities_rotates_jar_adopts_verified_iban_and_c
     assert_eq!(count(&app, "SELECT count(*) FROM account_holding").await, 2);
 
     // Unlisted BNP account closed at 0; unsupported account kept intact.
-    let gone_bal: Decimal = sqlx::query_scalar("SELECT current_balance FROM account WHERE id = $1")
-        .bind(gone_id)
-        .fetch_one(&app.state.db)
-        .await
-        .unwrap();
+    let gone_bal: Decimal =
+        picsou::db::query_scalar("SELECT current_balance FROM account WHERE id = $1")
+            .bind(gone_id)
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
     assert_eq!(gone_bal, d("0"));
     let unsup_bal: Decimal =
-        sqlx::query_scalar("SELECT current_balance FROM account WHERE id = $1")
+        picsou::db::query_scalar("SELECT current_balance FROM account WHERE id = $1")
             .bind(unsup_id)
             .fetch_one(&app.state.db)
             .await

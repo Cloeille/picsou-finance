@@ -5,6 +5,7 @@ use std::str::FromStr;
 
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
+use picsou::db::Db;
 use picsou::error::{AppError, AppResult};
 use picsou::ledger::model::{AccountType, Category, NewTransaction, Transaction, TransactionType};
 use picsou::ledger::transfers::{
@@ -13,7 +14,6 @@ use picsou::ledger::transfers::{
 use picsou::ledger::{accounts, categorize, transactions};
 use picsou::testing::{ADMIN_USERNAME, TestApp, epoch};
 use rust_decimal::Decimal;
-use sqlx::PgPool;
 
 fn today() -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, 11, 14).unwrap()
@@ -47,7 +47,7 @@ impl Fixture {
         }
     }
 
-    fn db(&self) -> &PgPool {
+    fn db(&self) -> &Db {
         &self.app.state.db
     }
 
@@ -365,7 +365,7 @@ async fn a_hidden_account_is_left_out() {
     let f = Fixture::new().await;
     let checking = f.account(AccountType::Checking).await;
     let livret = f.account(AccountType::LivretA).await;
-    sqlx::query("UPDATE account SET hidden = true WHERE id = $1")
+    picsou::db::query("UPDATE account SET hidden = true WHERE id = $1")
         .bind(livret)
         .execute(f.db())
         .await
@@ -380,7 +380,7 @@ async fn a_hidden_account_is_left_out() {
 #[tokio::test]
 async fn without_a_transfer_category_nothing_is_written() {
     let f = Fixture::new().await;
-    sqlx::query("UPDATE category SET archived = true WHERE id = $1")
+    picsou::db::query("UPDATE category SET archived = true WHERE id = $1")
         .bind(f.virement.id)
         .execute(f.db())
         .await
@@ -397,7 +397,7 @@ async fn without_a_transfer_category_nothing_is_written() {
 #[tokio::test]
 async fn a_transfer_slug_of_another_kind_writes_nothing() {
     let f = Fixture::new().await;
-    sqlx::query("UPDATE category SET kind = 'EXPENSE' WHERE id = $1")
+    picsou::db::query("UPDATE category SET kind = 'EXPENSE' WHERE id = $1")
         .bind(f.virement.id)
         .execute(f.db())
         .await
@@ -418,12 +418,12 @@ struct LabelClassifier;
 impl DividendClassifier for LabelClassifier {
     async fn classify_recent(
         &self,
-        db: &PgPool,
+        db: &Db,
         _member_id: i64,
         _today: NaiveDate,
         _now: DateTime<Utc>,
     ) -> AppResult<usize> {
-        let done = sqlx::query(
+        let done = picsou::db::query(
             "UPDATE \"transaction\" SET tx_type = 'DIVIDEND' WHERE description = 'DIVIDENDE' AND amount > 0",
         )
         .execute(db)
@@ -439,7 +439,7 @@ struct FailingClassifier;
 impl DividendClassifier for FailingClassifier {
     async fn classify_recent(
         &self,
-        _db: &PgPool,
+        _db: &Db,
         _member_id: i64,
         _today: NaiveDate,
         _now: DateTime<Utc>,

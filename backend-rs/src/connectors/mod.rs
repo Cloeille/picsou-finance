@@ -24,7 +24,7 @@ pub mod trade_republic;
 
 use std::collections::HashMap;
 
-use sqlx::PgPool;
+use crate::db::Db;
 
 use self::seams::Seams;
 use self::sidecar::jobs::Jobs;
@@ -75,7 +75,7 @@ pub struct Connectors {
 impl Connectors {
     /// Validates every sidecar URL, so a deployment that would send credentials in cleartext over
     /// a network never starts.
-    pub fn new(config: &Config, db: PgPool) -> anyhow::Result<Self> {
+    pub fn new(config: &Config, db: Db) -> anyhow::Result<Self> {
         let mut bases = HashMap::new();
         for (service, url) in &config.sidecars {
             let name = SidecarBank::ALL

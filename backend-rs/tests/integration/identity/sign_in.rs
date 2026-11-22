@@ -49,7 +49,7 @@ async fn reauth_mints_a_proof_bound_to_the_token_version() {
     let removed = admin.delete("/api/auth/password").send().await;
     assert_eq!(removed.status, StatusCode::CONFLICT);
     assert_eq!(removed.json()["code"], "SSO_DISABLED");
-    sqlx::query("UPDATE app_user SET token_version = token_version + 1")
+    picsou::db::query("UPDATE app_user SET token_version = token_version + 1")
         .execute(&app.state.db)
         .await
         .unwrap();
@@ -121,12 +121,12 @@ async fn passwordless_with_identity(app: &TestApp, issuer: &str) -> (picsou::tes
         .send()
         .await;
     assert_eq!(proof.status, StatusCode::NO_CONTENT);
-    sqlx::query("UPDATE app_user SET password_hash = '' WHERE id = $1")
+    picsou::db::query("UPDATE app_user SET password_hash = '' WHERE id = $1")
         .bind(user_id)
         .execute(&app.state.db)
         .await
         .unwrap();
-    let identity: i64 = sqlx::query_scalar(
+    let identity: i64 = picsou::db::query_scalar(
         "INSERT INTO user_identity (user_id, issuer, subject, last_login_at) VALUES ($1, $2, 'sub-1', now()) RETURNING id",
     )
     .bind(user_id)
@@ -185,7 +185,7 @@ async fn the_last_identity_of_a_passwordless_account_stays_until_a_password_is_s
         .send()
         .await;
     assert_eq!(unlinked.status, StatusCode::NO_CONTENT);
-    let audit: i64 = sqlx::query_scalar("SELECT count(*) FROM setup_audit WHERE event IN ('auth.password.set', 'sso.identity.unlinked')")
+    let audit: i64 = picsou::db::query_scalar("SELECT count(*) FROM setup_audit WHERE event IN ('auth.password.set', 'sso.identity.unlinked')")
         .fetch_one(&app.state.db)
         .await
         .unwrap();
@@ -207,14 +207,14 @@ async fn turning_password_login_off_needs_a_used_identity_of_the_current_issuer(
         .json(&json!({"password": "erin-password"}))
         .send()
         .await;
-    sqlx::query("INSERT INTO user_identity (user_id, issuer, subject) VALUES ($1, 'https://idp.example', 's')")
+    picsou::db::query("INSERT INTO user_identity (user_id, issuer, subject) VALUES ($1, 'https://idp.example', 's')")
         .bind(user_id)
         .execute(&app.state.db)
         .await
         .unwrap();
     let unused = client.delete("/api/auth/password").send().await;
     assert_eq!(unused.json()["code"], "IDENTITY_NOT_USED_YET");
-    sqlx::query("UPDATE user_identity SET last_login_at = now() WHERE user_id = $1")
+    picsou::db::query("UPDATE user_identity SET last_login_at = now() WHERE user_id = $1")
         .bind(user_id)
         .execute(&app.state.db)
         .await

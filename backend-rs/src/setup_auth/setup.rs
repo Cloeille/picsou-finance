@@ -253,7 +253,7 @@ pub async fn seed_admin(
             .execute(&mut tx)
             .await?;
     }
-    if users::exists_by_username(&mut *tx, username).await? {
+    if users::exists_by_username(&mut tx, username).await? {
         tracing::info!("Admin already exists, skipping seed");
         let existing = users::find_by_username(&mut tx, username).await?;
         tx.commit().await?;

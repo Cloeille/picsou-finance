@@ -5,7 +5,6 @@ use std::collections::HashMap;
 
 use chrono::{Datelike, Months, NaiveDate};
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use super::dto::*;
 use super::repo;
@@ -134,7 +133,16 @@ pub async fn get(
     require_type(&account)?;
     let mut conn = state.db.acquire().await?;
     match repo::find_terms(&mut conn, account_id).await? {
-        Some(terms) => build(&mut conn, &account, &terms, state.clock.today(), &[]).await,
+        Some(terms) => {
+            build(
+                &mut conn.as_handle(),
+                &account,
+                &terms,
+                state.clock.today(),
+                &[],
+            )
+            .await
+        }
         None => Ok(unconfigured(&account)),
     }
 }
@@ -298,7 +306,8 @@ pub async fn create_from_transaction(
     let today = ctx.today;
     let mut tx = state.db.begin().await?;
 
-    let (mut transaction, source) = owned_transaction(&mut tx, transaction_id, member_id).await?;
+    let (mut transaction, source) =
+        owned_transaction(&mut tx.as_handle(), transaction_id, member_id).await?;
     if transaction.amount >= Decimal::ZERO {
         return Err(bad("Only an outgoing transaction can fund a peer loan"));
     }
@@ -323,7 +332,7 @@ pub async fn create_from_transaction(
     draft.current_balance = principal;
     draft.is_manual = true;
     draft.color = "#0d9488".to_owned();
-    let mut account = accounts::insert(&mut *tx, &draft, now).await?;
+    let mut account = accounts::insert(&mut tx, &draft, now).await?;
 
     let counterparty_id = counterparty(&mut tx.as_handle(), member_id, &name, now).await?;
     let mut terms = PeerLoanTerms {
@@ -346,18 +355,18 @@ pub async fn create_from_transaction(
 
     transaction.category_id = Some(ctx.transfer_category(&mut tx).await?);
     transaction.category_manual = true;
-    transactions::update(&mut *tx, &transaction).await?;
+    transactions::update(&mut tx, &transaction).await?;
 
     // The transaction is the lending event: a backdated row lands on its own date in history.
     refresh_balance(
-        &mut tx,
+        &mut tx.as_handle(),
         &ctx,
         &mut account,
         &mut terms,
         Some(transaction.date),
     )
     .await?;
-    let response = build(&mut tx, &account, &terms, today, &[]).await?;
+    let response = build(&mut tx.as_handle(), &account, &terms, today, &[]).await?;
     tx.commit().await?;
     Ok(response)
 }
@@ -380,7 +389,7 @@ pub async fn save_terms(
     let today = ctx.today;
     let mut tx = state.db.begin().await?;
 
-    let mut account = accounts::get_or_throw(&mut *tx, account_id, member_id).await?;
+    let mut account = accounts::get_or_throw(&mut tx, account_id, member_id).await?;
     require_type(&account)?;
     validate_plan(req)?;
     if lent_at > today {
@@ -409,7 +418,7 @@ pub async fn save_terms(
         ));
     }
 
-    let linked = accounts::get_or_throw(&mut *tx, linked_account_id, member_id).await?;
+    let linked = accounts::get_or_throw(&mut tx, linked_account_id, member_id).await?;
     if !CASH_TYPES.contains(&linked.account_type) {
         return Err(bad("A peer loan must be linked to a cash account"));
     }
@@ -470,7 +479,7 @@ pub async fn save_terms(
     // The principal and the ledger are EUR figures: another currency would be converted twice.
     account.currency = "EUR".to_owned();
     if first_configuration && with_cash_leg {
-        sync_lending_leg(&mut tx, &mut ctx, &account, &mut terms, &linked).await?;
+        sync_lending_leg(&mut tx.as_handle(), &mut ctx, &account, &mut terms, &linked).await?;
         repo::save_terms(&mut tx, &terms, now).await?;
     }
 
@@ -479,8 +488,15 @@ pub async fn save_terms(
         Some(previous) if previous < lent_at => previous,
         _ => lent_at,
     };
-    refresh_balance(&mut tx, &ctx, &mut account, &mut terms, Some(affected_from)).await?;
-    let response = build(&mut tx, &account, &terms, today, &[]).await?;
+    refresh_balance(
+        &mut tx.as_handle(),
+        &ctx,
+        &mut account,
+        &mut terms,
+        Some(affected_from),
+    )
+    .await?;
+    let response = build(&mut tx.as_handle(), &account, &terms, today, &[]).await?;
     tx.commit().await?;
     Ok(response)
 }
@@ -498,7 +514,7 @@ pub async fn add_repayment(
     let now = state.clock.now();
     let mut tx = state.db.begin().await?;
 
-    let mut account = accounts::get_or_throw(&mut *tx, account_id, member_id).await?;
+    let mut account = accounts::get_or_throw(&mut tx, account_id, member_id).await?;
     require_type(&account)?;
     let mut terms = lock_configured_terms(&mut tx, account_id).await?;
     require_open(&terms)?;
@@ -527,11 +543,25 @@ pub async fn add_repayment(
 
     // A compensation or an already-booked payment leaves the cash account alone.
     if req.with_cash_leg.unwrap_or(true) {
-        sync_repayment_leg(&mut tx, &mut ctx, &account, &terms, &mut repayment).await?;
+        sync_repayment_leg(
+            &mut tx.as_handle(),
+            &mut ctx,
+            &account,
+            &terms,
+            &mut repayment,
+        )
+        .await?;
         repo::update_repayment(&mut tx, &repayment, now).await?;
     }
 
-    refresh_balance(&mut tx, &ctx, &mut account, &mut terms, Some(paid_on)).await?;
+    refresh_balance(
+        &mut tx.as_handle(),
+        &ctx,
+        &mut account,
+        &mut terms,
+        Some(paid_on),
+    )
+    .await?;
     tx.commit().await?;
     Ok(PeerLoanRepaymentResponse::from(&repayment, None))
 }
@@ -549,7 +579,7 @@ pub async fn add_repayment_from_transaction(
     let today = ctx.today;
     let mut tx = state.db.begin().await?;
 
-    let mut account = accounts::get_or_throw(&mut *tx, account_id, member_id).await?;
+    let mut account = accounts::get_or_throw(&mut tx, account_id, member_id).await?;
     require_type(&account)?;
     let mut terms = lock_configured_terms(&mut tx, account_id).await?;
     require_open(&terms)?;
@@ -558,7 +588,8 @@ pub async fn add_repayment_from_transaction(
         return Err(bad("A received transaction cannot be a write-off"));
     }
 
-    let (mut transaction, source) = owned_transaction(&mut tx, transaction_id, member_id).await?;
+    let (mut transaction, source) =
+        owned_transaction(&mut tx.as_handle(), transaction_id, member_id).await?;
     if transaction.amount <= Decimal::ZERO {
         return Err(bad("Only an incoming transaction can repay a peer loan"));
     }
@@ -605,17 +636,17 @@ pub async fn add_repayment_from_transaction(
         Some(ctx.transfer_category(&mut tx).await?)
     };
     transaction.category_manual = true;
-    transactions::update(&mut *tx, &transaction).await?;
+    transactions::update(&mut tx, &transaction).await?;
 
     refresh_balance(
-        &mut tx,
+        &mut tx.as_handle(),
         &ctx,
         &mut account,
         &mut terms,
         Some(transaction.date),
     )
     .await?;
-    let response = build(&mut tx, &account, &terms, today, &[repayment]).await?;
+    let response = build(&mut tx.as_handle(), &account, &terms, today, &[repayment]).await?;
     tx.commit().await?;
     Ok(response)
 }
@@ -634,7 +665,7 @@ pub async fn update_repayment(
     let now = state.clock.now();
     let mut tx = state.db.begin().await?;
 
-    let mut account = accounts::get_or_throw(&mut *tx, account_id, member_id).await?;
+    let mut account = accounts::get_or_throw(&mut tx, account_id, member_id).await?;
     require_type(&account)?;
     let mut terms = lock_configured_terms(&mut tx, account_id).await?;
     require_open(&terms)?;
@@ -668,7 +699,7 @@ pub async fn update_repayment(
     // Moving a repayment changes the balance from the earlier of its two dates.
     let affected_from = repayment.paid_on.min(paid_on);
 
-    delete_cash_leg(&mut tx, &ctx, &terms, &mut repayment).await?;
+    delete_cash_leg(&mut tx.as_handle(), &ctx, &terms, &mut repayment).await?;
     repayment.paid_on = paid_on;
     repayment.amount = amount;
     // An absent kind leaves it as it was: the dialog may only change the amount or the date.
@@ -679,11 +710,25 @@ pub async fn update_repayment(
     repayment.cash_transaction_id = None;
     repayment.cash_leg_owned = true;
     if req.with_cash_leg.unwrap_or(true) {
-        sync_repayment_leg(&mut tx, &mut ctx, &account, &terms, &mut repayment).await?;
+        sync_repayment_leg(
+            &mut tx.as_handle(),
+            &mut ctx,
+            &account,
+            &terms,
+            &mut repayment,
+        )
+        .await?;
     }
     repo::update_repayment(&mut tx, &repayment, now).await?;
 
-    refresh_balance(&mut tx, &ctx, &mut account, &mut terms, Some(affected_from)).await?;
+    refresh_balance(
+        &mut tx.as_handle(),
+        &ctx,
+        &mut account,
+        &mut terms,
+        Some(affected_from),
+    )
+    .await?;
     tx.commit().await?;
     Ok(PeerLoanRepaymentResponse::from(&repayment, None))
 }
@@ -698,7 +743,7 @@ pub async fn delete_repayment(
     let now = state.clock.now();
     let mut tx = state.db.begin().await?;
 
-    let mut account = accounts::get_or_throw(&mut *tx, account_id, member_id).await?;
+    let mut account = accounts::get_or_throw(&mut tx, account_id, member_id).await?;
     require_type(&account)?;
     let mut terms = lock_configured_terms(&mut tx, account_id).await?;
 
@@ -706,7 +751,7 @@ pub async fn delete_repayment(
         .await?
         .ok_or_else(repayment_not_found)?;
     let paid_on = repayment.paid_on;
-    delete_cash_leg(&mut tx, &ctx, &terms, &mut repayment).await?;
+    delete_cash_leg(&mut tx.as_handle(), &ctx, &terms, &mut repayment).await?;
     repo::delete_repayment(&mut tx, repayment.id).await?;
 
     // Deleting the write-off that closed the loan reopens it.
@@ -717,7 +762,14 @@ pub async fn delete_repayment(
         repo::save_terms(&mut tx, &terms, now).await?;
     }
 
-    refresh_balance(&mut tx, &ctx, &mut account, &mut terms, Some(paid_on)).await?;
+    refresh_balance(
+        &mut tx.as_handle(),
+        &ctx,
+        &mut account,
+        &mut terms,
+        Some(paid_on),
+    )
+    .await?;
     tx.commit().await?;
     Ok(())
 }
@@ -735,13 +787,13 @@ pub async fn close(
     let today = ctx.today;
     let mut tx = state.db.begin().await?;
 
-    let mut account = accounts::get_or_throw(&mut *tx, account_id, member_id).await?;
+    let mut account = accounts::get_or_throw(&mut tx, account_id, member_id).await?;
     require_type(&account)?;
     let mut terms = lock_configured_terms(&mut tx, account_id).await?;
 
     let date = closed_at.unwrap_or(today);
     if terms.closed_at.is_some() {
-        let response = build(&mut tx, &account, &terms, today, &[]).await?;
+        let response = build(&mut tx.as_handle(), &account, &terms, today, &[]).await?;
         tx.commit().await?;
         return Ok(response);
     }
@@ -777,8 +829,15 @@ pub async fn close(
     terms.closed_at = Some(date);
     repo::save_terms(&mut tx, &terms, now).await?;
 
-    refresh_balance(&mut tx, &ctx, &mut account, &mut terms, Some(date)).await?;
-    let response = build(&mut tx, &account, &terms, today, &fresh).await?;
+    refresh_balance(
+        &mut tx.as_handle(),
+        &ctx,
+        &mut account,
+        &mut terms,
+        Some(date),
+    )
+    .await?;
+    let response = build(&mut tx.as_handle(), &account, &terms, today, &fresh).await?;
     tx.commit().await?;
     Ok(response)
 }
@@ -788,7 +847,7 @@ pub async fn close(
 /// Writes the lending outflow on a manual linked account, once; a synced account already has
 /// the provider's row.
 async fn sync_lending_leg(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     ctx: &mut WriteContext<'_>,
     account: &Account,
     terms: &mut PeerLoanTerms,
@@ -823,7 +882,7 @@ async fn sync_lending_leg(
 /// Mirrors one repayment on the manual cash account: capital is a transfer, interest is real
 /// income left uncategorised so the cashflow counts it by sign; a write-off moves no cash.
 async fn sync_repayment_leg(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     ctx: &mut WriteContext<'_>,
     account: &Account,
     terms: &PeerLoanTerms,
@@ -891,7 +950,7 @@ async fn sync_repayment_leg(
 
 /// Removes a leg this service wrote; a linked transaction is only unlinked.
 async fn delete_cash_leg(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     ctx: &WriteContext<'_>,
     terms: &PeerLoanTerms,
     repayment: &mut PeerLoanRepayment,
@@ -919,7 +978,7 @@ async fn delete_cash_leg(
 /// Writes today's balance, then repairs every persisted snapshot from the event's date on: a
 /// backdated repayment changes every later balance. Reaching zero closes the loan.
 async fn refresh_balance(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     ctx: &WriteContext<'_>,
     account: &mut Account,
     terms: &mut PeerLoanTerms,
@@ -1042,7 +1101,7 @@ fn require_eur(account: &Account, action: &str) -> AppResult<()> {
 
 /// The transaction and its account, when it belongs to one of the member's own accounts.
 async fn owned_transaction(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     transaction_id: i64,
     member_id: i64,
 ) -> AppResult<(crate::ledger::model::Transaction, Account)> {
@@ -1219,7 +1278,7 @@ fn unconfigured(account: &Account) -> PeerLoanDetailResponse {
 /// The detail view. fresh holds the rows this request wrote, as Hibernate hands back the
 /// managed instance (amount as sent) rather than the re-read column.
 async fn build(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     terms: &PeerLoanTerms,
     as_of: NaiveDate,

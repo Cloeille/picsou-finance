@@ -4,9 +4,9 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use crate::db::DbHandle;
 use chrono::{DateTime, Datelike, Duration, Months, NaiveDate, Utc};
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use super::Bank;
 use super::per;
@@ -51,7 +51,7 @@ struct Write<'a> {
 #[allow(clippy::too_many_arguments)]
 pub async fn write(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     bank: &Bank,
     member_id: i64,
     snapshot: &PreparedSnapshot,
@@ -152,7 +152,7 @@ impl Write<'_> {
     /// none.
     async fn upsert_account(
         &mut self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         data: &PreparedAccount,
         provider: &str,
         logo_url: Option<&str>,
@@ -241,7 +241,7 @@ impl Write<'_> {
 
     /// Creates or updates the debt of each loan the bank described, writing only the fields the
     /// bank sends: file fees, or anything else the user typed, stay.
-    async fn upsert_loan_debts(&self, conn: &mut PgConnection) -> JobResult<()> {
+    async fn upsert_loan_debts(&self, conn: &mut DbHandle<'_>) -> JobResult<()> {
         for data in &self.snapshot.accounts {
             let (Some(loan), Some(account)) = (&data.loan, self.saved.get(&data.external_id))
             else {
@@ -301,7 +301,7 @@ impl Write<'_> {
 
     /// The member's EUR account with that IBAN: one of this import (its IBAN is never stored),
     /// else one already stored, else none. Never a guess past an ambiguity in the import.
-    async fn debited_account(&self, conn: &mut PgConnection, iban: &str) -> JobResult<Option<i64>> {
+    async fn debited_account(&self, conn: &mut DbHandle<'_>, iban: &str) -> JobResult<Option<i64>> {
         let in_import: Vec<&PreparedAccount> = self
             .snapshot
             .accounts
@@ -324,7 +324,7 @@ impl Write<'_> {
 
     async fn save_changed(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         account_external_id: &str,
         changed: &[String],
     ) -> JobResult<()> {
@@ -339,8 +339,8 @@ impl Write<'_> {
     }
 
     /// The seeded TRANSFER category, or None when the member has none.
-    async fn transfer_category(&self) -> JobResult<Option<Category>> {
-        let found = categorize::categories_by_slug(&self.state.db, self.member_id, self.synced_at)
+    async fn transfer_category(&self, conn: &mut DbHandle<'_>) -> JobResult<Option<Category>> {
+        let found = categorize::categories_by_slug_on(conn, self.member_id, self.synced_at)
             .await?
             .remove(TRANSFER_SLUG);
         Ok(found.filter(|c| c.kind == CategoryKind::Transfer))
@@ -350,7 +350,7 @@ impl Write<'_> {
     /// without doubt, that debit is an internal transfer, since the card operations already count
     /// as expenses. Only a due date already reached, a debit that very day for exactly the
     /// group's sum, a settlement type code (or none), one candidate and no category yet.
-    async fn tag_card_settlements(&mut self, conn: &mut PgConnection) -> JobResult<()> {
+    async fn tag_card_settlements(&mut self, conn: &mut DbHandle<'_>) -> JobResult<()> {
         let today = self.state.clock.today();
         let mut transfer: Option<Option<Category>> = None;
         let (mut tagged, mut skipped) = (0, 0);
@@ -379,7 +379,7 @@ impl Write<'_> {
                 continue;
             }
             if transfer.is_none() {
-                let found = self.transfer_category().await?;
+                let found = self.transfer_category(&mut *conn).await?;
                 if found.is_none() {
                     tracing::warn!(
                         "{} settlement tagging skipped: no transfer category (member={})",
@@ -424,7 +424,7 @@ impl Write<'_> {
     /// On the current account a loan is debited from, the disbursement is money moving in from
     /// the member's own loan (an internal transfer) and each installment a loan expense. Same
     /// guards as the card settlements.
-    async fn tag_loan_rows(&mut self, conn: &mut PgConnection) -> JobResult<()> {
+    async fn tag_loan_rows(&mut self, conn: &mut DbHandle<'_>) -> JobResult<()> {
         let mut transfer: Option<Option<Category>> = None;
         let mut credit: Option<Option<Category>> = None;
         let (mut tagged, mut skipped) = (0, 0);
@@ -515,7 +515,7 @@ impl Write<'_> {
         candidates: &[&PreparedTransaction],
         account_external_id: &str,
         disbursement: bool,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
     ) -> JobResult<Option<Category>> {
         let needed = match candidates {
             [only] => self
@@ -534,7 +534,7 @@ impl Write<'_> {
         let provider = self.bank.provider();
         let member_id = self.member_id;
         let loaded = if disbursement {
-            let found = self.transfer_category().await?;
+            let found = self.transfer_category(&mut *conn).await?;
             if found.is_none() {
                 tracing::warn!(
                     "{provider} loan disbursement left alone: no transfer category (member={member_id})"
@@ -542,9 +542,7 @@ impl Write<'_> {
             }
             found
         } else {
-            // Seeded in a transaction of its own first, as Java's REQUIRES_NEW: a seed inside
-            // this one would hold rows another seed then waits on.
-            categorize::ensure_seeded(&self.state.db, member_id, self.synced_at).await?;
+            categorize::ensure_seeded_on(&mut *conn, member_id, self.synced_at).await?;
             let found = categorize::find_or_create_default(
                 &mut *conn,
                 member_id,
@@ -567,7 +565,7 @@ impl Write<'_> {
 
 /// Upsert by (account, external id); rows are never deleted, manual rows never touched.
 async fn upsert_transactions(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     prepared: &[PreparedTransaction],
     now: DateTime<Utc>,

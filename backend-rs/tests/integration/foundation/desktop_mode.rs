@@ -139,7 +139,7 @@ async fn quick_start_seeds_user_categories_and_issues_working_session() {
     // Default categories were seeded for the member.
     let member_id = user["memberId"].as_i64().unwrap();
     let category_count: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM category WHERE member_id = $1")
+        picsou::db::query_scalar("SELECT count(*) FROM category WHERE member_id = $1")
             .bind(member_id)
             .fetch_one(&app.state.db)
             .await

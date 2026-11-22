@@ -13,7 +13,7 @@ pub fn now() -> DateTime<Utc> {
 
 /// The member of the signed-in admin.
 pub async fn admin_member(app: &TestApp) -> i64 {
-    sqlx::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+    picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
         .fetch_one(&app.state.db)
         .await
         .expect("admin member")

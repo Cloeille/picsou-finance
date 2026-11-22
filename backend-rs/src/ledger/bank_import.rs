@@ -9,7 +9,6 @@ use chrono::{DateTime, Days, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use sqlx::PgConnection;
 
 use super::decimal::{HALF_UP, set_scale};
 use super::model::{Account, NewTransaction, Transaction};
@@ -43,7 +42,7 @@ pub struct TransactionData {
 /// an account without one, or when the newest row is dated in the future (a value-dated entry
 /// must not stall the import).
 pub async fn window_start(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account_id: i64,
     today: NaiveDate,
     initial_history_days: u64,
@@ -73,7 +72,7 @@ fn minus_days(date: NaiveDate, days: u64) -> NaiveDate {
 /// importFor after the fetch: keeps the EUR rows only (the budget ledger is EUR-only) and
 /// inserts the ones not stored yet. window_start is the date the rows were fetched from.
 pub async fn import_fetched(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     window_start: NaiveDate,
     fetched: &[TransactionData],
@@ -101,7 +100,7 @@ pub async fn import_fetched(
 
 /// importProvided: rows a connector already fetched (SimpleFIN), any currency.
 pub async fn import_provided(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     fetched: &[TransactionData],
     today: NaiveDate,

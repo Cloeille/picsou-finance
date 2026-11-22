@@ -5,8 +5,8 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use crate::db::Db;
 use async_trait::async_trait;
-use sqlx::PgPool;
 
 use crate::accounts::analysis::profiles::RefreshRunner;
 use crate::accounts::security::{EtfComposition, InsightCache, SecurityRef};
@@ -37,7 +37,7 @@ pub trait EtfCompositionProvider: Send + Sync {
 /// limit of them, and returns how many it refreshed.
 #[async_trait]
 pub trait SecurityProfileRefresher: Send + Sync {
-    async fn refresh_stale(&self, db: &PgPool, tickers: &BTreeSet<String>, limit: usize) -> usize;
+    async fn refresh_stale(&self, db: &Db, tickers: &BTreeSet<String>, limit: usize) -> usize;
 }
 
 /// Without a profile provider a pass has nothing to fetch.
@@ -45,12 +45,7 @@ pub struct NoProfileProviders;
 
 #[async_trait]
 impl SecurityProfileRefresher for NoProfileProviders {
-    async fn refresh_stale(
-        &self,
-        _db: &PgPool,
-        _tickers: &BTreeSet<String>,
-        _limit: usize,
-    ) -> usize {
+    async fn refresh_stale(&self, _db: &Db, _tickers: &BTreeSet<String>, _limit: usize) -> usize {
         0
     }
 }

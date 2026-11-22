@@ -3,8 +3,9 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use super::parser::{Kind, ParsedBudget, SourceAccount, SourceCategory, SourceTransaction};
 use super::{
@@ -129,7 +130,7 @@ fn kind_of(source: &SourceCategory) -> CategoryKind {
 
 /// Validates a request against its cached preview; shared by the dry run and the import.
 pub(super) async fn resolve<'a>(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     budget: &ParsedBudget,
     request: &'a ImportRequest,
     member_id: i64,
@@ -215,7 +216,7 @@ fn by_source<'a, 'b, M>(
 }
 
 async fn resolve_accounts(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     budget: &ParsedBudget,
     mappings: &HashMap<&str, &AccountMapping>,
     currency: &str,
@@ -329,7 +330,7 @@ fn require_new_account(details: Option<&NewAccountDetails>, currency: &str) -> A
 }
 
 async fn categories_by_slug(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
 ) -> AppResult<HashMap<String, Category>> {
     let mut by_slug = HashMap::new();
@@ -343,7 +344,7 @@ async fn categories_by_slug(
 
 /// Resolves MAP_EXISTING targets and the categories an earlier import already created.
 async fn resolve_categories(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     budget: &ParsedBudget,
     mappings: &HashMap<&str, &CategoryMapping>,
     by_slug: &HashMap<String, Category>,
@@ -496,7 +497,7 @@ async fn stored_in_accounts(
 /// reported. A row still in the account an import created for its own Actual account, while
 /// that Actual account now maps elsewhere, means the mapping changed and is refused.
 async fn sync_plan(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     budget: &ParsedBudget,
     importable: &[usize],
     targets: &HashMap<String, Account>,
@@ -635,7 +636,7 @@ pub(super) async fn execute(
     let now = state.clock.now();
     let today = state.clock.today();
     let mut tx = state.db.begin().await?;
-    let mut resolved = resolve(&mut tx, budget, request, member_id).await?;
+    let mut resolved = resolve(&mut tx.as_handle(), budget, request, member_id).await?;
     if resolved.plan.large_deletion && !request.acknowledge_large_deletion {
         return Err(bad(format!(
             "This import would delete {} transactions; review the plan and confirm the deletion",
@@ -662,7 +663,7 @@ pub(super) async fn execute(
     let currency = request.currency();
     let mut counts = Counts::default();
     create_accounts(
-        &mut tx,
+        &mut tx.as_handle(),
         budget,
         &mut resolved,
         member_id,
@@ -671,7 +672,15 @@ pub(super) async fn execute(
         &mut counts,
     )
     .await?;
-    create_categories(&mut tx, budget, &mut resolved, member_id, now, &mut counts).await?;
+    create_categories(
+        &mut tx.as_handle(),
+        budget,
+        &mut resolved,
+        member_id,
+        now,
+        &mut counts,
+    )
+    .await?;
     let transfer_category = if !resolved.plan.needs_transfer(budget) {
         None
     } else if let Some(existing) = resolved.existing_transfer.clone() {
@@ -728,7 +737,7 @@ pub(super) async fn execute(
             &resolved.target_categories,
             transfer_category.as_ref(),
         );
-        transactions::insert(&mut *tx, &row, now).await?;
+        transactions::insert(&mut tx, &row, now).await?;
     }
 
     // Accounts an Actual import created follow their ledger, whichever mapping a re-import
@@ -751,11 +760,23 @@ pub(super) async fn execute(
     }
     let prices = &*state.ledger.prices;
     for mut account in ledger {
-        let balance =
-            manual_ledger::compute_manual_ledger_balance(&mut tx, &account, prices, today).await?;
-        accounts::set_balance(&mut *tx, account.id, balance, None, now).await?;
+        let balance = manual_ledger::compute_manual_ledger_balance(
+            &mut tx.as_handle(),
+            &account,
+            prices,
+            today,
+        )
+        .await?;
+        accounts::set_balance(&mut tx, account.id, balance, None, now).await?;
         account.current_balance = balance;
-        manual_ledger::reconstruct_snapshots_from_db(&mut tx, &account, prices, today, now).await?;
+        manual_ledger::reconstruct_snapshots_from_db(
+            &mut tx.as_handle(),
+            &account,
+            prices,
+            today,
+            now,
+        )
+        .await?;
     }
     tx.commit().await?;
 
@@ -785,7 +806,7 @@ pub(super) async fn execute(
 }
 
 async fn create_accounts(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     budget: &ParsedBudget,
     resolved: &mut Resolved<'_>,
     member_id: i64,
@@ -833,7 +854,7 @@ async fn create_accounts(
 }
 
 async fn create_categories(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     budget: &ParsedBudget,
     resolved: &mut Resolved<'_>,
     member_id: i64,

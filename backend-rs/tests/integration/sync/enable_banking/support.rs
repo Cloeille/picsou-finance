@@ -95,7 +95,7 @@ pub async fn requisition(
     )
     .await
     .unwrap();
-    sqlx::query("UPDATE requisition SET status = $2, oauth_state = $3 WHERE id = $1")
+    picsou::db::query("UPDATE requisition SET status = $2, oauth_state = $3 WHERE id = $1")
         .bind(row.id)
         .bind(status)
         .bind(oauth_state)
@@ -106,7 +106,7 @@ pub async fn requisition(
 }
 
 pub async fn status_of(app: &TestApp, id: i64) -> (String, Option<String>, String) {
-    sqlx::query_as(
+    picsou::db::query_as(
         "SELECT status::text, oauth_state, requisition_id FROM requisition WHERE id = $1",
     )
     .bind(id)

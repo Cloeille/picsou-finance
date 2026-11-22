@@ -4,10 +4,10 @@
 
 use std::collections::{BTreeMap, HashSet};
 
+use crate::db::DbHandle;
 use chrono::{DateTime, NaiveDate, Utc};
 use http::StatusCode;
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use super::decimal::{HALF_UP, divide};
 use super::model::{Account, BalanceSnapshot, SnapshotSource};
@@ -66,7 +66,7 @@ pub async fn to_native_or_fail(
 /// after it; same-day rows count when created after the statement was typed. Without any
 /// reached statement, the sum of every transaction.
 pub async fn compute_manual_ledger_balance(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     prices: &dyn PriceRead,
     today: NaiveDate,
@@ -155,7 +155,7 @@ pub fn plan_reconstruction(
 /// converted to EUR before the stored history is touched, so a missing rate leaves it as it
 /// was. Returns the number of rows written.
 pub async fn reconstruct_snapshots_from_db(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     prices: &dyn PriceRead,
     today: NaiveDate,

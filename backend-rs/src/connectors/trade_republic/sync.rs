@@ -3,12 +3,13 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use crate::db::AsDbHandle;
+use crate::db::DbHandle;
 use async_trait::async_trait;
 use chrono::{DateTime, Months, NaiveDate, Utc};
 use regex::Regex;
 use rust_decimal::Decimal;
 use serde::Serialize;
-use sqlx::PgConnection;
 use std::sync::LazyLock;
 
 use super::adapter::{self, EXTERNAL_ID_CRYPTO, EXTERNAL_ID_SECURITIES, TrAccountData};
@@ -130,7 +131,7 @@ impl SyncStrategy for Strategy {
     async fn commit(
         &self,
         state: &AppState,
-        conn: &mut PgConnection,
+        conn: &mut DbHandle<'_>,
         _session: &mut SidecarSession,
         job: &SyncJob,
         prepared: &Prepared,
@@ -195,7 +196,8 @@ impl SyncStrategy for Strategy {
         };
         let outcome = async {
             let mut tx = state.db.begin().await?;
-            let result = csv::import_transactions(state, &mut tx, csv, job.member_id).await?;
+            let result =
+                csv::import_transactions(state, &mut tx.as_handle(), csv, job.member_id).await?;
             tx.commit().await?;
             Ok::<_, AppError>(result)
         }
@@ -340,11 +342,18 @@ pub async fn complete_auth(
         }
         let mut tx = state.db.begin().await?;
         let job = template
-            .insert_queued(state, &mut tx, member_id, plain_state, false, |_| Ok(()))
+            .insert_queued(
+                state,
+                &mut tx.as_handle(),
+                member_id,
+                plain_state,
+                false,
+                |_| Ok(()),
+            )
             .await?;
         // The member re-authenticated on purpose: their deleted TR accounts come back, so the
         // first sync updates rather than skips them.
-        accounts::restore_soft_deleted_by_provider(&mut *tx, member_id, PROVIDER).await?;
+        accounts::restore_soft_deleted_by_provider(&mut tx, member_id, PROVIDER).await?;
         tx.commit().await?;
         job
     };
@@ -456,7 +465,7 @@ fn color_for(account_type: AccountType) -> &'static str {
 /// for a CSV import that keeps the account's holdings as they are. None when skipped.
 pub async fn upsert_account(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     data: &TrAccountData,
     member_id: i64,
     tickers: Option<&HashMap<String, TickerResult>>,
@@ -533,7 +542,7 @@ pub async fn upsert_account(
 /// The positions merged by ticker (VWAP), each with the broker's value at cents per position.
 async fn write_holdings(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     data: &TrAccountData,
     tickers: &HashMap<String, TickerResult>,
@@ -575,7 +584,7 @@ async fn write_holdings(
         .connectors
         .seams
         .security_identities
-        .record(&isin_by_ticker, now)
+        .record_on(&mut *conn, &isin_by_ticker, now)
         .await;
     for (ticker, agg) in deduped {
         // vwap_merge can net two positions to exactly zero: a flat position, not a holding.

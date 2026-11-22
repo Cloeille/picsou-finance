@@ -1,12 +1,12 @@
 //! The JSON bodies of the IBKR endpoints: IbkrConnectionStatusResponse, and the
 //! AccountResponse of a synced account as AccountResponse.from builds it.
 
+use crate::db::DbHandle;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::Serialize;
 use serde_json::Value;
 use serde_with::skip_serializing_none;
-use sqlx::PgConnection;
 
 use crate::db::{self, DbFromRow};
 use crate::error::{AppError, AppResult};
@@ -100,7 +100,7 @@ struct AccountResponse {
 
 /// AccountService.toResponse(account) without a viewer, for an account of the member's own.
 pub async fn account_response(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     prices: &dyn PriceRead,
     account: &Account,
     today: NaiveDate,

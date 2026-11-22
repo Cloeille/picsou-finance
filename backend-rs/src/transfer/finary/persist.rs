@@ -3,9 +3,9 @@
 
 use std::collections::{HashMap, VecDeque};
 
+use crate::db::DbHandle;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use super::java_equals_ignore_case;
 use super::parse::{ParsedAccount, ParsedTransaction};
@@ -33,7 +33,7 @@ fn history_floor() -> NaiveDate {
 /// transactions. Hand-entered statements are kept, their dates skipped, and nothing is derived
 /// before the oldest one reached. Every amount is converted before the history is touched.
 pub async fn reconstruct_snapshots(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     prices: &dyn PriceRead,
     account_id: i64,
     finary: &ParsedAccount,
@@ -128,7 +128,7 @@ fn recognitions(deleted: &[Transaction]) -> HashMap<RowKey, VecDeque<Recognition
 /// importTransactions: the account's synced rows are replaced by the file's; manual rows stay.
 /// A file row carries no type, ticker or category, so a recognition always applies in full.
 pub async fn import_transactions(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account_id: i64,
     finary: &ParsedAccount,
     all: &[ParsedTransaction],

@@ -6,6 +6,7 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use chrono::NaiveDate;
+use picsou::db::AsDbHandle;
 use picsou::error::AppError;
 use picsou::ledger::accounts::{self, NewAccount};
 use picsou::ledger::model::{Account, AccountType, HoldingDraft, SnapshotSource};
@@ -126,7 +127,7 @@ impl Fixture {
 
     /// The contract cost a CORUM Life sync stores, which NewAccount does not carry.
     async fn with_provider_invested(&self, account: &Account, invested: &str) -> Account {
-        sqlx::query("UPDATE account SET provider_invested_eur = $2 WHERE id = $1")
+        picsou::db::query("UPDATE account SET provider_invested_eur = $2 WHERE id = $1")
             .bind(account.id)
             .bind(d(invested))
             .execute(&self.app.state.db)
@@ -146,21 +147,21 @@ impl Fixture {
 
     async fn valuation(&self, prices: &dyn PriceRead, account: &Account) -> Valuation {
         let mut conn = self.app.state.db.acquire().await.unwrap();
-        valuation::valuation(&mut conn, prices, account, today())
+        valuation::valuation(&mut conn.as_handle(), prices, account, today())
             .await
             .unwrap()
     }
 
     async fn live_balance(&self, prices: &dyn PriceRead, account: &Account) -> Decimal {
         let mut conn = self.app.state.db.acquire().await.unwrap();
-        valuation::live_balance_eur(&mut conn, prices, account, today())
+        valuation::live_balance_eur(&mut conn.as_handle(), prices, account, today())
             .await
             .unwrap()
     }
 
     async fn signed_live_balance(&self, prices: &dyn PriceRead, account: &Account) -> Decimal {
         let mut conn = self.app.state.db.acquire().await.unwrap();
-        valuation::signed_live_balance_eur(&mut conn, prices, account, today())
+        valuation::signed_live_balance_eur(&mut conn.as_handle(), prices, account, today())
             .await
             .unwrap()
     }
@@ -172,7 +173,7 @@ impl Fixture {
         start: Option<&str>,
         end: Option<&str>,
     ) {
-        sqlx::query(
+        picsou::db::query(
             "INSERT INTO debt (account_id, member_id, borrowed_amount, interest_rate, start_date, end_date) \
              VALUES ($1, $2, $3, 0, $4, $5)",
         )
@@ -286,14 +287,14 @@ async fn peer_loan_is_valued_at_the_principal_still_owed_on_both_sides() {
     let f = Fixture::new().await;
     let receivable = f.account(AccountType::PeerLoan, "1000", eur()).await;
     let db = &f.app.state.db;
-    let counterparty: i64 = sqlx::query_scalar(
+    let counterparty: i64 = picsou::db::query_scalar(
         "INSERT INTO peer_counterparty (member_id, name) VALUES ($1, 'Marie') RETURNING id",
     )
     .bind(f.member_id)
     .fetch_one(db)
     .await
     .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO peer_loan_terms (account_id, counterparty_id, principal, lent_at) \
          VALUES ($1, $2, 1000, '2026-01-10')",
     )
@@ -302,7 +303,7 @@ async fn peer_loan_is_valued_at_the_principal_still_owed_on_both_sides() {
     .execute(db)
     .await
     .unwrap();
-    sqlx::query(
+    picsou::db::query(
         "INSERT INTO peer_loan_repayment (account_id, paid_on, amount, kind) \
          VALUES ($1, '2026-02-10', 300, 'PRINCIPAL')",
     )
@@ -1094,9 +1095,10 @@ async fn calculate_invested_amount_includes_cash_and_prefers_broker_eur_cost_bas
     .await;
 
     let mut conn = f.app.state.db.acquire().await.unwrap();
-    let invested = valuation::invested_amount(&mut conn, &StubPrices::new(), &account, today())
-        .await
-        .unwrap();
+    let invested =
+        valuation::invested_amount(&mut conn.as_handle(), &StubPrices::new(), &account, today())
+            .await
+            .unwrap();
 
     assert_eq!(invested, d("1050"));
 }
@@ -1368,7 +1370,7 @@ async fn upsert_snapshot_from_native_refreshes_native_on_a_manual_row() {
 
     let mut conn = f.app.state.db.acquire().await.unwrap();
     let result = valuation::upsert_snapshot_from_native(
-        &mut conn,
+        &mut conn.as_handle(),
         &ctx(&prices),
         &account,
         d("1300"),
@@ -1397,7 +1399,7 @@ async fn upsert_snapshot_from_native_leaves_a_derived_row_without_a_native_figur
 
     let mut conn = f.app.state.db.acquire().await.unwrap();
     let result = valuation::upsert_snapshot_from_native(
-        &mut conn,
+        &mut conn.as_handle(),
         &ctx(&prices),
         &account,
         d("1300"),
@@ -1438,9 +1440,15 @@ async fn upsert_snapshot_updates_the_existing_days_row_in_place_keeping_its_sour
     let prices = StubPrices::new().equity("ACME", "100");
 
     let mut conn = f.app.state.db.acquire().await.unwrap();
-    let result = valuation::upsert_snapshot(&mut conn, &ctx(&prices), &account, d("1000"), today())
-        .await
-        .unwrap();
+    let result = valuation::upsert_snapshot(
+        &mut conn.as_handle(),
+        &ctx(&prices),
+        &account,
+        d("1000"),
+        today(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(result.id, existing.id);
     assert_eq!(result.source, SnapshotSource::Manual);
@@ -1471,9 +1479,15 @@ async fn upsert_snapshot_creates_a_derived_row_with_the_valuations_invested_amou
     let date = day("2026-03-14");
 
     let mut conn = f.app.state.db.acquire().await.unwrap();
-    let result = valuation::upsert_snapshot(&mut conn, &ctx(&prices), &account, d("1250"), date)
-        .await
-        .unwrap();
+    let result = valuation::upsert_snapshot(
+        &mut conn.as_handle(),
+        &ctx(&prices),
+        &account,
+        d("1250"),
+        date,
+    )
+    .await
+    .unwrap();
 
     assert_eq!(result.date, date);
     assert_eq!(result.source, SnapshotSource::Derived);
@@ -1492,7 +1506,7 @@ async fn upsert_holding_first_sync_sets_the_cost_basis_to_the_price_and_a_second
     let mut conn = f.app.state.db.acquire().await.unwrap();
 
     let first = holdings::upsert_holding(
-        &mut conn,
+        &mut conn.as_handle(),
         account.id,
         f.member_id,
         "BTC",
@@ -1512,7 +1526,7 @@ async fn upsert_holding_first_sync_sets_the_cost_basis_to_the_price_and_a_second
 
     let later = now() + chrono::Duration::days(1);
     let second = holdings::upsert_holding(
-        &mut conn,
+        &mut conn.as_handle(),
         account.id,
         f.member_id,
         "BTC",
@@ -1540,7 +1554,7 @@ async fn upsert_holding_on_another_members_account_is_not_found() {
     let mut conn = f.app.state.db.acquire().await.unwrap();
 
     let result = holdings::upsert_holding(
-        &mut conn,
+        &mut conn.as_handle(),
         account.id,
         stranger,
         "BTC",
@@ -1553,7 +1567,7 @@ async fn upsert_holding_on_another_members_account_is_not_found() {
 
     assert!(matches!(result, Err(AppError::NotFound(_))));
     assert!(
-        holdings::find_by_account(&mut *conn, account.id)
+        holdings::find_by_account(&mut conn, account.id)
             .await
             .unwrap()
             .is_empty()

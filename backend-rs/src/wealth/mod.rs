@@ -12,7 +12,7 @@ pub mod validation;
 
 use std::sync::Arc;
 
-use sqlx::PgPool;
+use crate::db::Db;
 
 use crate::clock::AppClock;
 use crate::config::Config;
@@ -37,7 +37,7 @@ pub struct Wealth {
 }
 
 impl Wealth {
-    pub fn new(config: &Config, db: &PgPool, http: &reqwest::Client, clock: &AppClock) -> Self {
+    pub fn new(config: &Config, db: &Db, http: &reqwest::Client, clock: &AppClock) -> Self {
         Self {
             history: Arc::new(history::Unwired),
             savings: savings::State::default(),
