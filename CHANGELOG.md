@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Natixis Interépargne: logins asked to register a passkey now complete.** After the password
   and the code, Natixis can ask for a passkey to be registered. Picsou now puts it off, as the
   "later" button of the saver space does, instead of reporting a website format change. (#686, #688)
+- **The Enable Banking call log records calls again.** The admin page's "Diagnostic API Enable
+  Banking" panel stayed empty because the connector no longer wrote to it. Every response from
+  Enable Banking is recorded again, in memory only and bounded (200 newest calls, 256 K
+  characters per body, 8 M in all). The panel and the `.txt` export now warn that they hold raw
+  bank data to review before sharing. (#665)
 
 ## [1.2.2] — 2026-11-21
 
