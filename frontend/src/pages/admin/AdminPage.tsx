@@ -26,6 +26,7 @@ export function AdminPage() {
   const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab = resolveTab(searchParams.get('tab'))
+  const desktopMode = useAppStore((s) => s.desktopMode)
   const isAdvancedMode = useAppStore(selectIsAdvancedMode)
   const { data, isLoading, isError, refetch } = useAdminSettings()
 
@@ -82,7 +83,7 @@ export function AdminPage() {
           {activeTab === 'members' && (
             <div className="space-y-6">
               <MembersSection />
-              <SecuritySection settings={data.security} />
+              {!desktopMode && <SecuritySection settings={data.security} />}
             </div>
           )}
 

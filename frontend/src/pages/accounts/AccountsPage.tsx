@@ -121,7 +121,11 @@ function PocketCard({ account, onClick }: { account: Account; onClick?: () => vo
         <div className="min-w-0 flex-1">
           <span className="truncate text-sm font-medium">{account.name}</span>
           <div className="mt-1">
-            <CurrencyDisplay value={account.currentBalanceEur} className="text-base font-semibold" />
+            <CurrencyDisplay
+              value={account.currentBalance}
+              currency={account.currency}
+              className="text-base font-semibold"
+            />
           </div>
         </div>
       </CardContent>

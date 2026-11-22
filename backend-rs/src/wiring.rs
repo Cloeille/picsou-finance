@@ -40,8 +40,9 @@ use crate::ledger::model::{Account, AccountType};
 use crate::ledger::prices::PriceRead;
 use crate::ledger::sidecar::{SidecarBank, SourceSyncResult};
 use crate::ledger::sync_values::java_is_blank;
+use crate::market::boursorama::Boursorama;
 use crate::market::coingecko::CoinGecko;
-use crate::market::justetf::{DistributionPolicy, JustEtf, Replication};
+use crate::market::justetf::{DistributionPolicy, JustEtf, Replication, proxy_isin_for_index};
 use crate::market::openfigi::OpenFigi;
 use crate::market::prices::PriceService;
 use crate::market::yahoo::YahooFinance;
@@ -100,6 +101,7 @@ pub(crate) fn wire_all(inner: &mut Inner) -> StateRef {
     let openfigi = inner.market.openfigi().clone();
     let coingecko = inner.market.coingecko().clone();
     let yahoo = inner.market.yahoo().clone();
+    let boursorama = inner.market.boursorama().clone();
     let justetf = inner.market.justetf().clone();
 
     let account_responses = Arc::new(AccountsToResponse);
@@ -119,7 +121,16 @@ pub(crate) fn wire_all(inner: &mut Inner) -> StateRef {
     inner.accounts.property_valuation = Arc::new(WealthPropertyValuer);
     inner.accounts.crypto_logos = crypto_logos.clone();
     inner.accounts.analysis.instrument_types = Arc::new(YahooInstrumentTypes(yahoo.clone()));
-    inner.accounts.analysis.etf_compositions = vec![Arc::new(JustEtfComposition(justetf))];
+    // Boursorama stays ahead of justETF (ADR 2026-08-15): up to 10 slices per axis with no large
+    // residual, while justETF supplies fund facts (TER/distribution/replication) and synthetic-ETF
+    // index-proxy fallback.
+    inner.accounts.analysis.etf_compositions = vec![
+        Arc::new(BoursoramaComposition(boursorama.clone())),
+        Arc::new(JustEtfComposition {
+            justetf,
+            boursorama,
+        }),
+    ];
     inner.accounts.analysis.profile_runner =
         Arc::new(RefreshRunner::new(Arc::new(MarketSecurityProfiles {
             state_ref: state_ref.clone(),
@@ -615,7 +626,50 @@ impl InstrumentTypeSource for YahooInstrumentTypes {
     }
 }
 
-struct JustEtfComposition(Arc<JustEtf>);
+fn map_etf_slices(items: Vec<crate::market::justetf::WeightedSlice>) -> Vec<AccountWeightedSlice> {
+    items
+        .into_iter()
+        .map(|s| AccountWeightedSlice {
+            label: Some(s.label),
+            percent: Some(s.percent),
+        })
+        .collect()
+}
+
+struct BoursoramaComposition(Arc<Boursorama>);
+
+#[async_trait]
+impl EtfCompositionProvider for BoursoramaComposition {
+    fn supports(&self, security: &SecurityRef) -> bool {
+        security
+            .isin
+            .as_deref()
+            .is_some_and(|s| !s.trim().is_empty())
+            || !security.ticker.trim().is_empty()
+    }
+
+    async fn fetch(&self, security: &SecurityRef) -> Option<AccountEtfComposition> {
+        let identifier = security
+            .isin
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or(security.ticker.as_str());
+        let comp = self.0.fetch_composition(identifier).await?;
+        Some(AccountEtfComposition {
+            companies: map_etf_slices(comp.companies),
+            countries: map_etf_slices(comp.countries),
+            sectors: map_etf_slices(comp.sectors),
+            source: Some(comp.source),
+            as_of: comp.as_of,
+            facts: None,
+        })
+    }
+}
+
+struct JustEtfComposition {
+    justetf: Arc<JustEtf>,
+    boursorama: Arc<Boursorama>,
+}
 
 #[async_trait]
 impl EtfCompositionProvider for JustEtfComposition {
@@ -625,16 +679,33 @@ impl EtfCompositionProvider for JustEtfComposition {
 
     async fn fetch(&self, security: &SecurityRef) -> Option<AccountEtfComposition> {
         let isin = security.isin.as_deref()?;
-        let comp = self.0.fetch(isin).await?;
-        let map_slices = |items: Vec<crate::market::justetf::WeightedSlice>| {
-            items
-                .into_iter()
-                .map(|s| AccountWeightedSlice {
-                    label: Some(s.label),
-                    percent: Some(s.percent),
-                })
-                .collect()
-        };
+        let mut comp = self.justetf.fetch(isin).await?;
+        if comp.countries.is_empty()
+            && comp.sectors.is_empty()
+            && let Some(proxy_isin) = proxy_isin_for_index(
+                comp.index_name.as_deref(),
+                comp.investment_focus.as_deref(),
+            )
+            && !proxy_isin.eq_ignore_ascii_case(isin)
+        {
+            let proxy = match self.boursorama.fetch_composition(proxy_isin).await {
+                Some(p) => Some(p),
+                None => self.justetf.fetch(proxy_isin).await,
+            };
+            if let Some(p) = proxy
+                && (!p.countries.is_empty() || !p.sectors.is_empty())
+            {
+                comp.countries = p.countries;
+                comp.sectors = p.sectors;
+                if comp.companies.is_empty() {
+                    comp.companies = p.companies;
+                }
+                comp.source = format!("{} (proxy)", p.source);
+                if comp.as_of.is_none() {
+                    comp.as_of = p.as_of;
+                }
+            }
+        }
         let facts = comp.facts.map(|f| AccountFundFacts {
             ter_percent: f.ter_percent,
             distribution_policy: f.distribution_policy.map(|p| {
@@ -655,9 +726,9 @@ impl EtfCompositionProvider for JustEtfComposition {
             source: Some(f.source),
         });
         Some(AccountEtfComposition {
-            companies: map_slices(comp.companies),
-            countries: map_slices(comp.countries),
-            sectors: map_slices(comp.sectors),
+            companies: map_etf_slices(comp.companies),
+            countries: map_etf_slices(comp.countries),
+            sectors: map_etf_slices(comp.sectors),
             source: Some(comp.source),
             as_of: comp.as_of,
             facts,
