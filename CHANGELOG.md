@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Merchant logos on the account page.** With *Logos des marques* on, an account's transaction
+  list now shows the brand logos the budget pages already showed, instead of only the monogram.
+  (#697)
+
 ## [1.2.2] — 2026-11-21
 
 ### Added

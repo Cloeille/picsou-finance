@@ -10,7 +10,7 @@ import {
   useUpdateAccount, useDeleteAccount, useUpdateDebtMetadata
 } from '@/features/accounts/hooks'
 import { euroFundLabelKey, hasSyncedEuroFund } from '@/features/accounts/euro-fund'
-import { useCategories, useCategorize } from '@/features/budget/hooks'
+import { useCategories, useCategorize, useMerchantLogoUrl } from '@/features/budget/hooks'
 import { useHistory } from '@/features/history/hooks'
 import { BalanceHistoryChart } from '@/components/shared/BalanceHistoryChart'
 import { NetWorthChart } from '@/components/shared/NetWorthChart'
@@ -99,6 +99,7 @@ export function AccountDetailPage() {
   const { data: savingsSuggestions } = useSavingsSuggestions()
   const { data: categories } = useCategories()
   const categorizeMutation = useCategorize()
+  const logoUrlFor = useMerchantLogoUrl()
   const qc = useQueryClient()
 
   const [showHistory, setShowHistory] = useState(false)
@@ -315,6 +316,7 @@ export function AccountDetailPage() {
             </>}
             transactions={transactions}
             accountProvider={account?.provider}
+            logoUrlFor={logoUrlFor}
             onDelete={(txId) => deleteTxMutation.mutate(txId)}
             onEdit={(tx) => setEditingTx(tx)}
             categories={categories}
