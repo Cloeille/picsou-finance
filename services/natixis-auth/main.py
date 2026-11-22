@@ -142,6 +142,16 @@ class CancelRequest(BaseModel):
     processId: str = Field(min_length=1, max_length=100)
 
 
+class ImportSessionRequest(BaseModel):
+    """A refresh token the saver copied out of their own Natixis browser session (passkey sign-in)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Printable ASCII with no space: the token's own alphabet is Natixis's business, but a value
+    # with whitespace or control characters is a paste accident, refused before it goes anywhere.
+    refreshToken: str = Field(pattern=r"^[\x21-\x7e]{8,4096}$")
+
+
 class SessionResponse(BaseModel):
     sessionState: str
 
@@ -690,6 +700,26 @@ async def complete(req: CompleteRequest) -> dict:
     finally:
         if not retry:
             await _dispose(state)
+
+
+@app.post("/session/import", response_model=SessionResponse)
+async def import_session(req: ImportSessionRequest) -> dict:
+    """Adopt a session the saver opened in their own browser.
+
+    Natixis now makes a new device register a passkey, which a container cannot do: the
+    private key lives in Windows Hello, a password manager or a security key. The saver
+    signs in on the Natixis site with it and hands over the refresh token that site holds.
+    The token is proven here with a refresh grant, the same one `/positions` uses, so a
+    wrong or expired paste fails now rather than at the first sync; the saver's id is read
+    from Natixis, never taken from the caller.
+    """
+    async with _new_client() as client:
+        async with _errors("session import"):
+            tokens = await _token(client, {"grant_type": "refresh_token", "refresh_token": req.refreshToken})
+            employee_id = await _employee_id(client, tokens["access_token"])
+            # Natixis hands back the same refresh token today; keeping whatever it returns stays
+            # right if it ever rotates them, as /positions does.
+            return {"sessionState": serialize_session(tokens["refresh_token"], str(uuid.uuid4()), employee_id)}
 
 
 @app.post("/cancel", status_code=204)

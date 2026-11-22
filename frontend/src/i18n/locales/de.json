@@ -1651,6 +1651,23 @@
     },
     "natixis": {
       "title": "Natixis Interépargne",
+      "browser": {
+        "title": "Mit einem Passkey anmelden",
+        "intro": "Natixis Interépargne verlangt von neuen Geräten jetzt die Registrierung eines Passkeys, was Picsou nicht kann. Melden Sie sich stattdessen mit Ihrem Passkey auf der Natixis-Website an und übergeben Sie diese Sitzung an Picsou.",
+        "step1": "Öffnen Sie {{site}} in Ihrem Browser und melden Sie sich mit Ihrem Passkey an (Windows Hello, Passwortmanager oder Sicherheitsschlüssel). Bleiben Sie auf diesem Tab.",
+        "step2": "Drücken Sie F12, öffnen Sie den Tab „Konsole“ und geben Sie diesen Befehl von Hand ein (der Browser blockiert dort das Einfügen):",
+        "step3": "Fügen Sie den kopierten Wert unten ein.",
+        "warning": "Dieser Wert ist wie ein Passwort: Er gewährt Lesezugriff auf Ihre Ersparnisse. Schließen Sie den Tab danach und klicken Sie auf der Natixis-Seite nicht auf „Abmelden“ – das könnte die von Picsou genutzte Sitzung beenden.",
+        "token": "Sitzungstoken",
+        "submit": "Diese Sitzung verwenden",
+        "checking": "Wird geprüft…",
+        "adopted": "Natixis-Sitzung verbunden. Ihre Pläne werden synchronisiert…",
+        "errors": {
+          "refused": "Natixis hat dieses Token abgelehnt. Melden Sie sich auf der Natixis-Seite erneut an und kopieren Sie ein neues.",
+          "malformed": "Das sieht nicht wie ein Token aus. Kopieren Sie nur den vom Befehl ausgegebenen Wert, ohne Leerzeichen oder Anführungszeichen.",
+          "failed": "Diese Sitzung konnte nicht verwendet werden. Bitte versuchen Sie es erneut."
+        }
+      },
       "login": "E-Mail",
       "password": "Passwort",
       "otpCode": "Bestätigungscode",

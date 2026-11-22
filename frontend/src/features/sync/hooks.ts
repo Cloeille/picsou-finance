@@ -17,6 +17,7 @@ import {
   simplefinApi,
   wiseApi,
   louveApi,
+  natixisApi,
 } from './api'
 import { ACCOUNT_VIEWS, syncKeys } from './keys'
 import { sidecarProviders } from './providers'
@@ -703,5 +704,15 @@ export function useFinaryAutoSync() {
   return useInvalidatingMutation({
     mutationFn: () => finaryApi.autoSync(),
     invalidates: data => (data.status === 'OK' ? [...ACCOUNT_VIEWS, syncKeys.finary()] : []),
+  })
+}
+
+/** Adopts a Natixis session the saver opened in their own browser (passkey sign-in). */
+export function useImportNatixisBrowserSession() {
+  return useInvalidatingMutation({
+    mutationFn: natixisApi.importBrowserSession,
+    // The answer is the new session's status: seeded into the cache so the panel flips at once.
+    writesTo: syncKeys.natixis(),
+    invalidates: [syncKeys.natixis(), ...ACCOUNT_VIEWS],
   })
 }

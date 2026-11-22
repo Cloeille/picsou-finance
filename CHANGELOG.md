@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Natixis Interépargne: sign in with a passkey.** When Natixis asks for a passkey (Windows Hello, a
+  password manager or a security key), which Picsou's connector cannot register, sign in on the
+  Natixis site yourself and paste the session token it holds into the Natixis panel. Picsou checks
+  it, stores it encrypted and syncs as usual. See `docs/features/natixis-interepargne.md`.
+
 ## [1.2.2] — 2026-11-21
 
 ### Added

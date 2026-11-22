@@ -57,6 +57,16 @@ public class NatixisController {
         return ResponseEntity.ok(service.completeAuth(req.processId(), req.code(), userContext.currentMemberId()));
     }
 
+    /**
+     * Hands over the refresh token of a session the saver opened in their own browser, for accounts
+     * where Natixis requires a passkey the sidecar cannot register. Shares the code-check budget.
+     */
+    @PostMapping("/auth/browser-session")
+    public ResponseEntity<?> browserSession(@Valid @RequestBody BrowserSessionRequest req, HttpServletRequest request) {
+        if (!tryConsume(completeBuckets, request, RateLimitConfig::createNatixisCompleteBucket)) return tooManyRequests(TOO_MANY_AUTH);
+        return ResponseEntity.ok(service.importBrowserSession(req.refreshToken(), userContext.currentMemberId()));
+    }
+
     @PostMapping("/sync")
     public ResponseEntity<?> sync(HttpServletRequest request) {
         if (!tryConsume(syncBuckets, request, RateLimitConfig::createSyncBucket)) {
@@ -79,6 +89,17 @@ public class NatixisController {
         @NotBlank @Size(max = 254) String email,
         @NotBlank @Size(max = 100) String password
     ) {}
+
+    /** Printable ASCII without a space: the sidecar's own bound, so a paste accident never leaves the backend. */
+    record BrowserSessionRequest(
+        @NotNull @Pattern(regexp = "[\\x21-\\x7e]{8,4096}") String refreshToken
+    ) {
+        /** The token is a credential: it must not reach a log through a record's default toString. */
+        @Override
+        public String toString() {
+            return "BrowserSessionRequest[refreshToken=<redacted>]";
+        }
+    }
 
     /** {@code code} is the SMS, voice or e-mail code; Natixis has no mobile confirmation. */
     record CompleteRequest(

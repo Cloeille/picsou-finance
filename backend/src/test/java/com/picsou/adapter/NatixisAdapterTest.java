@@ -37,6 +37,25 @@ class NatixisAdapterTest {
     }
 
     @Test
+    void importSessionPostsTheBrowserTokenAndReturnsTheSessionTheSidecarBuilt() {
+        List<WebClientStubs.Call> calls = new ArrayList<>();
+        // Whichever JSON test runs first pays for the codecs' cold start: leave it room, so the
+        // test can never fail on timing.
+        Duration coldStart = Duration.ofSeconds(30);
+        NatixisAdapter adapter = new NatixisAdapter(
+            WebClientStubs.recording(calls, HttpStatus.OK, "{\"sessionState\":\"built-state\"}"),
+            JSON, coldStart, coldStart, coldStart);
+
+        String state = adapter.importSession("browser-refresh-token");
+
+        assertThat(state).isEqualTo("built-state");
+        assertThat(calls).singleElement().satisfies(call -> {
+            assertThat(call.path()).isEqualTo("/session/import");
+            assertThat(call.body()).isEqualTo("{\"refreshToken\":\"browser-refresh-token\"}");
+        });
+    }
+
+    @Test
     void aRefusedCancelIsSwallowed() {
         NatixisAdapter adapter = adapter(
             WebClientStubs.returning(HttpStatus.INTERNAL_SERVER_ERROR, "{\"detail\":\"INTERNAL_ERROR\"}"), GENEROUS);

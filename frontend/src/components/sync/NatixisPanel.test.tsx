@@ -109,4 +109,48 @@ describe('NatixisPanel', () => {
     expect(await screen.findByText('sync.natixis.errors.authAttemptExpired')).toBeInTheDocument()
     expect(screen.queryByLabelText('sync.natixis.otpCode')).not.toBeInTheDocument()
   })
+
+  describe('passkey sign-in (browser session)', () => {
+    it('hands the pasted session token to the backend, trimmed', async () => {
+      apiPost.mockResolvedValue({ data: { ...NO_SESSION, isActive: true, syncStatus: 'QUEUED' } })
+      renderPanel()
+
+      fireEvent.change(await screen.findByLabelText('sync.natixis.browser.token'), {
+        target: { value: '  token-from-the-browser  ' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'sync.natixis.browser.submit' }))
+
+      await waitFor(() =>
+        expect(apiPost).toHaveBeenCalledWith('/natixis/auth/browser-session', { refreshToken: 'token-from-the-browser' }),
+      )
+    })
+
+    it('keeps the submit button off until something is pasted', async () => {
+      renderPanel()
+
+      await screen.findByLabelText('sync.natixis.browser.token')
+
+      expect(screen.getByRole('button', { name: 'sync.natixis.browser.submit' })).toBeDisabled()
+    })
+
+    it('says so when Natixis refuses the token', async () => {
+      apiPost.mockRejectedValue(Object.assign(new Error('x'), { response: { status: 401, data: { code: 'SESSION_EXPIRED' } } }))
+      renderPanel()
+
+      fireEvent.change(await screen.findByLabelText('sync.natixis.browser.token'), { target: { value: 'stale-token-value' } })
+      fireEvent.click(screen.getByRole('button', { name: 'sync.natixis.browser.submit' }))
+
+      expect(await screen.findByText('sync.natixis.browser.errors.refused')).toBeInTheDocument()
+    })
+
+    it('says so when the pasted value cannot be a token', async () => {
+      apiPost.mockRejectedValue(Object.assign(new Error('x'), { response: { status: 422, data: {} } }))
+      renderPanel()
+
+      fireEvent.change(await screen.findByLabelText('sync.natixis.browser.token'), { target: { value: 'has some spaces' } })
+      fireEvent.click(screen.getByRole('button', { name: 'sync.natixis.browser.submit' }))
+
+      expect(await screen.findByText('sync.natixis.browser.errors.malformed')).toBeInTheDocument()
+    })
+  })
 })

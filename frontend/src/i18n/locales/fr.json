@@ -1985,6 +1985,23 @@
     },
     "natixis": {
       "title": "Natixis Interépargne",
+      "browser": {
+        "title": "Se connecter avec une passkey",
+        "intro": "Natixis Interépargne demande désormais aux nouveaux appareils d'enregistrer une passkey, ce que Picsou ne peut pas faire. Connectez-vous plutôt sur le site de Natixis avec votre passkey, puis transmettez cette session à Picsou.",
+        "step1": "Ouvrez {{site}} dans votre navigateur et connectez-vous avec votre passkey (Windows Hello, gestionnaire de mots de passe ou clé de sécurité). Restez sur cet onglet.",
+        "step2": "Appuyez sur F12, ouvrez l'onglet Console et tapez cette commande à la main (le navigateur y bloque le collage) :",
+        "step3": "Collez ci-dessous la valeur copiée.",
+        "warning": "Cette valeur est comme un mot de passe : elle donne un accès en lecture à votre épargne. Fermez l'onglet une fois terminé, et ne cliquez pas sur « Déconnexion » sur le site de Natixis : cela pourrait mettre fin à la session que Picsou utilise.",
+        "token": "Jeton de session",
+        "submit": "Utiliser cette session",
+        "checking": "Vérification…",
+        "adopted": "Session Natixis connectée. Synchronisation de vos plans…",
+        "errors": {
+          "refused": "Natixis a refusé ce jeton. Reconnectez-vous sur le site de Natixis et copiez-en un nouveau.",
+          "malformed": "Cela ne ressemble pas à un jeton. Copiez uniquement la valeur affichée par la commande, sans espace ni guillemets.",
+          "failed": "Impossible d'utiliser cette session. Réessayez."
+        }
+      },
       "login": "E-mail",
       "password": "Mot de passe",
       "otpCode": "Code de vérification",

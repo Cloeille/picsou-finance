@@ -89,6 +89,62 @@ class NatixisControllerTest {
     }
 
     @Test
+    void browserSessionScopesTheTokenToTheCurrentMember() throws Exception {
+        when(service.importBrowserSession("browser-refresh-token", MEMBER_ID))
+            .thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
+
+        mockMvc.perform(post("/api/natixis/auth/browser-session")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"browser-refresh-token\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.syncStatus").value("QUEUED"));
+    }
+
+    @Test
+    void aBrowserTokenNatixisRefusesReachesTheClientAsAnExpiredSession() throws Exception {
+        when(service.importBrowserSession("stale-token", MEMBER_ID))
+            .thenThrow(new SyncException("refused", null, SidecarErrorCode.SESSION_EXPIRED.name()));
+
+        mockMvc.perform(post("/api/natixis/auth/browser-session")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"stale-token\"}"))
+            .andExpect(status().is4xxClientError())
+            .andExpect(jsonPath("$.code").value("SESSION_EXPIRED"));
+    }
+
+    @Test
+    void aPastedValueThatCannotBeATokenIsRefusedBeforeTheService() throws Exception {
+        for (String pasted : new String[] {"", "short", "has a space", "x".repeat(4097)}) {
+            mockMvc.perform(post("/api/natixis/auth/browser-session")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"refreshToken\":\"" + pasted + "\"}"))
+                .andExpect(status().isUnprocessableEntity());
+        }
+        mockMvc.perform(post("/api/natixis/auth/browser-session")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isUnprocessableEntity());
+        verify(service, never()).importBrowserSession(anyString(), anyLong());
+    }
+
+    @Test
+    void aBrowserSessionSharesTheCodeCheckBudget() throws Exception {
+        when(service.importBrowserSession("browser-refresh-token", MEMBER_ID))
+            .thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
+        int allowed = 0;
+        while (allowed < 100) {
+            int status = mockMvc.perform(post("/api/natixis/auth/browser-session")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"refreshToken\":\"browser-refresh-token\"}")
+                    .with(req -> { req.setRemoteAddr("10.1.1.1"); return req; }))
+                .andReturn().getResponse().getStatus();
+            if (status == 429) break;
+            allowed++;
+        }
+        assertThat(allowed).isBetween(1, 99);
+    }
+
+    @Test
     void aWrongCodeReachesTheClientAsItsOwnCode() throws Exception {
         when(service.completeAuth("process", "000000", MEMBER_ID))
             .thenThrow(new SyncException("wrong code", null, SidecarErrorCode.INVALID_OTP.name()));

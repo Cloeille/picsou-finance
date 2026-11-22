@@ -1,6 +1,6 @@
 # Feature: Natixis Interépargne sync
 
-> Last updated: 2026-11-06
+> Last updated: 2026-11-22
 
 ## Context
 
@@ -53,6 +53,47 @@ sync (manual or the 08:00 daily job) ──▶ sidecar /positions {sessionState}
 backend stores the returned sessionState, re-checks plan totals and writes one
 EMPLOYEE_SAVINGS account per plan with its fund holdings
 ```
+
+### Passkey sign-in: adopting a browser session
+
+Natixis can require a **passkey** (WebAuthn) from a device it does not know yet. The login then
+ends at the profile check with a 403 `WEBAUTHN_REGISTRATION_REQUIRED` (seen live on 2026-11-22), which
+the sidecar reports as `UPSTREAM_FORMAT_CHANGED`. A container cannot satisfy it: the private key lives
+in Windows Hello, a password manager or a security key, is bound to the Natixis domain and is never
+exported, and the login needs a signature made with it.
+
+The saver signs in **in their own browser** instead, and hands Picsou the session that site opened:
+
+```
+browser: epargnants.interepargne.natixis.fr, signed in with the passkey
+   sessionStorage.refresh_token  ── copied by the saver (copy(sessionStorage.refresh_token))
+UI ── token ──▶ POST /api/natixis/auth/browser-session ──▶ sidecar POST /session/import
+        refresh-token grant (proves the token) → users/me (the saver's id) → sessionState
+backend stores it encrypted, queues a sync, exactly as after /auth/complete
+```
+
+- The Natixis site is an OAuth code + PKCE client with the same `client_id` and redirect URI as the
+  sidecar; at the end of its login it keeps `refresh_token`, `access_token` and `EmployeeId` in the
+  tab's `sessionStorage` (observed on 2026-11-22). The refresh token is what the sidecar already stores,
+  so a browser session and a sidecar login end in the same session state.
+- `/session/import` proves the token with the **refresh grant `/positions` uses**, then reads the
+  saver's id from `users/me`. The id is never taken from the caller. A refused token answers
+  `401 SESSION_EXPIRED` at once, rather than at the first sync. The `deviceId` is a fresh UUID: it is
+  only ever sent on the login calls, which an adopted session never makes.
+- The pasted value must be printable ASCII without a space, 8 to 4096 characters, checked in the
+  controller and again in the sidecar, so a paste accident never leaves the backend. The request record
+  redacts the token in `toString`.
+- Shares the `natixisCompleteBuckets` rate limit with the code check. A disconnect that lands while
+  the sidecar proves the token wins (the auth generation read before the call, as for a login waiting
+  on its code). No new error code, so no migration.
+- **Caveats.** The token is a credential: the saver handles it, Picsou stores it encrypted and logs
+  nothing of it (the sidecar's log-hygiene test pastes one). Clicking "Log out" on the Natixis site may
+  revoke the session server-side, so the saver closes the tab instead. If Natixis rotates refresh tokens,
+  the browser and Picsou would invalidate each other; it does not today. The session ends like any
+  other (`SESSION_EXPIRED`, then reconnect: sign in with the passkey again and paste a new token).
+- **Not verified live.** The adopted session has been exercised against a fake Natixis only; that
+  Natixis accepts a refresh token issued to the browser when it is used from another client is the
+  assumption the first real import tests.
 
 ### Operations history
 
@@ -178,7 +219,8 @@ spending. The rows stay visible on the account page and in exports.
 - **At most 5 wrong codes per login attempt**: the fifth drops the attempt
   (`AUTH_ATTEMPT_EXPIRED`), well before Natixis would lock the account.
 - **Accounts without a password login** (passkey only), or without an SMS, e-mail or
-  voice channel, get `MFA_TYPE_UNSUPPORTED`.
+  voice channel, get `MFA_TYPE_UNSUPPORTED`. An account that signs in but is then asked to register a
+  passkey ends at the profile check with `WEBAUTHN_REGISTRATION_REQUIRED`: see "Passkey sign-in".
 - **Natixis accounts are never valued at market prices.** `AccountService.NEVER_MARKET_PRICED`
   skips quotes for them, so a quote found for a fund's ticker (a label slug can match an
   unrelated symbol) never replaces the Natixis value. CMES and Amundi are unchanged.
@@ -202,7 +244,7 @@ spending. The rows stay visible on the account page and in exports.
 ## Tests
 
 - `services/natixis-auth/test_main.py`: the whole login and positions flow against
-  a fake Natixis; every error code, the route deadline after a failed detail
+  a fake Natixis, `/session/import` included (success, refused token, malformed paste, log hygiene); every error code, the route deadline after a failed detail
   included; the API-path guard, which sends nothing outside `_API_PATH`; a log test
   proving that no credential, code, token, CSRF or SAML value is ever logged.
 - `services/natixis-auth/test_parsers.py`: mapping and reconciliation on the

@@ -481,6 +481,10 @@ export const natixisApi = {
   ...sidecarApi<NatixisSessionStatus, NatixisAuthInitResponse>('/natixis'),
   initiateAuth: (email: string, password: string) =>
     api.post<NatixisAuthInitResponse>('/natixis/auth/initiate', { email, password }).then(r => r.data),
+
+  // Passkey sign-in: the saver signs in on the Natixis site and hands over that session's refresh token.
+  importBrowserSession: (refreshToken: string) =>
+    api.post<NatixisSessionStatus>('/natixis/auth/browser-session', { refreshToken }).then(r => r.data),
 }
 
 // --- CIC online banking (livrets the PSD2 connection does not expose) ---

@@ -229,6 +229,23 @@ class HappyPathTest(SidecarTestCase):
         self.assertEqual(state["refreshToken"], REFRESH_TOKEN)
         self.assertEqual(state["employeeId"], USERS_ME["id"])
 
+    def test_a_browser_session_is_adopted_and_proven_with_a_refresh_grant(self):
+        response = self.post("/session/import", {"refreshToken": "token-from-the-browser"})
+        self.assertEqual(response.status_code, 200, response.text)
+        state = self.main.parse_session(response.json()["sessionState"])
+        self.assertEqual(state["refreshToken"], REFRESH_TOKEN)
+        # The saver's id comes from Natixis, never from the caller.
+        self.assertEqual(state["employeeId"], USERS_ME["id"])
+        self.assertTrue(state["deviceId"])
+        # No login, no code: only the token endpoint and the profile read were asked.
+        self.assertEqual(
+            [(method, host, path) for method, host, path in self.fake.requests],
+            [("POST", "nie-auth.api.natixis.com", "/api/oauth/token"),
+             ("GET", "nie.api.natixis.com", "/auth/v3/users/me")],
+        )
+        # And the adopted session is a working one: it syncs like a session from /complete.
+        self.assertEqual(self.post("/positions", {"sessionState": response.json()["sessionState"]}).status_code, 200)
+
     def test_positions_lists_the_plans(self):
         session = self.login().json()["sessionState"]
         response = self.post("/positions", {"sessionState": session})
@@ -458,6 +475,22 @@ class ErrorCodeTest(SidecarTestCase):
         self.fake.token_status = 400
         self.assertDetail(self.post("/positions", {"sessionState": session}), 401, "SESSION_EXPIRED")
 
+    def test_a_refused_browser_token_is_reported_at_once(self):
+        self.fake.token_status = 400
+        self.assertDetail(self.post("/session/import", {"refreshToken": "token-from-the-browser"}),
+                          401, "SESSION_EXPIRED")
+
+    def test_a_browser_token_refused_by_the_api_is_not_adopted(self):
+        self.fake.api_status = 401
+        self.assertDetail(self.post("/session/import", {"refreshToken": "token-from-the-browser"}),
+                          401, "SESSION_EXPIRED")
+
+    def test_a_pasted_value_that_cannot_be_a_token_never_reaches_natixis(self):
+        for pasted in ("", "short", "has a space in it", "line\nbreak-in-it", "x" * 4097, '"quotedé"'):
+            with self.subTest(pasted=pasted[:12]):
+                self.assertDetail(self.post("/session/import", {"refreshToken": pasted}), 400, "INVALID_DATA")
+        self.assertEqual(self.fake.requests, [])
+
     def test_api_refuses_the_token(self):
         session = self.login().json()["sessionState"]
         self.fake.api_status = 401
@@ -571,7 +604,9 @@ class ErrorCodeTest(SidecarTestCase):
 class LogHygieneTest(SidecarTestCase):
     """Nothing the saver typed and no token Natixis handed out reaches a log line."""
 
-    SENSITIVE = (EMAIL, PASSWORD, CODE, CSRF, SAML_VALUE, AUTH_CODE, ACCESS_TOKEN, REFRESH_TOKEN, VERIFICATION_ID)
+    PASTED_TOKEN = "token-pasted-from-the-browser"
+    SENSITIVE = (EMAIL, PASSWORD, CODE, CSRF, SAML_VALUE, AUTH_CODE, ACCESS_TOKEN, REFRESH_TOKEN, VERIFICATION_ID,
+                 PASTED_TOKEN)
 
     def test_no_sensitive_value_is_logged(self):
         stream = io.StringIO()
@@ -586,6 +621,10 @@ class LogHygieneTest(SidecarTestCase):
         try:
             session = self.login().json()["sessionState"]
             self.post("/positions", {"sessionState": session})
+            self.post("/session/import", {"refreshToken": self.PASTED_TOKEN})
+            self.fake.token_status = 400
+            self.post("/session/import", {"refreshToken": self.PASTED_TOKEN})
+            self.fake.token_status = 200
             process_id = self.initiate().json()["processId"]
             self.fake.code_status = 400
             self.post("/complete", {"processId": process_id, "code": CODE})

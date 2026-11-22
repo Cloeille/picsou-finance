@@ -1651,6 +1651,23 @@
     },
     "natixis": {
       "title": "Natixis Interépargne",
+      "browser": {
+        "title": "Iniciar sesión con una passkey",
+        "intro": "Natixis Interépargne ahora pide a los dispositivos nuevos que registren una passkey, algo que Picsou no puede hacer. Inicia sesión en el sitio de Natixis con tu passkey y entrega esa sesión a Picsou.",
+        "step1": "Abre {{site}} en tu navegador e inicia sesión con tu passkey (Windows Hello, gestor de contraseñas o llave de seguridad). Permanece en esa pestaña.",
+        "step2": "Pulsa F12, abre la pestaña Consola y escribe este comando a mano (el navegador bloquea el pegado ahí):",
+        "step3": "Pega abajo el valor copiado.",
+        "warning": "Este valor es como una contraseña: da acceso de lectura a tus ahorros. Cierra la pestaña al terminar y no pulses «Cerrar sesión» en el sitio de Natixis: podría poner fin a la sesión que usa Picsou.",
+        "token": "Token de sesión",
+        "submit": "Usar esta sesión",
+        "checking": "Comprobando…",
+        "adopted": "Sesión de Natixis conectada. Sincronizando tus planes…",
+        "errors": {
+          "refused": "Natixis rechazó este token. Vuelve a iniciar sesión en el sitio de Natixis y copia uno nuevo.",
+          "malformed": "Esto no parece un token. Copia solo el valor que muestra el comando, sin espacios ni comillas.",
+          "failed": "No se pudo usar esta sesión. Inténtalo de nuevo."
+        }
+      },
       "login": "Correo electrónico",
       "password": "Contraseña",
       "otpCode": "Código de verificación",

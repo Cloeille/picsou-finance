@@ -1985,6 +1985,23 @@
     },
     "natixis": {
       "title": "Natixis Interépargne",
+      "browser": {
+        "title": "Sign in with a passkey",
+        "intro": "Natixis Interépargne now asks new devices to register a passkey, which Picsou cannot do. Sign in on the Natixis website with your passkey instead, then hand Picsou that session.",
+        "step1": "Open {{site}} in your browser and sign in with your passkey (Windows Hello, password manager or security key). Stay on that tab.",
+        "step2": "Press F12, open the Console tab and type this command by hand (the browser blocks pasting there):",
+        "step3": "Paste the copied value below.",
+        "warning": "This value is like a password: it gives read access to your savings. Close the tab when you are done, and do not click \"Log out\" on the Natixis site — that could end the session Picsou uses.",
+        "token": "Session token",
+        "submit": "Use this session",
+        "checking": "Checking…",
+        "adopted": "Natixis session connected. Syncing your plans…",
+        "errors": {
+          "refused": "Natixis refused this token. Sign in again on the Natixis site and copy a fresh one.",
+          "malformed": "This does not look like a token. Copy only the value the command printed, without spaces or quotes.",
+          "failed": "Could not use this session. Please try again."
+        }
+      },
       "login": "E-mail",
       "password": "Password",
       "otpCode": "Verification code",
