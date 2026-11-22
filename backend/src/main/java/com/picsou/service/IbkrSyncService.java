@@ -195,12 +195,7 @@ public class IbkrSyncService {
                 + "key may have changed. Please reconnect with a fresh token.", ex);
         }
 
-        List<IbkrAccountData> accounts = ibkrFlexClient.fetchOpenPositions(token, queryId);
-
-        List<AccountResponse> responses = accounts.stream()
-            .map(data -> upsertAccount(data, memberId))
-            .flatMap(Optional::stream)
-            .toList();
+        List<AccountResponse> responses = applyStatement(ibkrFlexClient.fetchOpenPositions(token, queryId), memberId);
 
         connection.setStatus("CONNECTED");
         connection.setLastSyncedAt(Instant.now());
@@ -208,6 +203,38 @@ public class IbkrSyncService {
 
         log.info("IBKR sync complete for member {}: {} account(s) updated", memberId, responses.size());
         return responses;
+    }
+
+    // ---------------------------------------------------------------------------
+    // File import
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Imports a Flex statement the user downloaded from Client Portal, for accounts where the
+     * Flex Web Service cannot be activated. Needs no stored connection: the XML goes through
+     * the same parser and the same account/holding mapping as a sync, so the result is identical
+     * to what a sync of that statement would have produced. The balance is a one-off snapshot —
+     * the user re-imports a fresh file to refresh it (live prices still move with the market).
+     */
+    public List<AccountResponse> importStatement(String xml, Long memberId) {
+        List<IbkrAccountData> accounts = ibkrFlexClient.parseOpenPositions(xml);
+        if (accounts.isEmpty()) {
+            // An uploaded file that is not a Flex statement parses to nothing; say so rather than
+            // answer "0 accounts updated" as if the import had worked.
+            throw new SyncException("The file contains no Interactive Brokers account. Check that it is the "
+                + "XML report of a Flex Query that includes the Open Positions section.");
+        }
+        List<AccountResponse> responses = applyStatement(accounts, memberId);
+        log.info("IBKR file import complete for member {}: {} account(s) updated", memberId, responses.size());
+        return responses;
+    }
+
+    /** Shared by the Flex Web Service sync and the file import: one statement, every account in it. */
+    private List<AccountResponse> applyStatement(List<IbkrAccountData> accounts, Long memberId) {
+        return accounts.stream()
+            .map(data -> upsertAccount(data, memberId))
+            .flatMap(Optional::stream)
+            .toList();
     }
 
     // ---------------------------------------------------------------------------

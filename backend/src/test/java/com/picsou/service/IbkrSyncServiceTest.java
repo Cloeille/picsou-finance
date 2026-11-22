@@ -198,6 +198,72 @@ class IbkrSyncServiceTest {
         assertThat(saved.getMember()).isSameAs(member);
     }
 
+    /**
+     * A downloaded statement needs no stored connection: it must reach the same mapping as a
+     * sync (here: a holding with its cost basis converted to EUR) and never touch the Flex
+     * credentials, the connection row or the error-status writer.
+     */
+    @Test
+    void importStatement_mapsTheFileLikeASync_withoutAnyConnection() {
+        Long memberId = 7L;
+        FamilyMember member = FamilyMember.builder().id(memberId).displayName("Owner").build();
+        IbkrPosition summary = new IbkrPosition(
+            "U123", "US0378331005", "AAPL", "APPLE INC", "USD", "STK", "SUMMARY",
+            bd("10"), bd("200"), bd("150"), bd("0.92"));
+        when(ibkrFlexClient.parseOpenPositions("<xml/>"))
+            .thenReturn(List.of(new IbkrAccountData("U123", List.of(summary), "EUR")));
+        when(isinConverter.resolve("US0378331005")).thenReturn(new TickerResult("AAPL", "Apple"));
+        when(accountRepository.findByExternalAccountIdAndMemberId("ibkr_U123", memberId))
+            .thenReturn(Optional.empty());
+        when(familyMemberRepository.findById(memberId)).thenReturn(Optional.of(member));
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> {
+            Account a = inv.getArgument(0);
+            a.setId(1L);
+            return a;
+        });
+        when(accountService.liveBalanceEur(any(Account.class))).thenReturn(bd("1380"));
+        AccountResponse dummy = AccountResponse.from(
+            Account.builder().id(1L).name("IBKR U123").type(AccountType.COMPTE_TITRES).build(),
+            BigDecimal.ZERO);
+        when(accountService.toResponse(any(Account.class))).thenReturn(dummy);
+
+        List<AccountResponse> result = service.importStatement("<xml/>", memberId);
+
+        assertThat(result).containsExactly(dummy);
+        ArgumentCaptor<AccountHolding> holding = ArgumentCaptor.forClass(AccountHolding.class);
+        verify(holdingRepository).save(holding.capture());
+        assertThat(holding.getValue().getAverageBuyIn()).isEqualByComparingTo("138");
+        verifyNoInteractions(connectionRepository, encryption, statusWriter);
+        verify(ibkrFlexClient, never()).fetchOpenPositions(any(), any());
+    }
+
+    /** The base-currency guard protects an imported file exactly as it protects a sync. */
+    @Test
+    void importStatement_refusesANonEurBaseCurrency_andPersistsNothing() {
+        Long memberId = 7L;
+        when(ibkrFlexClient.parseOpenPositions("<xml/>"))
+            .thenReturn(List.of(new IbkrAccountData("U123", List.of(), "USD")));
+        when(accountRepository.findByExternalAccountIdAndMemberId("ibkr_U123", memberId))
+            .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.importStatement("<xml/>", memberId))
+            .isInstanceOf(com.picsou.exception.SyncException.class)
+            .hasMessageContaining("base currency is USD");
+        verify(accountRepository, never()).save(any(Account.class));
+        verifyNoInteractions(holdingRepository);
+    }
+
+    /** A file that is not a Flex statement must not read as a successful import of nothing. */
+    @Test
+    void importStatement_rejectsAFileWithNoAccount() {
+        when(ibkrFlexClient.parseOpenPositions("<other/>")).thenReturn(List.of());
+
+        assertThatThrownBy(() -> service.importStatement("<other/>", 7L))
+            .isInstanceOf(com.picsou.exception.SyncException.class)
+            .hasMessageContaining("no Interactive Brokers account");
+        verifyNoInteractions(accountRepository, holdingRepository);
+    }
+
     @Test
     void sync_withoutConnection_throws() {
         when(connectionRepository.findByMemberId(99L)).thenReturn(Optional.empty());

@@ -15,7 +15,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -67,6 +70,33 @@ public class IbkrController {
         }
         List<AccountResponse> accounts = ibkrService.sync(userContext.currentMemberId());
         return ResponseEntity.ok(accounts);
+    }
+
+    /**
+     * Import a Flex Query XML report downloaded from Client Portal, for accounts where the Flex
+     * Web Service cannot be activated. Needs no connection. Same per-IP budget as {@code /sync}.
+     */
+    @PostMapping("/import")
+    public ResponseEntity<?> importStatement(@RequestParam("file") MultipartFile file, HttpServletRequest request) {
+        if (!checkSyncRateLimit(request)) {
+            ProblemDetail detail = ProblemDetail.forStatus(HttpStatus.TOO_MANY_REQUESTS);
+            detail.setDetail("Too many sync requests. Please wait a moment before trying again.");
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(detail);
+        }
+        if (file.isEmpty()) {
+            throw new IllegalArgumentException("The uploaded file is empty.");
+        }
+        String xml;
+        try {
+            xml = new String(file.getBytes(), StandardCharsets.UTF_8);
+            // A byte-order mark in front of the prolog makes the XML parser reject the document.
+            if (xml.startsWith("﻿")) {
+                xml = xml.substring(1);
+            }
+        } catch (IOException e) {
+            throw new IllegalArgumentException("The uploaded file could not be read.", e);
+        }
+        return ResponseEntity.ok(ibkrService.importStatement(xml, userContext.currentMemberId()));
     }
 
     /** Clear the stored connection (forces reconnect). */

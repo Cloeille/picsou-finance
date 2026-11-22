@@ -1,6 +1,6 @@
 # Feature: Interactive Brokers (IBKR) sync
 
-> Last updated: 2026-09-03
+> Last updated: 2026-11-22
 
 ## Context
 
@@ -60,6 +60,34 @@ POST /api/ibkr/sync ─► IbkrFlexClient
         ▼
    liveBalanceEur (Yahoo/CoinGecko) ─► currentBalance + daily snapshot
 ```
+
+### File import (no Flex Web Service)
+
+Some accounts cannot activate the Flex Web Service (the "Flex Web Service Configuration"
+section is missing from Client Portal). They can still use the same Flex Query: run it in
+Client Portal, download the **XML** report and upload it from the IBKR panel ("Import a Flex
+report"), `POST /api/ibkr/import` (multipart field `file`).
+
+```
+XML file ─► IbkrController#importStatement (rate-limited like /sync, BOM stripped)
+        ─► IbkrSyncService#importStatement ─► IbkrFlexClient#parseOpenPositions   (same parser)
+        ─► applyStatement ─► upsertAccount                                        (same mapping as a sync)
+```
+
+- **No connection needed**, and none is created or touched: the stored token, the connection
+  status and `IbkrStatusWriter` are not involved. A failed import leaves the previous
+  positions untouched (the service is transactional).
+- **Same rules as a sync**: EUR base-currency guard, `LOT`/`CASH`/derivative filtering, VWAP
+  de-dup, soft-deleted accounts not resurrected, one `ibkr_<accountId>` account per statement
+  account. A file with no account at all (not a Flex statement) is refused with a `SyncException`
+  instead of reporting "0 accounts".
+- **One-off snapshot.** Nothing refreshes the positions between two imports (no daily job, since
+  there is no token). The live EUR valuation still follows the market through the tickers; only the
+  quantities and the cost basis are frozen. Re-importing a fresh file replaces them. Both paths
+  write to the same account, so a user can switch to the Web Service later without duplicates.
+- **Period must be a single day** ("Last Business Day"), as for the Web Service: a multi-day
+  statement is refused by the parser.
+- The XML is parsed XXE-safe (doctype disabled), and the multipart limit is the global 10 MB.
 
 ## Technical choices
 
@@ -128,7 +156,11 @@ See the [ADR](../decisions/2026-07-19-ibkr-flex-web-service.md) for the full API
   names, SUMMARY/LOT distinction, empty statement)
 - `IbkrSyncServiceTest` — mapping: cost-basis → base-currency conversion, LOT filtering,
   "not connected" error, error-status persistence, derivative asset-category filtering,
-  zero-net-quantity positions
+  zero-net-quantity positions; file import: same mapping with no connection, non-EUR refusal,
+  a file with no account
+- `IbkrControllerTest` — `/import`: XML handed to the service with a BOM stripped, empty file
+  refused, shared per-IP budget
+- `IbkrTab.test.tsx` — the import button posts the multipart file and shows the server message
 - `HoldingDedupTest` — VWAP merge (shared with TR/Bourso), including the sign-aware
   cases IBKR can trigger (opposite-sign netting, netting to exactly zero)
 

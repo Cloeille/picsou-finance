@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Interactive Brokers: import a Flex report from a file.** When the Flex Web Service cannot be
+  activated on your IBKR account, run your Flex Query in Client Portal, download the XML report and
+  import it from the Interactive Brokers panel. Positions are mapped exactly as a sync would map
+  them, with no token stored; re-import a fresh file to update them. See `docs/features/ibkr-sync.md`.
+
 ## [1.2.2] — 2026-11-21
 
 ### Added

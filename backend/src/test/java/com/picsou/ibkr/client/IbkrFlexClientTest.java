@@ -128,6 +128,28 @@ class IbkrFlexClientTest {
             .hasMessageContaining("Last Business Day");
     }
 
+    /**
+     * The parser now also receives files the user uploads, so it must refuse a DOCTYPE outright:
+     * an external entity (file read, SSRF) and an internal one (billion-laughs) are both rejected
+     * before any entity is expanded, and nothing of the target file reaches the result.
+     */
+    @Test
+    void parse_rejectsAnyDoctype_soNoEntityIsEverExpanded() {
+        String external = """
+            <?xml version="1.0"?>
+            <!DOCTYPE FlexQueryResponse [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+            <FlexQueryResponse><FlexStatements><FlexStatement accountId="&xxe;"/></FlexStatements></FlexQueryResponse>
+            """;
+        String internal = """
+            <?xml version="1.0"?>
+            <!DOCTYPE FlexQueryResponse [<!ENTITY a "AAAA"><!ENTITY b "&a;&a;&a;&a;">]>
+            <FlexQueryResponse><FlexStatements><FlexStatement accountId="&b;"/></FlexStatements></FlexQueryResponse>
+            """;
+
+        assertThatThrownBy(() -> client.parseOpenPositions(external)).isInstanceOf(SyncException.class);
+        assertThatThrownBy(() -> client.parseOpenPositions(internal)).isInstanceOf(SyncException.class);
+    }
+
     @Test
     void parse_groupsMultipleAccountsAndReadsShortAndSparsePositions() {
         // Two account ids in one statement; a short (negative) position; and a row

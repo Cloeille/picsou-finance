@@ -1426,8 +1426,14 @@
       "lastSync": "Dernière synchronisation",
       "neverSynced": "Jamais synchronisé",
       "syncedToast": "Interactive Brokers synchronisé : {{count}} compte(s)",
+      "importTitle": "Importer un rapport Flex",
+      "importHint": "Impossible d'activer le Flex Web Service ? Exécutez votre requête Flex dans le Client Portal, téléchargez le rapport XML et importez-le ici. Réimportez un fichier récent pour mettre à jour vos positions.",
+      "importFile": "Choisir un fichier XML",
+      "importing": "Import en cours…",
+      "importedToast": "Interactive Brokers importé : {{count}} compte(s)",
       "errors": {
         "connectFailed": "Impossible d'enregistrer la connexion. Vérifiez le jeton et l'ID de requête.",
+        "importFailed": "Impossible d'importer le fichier. Vérifiez qu'il s'agit du rapport XML de votre requête Flex.",
         "syncFailed": "Échec de la synchronisation Interactive Brokers. Vérifiez votre jeton ou réessayez.",
         "disconnectFailed": "Impossible de supprimer la connexion. Réessayez."
       }

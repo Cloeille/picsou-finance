@@ -1426,8 +1426,14 @@
       "lastSync": "Last sync",
       "neverSynced": "Never synced",
       "syncedToast": "Interactive Brokers synced: {{count}} account(s)",
+      "importTitle": "Import a Flex report",
+      "importHint": "Can't activate the Flex Web Service? Run your Flex Query in Client Portal, download the XML report and import it here. Re-import a fresh file to update your positions.",
+      "importFile": "Choose an XML file",
+      "importing": "Importing…",
+      "importedToast": "Interactive Brokers imported: {{count}} account(s)",
       "errors": {
         "connectFailed": "Could not save the connection. Check the token and query id.",
+        "importFailed": "Could not import the file. Check that it is the XML report of your Flex Query.",
         "syncFailed": "Interactive Brokers sync failed. Check your token or try again.",
         "disconnectFailed": "Could not remove the connection. Please try again."
       }

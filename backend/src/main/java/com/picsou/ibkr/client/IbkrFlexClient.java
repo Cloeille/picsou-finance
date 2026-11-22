@@ -174,10 +174,12 @@ public class IbkrFlexClient {
      * Parses {@code <OpenPosition>} rows out of a FlexQueryResponse, grouped by
      * IBKR account id, preserving document order within each account.
      */
-    // Package-private so IbkrFlexClientTest can exercise the parser directly against a
-    // fixture, without any HTTP. This is the single riskiest part (exact IBKR attribute
-    // names), so it is the part most worth a fixture test.
-    List<IbkrAccountData> parseOpenPositions(String xml) {
+    // Public so a statement the user downloaded from Client Portal goes through the very same
+    // parser as one fetched from the Flex Web Service (IbkrSyncService#importStatement), and so
+    // IbkrFlexClientTest can exercise it directly against a fixture, without any HTTP. This is
+    // the single riskiest part (exact IBKR attribute names), so it is the part most worth a
+    // fixture test.
+    public List<IbkrAccountData> parseOpenPositions(String xml) {
         Document doc = parse(xml);
         NodeList positions = doc.getElementsByTagName("OpenPosition");
 
@@ -308,7 +310,11 @@ public class IbkrFlexClient {
         }
     }
 
-    /** Parses XML with external entities disabled (XXE-safe), since the payload is remote. */
+    /**
+     * Parses XML with external entities disabled (XXE-safe), since the payload is untrusted: it comes
+     * from the network, or from a file the user uploads. Any DOCTYPE is refused outright, which closes
+     * both external and internal entity expansion; the remaining switches are defence in depth.
+     */
     private Document parse(String xml) {
         try {
             DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
@@ -316,6 +322,9 @@ public class IbkrFlexClient {
             factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
             factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
             factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
             factory.setXIncludeAware(false);
             factory.setExpandEntityReferences(false);
             DocumentBuilder builder = factory.newDocumentBuilder();

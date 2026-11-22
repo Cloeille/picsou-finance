@@ -1092,8 +1092,14 @@
       "lastSync": "Última sync",
       "neverSynced": "Nunca sincronizado",
       "syncedToast": "Interactive Brokers sincronizado: {{count}} cuenta(s)",
+      "importTitle": "Importar un informe Flex",
+      "importHint": "¿No puedes activar Flex Web Service? Ejecuta tu consulta Flex en el Client Portal, descarga el informe XML e impórtalo aquí. Vuelve a importar un archivo reciente para actualizar tus posiciones.",
+      "importFile": "Elegir un archivo XML",
+      "importing": "Importando…",
+      "importedToast": "Interactive Brokers importado: {{count}} cuenta(s)",
       "errors": {
         "connectFailed": "No se pudo guardar la conexión. Verifica el token y el ID de consulta.",
+        "importFailed": "No se pudo importar el archivo. Verifica que sea el informe XML de tu consulta Flex.",
         "syncFailed": "Falló la sincronización de Interactive Brokers. Verifica tu token o inténtalo de nuevo.",
         "disconnectFailed": "No se pudo eliminar la conexión. Inténtalo de nuevo."
       }

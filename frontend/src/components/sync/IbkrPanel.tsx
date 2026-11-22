@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -7,8 +7,14 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
-import { ArrowsClockwise, SignOut, Key, Hash, Warning, CircleNotch } from '@phosphor-icons/react'
-import { useIbkrStatus, useConnectIbkr, useSyncIbkr, useDisconnectIbkr } from '@/features/sync/hooks'
+import { ArrowsClockwise, SignOut, Key, Hash, Warning, CircleNotch, UploadSimple } from '@phosphor-icons/react'
+import {
+  useIbkrStatus,
+  useConnectIbkr,
+  useSyncIbkr,
+  useImportIbkrStatement,
+  useDisconnectIbkr,
+} from '@/features/sync/hooks'
 import { extractErrorMessage } from '@/lib/errors'
 import { formatDateTime } from '@/lib/utils'
 
@@ -32,6 +38,8 @@ export function IbkrPanel({ onConnected }: IbkrPanelProps = {}) {
   const connectMutation = useConnectIbkr()
   const syncMutation = useSyncIbkr()
   const disconnectMutation = useDisconnectIbkr()
+  const importMutation = useImportIbkrStatement()
+  const fileInput = useRef<HTMLInputElement>(null)
 
   function handleConnect(e: React.FormEvent) {
     e.preventDefault()
@@ -48,6 +56,21 @@ export function IbkrPanel({ onConnected }: IbkrPanelProps = {}) {
         onError: (err: unknown) => setError(extractErrorMessage(err, t('sync.ibkr.errors.connectFailed'))),
       },
     )
+  }
+
+  function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    // Reset so choosing the same file again (a fresh export under the same name) still fires.
+    e.target.value = ''
+    if (!file) return
+    importMutation.mutate(file, {
+      onSuccess: (accounts) => {
+        setError(null)
+        toast.success(t('sync.ibkr.importedToast', { count: accounts.length }))
+        onConnected?.()
+      },
+      onError: (err: unknown) => setError(extractErrorMessage(err, t('sync.ibkr.errors.importFailed'))),
+    })
   }
 
   if (statusLoading) {
@@ -173,6 +196,39 @@ export function IbkrPanel({ onConnected }: IbkrPanelProps = {}) {
           </Card>
         </form>
       )}
+
+      {/* File import: for accounts where the Flex Web Service cannot be activated. */}
+      <Card size="sm" className="mx-auto max-w-lg">
+        <CardContent className="space-y-3">
+          <p className="text-sm font-bold">{t('sync.ibkr.importTitle')}</p>
+          <p className="text-sm text-muted-foreground">{t('sync.ibkr.importHint')}</p>
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".xml,text/xml,application/xml"
+            className="hidden"
+            data-testid="ibkr-import-input"
+            onChange={handleImportFile}
+          />
+          <Button
+            variant="outline"
+            onClick={() => fileInput.current?.click()}
+            disabled={importMutation.isPending}
+          >
+            {importMutation.isPending ? (
+              <>
+                <CircleNotch className="size-4 animate-spin" />
+                {t('sync.ibkr.importing')}
+              </>
+            ) : (
+              <>
+                <UploadSimple className="size-4" />
+                {t('sync.ibkr.importFile')}
+              </>
+            )}
+          </Button>
+        </CardContent>
+      </Card>
 
       <ConfirmDialog
         open={showDisconnectConfirm}

@@ -15,13 +15,17 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockMultipartFile;
 
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -129,6 +133,44 @@ class IbkrControllerTest {
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.sync(httpReq))
             .isSameAs(boom);
+    }
+
+    @Test
+    void importStatement_passesTheXmlToTheService_andStripsAByteOrderMark() {
+        when(userContext.currentMemberId()).thenReturn(42L);
+        List<AccountResponse> accounts = List.of();
+        when(ibkrService.importStatement("<FlexQueryResponse/>", 42L)).thenReturn(accounts);
+        MockMultipartFile file = new MockMultipartFile(
+            "file", "picsou.xml", "text/xml", "﻿<FlexQueryResponse/>".getBytes(StandardCharsets.UTF_8));
+
+        ResponseEntity<?> res = controller.importStatement(file, httpReq);
+
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(res.getBody()).isSameAs(accounts);
+    }
+
+    @Test
+    void importStatement_rejectsAnEmptyFile_beforeTheService() {
+        MockMultipartFile empty = new MockMultipartFile("file", "picsou.xml", "text/xml", new byte[0]);
+
+        assertThatThrownBy(() -> controller.importStatement(empty, httpReq))
+            .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(ibkrService);
+    }
+
+    /** Importing shares the sync budget, so a script cannot hammer the parser around the limit. */
+    @Test
+    void importStatement_returns429_onceThePerIpBudgetIsExhausted() {
+        when(userContext.currentMemberId()).thenReturn(42L);
+        when(ibkrService.importStatement("<x/>", 42L)).thenReturn(List.of());
+        MockMultipartFile file = new MockMultipartFile("file", "p.xml", "text/xml", "<x/>".getBytes(StandardCharsets.UTF_8));
+
+        for (int i = 0; i < SYNC_BUDGET_PER_MINUTE; i++) {
+            assertThat(controller.importStatement(file, httpReq).getStatusCode()).isEqualTo(HttpStatus.OK);
+        }
+
+        assertThat(controller.importStatement(file, httpReq).getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        verify(ibkrService, times(SYNC_BUDGET_PER_MINUTE)).importStatement("<x/>", 42L);
     }
 
     /** The budget is per client IP: exhausting one IP must not throttle another. */
