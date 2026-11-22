@@ -17,10 +17,14 @@ import com.picsou.support.PostgresContainers;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -45,8 +49,9 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-    properties = "MCP_PROTOCOL=STREAMABLE")
+    properties = {"MCP_PROTOCOL=STREAMABLE", "MCP_KEEP_ALIVE_INTERVAL=1s"})
 @Testcontainers(disabledWithoutDocker = true)
+@ExtendWith(OutputCaptureExtension.class)
 class McpStreamableHttpTest {
 
     private static final String JWT_SECRET = "test-jwt-secret-test-jwt-secret-0123456789";
@@ -157,6 +162,27 @@ class McpStreamableHttpTest {
                     {"jsonrpc":"2.0","id":5,"method":"tools/list"}
                     """).statusCode()).as("A closed session is gone").isEqualTo(404);
             }
+        }
+    }
+
+    /**
+     * A Streamable HTTP client that never opens the GET stream, or whose stream dropped, leaves a
+     * session the SDK keeps pinging. Every ping fails with "Stream unavailable"; that is expected,
+     * so it must not reach the log as a warning every interval.
+     */
+    @Test
+    void sessionWithoutListeningStream_doesNotLogKeepAliveFailures(CapturedOutput output) throws Exception {
+        String bearer = accessKeyService.create(owner, "keep-alive", Set.of(Scopes.ACCOUNTS_READ), null).rawSecret();
+        try (HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()) {
+            HttpResponse<String> initialized = post(http, bearer, null, """
+                {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"picsou-test","version":"0"}}}
+                """);
+            assertThat(initialized.statusCode()).isEqualTo(200);
+
+            // Three keep-alive ticks with no listening stream.
+            Thread.sleep(3_500);
+
+            assertThat(output.getOut()).doesNotContain("keep-alive ping");
         }
     }
 

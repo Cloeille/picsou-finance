@@ -127,6 +127,15 @@ server:
     mime-types: text/html,text/plain,text/css,text/javascript,application/javascript,application/json
     min-response-size: 20B
 
+# The MCP SDK pings every session it still holds, including Streamable HTTP sessions whose client
+# never opened the GET stream or dropped it. Each such ping fails with "Stream unavailable" and was
+# logged as a WARN every keep-alive interval. It is expected on a normal disconnect: the SDK keeps
+# the session until DELETE, and 0.18.x has no hook to drop it. A real scheduler failure still
+# logs at ERROR.
+logging:
+  level:
+    io.modelcontextprotocol.util.KeepAliveScheduler: ERROR
+
 management:
   endpoints:
     web:

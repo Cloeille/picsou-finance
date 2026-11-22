@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **MCP keep-alive no longer floods the log.** A Streamable HTTP session whose client never
+  opened the GET stream, or dropped it, logged `Failed to send keep-alive ping ... Stream
+  unavailable` as a WARN every keep-alive interval until the session was deleted. That logger
+  now reports at ERROR only (#695).
+
 ## [1.2.2] — 2026-11-21
 
 ### Added

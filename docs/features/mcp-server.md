@@ -327,6 +327,13 @@ sessions/credentials as the documented side effect of deleting a connection's la
   `ping` to every open session; the client answers it on `/mcp/message` with its access key. Keep the
   interval well under 300 s. The proxies were ruled out: curl holds the stream for 7 min through a
   reverse proxy and directly against the backend.
+- **Failed keep-alive pings are not logged.** The SDK pings every session it holds. A Streamable
+  HTTP session has no stream to ping until the client opens `GET /mcp`, and loses it when the
+  client drops it, yet the session stays until `DELETE`. Each such ping fails with `Stream
+  unavailable`, which SDK 0.18.x logs as a WARN every interval. `application.yml` sets
+  `io.modelcontextprotocol.util.KeepAliveScheduler` to `ERROR`: the failure is expected on a normal
+  disconnect, and the scheduler's own crash still logs. Lowering that level back brings the spam
+  back.
 - **Property B lives in `UserContext`, not the filter.** The guard is the first statement in
   `getMemberIdOverride()`: if the current `Authentication` is an `AccessKeyAuthentication`, return
   `null` *before* `isAdmin()` can open the `?memberId=` override. Removing it would let an
@@ -372,7 +379,7 @@ Backend (H2, `make test-backend`):
 - `service/TradeRepublicSyncServiceTest`, `service/sync/MemberSyncServiceTest` — session lookup,
   Finary failures and transaction-proxy exit errors retain their throwable and do not stop later sources.
 - `service/SyncStatusServiceTest` — last sync, status and reauth flag per connection; a secret never appears in the text.
-- `mcp/McpStreamableHttpTest` — opt-in transport over HTTP with both an access key and an OAuth-shaped MCP JWT: exact `2025-11-25` negotiation, tool discovery, member isolation, scope denial, API rejection, and session cleanup. Requires Docker and PostgreSQL.
+- `mcp/McpStreamableHttpTest` — opt-in transport over HTTP with both an access key and an OAuth-shaped MCP JWT: exact `2025-11-25` negotiation, tool discovery, member isolation, scope denial, API rejection, and session cleanup. A session left without a listening stream through three 1 s keep-alive ticks logs no keep-alive warning. Requires Docker and PostgreSQL.
 - `mcp/McpSseKeepAliveTest` — real SSE transport with a 1 s keep-alive: after `initialize`, a server `ping` arrives on the idle stream with no client traffic.
 - `mcp/SyncToolsSseTest` — real SSE transport: `GET /mcp`, then `tools/call trigger_full_sync` with a `sync:trigger` key, and the per-source summary comes back. The sync itself is stubbed so the test does not call a bank.
 - `service/AccountConnectionServiceTest` — last-account cleanup, connection preservation, and deletion results with labels captured before the connection is removed.
