@@ -329,6 +329,13 @@ pub(crate) const ACCOUNT_COLUMNS: &str = "a.id, a.member_id, a.name, a.type::tex
     a.provider_paid_in_eur, a.scheduled_payment_eur, a.scheduled_payment_cadence, a.deleted_at, \
     a.parent_account_id, a.hidden, a.created_at, a.updated_at";
 
+pub(crate) const ACCOUNT_RETURNING: &str = "id, member_id, name, type::text AS type, provider, currency, \
+    current_balance, cash_balance, last_synced_at, payment_due_amount, payment_due_date, card_nature, \
+    reward_points, external_account_id, is_manual, color, iban, ticker, logo_url, logo_key, \
+    institution_name, institution_domain, requisition_id, opened_at, provider_invested_eur, \
+    provider_paid_in_eur, scheduled_payment_eur, scheduled_payment_cadence, deleted_at, \
+    parent_account_id, hidden, created_at, updated_at";
+
 #[derive(Debug, Clone, PartialEq, FromRow, crate::db::DbFromRow)]
 pub struct AccountHolding {
     pub id: i64,
@@ -352,6 +359,10 @@ pub struct AccountHolding {
 pub(crate) const HOLDING_COLUMNS: &str = "h.id, h.account_id, h.ticker, h.name, h.quantity, h.average_buy_in, \
     h.current_price, h.quote_currency, h.provider_value_eur, h.provider_price_date, h.provider_pnl_eur, \
     h.last_synced_at, h.provider_wealth_tier, h.created_at, h.updated_at";
+
+pub(crate) const HOLDING_RETURNING: &str = "id, account_id, ticker, name, quantity, average_buy_in, \
+    current_price, quote_currency, provider_value_eur, provider_price_date, provider_pnl_eur, \
+    last_synced_at, provider_wealth_tier, created_at, updated_at";
 
 /// A holding to write: every column but the id and audit timestamps.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -426,6 +437,12 @@ pub(crate) const TRANSACTION_COLUMNS: &str = "t.id, t.account_id, t.date, t.desc
     t.ai_suggested_category_id, t.ai_confidence, t.external_id, t.recurring_series_id, t.native_currency, \
     t.created_at, t.is_manual, t.budget_neutral, t.external_transaction_id, t.tx_type, t.ticker, t.name, \
     t.quantity, t.price_per_unit, t.fees";
+
+pub(crate) const TRANSACTION_RETURNING: &str = "id, account_id, date, description, amount, type, \
+    category, category_id, category_manual, counterparty, merchant_label, merchant_brand_id, \
+    ai_suggested_category_id, ai_confidence, external_id, recurring_series_id, native_currency, \
+    created_at, is_manual, budget_neutral, external_transaction_id, tx_type, ticker, name, \
+    quantity, price_per_unit, fees";
 
 /// A transaction to insert: every column but the id.
 #[derive(Debug, Clone, PartialEq)]
@@ -505,6 +522,9 @@ pub struct BalanceSnapshot {
 
 pub(crate) const SNAPSHOT_COLUMNS: &str = "s.id, s.account_id, s.date, s.balance, s.invested_amount, \
     s.created_at, s.source, s.native_balance, s.statement_entered_at";
+
+pub(crate) const SNAPSHOT_RETURNING: &str = "id, account_id, date, balance, invested_amount, \
+    created_at, source, native_balance, statement_entered_at";
 
 #[derive(Debug, Clone, PartialEq, FromRow, crate::db::DbFromRow)]
 pub struct AccountOwnership {
@@ -598,6 +618,9 @@ pub struct Category {
 
 pub(crate) const CATEGORY_COLUMNS: &str = "c.id, c.member_id, c.parent_id, c.name, c.slug, c.kind::text AS kind, \
     c.color, c.icon, c.is_default, c.archived, c.sort_order";
+
+pub(crate) const CATEGORY_RETURNING: &str = "id, member_id, parent_id, name, slug, kind::text AS kind, \
+    color, icon, is_default, archived, sort_order";
 
 #[derive(Debug, Clone, PartialEq, FromRow, crate::db::DbFromRow)]
 pub struct CategorizationRule {

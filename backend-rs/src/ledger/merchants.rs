@@ -195,15 +195,15 @@ impl KnowledgeBase {
     /// Loads every brand and alias row.
     pub async fn load<'c, E>(db: E) -> Result<KnowledgeBase, sqlx::Error>
     where
-        E: sqlx::PgExecutor<'c> + Copy,
+        E: crate::db::DbExec<'c> + Copy,
     {
-        let brands = sqlx::query_as::<_, MerchantBrand>(
+        let brands = crate::db::query_as::<MerchantBrand>(
             "SELECT id, slug, display_name, default_category_slug, color, monogram, logo_domain \
              FROM merchant_brand ORDER BY id",
         )
         .fetch_all(db)
         .await?;
-        let aliases = sqlx::query_as::<_, MerchantAlias>(
+        let aliases = crate::db::query_as::<MerchantAlias>(
             "SELECT id, brand_id, pattern, match_type FROM merchant_alias ORDER BY id",
         )
         .fetch_all(db)

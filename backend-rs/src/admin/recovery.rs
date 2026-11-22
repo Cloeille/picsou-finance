@@ -21,7 +21,7 @@ pub async fn run(state: &AppState) -> anyhow::Result<()> {
         return Ok(());
     }
     let admins: Vec<(i64, String)> =
-        sqlx::query_as("SELECT id, username FROM app_user WHERE role = 'ADMIN' ORDER BY id")
+        crate::db::query_as("SELECT id, username FROM app_user WHERE role = 'ADMIN' ORDER BY id")
             .fetch_all(&state.db)
             .await?;
     if admins.is_empty() {
@@ -35,7 +35,7 @@ pub async fn run(state: &AppState) -> anyhow::Result<()> {
         .to_owned();
     for (id, username) in admins {
         let token = generate_token();
-        sqlx::query(
+        crate::db::query(
             "UPDATE app_user SET activation_token = $2, activation_token_expires = $3, is_activated = false, \
              token_version = token_version + 1, updated_at = now() WHERE id = $1",
         )
@@ -57,7 +57,7 @@ pub async fn run(state: &AppState) -> anyhow::Result<()> {
         tracing::warn!("{separator}");
         tracing::warn!("");
         // Not a request: the audit row has no address and no user agent.
-        if let Err(e) = sqlx::query(
+        if let Err(e) = crate::db::query(
             "INSERT INTO setup_audit (event, actor_username, ip, user_agent, details, at) VALUES ($1, $2, NULL, NULL, $3, $4)",
         )
         .bind("admin.recovery.token-generated")

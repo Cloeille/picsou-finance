@@ -25,7 +25,7 @@ pub struct ResolvedKey {
 #[derive(Debug, Default)]
 pub struct UsageThrottle(Mutex<HashMap<i64, DateTime<Utc>>>);
 
-#[derive(sqlx::FromRow)]
+#[derive(crate::db::DbFromRow)]
 struct KeyRow {
     id: i64,
     created_by: i64,
@@ -40,7 +40,7 @@ pub async fn validate(state: &AppState, raw: &str) -> Result<Option<ResolvedKey>
     {
         return Ok(None);
     }
-    let row: Option<KeyRow> = sqlx::query_as(
+    let row: Option<KeyRow> = crate::db::query_as(
         "SELECT id, created_by, key_hash, scopes, expires_at, revoked_at FROM access_key WHERE key_prefix = $1",
     )
     .bind(&raw[..PREFIX_LENGTH])
@@ -89,7 +89,7 @@ async fn record_usage(state: &AppState, key_id: i64, now: DateTime<Utc>) {
         }
         touched.insert(key_id, now);
     }
-    if let Err(e) = sqlx::query("UPDATE access_key SET last_used_at = $1 WHERE id = $2")
+    if let Err(e) = crate::db::query("UPDATE access_key SET last_used_at = $1 WHERE id = $2")
         .bind(now)
         .bind(key_id)
         .execute(&state.db)

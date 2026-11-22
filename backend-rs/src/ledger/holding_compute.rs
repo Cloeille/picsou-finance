@@ -81,10 +81,10 @@ pub fn net_positions(trades: &[Transaction]) -> BTreeMap<String, NetPosition> {
         .collect()
 }
 
-async fn delete_holding(conn: &mut PgConnection, id: i64) -> sqlx::Result<()> {
-    sqlx::query("DELETE FROM account_holding WHERE id = $1")
+async fn delete_holding<'e>(db: impl crate::db::DbExec<'e>, id: i64) -> sqlx::Result<()> {
+    crate::db::query("DELETE FROM account_holding WHERE id = $1")
         .bind(id)
-        .execute(conn)
+        .execute(db)
         .await?;
     Ok(())
 }

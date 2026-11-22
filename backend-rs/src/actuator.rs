@@ -29,7 +29,10 @@ fn actuator_json(headers: &HeaderMap, status: StatusCode, body: Value) -> Respon
 }
 
 async fn health(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let up = sqlx::query("SELECT 1").execute(&state.db).await.is_ok();
+    let up = crate::db::query("SELECT 1")
+        .execute(&state.db)
+        .await
+        .is_ok();
     let (status, label) = if up {
         (StatusCode::OK, "UP")
     } else {

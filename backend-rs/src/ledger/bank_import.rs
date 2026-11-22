@@ -9,12 +9,13 @@ use chrono::{DateTime, Days, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use sqlx::{Connection, PgConnection};
+use sqlx::PgConnection;
 
 use super::decimal::{HALF_UP, set_scale};
 use super::model::{Account, NewTransaction, Transaction};
 use super::sync_values::{java_is_blank, java_trim};
 use super::transactions;
+use crate::db::{AsDbHandle, DbExec, DbHandle};
 
 pub const DEFAULT_INITIAL_HISTORY_DAYS: u64 = 90;
 pub const OVERLAP_DAYS: u64 = 7;
@@ -87,7 +88,15 @@ pub async fn import_fetched(
         .cloned()
         .collect();
     let to_insert = select_new(&mut *conn, account, window_start, &eur_only).await?;
-    save_all(conn, account, &to_insert, fetched.len(), window_start, now).await
+    save_all(
+        &mut conn.as_handle(),
+        account,
+        &to_insert,
+        fetched.len(),
+        window_start,
+        now,
+    )
+    .await
 }
 
 /// importProvided: rows a connector already fetched (SimpleFIN), any currency.
@@ -104,11 +113,19 @@ pub async fn import_provided(
     }
     let start = window_start(&mut *conn, account.id, today, initial_history_days).await?;
     let to_insert = select_new(&mut *conn, account, start, fetched).await?;
-    save_all(conn, account, &to_insert, fetched.len(), start, now).await
+    save_all(
+        &mut conn.as_handle(),
+        account,
+        &to_insert,
+        fetched.len(),
+        start,
+        now,
+    )
+    .await
 }
 
 async fn save_all(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     rows: &[NewTransaction],
     fetched: usize,
@@ -125,7 +142,7 @@ async fn save_all(
     // saveAll: all rows or none (a savepoint inside the caller's transaction).
     let mut batch = conn.begin().await?;
     for row in rows {
-        transactions::insert(&mut *batch, row, now).await?;
+        transactions::insert(&mut batch, row, now).await?;
     }
     batch.commit().await?;
     tracing::info!(
@@ -146,8 +163,8 @@ struct Fingerprint {
 /// The rows of fetched not stored yet. A stable bank id plus content matches one stored row
 /// one-for-one; the rest overlaps by content only with rows that carry no stable id (legacy and
 /// sidecar rows), each stored row consuming at most one incoming row.
-async fn select_new(
-    conn: &mut PgConnection,
+async fn select_new<'e>(
+    db: impl DbExec<'e>,
     account: &Account,
     window_start: NaiveDate,
     fetched: &[TransactionData],
@@ -162,7 +179,7 @@ async fn select_new(
         .filter(|oldest| *oldest < window_start)
         .unwrap_or(window_start);
     let existing =
-        transactions::find_synced_by_account(conn, account.id, Some(comparison_from)).await?;
+        transactions::find_synced_by_account(db, account.id, Some(comparison_from)).await?;
     Ok(select_against(account, &existing, fetched))
 }
 

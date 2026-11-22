@@ -211,13 +211,13 @@ async fn release_update(state: &AppState, current: &str) -> Option<ReleaseUpdate
 async fn session_count(state: &AppState, sessions: Sessions) -> i64 {
     let result = match sessions {
         Sessions::Bank(bank) => {
-            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM sidecar_session WHERE bank = $1")
+            crate::db::query_scalar::<i64>("SELECT count(*) FROM sidecar_session WHERE bank = $1")
                 .bind(bank)
                 .fetch_one(&state.db)
                 .await
         }
         Sessions::Table(table) => {
-            sqlx::query_scalar::<_, i64>(&format!("SELECT count(*) FROM {table}"))
+            crate::db::query_scalar::<i64>(&format!("SELECT count(*) FROM {table}"))
                 .fetch_one(&state.db)
                 .await
         }
@@ -335,6 +335,13 @@ pub async fn instance_status(
     } else {
         state.config.app_version.trim().to_owned()
     };
+    if state.config.desktop_mode {
+        return Ok(axum::Json(InstanceStatusResponse {
+            current_version: current,
+            update: None,
+            issues: Vec::new(),
+        }));
+    }
     let (update, issues) = tokio::join!(
         tokio::time::timeout(OVERALL_DEADLINE, release_update(&state, &current)),
         tokio::time::timeout(OVERALL_DEADLINE, probe_in_use(&state)),

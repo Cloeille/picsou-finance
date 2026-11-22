@@ -6,20 +6,20 @@ use std::collections::{HashMap, HashSet};
 
 use rust_decimal::Decimal;
 use sqlx::PgConnection;
-use sqlx::PgExecutor;
 
 use super::accounts;
 use super::decimal::{HALF_UP, divide};
 use super::model::{Account, AccountOwnership};
+use crate::db::DbExec;
 use crate::error::{AppError, AppResult};
 
 const FULL_SHARE: Decimal = Decimal::ONE_HUNDRED;
 
 pub async fn ownerships_of_account<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     account_id: i64,
 ) -> sqlx::Result<Vec<AccountOwnership>> {
-    sqlx::query_as(
+    crate::db::query_as(
         "SELECT id, account_id, member_id, share_percent FROM account_ownership WHERE account_id = $1 ORDER BY id",
     )
     .bind(account_id)
@@ -28,10 +28,10 @@ pub async fn ownerships_of_account<'e>(
 }
 
 pub async fn ownerships_of_accounts<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     account_ids: &[i64],
 ) -> sqlx::Result<Vec<AccountOwnership>> {
-    sqlx::query_as(
+    crate::db::query_as(
         "SELECT id, account_id, member_id, share_percent FROM account_ownership WHERE account_id = ANY($1) \
          ORDER BY id",
     )
@@ -41,10 +41,10 @@ pub async fn ownerships_of_accounts<'e>(
 }
 
 pub async fn ownerships_of_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<Vec<AccountOwnership>> {
-    sqlx::query_as(
+    crate::db::query_as(
         "SELECT id, account_id, member_id, share_percent FROM account_ownership WHERE member_id = $1 ORDER BY id",
     )
     .bind(member_id)
@@ -54,21 +54,23 @@ pub async fn ownerships_of_member<'e>(
 
 /// The accounts the member holds a share of through ownership rows (deleted ones included).
 pub async fn co_owned_account_ids<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<Vec<i64>> {
-    sqlx::query_scalar("SELECT account_id FROM account_ownership WHERE member_id = $1 ORDER BY id")
-        .bind(member_id)
-        .fetch_all(db)
-        .await
+    crate::db::query_scalar(
+        "SELECT account_id FROM account_ownership WHERE member_id = $1 ORDER BY id",
+    )
+    .bind(member_id)
+    .fetch_all(db)
+    .await
 }
 
 pub async fn delete_ownerships_of_account<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     account_id: i64,
 ) -> sqlx::Result<u64> {
     Ok(
-        sqlx::query("DELETE FROM account_ownership WHERE account_id = $1")
+        crate::db::query("DELETE FROM account_ownership WHERE account_id = $1")
             .bind(account_id)
             .execute(db)
             .await?
@@ -114,7 +116,7 @@ pub async fn readable_account_ids(
 /// The member's percentage of the account, in [0, 100]. No ownership rows means the owning
 /// member holds 100%; an explicit split that omits the member means none.
 pub async fn share_for<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     account: &Account,
     member_id: i64,
 ) -> sqlx::Result<Decimal> {
@@ -124,7 +126,7 @@ pub async fn share_for<'e>(
 
 /// share_for over a set of accounts, in one query; keyed by account id.
 pub async fn shares_for<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     accounts: &[Account],
     member_id: i64,
 ) -> sqlx::Result<HashMap<i64, Decimal>> {

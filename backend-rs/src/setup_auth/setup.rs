@@ -10,7 +10,6 @@ use axum::response::{IntoResponse, Response};
 use regex::Regex;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_with::skip_serializing_none;
-use sqlx::Connection;
 
 use crate::AppState;
 use crate::auth::{password, users};
@@ -248,18 +247,19 @@ pub async fn seed_admin(
     display_name: Option<&str>,
     avatar_color: Option<&str>,
 ) -> AppResult<users::AppUser> {
-    let mut conn = state.db.acquire().await?;
-    let mut tx = conn.begin().await?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-        .execute(&mut *tx)
-        .await?;
+    let mut tx = state.db.begin().await?;
+    if !crate::db::DbExec::is_sqlite(&&state.db) {
+        crate::db::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut tx)
+            .await?;
+    }
     if users::exists_by_username(&mut *tx, username).await? {
         tracing::info!("Admin already exists, skipping seed");
-        let existing = users::find_by_username(&mut *tx, username).await?;
+        let existing = users::find_by_username(&mut tx, username).await?;
         tx.commit().await?;
         return existing.ok_or_else(|| AppError::Internal("admin vanished".into()));
     }
-    let current = match settings::read_with(&mut *tx, settings::SETUP_STATE).await? {
+    let current = match settings::read_with(&mut tx, settings::SETUP_STATE).await? {
         Some(raw) => SetupState::parse(&raw)?,
         None => SetupState::PendingAdmin,
     };
@@ -268,15 +268,15 @@ pub async fn seed_admin(
             "Setup is already complete; use the admin UI to manage users.".into(),
         ));
     }
-    if users::count(&mut *tx).await? > 0 {
+    if users::count(&mut tx).await? > 0 {
         return Err(AppError::Internal(
             "An account already exists; additional members are created from the Family admin UI."
                 .into(),
         ));
     }
-    let claimed = sqlx::query("UPDATE app_setting SET value = 'IN_PROGRESS' WHERE setting_key = $1 AND value = 'PENDING_ADMIN'")
+    let claimed = crate::db::query("UPDATE app_setting SET value = 'IN_PROGRESS' WHERE setting_key = $1 AND value = 'PENDING_ADMIN'")
         .bind(settings::SETUP_STATE)
-        .execute(&mut *tx)
+        .execute(&mut tx)
         .await?
         .rows_affected();
     if claimed == 0 && current == SetupState::PendingAdmin {
@@ -292,21 +292,21 @@ pub async fn seed_admin(
             "Password hash must be a valid bcrypt hash starting with $2a$, $2b$, or $2y$.".into(),
         ));
     }
-    let member_id: i64 = sqlx::query_scalar(
+    let member_id: i64 = crate::db::query_scalar(
         "INSERT INTO family_member (display_name, avatar_color, is_managed) VALUES ($1, $2, false) RETURNING id",
     )
     .bind(display_name.unwrap_or(username))
     .bind(avatar_color.unwrap_or("#6366f1"))
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut tx)
     .await?;
-    let user_id: i64 = sqlx::query_scalar(
+    let user_id: i64 = crate::db::query_scalar(
         "INSERT INTO app_user (username, password_hash, member_id, role, is_activated, acknowledged_warning) \
          VALUES ($1, $2, $3, 'ADMIN', true, true) RETURNING id",
     )
     .bind(username)
     .bind(bcrypt_hash)
     .bind(member_id)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut tx)
     .await?;
     tx.commit().await?;
     tracing::info!("setup.admin.created role=ADMIN");

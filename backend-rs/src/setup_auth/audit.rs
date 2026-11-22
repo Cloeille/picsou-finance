@@ -24,7 +24,7 @@ pub async fn record(
             ua.to_owned()
         }
     });
-    let result = sqlx::query(
+    let result = crate::db::query(
         "INSERT INTO setup_audit (event, actor_username, ip, user_agent, details, at) VALUES ($1, $2, $3, $4, $5, $6)",
     )
     .bind(event)

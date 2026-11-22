@@ -123,7 +123,7 @@ pub async fn test(
 }
 
 #[skip_serializing_none]
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, crate::db::DbFromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct AiCallLogResponse {
     id: i64,
@@ -171,7 +171,7 @@ pub async fn calls(
     let limit = int_param(&query, "limit", 50)?.clamp(1, 200);
     let offset = int_param(&query, "offset", 0)?.max(0);
     let page = offset / limit;
-    let items: Vec<AiCallLogResponse> = sqlx::query_as(
+    let items: Vec<AiCallLogResponse> = crate::db::query_as(
         "SELECT id, created_at, member_id, transaction_id, merchant_label, batch_id::text AS batch_id, provider, model, prompt, \
          response, prompt_tokens, completion_tokens, total_tokens, latency_ms, status, error, chosen_slug, \
          confidence, applied FROM ai_call_log ORDER BY created_at DESC LIMIT $1 OFFSET $2",
@@ -180,10 +180,11 @@ pub async fn calls(
     .bind(i64::from(page) * i64::from(limit))
     .fetch_all(&state.db)
     .await?;
-    let (total, total_tokens): (i64, i64) =
-        sqlx::query_as("SELECT count(*), COALESCE(sum(total_tokens), 0)::bigint FROM ai_call_log")
-            .fetch_one(&state.db)
-            .await?;
+    let (total, total_tokens): (i64, i64) = crate::db::query_as(
+        "SELECT count(*), COALESCE(sum(total_tokens), 0)::bigint FROM ai_call_log",
+    )
+    .fetch_one(&state.db)
+    .await?;
     Ok(axum::Json(AiCallLogPage {
         items,
         total,

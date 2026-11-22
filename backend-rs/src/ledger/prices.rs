@@ -7,10 +7,11 @@ use std::collections::{BTreeSet, HashMap};
 use async_trait::async_trait;
 use chrono::{Days, NaiveDate};
 use rust_decimal::Decimal;
-use sqlx::{PgExecutor, PgPool};
+use sqlx::PgPool;
 
 use super::model::PriceSnapshot;
 use super::sync_values::java_is_blank;
+use crate::db::DbExec;
 
 /// How old a recorded price may be and still stand in for a live one.
 pub const MAX_FALLBACK_AGE_DAYS: u64 = 7;
@@ -173,14 +174,14 @@ impl PriceRead for RecordedPrices {
 
 /// The tickers among the upper-cased ones the crypto registry (crypto_asset) maps to a coin.
 pub async fn registered_coins<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     tickers: &BTreeSet<String>,
 ) -> sqlx::Result<BTreeSet<String>> {
     let tickers: Vec<&str> = tickers.iter().map(String::as_str).collect();
-    let rows: Vec<String> = sqlx::query_scalar(
+    let rows: Vec<String> = crate::db::query_scalar(
         "SELECT DISTINCT upper(ticker) FROM crypto_asset WHERE upper(ticker) = ANY($1)",
     )
-    .bind(&tickers)
+    .bind(tickers.as_slice())
     .fetch_all(db)
     .await?;
     Ok(rows.into_iter().collect())
@@ -188,7 +189,7 @@ pub async fn registered_coins<'e>(
 
 /// The newest price_snapshot row of each ticker dated within the fallback window ending today.
 pub async fn last_known_prices<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     tickers: &BTreeSet<String>,
     today: NaiveDate,
 ) -> sqlx::Result<HashMap<String, PriceSnapshot>> {
@@ -196,11 +197,14 @@ pub async fn last_known_prices<'e>(
         .checked_sub_days(Days::new(MAX_FALLBACK_AGE_DAYS))
         .unwrap_or(today);
     let tickers: Vec<&str> = tickers.iter().map(String::as_str).collect();
-    let rows: Vec<PriceSnapshot> = sqlx::query_as(
-        "SELECT DISTINCT ON (ticker) id, ticker, date, price_eur, created_at FROM price_snapshot \
-         WHERE ticker = ANY($1) AND date BETWEEN $2 AND $3 ORDER BY ticker, date DESC",
+    let rows: Vec<PriceSnapshot> = crate::db::query_as(
+        "SELECT id, ticker, date, price_eur, created_at \
+         FROM (SELECT id, ticker, date, price_eur, created_at, \
+               ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC, id DESC) AS rn \
+               FROM price_snapshot WHERE ticker = ANY($1) AND date BETWEEN $2 AND $3) ranked \
+         WHERE rn = 1 ORDER BY ticker",
     )
-    .bind(&tickers)
+    .bind(tickers.as_slice())
     .bind(from)
     .bind(today)
     .fetch_all(db)
@@ -210,11 +214,11 @@ pub async fn last_known_prices<'e>(
 
 /// findLatestByTickerBeforeOrOnDate.
 pub async fn latest_price_on_or_before<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     ticker: &str,
     date: NaiveDate,
 ) -> sqlx::Result<Option<PriceSnapshot>> {
-    sqlx::query_as(
+    crate::db::query_as(
         "SELECT id, ticker, date, price_eur, created_at FROM price_snapshot WHERE ticker = $1 AND date <= $2 \
          ORDER BY date DESC LIMIT 1",
     )
@@ -226,12 +230,12 @@ pub async fn latest_price_on_or_before<'e>(
 
 /// findByTickerInAndDateBetween: the recorded series, by ticker then date.
 pub async fn price_history<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     tickers: &[String],
     from: NaiveDate,
     to: NaiveDate,
 ) -> sqlx::Result<Vec<PriceSnapshot>> {
-    sqlx::query_as(
+    crate::db::query_as(
         "SELECT id, ticker, date, price_eur, created_at FROM price_snapshot WHERE ticker = ANY($1) \
          AND date BETWEEN $2 AND $3 ORDER BY ticker, date",
     )
@@ -244,10 +248,10 @@ pub async fn price_history<'e>(
 
 /// findPricedTickers: which tickers a provider has ever answered for.
 pub async fn priced_tickers<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     tickers: &[String],
 ) -> sqlx::Result<Vec<String>> {
-    sqlx::query_scalar(
+    crate::db::query_scalar(
         "SELECT DISTINCT ticker FROM price_snapshot WHERE ticker = ANY($1) ORDER BY ticker",
     )
     .bind(tickers)

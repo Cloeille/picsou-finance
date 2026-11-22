@@ -10,12 +10,13 @@ use std::collections::{HashMap, HashSet};
 use async_trait::async_trait;
 use chrono::{DateTime, Days, NaiveDate, Utc};
 use rust_decimal::Decimal;
-use sqlx::{PgExecutor, PgPool};
+use sqlx::PgPool;
 
 use super::accounts;
 use super::categorize::{self, TRANSFER_SLUG};
 use super::model::{AccountType, CategoryKind, Transaction, TransactionType};
 use super::transactions;
+use crate::db::DbExec;
 use crate::error::AppResult;
 
 /// Matches the bank sync lookback: older rows were paired by an earlier sync.
@@ -39,7 +40,7 @@ pub async fn pair_recent(
 ) -> sqlx::Result<usize> {
     let mut tx = db.begin().await?;
     // A loan repayment is budgeted as an expense, and peer loans book their own transfer.
-    let account_ids: Vec<i64> = accounts::find_visible_by_member(&mut *tx, member_id)
+    let account_ids: Vec<i64> = accounts::find_visible_by_member(&mut tx, member_id)
         .await?
         .into_iter()
         .filter(|a| !matches!(a.account_type, AccountType::Loan | AccountType::PeerLoan))
@@ -51,7 +52,7 @@ pub async fn pair_recent(
     let from = today - Days::new(LOOKBACK_DAYS);
     let gap = Days::new(MAX_DAY_GAP);
     let mut legs: Vec<Transaction> =
-        transactions::find_by_accounts_between(&mut *tx, &account_ids, from - gap, today + gap)
+        transactions::find_by_accounts_between(&mut tx, &account_ids, from - gap, today + gap)
             .await?
             .into_iter()
             .filter(is_candidate)
@@ -74,7 +75,7 @@ pub async fn pair_recent(
         return Ok(0);
     };
     let current: Vec<i64> = paired.iter().filter_map(|&i| legs[i].category_id).collect();
-    let already_transfer = transfer_category_ids(&mut *tx, &current).await?;
+    let already_transfer = transfer_category_ids(&mut tx, &current).await?;
     let mut changed = 0;
     for i in paired {
         let leg = &mut legs[i];
@@ -87,7 +88,7 @@ pub async fn pair_recent(
         leg.category_id = Some(target.id);
         leg.ai_suggested_category_id = None;
         leg.ai_confidence = None;
-        transactions::update(&mut *tx, leg).await?;
+        transactions::update(&mut tx, leg).await?;
         changed += 1;
     }
     tx.commit().await?;
@@ -181,11 +182,8 @@ fn java_equals_ignore_case(a: &str, b: &str) -> bool {
 }
 
 /// Which of the categories are of kind TRANSFER, whoever owns them.
-async fn transfer_category_ids<'e>(
-    db: impl PgExecutor<'e>,
-    ids: &[i64],
-) -> sqlx::Result<HashSet<i64>> {
-    let found: Vec<i64> = sqlx::query_scalar(
+async fn transfer_category_ids<'e>(db: impl DbExec<'e>, ids: &[i64]) -> sqlx::Result<HashSet<i64>> {
+    let found: Vec<i64> = crate::db::query_scalar(
         "SELECT id FROM category WHERE id = ANY($1) AND kind::text = 'TRANSFER'",
     )
     .bind(ids)
