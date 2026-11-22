@@ -437,6 +437,14 @@ pub async fn confirm_sync(
     let remembered = credentials.as_ref().filter(|_| remember);
     apply_post_sync_session_state(state, &mut tx, member_id, remembered).await?;
     tx.commit().await?;
+    crate::ledger::transfers::after_import(
+        &state.db,
+        &*state.ledger.dividends,
+        member_id,
+        state.clock.today(),
+        state.clock.now(),
+    )
+    .await;
     Ok(())
 }
 
@@ -1082,6 +1090,14 @@ async fn unattended_sync(state: &AppState, member_id: i64) -> Result<(), JobErro
     persist_selected(state, &mut tx, &harvested, all, member_id, &categorization).await?;
     apply_post_sync_session_state(state, &mut tx, member_id, Some(&credentials)).await?;
     tx.commit().await?;
+    crate::ledger::transfers::after_import(
+        &state.db,
+        &*state.ledger.dividends,
+        member_id,
+        state.clock.today(),
+        state.clock.now(),
+    )
+    .await;
     Ok(())
 }
 

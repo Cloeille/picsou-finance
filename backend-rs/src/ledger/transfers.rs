@@ -37,6 +37,30 @@ pub async fn pair_recent(
     today: NaiveDate,
     now: DateTime<Utc>,
 ) -> sqlx::Result<usize> {
+    let from = today - Days::new(LOOKBACK_DAYS);
+    pair_between(db, member_id, from, today, now).await
+}
+
+/// Pairs transfer legs across the member's full history up to `today`.
+/// Used by manual recategorization so historical cross-bank transfers older than
+/// [LOOKBACK_DAYS] are also matched.
+pub async fn pair_all(
+    db: &PgPool,
+    member_id: i64,
+    today: NaiveDate,
+    now: DateTime<Utc>,
+) -> sqlx::Result<usize> {
+    let from = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap_or(today);
+    pair_between(db, member_id, from, today, now).await
+}
+
+async fn pair_between(
+    db: &PgPool,
+    member_id: i64,
+    from: NaiveDate,
+    to: NaiveDate,
+    now: DateTime<Utc>,
+) -> sqlx::Result<usize> {
     let mut tx = db.begin().await?;
     // A loan repayment is budgeted as an expense, and peer loans book their own transfer.
     let account_ids: Vec<i64> = accounts::find_visible_by_member(&mut *tx, member_id)
@@ -48,15 +72,14 @@ pub async fn pair_recent(
     if account_ids.len() < 2 {
         return Ok(0);
     }
-    let from = today - Days::new(LOOKBACK_DAYS);
     let gap = Days::new(MAX_DAY_GAP);
     let mut legs: Vec<Transaction> =
-        transactions::find_by_accounts_between(&mut *tx, &account_ids, from - gap, today + gap)
+        transactions::find_by_accounts_between(&mut *tx, &account_ids, from - gap, to + gap)
             .await?
             .into_iter()
             .filter(is_candidate)
             .collect();
-    let in_window = |leg: &Transaction| leg.date >= from && leg.date <= today;
+    let in_window = |leg: &Transaction| leg.date >= from && leg.date <= to;
     let paired: Vec<usize> = unique_pairs(&legs)
         .into_iter()
         .filter(|&(debit, credit)| in_window(&legs[debit]) && in_window(&legs[credit]))

@@ -458,6 +458,14 @@ impl<S: SyncStrategy> SyncTemplate<S> {
                     self.strategy.describe(&prepared)
                 );
                 self.strategy.after_commit(state, &job, &prepared).await;
+                crate::ledger::transfers::after_import(
+                    &state.db,
+                    &*state.ledger.dividends,
+                    job.member_id,
+                    state.clock.today(),
+                    state.clock.now(),
+                )
+                .await;
             } else {
                 tracing::info!(
                     "Discarded stale {label} sync result (member={})",
