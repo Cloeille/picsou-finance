@@ -576,6 +576,9 @@ public class SyncService {
         if (data.type() != AccountType.CREDIT_CARD) {
             return;
         }
+        // An IBAN stored in the current-account days is its funding account's: it would block that
+        // account from storing it and could match the card to it after a uid rotation.
+        account.setIban(null);
         // Kept as is (no readable balance), a positive figure from the current-account days is
         // credit left, not owed: as a card it would read as a negative debt, so wait for one.
         if (account.getType() == AccountType.CHECKING) {

@@ -362,9 +362,9 @@ Known gaps (#664 follow-ups):
   from nor when (#668). The card's balance is its `XPCD` balance (the real-time amount still owed).
 - **A card never stores or matches an IBAN**: a card may carry its current account's IBAN, and
   matching on it would turn that account into the card, while storing it would leave two accounts
-  sharing `(iban, currency)` and break the current account's own uid-rotation fallback. A rotated
-  card uid therefore creates a second card. This predates #664 (the rows were `CHECKING`
-  without an IBAN too).
+  sharing `(iban, currency)` and break the current account's own uid-rotation fallback. An IBAN
+  stored before the card was recognised is cleared on its next sync. A rotated card uid therefore
+  creates a second card. This predates #664 (the rows were `CHECKING` without an IBAN too).
 
 ### Key files
 

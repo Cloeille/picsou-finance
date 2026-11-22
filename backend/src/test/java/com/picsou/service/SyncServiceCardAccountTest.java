@@ -102,12 +102,14 @@ class SyncServiceCardAccountTest {
     }
 
     @Test
-    void cardImportedAsCurrentAccount_becomesCardAndLosesItsTechnicalName() {
+    void cardImportedAsCurrentAccount_becomesCardAndLosesItsTechnicalNameAndIban() {
         Account stored = storedAccount(AccountType.CHECKING, "delayed_debit");
+        stored.setIban("FR00SYNTHETICCURRENT");
         Account saved = sync(stored, deferredCard());
         assertThat(saved.getType()).isEqualTo(AccountType.CREDIT_CARD);
         assertThat(saved.getCardNature()).isEqualTo(CardNature.DEFERRED_DEBIT);
         assertThat(saved.getName()).isEqualTo("Carte Visa Synthetic Holder");
+        assertThat(saved.getIban()).isNull();
     }
 
     @Test
