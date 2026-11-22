@@ -48,6 +48,23 @@ class MerchantNormalizerTest {
     }
 
     @Test
+    void stripsGluedProcessorPrefixAndTrailingCardMarker() {
+        // #691: Lemonway glues "LMW" to the merchant, and the card marker trails the label.
+        assertThat(MerchantNormalizer.normalize("CARTE 07/11/26 LMWSNCF CONNECT CB", null))
+            .isEqualTo("Sncf Connect");
+        assertThat(MerchantNormalizer.normalize("LMW SNCF CONNECT", null)).isEqualTo("Sncf Connect");
+    }
+
+    @Test
+    void keepsLmwAndCbInsideRealMerchantNames() {
+        assertThat(MerchantNormalizer.normalize("LMW", null)).isEqualTo("Lmw");
+        assertThat(MerchantNormalizer.normalize("CARTE ELMWOOD CAFE", null)).isEqualTo("Elmwood Cafe");
+        assertThat(MerchantNormalizer.normalize("CB", null)).isEqualTo("Cb");
+        assertThat(MerchantNormalizer.normalize("RESTAURANT A LA CARTE", null))
+            .isEqualTo("Restaurant A La Carte");
+    }
+
+    @Test
     void matchKey_isLowerCaseAccentFreeAndApostropheStripped() {
         assertThat(MerchantNormalizer.matchKey("Café Crème")).isEqualTo("cafe creme");
         assertThat(MerchantNormalizer.matchKey("E.Leclerc")).isEqualTo("e.leclerc");

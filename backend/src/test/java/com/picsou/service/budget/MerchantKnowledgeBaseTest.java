@@ -38,13 +38,15 @@ class MerchantKnowledgeBaseTest {
             brand(1, "carrefour", "courses"),
             brand(2, "uber", "transport"),
             brand(3, "uber-eats", "restaurants"),
-            brand(4, "leclerc", "courses")
+            brand(4, "leclerc", "courses"),
+            brand(5, "sncf", "transport")
         ));
         when(aliasRepository.findAll()).thenReturn(List.of(
             alias(1, "carrefour", MerchantAlias.MatchType.WORD),
             alias(2, "uber", MerchantAlias.MatchType.WORD),
             alias(3, "uber eats", MerchantAlias.MatchType.PHRASE),
-            alias(4, "leclerc", MerchantAlias.MatchType.WORD)
+            alias(4, "leclerc", MerchantAlias.MatchType.WORD),
+            alias(5, "sncf", MerchantAlias.MatchType.WORD)
         ));
         kb = new MerchantKnowledgeBase(brandRepository, aliasRepository);
         kb.reload();
@@ -54,6 +56,14 @@ class MerchantKnowledgeBaseTest {
     void matchesSingleWordAgainstAnyToken() {
         assertThat(kb.match("carrefour market paris 12")).map(MerchantKnowledgeBase.Brand::slug)
             .contains("carrefour");
+    }
+
+    @Test
+    void matchesBrandBehindGluedProcessorPrefix() {
+        // #691: the normalized label of a Lemonway card payment must reach the SNCF brand.
+        String label = MerchantNormalizer.normalize("CARTE 07/11/26 LMWSNCF CONNECT CB", null);
+        assertThat(kb.match(MerchantNormalizer.matchKey(label))).map(MerchantKnowledgeBase.Brand::slug)
+            .contains("sncf");
     }
 
     @Test
@@ -87,6 +97,6 @@ class MerchantKnowledgeBaseTest {
         assertThat(kb.findById(2L)).map(MerchantKnowledgeBase.Brand::slug).contains("uber");
         assertThat(kb.findById(999L)).isEmpty();
         assertThat(kb.findById(null)).isEmpty();
-        assertThat(kb.brandCount()).isEqualTo(4);
+        assertThat(kb.brandCount()).isEqualTo(5);
     }
 }
