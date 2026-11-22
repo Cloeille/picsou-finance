@@ -10,6 +10,7 @@ use sqlx::PgConnection;
 use super::dto::*;
 use super::repo;
 use crate::AppState;
+use crate::db::{AsDbHandle, DbExec, DbHandle};
 use crate::error::{AppError, AppResult};
 use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::categorize::{self, CategorizationContext};
@@ -95,11 +96,11 @@ impl<'a> WriteContext<'a> {
 
     /// The seeded transfer category, created for an older member whose seeds predate it:
     /// without one the outgoing leg would count as spending.
-    async fn transfer_category(&mut self, conn: &mut PgConnection) -> AppResult<i64> {
+    async fn transfer_category<'e>(&mut self, db: impl DbExec<'e>) -> AppResult<i64> {
         if let Some(id) = self.transfer_category_id {
             return Ok(id);
         }
-        let id: i64 = sqlx::query_scalar(
+        let id: i64 = crate::db::query_scalar::<i64>(
             "INSERT INTO category (member_id, slug, name, kind, color, icon, is_default, archived, sort_order, \
              created_at, updated_at) VALUES ($1, $2, 'Virement interne', 'TRANSFER'::category_kind, '#64748b', \
              'arrow-left-right', true, false, 0, $3, $3) RETURNING id",
@@ -107,7 +108,7 @@ impl<'a> WriteContext<'a> {
         .bind(self.member_id)
         .bind(TRANSFER_SLUG)
         .bind(self.state.clock.now())
-        .fetch_one(conn)
+        .fetch_one(db)
         .await?;
         self.transfer_category_id = Some(id);
         Ok(id)
@@ -132,7 +133,7 @@ pub async fn get(
     let account = accounts::get_or_throw(&state.db, account_id, member_id).await?;
     require_type(&account)?;
     let mut conn = state.db.acquire().await?;
-    match repo::find_terms(&mut *conn, account_id).await? {
+    match repo::find_terms(&mut conn, account_id).await? {
         Some(terms) => build(&mut conn, &account, &terms, state.clock.today(), &[]).await,
         None => Ok(unconfigured(&account)),
     }
@@ -305,7 +306,7 @@ pub async fn create_from_transaction(
         return Err(bad("Only a cash movement can fund a peer loan"));
     }
     require_eur(&source, "fund a peer loan")?;
-    if repo::lending_transaction_linked(&mut *tx, transaction.id).await? {
+    if repo::lending_transaction_linked(&mut tx, transaction.id).await? {
         return Err(bad("This transaction is already linked to a peer loan"));
     }
     if transaction.date > today {
@@ -324,7 +325,7 @@ pub async fn create_from_transaction(
     draft.color = "#0d9488".to_owned();
     let mut account = accounts::insert(&mut *tx, &draft, now).await?;
 
-    let counterparty_id = counterparty(&mut tx, member_id, &name, now).await?;
+    let counterparty_id = counterparty(&mut tx.as_handle(), member_id, &name, now).await?;
     let mut terms = PeerLoanTerms {
         id: 0,
         account_id: account.id,
@@ -397,7 +398,7 @@ pub async fn save_terms(
         return Err(bad("A loan cannot be linked to itself"));
     }
 
-    let existing = repo::find_terms(&mut *tx, account_id).await?;
+    let existing = repo::find_terms(&mut tx, account_id).await?;
     // The lending outflow is a first-configuration decision only: a loan recorded after the
     // fact may already be in the cash account's balance, and a second outflow would double it.
     let first_configuration = existing.is_none();
@@ -436,7 +437,7 @@ pub async fn save_terms(
         }
     }
 
-    let counterparty_id = counterparty(&mut tx, member_id, &account.name, now).await?;
+    let counterparty_id = counterparty(&mut tx.as_handle(), member_id, &account.name, now).await?;
     let previous_lent_at = existing.as_ref().map(|t| t.lent_at);
     let mut terms = existing.unwrap_or(PeerLoanTerms {
         id: 0,
@@ -565,10 +566,10 @@ pub async fn add_repayment_from_transaction(
         return Err(bad("Only a cash movement can repay a peer loan"));
     }
     require_eur(&source, "repay a peer loan")?;
-    if repo::cash_transaction_linked(&mut *tx, transaction.id).await? {
+    if repo::cash_transaction_linked(&mut tx, transaction.id).await? {
         return Err(bad("This transaction is already linked to a repayment"));
     }
-    if repo::lending_transaction_linked(&mut *tx, transaction.id).await? {
+    if repo::lending_transaction_linked(&mut tx, transaction.id).await? {
         return Err(bad("This transaction is already linked to a peer loan"));
     }
     require_completed_repayment_date(transaction.date, today)?;
@@ -638,7 +639,7 @@ pub async fn update_repayment(
     let mut terms = lock_configured_terms(&mut tx, account_id).await?;
     require_open(&terms)?;
 
-    let mut repayment = repo::find_repayment(&mut *tx, repayment_id, account_id)
+    let mut repayment = repo::find_repayment(&mut tx, repayment_id, account_id)
         .await?
         .ok_or_else(repayment_not_found)?;
     if !repayment.cash_leg_owned {
@@ -701,7 +702,7 @@ pub async fn delete_repayment(
     require_type(&account)?;
     let mut terms = lock_configured_terms(&mut tx, account_id).await?;
 
-    let mut repayment = repo::find_repayment(&mut *tx, repayment_id, account_id)
+    let mut repayment = repo::find_repayment(&mut tx, repayment_id, account_id)
         .await?
         .ok_or_else(repayment_not_found)?;
     let paid_on = repayment.paid_on;
@@ -709,7 +710,7 @@ pub async fn delete_repayment(
     repo::delete_repayment(&mut tx, repayment.id).await?;
 
     // Deleting the write-off that closed the loan reopens it.
-    let remaining = repo::repayments(&mut *tx, account_id).await?;
+    let remaining = repo::repayments(&mut tx, account_id).await?;
     let outstanding = peer_loans::compute(&terms, &remaining, ctx.today).principal_remaining;
     if terms.closed_at.is_some() && outstanding > Decimal::ZERO {
         terms.closed_at = None;
@@ -755,7 +756,7 @@ pub async fn close(
     }
 
     // Only the ledger up to the closure date counts: a later repayment is not erased.
-    let repayments = repo::repayments(&mut *tx, account_id).await?;
+    let repayments = repo::repayments(&mut tx, account_id).await?;
     let up_to_date = up_to(&repayments, date);
     let residual = peer_loans::compute(&terms, &up_to_date, date).principal_remaining;
     let mut fresh = Vec::new();
@@ -802,7 +803,7 @@ async fn sync_lending_leg(
         amount: Some(-terms.principal),
         tx_type: Some(TransactionType::Withdrawal),
         currency: Some("EUR".to_owned()),
-        category_id: Some(ctx.transfer_category(conn).await?),
+        category_id: Some(ctx.transfer_category(&mut *conn).await?),
         ..TransactionRequest::default()
     };
     let created = add_transaction(
@@ -853,7 +854,7 @@ async fn sync_repayment_leg(
         category_id: if interest {
             None
         } else {
-            Some(ctx.transfer_category(conn).await?)
+            Some(ctx.transfer_category(&mut *conn).await?)
         },
         ..TransactionRequest::default()
     };
@@ -930,7 +931,7 @@ async fn refresh_balance(
     let remaining = peer_loans::compute(terms, &repayments, today).principal_remaining;
     if remaining.is_zero() && terms.closed_at.is_none() {
         terms.closed_at = Some(repayments.last().map_or(today, |r| r.paid_on));
-        repo::save_terms(conn, terms, now).await?;
+        repo::save_terms(&mut *conn, terms, now).await?;
     }
     account.current_balance = remaining;
     accounts::update(&mut *conn, account, now).await?;
@@ -996,11 +997,11 @@ fn repayment_not_found() -> AppError {
 
 /// The terms, locked until the transaction ends: the cap check reads the whole ledger, so two
 /// writers must not validate against the same state.
-async fn lock_configured_terms(
-    conn: &mut PgConnection,
+async fn lock_configured_terms<'e>(
+    db: impl DbExec<'e>,
     account_id: i64,
 ) -> AppResult<PeerLoanTerms> {
-    repo::find_terms_for_update(conn, account_id)
+    repo::find_terms_for_update(db, account_id)
         .await?
         .ok_or_else(|| {
             AppError::NotFound("Peer loan terms are not set for this account".to_owned())
@@ -1056,8 +1057,8 @@ async fn owned_transaction(
 }
 
 /// An explicit interest payment pays interest that has accrued: more would hide real income.
-async fn validate_interest_repayment(
-    conn: &mut PgConnection,
+async fn validate_interest_repayment<'e>(
+    db: impl DbExec<'e>,
     terms: &PeerLoanTerms,
     kind: PeerLoanRepaymentKind,
     amount: Decimal,
@@ -1067,7 +1068,7 @@ async fn validate_interest_repayment(
     if kind != PeerLoanRepaymentKind::Interest {
         return Ok(());
     }
-    let ledger = up_to(&ledger_excluding(conn, terms, excluded).await?, paid_on);
+    let ledger = up_to(&ledger_excluding(db, terms, excluded).await?, paid_on);
     let accrued = peer_loans::compute(terms, &ledger, paid_on).interest_accrued;
     if amount > accrued {
         return Err(bad(format!(
@@ -1080,14 +1081,14 @@ async fn validate_interest_repayment(
 
 /// Refuses a repayment that leaves more cash unabsorbed by the ledger than there already was,
 /// replaying the whole ledger: a backdated payment can push later rows over the cap.
-async fn validate_repayment_amount(
-    conn: &mut PgConnection,
+async fn validate_repayment_amount<'e>(
+    db: impl DbExec<'e>,
     terms: &PeerLoanTerms,
     amount: Decimal,
     paid_on: NaiveDate,
     excluded: Option<i64>,
 ) -> AppResult<()> {
-    let others = ledger_excluding(conn, terms, excluded).await?;
+    let others = ledger_excluding(db, terms, excluded).await?;
     // The candidate sorts where the saved row will: an edited row keeps its id, a new one last.
     let candidate = PeerLoanRepayment {
         id: excluded.unwrap_or(i64::MAX),
@@ -1128,12 +1129,12 @@ fn unabsorbed(terms: &PeerLoanTerms, rows: &[PeerLoanRepayment], as_of: NaiveDat
     paid - absorbed
 }
 
-async fn ledger_excluding(
-    conn: &mut PgConnection,
+async fn ledger_excluding<'e>(
+    db: impl DbExec<'e>,
     terms: &PeerLoanTerms,
     excluded: Option<i64>,
 ) -> AppResult<Vec<PeerLoanRepayment>> {
-    Ok(repo::repayments(conn, terms.account_id)
+    Ok(repo::repayments(db, terms.account_id)
         .await?
         .into_iter()
         .filter(|r| Some(r.id) != excluded)
@@ -1141,7 +1142,7 @@ async fn ledger_excluding(
 }
 
 async fn counterparty(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     name: &str,
     now: chrono::DateTime<chrono::Utc>,

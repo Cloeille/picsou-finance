@@ -11,6 +11,7 @@ use sqlx::PgConnection;
 use unicode_normalization::UnicodeNormalization;
 
 use super::Provider;
+use crate::db::{AsDbHandle, DbExec, DbFromRow, DbHandle};
 use crate::error::{AppError, AppResult};
 use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::decimal::{HALF_UP, set_scale};
@@ -128,14 +129,14 @@ pub fn withdrawal_value(
     Some(set_scale(shares * withdrawal_price?, MONEY_SCALE, HALF_UP))
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(DbFromRow)]
 struct FundRow {
     id: i64,
     ignored: bool,
 }
 
 async fn fund_row(
-    conn: &mut PgConnection,
+    db: impl DbExec<'_>,
     member_id: i64,
     provider: Provider,
     fund_code: &str,
@@ -146,7 +147,7 @@ async fn fund_row(
         .map(str::trim)
         .filter(|l| !l.is_empty())
         .map(|l| truncate(l, LABEL_MAX));
-    sqlx::query_as(
+    crate::db::query_as::<FundRow>(
         "INSERT INTO scpi_provider_fund (member_id, provider, fund_code, label, created_at, updated_at) \
          VALUES ($1, $2, $3, $4, $5, $5) ON CONFLICT (member_id, provider, fund_code) \
          DO UPDATE SET label = COALESCE(EXCLUDED.label, scpi_provider_fund.label), updated_at = $5 \
@@ -157,18 +158,18 @@ async fn fund_row(
     .bind(fund_code)
     .bind(label)
     .bind(now)
-    .fetch_one(conn)
+    .fetch_one(db)
     .await
 }
 
 async fn record(
-    conn: &mut PgConnection,
+    db: impl DbExec<'_>,
     row_id: i64,
     outcome: Outcome,
     seen_at: Option<DateTime<Utc>>,
     synced_at: DateTime<Utc>,
 ) -> sqlx::Result<()> {
-    sqlx::query(
+    crate::db::query(
         "UPDATE scpi_provider_fund SET last_outcome = $2, last_seen_at = COALESCE($3, last_seen_at), \
          last_synced_at = $4, updated_at = $4 WHERE id = $1",
     )
@@ -176,7 +177,7 @@ async fn record(
     .bind(outcome.as_str())
     .bind(seen_at)
     .bind(synced_at)
-    .execute(conn)
+    .execute(db)
     .await
     .map(|_| ())
 }
@@ -196,7 +197,7 @@ pub async fn reconcile(
     for fund in funds {
         listed.insert(fund.fund_code.clone());
         let row = fund_row(
-            conn,
+            &mut *conn,
             member_id,
             provider,
             &fund.fund_code,
@@ -214,7 +215,7 @@ pub async fn reconcile(
             synced_at,
         )
         .await?;
-        record(conn, row.id, outcome, Some(synced_at), synced_at).await?;
+        record(&mut *conn, row.id, outcome, Some(synced_at), synced_at).await?;
         outcomes.push((fund.fund_code.clone(), outcome));
     }
     for fund in unsupported {
@@ -224,7 +225,7 @@ pub async fn reconcile(
             ));
         }
         let row = fund_row(
-            conn,
+            &mut *conn,
             member_id,
             provider,
             &fund.fund_code,
@@ -237,10 +238,18 @@ pub async fn reconcile(
         } else {
             Outcome::UnsupportedOwnership
         };
-        record(conn, row.id, outcome, Some(synced_at), synced_at).await?;
+        record(&mut *conn, row.id, outcome, Some(synced_at), synced_at).await?;
         outcomes.push((fund.fund_code.clone(), outcome));
     }
-    report_missing(conn, member_id, provider, &listed, synced_at, &mut outcomes).await?;
+    report_missing(
+        &mut conn.as_handle(),
+        member_id,
+        provider,
+        &listed,
+        synced_at,
+        &mut outcomes,
+    )
+    .await?;
     Ok(outcomes)
 }
 
@@ -257,7 +266,7 @@ async fn apply_fund(
         return Ok(Outcome::Ignored);
     }
     let column = provider.fund_code_column();
-    let linked: Option<(i64, i64)> = sqlx::query_as(&format!(
+    let linked: Option<(i64, i64)> = crate::db::query_as::<(i64, i64)>(&format!(
         "SELECT id, account_id FROM scpi_position WHERE member_id = $1 AND {column} = $2 ORDER BY id LIMIT 1"
     ))
     .bind(member_id)
@@ -310,16 +319,17 @@ async fn apply_fund(
             )
         }
     };
-    let existing: Option<i64> =
-        sqlx::query_scalar("SELECT id FROM scpi_position WHERE account_id = $1 AND member_id = $2")
-            .bind(account_id)
-            .bind(member_id)
-            .fetch_optional(&mut *conn)
-            .await?;
+    let existing: Option<i64> = crate::db::query_scalar::<i64>(
+        "SELECT id FROM scpi_position WHERE account_id = $1 AND member_id = $2",
+    )
+    .bind(account_id)
+    .bind(member_id)
+    .fetch_optional(&mut *conn)
+    .await?;
     let position_id = match existing {
         Some(id) => id,
         None => {
-            sqlx::query_scalar(
+            crate::db::query_scalar::<i64>(
                 "INSERT INTO scpi_position (account_id, member_id, management_company, share_count, created_at, updated_at) \
                  VALUES ($1, $2, $3, $4, $5, $5) RETURNING id",
             )
@@ -332,7 +342,7 @@ async fn apply_fund(
             .await?
         }
     };
-    sqlx::query(&format!(
+    crate::db::query(&format!(
         "UPDATE scpi_position SET {column} = $2 WHERE id = $1"
     ))
     .bind(position_id)
@@ -371,7 +381,7 @@ async fn apply(
         .annual_distribution_per_share
         .zip(fund.distribution_frequency.clone());
     let value = withdrawal_value(Some(fund.quantity), fund.withdrawal_price);
-    sqlx::query(
+    crate::db::query(
         "UPDATE scpi_position SET management_company = COALESCE($2, management_company), isin = COALESCE($3, isin), \
          annual_distribution_per_share_eur = CASE WHEN $4 THEN $5 ELSE annual_distribution_per_share_eur END, \
          distribution_frequency = CASE WHEN $4 THEN $6 ELSE distribution_frequency END, share_count = $7, \
@@ -431,7 +441,7 @@ async fn adoption_candidates(
         if name != wanted && name != prefixed {
             continue;
         }
-        let linked: Option<bool> = sqlx::query_scalar(
+        let linked: Option<bool> = crate::db::query_scalar::<bool>(
             "SELECT corum_fund_code IS NOT NULL OR sofidy_fund_code IS NOT NULL OR louve_fund_code IS NOT NULL \
              FROM scpi_position WHERE account_id = $1 AND member_id = $2",
         )
@@ -447,7 +457,7 @@ async fn adoption_candidates(
 }
 
 async fn report_missing(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     provider: Provider,
     listed: &HashSet<String>,
@@ -456,7 +466,7 @@ async fn report_missing(
 ) -> AppResult<()> {
     let mut known: BTreeMap<String, Option<String>> = BTreeMap::new();
     let mut order: Vec<String> = Vec::new();
-    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+    let rows: Vec<(String, Option<String>)> = crate::db::query_as::<(String, Option<String>)>(
         "SELECT fund_code, label FROM scpi_provider_fund WHERE member_id = $1 AND provider = $2 AND NOT ignored ORDER BY id",
     )
     .bind(member_id)
@@ -464,7 +474,7 @@ async fn report_missing(
     .fetch_all(&mut *conn)
     .await?;
     let column = provider.fund_code_column();
-    let positions: Vec<(String, String)> = sqlx::query_as(&format!(
+    let positions: Vec<(String, String)> = crate::db::query_as::<(String, String)>(&format!(
         "SELECT p.{column}, a.name FROM scpi_position p JOIN account a ON a.id = p.account_id AND a.deleted_at IS NULL \
          WHERE a.member_id = $1 AND p.{column} IS NOT NULL ORDER BY p.id"
     ))
@@ -486,7 +496,7 @@ async fn report_missing(
         }
         let label = known.get(&code).cloned().flatten();
         let row = fund_row(
-            conn,
+            &mut *conn,
             member_id,
             provider,
             &code,
@@ -494,7 +504,14 @@ async fn report_missing(
             synced_at,
         )
         .await?;
-        record(conn, row.id, Outcome::MissingAtProvider, None, synced_at).await?;
+        record(
+            &mut *conn,
+            row.id,
+            Outcome::MissingAtProvider,
+            None,
+            synced_at,
+        )
+        .await?;
         outcomes.push((code, Outcome::MissingAtProvider));
     }
     Ok(())

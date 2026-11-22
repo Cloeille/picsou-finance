@@ -8,8 +8,9 @@ use std::collections::HashMap;
 
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
-use sqlx::{PgExecutor, PgPool};
+use sqlx::PgPool;
 
+use crate::db::DbExec;
 use crate::ledger::accounts;
 use crate::ledger::categorize;
 use crate::ledger::manual_transactions::TransactionResponse;
@@ -24,12 +25,12 @@ fn member_join() -> &'static str {
 
 /// findByMemberIdAndDateBetween: the member's visible rows dated within [from, to], oldest first.
 pub async fn member_between<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     from: NaiveDate,
     to: NaiveDate,
 ) -> sqlx::Result<Vec<Transaction>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as::<Transaction>(&format!(
         "SELECT {TX} {} WHERE a.member_id = $1 AND a.hidden = false AND t.budget_neutral = false \
          AND t.date BETWEEN $2 AND $3 ORDER BY t.date, t.id",
         member_join()
@@ -44,12 +45,12 @@ pub async fn member_between<'e>(
 /// findByMemberIdAndKindAndDateBetween with TRANSFER: every transfer leg of the member. Java's
 /// query has no ORDER BY; this one has the same shape so PostgreSQL returns the same order.
 pub async fn member_transfers_between<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     from: NaiveDate,
     to: NaiveDate,
 ) -> sqlx::Result<Vec<Transaction>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as::<Transaction>(&format!(
         "SELECT {TX} {} JOIN category c ON c.id = t.category_id WHERE a.member_id = $1 AND a.hidden = false \
          AND t.budget_neutral = false AND c.kind = 'TRANSFER'::category_kind AND t.date BETWEEN $2 AND $3",
         member_join()
@@ -63,13 +64,18 @@ pub async fn member_transfers_between<'e>(
 
 /// sumByCategoryIdInAndDateBetween: the signed sum over categories within [from, to].
 pub async fn sum_by_categories_between<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     category_ids: &[i64],
     from: NaiveDate,
     to: NaiveDate,
 ) -> sqlx::Result<Decimal> {
-    sqlx::query_scalar(&format!(
-        "SELECT COALESCE(SUM(t.amount), 0) {} WHERE t.category_id = ANY($1) AND a.hidden = false \
+    let sum_expr = if db.is_sqlite() {
+        "COALESCE(dec_sum(t.amount), '0')"
+    } else {
+        "COALESCE(SUM(t.amount), 0)"
+    };
+    crate::db::query_scalar::<Decimal>(&format!(
+        "SELECT {sum_expr} {} WHERE t.category_id = ANY($1) AND a.hidden = false \
          AND t.budget_neutral = false AND t.date BETWEEN $2 AND $3",
         member_join()
     ))
@@ -82,13 +88,13 @@ pub async fn sum_by_categories_between<'e>(
 
 /// findByMemberIdAndCategoryIdInAndDateBetween: newest first.
 pub async fn member_in_categories_between<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     category_ids: &[i64],
     from: NaiveDate,
     to: NaiveDate,
 ) -> sqlx::Result<Vec<Transaction>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as::<Transaction>(&format!(
         "SELECT {TX} {} WHERE a.member_id = $1 AND a.hidden = false AND t.budget_neutral = false \
          AND t.category_id = ANY($2) AND t.date BETWEEN $3 AND $4 ORDER BY t.date DESC, t.id DESC",
         member_join()
@@ -103,10 +109,10 @@ pub async fn member_in_categories_between<'e>(
 
 /// findUncategorizedByMemberId: no managed category yet, newest first (hidden accounts included).
 pub async fn uncategorized<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<Vec<Transaction>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as::<Transaction>(&format!(
         "SELECT {TX} {} WHERE a.member_id = $1 AND t.category_id IS NULL AND t.budget_neutral = false \
          ORDER BY t.date DESC, t.id DESC",
         member_join()
@@ -117,11 +123,8 @@ pub async fn uncategorized<'e>(
 }
 
 /// findChangeable: rows a new rule could change (no category, or one not set by hand).
-pub async fn changeable<'e>(
-    db: impl PgExecutor<'e>,
-    member_id: i64,
-) -> sqlx::Result<Vec<Transaction>> {
-    sqlx::query_as(&format!(
+pub async fn changeable<'e>(db: impl DbExec<'e>, member_id: i64) -> sqlx::Result<Vec<Transaction>> {
+    crate::db::query_as::<Transaction>(&format!(
         "SELECT {TX} {} WHERE a.member_id = $1 AND (t.category_id IS NULL OR t.category_manual = false) \
          AND t.budget_neutral = false ORDER BY t.date DESC, t.id DESC",
         member_join()
@@ -133,14 +136,14 @@ pub async fn changeable<'e>(
 
 /// searchByMember: hidden accounts are skipped unless asked for by id.
 pub async fn search<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     from: NaiveDate,
     to: NaiveDate,
     account_id: Option<i64>,
     category_id: Option<i64>,
 ) -> sqlx::Result<Vec<Transaction>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as::<Transaction>(&format!(
         "SELECT {TX} {} WHERE a.member_id = $1 AND t.budget_neutral = false AND t.date BETWEEN $2 AND $3 \
          AND (($4::bigint IS NULL AND a.hidden = false) OR t.account_id = $4) \
          AND ($5::bigint IS NULL OR t.category_id = $5) ORDER BY t.date DESC, t.id DESC",
@@ -157,11 +160,11 @@ pub async fn search<'e>(
 
 /// findRecentCategorizedByMemberId: the newest labelled, categorized rows (AI few-shot examples).
 pub async fn recent_categorized<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     limit: i64,
 ) -> sqlx::Result<Vec<Transaction>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as::<Transaction>(&format!(
         "SELECT {TX} {} WHERE a.member_id = $1 AND t.category_id IS NOT NULL AND t.merchant_label IS NOT NULL \
          AND t.budget_neutral = false ORDER BY t.date DESC, t.id DESC LIMIT $2",
         member_join()
@@ -173,11 +176,8 @@ pub async fn recent_categorized<'e>(
 }
 
 /// Writes what the categorization pipeline sets on a stored row.
-pub async fn save_categorization<'e>(
-    db: impl PgExecutor<'e>,
-    tx: &Transaction,
-) -> sqlx::Result<()> {
-    sqlx::query(
+pub async fn save_categorization<'e>(db: impl DbExec<'e>, tx: &Transaction) -> sqlx::Result<()> {
+    crate::db::query(
         "UPDATE \"transaction\" SET merchant_label = $2, merchant_brand_id = $3, category_id = $4, \
          category_manual = $5, ai_suggested_category_id = $6, ai_confidence = $7 WHERE id = $1",
     )
@@ -195,10 +195,10 @@ pub async fn save_categorization<'e>(
 
 /// Categories by id, whoever owns them (a transaction's category is read through its id).
 pub async fn categories_by_ids<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     ids: &[i64],
 ) -> sqlx::Result<HashMap<i64, Category>> {
-    let rows: Vec<Category> = sqlx::query_as(&format!(
+    let rows: Vec<Category> = crate::db::query_as::<Category>(&format!(
         "SELECT {CATEGORY} FROM category c WHERE c.id = ANY($1)"
     ))
     .bind(ids)
@@ -209,11 +209,11 @@ pub async fn categories_by_ids<'e>(
 
 /// findAllByMemberIdAndParentIdOrderBySortOrderAscIdAsc (archived children included).
 pub async fn children<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     parent_id: i64,
 ) -> sqlx::Result<Vec<Category>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as::<Category>(&format!(
         "SELECT {CATEGORY} FROM category c WHERE c.member_id = $1 AND c.parent_id = $2 ORDER BY c.sort_order, c.id"
     ))
     .bind(member_id)
@@ -283,11 +283,19 @@ impl Refs {
 
 /// The member's rows with the given ids (findAllByIdInAndAccountMemberId).
 pub async fn member_rows_by_ids<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     ids: &[i64],
     member_id: i64,
 ) -> sqlx::Result<Vec<Transaction>> {
-    crate::ledger::transactions::find_by_ids_and_member(db, ids, member_id).await
+    crate::db::query_as::<Transaction>(&format!(
+        "SELECT {TX} FROM \"transaction\" t WHERE t.id = ANY($1) \
+         AND EXISTS (SELECT 1 FROM account a WHERE a.id = t.account_id AND a.member_id = $2 AND a.deleted_at IS NULL) \
+         ORDER BY t.id"
+    ))
+    .bind(ids)
+    .bind(member_id)
+    .fetch_all(db)
+    .await
 }
 
 /// The value of a NUMERIC(p, scale) column as JDBC reads it: sqlx decodes a zero without its

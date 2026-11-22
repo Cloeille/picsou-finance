@@ -11,6 +11,7 @@ use sqlx::PgConnection;
 
 use super::model::{Cadence, DividendEvent, sources_by_ticker};
 use crate::AppState;
+use crate::db::{AsDbHandle, DbFromRow, DbHandle};
 use crate::error::AppResult;
 use crate::ledger::access;
 use crate::ledger::decimal::{HALF_UP, divide};
@@ -118,7 +119,7 @@ pub async fn upcoming(
     let shares = access::shares_for(&mut *conn, &scoped, member_id).await?;
     let mut lines =
         holding_lines(state, &mut conn, &scoped, &readable, &shares, today, end).await?;
-    lines.extend(scpi_lines(&mut conn, &scoped, &shares, today, end).await?);
+    lines.extend(scpi_lines(&mut conn.as_handle(), &scoped, &shares, today, end).await?);
     lines.sort_by(|a, b| {
         a.expected_date
             .cmp(&b.expected_date)
@@ -169,7 +170,7 @@ async fn holding_lines(
     }
     let tickers: Vec<String> = held.iter().map(|h| h.ticker.clone()).collect();
     let by_ticker = sources_by_ticker(&state.db, &tickers).await?;
-    let cash_dates = dividend_cash_dates(conn, lag_accounts, today).await?;
+    let cash_dates = dividend_cash_dates(&mut conn.as_handle(), lag_accounts, today).await?;
 
     let mut lines = Vec::new();
     for holding in &held {
@@ -288,7 +289,7 @@ async fn holding_lines(
     Ok(lines)
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(DbFromRow)]
 struct ScpiRow {
     account_id: i64,
     isin: Option<String>,
@@ -300,7 +301,7 @@ struct ScpiRow {
 }
 
 async fn scpi_lines(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     accounts: &[Account],
     shares: &HashMap<i64, Decimal>,
     today: NaiveDate,
@@ -315,7 +316,7 @@ async fn scpi_lines(
         return Ok(Vec::new());
     }
     let ids: Vec<i64> = scpi.keys().copied().collect();
-    let rows: Vec<ScpiRow> = sqlx::query_as(
+    let rows: Vec<ScpiRow> = crate::db::query_as::<ScpiRow>(
         "SELECT account_id, isin, share_count, dividend_policy, jouissance_date, \
          annual_distribution_per_share_eur, distribution_frequency FROM scpi_position \
          WHERE account_id = ANY($1) ORDER BY id",
@@ -470,7 +471,7 @@ fn near_announced(projected: NaiveDate, announced: &[NaiveDate]) -> bool {
 type CashDate = (i64, String, NaiveDate);
 
 async fn dividend_cash_dates(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     accounts: &[Account],
     today: NaiveDate,
 ) -> AppResult<Vec<CashDate>> {
@@ -481,7 +482,7 @@ async fn dividend_cash_dates(
     let since = today
         .checked_sub_months(Months::new(CASH_LAG_LOOKBACK_MONTHS))
         .unwrap_or(today);
-    Ok(sqlx::query_as(
+    Ok(crate::db::query_as::<CashDate>(
         "SELECT account_id, ticker, date FROM \"transaction\" WHERE account_id = ANY($1) \
          AND tx_type = 'DIVIDEND' AND ticker IS NOT NULL AND date >= $2",
     )

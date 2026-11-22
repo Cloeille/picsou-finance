@@ -12,11 +12,11 @@ use axum::extract::State as AxumState;
 use axum::http::StatusCode;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use sqlx::PgExecutor;
 
 use self::model::{RateBasis, RegulatedRates, SavingsConfig, SavingsProduct};
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db::DbExec;
 use crate::error::{AppError, AppResult};
 use crate::http::json::{Errors, Json, Path, Validate};
 use crate::ledger::accounts;
@@ -141,7 +141,7 @@ async fn upsert_config(
     };
     let responder = state.wealth.savings.account_responses()?;
     model::upsert(
-        &mut *tx,
+        &mut tx,
         &SavingsConfig {
             account_id: id,
             product,
@@ -157,11 +157,11 @@ async fn upsert_config(
     } else {
         AccountType::Savings
     };
-    sqlx::query("UPDATE account SET type = $2::account_type, updated_at = $3 WHERE id = $1")
+    crate::db::query("UPDATE account SET type = $2::account_type, updated_at = $3 WHERE id = $1")
         .bind(id)
         .bind(account.account_type.as_str())
         .bind(state.clock.now())
-        .execute(&mut *tx)
+        .execute(&mut tx)
         .await?;
     tx.commit().await?;
     Ok(axum::Json(responder.to_response(&state, &account).await?))
@@ -185,7 +185,7 @@ pub async fn projection(
 ) -> AppResult<axum::Json<interest::SavingsInterestProjection>> {
     let mut conn = state.db.acquire().await?;
     let account = accounts::get_or_throw(&mut *conn, id, auth.member_id).await?;
-    let config = model::find_by_account(&mut *conn, id)
+    let config = model::find_by_account(&mut conn, id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("No savings config for account {id}")))?;
     Ok(axum::Json(
@@ -197,7 +197,7 @@ pub async fn projection(
 /// (LIVRET_A, LDDS, LEP) gets its legal rate and ceiling once, never over a saved config. True
 /// when a row was created. Safe inside the sync's transaction: a conflict does not abort it.
 pub async fn configure_if_missing(
-    db: impl PgExecutor<'_>,
+    db: impl DbExec<'_>,
     account: &Account,
     account_type: AccountType,
 ) -> sqlx::Result<bool> {

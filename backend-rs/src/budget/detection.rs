@@ -12,6 +12,7 @@ use rust_decimal::{Decimal, RoundingStrategy};
 use super::recurring::{self, RecurringStatus, Series};
 use super::repo;
 use crate::AppState;
+use crate::db::{AsDbHandle, DbHandle};
 use crate::error::AppResult;
 use crate::ledger::model::{RecurringCadence, Transaction};
 use crate::ledger::sync_values::{java_is_blank, java_trim};
@@ -327,7 +328,7 @@ pub async fn detect(state: &AppState, member_id: i64, today: NaiveDate) -> AppRe
         if java_is_blank(&candidate.label) {
             continue;
         }
-        if upsert(state, &mut conn, member_id, &candidate, &group).await? {
+        if upsert(state, &mut conn.as_handle(), member_id, &candidate, &group).await? {
             upserted += 1;
         }
     }
@@ -337,7 +338,7 @@ pub async fn detect(state: &AppState, member_id: i64, today: NaiveDate) -> AppRe
 
 async fn upsert(
     state: &AppState,
-    conn: &mut sqlx::PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     c: &Candidate,
     group: &[Transaction],
@@ -400,7 +401,7 @@ async fn upsert(
         .map(|t| t.id)
         .collect();
     if !to_link.is_empty() {
-        sqlx::query("UPDATE \"transaction\" SET recurring_series_id = $1 WHERE id = ANY($2)")
+        crate::db::query("UPDATE \"transaction\" SET recurring_series_id = $1 WHERE id = ANY($2)")
             .bind(id)
             .bind(&to_link)
             .execute(&mut *conn)

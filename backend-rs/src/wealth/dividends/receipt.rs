@@ -462,11 +462,12 @@ pub async fn classify_recent(
 }
 
 async fn category_kinds(db: &PgPool, member_id: i64) -> sqlx::Result<HashMap<i64, CategoryKind>> {
-    let rows: Vec<(i64, String)> =
-        sqlx::query_as("SELECT id, kind::text FROM category WHERE member_id = $1")
-            .bind(member_id)
-            .fetch_all(db)
-            .await?;
+    let rows: Vec<(i64, String)> = crate::db::query_as::<(i64, String)>(
+        "SELECT id, kind::text FROM category WHERE member_id = $1",
+    )
+    .bind(member_id)
+    .fetch_all(db)
+    .await?;
     Ok(rows
         .into_iter()
         .filter_map(|(id, kind)| kind.parse().ok().map(|k| (id, k)))

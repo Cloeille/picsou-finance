@@ -89,12 +89,14 @@ impl CoinGecko {
 
     /// The registry's display name of a known coin (BTC to "Bitcoin").
     pub async fn display_name(&self, ticker: &str) -> Option<String> {
-        sqlx::query_scalar("SELECT name FROM crypto_asset WHERE upper(ticker) = upper($1)")
-            .bind(ticker)
-            .fetch_optional(&self.db)
-            .await
-            .ok()
-            .flatten()
+        crate::db::query_scalar::<String>(
+            "SELECT name FROM crypto_asset WHERE upper(ticker) = upper($1)",
+        )
+        .bind(ticker)
+        .fetch_optional(&self.db)
+        .await
+        .ok()
+        .flatten()
     }
 
     /// The CoinGecko ids of the upper-cased tickers the registry knows.
@@ -103,10 +105,10 @@ impl CoinGecko {
             return HashMap::new();
         }
         let tickers: Vec<&str> = tickers.iter().map(String::as_str).collect();
-        let rows: Result<Vec<(String, String)>, _> = sqlx::query_as(
+        let rows: Result<Vec<(String, String)>, _> = crate::db::query_as::<(String, String)>(
             "SELECT upper(ticker), coingecko_id FROM crypto_asset WHERE upper(ticker) = ANY($1)",
         )
-        .bind(&tickers)
+        .bind(tickers.as_slice())
         .fetch_all(&self.db)
         .await;
         match rows {
@@ -119,12 +121,14 @@ impl CoinGecko {
     }
 
     async fn coin_id(&self, ticker: &str) -> Option<String> {
-        sqlx::query_scalar("SELECT coingecko_id FROM crypto_asset WHERE upper(ticker) = upper($1)")
-            .bind(ticker)
-            .fetch_optional(&self.db)
-            .await
-            .ok()
-            .flatten()
+        crate::db::query_scalar::<String>(
+            "SELECT coingecko_id FROM crypto_asset WHERE upper(ticker) = upper($1)",
+        )
+        .bind(ticker)
+        .fetch_optional(&self.db)
+        .await
+        .ok()
+        .flatten()
     }
 
     /// CryptoAssetRegistry.learn: persists a learned coin if absent and drops any Yahoo-era
@@ -132,20 +136,20 @@ impl CoinGecko {
     pub async fn learn(&self, ticker: &str, id: &str, name: &str) -> sqlx::Result<bool> {
         let key = ticker.trim().to_uppercase();
         let mut tx = self.db.begin().await?;
-        let inserted = sqlx::query(
+        let inserted = crate::db::query(
             "INSERT INTO crypto_asset (ticker, coingecko_id, name, source) \
              VALUES ($1, $2, $3, 'AUTO') ON CONFLICT (ticker) DO NOTHING",
         )
         .bind(&key)
         .bind(id)
         .bind(name)
-        .execute(&mut *tx)
+        .execute(&mut tx)
         .await?
         .rows_affected();
         if inserted > 0 {
-            let dropped = sqlx::query("DELETE FROM price_snapshot WHERE ticker = $1")
+            let dropped = crate::db::query("DELETE FROM price_snapshot WHERE ticker = $1")
                 .bind(&key)
-                .execute(&mut *tx)
+                .execute(&mut tx)
                 .await?
                 .rows_affected();
             if dropped > 0 {

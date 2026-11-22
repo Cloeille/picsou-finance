@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use axum::extract::State;
 use axum::http::StatusCode;
 use serde::Deserialize;
-use sqlx::FromRow;
 
 use super::ai_job;
 use super::categories::require;
@@ -16,6 +15,7 @@ use super::repo::{self, Refs};
 use super::rules::{NewRule, insert_rule, rule_matches};
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db::{AsDbHandle, DbFromRow, DbHandle};
 use crate::error::{AppError, AppResult};
 use crate::http::json::{Errors, Json, Path, Validate};
 use crate::ledger::manual_transactions::{PeerLoanLink, PeerLoanLinkKind, TransactionResponse};
@@ -36,7 +36,7 @@ pub fn register(routes: &mut Routes) {
         );
 }
 
-#[derive(FromRow)]
+#[derive(DbFromRow)]
 struct LinkRow {
     transaction_id: i64,
     account_id: i64,
@@ -50,7 +50,7 @@ async fn peer_loan_links(state: &AppState, ids: &[i64]) -> AppResult<HashMap<i64
     if ids.is_empty() {
         return Ok(links);
     }
-    let lending: Vec<LinkRow> = sqlx::query_as(
+    let lending: Vec<LinkRow> = crate::db::query_as::<LinkRow>(
         "SELECT t.lending_transaction_id AS transaction_id, a.id AS account_id, a.name AS account_name \
          FROM peer_loan_terms t JOIN account a ON a.id = t.account_id AND a.deleted_at IS NULL \
          WHERE t.lending_transaction_id = ANY($1) ORDER BY t.id",
@@ -58,7 +58,7 @@ async fn peer_loan_links(state: &AppState, ids: &[i64]) -> AppResult<HashMap<i64
     .bind(ids)
     .fetch_all(&state.db)
     .await?;
-    let repayments: Vec<LinkRow> = sqlx::query_as(
+    let repayments: Vec<LinkRow> = crate::db::query_as::<LinkRow>(
         "SELECT r.cash_transaction_id AS transaction_id, a.id AS account_id, a.name AS account_name \
          FROM peer_loan_repayment r JOIN account a ON a.id = r.account_id AND a.deleted_at IS NULL \
          WHERE r.cash_transaction_id = ANY($1) ORDER BY r.id",
@@ -143,14 +143,14 @@ fn transaction_not_found() -> AppError {
 /// learnRuleInternal: the member's rule for (matchType, pattern), compared without case, or a
 /// new AUTO rule. An existing rule keeps its own category.
 async fn learn_rule(
-    conn: &mut sqlx::PgConnection,
+    conn: &mut DbHandle<'_>,
     state: &AppState,
     pattern: &str,
     match_type: RuleMatchType,
     category_id: i64,
     member_id: i64,
 ) -> AppResult<CategorizationRule> {
-    let existing: Option<CategorizationRule> = sqlx::query_as(
+    let existing: Option<CategorizationRule> = crate::db::query_as::<CategorizationRule>(
         "SELECT id, member_id, match_type, pattern, category_id, priority, source, created_at \
          FROM categorization_rule WHERE member_id = $1 AND match_type = $2 AND upper(pattern) = upper($3) LIMIT 1",
     )
@@ -177,7 +177,7 @@ async fn learn_rule(
 /// retroApply: the rule's category on matching rows that were not categorized by hand. Without
 /// explicit ids only uncategorized rows are considered; explicit ids may be re-categorized.
 async fn retro_apply(
-    conn: &mut sqlx::PgConnection,
+    conn: &mut DbHandle<'_>,
     rule: &CategorizationRule,
     explicit_ids: &[i64],
     member_id: i64,
@@ -211,10 +211,10 @@ pub async fn categorize(
     let mut tx = transactions::find_by_id_and_member(&mut *conn, id, member_id)
         .await?
         .ok_or_else(transaction_not_found)?;
-    let category = require(&mut *conn, req.category_id.unwrap_or_default(), member_id).await?;
+    let category = require(&mut conn, req.category_id.unwrap_or_default(), member_id).await?;
     tx.category_id = Some(category.id);
     tx.category_manual = true;
-    repo::save_categorization(&mut *conn, &tx).await?;
+    repo::save_categorization(&mut conn, &tx).await?;
     if req.create_rule {
         let explicit = req
             .rule_pattern
@@ -230,8 +230,9 @@ pub async fn categorize(
                 .map(|c| (java_trim(c).to_owned(), RuleMatchType::Counterparty)),
         };
         if let Some((pattern, match_type)) = learned {
+            let mut handle = conn.as_handle();
             let rule = learn_rule(
-                &mut conn,
+                &mut handle,
                 &state,
                 &pattern,
                 match_type,
@@ -246,7 +247,7 @@ pub async fn categorize(
                 .flatten()
                 .copied()
                 .collect();
-            retro_apply(&mut conn, &rule, &ids, member_id).await?;
+            retro_apply(&mut handle, &rule, &ids, member_id).await?;
         }
     }
     conn.commit().await?;

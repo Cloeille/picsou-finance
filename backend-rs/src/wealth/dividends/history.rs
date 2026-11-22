@@ -7,9 +7,9 @@ use std::time::Duration;
 
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
-use sqlx::PgConnection;
 
 use crate::AppState;
+use crate::db::{AsDbHandle, DbFromRow, DbHandle};
 use crate::error::AppResult;
 use crate::ledger::decimal::{HALF_UP, set_scale};
 use crate::market::{metals, nasdaq};
@@ -46,7 +46,7 @@ enum Fetched {
     },
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(DbFromRow)]
 struct SourceRow {
     ticker: String,
     status: String,
@@ -78,7 +78,7 @@ pub async fn refresh_stale(state: &AppState, tickers: &[String], limit: usize) -
     if wanted.is_empty() {
         return Ok(0);
     }
-    let known: HashMap<String, SourceRow> = sqlx::query_as::<_, SourceRow>(
+    let known: HashMap<String, SourceRow> = crate::db::query_as::<SourceRow>(
         "SELECT ticker, status, refreshed_at, last_attempt_at FROM dividend_source WHERE ticker = ANY($1)",
     )
     .bind(&wanted)
@@ -109,7 +109,7 @@ pub async fn refresh_stale(state: &AppState, tickers: &[String], limit: usize) -
         }
         let fetched = fetch(state, ticker).await;
         let mut tx = state.db.begin().await?;
-        match persist(&mut tx, state, ticker, fetched).await {
+        match persist(&mut tx.as_handle(), state, ticker, fetched).await {
             Ok(ok) => {
                 tx.commit().await?;
                 if ok {
@@ -197,14 +197,14 @@ async fn fetch(state: &AppState, ticker: &str) -> Fetched {
 
 /// Writes the outcome; true unless the source ended FAILED.
 async fn persist(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     state: &AppState,
     ticker: &str,
     fetched: Fetched,
 ) -> AppResult<bool> {
     let now = state.clock.now();
     let today = state.clock.today();
-    let source_id: i64 = sqlx::query_scalar(
+    let source_id: i64 = crate::db::query_scalar::<i64>(
         "INSERT INTO dividend_source (ticker, status, created_at, updated_at) VALUES ($1, 'NEVER_FETCHED', $2, $2) \
          ON CONFLICT (ticker) DO UPDATE SET updated_at = $2 RETURNING id",
     )
@@ -216,7 +216,7 @@ async fn persist(
         Fetched::Failed(message) => {
             let message: String = message.chars().take(200).collect();
             tracing::warn!("Dividend history lookup failed for {ticker}: {message}");
-            sqlx::query("UPDATE dividend_source SET status = 'FAILED', last_error = $2, last_attempt_at = $3 WHERE id = $1")
+            crate::db::query("UPDATE dividend_source SET status = 'FAILED', last_error = $2, last_attempt_at = $3 WHERE id = $1")
                 .bind(source_id)
                 .bind(&message)
                 .bind(now)
@@ -243,16 +243,17 @@ async fn persist(
     )
     .await;
     write_events(conn, source_id, &incoming, keep_future_declared, today, now).await?;
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM dividend_event WHERE source_id = $1")
-        .bind(source_id)
-        .fetch_one(&mut *conn)
-        .await?;
+    let count: i64 =
+        crate::db::query_scalar::<i64>("SELECT count(*) FROM dividend_event WHERE source_id = $1")
+            .bind(source_id)
+            .fetch_one(&mut *conn)
+            .await?;
     let status = if had_history || count > 0 {
         "OK"
     } else {
         "NO_DATA"
     };
-    sqlx::query(
+    crate::db::query(
         "UPDATE dividend_source SET status = $2, currency = COALESCE($3, currency), last_error = NULL, \
          refreshed_at = $4, last_attempt_at = $4, updated_at = $4 WHERE id = $1",
     )
@@ -350,24 +351,25 @@ async fn rate_for(
 /// Upserts the incoming events by ex-date and drops the stored ones this pass no longer shows,
 /// keeping a declared future one when Nasdaq could not be read.
 async fn write_events(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     source_id: i64,
     incoming: &[Event],
     keep_future_declared: bool,
     today: NaiveDate,
     now: DateTime<Utc>,
 ) -> sqlx::Result<()> {
-    let stored: Vec<(NaiveDate, bool)> =
-        sqlx::query_as("SELECT ex_date, declared FROM dividend_event WHERE source_id = $1")
-            .bind(source_id)
-            .fetch_all(&mut *conn)
-            .await?;
+    let stored: Vec<(NaiveDate, bool)> = crate::db::query_as::<(NaiveDate, bool)>(
+        "SELECT ex_date, declared FROM dividend_event WHERE source_id = $1",
+    )
+    .bind(source_id)
+    .fetch_all(&mut *conn)
+    .await?;
     let incoming_dates: HashSet<NaiveDate> = incoming.iter().map(|e| e.ex_date).collect();
     for (ex_date, declared) in stored {
         let keep = incoming_dates.contains(&ex_date)
             || (ex_date > today && keep_future_declared && declared);
         if !keep {
-            sqlx::query("DELETE FROM dividend_event WHERE source_id = $1 AND ex_date = $2")
+            crate::db::query("DELETE FROM dividend_event WHERE source_id = $1 AND ex_date = $2")
                 .bind(source_id)
                 .bind(ex_date)
                 .execute(&mut *conn)
@@ -376,7 +378,7 @@ async fn write_events(
     }
     for event in incoming {
         let declared = event.declared || event.ex_date > today;
-        sqlx::query(
+        crate::db::query(
             "INSERT INTO dividend_event (source_id, ex_date, amount, amount_eur, payment_date, declared, created_at, updated_at) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $7) ON CONFLICT (source_id, ex_date) DO UPDATE SET \
              amount = EXCLUDED.amount, amount_eur = EXCLUDED.amount_eur, \

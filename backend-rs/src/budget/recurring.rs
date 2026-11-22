@@ -7,7 +7,6 @@ use axum::http::StatusCode;
 use chrono::{DateTime, Days, Months, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, PgExecutor};
 
 use super::categories::require;
 use super::params::Params;
@@ -15,6 +14,7 @@ use super::repo::column_scale;
 use super::{detection, jdec};
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db::{DbExec, DbFromRow};
 use crate::error::{AppError, AppResult};
 use crate::http::json::{Errors, Json, Path, Validate};
 use crate::ledger::accounts;
@@ -80,7 +80,7 @@ pub fn next(cadence: RecurringCadence, from: NaiveDate) -> NaiveDate {
 }
 
 /// A recurring_series row with its category.
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, DbFromRow)]
 pub struct Series {
     pub id: i64,
     pub label: String,
@@ -119,12 +119,12 @@ impl Series {
 
 /// The member's series, optionally of one status, soonest due first (nulls last).
 pub async fn series_of_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     status: Option<RecurringStatus>,
 ) -> sqlx::Result<Vec<Series>> {
-    sqlx::query_as(&format!(
-        "{SELECT} WHERE s.member_id = $1 AND ($2::recurring_status IS NULL OR s.status = $2) ORDER BY s.next_due_date"
+    crate::db::query_as::<Series>(&format!(
+        "{SELECT} WHERE s.member_id = $1 AND ($2::recurring_status IS NULL OR s.status = $2) ORDER BY s.next_due_date ASC NULLS LAST"
     ))
     .bind(member_id)
     .bind(status)
@@ -134,11 +134,11 @@ pub async fn series_of_member<'e>(
 }
 
 pub async fn find_by_label<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     label: &str,
 ) -> sqlx::Result<Option<Series>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as::<Series>(&format!(
         "{SELECT} WHERE s.member_id = $1 AND upper(s.label) = upper($2) LIMIT 1"
     ))
     .bind(member_id)
@@ -165,7 +165,7 @@ fn series_not_found() -> AppError {
 }
 
 async fn require_series(state: &AppState, id: i64, member_id: i64) -> AppResult<Series> {
-    sqlx::query_as(&format!("{SELECT} WHERE s.id = $1 AND s.member_id = $2"))
+    crate::db::query_as::<Series>(&format!("{SELECT} WHERE s.id = $1 AND s.member_id = $2"))
         .bind(id)
         .bind(member_id)
         .fetch_optional(&state.db)
@@ -176,7 +176,7 @@ async fn require_series(state: &AppState, id: i64, member_id: i64) -> AppResult<
 
 /// Inserts (id 0) or updates the row; returns its id.
 pub async fn save<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     s: &Series,
     now: DateTime<Utc>,
@@ -192,7 +192,7 @@ pub async fn save<'e>(
          confidence = $11, amount_min = $12, amount_max = $13, is_variable = $14, previous_amount = $15, \
          price_changed_at = $16, auto_confirmed = $17, updated_at = $18 WHERE id = $1 AND member_id = $2 RETURNING id"
     };
-    sqlx::query_scalar(sql)
+    crate::db::query_scalar::<i64>(sql)
         .bind(s.id)
         .bind(member_id)
         .bind(&s.label)
@@ -681,7 +681,7 @@ pub async fn delete(
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
     let s = require_series(&state, id, auth.member_id).await?;
-    sqlx::query("DELETE FROM recurring_series WHERE id = $1")
+    crate::db::query("DELETE FROM recurring_series WHERE id = $1")
         .bind(s.id)
         .execute(&state.db)
         .await?;

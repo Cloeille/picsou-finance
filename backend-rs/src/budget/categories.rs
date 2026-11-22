@@ -5,11 +5,11 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::PgExecutor;
 
 use super::repo;
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db::DbExec;
 use crate::error::{AppError, AppResult};
 use crate::http::json::{Errors, Json, Path, Validate};
 use crate::ledger::categorize;
@@ -31,10 +31,15 @@ pub fn category_not_found() -> AppError {
 }
 
 /// CategoryService.getOrThrow / requireCategory: the member's category or 404.
-pub async fn require<'e>(db: impl PgExecutor<'e>, id: i64, member_id: i64) -> AppResult<Category> {
-    repo::category_of_member(db, id, member_id)
-        .await?
-        .ok_or_else(category_not_found)
+pub async fn require<'e>(db: impl DbExec<'e>, id: i64, member_id: i64) -> AppResult<Category> {
+    crate::db::query_as::<Category>(&format!(
+        "SELECT {CATEGORY_COLUMNS} FROM category c WHERE c.id = $1 AND c.member_id = $2"
+    ))
+    .bind(id)
+    .bind(member_id)
+    .fetch_optional(db)
+    .await?
+    .ok_or_else(category_not_found)
 }
 
 #[serde_with::skip_serializing_none]
@@ -142,11 +147,12 @@ async fn resolve_parent(
 }
 
 async fn next_sort_order(state: &AppState, member_id: i64) -> AppResult<i32> {
-    let max: Option<i32> =
-        sqlx::query_scalar("SELECT MAX(sort_order) FROM category WHERE member_id = $1")
-            .bind(member_id)
-            .fetch_one(&state.db)
-            .await?;
+    let max: Option<i32> = crate::db::query_scalar::<Option<i32>>(
+        "SELECT MAX(sort_order) FROM category WHERE member_id = $1",
+    )
+    .bind(member_id)
+    .fetch_one(&state.db)
+    .await?;
     Ok(max.unwrap_or(-1) + 1)
 }
 
@@ -162,11 +168,11 @@ pub async fn create(
         None => next_sort_order(&state, member_id).await?,
     };
     let now = state.clock.now();
-    let category: Category = sqlx::query_as(&format!(
-        "WITH c AS (INSERT INTO category (member_id, parent_id, name, kind, color, icon, is_default, archived, \
+    let category: Category = crate::db::query_as::<Category>(
+        "INSERT INTO category (member_id, parent_id, name, kind, color, icon, is_default, archived, \
          sort_order, created_at, updated_at) VALUES ($1, $2, $3, $4::category_kind, $5, $6, false, false, $7, $8, $8) \
-         RETURNING *) SELECT {CATEGORY_COLUMNS} FROM c"
-    ))
+         RETURNING id, member_id, parent_id, name, slug, kind::text AS kind, color, icon, is_default, archived, sort_order",
+    )
     .bind(member_id)
     .bind(parent.map(|p| p.id))
     .bind(req.name())
@@ -183,8 +189,8 @@ pub async fn create(
     ))
 }
 
-async fn save<'e>(db: impl PgExecutor<'e>, c: &Category, now: DateTime<Utc>) -> sqlx::Result<()> {
-    sqlx::query(
+async fn save<'e>(db: impl DbExec<'e>, c: &Category, now: DateTime<Utc>) -> sqlx::Result<()> {
+    crate::db::query(
         "UPDATE category SET parent_id = $2, name = $3, kind = $4::category_kind, color = $5, icon = $6, \
          archived = $7, sort_order = $8, updated_at = $9 WHERE id = $1",
     )
@@ -210,7 +216,7 @@ pub async fn update(
 ) -> AppResult<axum::Json<CategoryResponse>> {
     let member_id = auth.member_id;
     let mut category = require(&state.db, id, member_id).await?;
-    let has_children: bool = sqlx::query_scalar(
+    let has_children: bool = crate::db::query_scalar::<bool>(
         "SELECT EXISTS(SELECT 1 FROM category WHERE member_id = $1 AND parent_id = $2)",
     )
     .bind(member_id)
@@ -252,10 +258,10 @@ async fn set_archived_cascading(
     let now = state.clock.now();
     let mut tx = state.db.begin().await?;
     category.archived = archived;
-    save(&mut *tx, category, now).await?;
-    for mut child in repo::children(&mut *tx, member_id, category.id).await? {
+    save(&mut tx, category, now).await?;
+    for mut child in repo::children(&mut tx, member_id, category.id).await? {
         child.archived = archived;
-        save(&mut *tx, &child, now).await?;
+        save(&mut tx, &child, now).await?;
     }
     tx.commit().await?;
     Ok(())

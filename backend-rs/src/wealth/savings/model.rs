@@ -2,7 +2,8 @@
 
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, PgExecutor};
+
+use crate::db::{DbExec, DbFromRow};
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, crate::db::DbEnum,
@@ -54,7 +55,7 @@ impl RegulatedRates {
 }
 
 /// One savings_interest_config row, without its audit columns.
-#[derive(Debug, Clone, PartialEq, FromRow)]
+#[derive(Debug, Clone, PartialEq, DbFromRow)]
 pub struct SavingsConfig {
     pub account_id: i64,
     pub product: SavingsProduct,
@@ -65,10 +66,10 @@ pub struct SavingsConfig {
 }
 
 pub async fn find_by_account(
-    db: impl PgExecutor<'_>,
+    db: impl DbExec<'_>,
     account_id: i64,
 ) -> sqlx::Result<Option<SavingsConfig>> {
-    sqlx::query_as(
+    crate::db::query_as::<SavingsConfig>(
         "SELECT account_id, product, annual_rate, rate_basis, tax_rate_pct, ceiling \
          FROM savings_interest_config WHERE account_id = $1",
     )
@@ -78,15 +79,17 @@ pub async fn find_by_account(
 }
 
 /// The account ids among ids that have a config.
-pub async fn configured_accounts(db: impl PgExecutor<'_>, ids: &[i64]) -> sqlx::Result<Vec<i64>> {
-    sqlx::query_scalar("SELECT account_id FROM savings_interest_config WHERE account_id = ANY($1)")
-        .bind(ids)
-        .fetch_all(db)
-        .await
+pub async fn configured_accounts(db: impl DbExec<'_>, ids: &[i64]) -> sqlx::Result<Vec<i64>> {
+    crate::db::query_scalar::<i64>(
+        "SELECT account_id FROM savings_interest_config WHERE account_id = ANY($1)",
+    )
+    .bind(ids)
+    .fetch_all(db)
+    .await
 }
 
-pub async fn upsert(db: impl PgExecutor<'_>, config: &SavingsConfig) -> sqlx::Result<()> {
-    sqlx::query(
+pub async fn upsert(db: impl DbExec<'_>, config: &SavingsConfig) -> sqlx::Result<()> {
+    crate::db::query(
         "INSERT INTO savings_interest_config (account_id, product, annual_rate, rate_basis, tax_rate_pct, ceiling) \
          VALUES ($1, $2, $3, $4, $5, $6) \
          ON CONFLICT (account_id) DO UPDATE SET product = EXCLUDED.product, annual_rate = EXCLUDED.annual_rate, \
@@ -106,11 +109,8 @@ pub async fn upsert(db: impl PgExecutor<'_>, config: &SavingsConfig) -> sqlx::Re
 
 /// insertIfAbsent: a concurrent or earlier configuration wins without raising. True when a
 /// row was created.
-pub async fn insert_if_absent(
-    db: impl PgExecutor<'_>,
-    config: &SavingsConfig,
-) -> sqlx::Result<bool> {
-    let result = sqlx::query(
+pub async fn insert_if_absent(db: impl DbExec<'_>, config: &SavingsConfig) -> sqlx::Result<bool> {
+    let result = crate::db::query(
         "INSERT INTO savings_interest_config (account_id, product, annual_rate, rate_basis, ceiling) \
          VALUES ($1, $2, $3, $4, $5) ON CONFLICT (account_id) DO NOTHING",
     )
@@ -124,8 +124,8 @@ pub async fn insert_if_absent(
     Ok(result.rows_affected() > 0)
 }
 
-pub async fn delete_by_account(db: impl PgExecutor<'_>, account_id: i64) -> sqlx::Result<()> {
-    sqlx::query("DELETE FROM savings_interest_config WHERE account_id = $1")
+pub async fn delete_by_account(db: impl DbExec<'_>, account_id: i64) -> sqlx::Result<()> {
+    crate::db::query("DELETE FROM savings_interest_config WHERE account_id = $1")
         .bind(account_id)
         .execute(db)
         .await
