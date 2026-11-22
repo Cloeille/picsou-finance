@@ -1,8 +1,8 @@
 //! peer_loan_terms, peer_loan_repayment and peer_counterparty rows.
 
 use chrono::{DateTime, Utc};
-use sqlx::{PgConnection, PgExecutor};
 
+use crate::db::{DbExec, DbHandle};
 use crate::ledger::decimal::{HALF_UP, set_scale};
 use crate::ledger::model::{PeerLoanRepayment, PeerLoanTerms};
 
@@ -13,10 +13,10 @@ const REPAYMENT_COLUMNS: &str =
     "id, account_id, paid_on, amount, kind, note, cash_transaction_id, cash_leg_owned";
 
 pub async fn find_terms<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     account_id: i64,
 ) -> sqlx::Result<Option<PeerLoanTerms>> {
-    let terms: Option<PeerLoanTerms> = sqlx::query_as(&format!(
+    let terms: Option<PeerLoanTerms> = crate::db::query_as::<PeerLoanTerms>(&format!(
         "SELECT {TERMS_COLUMNS} FROM peer_loan_terms WHERE account_id = $1"
     ))
     .bind(account_id)
@@ -38,24 +38,24 @@ fn with_column_scale(mut terms: PeerLoanTerms) -> PeerLoanTerms {
 }
 
 /// findForUpdateByAccountId: the row, locked until the transaction ends.
-pub async fn find_terms_for_update(
-    conn: &mut PgConnection,
+pub async fn find_terms_for_update<'e>(
+    db: impl DbExec<'e>,
     account_id: i64,
 ) -> sqlx::Result<Option<PeerLoanTerms>> {
-    let terms: Option<PeerLoanTerms> = sqlx::query_as(&format!(
+    let terms: Option<PeerLoanTerms> = crate::db::query_as::<PeerLoanTerms>(&format!(
         "SELECT {TERMS_COLUMNS} FROM peer_loan_terms WHERE account_id = $1 FOR UPDATE"
     ))
     .bind(account_id)
-    .fetch_optional(conn)
+    .fetch_optional(db)
     .await?;
     Ok(terms.map(with_column_scale))
 }
 
 pub async fn lending_transaction_linked<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     transaction_id: i64,
 ) -> sqlx::Result<bool> {
-    sqlx::query_scalar(
+    crate::db::query_scalar::<bool>(
         "SELECT EXISTS (SELECT 1 FROM peer_loan_terms WHERE lending_transaction_id = $1)",
     )
     .bind(transaction_id)
@@ -64,8 +64,8 @@ pub async fn lending_transaction_linked<'e>(
 }
 
 /// Inserts the terms when id is 0, updates them otherwise; returns the id.
-pub async fn save_terms(
-    conn: &mut PgConnection,
+pub async fn save_terms<'e>(
+    db: impl DbExec<'e>,
     terms: &PeerLoanTerms,
     now: DateTime<Utc>,
 ) -> sqlx::Result<i64> {
@@ -80,7 +80,7 @@ pub async fn save_terms(
          planned_months = $10, linked_account_id = $11, lending_transaction_id = $12, note = $13, \
          closed_at = $14, updated_at = $15 WHERE id = $1 RETURNING id"
     };
-    sqlx::query_scalar(sql)
+    crate::db::query_scalar::<i64>(sql)
         .bind(terms.id)
         .bind(terms.account_id)
         .bind(terms.counterparty_id)
@@ -96,16 +96,16 @@ pub async fn save_terms(
         .bind(&terms.note)
         .bind(terms.closed_at)
         .bind(now)
-        .fetch_one(conn)
+        .fetch_one(db)
         .await
 }
 
 /// findByAccountIdOrderByPaidOnAscIdAsc.
 pub async fn repayments<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     account_id: i64,
 ) -> sqlx::Result<Vec<PeerLoanRepayment>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as::<PeerLoanRepayment>(&format!(
         "SELECT {REPAYMENT_COLUMNS} FROM peer_loan_repayment WHERE account_id = $1 ORDER BY paid_on, id"
     ))
     .bind(account_id)
@@ -114,11 +114,11 @@ pub async fn repayments<'e>(
 }
 
 pub async fn find_repayment<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     id: i64,
     account_id: i64,
 ) -> sqlx::Result<Option<PeerLoanRepayment>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as::<PeerLoanRepayment>(&format!(
         "SELECT {REPAYMENT_COLUMNS} FROM peer_loan_repayment WHERE id = $1 AND account_id = $2"
     ))
     .bind(id)
@@ -128,10 +128,10 @@ pub async fn find_repayment<'e>(
 }
 
 pub async fn cash_transaction_linked<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     transaction_id: i64,
 ) -> sqlx::Result<bool> {
-    sqlx::query_scalar(
+    crate::db::query_scalar::<bool>(
         "SELECT EXISTS (SELECT 1 FROM peer_loan_repayment WHERE cash_transaction_id = $1)",
     )
     .bind(transaction_id)
@@ -140,12 +140,12 @@ pub async fn cash_transaction_linked<'e>(
 }
 
 /// Inserts the repayment (its id is ignored) and returns the new id.
-pub async fn insert_repayment(
-    conn: &mut PgConnection,
+pub async fn insert_repayment<'e>(
+    db: impl DbExec<'e>,
     repayment: &PeerLoanRepayment,
     now: DateTime<Utc>,
 ) -> sqlx::Result<i64> {
-    sqlx::query_scalar(
+    crate::db::query_scalar::<i64>(
         "INSERT INTO peer_loan_repayment (account_id, paid_on, amount, kind, note, cash_transaction_id, \
          cash_leg_owned, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8) RETURNING id",
     )
@@ -157,16 +157,16 @@ pub async fn insert_repayment(
     .bind(repayment.cash_transaction_id)
     .bind(repayment.cash_leg_owned)
     .bind(now)
-    .fetch_one(conn)
+    .fetch_one(db)
     .await
 }
 
-pub async fn update_repayment(
-    conn: &mut PgConnection,
+pub async fn update_repayment<'e>(
+    db: impl DbExec<'e>,
     repayment: &PeerLoanRepayment,
     now: DateTime<Utc>,
 ) -> sqlx::Result<()> {
-    sqlx::query(
+    crate::db::query(
         "UPDATE peer_loan_repayment SET paid_on = $2, amount = $3, kind = $4, note = $5, \
          cash_transaction_id = $6, cash_leg_owned = $7, updated_at = $8 WHERE id = $1",
     )
@@ -178,27 +178,27 @@ pub async fn update_repayment(
     .bind(repayment.cash_transaction_id)
     .bind(repayment.cash_leg_owned)
     .bind(now)
-    .execute(conn)
+    .execute(db)
     .await
     .map(|_| ())
 }
 
-pub async fn delete_repayment(conn: &mut PgConnection, id: i64) -> sqlx::Result<()> {
-    sqlx::query("DELETE FROM peer_loan_repayment WHERE id = $1")
+pub async fn delete_repayment<'e>(db: impl DbExec<'e>, id: i64) -> sqlx::Result<()> {
+    crate::db::query("DELETE FROM peer_loan_repayment WHERE id = $1")
         .bind(id)
-        .execute(conn)
+        .execute(db)
         .await
         .map(|_| ())
 }
 
 /// findByMemberIdAndNameIgnoreCase, or a new row.
 pub async fn counterparty_id(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     name: &str,
     now: DateTime<Utc>,
 ) -> sqlx::Result<i64> {
-    let existing: Option<i64> = sqlx::query_scalar(
+    let existing: Option<i64> = crate::db::query_scalar::<i64>(
         "SELECT id FROM peer_counterparty WHERE member_id = $1 AND lower(name) = lower($2) ORDER BY id LIMIT 1",
     )
     .bind(member_id)
@@ -208,7 +208,7 @@ pub async fn counterparty_id(
     if let Some(id) = existing {
         return Ok(id);
     }
-    sqlx::query_scalar(
+    crate::db::query_scalar::<i64>(
         "INSERT INTO peer_counterparty (member_id, name, created_at, updated_at) VALUES ($1, $2, $3, $3) RETURNING id",
     )
     .bind(member_id)

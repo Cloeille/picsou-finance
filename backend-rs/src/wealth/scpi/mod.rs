@@ -7,10 +7,10 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use sqlx::{PgConnection, PgExecutor};
 
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db::{DbExec, DbFromRow};
 use crate::error::{AppError, AppResult};
 use crate::http::json::Path;
 use crate::routes::Routes;
@@ -77,7 +77,7 @@ pub struct ScpiFundResponse {
     pub account_name: Option<String>,
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(DbFromRow)]
 struct FundRow {
     provider: String,
     fund_code: String,
@@ -90,12 +90,12 @@ struct FundRow {
 
 /// The position (id, account id, account name) linked to the provider's fund, if any.
 async fn linked(
-    db: impl PgExecutor<'_>,
+    db: impl DbExec<'_>,
     member_id: i64,
     provider: Provider,
     fund_code: &str,
 ) -> sqlx::Result<Option<(i64, Option<i64>, Option<String>)>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as::<(i64, Option<i64>, Option<String>)>(&format!(
         "SELECT p.id, a.id, a.name FROM scpi_position p LEFT JOIN account a ON a.id = p.account_id \
          AND a.deleted_at IS NULL WHERE p.member_id = $1 AND p.{} = $2 ORDER BY p.id LIMIT 1",
         provider.fund_code_column()
@@ -118,17 +118,17 @@ async fn list(
     auth: Auth,
 ) -> AppResult<axum::Json<Vec<ScpiFundResponse>>> {
     let mut conn = state.db.acquire().await?;
-    let rows: Vec<FundRow> = sqlx::query_as(
+    let rows: Vec<FundRow> = crate::db::query_as::<FundRow>(
         "SELECT provider, fund_code, label, ignored, last_outcome, last_seen_at, last_synced_at \
          FROM scpi_provider_fund WHERE member_id = $1 ORDER BY provider, label",
     )
     .bind(auth.member_id)
-    .fetch_all(&mut *conn)
+    .fetch_all(&mut conn)
     .await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
         let link = match Provider::parse(&row.provider) {
-            Ok(provider) => linked(&mut *conn, auth.member_id, provider, &row.fund_code).await?,
+            Ok(provider) => linked(&mut conn, auth.member_id, provider, &row.fund_code).await?,
             Err(_) => None,
         };
         let (account_id, account_name) = link.map(|(_, id, name)| (id, name)).unwrap_or_default();
@@ -157,14 +157,14 @@ async fn ignore(
     let provider = Provider::parse(&provider)?;
     let code = require_code(&fund_code)?;
     let mut tx = state.db.begin().await?;
-    if let Some((position_id, _, _)) = linked(&mut *tx, auth.member_id, provider, &code).await? {
-        sqlx::query(&format!(
+    if let Some((position_id, _, _)) = linked(&mut tx, auth.member_id, provider, &code).await? {
+        crate::db::query(&format!(
             "UPDATE scpi_position SET {} = NULL, updated_at = $2 WHERE id = $1",
             provider.fund_code_column()
         ))
         .bind(position_id)
         .bind(state.clock.now())
-        .execute(&mut *tx)
+        .execute(&mut tx)
         .await?;
     }
     tombstone(&mut tx, auth.member_id, provider, &code, state.clock.now()).await?;
@@ -179,7 +179,7 @@ async fn restore(
 ) -> AppResult<StatusCode> {
     let provider = Provider::parse(&provider)?;
     let code = require_code(&fund_code)?;
-    let updated = sqlx::query(
+    let updated = crate::db::query(
         "UPDATE scpi_provider_fund SET ignored = false, updated_at = $4 \
          WHERE member_id = $1 AND provider = $2 AND fund_code = $3",
     )
@@ -199,7 +199,7 @@ async fn restore(
 /// ScpiFundService.tombstone: the member's "never sync this fund again"; the syncs of tracks
 /// T5/T6 call it too.
 pub async fn tombstone(
-    conn: &mut PgConnection,
+    db: impl DbExec<'_>,
     member_id: i64,
     provider: Provider,
     fund_code: &str,
@@ -208,7 +208,7 @@ pub async fn tombstone(
     if fund_code.trim().is_empty() {
         return Ok(());
     }
-    sqlx::query(
+    crate::db::query(
         "INSERT INTO scpi_provider_fund (member_id, provider, fund_code, ignored, created_at, updated_at) \
          VALUES ($1, $2, $3, true, $4, $4) ON CONFLICT (member_id, provider, fund_code) \
          DO UPDATE SET ignored = true, updated_at = $4",
@@ -217,14 +217,14 @@ pub async fn tombstone(
     .bind(provider.as_str())
     .bind(fund_code)
     .bind(now)
-    .execute(conn)
+    .execute(db)
     .await
     .map(|_| ())
 }
 
 /// ScpiFundService.clearTombstone: a sync that sees the member relink a fund lifts the tombstone.
 pub async fn clear_tombstone(
-    db: impl PgExecutor<'_>,
+    db: impl DbExec<'_>,
     member_id: i64,
     provider: Provider,
     fund_code: &str,
@@ -233,7 +233,7 @@ pub async fn clear_tombstone(
     if fund_code.trim().is_empty() {
         return Ok(());
     }
-    sqlx::query(
+    crate::db::query(
         "UPDATE scpi_provider_fund SET ignored = false, updated_at = $4 \
          WHERE member_id = $1 AND provider = $2 AND fund_code = $3 AND ignored",
     )

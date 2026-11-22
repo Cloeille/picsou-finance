@@ -7,9 +7,9 @@ use chrono::{Datelike, NaiveDate};
 use rust_decimal::Decimal;
 use serde::Serialize;
 use serde_json::{Value, json};
-use sqlx::PgConnection;
 
 use crate::AppState;
+use crate::db::{AsDbHandle, DbExec, DbFromRow, DbHandle};
 use crate::error::{AppError, AppResult};
 use crate::ledger::decimal::{HALF_UP, divide, set_scale};
 use crate::ledger::model::{
@@ -59,7 +59,7 @@ const ADDITIVE_CAP_SQM_EQUIVALENT: Decimal = Decimal::from_parts(60, 0, 0, false
 const MIN_GEOCODE_SCORE: Decimal = Decimal::from_parts(4, 0, 0, false, 1); // 0.4
 
 /// Full real_estate_metadata row needed for valuation and adjustments.
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone, DbFromRow)]
 pub struct FullMetadata {
     pub id: i64,
     pub member_id: i64,
@@ -394,11 +394,11 @@ fn additive_sqm(
     total
 }
 
-async fn load_metadata(
-    conn: &mut PgConnection,
+async fn load_metadata<'e>(
+    db: impl DbExec<'e>,
     account_id: i64,
 ) -> sqlx::Result<Option<FullMetadata>> {
-    sqlx::query_as(
+    crate::db::query_as::<FullMetadata>(
         "SELECT id, member_id, account_id, purchase_price, agency_fees, notary_fees, works_cost, \
          property_type, address, postal_code, city, country, insee_code, latitude, longitude, \
          surface_area, land_area, construction_year, rooms, bathrooms, floor_number, floors_total, \
@@ -407,7 +407,7 @@ async fn load_metadata(
          FROM real_estate_metadata WHERE account_id = $1",
     )
     .bind(account_id)
-    .fetch_optional(conn)
+    .fetch_optional(db)
     .await
 }
 
@@ -430,7 +430,7 @@ pub async fn estimate(
             "Property has no metadata yet",
         )
     })?;
-    let response = estimate_for(state, &mut tx, &account, metadata).await?;
+    let response = estimate_for(state, &mut tx.as_handle(), &account, metadata).await?;
     tx.commit().await?;
     Ok(response)
 }
@@ -460,7 +460,7 @@ pub async fn refresh_all_for_member(state: &AppState, member_id: i64) -> usize {
             let Some(metadata) = load_metadata(&mut tx, account.id).await? else {
                 return Ok(false);
             };
-            let resp = estimate_for(state, &mut tx, &account, metadata).await?;
+            let resp = estimate_for(state, &mut tx.as_handle(), &account, metadata).await?;
             tx.commit().await?;
             Ok(resp.status == ValuationStatus::Ok)
         }
@@ -481,7 +481,7 @@ pub async fn refresh_all_for_member(state: &AppState, member_id: i64) -> usize {
 
 async fn estimate_for(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     mut metadata: FullMetadata,
 ) -> AppResult<PropertyValuationResponse> {
@@ -597,7 +597,7 @@ async fn estimate_for(
     let detail = method_detail_json(&raw, &adjusted, reindex_ratio);
     let provider_name = cerema.provider_name();
     let now = state.clock.now();
-    sqlx::query(
+    crate::db::query(
         "INSERT INTO property_valuation \
          (account_id, member_id, valued_at, estimated_value, low_value, high_value, price_per_sqm, \
           provider, confidence, sample_size, source_year, method_detail, created_at, updated_at) \
@@ -632,7 +632,7 @@ async fn estimate_for(
 
     let applied_to_balance = mode == ValuationMode::Estimated;
     if applied_to_balance {
-        sqlx::query("UPDATE account SET current_balance = $2, updated_at = $3 WHERE id = $1")
+        crate::db::query("UPDATE account SET current_balance = $2, updated_at = $3 WHERE id = $1")
             .bind(account.id)
             .bind(final_value)
             .bind(now)
@@ -660,7 +660,7 @@ async fn estimate_for(
 }
 
 async fn with_cost_basis_floor(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     metadata: &FullMetadata,
     response: PropertyValuationResponse,
@@ -676,7 +676,7 @@ async fn with_cost_basis_floor(
         "Property {} has no valuation yet; seeding its value from the cost basis {cost_basis}",
         account.id
     );
-    sqlx::query("UPDATE account SET current_balance = $2 WHERE id = $1")
+    crate::db::query("UPDATE account SET current_balance = $2 WHERE id = $1")
         .bind(account.id)
         .bind(cost_basis)
         .execute(conn)
@@ -686,7 +686,7 @@ async fn with_cost_basis_floor(
 
 async fn geocode_if_needed(
     state: &AppState,
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     m: &mut FullMetadata,
 ) -> AppResult<ValuationStatus> {
     if m.insee_code
@@ -723,7 +723,7 @@ async fn geocode_if_needed(
         m.city = hit.city.clone();
     }
     let now = state.clock.now();
-    sqlx::query(
+    crate::db::query(
         "UPDATE real_estate_metadata SET \
            insee_code = $2, latitude = $3, longitude = $4, ban_id = $5, \
            geocode_score = $6, geocoded_at = $7, postal_code = $8, city = $9, updated_at = $7 \

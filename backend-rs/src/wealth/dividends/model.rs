@@ -5,7 +5,9 @@ use std::collections::HashMap;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use serde::Serialize;
-use sqlx::{FromRow, PgPool};
+use sqlx::PgPool;
+
+use crate::db::DbFromRow;
 
 /// DividendCadence: (months, min gap days, max gap days), fastest first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -54,7 +56,7 @@ impl Cadence {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, FromRow)]
+#[derive(Debug, Clone, PartialEq, DbFromRow)]
 pub struct DividendEvent {
     pub source_id: i64,
     pub ex_date: NaiveDate,
@@ -85,14 +87,15 @@ pub async fn sources_by_ticker(
     if upper.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(i64, String, Option<String>)> = sqlx::query_as(
-        "SELECT id, ticker, currency FROM dividend_source WHERE ticker = ANY($1) ORDER BY id",
-    )
-    .bind(&upper)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(i64, String, Option<String>)> =
+        crate::db::query_as::<(i64, String, Option<String>)>(
+            "SELECT id, ticker, currency FROM dividend_source WHERE ticker = ANY($1) ORDER BY id",
+        )
+        .bind(&upper)
+        .fetch_all(db)
+        .await?;
     let ids: Vec<i64> = rows.iter().map(|r| r.0).collect();
-    let events: Vec<DividendEvent> = sqlx::query_as(
+    let events: Vec<DividendEvent> = crate::db::query_as::<DividendEvent>(
         "SELECT source_id, ex_date, amount, amount_eur, payment_date, declared FROM dividend_event \
          WHERE source_id = ANY($1) ORDER BY source_id, ex_date",
     )

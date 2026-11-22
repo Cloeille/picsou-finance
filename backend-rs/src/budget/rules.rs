@@ -7,12 +7,12 @@ use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use sqlx::PgExecutor;
 
 use super::categories::require;
 use super::{jdec, repo};
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db::DbExec;
 use crate::error::{AppError, AppResult};
 use crate::http::json::{Errors, Json, Path, Validate};
 use crate::ledger::categorize::{self, Categorizable};
@@ -121,11 +121,11 @@ pub struct NewRule<'a> {
 
 /// Inserts a rule and returns it.
 pub async fn insert_rule<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     rule: &NewRule<'_>,
     now: DateTime<Utc>,
 ) -> sqlx::Result<CategorizationRule> {
-    sqlx::query_as(&format!(
+    crate::db::query_as::<CategorizationRule>(&format!(
         "INSERT INTO categorization_rule (member_id, match_type, pattern, category_id, priority, source, created_at) \
          VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING {RULE_COLUMNS}"
     ))
@@ -168,7 +168,7 @@ pub async fn create(
 }
 
 async fn find_rule(state: &AppState, id: i64, member_id: i64) -> AppResult<CategorizationRule> {
-    sqlx::query_as(&format!(
+    crate::db::query_as::<CategorizationRule>(&format!(
         "SELECT {RULE_COLUMNS} FROM categorization_rule WHERE id = $1 AND member_id = $2"
     ))
     .bind(id)
@@ -197,7 +197,7 @@ pub async fn update(
     if let Some(priority) = req.priority {
         rule.priority = priority;
     }
-    sqlx::query(
+    crate::db::query(
         "UPDATE categorization_rule SET match_type = $2, pattern = $3, category_id = $4, priority = $5 WHERE id = $1",
     )
     .bind(rule.id)
@@ -216,7 +216,7 @@ pub async fn delete(
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
     let rule = find_rule(&state, id, auth.member_id).await?;
-    sqlx::query("DELETE FROM categorization_rule WHERE id = $1")
+    crate::db::query("DELETE FROM categorization_rule WHERE id = $1")
         .bind(rule.id)
         .execute(&state.db)
         .await?;
@@ -231,13 +231,13 @@ pub async fn recategorize_uncategorized(state: &AppState, member_id: i64) -> App
     let ctx = categorize::load_context(&state.db, kb, member_id, state.clock.now()).await?;
     let mut assigned = 0;
     let mut tx = state.db.begin().await?;
-    for mut row in repo::uncategorized(&mut *tx, member_id).await? {
+    for mut row in repo::uncategorized(&mut tx, member_id).await? {
         let before = row.clone();
         if categorize::auto_categorize(&mut row, &ctx) {
             assigned += 1;
         }
         if row != before {
-            repo::save_categorization(&mut *tx, &row).await?;
+            repo::save_categorization(&mut tx, &row).await?;
         }
     }
     tx.commit().await?;

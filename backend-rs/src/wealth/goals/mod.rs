@@ -21,6 +21,7 @@ use self::progress::Ctx;
 use self::repo::{Allocation, Goal, MonthTable, goal_not_found};
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db::{AsDbHandle, DbHandle};
 use crate::error::{AppError, AppResult};
 use crate::http::json::{Errors, Json, Lang, Path, read_json};
 use crate::ledger::{accounts, holdings};
@@ -73,7 +74,7 @@ impl FromRequest<AppState> for GoalBody {
     }
 }
 
-async fn get_or_throw(conn: &mut PgConnection, id: i64, member_id: i64) -> AppResult<Goal> {
+async fn get_or_throw(conn: &mut DbHandle<'_>, id: i64, member_id: i64) -> AppResult<Goal> {
     repo::find(conn, id, member_id)
         .await?
         .ok_or_else(goal_not_found)
@@ -138,7 +139,7 @@ pub async fn find_all(
     auth: Auth,
 ) -> AppResult<axum::Json<Vec<GoalProgressResponse>>> {
     let mut conn = state.db.acquire().await?;
-    let goals = repo::find_all(&mut conn, auth.member_id).await?;
+    let goals = repo::find_all(&mut conn.as_handle(), auth.member_id).await?;
     let mut out = Vec::with_capacity(goals.len());
     for goal in &goals {
         out.push(progress::to_response(&state, &mut conn, goal).await?);
@@ -153,7 +154,7 @@ pub async fn dashboard_summaries(
     member_id: i64,
 ) -> AppResult<Vec<GoalProgressResponse>> {
     let mut conn = state.db.acquire().await?;
-    let goals = repo::find_all(&mut conn, member_id).await?;
+    let goals = repo::find_all(&mut conn.as_handle(), member_id).await?;
     let mut out = Vec::new();
     for goal in goals
         .iter()
@@ -170,7 +171,7 @@ pub async fn find_by_id(
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<GoalProgressResponse>> {
     let mut conn = state.db.acquire().await?;
-    let goal = get_or_throw(&mut conn, id, auth.member_id).await?;
+    let goal = get_or_throw(&mut conn.as_handle(), id, auth.member_id).await?;
     Ok(axum::Json(
         progress::to_response(&state, &mut conn, &goal).await?,
     ))
@@ -201,7 +202,7 @@ pub async fn create(
     };
     apply_request(&mut tx, &mut goal, req).await?;
     state.wealth.savings.account_responses()?;
-    goal.id = repo::insert(&mut tx, &goal, now).await?;
+    goal.id = repo::insert(&mut tx.as_handle(), &goal, now).await?;
     tx.commit().await?;
     let mut conn = state.db.acquire().await?;
     let response = progress::to_response(&state, &mut conn, &goal).await?;
@@ -215,10 +216,10 @@ pub async fn update(
     GoalBody(req): GoalBody,
 ) -> AppResult<axum::Json<GoalProgressResponse>> {
     let mut tx = state.db.begin().await?;
-    let mut goal = get_or_throw(&mut tx, id, auth.member_id).await?;
+    let mut goal = get_or_throw(&mut tx.as_handle(), id, auth.member_id).await?;
     apply_request(&mut tx, &mut goal, req).await?;
     state.wealth.savings.account_responses()?;
-    repo::update(&mut tx, &goal, state.clock.now()).await?;
+    repo::update(&mut tx.as_handle(), &goal, state.clock.now()).await?;
     tx.commit().await?;
     let mut conn = state.db.acquire().await?;
     Ok(axum::Json(
@@ -232,8 +233,8 @@ pub async fn delete(
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
     let mut conn = state.db.acquire().await?;
-    get_or_throw(&mut conn, id, auth.member_id).await?;
-    repo::delete(&mut *conn, id).await?;
+    get_or_throw(&mut conn.as_handle(), id, auth.member_id).await?;
+    repo::delete(&mut conn, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -244,7 +245,7 @@ async fn history(
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<Vec<NetWorthPoint>>> {
     let mut conn = state.db.acquire().await?;
-    let goal = get_or_throw(&mut conn, id, auth.member_id).await?;
+    let goal = get_or_throw(&mut conn.as_handle(), id, auth.member_id).await?;
     drop(conn);
     let ids: Vec<i64> = goal.accounts.iter().map(|a| a.id).collect();
     let points = state
@@ -271,11 +272,12 @@ pub async fn monthly_entries(
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<Vec<GoalMonthEntryResponse>>> {
     let mut conn = state.db.acquire().await?;
-    let goal = require_savings_target(get_or_throw(&mut conn, id, auth.member_id).await?)?;
+    let goal =
+        require_savings_target(get_or_throw(&mut conn.as_handle(), id, auth.member_id).await?)?;
     let ctx = Ctx::of(&state);
     let objective = progress::monthly_needed(&mut conn, &ctx, &goal).await?;
-    let overrides = repo::month_amounts(&mut *conn, MonthTable::Override, id).await?;
-    let manuals = repo::month_amounts(&mut *conn, MonthTable::Manual, id).await?;
+    let overrides = repo::month_amounts(&mut conn, MonthTable::Override, id).await?;
+    let manuals = repo::month_amounts(&mut conn, MonthTable::Manual, id).await?;
     let end = YearMonth::of(goal.deadline.ok_or_else(progress::not_a_savings_target)?);
     let mut entries = Vec::new();
     let mut month = effective_start_month(&ctx, &goal);
@@ -305,10 +307,11 @@ async fn extend_by(
     months: i64,
 ) -> AppResult<GoalProgressResponse> {
     let mut conn = state.db.acquire().await?;
-    let mut goal = require_savings_target(get_or_throw(&mut conn, id, auth.member_id).await?)?;
+    let mut goal =
+        require_savings_target(get_or_throw(&mut conn.as_handle(), id, auth.member_id).await?)?;
     state.wealth.savings.account_responses()?;
     let start = effective_start_month(&Ctx::of(state), &goal).plus_months(-months);
-    repo::set_history_start(&mut *conn, id, &start.to_string(), state.clock.now()).await?;
+    repo::set_history_start(&mut conn, id, &start.to_string(), state.clock.now()).await?;
     goal.history_start_month = Some(start.to_string());
     progress::to_response(state, &mut conn, &goal).await
 }
@@ -349,7 +352,8 @@ async fn change_month(
     change: MonthChange,
 ) -> AppResult<GoalMonthEntryResponse> {
     let mut conn = state.db.acquire().await?;
-    let goal = require_savings_target(get_or_throw(&mut conn, id, auth.member_id).await?)?;
+    let goal =
+        require_savings_target(get_or_throw(&mut conn.as_handle(), id, auth.member_id).await?)?;
     let month = parse_month(year_month)?;
     if year_month.chars().count() > 7 {
         return Err(AppError::internal("year-month longer than its column"));
@@ -357,7 +361,7 @@ async fn change_month(
     match change.amount {
         Some(amount) => {
             repo::set_month_amount(
-                &mut *conn,
+                &mut conn,
                 change.table,
                 id,
                 year_month,
@@ -366,7 +370,7 @@ async fn change_month(
             )
             .await?
         }
-        None => repo::delete_month_amount(&mut *conn, change.table, id, year_month).await?,
+        None => repo::delete_month_amount(&mut conn, change.table, id, year_month).await?,
     }
     let ctx = Ctx::of(state);
     let objective = progress::monthly_needed(&mut conn, &ctx, &goal).await?;
@@ -375,7 +379,7 @@ async fn change_month(
         MonthTable::Override => MonthTable::Manual,
         MonthTable::Manual => MonthTable::Override,
     };
-    let other_amount = repo::month_amount(&mut *conn, other, id, year_month).await?;
+    let other_amount = repo::month_amount(&mut conn, other, id, year_month).await?;
     let (manual, override_amount) = match change.table {
         MonthTable::Override => (other_amount, change.amount),
         MonthTable::Manual => (change.amount, other_amount),

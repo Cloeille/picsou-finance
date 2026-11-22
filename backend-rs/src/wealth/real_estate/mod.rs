@@ -17,6 +17,7 @@ use crate::AppState;
 use crate::auth::Auth;
 use crate::clock::AppClock;
 use crate::config::Config;
+use crate::db::DbFromRow;
 use crate::error::AppResult;
 use crate::http::json::Path;
 use crate::http::rate_limit::policies;
@@ -151,7 +152,7 @@ pub struct RealEstateSummaryResponse {
     pub paper: Vec<PaperLine>,
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(DbFromRow)]
 struct Metadata {
     purchase_price: Option<Decimal>,
     agency_fees: Option<Decimal>,
@@ -180,7 +181,7 @@ impl Metadata {
     }
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(DbFromRow)]
 struct ScpiPosition {
     management_company: Option<String>,
     share_count: Decimal,
@@ -224,13 +225,13 @@ pub async fn summarize(
                 ledger_valuation::live_balance_eur(&mut conn, prices, account, today).await?,
                 share,
             );
-            let position: Option<ScpiPosition> = sqlx::query_as(
+            let position: Option<ScpiPosition> = crate::db::query_as::<ScpiPosition>(
                 "SELECT management_company, share_count, withdrawal_price_eur, subscription_price_eur, valuation_status \
                  FROM scpi_position WHERE account_id = $1 AND member_id = $2",
             )
             .bind(account.id)
             .bind(account.member_id)
-            .fetch_optional(&mut *conn)
+            .fetch_optional(&mut conn)
             .await?;
             let (debt, loans) =
                 loans_for(&mut conn, account, member_id, today, include_hidden).await?;
@@ -260,12 +261,12 @@ pub async fn summarize(
             ledger_valuation::live_balance_eur(&mut conn, prices, account, today).await?,
             share,
         );
-        let metadata: Option<Metadata> = sqlx::query_as(
+        let metadata: Option<Metadata> = crate::db::query_as::<Metadata>(
             "SELECT purchase_price, agency_fees, notary_fees, works_cost, property_type, category, city, \
              surface_area, rental_income, valuation_mode FROM real_estate_metadata WHERE account_id = $1",
         )
         .bind(account.id)
-        .fetch_optional(&mut *conn)
+        .fetch_optional(&mut conn)
         .await?;
         let cost_basis = metadata
             .as_ref()
@@ -274,12 +275,13 @@ pub async fn summarize(
             access::weigh(m.rental_income.unwrap_or_default(), share)
         });
         let (debt, loans) = loans_for(&mut conn, account, member_id, today, include_hidden).await?;
-        let latest: Option<(NaiveDate, Option<String>)> = sqlx::query_as(
-            "SELECT valued_at, confidence FROM property_valuation WHERE account_id = $1 ORDER BY valued_at DESC LIMIT 1",
-        )
-        .bind(account.id)
-        .fetch_optional(&mut *conn)
-        .await?;
+        let latest: Option<(NaiveDate, Option<String>)> =
+            crate::db::query_as::<(NaiveDate, Option<String>)>(
+                "SELECT valued_at, confidence FROM property_valuation WHERE account_id = $1 ORDER BY valued_at DESC LIMIT 1",
+            )
+            .bind(account.id)
+            .fetch_optional(&mut conn)
+            .await?;
         properties.push(PropertyLine {
             account_id: account.id,
             name: account.name.clone(),
@@ -393,7 +395,7 @@ async fn summary(
 
 /// RealEstateController.ValuationHistoryEntry.
 #[serde_with::skip_serializing_none]
-#[derive(Debug, Clone, PartialEq, Serialize, sqlx::FromRow)]
+#[derive(Debug, Clone, PartialEq, Serialize, DbFromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct ValuationHistoryEntry {
     pub valued_at: NaiveDate,
@@ -419,12 +421,12 @@ pub async fn valuations(
 ) -> AppResult<axum::Json<Vec<ValuationHistoryEntry>>> {
     let mut conn = state.db.acquire().await?;
     access::require_readable(&mut conn, account_id, auth.member_id).await?;
-    let rows = sqlx::query_as(
+    let rows = crate::db::query_as::<ValuationHistoryEntry>(
         "SELECT valued_at, estimated_value, low_value, high_value, price_per_sqm, provider, confidence, \
          sample_size, source_year FROM property_valuation WHERE account_id = $1 ORDER BY valued_at DESC",
     )
     .bind(account_id)
-    .fetch_all(&mut *conn)
+    .fetch_all(&mut conn)
     .await?;
     Ok(axum::Json(rows))
 }

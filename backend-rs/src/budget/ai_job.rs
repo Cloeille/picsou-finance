@@ -434,7 +434,7 @@ async fn run_job(
         job.processed
             .fetch_add(i32::try_from(chunk.len()).unwrap_or(0), Ordering::SeqCst);
     }
-    sqlx::query(
+    crate::db::query(
         "DELETE FROM ai_call_log WHERE id NOT IN (SELECT id FROM ai_call_log ORDER BY created_at DESC LIMIT $1)",
     )
     .bind(LOG_RETENTION)
@@ -462,7 +462,7 @@ async fn log_calls(
         let Some(r) = results.get(id) else {
             continue;
         };
-        sqlx::query(
+        crate::db::query(
             "INSERT INTO ai_call_log (created_at, member_id, transaction_id, merchant_label, batch_id, provider, model, \
              prompt, response, prompt_tokens, completion_tokens, total_tokens, latency_ms, status, error, chosen_slug, \
              confidence, applied) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)",
@@ -485,7 +485,7 @@ async fn log_calls(
         .bind(r.suggestion.as_ref().map(|s| s.category_slug.clone()))
         .bind(r.suggestion.as_ref().map(|s| confidence_percent(s.confidence)))
         .bind(decisions.get(id).copied().unwrap_or(false))
-        .execute(&mut *tx)
+        .execute(&mut tx)
         .await?;
     }
     tx.commit().await?;

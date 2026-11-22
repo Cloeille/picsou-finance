@@ -31,28 +31,28 @@ pub struct SqlAppSettings(pub PgPool);
 #[async_trait]
 impl AppSettings for SqlAppSettings {
     async fn value(&self, key: &str) -> AppResult<Option<String>> {
-        Ok(
-            sqlx::query_scalar("SELECT value FROM app_setting WHERE setting_key = $1")
-                .bind(key)
-                .fetch_optional(&self.0)
-                .await?,
+        Ok(crate::db::query_scalar::<String>(
+            "SELECT value FROM app_setting WHERE setting_key = $1",
         )
+        .bind(key)
+        .fetch_optional(&self.0)
+        .await?)
     }
 
     async fn compare_and_set(&self, key: &str, expected: &str, value: &str) -> AppResult<u64> {
-        Ok(
-            sqlx::query("UPDATE app_setting SET value = $3 WHERE setting_key = $1 AND value = $2")
-                .bind(key)
-                .bind(expected)
-                .bind(value)
-                .execute(&self.0)
-                .await?
-                .rows_affected(),
+        Ok(crate::db::query(
+            "UPDATE app_setting SET value = $3 WHERE setting_key = $1 AND value = $2",
         )
+        .bind(key)
+        .bind(expected)
+        .bind(value)
+        .execute(&self.0)
+        .await?
+        .rows_affected())
     }
 
     async fn upsert(&self, key: &str, value: &str) -> AppResult<()> {
-        sqlx::query(
+        crate::db::query(
             "INSERT INTO app_setting (setting_key, value) VALUES ($1, $2) \
              ON CONFLICT (setting_key) DO UPDATE SET value = EXCLUDED.value",
         )
@@ -123,7 +123,7 @@ pub async fn price_fx_cleanup(state: &AppState, settings: &dyn AppSettings) -> A
     tracing::warn!(
         "Purging price_snapshot for FX fix — prices stored before the FX fix are in native currency, not EUR"
     );
-    let purged = sqlx::query("DELETE FROM price_snapshot")
+    let purged = crate::db::query("DELETE FROM price_snapshot")
         .execute(&state.db)
         .await?
         .rows_affected();
@@ -149,9 +149,9 @@ pub async fn price_fx_cleanup(state: &AppState, settings: &dyn AppSettings) -> A
 /// each ISIN in its own short transaction and recomputing derived holdings on investment accounts.
 /// Returns the number of transactions repaired.
 pub async fn isin_ticker_repair(state: &AppState, settings: &dyn AppSettings) -> AppResult<usize> {
-    let rows: Vec<(i64, String)> = sqlx::query_as(
-        "SELECT id, ticker FROM transaction \
-         WHERE is_manual = true AND ticker IS NOT NULL AND char_length(ticker) = 12",
+    let rows: Vec<(i64, String)> = crate::db::query_as::<(i64, String)>(
+        "SELECT id, ticker FROM \"transaction\" \
+         WHERE is_manual = true AND ticker IS NOT NULL AND length(ticker) = 12",
     )
     .fetch_all(&state.db)
     .await?;
@@ -243,20 +243,20 @@ async fn apply_repair(
     resolved: &TickerResult,
 ) -> AppResult<usize> {
     let mut tx = state.db.begin().await?;
-    let account_ids: Vec<i64> = sqlx::query_scalar(
-        "SELECT DISTINCT account_id FROM transaction WHERE is_manual = true AND ticker = $1",
+    let account_ids: Vec<i64> = crate::db::query_scalar::<i64>(
+        "SELECT DISTINCT account_id FROM \"transaction\" WHERE is_manual = true AND ticker = $1",
     )
     .bind(isin)
-    .fetch_all(&mut *tx)
+    .fetch_all(&mut tx)
     .await?;
 
-    let updated = sqlx::query(
-        "UPDATE transaction SET ticker = $2, name = COALESCE(name, $3) WHERE id = ANY($1)",
+    let updated = crate::db::query(
+        "UPDATE \"transaction\" SET ticker = $2, name = COALESCE(name, $3) WHERE id = ANY($1)",
     )
     .bind(tx_ids)
     .bind(&resolved.ticker)
     .bind(&resolved.name)
-    .execute(&mut *tx)
+    .execute(&mut tx)
     .await?
     .rows_affected();
 
@@ -272,10 +272,10 @@ async fn apply_repair(
         .map(|a| a.id)
         .collect();
     if !investment_ids.is_empty() {
-        sqlx::query("DELETE FROM account_holding WHERE account_id = ANY($1) AND ticker = $2")
+        crate::db::query("DELETE FROM account_holding WHERE account_id = ANY($1) AND ticker = $2")
             .bind(&investment_ids)
             .bind(isin)
-            .execute(&mut *tx)
+            .execute(&mut tx)
             .await?;
         let now = state.clock.now();
         for account_id in &investment_ids {

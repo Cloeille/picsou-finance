@@ -7,13 +7,13 @@ use axum::http::StatusCode;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 
 use super::categories::{self, category_not_found};
 use super::cycle::{self, CycleRange};
 use super::{jdec, repo, settings};
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db::DbFromRow;
 use crate::error::{AppError, AppResult};
 use crate::http::json::{Errors, Json, Path, Validate};
 use crate::ledger::decimal::{HALF_UP, divide};
@@ -28,7 +28,7 @@ pub fn register(routes: &mut Routes) {
         .delete("/api/budgets/{id}", delete);
 }
 
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, DbFromRow)]
 struct BudgetRow {
     id: i64,
     category_id: i64,
@@ -122,7 +122,7 @@ pub async fn find_all(
     auth: Auth,
 ) -> AppResult<axum::Json<Vec<BudgetResponse>>> {
     let cycle = current_cycle(&state, auth.member_id).await?;
-    let rows: Vec<BudgetRow> = sqlx::query_as(
+    let rows: Vec<BudgetRow> = crate::db::query_as::<BudgetRow>(
         "SELECT id, category_id, monthly_limit FROM budget WHERE member_id = $1 ORDER BY id",
     )
     .bind(auth.member_id)
@@ -154,7 +154,7 @@ async fn exists_for_category(
     member_id: i64,
     category_id: i64,
 ) -> AppResult<bool> {
-    Ok(sqlx::query_scalar(
+    Ok(crate::db::query_scalar::<bool>(
         "SELECT EXISTS(SELECT 1 FROM budget WHERE member_id = $1 AND category_id = $2)",
     )
     .bind(member_id)
@@ -199,7 +199,7 @@ pub async fn create(
     assert_assignable(&state, &category, member_id).await?;
     let limit = req.monthly_limit.unwrap_or_default();
     let now = state.clock.now();
-    let id: i64 = sqlx::query_scalar(
+    let id: i64 = crate::db::query_scalar::<i64>(
         "INSERT INTO budget (member_id, category_id, monthly_limit, created_at, updated_at) \
          VALUES ($1, $2, $3, $4, $4) RETURNING id",
     )
@@ -219,7 +219,7 @@ fn budget_not_found() -> AppError {
 }
 
 async fn get_or_throw(state: &AppState, id: i64, member_id: i64) -> AppResult<BudgetRow> {
-    sqlx::query_as(
+    crate::db::query_as::<BudgetRow>(
         "SELECT id, category_id, monthly_limit FROM budget WHERE id = $1 AND member_id = $2",
     )
     .bind(id)
@@ -249,7 +249,7 @@ pub async fn update(
         category
     };
     let limit = req.monthly_limit.unwrap_or_default();
-    sqlx::query(
+    crate::db::query(
         "UPDATE budget SET category_id = $2, monthly_limit = $3, updated_at = $4 WHERE id = $1",
     )
     .bind(id)
@@ -270,7 +270,7 @@ pub async fn delete(
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
     get_or_throw(&state, id, auth.member_id).await?;
-    sqlx::query("DELETE FROM budget WHERE id = $1")
+    crate::db::query("DELETE FROM budget WHERE id = $1")
         .bind(id)
         .execute(&state.db)
         .await?;

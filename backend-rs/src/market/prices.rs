@@ -514,14 +514,15 @@ async fn upsert_snapshot(
     price: Decimal,
     now: DateTime<Utc>,
 ) -> sqlx::Result<()> {
-    let updated =
-        sqlx::query("UPDATE price_snapshot SET price_eur = $3 WHERE ticker = $1 AND date = $2")
-            .bind(ticker)
-            .bind(date)
-            .bind(price)
-            .execute(db)
-            .await?
-            .rows_affected();
+    let updated = crate::db::query(
+        "UPDATE price_snapshot SET price_eur = $3 WHERE ticker = $1 AND date = $2",
+    )
+    .bind(ticker)
+    .bind(date)
+    .bind(price)
+    .execute(db)
+    .await?
+    .rows_affected();
     if updated == 0 {
         insert_snapshot_if_absent(db, ticker, date, price, now).await?;
     }
@@ -535,7 +536,7 @@ async fn insert_snapshot_if_absent(
     price: Decimal,
     now: DateTime<Utc>,
 ) -> sqlx::Result<bool> {
-    let exists: bool = sqlx::query_scalar(
+    let exists: bool = crate::db::query_scalar::<bool>(
         "SELECT EXISTS (SELECT 1 FROM price_snapshot WHERE ticker = $1 AND date = $2)",
     )
     .bind(ticker)
@@ -545,7 +546,7 @@ async fn insert_snapshot_if_absent(
     if exists {
         return Ok(false);
     }
-    sqlx::query(
+    crate::db::query(
         "INSERT INTO price_snapshot (ticker, date, price_eur, created_at) VALUES ($1, $2, $3, $4)",
     )
     .bind(ticker)

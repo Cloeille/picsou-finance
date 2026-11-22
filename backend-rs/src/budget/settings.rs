@@ -4,11 +4,11 @@
 use axum::extract::State;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::PgExecutor;
 
 use super::cycle;
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db::DbExec;
 use crate::error::AppResult;
 use crate::http::json::{Errors, Json, Validate};
 use crate::ledger::categorize::budget_settings_of_member;
@@ -22,17 +22,25 @@ pub fn register(routes: &mut Routes) {
 }
 
 /// The member's cycle start day, 1 when they have no settings row yet.
-pub async fn cycle_start_day<'e>(db: impl PgExecutor<'e>, member_id: i64) -> sqlx::Result<u32> {
-    Ok(budget_settings_of_member(db, member_id)
-        .await?
-        .map_or(1, |s| u32::try_from(s.cycle_start_day).unwrap_or(1)))
+pub async fn cycle_start_day<'e>(db: impl DbExec<'e>, member_id: i64) -> sqlx::Result<u32> {
+    Ok(crate::db::query_scalar::<i16>(
+        "SELECT cycle_start_day FROM budget_settings WHERE member_id = $1",
+    )
+    .bind(member_id)
+    .fetch_optional(db)
+    .await?
+    .map_or(1, |day| u32::try_from(day).unwrap_or(1)))
 }
 
 /// Whether the member opted into online logo fetching; false without a settings row. A pure read.
-pub async fn logo_fetch_enabled<'e>(db: impl PgExecutor<'e>, member_id: i64) -> sqlx::Result<bool> {
-    Ok(budget_settings_of_member(db, member_id)
-        .await?
-        .is_some_and(|s| s.logo_fetch_enabled))
+pub async fn logo_fetch_enabled<'e>(db: impl DbExec<'e>, member_id: i64) -> sqlx::Result<bool> {
+    Ok(crate::db::query_scalar::<bool>(
+        "SELECT logo_fetch_enabled FROM budget_settings WHERE member_id = $1",
+    )
+    .bind(member_id)
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(false))
 }
 
 /// getOrCreate: the member's row, inserted with the entity defaults when missing.
@@ -44,7 +52,7 @@ pub async fn get_or_create(
     if let Some(settings) = budget_settings_of_member(db, member_id).await? {
         return Ok(settings);
     }
-    sqlx::query(
+    crate::db::query(
         "INSERT INTO budget_settings (member_id, cycle_start_day, logo_fetch_enabled, ai_categorization_enabled, \
          ai_mode, ai_confidence_threshold, updated_at) VALUES ($1, 1, false, false, 'AUTO_HIGH_CONFIDENCE', 75, $2) \
          ON CONFLICT (member_id) DO NOTHING",
@@ -136,7 +144,7 @@ async fn update(
         .unwrap_or(AiCategorizationMode::AutoHighConfidence);
     settings.ai_confidence_threshold = req.ai_confidence_threshold.unwrap_or(0);
     settings.updated_at = now;
-    sqlx::query(
+    crate::db::query(
         "UPDATE budget_settings SET cycle_start_day = $2, logo_fetch_enabled = $3, ai_categorization_enabled = $4, \
          ai_mode = $5, ai_confidence_threshold = $6, updated_at = $7 WHERE id = $1",
     )
