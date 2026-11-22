@@ -164,7 +164,7 @@ async fn count(
     bind: Option<&str>,
     member: Option<i64>,
 ) -> Result<i64, sqlx::Error> {
-    let mut query = sqlx::query_scalar::<_, i64>(sql);
+    let mut query = crate::db::query_scalar::<i64>(sql);
     if let Some(b) = bind {
         query = query.bind(b.to_owned());
     }

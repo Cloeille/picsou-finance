@@ -9,7 +9,6 @@ use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Utc};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use sqlx::Connection;
 use uuid::Uuid;
 
 use crate::AppState;
@@ -563,7 +562,7 @@ pub async fn change_username(
         );
     }
     let persistent_device = is_persistent_device(&state, &headers, &user).await?;
-    sqlx::query("UPDATE app_user SET username = $1, updated_at = now() WHERE id = $2")
+    crate::db::query("UPDATE app_user SET username = $1, updated_at = now() WHERE id = $2")
         .bind(&new_username)
         .bind(user.id)
         .execute(&state.db)
@@ -637,7 +636,7 @@ pub async fn change_password(
     }
     let hash = password::hash(&req.new_password.unwrap_or_default()).await?;
     user.token_version += 1;
-    sqlx::query("UPDATE app_user SET password_hash = $1, token_version = $2, updated_at = now() WHERE id = $3")
+    crate::db::query("UPDATE app_user SET password_hash = $1, token_version = $2, updated_at = now() WHERE id = $3")
         .bind(&hash)
         .bind(user.token_version)
         .bind(user.id)
@@ -739,9 +738,8 @@ pub async fn complete_invitation(
     hash: &str,
     ctx: &AuditContext<'_>,
 ) -> AppResult<Invitation> {
-    let mut conn = state.db.acquire().await?;
-    let mut tx = conn.begin().await?;
-    let Some(user) = users::find_by_activation_token(&mut *tx, token, true).await? else {
+    let mut tx = state.db.begin().await?;
+    let Some(user) = users::find_by_activation_token(&mut tx, token, true).await? else {
         return Ok(Invitation::Unknown);
     };
     if user
@@ -750,20 +748,20 @@ pub async fn complete_invitation(
     {
         return Ok(Invitation::Expired);
     }
-    sqlx::query(
+    crate::db::query(
         "UPDATE app_user SET password_hash = $1, activation_token = NULL, activation_token_expires = NULL, \
          is_activated = true, acknowledged_warning = true, token_version = token_version + 1, updated_at = now() WHERE id = $2",
     )
     .bind(hash)
     .bind(user.id)
-    .execute(&mut *tx)
+    .execute(&mut tx)
     .await?;
-    sqlx::query(
+    crate::db::query(
         "UPDATE persistent_session SET revoked_at = $1 WHERE user_id = $2 AND revoked_at IS NULL",
     )
     .bind(state.clock.now())
     .bind(user.id)
-    .execute(&mut *tx)
+    .execute(&mut tx)
     .await?;
     tx.commit().await?;
     if user.role == Role::Admin {

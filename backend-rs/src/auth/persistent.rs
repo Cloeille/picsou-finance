@@ -7,15 +7,15 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use rand::RngExt;
 use sha2::{Digest, Sha256};
-use sqlx::{Connection, FromRow, PgPool};
 use uuid::Uuid;
 
 use crate::AppState;
 use crate::auth::users::AppUser;
+use crate::db::{DbExec, DbFromRow};
 
 const RAW_TOKEN_BYTES: usize = 64;
 
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, DbFromRow)]
 pub struct PersistentSession {
     pub id: i64,
     pub series_id: Uuid,
@@ -128,7 +128,7 @@ pub async fn issue(
     let now = state.clock.now();
     let expires = now
         + chrono::Duration::from_std(state.config.persistent_session_expiry).unwrap_or_default();
-    let session: PersistentSession = sqlx::query_as(&format!(
+    let session: PersistentSession = crate::db::query_as(&format!(
         "INSERT INTO persistent_session (series_id, token_hash, user_id, user_agent, ip_prefix, trusted_for_2fa, \
          sso_authenticated_at, created_at, last_used_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9) \
          RETURNING {COLUMNS}"
@@ -159,13 +159,12 @@ pub async fn validate_and_rotate(
     let Some((series, token)) = parse_cookie(cookie) else {
         return Ok(None);
     };
-    let mut conn = state.db.acquire().await?;
-    let mut tx = conn.begin().await?;
-    let found: Option<PersistentSession> = sqlx::query_as(&format!(
+    let mut tx = state.db.begin().await?;
+    let found: Option<PersistentSession> = crate::db::query_as(&format!(
         "SELECT {COLUMNS} FROM persistent_session WHERE series_id = $1 FOR UPDATE"
     ))
     .bind(series)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut tx)
     .await?;
     let Some(mut session) = found else {
         return Ok(None);
@@ -188,10 +187,10 @@ pub async fn validate_and_rotate(
             session.series_id,
             session.user_id
         );
-        sqlx::query("UPDATE persistent_session SET revoked_at = $1 WHERE id = $2")
+        crate::db::query("UPDATE persistent_session SET revoked_at = $1 WHERE id = $2")
             .bind(now)
             .bind(session.id)
-            .execute(&mut *tx)
+            .execute(&mut tx)
             .await?;
         tx.commit().await?;
         return Ok(None);
@@ -205,7 +204,7 @@ pub async fn validate_and_rotate(
     }
     session.token_hash = sha256_hex(&new_token);
     session.last_used_at = now;
-    sqlx::query(
+    crate::db::query(
         "UPDATE persistent_session SET token_hash = $1, previous_token_hash = $2, previous_token_at = $3, \
          last_used_at = $4 WHERE id = $5",
     )
@@ -214,7 +213,7 @@ pub async fn validate_and_rotate(
     .bind(session.previous_token_at)
     .bind(now)
     .bind(session.id)
-    .execute(&mut *tx)
+    .execute(&mut tx)
     .await?;
     tx.commit().await?;
     Ok(Some(Issued {
@@ -223,11 +222,11 @@ pub async fn validate_and_rotate(
     }))
 }
 
-pub async fn find_by_series(
-    db: &PgPool,
+pub async fn find_by_series<'e>(
+    db: impl DbExec<'e>,
     series: Uuid,
 ) -> Result<Option<PersistentSession>, sqlx::Error> {
-    sqlx::query_as(&format!(
+    crate::db::query_as(&format!(
         "SELECT {COLUMNS} FROM persistent_session WHERE series_id = $1"
     ))
     .bind(series)
@@ -235,11 +234,11 @@ pub async fn find_by_series(
     .await
 }
 
-pub async fn list_active_for_user(
-    db: &PgPool,
+pub async fn list_active_for_user<'e>(
+    db: impl DbExec<'e>,
     user_id: i64,
 ) -> Result<Vec<PersistentSession>, sqlx::Error> {
-    sqlx::query_as(&format!(
+    crate::db::query_as(&format!(
         "SELECT {COLUMNS} FROM persistent_session WHERE user_id = $1 AND revoked_at IS NULL ORDER BY last_used_at DESC"
     ))
     .bind(user_id)
@@ -248,7 +247,7 @@ pub async fn list_active_for_user(
 }
 
 pub async fn revoke_all_for_user(state: &AppState, user_id: i64) -> Result<u64, sqlx::Error> {
-    Ok(sqlx::query(
+    Ok(crate::db::query(
         "UPDATE persistent_session SET revoked_at = $1 WHERE user_id = $2 AND revoked_at IS NULL",
     )
     .bind(state.clock.now())
@@ -263,7 +262,7 @@ pub async fn revoke_all_for_user_except(
     user_id: i64,
     except_id: i64,
 ) -> Result<u64, sqlx::Error> {
-    Ok(sqlx::query(
+    Ok(crate::db::query(
         "UPDATE persistent_session SET revoked_at = $1 WHERE user_id = $2 AND id <> $3 AND revoked_at IS NULL",
     )
     .bind(state.clock.now())
@@ -277,7 +276,7 @@ pub async fn revoke_all_for_user_except(
 /// Revokes the owner's session; false when it does not exist or belongs to someone else.
 pub async fn revoke(state: &AppState, session_id: i64, owner_id: i64) -> Result<bool, sqlx::Error> {
     let found: Option<(i64, Option<DateTime<Utc>>)> =
-        sqlx::query_as("SELECT user_id, revoked_at FROM persistent_session WHERE id = $1")
+        crate::db::query_as("SELECT user_id, revoked_at FROM persistent_session WHERE id = $1")
             .bind(session_id)
             .fetch_optional(&state.db)
             .await?;
@@ -285,7 +284,7 @@ pub async fn revoke(state: &AppState, session_id: i64, owner_id: i64) -> Result<
         Some((user_id, _)) if user_id != owner_id => Ok(false),
         Some((_, Some(_))) => Ok(true),
         Some((_, None)) => {
-            sqlx::query("UPDATE persistent_session SET revoked_at = $1 WHERE id = $2")
+            crate::db::query("UPDATE persistent_session SET revoked_at = $1 WHERE id = $2")
                 .bind(state.clock.now())
                 .bind(session_id)
                 .execute(&state.db)
@@ -297,7 +296,7 @@ pub async fn revoke(state: &AppState, session_id: i64, owner_id: i64) -> Result<
 }
 
 pub async fn revoke_by_series(state: &AppState, series: Uuid) -> Result<(), sqlx::Error> {
-    sqlx::query(
+    crate::db::query(
         "UPDATE persistent_session SET revoked_at = $1 WHERE series_id = $2 AND revoked_at IS NULL",
     )
     .bind(state.clock.now())

@@ -4,7 +4,6 @@
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use sqlx::Connection;
 
 use crate::AppState;
 use crate::auth::{Auth, persistent, users};
@@ -48,24 +47,23 @@ pub async fn unlink_identities(
             "Use your sign-in settings to remove your own single sign-on identities",
         ));
     }
-    let mut conn = state.db.acquire().await?;
-    let mut tx = conn.begin().await?;
-    sqlx::query("DELETE FROM user_identity WHERE user_id = $1")
+    let mut tx = state.db.begin().await?;
+    crate::db::query("DELETE FROM user_identity WHERE user_id = $1")
         .bind(target.id)
-        .execute(&mut *tx)
+        .execute(&mut tx)
         .await?;
-    sqlx::query(
+    crate::db::query(
         "UPDATE app_user SET token_version = token_version + 1, updated_at = now() WHERE id = $1",
     )
     .bind(target.id)
-    .execute(&mut *tx)
+    .execute(&mut tx)
     .await?;
-    sqlx::query(
+    crate::db::query(
         "UPDATE persistent_session SET revoked_at = $2 WHERE user_id = $1 AND revoked_at IS NULL",
     )
     .bind(target.id)
     .bind(state.clock.now())
-    .execute(&mut *tx)
+    .execute(&mut tx)
     .await?;
     tx.commit().await?;
     let details = format!("targetUserId={}", target.id);

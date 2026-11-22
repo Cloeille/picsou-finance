@@ -3,17 +3,13 @@
 
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
-use sqlx::PgExecutor;
 
-use super::model::{ACCOUNT_COLUMNS, Account, AccountType, CardNature};
+use super::model::{ACCOUNT_COLUMNS, ACCOUNT_RETURNING, Account, AccountType, CardNature};
+use crate::db::DbExec;
 use crate::error::{AppError, AppResult};
 
 /// AccountService.getOrThrow: the member's own account, or the 404 "Account not found".
-pub async fn get_or_throw<'e>(
-    db: impl PgExecutor<'e>,
-    id: i64,
-    member_id: i64,
-) -> AppResult<Account> {
+pub async fn get_or_throw<'e>(db: impl DbExec<'e>, id: i64, member_id: i64) -> AppResult<Account> {
     find_by_id_and_member(db, id, member_id)
         .await?
         .ok_or_else(account_not_found)
@@ -28,19 +24,19 @@ fn select(filter: &str) -> String {
     format!("SELECT {ACCOUNT_COLUMNS} FROM account a WHERE a.deleted_at IS NULL AND {filter}")
 }
 
-pub async fn find_by_id<'e>(db: impl PgExecutor<'e>, id: i64) -> sqlx::Result<Option<Account>> {
-    sqlx::query_as(&select("a.id = $1"))
+pub async fn find_by_id<'e>(db: impl DbExec<'e>, id: i64) -> sqlx::Result<Option<Account>> {
+    crate::db::query_as(&select("a.id = $1"))
         .bind(id)
         .fetch_optional(db)
         .await
 }
 
 pub async fn find_by_id_and_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     id: i64,
     member_id: i64,
 ) -> sqlx::Result<Option<Account>> {
-    sqlx::query_as(&select("a.id = $1 AND a.member_id = $2"))
+    crate::db::query_as(&select("a.id = $1 AND a.member_id = $2"))
         .bind(id)
         .bind(member_id)
         .fetch_optional(db)
@@ -48,8 +44,8 @@ pub async fn find_by_id_and_member<'e>(
 }
 
 /// findAllById: the live accounts among ids, in creation order.
-pub async fn find_by_ids<'e>(db: impl PgExecutor<'e>, ids: &[i64]) -> sqlx::Result<Vec<Account>> {
-    sqlx::query_as(&format!(
+pub async fn find_by_ids<'e>(db: impl DbExec<'e>, ids: &[i64]) -> sqlx::Result<Vec<Account>> {
+    crate::db::query_as(&format!(
         "{} ORDER BY a.created_at, a.id",
         select("a.id = ANY($1)")
     ))
@@ -59,11 +55,11 @@ pub async fn find_by_ids<'e>(db: impl PgExecutor<'e>, ids: &[i64]) -> sqlx::Resu
 }
 
 pub async fn find_by_ids_and_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     ids: &[i64],
     member_id: i64,
 ) -> sqlx::Result<Vec<Account>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as(&format!(
         "{} ORDER BY a.created_at, a.id",
         select("a.id = ANY($1) AND a.member_id = $2")
     ))
@@ -74,10 +70,10 @@ pub async fn find_by_ids_and_member<'e>(
 }
 
 pub async fn find_all_by_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<Vec<Account>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as(&format!(
         "{} ORDER BY a.created_at, a.id",
         select("a.member_id = $1")
     ))
@@ -88,10 +84,10 @@ pub async fn find_all_by_member<'e>(
 
 /// The member's accounts that are not hidden, in creation order.
 pub async fn find_visible_by_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<Vec<Account>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as(&format!(
         "{} ORDER BY a.created_at, a.id",
         select("a.member_id = $1 AND a.hidden = false")
     ))
@@ -101,11 +97,11 @@ pub async fn find_visible_by_member<'e>(
 }
 
 pub async fn find_by_external_id_and_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     external_account_id: &str,
     member_id: i64,
 ) -> sqlx::Result<Option<Account>> {
-    sqlx::query_as(&select("a.external_account_id = $1 AND a.member_id = $2"))
+    crate::db::query_as(&select("a.external_account_id = $1 AND a.member_id = $2"))
         .bind(external_account_id)
         .bind(member_id)
         .fetch_optional(db)
@@ -113,11 +109,11 @@ pub async fn find_by_external_id_and_member<'e>(
 }
 
 pub async fn find_all_by_member_and_provider<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     provider: &str,
 ) -> sqlx::Result<Vec<Account>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as(&format!(
         "{} ORDER BY a.id",
         select("a.member_id = $1 AND a.provider = $2")
     ))
@@ -129,11 +125,11 @@ pub async fn find_all_by_member_and_provider<'e>(
 
 /// The provider's accounts of the member, row-locked until the transaction ends.
 pub async fn find_all_by_member_and_provider_for_update<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     provider: &str,
 ) -> sqlx::Result<Vec<Account>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as(&format!(
         "{} ORDER BY a.id FOR UPDATE",
         select("a.member_id = $1 AND a.provider = $2")
     ))
@@ -144,11 +140,11 @@ pub async fn find_all_by_member_and_provider_for_update<'e>(
 }
 
 pub async fn find_by_iban_and_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     iban: &str,
     member_id: i64,
 ) -> sqlx::Result<Option<Account>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as(&format!(
         "{} ORDER BY a.id",
         select("a.iban = $1 AND a.member_id = $2")
     ))
@@ -159,12 +155,12 @@ pub async fn find_by_iban_and_member<'e>(
 }
 
 pub async fn find_by_iban_currency_and_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     iban: &str,
     currency: &str,
     member_id: i64,
 ) -> sqlx::Result<Option<Account>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as(&format!(
         "{} ORDER BY a.id",
         select("a.iban = $1 AND a.currency = $2 AND a.member_id = $3")
     ))
@@ -176,13 +172,13 @@ pub async fn find_by_iban_currency_and_member<'e>(
 }
 
 pub async fn exists_by_iban_currency_and_member_other_than<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     iban: &str,
     currency: &str,
     member_id: i64,
     id: i64,
 ) -> sqlx::Result<bool> {
-    sqlx::query_scalar(
+    crate::db::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM account WHERE deleted_at IS NULL AND iban = $1 AND currency = $2 \
          AND member_id = $3 AND id <> $4)",
     )
@@ -195,12 +191,12 @@ pub async fn exists_by_iban_currency_and_member_other_than<'e>(
 }
 
 pub async fn find_first_by_iban_member_and_providers<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     iban: &str,
     member_id: i64,
     providers: &[&str],
 ) -> sqlx::Result<Option<Account>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as(&format!(
         "{} ORDER BY a.id LIMIT 1",
         select("a.iban = $1 AND a.member_id = $2 AND a.provider = ANY($3)")
     ))
@@ -213,11 +209,11 @@ pub async fn find_first_by_iban_member_and_providers<'e>(
 
 /// Whether the member deleted an account with this external id: a sync must not resurrect it.
 pub async fn exists_soft_deleted_by_external_id<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     external_account_id: &str,
     member_id: i64,
 ) -> sqlx::Result<bool> {
-    sqlx::query_scalar(
+    crate::db::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM account WHERE external_account_id = $1 AND member_id = $2 \
          AND deleted_at IS NOT NULL)",
     )
@@ -228,12 +224,12 @@ pub async fn exists_soft_deleted_by_external_id<'e>(
 }
 
 pub async fn exists_soft_deleted_by_external_ids_and_name<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     external_account_ids: &[String],
     name: &str,
     member_id: i64,
 ) -> sqlx::Result<bool> {
-    sqlx::query_scalar(
+    crate::db::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM account WHERE external_account_id = ANY($1) AND name = $2 \
          AND member_id = $3 AND deleted_at IS NOT NULL)",
     )
@@ -247,13 +243,13 @@ pub async fn exists_soft_deleted_by_external_ids_and_name<'e>(
 /// Whether a soft-deleted account of the member matches the IBAN, and the currency and the
 /// providers when given.
 pub async fn exists_soft_deleted_by_iban<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     iban: &str,
     member_id: i64,
     currency: Option<&str>,
     providers: Option<&[&str]>,
 ) -> sqlx::Result<bool> {
-    sqlx::query_scalar(
+    crate::db::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM account WHERE iban = $1 AND member_id = $2 \
          AND ($3::text IS NULL OR currency = $3) AND ($4::text[] IS NULL OR provider = ANY($4)) \
          AND deleted_at IS NOT NULL)",
@@ -268,10 +264,10 @@ pub async fn exists_soft_deleted_by_iban<'e>(
 
 /// Revolut wallets (not their pockets) of the member.
 pub async fn find_revolut_wallets<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<Vec<Account>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as(&format!(
         "{} ORDER BY a.id",
         select("a.member_id = $1 AND a.provider = 'Revolut' AND a.parent_account_id IS NULL")
     ))
@@ -282,11 +278,11 @@ pub async fn find_revolut_wallets<'e>(
 
 /// Undeletes every soft-deleted account of the provider for the member (Trade Republic, Revolut).
 pub async fn restore_soft_deleted_by_provider<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     provider: &str,
 ) -> sqlx::Result<u64> {
-    Ok(sqlx::query(
+    Ok(crate::db::query(
         "UPDATE account SET deleted_at = NULL WHERE member_id = $1 AND provider = $2 AND deleted_at IS NOT NULL",
     )
     .bind(member_id)
@@ -298,13 +294,13 @@ pub async fn restore_soft_deleted_by_provider<'e>(
 
 /// Undeletes the one Revolut account matching the external id, or the IBAN and currency.
 pub async fn restore_soft_deleted_revolut_account<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     external_account_id: &str,
     iban: Option<&str>,
     currency: &str,
 ) -> sqlx::Result<u64> {
-    Ok(sqlx::query(
+    Ok(crate::db::query(
         "UPDATE account SET deleted_at = NULL WHERE member_id = $1 AND provider = 'Revolut' \
          AND deleted_at IS NOT NULL AND (external_account_id = $2 OR ($3::text IS NOT NULL AND iban = $3 \
          AND currency = $4))",
@@ -320,12 +316,12 @@ pub async fn restore_soft_deleted_revolut_account<'e>(
 
 /// Distinct non-blank account tickers of live accounts of the type, or of every other type.
 pub async fn distinct_tickers_by_type<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     account_type: AccountType,
     exclude: bool,
 ) -> sqlx::Result<Vec<String>> {
     let op = if exclude { "<>" } else { "=" };
-    sqlx::query_scalar(&format!(
+    crate::db::query_scalar(&format!(
         "SELECT DISTINCT ticker FROM account WHERE ticker IS NOT NULL AND length(trim(ticker)) > 0 \
          AND deleted_at IS NULL AND type {op} $1::account_type ORDER BY ticker"
     ))
@@ -389,16 +385,16 @@ impl NewAccount {
 }
 
 pub async fn insert<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     account: &NewAccount,
     now: DateTime<Utc>,
 ) -> sqlx::Result<Account> {
-    sqlx::query_as(&format!(
-        "WITH a AS (INSERT INTO account (member_id, name, type, provider, currency, current_balance, cash_balance, \
+    crate::db::query_as(&format!(
+        "INSERT INTO account (member_id, name, type, provider, currency, current_balance, cash_balance, \
          last_synced_at, external_account_id, is_manual, color, iban, ticker, logo_url, logo_key, institution_name, \
          institution_domain, requisition_id, parent_account_id, card_nature, opened_at, hidden, created_at, updated_at) \
          VALUES ($1, $2, $3::account_type, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, \
-         $20, $21, false, $22, $22) RETURNING *) SELECT {ACCOUNT_COLUMNS} FROM a"
+         $20, $21, false, $22, $22) RETURNING {ACCOUNT_RETURNING}"
     ))
     .bind(account.member_id)
     .bind(&account.name)
@@ -428,19 +424,18 @@ pub async fn insert<'e>(
 
 /// Writes every mutable column of the row back (JPA save of a loaded entity), stamping updated_at.
 pub async fn update<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     account: &Account,
     now: DateTime<Utc>,
 ) -> sqlx::Result<Account> {
-    sqlx::query_as(&format!(
-        "WITH a AS (UPDATE account SET member_id = $2, name = $3, type = $4::account_type, provider = $5, \
+    crate::db::query_as(&format!(
+        "UPDATE account SET member_id = $2, name = $3, type = $4::account_type, provider = $5, \
          currency = $6, current_balance = $7, cash_balance = $8, last_synced_at = $9, payment_due_amount = $10, \
          payment_due_date = $11, card_nature = $12, reward_points = $13, external_account_id = $14, is_manual = $15, \
          color = $16, iban = $17, ticker = $18, logo_url = $19, logo_key = $20, institution_name = $21, \
          institution_domain = $22, requisition_id = $23, opened_at = $24, provider_invested_eur = $25, \
          provider_paid_in_eur = $26, scheduled_payment_eur = $27, scheduled_payment_cadence = $28, deleted_at = $29, \
-         parent_account_id = $30, hidden = $31, updated_at = $32 WHERE id = $1 RETURNING *) \
-         SELECT {ACCOUNT_COLUMNS} FROM a"
+         parent_account_id = $30, hidden = $31, updated_at = $32 WHERE id = $1 RETURNING {ACCOUNT_RETURNING}"
     ))
     .bind(account.id)
     .bind(account.member_id)
@@ -480,13 +475,13 @@ pub async fn update<'e>(
 
 /// Sets the balance and the sync instant only, the write every sync ends with.
 pub async fn set_balance<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     account_id: i64,
     balance: Decimal,
     synced_at: Option<DateTime<Utc>>,
     now: DateTime<Utc>,
 ) -> sqlx::Result<()> {
-    sqlx::query(
+    crate::db::query(
         "UPDATE account SET current_balance = $2, last_synced_at = COALESCE($3, last_synced_at), updated_at = $4 \
          WHERE id = $1",
     )

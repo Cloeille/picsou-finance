@@ -35,7 +35,7 @@ fn mfa_error(message: &str) -> AppError {
     AppError::BadRequest(message.to_owned())
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(crate::db::DbFromRow)]
 struct UserMfa {
     id: i64,
     enabled: bool,
@@ -44,15 +44,18 @@ struct UserMfa {
     enrolled_at: Option<DateTime<Utc>>,
 }
 
-async fn find(db: &PgPool, user_id: i64) -> Result<Option<UserMfa>, sqlx::Error> {
-    sqlx::query_as("SELECT id, enabled, totp_secret_enc, last_used_step, enrolled_at FROM user_mfa WHERE user_id = $1")
+async fn find<'e>(
+    db: impl crate::db::DbExec<'e>,
+    user_id: i64,
+) -> Result<Option<UserMfa>, sqlx::Error> {
+    crate::db::query_as("SELECT id, enabled, totp_secret_enc, last_used_step, enrolled_at FROM user_mfa WHERE user_id = $1")
         .bind(user_id)
         .fetch_optional(db)
         .await
 }
 
 pub async fn is_enabled(db: &PgPool, user_id: i64) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM user_mfa WHERE user_id = $1 AND enabled)")
+    crate::db::query_scalar("SELECT EXISTS (SELECT 1 FROM user_mfa WHERE user_id = $1 AND enabled)")
         .bind(user_id)
         .fetch_one(db)
         .await
@@ -115,7 +118,7 @@ pub async fn verify_totp(state: &AppState, user: &AppUser, code: &str) -> AppRes
     let Some(step) = match_step(state, &secret, code, mfa.last_used_step) else {
         return Ok(false);
     };
-    sqlx::query("UPDATE user_mfa SET last_used_step = $1, updated_at = now() WHERE id = $2")
+    crate::db::query("UPDATE user_mfa SET last_used_step = $1, updated_at = now() WHERE id = $2")
         .bind(step)
         .bind(mfa.id)
         .execute(&state.db)
@@ -128,13 +131,13 @@ pub async fn verify_recovery_code(state: &AppState, user: &AppUser, code: &str) 
         return Ok(false);
     };
     let codes: Vec<(i64, String)> =
-        sqlx::query_as("SELECT id, code_hash FROM user_mfa_recovery_code WHERE user_mfa_id = $1 AND used_at IS NULL")
+        crate::db::query_as("SELECT id, code_hash FROM user_mfa_recovery_code WHERE user_mfa_id = $1 AND used_at IS NULL")
             .bind(mfa.id)
             .fetch_all(&state.db)
             .await?;
     for (id, hash) in codes {
         if password::matches(code, &hash).await {
-            sqlx::query("UPDATE user_mfa_recovery_code SET used_at = $1 WHERE id = $2")
+            crate::db::query("UPDATE user_mfa_recovery_code SET used_at = $1 WHERE id = $2")
                 .bind(state.clock.now())
                 .bind(id)
                 .execute(&state.db)
@@ -169,11 +172,13 @@ async fn generate_recovery_codes(state: &AppState, mfa_id: i64) -> AppResult<Vec
     }
     let hashes = futures::future::try_join_all(ordered.iter().map(|c| password::hash(c))).await?;
     for hash in hashes {
-        sqlx::query("INSERT INTO user_mfa_recovery_code (user_mfa_id, code_hash) VALUES ($1, $2)")
-            .bind(mfa_id)
-            .bind(hash)
-            .execute(&state.db)
-            .await?;
+        crate::db::query(
+            "INSERT INTO user_mfa_recovery_code (user_mfa_id, code_hash) VALUES ($1, $2)",
+        )
+        .bind(mfa_id)
+        .bind(hash)
+        .execute(&state.db)
+        .await?;
     }
     Ok(ordered)
 }
@@ -221,7 +226,7 @@ pub async fn status(State(state): State<AppState>, auth: Auth) -> AppResult<Resp
         Some(mfa) => StatusResponse {
             enabled: true,
             enrolled_at: mfa.enrolled_at,
-            remaining_recovery_codes: sqlx::query_scalar(
+            remaining_recovery_codes: crate::db::query_scalar(
                 "SELECT count(*) FROM user_mfa_recovery_code WHERE user_mfa_id = $1 AND used_at IS NULL",
             )
             .bind(mfa.id)
@@ -275,7 +280,7 @@ pub async fn enroll_init(
     rand::rng().fill(&mut raw[..]);
     let secret = Secret::from(raw).to_base32();
     let encrypted = state.crypto.encrypt(&secret)?;
-    sqlx::query(
+    crate::db::query(
         "INSERT INTO user_mfa (user_id, enabled, totp_secret_enc, last_used_step, enrolled_at) VALUES ($1, false, $2, NULL, NULL) \
          ON CONFLICT (user_id) DO UPDATE SET enabled = false, totp_secret_enc = EXCLUDED.totp_secret_enc, \
          last_used_step = NULL, enrolled_at = NULL, updated_at = now()",
@@ -329,7 +334,7 @@ pub async fn enroll_verify(
     let secret = state.crypto.decrypt(&mfa.totp_secret_enc)?;
     let step = match_step(&state, &secret, &req.code.unwrap_or_default(), None)
         .ok_or_else(|| mfa_error("Invalid verification code"))?;
-    sqlx::query("UPDATE user_mfa SET enabled = true, enrolled_at = $1, last_used_step = $2, updated_at = now() WHERE id = $3")
+    crate::db::query("UPDATE user_mfa SET enabled = true, enrolled_at = $1, last_used_step = $2, updated_at = now() WHERE id = $3")
         .bind(state.clock.now())
         .bind(step)
         .bind(mfa.id)
@@ -374,11 +379,11 @@ pub async fn disable(
         return Err(mfa_error("Invalid verification code"));
     }
     if let Some(mfa) = find(&state.db, auth.user.id).await? {
-        sqlx::query("DELETE FROM user_mfa_recovery_code WHERE user_mfa_id = $1")
+        crate::db::query("DELETE FROM user_mfa_recovery_code WHERE user_mfa_id = $1")
             .bind(mfa.id)
             .execute(&state.db)
             .await?;
-        sqlx::query("DELETE FROM user_mfa WHERE id = $1")
+        crate::db::query("DELETE FROM user_mfa WHERE id = $1")
             .bind(mfa.id)
             .execute(&state.db)
             .await?;
@@ -419,7 +424,7 @@ pub async fn regenerate(
         .await?
         .filter(|m| m.enabled)
         .ok_or_else(|| mfa_error("MFA is not enabled"))?;
-    sqlx::query("DELETE FROM user_mfa_recovery_code WHERE user_mfa_id = $1")
+    crate::db::query("DELETE FROM user_mfa_recovery_code WHERE user_mfa_id = $1")
         .bind(mfa.id)
         .execute(&state.db)
         .await?;

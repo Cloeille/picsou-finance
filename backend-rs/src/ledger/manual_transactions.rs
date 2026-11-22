@@ -15,6 +15,7 @@ use super::model::{Account, AccountType, Category, NewTransaction, Transaction, 
 use super::prices::PriceRead;
 use super::sync_values::{java_is_blank, java_trim};
 use super::transactions;
+use crate::db::DbExec;
 use crate::error::{AppError, AppResult};
 use crate::http::json::{Errors, Lang, Validate};
 
@@ -240,6 +241,7 @@ fn validate_fees(fees: Option<Decimal>) -> AppResult<()> {
     Ok(())
 }
 
+// Wave 3: switch to impl DbExec once categorize::category_of_member switches
 async fn resolve_category(
     conn: &mut PgConnection,
     category_id: i64,
@@ -250,13 +252,13 @@ async fn resolve_category(
         .ok_or_else(|| AppError::NotFound("Category not found".to_owned()))
 }
 
-async fn find_manual_transaction(
-    conn: &mut PgConnection,
+async fn find_manual_transaction<'e>(
+    db: impl DbExec<'e>,
     account_id: i64,
     tx_id: i64,
     refusal: &str,
 ) -> AppResult<Transaction> {
-    let tx = transactions::find_by_id_and_account(&mut *conn, tx_id, account_id)
+    let tx = transactions::find_by_id_and_account(db, tx_id, account_id)
         .await?
         .ok_or_else(|| AppError::NotFound("Transaction not found".to_owned()))?;
     if !tx.is_manual {
@@ -265,6 +267,7 @@ async fn find_manual_transaction(
     Ok(tx)
 }
 
+// Wave 3: switch to impl DbExec once categorize::category_of_member switches
 async fn respond(
     conn: &mut PgConnection,
     tx: &Transaction,

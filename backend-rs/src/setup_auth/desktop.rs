@@ -310,7 +310,7 @@ pub async fn update_lock(
         }
         let hash = password::hash(&req.new_password.unwrap_or_default()).await?;
         user.token_version += 1;
-        sqlx::query(
+        crate::db::query(
             "UPDATE app_user SET password_hash = $1, token_version = $2, updated_at = now() WHERE id = $3",
         )
         .bind(&hash)

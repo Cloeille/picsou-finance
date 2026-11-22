@@ -6,14 +6,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use sqlx::{PgConnection, PgExecutor, PgPool};
+use sqlx::{PgConnection, PgPool};
 
 use super::merchants::{self, KnowledgeBase};
 use super::model::{
-    BudgetSettings, CATEGORY_COLUMNS, CategorizationRule, Category, CategoryKind, NewTransaction,
-    RuleMatchType, Transaction,
+    BudgetSettings, CATEGORY_COLUMNS, CATEGORY_RETURNING, CategorizationRule, Category,
+    CategoryKind, NewTransaction, RuleMatchType, Transaction,
 };
 use super::sync_values::java_is_blank;
+use crate::db::{AsDbHandle, DbExec, DbHandle};
 
 struct DefaultCategory {
     slug: &'static str,
@@ -187,11 +188,11 @@ pub const TRANSFER_SLUG: &str = "virement-interne";
 
 /// The member's categories in display order, archived ones included or not.
 pub async fn categories_of_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     include_archived: bool,
 ) -> sqlx::Result<Vec<Category>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as(&format!(
         "SELECT {CATEGORY_COLUMNS} FROM category c WHERE c.member_id = $1 AND ($2 OR c.archived = false) \
          ORDER BY c.sort_order, c.id"
     ))
@@ -201,8 +202,9 @@ pub async fn categories_of_member<'e>(
     .await
 }
 
+// Wave 3: switch to impl DbExec (called by src/budget/categories.rs with opaque impl PgExecutor)
 pub async fn category_of_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl sqlx::PgExecutor<'e>,
     id: i64,
     member_id: i64,
 ) -> sqlx::Result<Option<Category>> {
@@ -216,16 +218,16 @@ pub async fn category_of_member<'e>(
 }
 
 async fn insert_default<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     d: &DefaultCategory,
     sort_order: i32,
     now: DateTime<Utc>,
 ) -> sqlx::Result<Category> {
-    sqlx::query_as(&format!(
-        "WITH c AS (INSERT INTO category (member_id, slug, name, kind, color, icon, is_default, archived, sort_order, \
-         created_at, updated_at) VALUES ($1, $2, $3, $4::category_kind, $5, $6, true, false, $7, $8, $8) RETURNING *) \
-         SELECT {CATEGORY_COLUMNS} FROM c"
+    crate::db::query_as(&format!(
+        "INSERT INTO category (member_id, slug, name, kind, color, icon, is_default, archived, sort_order, \
+         created_at, updated_at) VALUES ($1, $2, $3, $4::category_kind, $5, $6, true, false, $7, $8, $8) \
+         RETURNING {CATEGORY_RETURNING}"
     ))
     .bind(member_id)
     .bind(d.slug)
@@ -243,17 +245,17 @@ async fn insert_default<'e>(
 /// transaction of its own (REQUIRES_NEW) so the seed survives the caller's rollback.
 pub async fn ensure_seeded(db: &PgPool, member_id: i64, now: DateTime<Utc>) -> sqlx::Result<()> {
     let mut tx = db.begin().await?;
-    seed_if_empty(&mut tx, member_id, now).await?;
+    seed_if_empty(&mut tx.as_handle(), member_id, now).await?;
     tx.commit().await
 }
 
 async fn seed_if_empty(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     now: DateTime<Utc>,
 ) -> sqlx::Result<()> {
     let exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM category WHERE member_id = $1)")
+        crate::db::query_scalar("SELECT EXISTS(SELECT 1 FROM category WHERE member_id = $1)")
             .bind(member_id)
             .fetch_one(&mut *conn)
             .await?;
@@ -278,7 +280,7 @@ pub async fn find_or_create_default(
     let Some(wanted) = DEFAULTS.iter().find(|d| d.slug == slug) else {
         return Ok(None);
     };
-    seed_if_empty(&mut *conn, member_id, now).await?;
+    seed_if_empty(&mut conn.as_handle(), member_id, now).await?;
     let existing = categories_of_member(&mut *conn, member_id, true).await?;
     if let Some(found) = existing.iter().find(|c| c.slug.as_deref() == Some(slug)) {
         return Ok((!found.archived).then(|| found.clone()));
@@ -308,10 +310,10 @@ pub async fn categories_by_slug(
 
 /// The member's rules, highest priority first.
 pub async fn rules_of_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<Vec<CategorizationRule>> {
-    sqlx::query_as(
+    crate::db::query_as(
         "SELECT id, member_id, match_type, pattern, category_id, priority, source, created_at \
          FROM categorization_rule WHERE member_id = $1 ORDER BY priority DESC, id",
     )
@@ -321,8 +323,9 @@ pub async fn rules_of_member<'e>(
 }
 
 /// BudgetSettingsRepository.findByMemberId.
+// Wave 3: switch to impl DbExec (called by src/budget/settings.rs with opaque impl PgExecutor)
 pub async fn budget_settings_of_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl sqlx::PgExecutor<'e>,
     member_id: i64,
 ) -> sqlx::Result<Option<BudgetSettings>> {
     sqlx::query_as(
@@ -508,4 +511,43 @@ fn java_split_whitespace(value: &str) -> Vec<&str> {
         kept.push("");
     }
     kept
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::Db;
+    use crate::db::sqlite::{SqliteDb, migrate};
+
+    #[tokio::test]
+    async fn sqlite_seed_if_empty_inserts_defaults_without_modifying_cte() {
+        let sq = SqliteDb::open_in_memory().expect("open sqlite");
+        sq.with_conn(|conn| {
+            migrate::migrate(conn).expect("migrate sqlite");
+            Ok(())
+        })
+        .expect("with_conn");
+        let db = Db::Sqlite(sq);
+        let now: DateTime<Utc> = "2026-06-15T12:00:00Z".parse().expect("ts");
+
+        let member_id: i64 = crate::db::query_scalar(
+            "INSERT INTO family_member (display_name, avatar_color, is_managed) VALUES ($1, $2, false) RETURNING id",
+        )
+        .bind("Alice")
+        .bind("#6366f1")
+        .fetch_one(&db)
+        .await
+        .expect("insert member");
+
+        let mut tx = db.begin().await.expect("begin");
+        seed_if_empty(&mut tx.as_handle(), member_id, now)
+            .await
+            .expect("seed_if_empty");
+        tx.commit().await.expect("commit");
+
+        let cats = categories_of_member(&db, member_id, false)
+            .await
+            .expect("categories_of_member");
+        assert_eq!(cats.len(), DEFAULTS.len());
+    }
 }

@@ -2,7 +2,8 @@
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use sqlx::{FromRow, PgExecutor};
+
+use crate::db::{DbExec, DbFromRow};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "UPPERCASE")]
@@ -45,7 +46,7 @@ pub struct AppUser {
     pub managed: bool,
 }
 
-#[derive(FromRow)]
+#[derive(DbFromRow)]
 struct Row {
     id: i64,
     username: String,
@@ -86,12 +87,9 @@ const SELECT: &str = "SELECT u.id, u.username, u.password_hash, u.role, u.is_act
     u.token_version, u.activation_token, u.activation_token_expires, u.member_id, m.display_name, m.avatar_color, \
     m.is_managed FROM app_user u JOIN family_member m ON m.id = u.member_id";
 
-pub async fn find_by_id<'e>(
-    db: impl PgExecutor<'e>,
-    id: i64,
-) -> Result<Option<AppUser>, sqlx::Error> {
+pub async fn find_by_id<'e>(db: impl DbExec<'e>, id: i64) -> Result<Option<AppUser>, sqlx::Error> {
     let sql = format!("{SELECT} WHERE u.id = $1");
-    Ok(sqlx::query_as::<_, Row>(&sql)
+    Ok(crate::db::query_as::<Row>(&sql)
         .bind(id)
         .fetch_optional(db)
         .await?
@@ -99,11 +97,11 @@ pub async fn find_by_id<'e>(
 }
 
 pub async fn find_by_username<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     username: &str,
 ) -> Result<Option<AppUser>, sqlx::Error> {
     let sql = format!("{SELECT} WHERE u.username = $1");
-    Ok(sqlx::query_as::<_, Row>(&sql)
+    Ok(crate::db::query_as::<Row>(&sql)
         .bind(username)
         .fetch_optional(db)
         .await?
@@ -111,11 +109,11 @@ pub async fn find_by_username<'e>(
 }
 
 pub async fn find_by_member_id<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
 ) -> Result<Option<AppUser>, sqlx::Error> {
     let sql = format!("{SELECT} WHERE u.member_id = $1");
-    Ok(sqlx::query_as::<_, Row>(&sql)
+    Ok(crate::db::query_as::<Row>(&sql)
         .bind(member_id)
         .fetch_optional(db)
         .await?
@@ -123,21 +121,22 @@ pub async fn find_by_member_id<'e>(
 }
 
 pub async fn find_by_activation_token<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     token: &str,
     for_update: bool,
 ) -> Result<Option<AppUser>, sqlx::Error> {
     let lock = if for_update { " FOR UPDATE OF u" } else { "" };
     let sql = format!("{SELECT} WHERE u.activation_token = $1{lock}");
-    Ok(sqlx::query_as::<_, Row>(&sql)
+    Ok(crate::db::query_as::<Row>(&sql)
         .bind(token)
         .fetch_optional(db)
         .await?
         .map(Into::into))
 }
 
+// Wave 3: switch to impl DbExec (called by src/identity/sso/account.rs with opaque impl PgExecutor)
 pub async fn exists_by_username<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl sqlx::PgExecutor<'e>,
     username: &str,
 ) -> Result<bool, sqlx::Error> {
     sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM app_user WHERE username = $1)")
@@ -146,18 +145,16 @@ pub async fn exists_by_username<'e>(
         .await
 }
 
-pub async fn count<'e>(db: impl PgExecutor<'e>) -> Result<i64, sqlx::Error> {
-    sqlx::query_scalar("SELECT count(*) FROM app_user")
+pub async fn count<'e>(db: impl DbExec<'e>) -> Result<i64, sqlx::Error> {
+    crate::db::query_scalar("SELECT count(*) FROM app_user")
         .fetch_one(db)
         .await
 }
 
 /// Earliest created active user — used by local Desktop Mode auto-login.
-pub async fn find_primary_active<'e>(
-    db: impl PgExecutor<'e>,
-) -> Result<Option<AppUser>, sqlx::Error> {
+pub async fn find_primary_active<'e>(db: impl DbExec<'e>) -> Result<Option<AppUser>, sqlx::Error> {
     let sql = format!("{SELECT} WHERE u.is_activated = true ORDER BY u.id ASC LIMIT 1");
-    Ok(sqlx::query_as::<_, Row>(&sql)
+    Ok(crate::db::query_as::<Row>(&sql)
         .fetch_optional(db)
         .await?
         .map(Into::into))

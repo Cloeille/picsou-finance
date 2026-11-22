@@ -1,17 +1,16 @@
 //! AccountDisplayPrefRepository: each viewer's own list position and collapsed state of an
 //! account (hidden is a column of the account itself).
 
-use sqlx::PgExecutor;
-
 use super::model::AccountDisplayPref;
+use crate::db::DbExec;
 
 const COLUMNS: &str = "id, account_id, member_id, list_position, list_collapsed";
 
 pub async fn find_by_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<Vec<AccountDisplayPref>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as(&format!(
         "SELECT {COLUMNS} FROM account_display_pref WHERE member_id = $1 ORDER BY id"
     ))
     .bind(member_id)
@@ -20,11 +19,11 @@ pub async fn find_by_member<'e>(
 }
 
 pub async fn find_by_member_and_account<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     account_id: i64,
 ) -> sqlx::Result<Option<AccountDisplayPref>> {
-    sqlx::query_as(&format!(
+    crate::db::query_as(&format!(
         "SELECT {COLUMNS} FROM account_display_pref WHERE member_id = $1 AND account_id = $2"
     ))
     .bind(member_id)
@@ -36,13 +35,13 @@ pub async fn find_by_member_and_account<'e>(
 /// Writes the given fields of the viewer's row, creating it (not collapsed) when absent; a None
 /// field keeps its stored value.
 pub async fn upsert<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     account_id: i64,
     member_id: i64,
     position: Option<i32>,
     collapsed: Option<bool>,
 ) -> sqlx::Result<()> {
-    sqlx::query(
+    crate::db::query(
         "INSERT INTO account_display_pref (account_id, member_id, list_position, list_collapsed, created_at, updated_at) \
          VALUES ($1, $2, $3, COALESCE($4, FALSE), NOW(), NOW()) \
          ON CONFLICT (account_id, member_id) DO UPDATE SET \
@@ -59,8 +58,8 @@ pub async fn upsert<'e>(
 }
 
 /// Forgets every list position of the viewer.
-pub async fn clear_positions<'e>(db: impl PgExecutor<'e>, member_id: i64) -> sqlx::Result<()> {
-    sqlx::query(
+pub async fn clear_positions<'e>(db: impl DbExec<'e>, member_id: i64) -> sqlx::Result<()> {
+    crate::db::query(
         "UPDATE account_display_pref SET list_position = NULL, updated_at = NOW() WHERE member_id = $1",
     )
     .bind(member_id)

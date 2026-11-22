@@ -1,8 +1,7 @@
 //! The app_setting key/value rows the setup wizard writes and the security chain reads.
 
-use sqlx::PgExecutor;
-
 use crate::AppState;
+use crate::db::DbExec;
 
 pub const SETUP_STATE: &str = "setup.state";
 pub const CORS_ALLOWED_ORIGINS: &str = "cors.allowed-origins";
@@ -17,22 +16,15 @@ pub async fn read(state: &AppState, key: &str) -> Result<Option<String>, sqlx::E
     read_with(&state.db, key).await
 }
 
-pub async fn read_with<'e>(
-    db: impl PgExecutor<'e>,
-    key: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar("SELECT value FROM app_setting WHERE setting_key = $1")
+pub async fn read_with<'e>(db: impl DbExec<'e>, key: &str) -> Result<Option<String>, sqlx::Error> {
+    crate::db::query_scalar("SELECT value FROM app_setting WHERE setting_key = $1")
         .bind(key)
         .fetch_optional(db)
         .await
 }
 
-pub async fn upsert<'e>(
-    db: impl PgExecutor<'e>,
-    key: &str,
-    value: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
+pub async fn upsert<'e>(db: impl DbExec<'e>, key: &str, value: &str) -> Result<(), sqlx::Error> {
+    crate::db::query(
         "INSERT INTO app_setting (setting_key, value) VALUES ($1, $2) \
          ON CONFLICT (setting_key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
     )

@@ -5,7 +5,7 @@ The model every domain track reads and writes: accounts, holdings, transactions,
 ## Conventions
 
 - Rows are in `model` (`Account`, `AccountHolding`, `Transaction`, `BalanceSnapshot`, ...); enums store their Java names (`AccountType::as_str`, `FromStr`, sqlx encode/decode as text). Queries on the native PostgreSQL enums bind with `$1::account_type` / `$1::category_kind`.
-- Repository functions take `impl PgExecutor` (a pool, a connection or a transaction); a function that writes several rows takes `&mut PgConnection` so the caller owns the transaction (`&mut *tx`).
+- Repository functions take `impl crate::db::DbExec` (a pool, a connection or a transaction); a function that writes several rows takes `&mut PgConnection` / `&mut DbHandle` so the caller owns the transaction.
 - Account reads never return soft-deleted rows (Java's `@SQLRestriction`). Member scoping is an argument: use `accounts::get_or_throw(db, id, member_id)` for an owned account, `access::require_readable` / `access::require_owner` when co-owners are involved. Errors are `AppError` with Java's bodies (`accounts::account_not_found()`).
 - Time is a parameter: `today: NaiveDate` (`state.clock.today()`) and `now: DateTime<Utc>` (`state.clock.now()`). Nothing here reads the system clock.
 - A `Decimal` serializes as a JSON string by default (rust_decimal has no number mode without float); response fields need `#[serde(with = "rust_decimal::serde::arbitrary_precision")]` (`_option` for `Option`) to be written as Jackson writes BigDecimal, scale kept.
