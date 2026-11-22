@@ -423,7 +423,7 @@ async fn reauthenticate_and_fetch(
             {
                 let now = state.clock.now();
                 current.update_session_state(encrypted, now);
-                session::save(&mut *tx, &current, now).await?;
+                session::save(&mut tx, &current, now).await?;
                 true
             }
             _ => false,

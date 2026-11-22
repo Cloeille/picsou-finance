@@ -13,6 +13,7 @@ use super::error::{Failure, Kind, LouveResult};
 use super::repo::{self, Connection};
 use super::{adapter, mapper, oauth, registry};
 use crate::AppState;
+use crate::db::{AsDbHandle, DbHandle};
 use crate::error::AppResult;
 use crate::ledger::members;
 use crate::ledger::sidecar::{SidecarErrorCode, SourceSyncResult, SyncStatus};
@@ -110,7 +111,7 @@ pub async fn start_connection(
     let encrypted_verifier = state.crypto.encrypt(&verifier)?;
     let mut tx = state.db.begin().await?;
     lock_member(&mut tx, member_id).await?;
-    let existing = repo::lock_by_member(&mut tx, member_id)
+    let existing = repo::lock_by_member(&mut tx.as_handle(), member_id)
         .await?
         .map(|row| row.id);
     let attempt = repo::Attempt {
@@ -192,7 +193,7 @@ async fn spend_attempt(
     oauth_state: &str,
 ) -> LouveResult<Attempt> {
     let mut tx = state.db.begin().await?;
-    let row = repo::lock_by_member(&mut tx, member_id)
+    let row = repo::lock_by_member(&mut tx.as_handle(), member_id)
         .await?
         .ok_or_else(expired_attempt)?;
     let ttl = chrono::Duration::minutes(ATTEMPT_TTL_MINUTES);
@@ -226,7 +227,7 @@ async fn store_grant(
     plain: &str,
 ) -> LouveResult<Option<String>> {
     let mut tx = state.db.begin().await?;
-    let row = repo::lock_by_member(&mut tx, member_id)
+    let row = repo::lock_by_member(&mut tx.as_handle(), member_id)
         .await?
         .filter(|row| row.id == attempt.connection_id && row.grant_generation == attempt.generation)
         .ok_or_else(expired_attempt)?;
@@ -311,7 +312,7 @@ async fn run_sync(state: &AppState, run: Run) -> LouveResult<()> {
 }
 
 /// The run's connection, locked: the same row, the same grant, still holding tokens.
-async fn current(conn: &mut PgConnection, run: Run) -> LouveResult<Connection> {
+async fn current(conn: &mut DbHandle<'_>, run: Run) -> LouveResult<Connection> {
     repo::lock_by_member(conn, run.member_id)
         .await?
         .filter(|row| run.matches(row) && row.token_state.is_some())
@@ -329,7 +330,7 @@ async fn current(conn: &mut PgConnection, run: Run) -> LouveResult<Connection> {
 async fn fresh_state(state: &AppState, run: Run, refused: Option<&str>) -> LouveResult<String> {
     let result = async {
         let mut tx = state.db.begin().await?;
-        let row = current(&mut tx, run).await?;
+        let row = current(&mut tx.as_handle(), run).await?;
         let plain = decrypt_or_none(state, row.token_state.as_deref()).ok_or_else(|| {
             Failure::sync(
                 SidecarErrorCode::InvalidSessionState,
@@ -360,7 +361,7 @@ async fn commit(state: &AppState, run: Run, snapshot: &adapter::Snapshot) -> Lou
     let mapped = mapper::map(snapshot)?;
     let mut tx = state.db.begin().await?;
     lock_member(&mut tx, run.member_id).await?;
-    let row = current(&mut tx, run).await?;
+    let row = current(&mut tx.as_handle(), run).await?;
     // One instant for the funds and the connection: the panel matches the run by it.
     let now = state.clock.now();
     let synced_at = DateTime::from_timestamp_micros(now.timestamp_micros()).unwrap_or(now);
@@ -394,7 +395,7 @@ async fn commit(state: &AppState, run: Run, snapshot: &adapter::Snapshot) -> Lou
 async fn mark_status(state: &AppState, run: Run, status: &str) {
     let result: LouveResult<()> = async {
         let mut tx = state.db.begin().await?;
-        if let Some(row) = repo::lock_by_member(&mut tx, run.member_id).await?
+        if let Some(row) = repo::lock_by_member(&mut tx.as_handle(), run.member_id).await?
             && run.matches(&row)
         {
             repo::set_status(&mut tx, row.id, status, state.clock.now()).await?;
@@ -506,7 +507,7 @@ pub async fn delete_connection_in(
 ) -> AppResult<Removal> {
     let removal: LouveResult<Removal> = async {
         lock_member(&mut *conn, member_id).await?;
-        let Some(row) = repo::lock_by_member(&mut *conn, member_id).await? else {
+        let Some(row) = repo::lock_by_member(&mut conn.as_handle(), member_id).await? else {
             return Ok(Removal {
                 removed: false,
                 token_state: None,

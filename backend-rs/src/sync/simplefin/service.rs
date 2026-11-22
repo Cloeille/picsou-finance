@@ -63,7 +63,7 @@ impl From<sqlx::Error> for Failure {
 }
 
 async fn member_exists(state: &AppState, member_id: i64) -> sqlx::Result<bool> {
-    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM family_member WHERE id = $1)")
+    crate::db::query_scalar("SELECT EXISTS(SELECT 1 FROM family_member WHERE id = $1)")
         .bind(member_id)
         .fetch_one(&state.db)
         .await
@@ -258,7 +258,7 @@ async fn do_sync(
             responses.push(response);
         }
     }
-    connection::mark_synced(&mut *tx, stored.id, state.clock.now()).await?;
+    connection::mark_synced(&mut tx, stored.id, state.clock.now()).await?;
     tx.commit().await?;
     tracing::info!(
         "SimpleFIN sync complete for member {member_id}: {} account(s) updated",

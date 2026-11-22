@@ -214,12 +214,12 @@ fn is_crypto_trading_row(
         && crypto_asset_names.contains(&java_trim(stock_name).to_lowercase())
 }
 
-async fn ensure_investment_purchase_category(
-    conn: &mut PgConnection,
+async fn ensure_investment_purchase_category<'e>(
+    db: impl crate::db::DbExec<'e>,
     member_id: i64,
     now: chrono::DateTime<chrono::Utc>,
 ) -> sqlx::Result<i64> {
-    let id = sqlx::query_scalar(
+    let id = crate::db::query_scalar(
         "INSERT INTO category (member_id, slug, name, kind, color, icon, is_default, archived, sort_order, \
          created_at, updated_at) VALUES ($1, $2, 'Investissement', 'EXPENSE'::category_kind, '#7c3aed', \
          'trending-up', true, false, 0, $3, $3) RETURNING id",
@@ -227,7 +227,7 @@ async fn ensure_investment_purchase_category(
     .bind(member_id)
     .bind(INVESTMENT_PURCHASE_SLUG)
     .bind(now)
-    .fetch_one(&mut *conn)
+    .fetch_one(db)
     .await?;
     tracing::info!(
         "TR CSV Import: created the 'Investissement' expense category for member {member_id}."

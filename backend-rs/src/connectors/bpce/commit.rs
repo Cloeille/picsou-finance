@@ -257,7 +257,7 @@ impl Write<'_> {
             let lender = self.bank.provider();
             match liabilities::debt_of_account(&mut *conn, account.id).await? {
                 Some(debt) => {
-                    sqlx::query(
+                    crate::db::query(
                         "UPDATE debt SET linked_account_id = $2, borrowed_amount = $3, interest_rate = $4, \
                          monthly_payment = $5, insurance_monthly = $6, lender_name = $7, start_date = $8, \
                          end_date = $9 WHERE id = $1",
@@ -275,7 +275,7 @@ impl Write<'_> {
                     .await?;
                 }
                 None => {
-                    sqlx::query(
+                    crate::db::query(
                         "INSERT INTO debt (member_id, account_id, linked_account_id, borrowed_amount, interest_rate, \
                          monthly_payment, insurance_monthly, lender_name, start_date, end_date, created_at, updated_at) \
                          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)",

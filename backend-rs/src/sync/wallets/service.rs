@@ -93,7 +93,7 @@ pub async fn add_wallet(
     let label = clean(request.label.as_deref());
     // The insert and the sync commit together: a wallet that cannot sync is not kept.
     let mut tx = state.db.begin().await?;
-    let wallet = repo::insert(&mut *tx, member_id, chain, &address, label.as_deref(), now).await?;
+    let wallet = repo::insert(&mut tx, member_id, chain, &address, label.as_deref(), now).await?;
     let prepared = prepare(state, &wallet).await?;
     let account = write(state, &mut tx, &wallet, &prepared, member_id)
         .await?
@@ -219,7 +219,7 @@ pub async fn remove_wallet(
     {
         // Not accounts::update: the row it returns carries deleted_at, a TIMESTAMP column the
         // ledger model decodes as TIMESTAMPTZ. Written as the UTC instant, as Hibernate does.
-        sqlx::query(
+        crate::db::query(
             "UPDATE account SET deleted_at = ($2::timestamptz AT TIME ZONE 'UTC'), updated_at = $2 WHERE id = $1",
         )
         .bind(account.id)
@@ -473,7 +473,7 @@ async fn resolve_account(
             savepoint.commit().await?;
             Ok(Some(account))
         }
-        Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("23505") => {
+        Err(e) if crate::db::is_unique_violation(&e) => {
             savepoint.rollback().await?;
             tracing::warn!(
                 "Concurrent account creation for {external_id} -- reusing the winning row"

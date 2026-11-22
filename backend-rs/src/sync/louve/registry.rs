@@ -10,6 +10,7 @@ use sqlx::PgPool;
 use super::error::LouveResult;
 use super::oauth;
 use crate::AppState;
+use crate::db;
 use crate::error::AppResult;
 
 const KEY_PREFIX: &str = "louve.client-id:";
@@ -40,7 +41,7 @@ impl AppSettingTable {
 impl ClientSettings for AppSettingTable {
     async fn find(&self, key: &str) -> AppResult<Option<String>> {
         Ok(
-            sqlx::query_scalar("SELECT value FROM app_setting WHERE setting_key = $1")
+            db::query_scalar("SELECT value FROM app_setting WHERE setting_key = $1")
                 .bind(key)
                 .fetch_optional(&self.db)
                 .await?,
@@ -48,7 +49,7 @@ impl ClientSettings for AppSettingTable {
     }
 
     async fn insert_if_absent(&self, key: &str, value: &str) -> AppResult<()> {
-        sqlx::query(
+        db::query(
             "INSERT INTO app_setting (setting_key, value) VALUES ($1, $2) ON CONFLICT (setting_key) DO NOTHING",
         )
         .bind(key)
@@ -59,7 +60,7 @@ impl ClientSettings for AppSettingTable {
     }
 
     async fn delete_if_value(&self, key: &str, value: &str) -> AppResult<u64> {
-        let result = sqlx::query("DELETE FROM app_setting WHERE setting_key = $1 AND value = $2")
+        let result = db::query("DELETE FROM app_setting WHERE setting_key = $1 AND value = $2")
             .bind(key)
             .bind(value)
             .execute(&self.db)

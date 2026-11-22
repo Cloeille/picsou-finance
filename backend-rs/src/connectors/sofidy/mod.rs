@@ -228,15 +228,15 @@ fn is_current(session: &SidecarSession, now: DateTime<Utc>) -> bool {
 }
 
 /// An inactive session row holding \`marker\`, encrypted: the pending login's reservation.
-async fn insert_pending(
+async fn insert_pending<'e>(
     state: &AppState,
-    conn: &mut PgConnection,
+    db: impl crate::db::DbExec<'e>,
     member_id: i64,
     marker: &str,
 ) -> AppResult<AuthAttempt> {
     let encrypted_state = state.crypto.encrypt(marker)?;
     let now = state.clock.now();
-    let session_id: i64 = sqlx::query_scalar(
+    let session_id: i64 = crate::db::query_scalar(
         "INSERT INTO sidecar_session (bank, member_id, session_state, last_validated_at, is_active, sync_status, \
          last_sync_life_ambiguous, created_at, updated_at) VALUES ($1, $2, $3, $4, false, 'IDLE', 0, $4, $4) \
          RETURNING id",
@@ -245,7 +245,7 @@ async fn insert_pending(
     .bind(member_id)
     .bind(&encrypted_state)
     .bind(now)
-    .fetch_one(conn)
+    .fetch_one(db)
     .await?;
     Ok(AuthAttempt {
         session_id,
@@ -254,15 +254,15 @@ async fn insert_pending(
 }
 
 /// The member's reservation, if it is still the one \`attempt\` wrote and has not expired.
-async fn current_attempt(
+async fn current_attempt<'e>(
     state: &AppState,
-    conn: &mut PgConnection,
+    db: impl crate::db::DbExec<'e>,
     member_id: i64,
     attempt: &AuthAttempt,
 ) -> AppResult<SidecarSession> {
     let now = state.clock.now();
     Ok(
-        session::find_by_id_for_update(conn, attempt.session_id, member_id)
+        session::find_by_id_for_update(db, attempt.session_id, member_id)
             .await?
             .filter(|s| {
                 !s.active
@@ -279,7 +279,7 @@ async fn reserve_auth_attempt(state: &AppState, member_id: i64) -> AppResult<Aut
     let mut tx = state.db.begin().await?;
     members::lock_or_throw(&mut *tx, member_id).await?;
     if let Some(existing) = session::find_for_update(&mut tx, BANK, member_id).await? {
-        session::delete(&mut *tx, existing.id).await?;
+        session::delete(&mut tx, existing.id).await?;
     }
     let marker = format!("{AUTH_START_PREFIX}{}", uuid::Uuid::new_v4());
     let attempt = insert_pending(state, &mut tx, member_id, &marker).await?;
@@ -329,7 +329,7 @@ pub async fn initiate_auth(
     let mut tx = state.db.begin().await?;
     members::lock_or_throw(&mut *tx, member_id).await?;
     let current = current_attempt(state, &mut tx, member_id, &attempt).await?;
-    session::delete(&mut *tx, current.id).await?;
+    session::delete(&mut tx, current.id).await?;
     insert_pending(
         state,
         &mut tx,

@@ -188,7 +188,7 @@ pub struct StatusResponse {
     pub webview_login_supported: Option<bool>,
 }
 
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug, crate::db::DbFromRow)]
 struct SessionRow {
     id: i64,
     credentials_enc: Option<String>,
@@ -197,10 +197,10 @@ struct SessionRow {
 }
 
 async fn find_session<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+    db: impl crate::db::DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<Option<SessionRow>> {
-    sqlx::query_as(
+    crate::db::query_as(
         "SELECT id, credentials_enc, remember_credentials, last_synced_at FROM revolut_session \
          WHERE member_id = $1 ORDER BY id LIMIT 1",
     )
@@ -506,7 +506,7 @@ async fn apply_post_sync_session_state(
     let now = state.clock.now();
     match find_session(&mut *conn, member_id).await? {
         Some(session) => {
-            sqlx::query(
+            crate::db::query(
                 "UPDATE revolut_session SET credentials_enc = $2, remember_credentials = $3, \
                  last_synced_at = $4, updated_at = $4 WHERE id = $1",
             )
@@ -521,7 +521,7 @@ async fn apply_post_sync_session_state(
             if members::find_by_id(&mut *conn, member_id).await?.is_none() {
                 return Err(AppError::NotFound("Family member not found".to_owned()));
             }
-            sqlx::query(
+            crate::db::query(
                 "INSERT INTO revolut_session (member_id, credentials_enc, remember_credentials, \
                  last_synced_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $4, $4)",
             )
@@ -762,7 +762,7 @@ async fn ensure_session_row(
     let now = state.clock.now();
     match find_session(&mut *conn, member_id).await? {
         Some(session) => {
-            sqlx::query("UPDATE revolut_session SET updated_at = $2 WHERE id = $1")
+            crate::db::query("UPDATE revolut_session SET updated_at = $2 WHERE id = $1")
                 .bind(session.id)
                 .bind(now)
                 .execute(&mut *conn)
@@ -772,7 +772,7 @@ async fn ensure_session_row(
             if members::find_by_id(&mut *conn, member_id).await?.is_none() {
                 return Err(AppError::NotFound("Family member not found".to_owned()));
             }
-            sqlx::query(
+            crate::db::query(
                 "INSERT INTO revolut_session (member_id, credentials_enc, remember_credentials, \
                  last_synced_at, created_at, updated_at) VALUES ($1, NULL, FALSE, NULL, $2, $2)",
             )
@@ -1003,7 +1003,7 @@ pub async fn disconnect(state: &AppState, member_id: i64) -> AppResult<()> {
     let _write = logins.write.lock().await;
     logins.forget_member(member_id);
     if let Some(session) = find_session(&state.db, member_id).await? {
-        sqlx::query("DELETE FROM revolut_session WHERE id = $1")
+        crate::db::query("DELETE FROM revolut_session WHERE id = $1")
             .bind(session.id)
             .execute(&state.db)
             .await?;

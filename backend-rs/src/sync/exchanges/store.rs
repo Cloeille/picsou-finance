@@ -1,19 +1,19 @@
 //! CryptoExchangeSessionRepository and CryptoExchangePositionRepository.
 
 use chrono::{DateTime, Utc};
-use sqlx::{PgConnection, PgExecutor};
 
 use super::model::{ExchangePosition, PositionRow, SessionRow};
+use crate::db::{self, DbExec, DbHandle};
 
 const SESSION_COLUMNS: &str = "id, member_id, exchange_type, api_key, api_secret, api_passphrase, region, status, \
     last_synced_at";
 
 /// findAllByMemberId, in creation order.
 pub async fn sessions_of_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<Vec<SessionRow>> {
-    sqlx::query_as(&format!(
+    db::query_as(&format!(
         "SELECT {SESSION_COLUMNS} FROM crypto_exchange_session WHERE member_id = $1 ORDER BY id"
     ))
     .bind(member_id)
@@ -23,11 +23,11 @@ pub async fn sessions_of_member<'e>(
 
 /// findByIdAndMemberId.
 pub async fn session_of_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     id: i64,
     member_id: i64,
 ) -> sqlx::Result<Option<SessionRow>> {
-    sqlx::query_as(&format!(
+    db::query_as(&format!(
         "SELECT {SESSION_COLUMNS} FROM crypto_exchange_session WHERE id = $1 AND member_id = $2"
     ))
     .bind(id)
@@ -38,11 +38,11 @@ pub async fn session_of_member<'e>(
 
 /// findByExchangeTypeAndMemberId.
 pub async fn session_by_type<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     exchange_type: &str,
     member_id: i64,
 ) -> sqlx::Result<Option<SessionRow>> {
-    sqlx::query_as(&format!(
+    db::query_as(&format!(
         "SELECT {SESSION_COLUMNS} FROM crypto_exchange_session WHERE exchange_type = $1 AND member_id = $2 \
          ORDER BY id LIMIT 1"
     ))
@@ -63,15 +63,15 @@ pub struct SessionDraft<'a> {
 }
 
 /// Rewrites the credentials of the existing session, or inserts one; status CONNECTED. The id.
-pub async fn save_session(
-    conn: &mut PgConnection,
+pub async fn save_session<'e>(
+    db: impl DbExec<'e>,
     existing: Option<i64>,
     draft: &SessionDraft<'_>,
     now: DateTime<Utc>,
 ) -> sqlx::Result<i64> {
     match existing {
         Some(id) => {
-            sqlx::query(
+            db::query(
                 "UPDATE crypto_exchange_session SET api_key = $2, api_secret = $3, api_passphrase = $4, \
                  region = $5, status = 'CONNECTED', updated_at = $6 WHERE id = $1",
             )
@@ -81,11 +81,11 @@ pub async fn save_session(
             .bind(draft.api_passphrase)
             .bind(draft.region)
             .bind(now)
-            .execute(&mut *conn)
+            .execute(db)
             .await?;
             Ok(id)
         }
-        None => sqlx::query_scalar(
+        None => db::query_scalar(
             "INSERT INTO crypto_exchange_session (member_id, exchange_type, api_key, api_secret, \
                  api_passphrase, region, status, created_at, updated_at) \
                  VALUES ($1, $2, $3, $4, $5, $6, 'CONNECTED', $7, $7) RETURNING id",
@@ -97,18 +97,18 @@ pub async fn save_session(
         .bind(draft.api_passphrase)
         .bind(draft.region)
         .bind(now)
-        .fetch_one(&mut *conn)
+        .fetch_one(db)
         .await,
     }
 }
 
 /// The last write of a successful sync.
 pub async fn mark_connected<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     id: i64,
     now: DateTime<Utc>,
 ) -> sqlx::Result<()> {
-    sqlx::query(
+    db::query(
         "UPDATE crypto_exchange_session SET status = 'CONNECTED', last_synced_at = $2, updated_at = $2 \
          WHERE id = $1",
     )
@@ -120,23 +120,17 @@ pub async fn mark_connected<'e>(
 }
 
 /// CryptoExchangeStatusWriter.markError: a session not committed or already gone is a no-op.
-pub async fn mark_error<'e>(
-    db: impl PgExecutor<'e>,
-    id: i64,
-    now: DateTime<Utc>,
-) -> sqlx::Result<()> {
-    sqlx::query(
-        "UPDATE crypto_exchange_session SET status = 'ERROR', updated_at = $2 WHERE id = $1",
-    )
-    .bind(id)
-    .bind(now)
-    .execute(db)
-    .await?;
+pub async fn mark_error<'e>(db: impl DbExec<'e>, id: i64, now: DateTime<Utc>) -> sqlx::Result<()> {
+    db::query("UPDATE crypto_exchange_session SET status = 'ERROR', updated_at = $2 WHERE id = $1")
+        .bind(id)
+        .bind(now)
+        .execute(db)
+        .await?;
     Ok(())
 }
 
-pub async fn delete_session<'e>(db: impl PgExecutor<'e>, id: i64) -> sqlx::Result<()> {
-    sqlx::query("DELETE FROM crypto_exchange_session WHERE id = $1")
+pub async fn delete_session<'e>(db: impl DbExec<'e>, id: i64) -> sqlx::Result<()> {
+    db::query("DELETE FROM crypto_exchange_session WHERE id = $1")
         .bind(id)
         .execute(db)
         .await?;
@@ -145,10 +139,10 @@ pub async fn delete_session<'e>(db: impl PgExecutor<'e>, id: i64) -> sqlx::Resul
 
 /// findByAccountIdOrderByProductAscTickerAsc.
 pub async fn positions_of_account<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     account_id: i64,
 ) -> sqlx::Result<Vec<PositionRow>> {
-    sqlx::query_as(
+    db::query_as(
         "SELECT product, ticker, quantity, principal, interest FROM crypto_exchange_position \
          WHERE account_id = $1 ORDER BY product, ticker",
     )
@@ -160,17 +154,17 @@ pub async fn positions_of_account<'e>(
 /// Rewrites the account's per-product breakdown wholesale: derived display data with no cost
 /// basis to preserve, and no product line can linger after the user unstakes everything.
 pub async fn replace_positions(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account_id: i64,
     positions: &[ExchangePosition],
     now: DateTime<Utc>,
 ) -> sqlx::Result<()> {
-    sqlx::query("DELETE FROM crypto_exchange_position WHERE account_id = $1")
+    db::query("DELETE FROM crypto_exchange_position WHERE account_id = $1")
         .bind(account_id)
         .execute(&mut *conn)
         .await?;
     for position in positions {
-        sqlx::query(
+        db::query(
             "INSERT INTO crypto_exchange_position (account_id, product, ticker, quantity, principal, interest, \
              last_synced_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $7)",
         )
@@ -190,11 +184,11 @@ pub async fn replace_positions(
 /// Stamps account.deleted_at, a TIMESTAMP column (V30), with the UTC wall-clock time.
 /// ledger::accounts::update cannot do it: its RETURNING decodes deleted_at as TIMESTAMPTZ.
 pub async fn soft_delete_account<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     account_id: i64,
     now: DateTime<Utc>,
 ) -> sqlx::Result<()> {
-    sqlx::query(
+    db::query(
         "UPDATE account SET deleted_at = ($2::timestamptz AT TIME ZONE 'UTC'), updated_at = $2 WHERE id = $1",
     )
     .bind(account_id)

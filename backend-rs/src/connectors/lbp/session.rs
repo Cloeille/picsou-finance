@@ -5,13 +5,13 @@
 use std::fmt;
 
 use chrono::{DateTime, Utc};
-use sqlx::{FromRow, PgConnection, PgExecutor};
 
 use crate::connectors::sidecar::SidecarSyncStatus;
+use crate::db::{self, DbExec, DbFromRow};
 use crate::error::{AppError, AppResult};
 use crate::ledger::sidecar::{SidecarBank, SidecarErrorCode};
 
-#[derive(FromRow)]
+#[derive(DbFromRow)]
 struct Row {
     id: i64,
     member_id: i64,
@@ -177,51 +177,51 @@ fn decode(row: Option<Row>) -> sqlx::Result<Option<LbpSession>> {
 }
 
 pub async fn find_by_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<Option<LbpSession>> {
     let sql = format!("SELECT {COLUMNS} FROM lbp_session WHERE member_id = $1");
     decode(
-        sqlx::query_as(&sql)
+        db::query_as(&sql)
             .bind(member_id)
             .fetch_optional(db)
             .await?,
     )
 }
 
-pub async fn find_by_member_for_update(
-    conn: &mut PgConnection,
+pub async fn find_by_member_for_update<'e>(
+    db: impl DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<Option<LbpSession>> {
     let sql = format!("SELECT {COLUMNS} FROM lbp_session WHERE member_id = $1 FOR UPDATE");
     decode(
-        sqlx::query_as(&sql)
+        db::query_as(&sql)
             .bind(member_id)
-            .fetch_optional(conn)
+            .fetch_optional(db)
             .await?,
     )
 }
 
 /// The row a job is fenced to.
-pub async fn find_by_id_and_member_for_update(
-    conn: &mut PgConnection,
+pub async fn find_by_id_and_member_for_update<'e>(
+    db: impl DbExec<'e>,
     id: i64,
     member_id: i64,
 ) -> sqlx::Result<Option<LbpSession>> {
     let sql =
         format!("SELECT {COLUMNS} FROM lbp_session WHERE id = $1 AND member_id = $2 FOR UPDATE");
     decode(
-        sqlx::query_as(&sql)
+        db::query_as(&sql)
             .bind(id)
             .bind(member_id)
-            .fetch_optional(conn)
+            .fetch_optional(db)
             .await?,
     )
 }
 
 /// LbpSession.create: active, idle, validated now.
-pub async fn insert(
-    conn: &mut PgConnection,
+pub async fn insert<'e>(
+    db: impl DbExec<'e>,
     member_id: i64,
     encrypted_state: &str,
     encrypted_identifier: Option<&str>,
@@ -231,23 +231,23 @@ pub async fn insert(
         "INSERT INTO lbp_session (member_id, session_state, encrypted_identifier, last_validated_at, is_active, \
          sync_status, created_at, updated_at) VALUES ($1, $2, $3, $4, true, 'IDLE', $4, $4) RETURNING {COLUMNS}"
     );
-    let row: Row = sqlx::query_as(&sql)
+    let row: Row = db::query_as(&sql)
         .bind(member_id)
         .bind(encrypted_state)
         .bind(encrypted_identifier)
         .bind(now)
-        .fetch_one(conn)
+        .fetch_one(db)
         .await?;
     row.try_into()
 }
 
 /// Writes every mutable column back (JPA save), stamping updated_at.
 pub async fn save<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     session: &LbpSession,
     now: DateTime<Utc>,
 ) -> sqlx::Result<()> {
-    sqlx::query(
+    db::query(
         "UPDATE lbp_session SET session_state = $2, encrypted_identifier = $3, last_validated_at = $4, \
          is_active = $5, sync_status = $6, last_sync_started_at = $7, last_sync_completed_at = $8, \
          last_sync_error = $9, unsupported_products = $10, updated_at = $11 WHERE id = $1",
@@ -268,8 +268,8 @@ pub async fn save<'e>(
     Ok(())
 }
 
-pub async fn delete<'e>(db: impl PgExecutor<'e>, id: i64) -> sqlx::Result<()> {
-    sqlx::query("DELETE FROM lbp_session WHERE id = $1")
+pub async fn delete<'e>(db: impl DbExec<'e>, id: i64) -> sqlx::Result<()> {
+    db::query("DELETE FROM lbp_session WHERE id = $1")
         .bind(id)
         .execute(db)
         .await?;
@@ -279,10 +279,10 @@ pub async fn delete<'e>(db: impl PgExecutor<'e>, id: i64) -> sqlx::Result<()> {
 /// markInterruptedSyncsFailed: every QUEUED or RUNNING row becomes an INTERNAL_ERROR failure. A
 /// bulk update, so updated_at is left as it was.
 pub async fn mark_interrupted_failed<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     completed_at: DateTime<Utc>,
 ) -> sqlx::Result<u64> {
-    Ok(sqlx::query(
+    Ok(db::query(
         "UPDATE lbp_session SET sync_status = 'FAILED', last_sync_completed_at = $1, \
          last_sync_error = 'INTERNAL_ERROR' WHERE sync_status IN ('QUEUED', 'RUNNING')",
     )

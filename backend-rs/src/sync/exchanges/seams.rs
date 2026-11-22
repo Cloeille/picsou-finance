@@ -12,6 +12,7 @@ use serde_json::Value;
 use serde_with::skip_serializing_none;
 
 use crate::AppState;
+use crate::db::{self, DbFromRow};
 use crate::error::{AppError, AppResult};
 use crate::ledger::model::{Account, CardNature, RecurringCadence};
 use crate::ledger::valuation;
@@ -81,7 +82,7 @@ struct AccountResponse<'a> {
 }
 
 #[skip_serializing_none]
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, DbFromRow)]
 #[serde(rename_all = "camelCase")]
 struct SavingsConfig {
     product: String,
@@ -129,12 +130,12 @@ impl AccountResponder for LedgerAccountResponder {
             state.clock.today(),
         )
         .await?;
-        let savings_config: Option<SavingsConfig> = sqlx::query_as(
+        let savings_config: Option<SavingsConfig> = db::query_as(
             "SELECT product::text AS product, annual_rate, rate_basis::text AS rate_basis, tax_rate_pct, ceiling \
              FROM savings_interest_config WHERE account_id = $1",
         )
         .bind(account.id)
-        .fetch_optional(&mut *conn)
+        .fetch_optional(&mut conn)
         .await?;
         let contract = (account.provider_paid_in_eur.is_some()
             || account.provider_invested_eur.is_some()

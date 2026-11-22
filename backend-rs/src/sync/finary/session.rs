@@ -1,9 +1,10 @@
 //! FinarySessionRepository: one row per member, email and password encrypted at rest.
 
 use chrono::{DateTime, Utc};
-use sqlx::PgExecutor;
 
-#[derive(Debug, Clone, sqlx::FromRow)]
+use crate::db::{self, DbExec, DbFromRow};
+
+#[derive(Debug, Clone, DbFromRow)]
 pub struct FinarySession {
     pub id: i64,
     pub email: String,
@@ -16,10 +17,10 @@ pub const CONNECTED: &str = "CONNECTED";
 pub const TOTP_REQUIRED: &str = "TOTP_REQUIRED";
 
 pub async fn find_by_member<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<Option<FinarySession>> {
-    sqlx::query_as(
+    db::query_as(
         "SELECT id, email, password, status, last_synced_at FROM finary_session WHERE member_id = $1 ORDER BY id LIMIT 1",
     )
     .bind(member_id)
@@ -28,13 +29,13 @@ pub async fn find_by_member<'e>(
 }
 
 pub async fn insert<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     email: &str,
     password: &str,
     now: DateTime<Utc>,
 ) -> sqlx::Result<()> {
-    sqlx::query(
+    db::query(
         "INSERT INTO finary_session (member_id, email, password, status, created_at, updated_at) \
          VALUES ($1, $2, $3, 'CONNECTED', $4, $4)",
     )
@@ -48,13 +49,13 @@ pub async fn insert<'e>(
 }
 
 pub async fn replace_credentials<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     id: i64,
     email: &str,
     password: &str,
     now: DateTime<Utc>,
 ) -> sqlx::Result<()> {
-    sqlx::query(
+    db::query(
         "UPDATE finary_session SET email = $2, password = $3, status = 'CONNECTED', updated_at = $4 WHERE id = $1",
     )
     .bind(id)
@@ -68,13 +69,13 @@ pub async fn replace_credentials<'e>(
 
 /// Sets the status, and the last sync instant when given.
 pub async fn update_status<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     id: i64,
     status: &str,
     synced_at: Option<DateTime<Utc>>,
     now: DateTime<Utc>,
 ) -> sqlx::Result<()> {
-    sqlx::query(
+    db::query(
         "UPDATE finary_session SET status = $2, last_synced_at = COALESCE($3, last_synced_at), updated_at = $4 WHERE id = $1",
     )
     .bind(id)
@@ -86,8 +87,8 @@ pub async fn update_status<'e>(
     Ok(())
 }
 
-pub async fn delete<'e>(db: impl PgExecutor<'e>, id: i64) -> sqlx::Result<()> {
-    sqlx::query("DELETE FROM finary_session WHERE id = $1")
+pub async fn delete<'e>(db: impl DbExec<'e>, id: i64) -> sqlx::Result<()> {
+    db::query("DELETE FROM finary_session WHERE id = $1")
         .bind(id)
         .execute(db)
         .await?;

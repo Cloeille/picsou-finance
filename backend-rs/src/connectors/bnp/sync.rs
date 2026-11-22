@@ -955,7 +955,7 @@ async fn store_refreshed_state(
     {
         let now = state.clock.now();
         current.update_session_state(state.crypto.encrypt(&plain_state)?, now);
-        session::save(&mut *tx, &current, now).await?;
+        session::save(&mut tx, &current, now).await?;
     }
     tx.commit().await?;
     Ok(())
