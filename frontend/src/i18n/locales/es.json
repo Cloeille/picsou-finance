@@ -3741,8 +3741,7 @@
     },
     "advancedMode": {
       "title": "Modo avanzado",
-      "description": "Mostrar herramientas de administración, claves de acceso MCP, aplicaciones OAuth y registros técnicos.",
-      "label": "Activar modo avanzado"
+      "description": "Mostrar herramientas de administración, claves de acceso MCP, aplicaciones OAuth y registros técnicos."
     },
     "lock": {
       "title": "Seguridad de escritorio",

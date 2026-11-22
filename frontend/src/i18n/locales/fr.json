@@ -3741,8 +3741,7 @@
     },
     "advancedMode": {
       "title": "Mode avancé",
-      "description": "Afficher les outils d’administration, les clés d’accès MCP, les applications OAuth et les journaux techniques.",
-      "label": "Activer le mode avancé"
+      "description": "Afficher les outils d’administration, les clés d’accès MCP, les applications OAuth et les journaux techniques."
     },
     "lock": {
       "title": "Sécurité Desktop",

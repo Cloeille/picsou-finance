@@ -3741,8 +3741,7 @@
     },
     "advancedMode": {
       "title": "Advanced mode",
-      "description": "Show administration tools, MCP access keys, OAuth connected apps, and technical logs.",
-      "label": "Enable advanced mode"
+      "description": "Show administration tools, MCP access keys, OAuth connected apps, and technical logs."
     },
     "lock": {
       "title": "Desktop Security",

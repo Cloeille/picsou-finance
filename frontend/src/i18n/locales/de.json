@@ -3741,8 +3741,7 @@
     },
     "advancedMode": {
       "title": "Erweiterter Modus",
-      "description": "Verwaltungswerkzeuge, MCP-Zugangsschlüssel, verbundene OAuth-Apps und technische Protokolle anzeigen.",
-      "label": "Erweiterten Modus aktivieren"
+      "description": "Verwaltungswerkzeuge, MCP-Zugangsschlüssel, verbundene OAuth-Apps und technische Protokolle anzeigen."
     },
     "lock": {
       "title": "Desktop-Sicherheit",
