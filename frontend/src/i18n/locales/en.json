@@ -3726,7 +3726,7 @@
       "starting": "Setting up...",
       "error": "Could not start Picsou. Please try again.",
       "legacyPostgresTitle": "Previous local data preserved",
-      "legacyPostgresBody": "Picsou Desktop now uses an embedded SQLite database. Your previous PostgreSQL folder (postgres/) was left untouched in the app data folder: you can start fresh here or migrate your previous data to SQLite using picsou export-sqlite."
+      "legacyPostgresBody": "Picsou Desktop now uses an embedded SQLite database. Starting fresh creates a new local database, and your previous data folder (postgres/) has been preserved untouched in the application data directory."
     },
     "emptyDashboard": {
       "title": "Add your first account",
@@ -3743,6 +3743,7 @@
       "statusEnabled": "Password lock enabled",
       "statusDisabled": "Direct launch without password",
       "mfaRequiresLock": "Enable the Desktop password lock above before configuring two-factor authentication.",
+      "disableBlockedByMfa": "Disable two-factor authentication below before turning off the Desktop password lock.",
       "usernameHint": "Local username: {{username}}",
       "enableButton": "Enable lock",
       "disableButton": "Disable lock",
@@ -3757,6 +3758,11 @@
       "enabledToast": "Password lock enabled.",
       "disabledToast": "Password lock disabled.",
       "cancel": "Cancel"
+    },
+    "oauthLogin": {
+      "title": "Password lock required",
+      "description": "Picsou Desktop is currently unlocked. To authorize an external application (such as an MCP client) from your browser, first enable Desktop password lock in Picsou Desktop under Settings > Security.",
+      "apiTabNote": "To authorize an external OAuth or MCP application in your browser, enable Desktop password lock in Settings > Security first."
     }
   }
 }

@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Native Rust backend (`backend-rs/`).** Rewrote the Picsou backend in Rust with full API, MCP,
+  OAuth, and Flyway migration parity, bringing significantly lower memory usage and faster startup
+  times while keeping the existing PostgreSQL schema and frontend contract intact.
+- **Embedded SQLite dual-engine support.** Picsou Desktop now runs exclusively on an embedded SQLite
+  database (removing the bundled PostgreSQL server and `pgtools` runtime), and self-hosters can now
+  deploy a single-container SQLite stack with `docker/compose.sqlite.yml`. PostgreSQL 16 remains
+  fully supported for multi-container Docker and Kubernetes deployments.
+- **Desktop Grand Public experience.** Streamlined Picsou Desktop for local personal use with
+  1-step local onboarding, loopback-only hardened auto-login (single-use launch token, strict `Host`
+  allowlist, and cross-site request checks), optional Desktop password lock coordinated with
+  two-factor authentication (password lock required before enabling 2FA, and 2FA must be disabled
+  before turning off the lock), clear browser guidance when authorizing external OAuth/MCP clients
+  while unlocked, and an opt-in **Advanced Mode** toggle in Settings for admin, API/MCP, and
+  developer controls.
+- **Native OS WebView bank connectors for Picsou Desktop.** BNP Paribas / Hello bank!, American
+  Express, and Revolut now authenticate directly through a sandboxed native OS WebView window in
+  Picsou Desktop, eliminating the need for local Chromium or Camoufox containers.
+- **Six pure-HTTP bank connectors compiled natively into Rust.** BoursoBank (`bourso-auth`), CIC
+  (`cic-auth`), Crédit Mutuel Épargne Salariale (`cmes-auth`), DEGIRO (`degiro-auth`), Natixis
+  Interépargne (`natixis-auth`), and Sofidy (`sofidy-auth`) can now run in-process inside the Rust
+  backend via `APP_NATIVE_SIDECARS=true` (or `nativeSidecars: true` in the Helm chart, `false` by
+  default in this release; explicit `<BANK>_AUTH_URL` overrides still take precedence).
+- **Native `picsou healthcheck` CLI and Docker `HEALTHCHECK`.** Added a built-in `picsou healthcheck`
+  subcommand wired into the Docker image `HEALTHCHECK` so container health probes work out of the
+  box without `curl` or `wget`.
+
+### Deprecated
+
+- **Python HTTP bank sidecars (`bourso-auth`, `cic-auth`, `cmes-auth`, `degiro-auth`,
+  `natixis-auth`, `sofidy-auth`).** Deprecated in favor of the in-process Rust connectors enabled
+  with `APP_NATIVE_SIDECARS=true` (or Helm `nativeSidecars: true`). They remain deployed by default
+  in Docker Compose and Helm during the transition period.
+
 ## [1.2.2] — 2026-11-21
 
 ### Added

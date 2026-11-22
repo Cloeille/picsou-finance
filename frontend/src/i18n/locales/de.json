@@ -3726,7 +3726,7 @@
       "starting": "Wird eingerichtet...",
       "error": "Picsou konnte nicht gestartet werden. Bitte versuche es erneut.",
       "legacyPostgresTitle": "Bisherige lokale Daten erhalten",
-      "legacyPostgresBody": "Picsou Desktop nutzt jetzt eine eingebettete SQLite-Datenbank. Dein bisheriger PostgreSQL-Ordner (postgres/) blieb im Anwendungsdaten-Ordner unverändert erhalten: Du kannst hier neu starten oder deine bisherigen Daten mit picsou export-sqlite nach SQLite migrieren."
+      "legacyPostgresBody": "Picsou Desktop nutzt jetzt eine eingebettete SQLite-Datenbank. Ein Neustart hier legt eine neue lokale Datenbank an, und dein bisheriger Datenordner (postgres/) wurde unverändert im Anwendungsdaten-Verzeichnis erhalten."
     },
     "emptyDashboard": {
       "title": "Erstes Konto hinzufügen",
@@ -3743,6 +3743,7 @@
       "statusEnabled": "Passwortsperre aktiviert",
       "statusDisabled": "Direkter Start ohne Passwort",
       "mfaRequiresLock": "Aktiviere zuerst die Passwortsperre oben, bevor du die Zwei-Faktor-Authentifizierung einrichtest.",
+      "disableBlockedByMfa": "Deaktiviere zuerst die Zwei-Faktor-Authentifizierung unten, bevor du die Passwortsperre ausschaltest.",
       "usernameHint": "Lokaler Benutzername: {{username}}",
       "enableButton": "Sperre aktivieren",
       "disableButton": "Sperre deaktivieren",
@@ -3757,6 +3758,11 @@
       "enabledToast": "Passwortsperre aktiviert.",
       "disabledToast": "Passwortsperre deaktiviert.",
       "cancel": "Abbrechen"
+    },
+    "oauthLogin": {
+      "title": "Passwortsperre erforderlich",
+      "description": "Picsou Desktop läuft derzeit ohne Passwort. Um eine externe Anwendung (wie einen MCP-Client) im Browser zu autorisieren, aktiviere zuerst die Passwortsperre in Picsou Desktop unter Einstellungen > Sicherheit.",
+      "apiTabNote": "Um eine externe OAuth- oder MCP-Anwendung im Browser zu autorisieren, aktiviere zuerst die Passwortsperre unter Einstellungen > Sicherheit."
     }
   }
 }

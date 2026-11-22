@@ -14,9 +14,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { AlertBanner } from '@/components/shared/AlertBanner'
 import { useDesktopLockStatus, useUpdateDesktopLock } from '@/features/desktop/hooks'
+import { useMfaStatus } from '@/features/mfa/hooks'
 import { useAppStore } from '@/stores/app-store'
 import { useAuthStore } from '@/stores/auth-store'
-import { formatApiError, getErrorStatus } from '@/lib/errors'
+import { formatApiError, getErrorCode, getErrorStatus } from '@/lib/errors'
 
 type LockFormMode = 'idle' | 'enable' | 'disable'
 
@@ -25,9 +26,12 @@ export function DesktopLockCard() {
   const user = useAuthStore((s) => s.user)
   const storeLocked = useAppStore((s) => s.desktopLockEnabled)
   const lockQuery = useDesktopLockStatus(true)
+  const mfaStatus = useMfaStatus()
   const updateLock = useUpdateDesktopLock()
 
   const locked = lockQuery.data?.enabled ?? storeLocked
+  const mfaEnabled = mfaStatus.data?.enabled === true
+  const disableBlockedByMfa = locked && mfaEnabled
   const [mode, setMode] = useState<LockFormMode>('idle')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -78,6 +82,8 @@ export function DesktopLockCard() {
     } catch (err: unknown) {
       if (getErrorStatus(err) === 401) {
         setError(t('desktop.lock.invalidPassword'))
+      } else if (getErrorStatus(err) === 409 && getErrorCode(err) === 'MFA_ACTIVE') {
+        setError(t('desktop.lock.disableBlockedByMfa'))
       } else {
         setError(formatApiError(err, t, 'common.error'))
       }
@@ -121,6 +127,7 @@ export function DesktopLockCard() {
                 type="button"
                 variant="outline"
                 size="sm"
+                disabled={disableBlockedByMfa}
                 onClick={() => {
                   setError(null)
                   setMode('disable')
@@ -142,6 +149,12 @@ export function DesktopLockCard() {
             )
           )}
         </div>
+
+        {disableBlockedByMfa && (
+          <p className="text-sm text-muted-foreground">
+            {t('desktop.lock.disableBlockedByMfa')}
+          </p>
+        )}
 
         {mode === 'enable' && (
           <form onSubmit={handleEnable} className="space-y-4 border-t border-border/60 pt-4">
