@@ -5,7 +5,6 @@ pub mod valuation;
 
 use std::collections::HashMap;
 
-use crate::db::AsDbHandle;
 use crate::db::DbHandle;
 use axum::extract::State as AxumState;
 use axum::http::StatusCode;
@@ -198,8 +197,8 @@ pub async fn summarize(
     member_id: i64,
     include_hidden: bool,
 ) -> AppResult<RealEstateSummaryResponse> {
-    let mut conn = state.db.acquire().await?;
-    let mut readable = access::readable_accounts(&mut conn.as_handle(), member_id).await?;
+    let mut conn = state.db.pool_handle();
+    let mut readable = access::readable_accounts(&mut conn, member_id).await?;
     if !include_hidden {
         readable.retain(|a| !a.hidden);
     }
@@ -223,8 +222,7 @@ pub async fn summarize(
         };
         if account.account_type == AccountType::Scpi {
             let gross = access::weigh(
-                ledger_valuation::live_balance_eur(&mut conn.as_handle(), prices, account, today)
-                    .await?,
+                ledger_valuation::live_balance_eur(&mut conn, prices, account, today).await?,
                 share,
             );
             let position: Option<ScpiPosition> = crate::db::query_as::<ScpiPosition>(
@@ -235,14 +233,8 @@ pub async fn summarize(
             .bind(account.member_id)
             .fetch_optional(&mut conn)
             .await?;
-            let (debt, loans) = loans_for(
-                &mut conn.as_handle(),
-                account,
-                member_id,
-                today,
-                include_hidden,
-            )
-            .await?;
+            let (debt, loans) =
+                loans_for(&mut conn, account, member_id, today, include_hidden).await?;
             paper.push(PaperLine {
                 account_id: account.id,
                 name: account.name.clone(),
@@ -266,8 +258,7 @@ pub async fn summarize(
             continue;
         }
         let gross = access::weigh(
-            ledger_valuation::live_balance_eur(&mut conn.as_handle(), prices, account, today)
-                .await?,
+            ledger_valuation::live_balance_eur(&mut conn, prices, account, today).await?,
             share,
         );
         let metadata: Option<Metadata> = crate::db::query_as::<Metadata>(
@@ -283,14 +274,7 @@ pub async fn summarize(
         let rent = metadata.as_ref().map_or(Decimal::ZERO, |m| {
             access::weigh(m.rental_income.unwrap_or_default(), share)
         });
-        let (debt, loans) = loans_for(
-            &mut conn.as_handle(),
-            account,
-            member_id,
-            today,
-            include_hidden,
-        )
-        .await?;
+        let (debt, loans) = loans_for(&mut conn, account, member_id, today, include_hidden).await?;
         let latest: Option<(NaiveDate, Option<String>)> =
             crate::db::query_as::<(NaiveDate, Option<String>)>(
                 "SELECT valued_at, confidence FROM property_valuation WHERE account_id = $1 ORDER BY valued_at DESC LIMIT 1",
@@ -435,8 +419,8 @@ pub async fn valuations(
     auth: Auth,
     Path(account_id): Path<i64>,
 ) -> AppResult<axum::Json<Vec<ValuationHistoryEntry>>> {
-    let mut conn = state.db.acquire().await?;
-    access::require_readable(&mut conn.as_handle(), account_id, auth.member_id).await?;
+    let mut conn = state.db.pool_handle();
+    access::require_readable(&mut conn, account_id, auth.member_id).await?;
     let rows = crate::db::query_as::<ValuationHistoryEntry>(
         "SELECT valued_at, estimated_value, low_value, high_value, price_per_sqm, provider, confidence, \
          sample_size, source_year FROM property_valuation WHERE account_id = $1 ORDER BY valued_at DESC",

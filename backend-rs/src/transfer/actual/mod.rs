@@ -22,7 +22,6 @@ use self::parser::{FileParser, Kind, ParsedBudget};
 use crate::AppState;
 use crate::auth::Auth;
 use crate::clock::AppClock;
-use crate::db::AsDbHandle;
 use crate::error::{AppError, AppResult};
 use crate::http::client_ip::ClientIp;
 use crate::http::json::{Errors, Json, Validate};
@@ -568,9 +567,8 @@ async fn plan(
         .previews
         .get(req.token(), auth.member_id)
         .ok_or_else(|| AppError::BadRequest(PREVIEW_EXPIRED.into()))?;
-    let mut conn = state.db.acquire().await?;
-    let resolved =
-        import::resolve(&mut conn.as_handle(), &entry.payload, &req, auth.member_id).await?;
+    let mut conn = state.db.pool_handle();
+    let resolved = import::resolve(&mut conn, &entry.payload, &req, auth.member_id).await?;
     let plan = &resolved.plan;
     Ok(axum::Json(PlanResponse {
         transactions_to_add: plan.to_add.len(),

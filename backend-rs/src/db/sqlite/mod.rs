@@ -24,6 +24,7 @@ use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
 
 use chrono::{SecondsFormat, Utc};
 use rusqlite::functions::FunctionFlags;
@@ -34,6 +35,10 @@ use tokio::sync::{OwnedMutexGuard, Semaphore};
 
 /// Default `PRAGMA busy_timeout` in milliseconds.
 pub const DEFAULT_BUSY_TIMEOUT_MS: u32 = 5_000;
+
+/// Maximum time a task waits to acquire the serialized SQLite `writer_gate` before failing fast
+/// with [`sqlx::Error::PoolTimedOut`] instead of hanging indefinitely on a re-entrant write lock.
+pub const WRITER_GATE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Maximum number of concurrent read-only WAL connections for file-backed SQLite databases.
 const MAX_READ_CONNECTIONS: usize = 4;
@@ -47,6 +52,8 @@ pub enum SqliteError {
     ForeignKeysNotEnabled,
     #[error("SQLite connection mutex poisoned")]
     MutexPoisoned,
+    #[error("SQLite writer gate timed out after {0} ms")]
+    WriterGateTimeout(u64),
     #[error("blocking SQLite task failed: {0}")]
     Join(String),
     #[error("SQLite migration error: {0}")]
@@ -277,7 +284,11 @@ impl SqliteDb {
         F: FnOnce(&mut Connection) -> Result<T, SqliteError> + Send + 'static,
         T: Send + 'static,
     {
-        let _gate = self.acquire_writer_gate().await;
+        let _gate = self.acquire_writer_gate().await.map_err(|_| {
+            SqliteError::WriterGateTimeout(
+                u64::try_from(WRITER_GATE_TIMEOUT.as_millis()).unwrap_or(u64::MAX),
+            )
+        })?;
         let conn = Arc::clone(&self.conn);
         tokio::task::spawn_blocking(move || {
             let mut guard = conn.lock().map_err(|_| SqliteError::MutexPoisoned)?;
@@ -327,7 +338,7 @@ impl SqliteDb {
     /// If the returned [`SqliteTx`] is dropped without calling [`SqliteTx::commit`], it rolls
     /// back automatically without panicking or deadlocking.
     pub async fn begin(&self) -> Result<SqliteTx<'_>, sqlx::Error> {
-        let gate = self.acquire_writer_gate().await;
+        let gate = self.acquire_writer_gate().await?;
         let conn = Arc::clone(&self.conn);
         run_on_writer(Arc::clone(&conn), |c| {
             c.execute_batch("BEGIN IMMEDIATE")
@@ -349,7 +360,7 @@ impl SqliteDb {
     /// Acquires exclusive serialized access to the SQLite writer handle (analogous to
     /// `PgPool::acquire()`).
     pub async fn acquire(&self) -> Result<SqliteConn, sqlx::Error> {
-        let gate = self.acquire_writer_gate().await;
+        let gate = self.acquire_writer_gate().await?;
         Ok(SqliteConn {
             conn: Arc::clone(&self.conn),
             _gate: gate,
@@ -359,7 +370,7 @@ impl SqliteDb {
     /// Executes a raw SQL script (translating PostgreSQL syntax via `dialect`) under the writer gate.
     pub async fn execute_batch(&self, sql: &str) -> Result<(), sqlx::Error> {
         let translated = dialect::translate_pg_to_sqlite(sql);
-        let _gate = self.acquire_writer_gate().await;
+        let _gate = self.acquire_writer_gate().await?;
         run_on_writer(Arc::clone(&self.conn), move |conn| {
             conn.execute_batch(&translated)
                 .map_err(error::rusqlite_to_sqlx)
@@ -378,11 +389,19 @@ impl SqliteDb {
     /// Drains all in-flight and pooled WAL reader connections and runs
     /// `PRAGMA wal_checkpoint(TRUNCATE)` for a clean shutdown.
     pub async fn close(&self) {
-        let _gate = self.acquire_writer_gate().await;
+        let gate = match self.acquire_writer_gate().await {
+            Ok(gate) => Some(gate),
+            Err(err) => {
+                tracing::warn!(
+                    "SQLite close() could not acquire writer_gate ({err}); draining WAL readers without checkpoint"
+                );
+                None
+            }
+        };
         if let Some(pool) = &self.read_pool {
             pool.drain_async().await;
         }
-        if self.file_path.is_some() {
+        if gate.is_some() && self.file_path.is_some() {
             let conn = Arc::clone(&self.conn);
             let _ = tokio::task::spawn_blocking(move || {
                 if let Ok(c) = conn.lock() {
@@ -393,8 +412,25 @@ impl SqliteDb {
         }
     }
 
-    pub(crate) async fn acquire_writer_gate(&self) -> OwnedMutexGuard<()> {
-        Arc::clone(&self.writer_gate).lock_owned().await
+    pub(crate) async fn acquire_writer_gate(&self) -> Result<OwnedMutexGuard<()>, sqlx::Error> {
+        self.acquire_writer_gate_with_timeout(WRITER_GATE_TIMEOUT)
+            .await
+    }
+
+    pub(crate) async fn acquire_writer_gate_with_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Result<OwnedMutexGuard<()>, sqlx::Error> {
+        match tokio::time::timeout(timeout, Arc::clone(&self.writer_gate).lock_owned()).await {
+            Ok(guard) => Ok(guard),
+            Err(_) => {
+                tracing::error!(
+                    "SQLite writer_gate timed out after {} ms — possible re-entrant write lock or long-running transaction",
+                    timeout.as_millis()
+                );
+                Err(sqlx::Error::PoolTimedOut)
+            }
+        }
     }
 
     pub(crate) fn lock_connection(&self) -> Result<MutexGuard<'_, Connection>, SqliteError> {
@@ -414,7 +450,7 @@ impl SqliteDb {
                 .run(move |conn| query_rows(conn, &translated, &params))
                 .await;
         }
-        let _gate = self.acquire_writer_gate().await;
+        let _gate = self.acquire_writer_gate().await?;
         run_on_writer(Arc::clone(&self.conn), move |conn| {
             query_rows(conn, &translated, &params)
         })
@@ -450,7 +486,7 @@ impl SqliteDb {
         params: Vec<SqliteValue>,
     ) -> Result<u64, sqlx::Error> {
         let translated = dialect::translate_cached(sql);
-        let _gate = self.acquire_writer_gate().await;
+        let _gate = self.acquire_writer_gate().await?;
         run_on_writer(Arc::clone(&self.conn), move |conn| {
             execute_stmt(conn, &translated, &params)
         })
@@ -1058,4 +1094,37 @@ pub(crate) fn query_foreign_key_violations(
         })
     })?;
     rows.collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn writer_gate_times_out_with_pool_timed_out_when_tx_is_held() {
+        let db = SqliteDb::open_in_memory().expect("open in-memory SQLite");
+        db.migrate().expect("migrate");
+
+        let tx = db.begin().await.expect("begin tx");
+        let started = std::time::Instant::now();
+        let err = db
+            .acquire_writer_gate_with_timeout(Duration::from_millis(50))
+            .await
+            .expect_err("second writer gate acquisition must time out while tx is held");
+        assert!(
+            matches!(err, sqlx::Error::PoolTimedOut),
+            "expected PoolTimedOut, got {err:?}"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "timeout should fail promptly, took {:?}",
+            started.elapsed()
+        );
+
+        drop(tx);
+        let _guard = db
+            .acquire_writer_gate_with_timeout(Duration::from_millis(50))
+            .await
+            .expect("writer gate must be acquirable after tx finishes");
+    }
 }

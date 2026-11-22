@@ -15,7 +15,6 @@ use super::repo::{self, Refs};
 use super::{jdec, settings};
 use crate::AppState;
 use crate::auth::Auth;
-use crate::db::AsDbHandle;
 use crate::error::AppResult;
 use crate::ledger::accounts;
 use crate::ledger::decimal::{HALF_UP, divide};
@@ -77,14 +76,10 @@ impl Values<'_> {
         if let Some(value) = self.by_id.get(&account.id) {
             return Ok(*value);
         }
-        let mut conn = self.state.db.acquire().await?;
-        let value = valuation::live_balance_eur(
-            &mut conn.as_handle(),
-            &*self.state.ledger.prices,
-            account,
-            self.today,
-        )
-        .await?;
+        let mut conn = self.state.db.pool_handle();
+        let value =
+            valuation::live_balance_eur(&mut conn, &*self.state.ledger.prices, account, self.today)
+                .await?;
         self.by_id.insert(account.id, value);
         Ok(value)
     }

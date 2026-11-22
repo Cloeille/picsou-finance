@@ -699,7 +699,7 @@ pub async fn get_history(
     let params = Params::parse(query.as_deref());
     let from = params.date("from")?;
     let to = params.date("to")?;
-    let mut conn = state.db.acquire().await?;
+    let mut conn = state.db.pool_handle();
     super::scale::fixed(accounts::get_or_throw(&mut conn, id, auth.member_id).await?);
     let to = to.unwrap_or_else(|| state.clock.today());
     let from = from.unwrap_or_else(|| to.checked_sub_months(Months::new(12)).unwrap_or(to));
@@ -791,11 +791,11 @@ pub async fn get_transactions(
     auth: Auth,
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<Vec<TransactionResponse>>> {
-    let mut conn = state.db.acquire().await?;
+    let mut conn = state.db.pool_handle();
     let account = super::scale::fixed(accounts::get_or_throw(&mut conn, id, auth.member_id).await?);
     let rows = transactions::find_by_account_newest_first(&mut conn, id).await?;
     let ids: Vec<i64> = rows.iter().map(|t| t.id).collect();
-    let links = peer_loan_links(&mut conn.as_handle(), &ids).await?;
+    let links = peer_loan_links(&mut conn, &ids).await?;
     let names = category_names(&mut conn, &rows).await?;
     Ok(axum::Json(
         rows.iter()
@@ -869,6 +869,39 @@ async fn peer_loan_links(
     Ok(links)
 }
 
+/// Resolves an ISIN ticker via OpenFIGI outside any database transaction so SQLite's global
+/// `writer_gate` is never held across an external HTTP request.
+async fn pre_resolve_isin(
+    state: &AppState,
+    account_id: i64,
+    member_id: i64,
+    tx_id: Option<i64>,
+    req: &TransactionRequest,
+) -> AppResult<Option<crate::ledger::instrument::TickerResult>> {
+    let Some(raw) = req.ticker.as_deref() else {
+        return Ok(None);
+    };
+    if !crate::ledger::instrument::is_isin(raw) || req.fees.is_some_and(|f| f < Decimal::ZERO) {
+        return Ok(None);
+    }
+    let Some(account) = accounts::find_by_id_and_member(&state.db, account_id, member_id).await?
+    else {
+        return Ok(None);
+    };
+    if account.account_type == AccountType::PreciousMetals {
+        return Ok(None);
+    }
+    if let Some(existing_tx_id) = tx_id {
+        let is_manual = transactions::find_by_id_and_account(&state.db, existing_tx_id, account.id)
+            .await?
+            .is_some_and(|t| t.is_manual);
+        if !is_manual {
+            return Ok(None);
+        }
+    }
+    Ok(Some(state.accounts.isin.resolve(raw).await))
+}
+
 pub async fn add_transaction(
     State(state): State<AppState>,
     auth: Auth,
@@ -878,7 +911,7 @@ pub async fn add_transaction(
     let kb = state.ledger.knowledge_base(&state.db).await?;
     let categorization =
         categorize::load_context(&state.db, kb, auth.member_id, state.clock.now()).await?;
-    let resolver = state.accounts.isin.clone();
+    let preresolved = pre_resolve_isin(&state, id, auth.member_id, None, &req).await?;
     let mut tx = state.db.begin().await?;
     let response = manual_transactions::add_transaction(
         &mut tx.as_handle(),
@@ -887,7 +920,12 @@ pub async fn add_transaction(
         id,
         auth.member_id,
         &req,
-        async move |isin: &str| resolver.resolve(isin).await,
+        async move |isin: &str| {
+            preresolved.unwrap_or_else(|| crate::ledger::instrument::TickerResult {
+                ticker: crate::ledger::sync_values::java_trim(isin).to_uppercase(),
+                name: None,
+            })
+        },
     )
     .await?;
     tx.commit().await?;
@@ -900,7 +938,7 @@ pub async fn update_transaction(
     Path((id, tx_id)): Path<(i64, i64)>,
     Json(req): Json<TransactionRequest>,
 ) -> AppResult<axum::Json<TransactionResponse>> {
-    let resolver = state.accounts.isin.clone();
+    let preresolved = pre_resolve_isin(&state, id, auth.member_id, Some(tx_id), &req).await?;
     let mut tx = state.db.begin().await?;
     let response = manual_transactions::update_transaction(
         &mut tx.as_handle(),
@@ -909,7 +947,12 @@ pub async fn update_transaction(
         tx_id,
         auth.member_id,
         &req,
-        async move |isin: &str| resolver.resolve(isin).await,
+        async move |isin: &str| {
+            preresolved.unwrap_or_else(|| crate::ledger::instrument::TickerResult {
+                ticker: crate::ledger::sync_values::java_trim(isin).to_uppercase(),
+                name: None,
+            })
+        },
     )
     .await?;
     tx.commit().await?;

@@ -394,7 +394,7 @@ pub async fn loan_summary(
     auth: Auth,
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<loans::LoanScheduleResponse>> {
-    let mut conn = state.db.acquire().await?;
+    let mut conn = state.db.pool_handle();
     let account = super::scale::fixed(accounts::get_or_throw(&mut conn, id, auth.member_id).await?);
     if account.account_type != AccountType::Loan {
         return Err(AppError::BadRequest("Account is not a loan".to_owned()));
@@ -741,10 +741,9 @@ pub async fn refresh_valuation(
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<serde_json::Value>> {
     {
-        let mut conn = state.db.acquire().await?;
-        let account = super::scale::fixed(
-            access::require_owner(&mut conn.as_handle(), id, auth.member_id).await?,
-        );
+        let mut conn = state.db.pool_handle();
+        let account =
+            super::scale::fixed(access::require_owner(&mut conn, id, auth.member_id).await?);
         if account.account_type != AccountType::RealEstate {
             return Err(AppError::BadRequest(
                 "Account is not a real estate account".to_owned(),

@@ -1263,7 +1263,6 @@ pub fn ensure_seeded(db: &SqliteDb) -> Result<(), SqliteError> {
 
 /// Async variant of [`ensure_seeded`] running on Tokio's blocking pool under the writer gate.
 pub async fn ensure_seeded_async(db: &SqliteDb) -> Result<(), SqliteError> {
-    let _gate = db.acquire_writer_gate().await;
     db.interact(ensure_seeded_conn).await
 }
 

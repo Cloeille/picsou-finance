@@ -16,7 +16,6 @@ use serde::{Deserialize, Serialize};
 use self::model::{RateBasis, RegulatedRates, SavingsConfig, SavingsProduct};
 use crate::AppState;
 use crate::auth::Auth;
-use crate::db::AsDbHandle;
 use crate::db::DbExec;
 use crate::error::{AppError, AppResult};
 use crate::http::json::{Errors, Json, Path, Validate};
@@ -193,19 +192,13 @@ pub async fn projection(
     auth: Auth,
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<interest::SavingsInterestProjection>> {
-    let mut conn = state.db.acquire().await?;
+    let mut conn = state.db.pool_handle();
     let account = accounts::get_or_throw(&mut conn, id, auth.member_id).await?;
     let config = model::find_by_account(&mut conn, id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("No savings config for account {id}")))?;
     Ok(axum::Json(
-        interest::compute_projection(
-            &mut conn.as_handle(),
-            &account,
-            &config,
-            state.clock.today(),
-        )
-        .await?,
+        interest::compute_projection(&mut conn, &account, &config, state.clock.today()).await?,
     ))
 }
 

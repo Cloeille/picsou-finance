@@ -1,8 +1,8 @@
 //! LouveSyncService: the OAuth attempt and callback, the sync, the daily entry and the
-//! disconnect. No transaction spans a network call except the refresh, which holds the connection
-//! row lock on purpose: Louve rotates refresh tokens, so the new set is committed before it is
-//! used and two runs never refresh the same token. Runs are fenced on the row id and
-//! grant_generation: one overtaken by a reconnect or a disconnect writes nothing.
+//! disconnect. No database transaction spans a network call: refresh-token rotation is serialized
+//! per member through an in-process async mutex so two runs never refresh the same token, and the
+//! rotated tokens are committed in a short transaction fenced on row id and grant_generation
+//! before they are used. Runs overtaken by a reconnect or a disconnect write nothing.
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -323,13 +323,23 @@ async fn current(conn: &mut DbHandle<'_>, run: Run) -> LouveResult<Connection> {
         })
 }
 
-/// The state to read with, refreshed and committed first when needed, under the row lock.
-/// refused is the state Louve just refused, or None for the run's first read; when another run
+/// The state to read with, refreshed and committed first when needed, serialized per member by an
+/// async mutex so no database transaction (or SQLite `writer_gate`) is held across the HTTP call.
+/// `refused` is the state Louve just refused, or None for the run's first read; when another run
 /// rotated the tokens in between (same grant), its state is returned as it is.
 async fn fresh_state(state: &AppState, run: Run, refused: Option<&str>) -> LouveResult<String> {
+    let member_lock = state.sync.louve.refresh_lock(run.member_id);
+    let _refresh_guard = member_lock.lock().await;
     let result = async {
-        let mut tx = state.db.begin().await?;
-        let row = current(&mut tx.as_handle(), run).await?;
+        let row = repo::find_by_member(&state.db, run.member_id)
+            .await?
+            .filter(|row| run.matches(row) && row.token_state.is_some())
+            .ok_or_else(|| {
+                Failure::transient(
+                    "superseded",
+                    "The Louve Invest connection changed during the sync. Nothing was written.",
+                )
+            })?;
         let plain = decrypt_or_none(state, row.token_state.as_deref()).ok_or_else(|| {
             Failure::sync(
                 SidecarErrorCode::InvalidSessionState,
@@ -342,13 +352,14 @@ async fn fresh_state(state: &AppState, run: Run, refused: Option<&str>) -> Louve
         }
         let next = adapter::refresh(state, &plain).await?;
         let encrypted = state.crypto.encrypt(&next)?;
-        repo::store_tokens(&mut tx, row.id, &encrypted, state.clock.now()).await?;
+        let mut tx = state.db.begin().await?;
+        let locked = current(&mut tx.as_handle(), run).await?;
+        repo::store_tokens(&mut tx, locked.id, &encrypted, state.clock.now()).await?;
         tx.commit().await?;
         Ok(next)
     }
     .await;
     if let Err(failure) = &result {
-        // After the rolled-back transaction, so the registration really goes.
         forget_quietly(state, failure).await;
     }
     result

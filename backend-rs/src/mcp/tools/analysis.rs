@@ -10,7 +10,6 @@ use crate::accounts::realized_pnl;
 use crate::accounts::security;
 use crate::auth::Auth;
 use crate::budget::allocation;
-use crate::db::AsDbHandle;
 use crate::error::{AppError, AppResult};
 use crate::http::json::Path;
 use crate::ledger::model::TransactionType;
@@ -163,9 +162,9 @@ pub async fn call(
             to_json_text(&resp)
         }
         "get_wealth_pyramid" => {
-            let mut conn = state.db.acquire().await?;
+            let mut conn = state.db.pool_handle();
             let resp = pyramid::pyramid(
-                &mut conn.as_handle(),
+                &mut conn,
                 &*state.ledger.prices,
                 &*state.accounts.crypto_logos,
                 auth.member_id,
@@ -175,9 +174,9 @@ pub async fn call(
             to_json_text(&resp)
         }
         "get_portfolio_diversification" => {
-            let mut conn = state.db.acquire().await?;
+            let mut conn = state.db.pool_handle();
             let resp = diversification::diversification(
-                &mut conn.as_handle(),
+                &mut conn,
                 &*state.ledger.prices,
                 &*state.accounts.crypto_logos,
                 auth.member_id,
@@ -189,18 +188,16 @@ pub async fn call(
         "get_wealth_projection" => {
             let years = i64::from(opt_i32(args, "years")?.unwrap_or(DEFAULT_PROJECTION_YEARS));
             let today = state.clock.today();
-            let mut conn = state.db.acquire().await?;
+            let mut conn = state.db.pool_handle();
             let pyr = pyramid::pyramid(
-                &mut conn.as_handle(),
+                &mut conn,
                 &*state.ledger.prices,
                 &*state.accounts.crypto_logos,
                 auth.member_id,
                 today,
             )
             .await?;
-            let resp =
-                projection::project(&mut conn.as_handle(), &pyr, auth.member_id, years, today)
-                    .await?;
+            let resp = projection::project(&mut conn, &pyr, auth.member_id, years, today).await?;
             to_json_text(&resp)
         }
         "get_allocation_targets" => {
@@ -208,9 +205,9 @@ pub async fn call(
             to_json_text(&resp)
         }
         "get_essential_expense_estimate" => {
-            let mut conn = state.db.acquire().await?;
+            let mut conn = state.db.pool_handle();
             let resp = expenses::estimate(
-                &mut conn.as_handle(),
+                &mut conn,
                 &*state.ledger.prices,
                 auth.member_id,
                 state.clock.today(),

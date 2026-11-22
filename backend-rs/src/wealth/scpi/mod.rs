@@ -117,7 +117,7 @@ async fn list(
     State(state): State<AppState>,
     auth: Auth,
 ) -> AppResult<axum::Json<Vec<ScpiFundResponse>>> {
-    let mut conn = state.db.acquire().await?;
+    let mut conn = state.db.pool_handle();
     let rows: Vec<FundRow> = crate::db::query_as::<FundRow>(
         "SELECT provider, fund_code, label, ignored, last_outcome, last_seen_at, last_synced_at \
          FROM scpi_provider_fund WHERE member_id = $1 ORDER BY provider, label",

@@ -11,7 +11,7 @@ use rust_xlsxwriter::{Workbook, Worksheet, XlsxError};
 use super::labels::{LabelKey as L, SheetLabels};
 use super::sheet::{Cursor, Styles, Value};
 use crate::AppState;
-use crate::db::{AsDbHandle, DbFromRow, DbHandle};
+use crate::db::{DbFromRow, DbHandle};
 use crate::error::{AppError, AppResult};
 use crate::ledger::decimal::{HALF_UP, divide};
 use crate::ledger::loans::{self, LoanScheduleResponse};
@@ -204,17 +204,17 @@ pub async fn build(
     labels: &SheetLabels,
 ) -> AppResult<Vec<u8>> {
     let today = state.clock.today();
-    let mut conn = state.db.acquire().await?;
+    let mut conn = state.db.pool_handle();
     let mut seen = HashSet::new();
     let mut data = Vec::new();
     for id in account_ids {
         if seen.insert(*id) {
-            data.push(gather(state, &mut conn.as_handle(), *id, member_id, today).await?);
+            data.push(gather(state, &mut conn, *id, member_id, today).await?);
         }
     }
     let mut debts = Vec::new();
     for debt in liabilities::debts_of_member(&mut conn, member_id).await? {
-        debts.push(debt_data(&mut conn.as_handle(), debt, today).await?);
+        debts.push(debt_data(&mut conn, debt, today).await?);
     }
     let profile: Profile = crate::db::query_as(
         "SELECT birth_date, marginal_tax_rate, household_status, tax_household_parts, dependents, \
@@ -225,8 +225,7 @@ pub async fn build(
     .fetch_optional(&mut conn)
     .await?
     .unwrap_or_default();
-    let plans = recurring_plans(&mut conn.as_handle(), member_id).await?;
-    drop(conn);
+    let plans = recurring_plans(&mut conn, member_id).await?;
 
     write(state, labels, &data, &profile, &plans, &debts, today)
         .map_err(|e| AppError::internal(format!("xlsx: {e}")))

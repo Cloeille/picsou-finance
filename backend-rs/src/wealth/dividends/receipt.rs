@@ -5,7 +5,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
-use crate::db::AsDbHandle;
 use crate::db::Db;
 use async_trait::async_trait;
 use chrono::{DateTime, Days, NaiveDate, Utc};
@@ -98,8 +97,8 @@ pub async fn received(
     today: NaiveDate,
     days: i32,
 ) -> AppResult<Vec<ReceivedDividendResponse>> {
-    let mut conn = state.db.acquire().await?;
-    let readable = access::readable_accounts(&mut conn.as_handle(), member_id).await?;
+    let mut conn = state.db.pool_handle();
+    let readable = access::readable_accounts(&mut conn, member_id).await?;
     if readable.is_empty() {
         return Ok(Vec::new());
     }
@@ -116,7 +115,7 @@ pub async fn received(
         return Ok(Vec::new());
     }
     let tickers: Vec<String> = rows.iter().filter_map(|t| t.ticker.clone()).collect();
-    let by_ticker = sources_by_ticker_on(&mut conn.as_handle(), &tickers).await?;
+    let by_ticker = sources_by_ticker_on(&mut conn, &tickers).await?;
     let lines: Vec<(&Account, AccountHolding)> =
         holdings::find_positive_by_accounts(&mut conn, &ids)
             .await?

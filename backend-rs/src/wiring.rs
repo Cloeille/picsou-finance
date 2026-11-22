@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, OnceLock, Weak};
 use std::time::Duration;
 
-use crate::db::{AsDbHandle, Db, DbHandle};
+use crate::db::{Db, DbHandle};
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use rust_decimal::Decimal;
@@ -205,9 +205,9 @@ async fn account_to_json(
 #[async_trait]
 impl WealthAccountResponses for AccountsToResponse {
     async fn to_response(&self, state: &AppState, account: &Account) -> AppResult<Value> {
-        let mut conn = state.db.acquire().await?;
+        let mut conn = state.db.pool_handle();
         account_to_json(
-            &mut conn.as_handle(),
+            &mut conn,
             &*state.ledger.prices,
             account,
             state.clock.today(),
@@ -240,11 +240,11 @@ impl EbAccountResponses for AccountsToResponse {
 #[async_trait]
 impl ExchangeAccountResponder for AccountsToResponse {
     async fn account_response(&self, state: &AppState, account: &Account) -> AppResult<Value> {
-        let mut conn = state.db.acquire().await?;
+        let mut conn = state.db.pool_handle();
         // Exchange sync returns the freshly written account with its computed balance scale
         // (Hibernate keeps the managed instance rather than re-reading numeric(20,8)).
         let response = crate::accounts::dto::to_response(
-            &mut conn.as_handle(),
+            &mut conn,
             &*state.ledger.prices,
             account,
             None,
@@ -300,9 +300,9 @@ impl WiseAccountView for AccountsToResponse {
 #[async_trait]
 impl ConnectorAccountResponses for AccountsToResponse {
     async fn to_response(&self, state: &AppState, account: &Account) -> AppResult<Value> {
-        let mut conn = state.db.acquire().await?;
+        let mut conn = state.db.pool_handle();
         account_to_json(
-            &mut conn.as_handle(),
+            &mut conn,
             &*state.ledger.prices,
             account,
             state.clock.today(),
@@ -1016,10 +1016,10 @@ impl HistorySource for AccountsHistorySource {
         split: bool,
         member_id: i64,
     ) -> AppResult<Vec<WealthNetWorthPoint>> {
-        let mut conn = state.db.acquire().await?;
+        let mut conn = state.db.pool_handle();
         let points = crate::accounts::history::build_history(
             state,
-            &mut conn.as_handle(),
+            &mut conn,
             account_ids,
             months,
             split,

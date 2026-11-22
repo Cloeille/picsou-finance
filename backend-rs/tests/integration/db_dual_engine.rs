@@ -783,3 +783,464 @@ async fn sqlite_close_drains_in_flight_readers_and_migrate_tightens_permissions(
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[tokio::test]
+async fn sqlite_wal_pool_handle_reads_do_not_block_behind_active_write_tx() {
+    use std::time::Duration;
+
+    let dir = std::env::temp_dir().join(format!("picsou-sqlite-pool-handle-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    let db_path = dir.join("picsou.db");
+
+    let sq = SqliteDb::open(&db_path).expect("open file-backed WAL SQLite");
+    sq.migrate().expect("migrate SQLite");
+    let db = Db::Sqlite(sq);
+
+    db::query("INSERT INTO family_member (display_name, is_managed) VALUES ('Alice', false)")
+        .execute(&db)
+        .await
+        .expect("seed member");
+
+    // Hold an active write transaction (which owns SQLite's writer_gate).
+    let mut tx = db.begin().await.expect("begin write tx");
+    db::query("INSERT INTO family_member (display_name, is_managed) VALUES ('Uncommitted', false)")
+        .execute(&mut tx)
+        .await
+        .expect("insert uncommitted row");
+
+    // A read through `db.pool_handle()` MUST dispatch to the WAL read pool and complete
+    // immediately without waiting for `tx` (whereas `db.acquire()` would block on writer_gate).
+    let mut handle = db.pool_handle();
+    let count: i64 = tokio::time::timeout(
+        Duration::from_secs(2),
+        db::query_scalar("SELECT COUNT(*) FROM family_member").fetch_one(&mut handle),
+    )
+    .await
+    .expect("pool_handle read must not block behind active write tx")
+    .expect("pool_handle read query");
+    assert_eq!(count, 1, "WAL reader sees only committed snapshot");
+
+    tx.commit().await.expect("commit tx");
+    let after_commit: i64 = db::query_scalar("SELECT COUNT(*) FROM family_member")
+        .fetch_one(&mut handle)
+        .await
+        .expect("count after commit");
+    assert_eq!(after_commit, 2);
+
+    db.close().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn sqlite_writer_gate_stays_free_during_external_http_calls() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    use picsou::clock::{Clock, FixedClock};
+    use picsou::ledger::accounts::NewAccount;
+    use picsou::ledger::model::AccountType;
+    use picsou::testing::epoch;
+    use serde_json::json;
+    use tokio::sync::Notify;
+    use wiremock::matchers::{body_string_contains, method, path};
+    use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
+
+    struct DelayedNotify {
+        in_flight: Arc<Notify>,
+        hits: Arc<AtomicUsize>,
+        delay: Duration,
+        body: serde_json::Value,
+    }
+
+    impl Respond for DelayedNotify {
+        fn respond(&self, _request: &Request) -> ResponseTemplate {
+            self.hits.fetch_add(1, Ordering::SeqCst);
+            self.in_flight.notify_waiters();
+            ResponseTemplate::new(200)
+                .set_delay(self.delay)
+                .set_body_json(self.body.clone())
+        }
+    }
+
+    async fn assert_sqlite_write_succeeds_while_http_in_flight(
+        db: &Db,
+        in_flight: &Notify,
+        label: &str,
+    ) {
+        tokio::time::timeout(Duration::from_secs(3), in_flight.notified())
+            .await
+            .unwrap_or_else(|_| panic!("{label}: expected mock HTTP call to start"));
+
+        // Must acquire writer_gate and commit strictly BEFORE the 300ms HTTP delay elapses!
+        let write_result = tokio::time::timeout(Duration::from_millis(150), async {
+            let mut tx = db.begin().await?;
+            db::query(
+                "INSERT INTO app_setting (setting_key, value, updated_at) \
+                 VALUES ($1, 'ok', NOW()) \
+                 ON CONFLICT (setting_key) DO UPDATE SET value = EXCLUDED.value",
+            )
+            .bind(format!("concurrency.probe.{label}"))
+            .execute(&mut tx)
+            .await?;
+            tx.commit().await?;
+            Ok::<_, sqlx::Error>(())
+        })
+        .await;
+
+        assert!(
+            matches!(write_result, Ok(Ok(()))),
+            "{label}: SQLite write tx was blocked while external HTTP call was in flight: {write_result:?}"
+        );
+    }
+
+    let degiro_server = MockServer::start().await;
+    let louve_server = MockServer::start().await;
+    let geo_server = MockServer::start().await;
+    let cerema_server = MockServer::start().await;
+    let openfigi_server = MockServer::start().await;
+    let yahoo_server = MockServer::start().await;
+
+    let delay = Duration::from_millis(300);
+
+    // 1. DEGIRO mocks (/initiate fast, /portfolio delayed 300ms)
+    let degiro_in_flight = Arc::new(Notify::new());
+    Mock::given(method("POST"))
+        .and(path("/initiate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "processId": "p1",
+            "totpRequired": false,
+            "sessionBlob": "synthetic-blob"
+        })))
+        .mount(&degiro_server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/portfolio"))
+        .respond_with(DelayedNotify {
+            in_flight: Arc::clone(&degiro_in_flight),
+            hits: Arc::new(AtomicUsize::new(0)),
+            delay,
+            body: json!({ "cashEur": 250.0, "positions": [] }),
+        })
+        .mount(&degiro_server)
+        .await;
+
+    // 2. Louve mocks (/mcp/oauth/token delayed 300ms, /mcp fast)
+    let louve_in_flight = Arc::new(Notify::new());
+    let louve_refresh_hits = Arc::new(AtomicUsize::new(0));
+    Mock::given(method("POST"))
+        .and(path("/mcp/oauth/token"))
+        .and(body_string_contains("grant_type=refresh_token"))
+        .respond_with(DelayedNotify {
+            in_flight: Arc::clone(&louve_in_flight),
+            hits: Arc::clone(&louve_refresh_hits),
+            delay,
+            body: json!({
+                "access_token": "access-2",
+                "refresh_token": "refresh-2",
+                "token_type": "Bearer",
+                "expires_in": 3600
+            }),
+        })
+        .mount(&louve_server)
+        .await;
+    struct SimpleLouveMcp;
+    impl Respond for SimpleLouveMcp {
+        fn respond(&self, request: &Request) -> ResponseTemplate {
+            let body: serde_json::Value = serde_json::from_slice(&request.body).expect("rpc");
+            let id = body["id"].clone();
+            let result = match body["method"].as_str() {
+                Some("initialize") => {
+                    json!({"protocolVersion": "2025-06-18", "capabilities": {}})
+                }
+                Some("notifications/initialized") => return ResponseTemplate::new(202),
+                Some("tools/call") => {
+                    json!({"structuredContent": {"scpi": {"sellingPrice": 0, "positions": []}}})
+                }
+                _ => return ResponseTemplate::new(400),
+            };
+            ResponseTemplate::new(200)
+                .insert_header("Mcp-Session-Id", "sess-1")
+                .set_body_json(json!({"jsonrpc": "2.0", "id": id, "result": result}))
+        }
+    }
+    Mock::given(method("POST"))
+        .and(path("/mcp"))
+        .respond_with(SimpleLouveMcp)
+        .mount(&louve_server)
+        .await;
+
+    // 3. Real estate geocoding mock (delayed 300ms) + Cerema mock
+    let geo_in_flight = Arc::new(Notify::new());
+    Mock::given(method("GET"))
+        .and(path("/search"))
+        .respond_with(DelayedNotify {
+            in_flight: Arc::clone(&geo_in_flight),
+            hits: Arc::new(AtomicUsize::new(0)),
+            delay,
+            body: json!({
+                "features": [{
+                    "geometry": {"coordinates": [2.3522, 48.8566]},
+                    "properties": {
+                        "id": "75101_0001",
+                        "label": "1 Rue de Rivoli 75001 Paris",
+                        "score": 0.95,
+                        "citycode": "75101",
+                        "postcode": "75001",
+                        "city": "Paris"
+                    }
+                }]
+            }),
+        })
+        .mount(&geo_server)
+        .await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "results": []
+        })))
+        .mount(&cerema_server)
+        .await;
+
+    // 4. OpenFIGI mock (delayed 300ms) + Yahoo chart mock
+    let openfigi_in_flight = Arc::new(Notify::new());
+    Mock::given(method("POST"))
+        .and(path("/v3/mapping"))
+        .respond_with(DelayedNotify {
+            in_flight: Arc::clone(&openfigi_in_flight),
+            hits: Arc::new(AtomicUsize::new(0)),
+            delay,
+            body: json!([{"data": [{"ticker": "TTE", "exchCode": "FP", "name": "TOTALENERGIES SE"}]}]),
+        })
+        .mount(&openfigi_server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/TTE.PA"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "chart": {"result": [{"meta": {"currency": "EUR", "regularMarketPrice": 55.0}}]}
+        })))
+        .mount(&yahoo_server)
+        .await;
+
+    // Spin up a dedicated file-backed WAL SQLite AppState + Axum server.
+    let dir = std::env::temp_dir().join(format!("picsou-sqlite-http-tx-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    let db_path = dir.join("picsou.db");
+    let path_str = db_path.to_string_lossy().replace('\\', "/");
+    let env = Env::from_map([
+        ("JWT_SECRET", "0123456789abcdef0123456789abcdef"),
+        ("CRYPTO_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef"),
+        (
+            "DATABASE_URL",
+            &format!("sqlite:///{}", path_str.trim_start_matches('/')),
+        ),
+        ("SECURE_COOKIES", "false"),
+        ("APP_STARTUP_SYNC_ENABLED", "false"),
+        ("APP_UPDATE_CHECK_ENABLED", "false"),
+        ("INSTRUMENT_LOGOS_ENABLED", "false"),
+        ("DEGIRO_AUTH_URL", &degiro_server.uri()),
+        ("LOUVE_ISSUER_URL", &louve_server.uri()),
+        ("ALLOWED_ORIGINS", "https://picsou.example"),
+        ("GEOCODING_API_URL", &geo_server.uri()),
+        ("CEREMA_API_URL", &cerema_server.uri()),
+        ("INSEE_API_URL", "http://127.0.0.1:1"),
+        ("OPENFIGI_BASE_URL", &openfigi_server.uri()),
+        ("YAHOO_FINANCE_BASE_URL", &yahoo_server.uri()),
+    ]);
+    let config = Config::load(&env).expect("load config");
+    let clock = Arc::new(FixedClock::new(epoch()));
+    let state = picsou::start(config, clock.clone())
+        .await
+        .expect("start sqlite app");
+    assert!(state.db.is_sqlite());
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let base_url = format!("http://{}", listener.local_addr().unwrap());
+    let router = picsou::app(state.clone());
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        let _ = axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .with_graceful_shutdown(async {
+            let _ = stop_rx.await;
+        })
+        .await;
+    });
+
+    // Complete setup and log in as admin.
+    let mut default_headers = reqwest::header::HeaderMap::new();
+    default_headers.insert(
+        reqwest::header::ORIGIN,
+        reqwest::header::HeaderValue::from_str(&base_url).unwrap(),
+    );
+    let http = reqwest::Client::builder()
+        .cookie_store(true)
+        .default_headers(default_headers)
+        .build()
+        .expect("client");
+    let setup = http
+        .post(format!("{base_url}/api/setup/admin"))
+        .json(&json!({
+            "username": "admin",
+            "password": "StrongPassword123!"
+        }))
+        .send()
+        .await
+        .expect("setup admin");
+    assert_eq!(setup.status().as_u16(), 200);
+    let complete = http
+        .post(format!("{base_url}/api/setup/complete"))
+        .send()
+        .await
+        .expect("setup complete");
+    assert_eq!(complete.status().as_u16(), 204);
+    let login = http
+        .post(format!("{base_url}/api/auth/login"))
+        .json(&json!({ "username": "admin", "password": "StrongPassword123!" }))
+        .send()
+        .await
+        .expect("login");
+    assert_eq!(login.status().as_u16(), 200);
+    let member_id: i64 =
+        db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+            .fetch_one(&state.db)
+            .await
+            .expect("admin member_id");
+
+    // --- Case 1: DEGIRO store_session_and_sync (/portfolio HTTP outside tx) ---
+    let degiro_http = http.clone();
+    let degiro_url = format!("{base_url}/api/degiro/auth/initiate");
+    let degiro_task = tokio::spawn(async move {
+        degiro_http
+            .post(degiro_url)
+            .json(&json!({ "username": "u", "password": "p" }))
+            .send()
+            .await
+            .expect("degiro initiate")
+    });
+    assert_sqlite_write_succeeds_while_http_in_flight(&state.db, &degiro_in_flight, "degiro").await;
+    let degiro_resp = degiro_task.await.expect("join degiro");
+    assert_eq!(degiro_resp.status().as_u16(), 200);
+
+    // --- Case 2: Louve refresh (HTTP outside tx + per-member mutex prevents double refresh) ---
+    let expiring_token = json!({
+        "v": 1,
+        "accessToken": "access-1",
+        "refreshToken": "refresh-1",
+        "expiresAt": clock.now().timestamp() + 30,
+        "clientId": "cid-1",
+        "redirectUri": "https://picsou.example/sync/louve/callback",
+    })
+    .to_string();
+    let encrypted = state.crypto.encrypt(&expiring_token).expect("encrypt");
+    db::query(
+        "INSERT INTO louve_connection (member_id, token_state, status, created_at, updated_at) \
+         VALUES ($1, $2, 'CONNECTED', NOW(), NOW())",
+    )
+    .bind(member_id)
+    .bind(encrypted)
+    .execute(&state.db)
+    .await
+    .expect("seed louve connection");
+
+    // Launch TWO concurrent syncs for the same member: per-member mutex must serialize them so
+    // /mcp/oauth/token is hit EXACTLY ONCE while SQLite writes stay unblocked!
+    let louve_http_1 = http.clone();
+    let louve_http_2 = http.clone();
+    let louve_url = format!("{base_url}/api/louve/sync");
+    let louve_url_2 = louve_url.clone();
+    let louve_task_1 =
+        tokio::spawn(async move { louve_http_1.post(louve_url).send().await.expect("louve 1") });
+    let louve_task_2 = tokio::spawn(async move {
+        louve_http_2
+            .post(louve_url_2)
+            .send()
+            .await
+            .expect("louve 2")
+    });
+    assert_sqlite_write_succeeds_while_http_in_flight(&state.db, &louve_in_flight, "louve").await;
+    let (r1, r2) = tokio::join!(louve_task_1, louve_task_2);
+    assert_eq!(r1.expect("join louve 1").status().as_u16(), 200);
+    assert_eq!(r2.expect("join louve 2").status().as_u16(), 200);
+    assert_eq!(
+        louve_refresh_hits.load(Ordering::SeqCst),
+        1,
+        "per-member refresh mutex must serialize concurrent Louve refreshes to a single token rotation"
+    );
+
+    // --- Case 3: Real estate valuation (BAN geocoding + Cerema HTTP outside tx) ---
+    let mut property = NewAccount::new(member_id, "Appartement", AccountType::RealEstate);
+    property.is_manual = true;
+    property.current_balance = Decimal::from(300_000);
+    let prop_account = picsou::ledger::accounts::insert(&state.db, &property, clock.now())
+        .await
+        .expect("insert real estate account");
+    db::query(
+        "INSERT INTO real_estate_metadata \
+         (account_id, member_id, purchase_price, property_type, address, postal_code, city, country, surface_area, valuation_mode) \
+         VALUES ($1, $2, 300000, 'APARTMENT', '1 Rue de Rivoli', '75001', 'Paris', 'FR', 50, 'ESTIMATED')",
+    )
+    .bind(prop_account.id)
+    .bind(member_id)
+    .execute(&state.db)
+    .await
+    .expect("insert real estate metadata");
+
+    let val_state = state.clone();
+    let prop_id = prop_account.id;
+    let val_task = tokio::spawn(async move {
+        picsou::wealth::real_estate::valuation::estimate(&val_state, prop_id, member_id)
+            .await
+            .expect("valuation estimate")
+    });
+    assert_sqlite_write_succeeds_while_http_in_flight(&state.db, &geo_in_flight, "real_estate")
+        .await;
+    let _val_resp = val_task.await.expect("join valuation");
+    // Verify geocoded insee_code was persisted cleanly in its own short tx!
+    let saved_insee: Option<String> =
+        db::query_scalar("SELECT insee_code FROM real_estate_metadata WHERE account_id = $1")
+            .bind(prop_id)
+            .fetch_one(&state.db)
+            .await
+            .expect("select insee_code");
+    assert_eq!(saved_insee.as_deref(), Some("75101"));
+
+    // --- Case 4: Manual add_transaction with ISIN (OpenFIGI HTTP outside tx) ---
+    let mut pea = NewAccount::new(member_id, "PEA", AccountType::Pea);
+    pea.is_manual = true;
+    let pea_account = picsou::ledger::accounts::insert(&state.db, &pea, clock.now())
+        .await
+        .expect("insert pea account");
+
+    let tx_http = http.clone();
+    let tx_url = format!("{base_url}/api/accounts/{}/transactions", pea_account.id);
+    let tx_task = tokio::spawn(async move {
+        tx_http
+            .post(tx_url)
+            .json(&json!({
+                "date": "2026-01-15",
+                "description": "Buy TotalEnergies",
+                "amount": "-550.00",
+                "txType": "BUY",
+                "ticker": "FR0000120271",
+                "quantity": "10",
+                "pricePerUnit": "55.00"
+            }))
+            .send()
+            .await
+            .expect("add_transaction")
+    });
+    assert_sqlite_write_succeeds_while_http_in_flight(&state.db, &openfigi_in_flight, "openfigi")
+        .await;
+    let tx_resp = tx_task.await.expect("join add_transaction");
+    assert_eq!(tx_resp.status().as_u16(), 201);
+    let tx_body: serde_json::Value = tx_resp.json().await.expect("tx json");
+    assert_eq!(tx_body["ticker"], "TTE.PA");
+
+    let _ = stop_tx.send(());
+    state.db.close().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}

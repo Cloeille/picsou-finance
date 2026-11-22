@@ -307,36 +307,48 @@ async fn store_session_and_sync(
 ) -> AppResult<SessionStatusResponse> {
     let now = state.clock.now();
     let encrypted = state.crypto.encrypt(plain_blob)?;
-    let mut tx = state.db.begin().await?;
-    if members::find_by_id(&mut tx, member_id).await?.is_none() {
-        return Err(AppError::NotFound("Family member not found".to_owned()));
+    {
+        let mut tx = state.db.begin().await?;
+        if members::find_by_id(&mut tx, member_id).await?.is_none() {
+            return Err(AppError::NotFound("Family member not found".to_owned()));
+        }
+        db::query(
+            "INSERT INTO degiro_session (member_id, session_blob, status, last_error, created_at, updated_at) \
+             VALUES ($1, $2, 'ACTIVE', NULL, $3, $3) ON CONFLICT (member_id) DO UPDATE SET \
+             session_blob = EXCLUDED.session_blob, status = 'ACTIVE', last_error = NULL, updated_at = EXCLUDED.updated_at",
+        )
+        .bind(member_id)
+        .bind(encrypted)
+        .bind(now)
+        .execute(&mut tx)
+        .await?;
+        tx.commit().await?;
     }
-    db::query(
-        "INSERT INTO degiro_session (member_id, session_blob, status, last_error, created_at, updated_at) \
-         VALUES ($1, $2, 'ACTIVE', NULL, $3, $3) ON CONFLICT (member_id) DO UPDATE SET \
-         session_blob = EXCLUDED.session_blob, status = 'ACTIVE', last_error = NULL, updated_at = EXCLUDED.updated_at",
-    )
-    .bind(member_id)
-    .bind(encrypted)
-    .bind(now)
-    .execute(&mut tx)
-    .await?;
     tracing::info!("DEGIRO session stored for member {member_id}");
+
+    // Run sidecar portfolio fetch and ISIN resolution completely outside any DB transaction so
+    // SQLite's writer_gate is never held across external HTTP calls.
     match fetch_portfolio(state, plain_blob).await {
         Ok(data) => {
-            upsert_account(state, &mut tx.as_handle(), &data, member_id).await?;
-            set_status(
-                &mut tx,
-                member_id,
-                "ACTIVE",
-                None,
-                Some(state.clock.now()),
-                state.clock.now(),
-            )
-            .await?;
+            let resolved = resolve_portfolio(state, &data).await;
+            let mut tx = state.db.begin().await?;
+            if find_session(&mut tx, member_id).await?.is_some() {
+                upsert_account(state, &mut tx.as_handle(), &resolved, member_id).await?;
+                set_status(
+                    &mut tx,
+                    member_id,
+                    "ACTIVE",
+                    None,
+                    Some(state.clock.now()),
+                    state.clock.now(),
+                )
+                .await?;
+            }
+            tx.commit().await?;
         }
         Err(Failure::SessionExpired) => {
             tracing::warn!("DEGIRO session expired during the initial sync for member {member_id}");
+            let mut tx = state.db.begin().await?;
             set_status(
                 &mut tx,
                 member_id,
@@ -346,6 +358,7 @@ async fn store_session_and_sync(
                 state.clock.now(),
             )
             .await?;
+            tx.commit().await?;
         }
         Err(Failure::Sync(e)) => {
             tracing::warn!(
@@ -354,7 +367,6 @@ async fn store_session_and_sync(
             );
         }
     }
-    tx.commit().await?;
     get_status(state, member_id).await
 }
 
@@ -391,8 +403,9 @@ pub async fn sync(state: &AppState, member_id: i64) -> AppResult<Value> {
         }
         Err(e) => return Err(e.into()),
     };
+    let resolved = resolve_portfolio(state, &data).await;
     let mut tx = state.db.begin().await?;
-    let account = upsert_account(state, &mut tx.as_handle(), &data, member_id).await?;
+    let account = upsert_account(state, &mut tx.as_handle(), &resolved, member_id).await?;
     set_status(
         &mut tx,
         member_id,
@@ -504,12 +517,13 @@ async fn fetch_portfolio(state: &AppState, blob: &str) -> Result<Portfolio, Fail
     })
 }
 
-async fn upsert_account(
-    state: &AppState,
-    conn: &mut DbHandle<'_>,
-    data: &Portfolio,
-    member_id: i64,
-) -> AppResult<crate::ledger::model::Account> {
+struct ResolvedPortfolio {
+    cash_eur: Decimal,
+    total: Decimal,
+    deduped: HashMap<String, HoldingAgg>,
+}
+
+async fn resolve_portfolio(state: &AppState, data: &Portfolio) -> ResolvedPortfolio {
     let mut deduped: HashMap<String, HoldingAgg> = HashMap::new();
     for p in &data.positions {
         let (ticker, name) = state
@@ -536,7 +550,20 @@ async fn upsert_account(
         .filter(|agg| !agg.quantity.is_zero())
         .map(|agg| agg.quantity * agg.current_price.unwrap_or(Decimal::ZERO))
         .sum();
-    let total = data.cash_eur + positions_value;
+    ResolvedPortfolio {
+        cash_eur: data.cash_eur,
+        total: data.cash_eur + positions_value,
+        deduped,
+    }
+}
+
+async fn upsert_account(
+    state: &AppState,
+    conn: &mut DbHandle<'_>,
+    data: &ResolvedPortfolio,
+    member_id: i64,
+) -> AppResult<crate::ledger::model::Account> {
+    let total = data.total;
     let now = state.clock.now();
     let account =
         match accounts::find_by_external_id_and_member(&mut *conn, EXTERNAL_ACCOUNT_ID, member_id)
@@ -563,12 +590,13 @@ async fn upsert_account(
                 accounts::insert(&mut *conn, &draft, now).await?
             }
         };
-    let drafts: Vec<HoldingDraft> = deduped
-        .into_iter()
+    let drafts: Vec<HoldingDraft> = data
+        .deduped
+        .iter()
         .filter(|(_, agg)| !agg.quantity.is_zero())
         .map(|(ticker, agg)| HoldingDraft {
-            ticker,
-            name: agg.name,
+            ticker: ticker.clone(),
+            name: agg.name.clone(),
             quantity: agg.quantity,
             average_buy_in: agg.average_buy_in,
             current_price: agg.current_price,
