@@ -89,9 +89,7 @@ fn pick<'a>(obj: &'a serde_json::Map<String, Value>, keys: &[&str]) -> Option<&'
 }
 
 fn pick_str(obj: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {
-    pick(obj, keys)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
+    pick(obj, keys).and_then(Value::as_str).map(str::to_owned)
 }
 
 fn pick_non_empty_str(obj: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {
@@ -576,12 +574,9 @@ pub fn assemble_accounts_and_wallets(
             {
                 continue;
             }
-            let parent = wallet_id
-                .as_ref()
-                .filter(|wid| *wid != &pid)
-                .cloned();
-            let name = pick_non_empty_str(obj, &["name", "type"])
-                .unwrap_or_else(|| "Revolut".to_owned());
+            let parent = wallet_id.as_ref().filter(|wid| *wid != &pid).cloned();
+            let name =
+                pick_non_empty_str(obj, &["name", "type"]).unwrap_or_else(|| "Revolut".to_owned());
             accounts.push(RevolutAccountPayload {
                 external_id: pid.clone(),
                 name,
@@ -601,10 +596,7 @@ pub fn assemble_accounts_and_wallets(
         }
     }
 
-    let wallet_ids: HashSet<String> = wallets
-        .iter()
-        .filter_map(|(wid, _)| wid.clone())
-        .collect();
+    let wallet_ids: HashSet<String> = wallets.iter().filter_map(|(wid, _)| wid.clone()).collect();
     let mut wallet_currencies: HashMap<String, String> = HashMap::new();
     for wallet_id in wallet_ids {
         if let Some(ccy) = current_ccy.get(&wallet_id) {
@@ -639,7 +631,12 @@ mod tests {
         Decimal::from_str(s).unwrap()
     }
 
-    fn pocket(external_id: &str, balance: &str, currency: &str, parent: Option<&str>) -> RevolutAccountPayload {
+    fn pocket(
+        external_id: &str,
+        balance: &str,
+        currency: &str,
+        parent: Option<&str>,
+    ) -> RevolutAccountPayload {
         RevolutAccountPayload {
             external_id: external_id.to_owned(),
             name: "Pocket".to_owned(),
@@ -658,12 +655,20 @@ mod tests {
             .timestamp_millis()
     }
 
-    fn row(id: &str, created_days_ago_tenths: i64, started_tenths: Option<i64>, completed_tenths: Option<i64>, currency: &str) -> Value {
+    fn row(
+        id: &str,
+        created_days_ago_tenths: i64,
+        started_tenths: Option<i64>,
+        completed_tenths: Option<i64>,
+        currency: &str,
+    ) -> Value {
         let now = fixed_now_ms();
         let tenth_day = DAY_MS / 10;
         let created = now - created_days_ago_tenths * tenth_day;
         let started = now - started_tenths.unwrap_or(created_days_ago_tenths) * tenth_day;
-        let completed = now - completed_tenths.unwrap_or(started_tenths.unwrap_or(created_days_ago_tenths)) * tenth_day;
+        let completed = now
+            - completed_tenths.unwrap_or(started_tenths.unwrap_or(created_days_ago_tenths))
+                * tenth_day;
         json!({
             "id": id,
             "createdDate": created,
@@ -684,7 +689,10 @@ mod tests {
             pocket("p3", "20.0", "GBP", Some("W")),
         ];
         let wallet_ccys = HashMap::from([("W".to_owned(), "EUR".to_owned())]);
-        let ibans = HashMap::from([("W".to_owned(), Some("FR7630006000011234567890189".to_owned()))]);
+        let ibans = HashMap::from([(
+            "W".to_owned(),
+            Some("FR7630006000011234567890189".to_owned()),
+        )]);
 
         let result = with_wallet_parents(accounts, &wallet_ccys, &ibans);
         let by_id: HashMap<&str, &RevolutAccountPayload> =
@@ -764,7 +772,10 @@ mod tests {
         assert_eq!(accounts[0].balance, dec("10"));
         assert_eq!(accounts[1].account_type, "CHECKING");
         assert_eq!(accounts[1].balance, dec("50"));
-        assert_eq!(tx_map.get("vault-1").map(String::as_str), Some("vault-pocket"));
+        assert_eq!(
+            tx_map.get("vault-1").map(String::as_str),
+            Some("vault-pocket")
+        );
         assert_eq!(tx_map.get("p-cur").map(String::as_str), Some("p-cur"));
         assert_eq!(wallet_ccys.get("wallet").map(String::as_str), Some("EUR"));
     }
@@ -825,8 +836,14 @@ mod tests {
         ];
 
         classify_internal_transfers(&mut accounts);
-        assert_eq!(accounts[0].transactions[0].kind.as_deref(), Some("TRANSFER"));
-        assert_eq!(accounts[1].transactions[0].kind.as_deref(), Some("TRANSFER"));
+        assert_eq!(
+            accounts[0].transactions[0].kind.as_deref(),
+            Some("TRANSFER")
+        );
+        assert_eq!(
+            accounts[1].transactions[0].kind.as_deref(),
+            Some("TRANSFER")
+        );
         assert_eq!(accounts[0].transactions[1].kind, None);
     }
 
@@ -964,7 +981,10 @@ mod tests {
         let burst: Vec<Value> = (0..5)
             .map(|n| row(&format!("b-{n}"), 40, None, None, "EUR"))
             .collect();
-        let mut rows = vec![row("t1", 20, None, None, "EUR"), row("t2", 30, None, None, "EUR")];
+        let mut rows = vec![
+            row("t1", 20, None, None, "EUR"),
+            row("t2", 30, None, None, "EUR"),
+        ];
         rows.extend(burst);
         rows.push(row("old", 60, None, None, "EUR"));
 

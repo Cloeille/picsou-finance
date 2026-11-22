@@ -13,17 +13,18 @@ pub mod revolut_parsers;
 
 use std::io;
 use std::net::TcpListener;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
-use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
+use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
 use subtle::ConstantTimeEq;
-use tauri::AppHandle;
+use tauri::{AppHandle, WebviewWindow};
 use tokio::sync::oneshot;
 
 use crate::supervisor::LOOPBACK;
@@ -146,8 +147,14 @@ fn build_router(state: Arc<BridgeState>) -> axum::Router {
         // American Express
         .route("/amex/health", get(health))
         .route("/amex/webview/start", post(amex_webview_start))
-        .route("/amex/webview/status/{process_id}", get(amex_webview_status))
-        .route("/amex/webview/cancel/{process_id}", post(amex_webview_cancel))
+        .route(
+            "/amex/webview/status/{process_id}",
+            get(amex_webview_status),
+        )
+        .route(
+            "/amex/webview/cancel/{process_id}",
+            post(amex_webview_cancel),
+        )
         .route("/amex/accounts", post(amex_accounts))
         // Revolut
         .route("/revolut/health", get(health))
@@ -163,8 +170,129 @@ fn build_router(state: Arc<BridgeState>) -> axum::Router {
         .route("/revolut/sync", post(revolut_sync))
         .route("/revolut/progress/{member_id}", get(revolut_progress))
         .route("/revolut/accounts", post(revolut_accounts))
-        .route("/revolut/session/{member_id}", delete(revolut_delete_session))
+        .route(
+            "/revolut/session/{member_id}",
+            delete(revolut_delete_session),
+        )
         .with_state(state)
+}
+
+pub(crate) const PENDING_SENTINEL: &str = "__PENDING__";
+pub(crate) const CONTEXT_LOST_SENTINEL: &str = "__LOST__";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SlotPollState {
+    /// `window[slot]` still holds `"__PENDING__"` (fetch in flight).
+    Pending,
+    /// `window[slot]` disappeared (`undefined`/`null`/empty) because the page navigated or reloaded.
+    ContextLost,
+    /// `window[slot]` resolved to the serialized JSON payload.
+    Ready(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EvalPollError {
+    EvalFailed,
+    ContextLost,
+    Timeout,
+}
+
+impl EvalPollError {
+    pub(crate) fn as_reason(self) -> &'static str {
+        match self {
+            Self::EvalFailed => "eval_failed",
+            Self::ContextLost => "context_lost",
+            Self::Timeout => "timeout",
+        }
+    }
+}
+
+/// Builds the polling JS snippet for an ephemeral `window[slot]` initialized to `"__PENDING__"`.
+/// Distinguishes in-flight (`"__PENDING__"`) from navigation/reload (`undefined`/`null` -> `"__LOST__"`).
+pub(crate) fn build_slot_read_js(slot: &str) -> String {
+    format!(
+        r#"(function(){{ var k = "{slot}"; var v = window[k]; if (v === undefined || v === null) {{ return "{CONTEXT_LOST_SENTINEL}"; }} if (v === "{PENDING_SENTINEL}") {{ return "{PENDING_SENTINEL}"; }} delete window[k]; return v; }})()"#
+    )
+}
+
+/// Classifies the raw string returned by `eval_with_callback` on `build_slot_read_js`.
+pub(crate) fn classify_eval_poll(raw: &str) -> SlotPollState {
+    match bnp::unwrap_eval_string(raw) {
+        Some(s) if s == PENDING_SENTINEL => SlotPollState::Pending,
+        Some(s) if s == CONTEXT_LOST_SENTINEL || s == "undefined" => SlotPollState::ContextLost,
+        Some(payload) => SlotPollState::Ready(payload),
+        None => SlotPollState::ContextLost,
+    }
+}
+
+/// Polls an ephemeral `window[slot]` until it resolves to a JSON payload, loses JS context
+/// (e.g. SPA redirect/reload wipes `window[slot]` -> immediate `ContextLost`), or hits `timeout`.
+pub(crate) async fn poll_webview_slot(
+    window: &WebviewWindow,
+    slot: &str,
+    timeout: Duration,
+    poll_interval: Duration,
+) -> Result<String, EvalPollError> {
+    let read_js = build_slot_read_js(slot);
+    let deadline = Instant::now() + timeout;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(EvalPollError::Timeout);
+        }
+        let (tx, rx) = oneshot::channel::<String>();
+        let sender = Arc::new(Mutex::new(Some(tx)));
+        if window
+            .eval_with_callback(&read_js, move |val| {
+                if let Some(tx) = sender.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                    let _ = tx.send(val);
+                }
+            })
+            .is_err()
+        {
+            return Err(EvalPollError::EvalFailed);
+        }
+        let step_wait = remaining.min(Duration::from_secs(2));
+        match tokio::time::timeout(step_wait, rx).await {
+            Ok(Ok(res)) => match classify_eval_poll(&res) {
+                SlotPollState::Ready(payload) => return Ok(payload),
+                SlotPollState::ContextLost => return Err(EvalPollError::ContextLost),
+                SlotPollState::Pending => {}
+            },
+            Ok(Err(_)) => return Err(EvalPollError::ContextLost),
+            Err(_) => {
+                if Instant::now() >= deadline {
+                    return Err(EvalPollError::Timeout);
+                }
+            }
+        }
+        let sleep_for = poll_interval.min(deadline.saturating_duration_since(Instant::now()));
+        if sleep_for.is_zero() {
+            return Err(EvalPollError::Timeout);
+        }
+        tokio::time::sleep(sleep_for).await;
+    }
+}
+
+/// Returns `true` only once the active document has reached `document.readyState === "complete"`.
+pub(crate) async fn document_ready_complete(window: &WebviewWindow) -> bool {
+    let (tx, rx) = oneshot::channel::<String>();
+    let sender = Arc::new(Mutex::new(Some(tx)));
+    let js = r#"(function(){ return document.readyState || ""; })()"#;
+    if window
+        .eval_with_callback(js, move |val| {
+            if let Some(tx) = sender.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                let _ = tx.send(val);
+            }
+        })
+        .is_err()
+    {
+        return false;
+    }
+    match tokio::time::timeout(Duration::from_secs(1), rx).await {
+        Ok(Ok(raw)) => bnp::unwrap_eval_string(&raw).as_deref() == Some("complete"),
+        _ => false,
+    }
 }
 
 pub(crate) enum ReadBodyError {
@@ -309,10 +437,7 @@ async fn bnp_accounts(
 
 // ─── Amex routes ─────────────────────────────────────────────────────────────
 
-async fn amex_webview_start(
-    State(state): State<Arc<BridgeState>>,
-    headers: HeaderMap,
-) -> Response {
+async fn amex_webview_start(State(state): State<Arc<BridgeState>>, headers: HeaderMap) -> Response {
     if !sidecar_key_valid(&headers, &state.api_key) {
         return unauthorized_response();
     }
@@ -392,10 +517,7 @@ async fn revolut_webview_start(
         match serde_json::from_slice(&body) {
             Ok(parsed) => parsed,
             Err(_) => {
-                return error_response(ApiError::new(
-                    StatusCode::BAD_REQUEST,
-                    "INVALID_REQUEST",
-                ));
+                return error_response(ApiError::new(StatusCode::BAD_REQUEST, "INVALID_REQUEST"));
             }
         }
     };
@@ -521,5 +643,49 @@ mod tests {
         assert!(PROVIDED_SERVICES.contains(&"bnp-auth"));
         assert!(PROVIDED_SERVICES.contains(&"amex-auth"));
         assert!(PROVIDED_SERVICES.contains(&"revolut-auth"));
+    }
+
+    #[test]
+    fn slot_poll_state_distinguishes_pending_context_lost_and_json_result() {
+        // Pending sentinel (both JSON-quoted from eval_with_callback and raw).
+        assert_eq!(
+            classify_eval_poll("\"__PENDING__\""),
+            SlotPollState::Pending
+        );
+        assert_eq!(classify_eval_poll("__PENDING__"), SlotPollState::Pending);
+
+        // Context-lost indicators: explicit __LOST__, undefined, null, empty strings.
+        assert_eq!(
+            classify_eval_poll("\"__LOST__\""),
+            SlotPollState::ContextLost
+        );
+        assert_eq!(classify_eval_poll("__LOST__"), SlotPollState::ContextLost);
+        assert_eq!(
+            classify_eval_poll("\"undefined\""),
+            SlotPollState::ContextLost
+        );
+        assert_eq!(classify_eval_poll("undefined"), SlotPollState::ContextLost);
+        assert_eq!(classify_eval_poll("null"), SlotPollState::ContextLost);
+        assert_eq!(classify_eval_poll("\"\""), SlotPollState::ContextLost);
+        assert_eq!(classify_eval_poll(""), SlotPollState::ContextLost);
+
+        // Resolved JSON payload (JSON-escaped string as returned by WKWebView / WebView2).
+        let payload = r#"{"ok":true,"status":200,"text":"{}"}"#;
+        let quoted = serde_json::to_string(payload).unwrap();
+        assert_eq!(
+            classify_eval_poll(&quoted),
+            SlotPollState::Ready(payload.to_owned())
+        );
+        assert_eq!(
+            classify_eval_poll(payload),
+            SlotPollState::Ready(payload.to_owned())
+        );
+
+        // Generated read_js must check undefined/null and __PENDING__ and delete the slot.
+        let read_js = build_slot_read_js("__picsou_test_slot");
+        assert!(read_js.contains("v === undefined || v === null"));
+        assert!(read_js.contains(CONTEXT_LOST_SENTINEL));
+        assert!(read_js.contains(PENDING_SENTINEL));
+        assert!(read_js.contains("delete window[k]"));
     }
 }

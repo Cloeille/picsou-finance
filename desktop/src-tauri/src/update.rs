@@ -3,7 +3,7 @@
 //! Only a build given an updater config (`plugins.updater`: endpoint and public key, passed by
 //! the release workflow) checks for updates; a dev or PR build never does. Picsou checks once
 //! the backend is ready, then every 6 h, and offers the update in the tray. Installing stops the
-//! backend and PostgreSQL cleanly first; the new version's first start then copies the data
+//! embedded SQLite backend cleanly first; the new version's first start then copies the data
 //! before migrating it, like any update (#588).
 
 use std::sync::Mutex;
@@ -16,11 +16,19 @@ use tauri_plugin_updater::UpdaterExt;
 /// `logs/update.log` in the data folder: a release build has no console, so stderr is lost.
 fn note<R: tauri::Runtime>(app: &AppHandle<R>, line: &str) {
     use std::io::Write;
-    let Ok(dir) = app.path().app_local_data_dir() else { return };
+    let Ok(dir) = app.path().app_local_data_dir() else {
+        return;
+    };
     let logs = dunce::simplified(&dir).join("logs");
     let _ = std::fs::create_dir_all(&logs);
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(logs.join("update.log")) {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(logs.join("update.log"))
+    {
         let _ = writeln!(file, "{secs} {line}");
     }
 }
@@ -45,7 +53,13 @@ pub fn enabled(config: &tauri::Config) -> bool {
 }
 
 fn has_key(config: &tauri::Config) -> bool {
-    config.plugins.0.get("updater").and_then(|u| u.get("pubkey")).and_then(|k| k.as_str()).is_some_and(|k| !k.is_empty())
+    config
+        .plugins
+        .0
+        .get("updater")
+        .and_then(|u| u.get("pubkey"))
+        .and_then(|k| k.as_str())
+        .is_some_and(|k| !k.is_empty())
 }
 
 /// Linux: only the AppImage replaces itself. A .deb belongs to the package manager, and the
@@ -80,14 +94,20 @@ async fn tokio_sleep(duration: Duration) {
 }
 
 fn offer(app: &AppHandle, version: &str) {
-    if let Some(item) = app.state::<TrayItem>().0.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+    if let Some(item) = app
+        .state::<TrayItem>()
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+    {
         let _ = item.set_text(format!("Install Picsou {version}"));
         let _ = item.set_enabled(true);
     }
 }
 
-/// Downloads, verifies and installs the update. PostgreSQL and the backend are stopped first,
-/// so the installer replaces no file in use and the cluster needs no recovery.
+/// Downloads, verifies and installs the update. The backend and sidecars are stopped first,
+/// so the installer replaces no file in use and SQLite closes cleanly.
 pub fn install(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -106,8 +126,17 @@ async fn install_now(app: &AppHandle) -> Result<(), String> {
     };
     note(app, &format!("downloading {}", update.version));
     // Verified against the public key while downloading: a bad file never stops the stack.
-    let bytes = update.download(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
-    note(app, &format!("downloaded and verified {} bytes, stopping the stack", bytes.len()));
+    let bytes = update
+        .download(|_, _| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
+    note(
+        app,
+        &format!(
+            "downloaded and verified {} bytes, stopping the stack",
+            bytes.len()
+        ),
+    );
     supervisor::stop(&stack);
     note(app, "stack stopped, installing");
     install_bytes(app, &update, bytes);
@@ -139,7 +168,10 @@ fn install_bytes(app: &AppHandle, update: &tauri_plugin_updater::Update, bytes: 
             app.exit(0);
         }
         Err(e) => {
-            note(app, &format!("installer did not start, restarting the current version: {e}"));
+            note(
+                app,
+                &format!("installer did not start, restarting the current version: {e}"),
+            );
             app.restart();
         }
     }
@@ -151,7 +183,10 @@ fn install_bytes(app: &AppHandle, update: &tauri_plugin_updater::Update, bytes: 
 fn install_bytes(app: &AppHandle, update: &tauri_plugin_updater::Update, bytes: Vec<u8>) {
     match update.install(bytes) {
         Ok(()) => note(app, "installed in place, restarting"),
-        Err(e) => note(app, &format!("install failed, restarting the current version: {e}")),
+        Err(e) => note(
+            app,
+            &format!("install failed, restarting the current version: {e}"),
+        ),
     }
     app.restart();
 }
@@ -162,11 +197,18 @@ mod tests {
 
     #[test]
     fn only_a_build_with_an_updater_key_checks_for_updates() {
-        let mut config: tauri::Config = serde_json::from_str(r#"{"identifier":"com.picsou.desktop"}"#).unwrap();
+        let mut config: tauri::Config =
+            serde_json::from_str(r#"{"identifier":"com.picsou.desktop"}"#).unwrap();
         assert!(!has_key(&config));
-        config.plugins.0.insert("updater".into(), serde_json::json!({"pubkey": "", "endpoints": []}));
+        config.plugins.0.insert(
+            "updater".into(),
+            serde_json::json!({"pubkey": "", "endpoints": []}),
+        );
         assert!(!has_key(&config));
-        config.plugins.0.insert("updater".into(), serde_json::json!({"pubkey": "dW50cnVzdGVk", "endpoints": []}));
+        config.plugins.0.insert(
+            "updater".into(),
+            serde_json::json!({"pubkey": "dW50cnVzdGVk", "endpoints": []}),
+        );
         assert!(has_key(&config));
     }
 

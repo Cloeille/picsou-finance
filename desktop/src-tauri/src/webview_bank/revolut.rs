@@ -16,16 +16,20 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use axum::http::StatusCode;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
-use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use serde_json::{json, Value};
+use tauri::{
+    AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
+};
 use uuid::Uuid;
 
-use super::read_capped_text;
 use super::bnp::{
-    ApiError, StoredCookie, WebviewStartResponse, WebviewStatusResponse, build_cookie_header,
-    merge_set_cookies, random_hex, unwrap_eval_string,
+    build_cookie_header, merge_set_cookies, random_hex, unwrap_eval_string, ApiError, StoredCookie,
+    WebviewStartResponse, WebviewStatusResponse,
 };
 use super::revolut_parsers::{self, RevolutHarvestPayload};
+use super::{
+    document_ready_complete, poll_webview_slot, read_capped_text, EvalPollError, PENDING_SENTINEL,
+};
 
 const APP_URL: &str = "https://app.revolut.com/";
 const API_HOST: &str = "app.revolut.com";
@@ -43,6 +47,7 @@ const TRANSACTIONS_PATH: &str = "/api/retail/user/current/transactions/last";
 const LOGIN_TTL: Duration = Duration::from_secs(300);
 const POLL_INTERVAL: Duration = Duration::from_millis(600);
 const FETCH_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(25);
 const SNAPSHOT_CACHE_TTL: Duration = Duration::from_secs(300);
 const MAX_PROCESSES: usize = 4;
@@ -428,7 +433,10 @@ impl RevolutWebviewManager {
                     .remove(&key);
                 return Err(ApiError::new(StatusCode::UNAUTHORIZED, "SESSION_EXPIRED"));
             }
-            return Err(ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"));
+            return Err(ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "UPSTREAM_UNAVAILABLE",
+            ));
         }
 
         self.set_progress(&key, "HARVESTING", Some(0));
@@ -603,34 +611,79 @@ impl RevolutWebviewManager {
             };
 
             if on_revolut_home(&current_url) {
+                let path = current_url.path();
+                if !document_ready_complete(&window).await {
+                    tracing::debug!(
+                        path,
+                        "Revolut WebView waiting for document readyState=complete"
+                    );
+                    tokio::time::sleep(POLL_INTERVAL).await;
+                    continue;
+                }
                 let device_id = read_device_id(&window).await;
-                let probe = webview_revolut_fetch(&window, "GET", TOKEN_INFO_PATH, &device_id, &[]).await;
-                if probe.status == 200 {
-                    if !self.mark_fetching(&process_id) {
+                let has_device_id = !device_id.is_empty();
+                match webview_revolut_fetch_with_timeout(
+                    &window,
+                    "GET",
+                    TOKEN_INFO_PATH,
+                    &device_id,
+                    &[],
+                    PROBE_TIMEOUT,
+                )
+                .await
+                {
+                    Ok(probe) if probe.status == 200 => {
+                        tracing::info!(
+                            path,
+                            has_device_id,
+                            status = probe.status,
+                            "Revolut WebView auth probe succeeded"
+                        );
+                        if !self.mark_fetching(&process_id) {
+                            return;
+                        }
+                        tracing::info!(
+                            "Revolut WebView authenticated, harvesting read-only snapshot"
+                        );
+                        self.set_progress(&member_key, "HARVESTING", Some(0));
+                        match self
+                            .finish_webview_harvest(&window, &member_key, &device_id)
+                            .await
+                        {
+                            Ok(payload) => {
+                                self.remember_snapshot(&member_key, payload);
+                                self.mark_done(&process_id);
+                                tracing::info!(
+                                    "Revolut WebView harvest ready, closing login window"
+                                );
+                            }
+                            Err(err) => {
+                                tracing::warn!(
+                                    "Revolut WebView harvest failed (code={})",
+                                    err.detail
+                                );
+                                self.mark_failed(&process_id, err.detail);
+                            }
+                        }
+                        let _ = window.destroy();
                         return;
                     }
-                    tracing::info!(
-                        "Revolut WebView authenticated, harvesting read-only snapshot"
-                    );
-                    self.set_progress(&member_key, "HARVESTING", Some(0));
-                    match self.finish_webview_harvest(&window, &member_key, &device_id).await {
-                        Ok(payload) => {
-                            self.remember_snapshot(&member_key, payload);
-                            self.mark_done(&process_id);
-                            tracing::info!(
-                                "Revolut WebView harvest ready, closing login window"
-                            );
-                        }
-                        Err(err) => {
-                            tracing::warn!(
-                                "Revolut WebView harvest failed (code={})",
-                                err.detail
-                            );
-                            self.mark_failed(&process_id, err.detail);
-                        }
+                    Ok(probe) => {
+                        tracing::info!(
+                            path,
+                            has_device_id,
+                            status = probe.status,
+                            "Revolut WebView auth probe not ready"
+                        );
                     }
-                    let _ = window.destroy();
-                    return;
+                    Err(err) => {
+                        tracing::info!(
+                            path,
+                            has_device_id,
+                            reason = err.as_reason(),
+                            "Revolut WebView auth probe interrupted"
+                        );
+                    }
                 }
             }
 
@@ -713,7 +766,12 @@ impl RevolutWebviewManager {
         };
         let mut url = match Url::parse(&format!("https://{API_HOST}{path}")) {
             Ok(u) => u,
-            Err(_) => return FetchResponse { status: 0, data: None },
+            Err(_) => {
+                return FetchResponse {
+                    status: 0,
+                    data: None,
+                }
+            }
         };
         if !params.is_empty() {
             let mut pairs = url.query_pairs_mut();
@@ -739,7 +797,10 @@ impl RevolutWebviewManager {
             req = req.header("Cookie", cookie_header);
         }
         let Ok(resp) = req.send().await else {
-            return FetchResponse { status: 0, data: None };
+            return FetchResponse {
+                status: 0,
+                data: None,
+            };
         };
         let set_cookies: Vec<String> = resp
             .headers()
@@ -753,7 +814,10 @@ impl RevolutWebviewManager {
         }
         let status = resp.status().as_u16();
         let Ok(text) = read_capped_text(resp, MAX_RESPONSE_BYTES).await else {
-            return FetchResponse { status: 0, data: None };
+            return FetchResponse {
+                status: 0,
+                data: None,
+            };
         };
         let data = revolut_parsers::loads(&text).ok();
         FetchResponse { status, data }
@@ -786,12 +850,7 @@ where
     }
     let money_boxes = revolut_parsers::collect_money_boxes(&mb_responses);
 
-    let currencies_resp = api_call(
-        "GET",
-        CURRENCIES_PATH,
-        &[("type", "fiat".to_owned())],
-    )
-    .await;
+    let currencies_resp = api_call("GET", CURRENCIES_PATH, &[("type", "fiat".to_owned())]).await;
     let fiat = if currencies_resp.status == 200 {
         revolut_parsers::parse_fiat_currencies(currencies_resp.data.as_ref())
     } else {
@@ -835,7 +894,10 @@ where
         )
         .await;
         let iban = if iban_resp.status == 200 {
-            iban_resp.data.as_ref().and_then(revolut_parsers::parse_iban)
+            iban_resp
+                .data
+                .as_ref()
+                .and_then(revolut_parsers::parse_iban)
         } else {
             None
         };
@@ -862,8 +924,7 @@ where
                     if resp.status != 200 {
                         return Err(revolut_parsers::ParseError("UPSTREAM_UNAVAILABLE"));
                     }
-                    resp.data
-                        .ok_or(revolut_parsers::ParseError("INVALID_DATA"))
+                    resp.data.ok_or(revolut_parsers::ParseError("INVALID_DATA"))
                 }
             },
             now_ms,
@@ -911,7 +972,8 @@ async fn read_device_id(window: &WebviewWindow) -> String {
     String::new()
 }
 
-/// Runs a same-origin read-only `fetch(...)` inside the authenticated Revolut WebView.
+/// Runs a same-origin read-only `fetch(...)` inside the authenticated Revolut WebView using
+/// `FETCH_TIMEOUT` (for account/transaction harvesting).
 async fn webview_revolut_fetch(
     window: &WebviewWindow,
     method: &str,
@@ -919,21 +981,37 @@ async fn webview_revolut_fetch(
     device_id: &str,
     params: &[(String, String)],
 ) -> FetchResponse {
+    webview_revolut_fetch_with_timeout(window, method, path, device_id, params, FETCH_TIMEOUT)
+        .await
+        .unwrap_or(FetchResponse {
+            status: 0,
+            data: None,
+        })
+}
+
+/// Runs a same-origin read-only `fetch(...)` inside the Revolut WebView with an explicit timeout,
+/// returning `Err(EvalPollError::ContextLost)` immediately if page navigation resets the JS slot.
+async fn webview_revolut_fetch_with_timeout(
+    window: &WebviewWindow,
+    method: &str,
+    path: &str,
+    device_id: &str,
+    params: &[(String, String)],
+    timeout: Duration,
+) -> Result<FetchResponse, EvalPollError> {
     let slot = format!("__picsou_revo_{}", random_hex(12));
     let method_js = serde_json::to_string(method).unwrap_or_else(|_| "\"GET\"".to_owned());
     let path_js = serde_json::to_string(path).unwrap_or_else(|_| "\"/\"".to_owned());
     let dev_js = serde_json::to_string(device_id).unwrap_or_else(|_| "\"\"".to_owned());
-    let params_map: serde_json::Map<String, Value> = params
-        .iter()
-        .map(|(k, v)| (k.clone(), json!(v)))
-        .collect();
-    let params_js = serde_json::to_string(&Value::Object(params_map))
-        .unwrap_or_else(|_| "{}".to_owned());
+    let params_map: serde_json::Map<String, Value> =
+        params.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
+    let params_js =
+        serde_json::to_string(&Value::Object(params_map)).unwrap_or_else(|_| "{}".to_owned());
 
     let start_js = format!(
         r#"(function(){{
   var k = "{slot}";
-  window[k] = null;
+  window[k] = "{PENDING_SENTINEL}";
   var url = new URL({path_js}, window.location.origin);
   var params = {params_js};
   Object.keys(params).forEach(function(key) {{
@@ -968,39 +1046,10 @@ async fn webview_revolut_fetch(
     );
 
     if window.eval(&start_js).is_err() {
-        return FetchResponse { status: 0, data: None };
+        return Err(EvalPollError::EvalFailed);
     }
 
-    let read_js = format!(
-        r#"(function(){{ var k = "{slot}"; var v = window[k]; if (v !== null && v !== undefined) {{ delete window[k]; return v; }} return ""; }})()"#
-    );
-
-    let deadline = Instant::now() + FETCH_TIMEOUT;
-    let raw_payload = loop {
-        if Instant::now() >= deadline {
-            return FetchResponse { status: 0, data: None };
-        }
-        let (tx, rx) = tokio::sync::oneshot::channel::<String>();
-        let sender = Arc::new(Mutex::new(Some(tx)));
-        if window
-            .eval_with_callback(&read_js, move |val| {
-                if let Some(tx) = sender.lock().unwrap_or_else(|e| e.into_inner()).take() {
-                    let _ = tx.send(val);
-                }
-            })
-            .is_err()
-        {
-            return FetchResponse { status: 0, data: None };
-        }
-        if let Ok(Ok(res)) = tokio::time::timeout(Duration::from_secs(3), rx).await {
-            if let Some(unwrapped) = unwrap_eval_string(&res) {
-                if !unwrapped.is_empty() {
-                    break unwrapped;
-                }
-            }
-        }
-        tokio::time::sleep(FETCH_POLL_INTERVAL).await;
-    };
+    let raw_payload = poll_webview_slot(window, &slot, timeout, FETCH_POLL_INTERVAL).await?;
 
     #[derive(Deserialize)]
     struct JsFetchReply {
@@ -1010,16 +1059,22 @@ async fn webview_revolut_fetch(
     }
 
     let Ok(reply) = serde_json::from_str::<JsFetchReply>(&raw_payload) else {
-        return FetchResponse { status: 0, data: None };
+        return Ok(FetchResponse {
+            status: 0,
+            data: None,
+        });
     };
     if !reply.ok || reply.text.len() > MAX_RESPONSE_BYTES {
-        return FetchResponse { status: 0, data: None };
+        return Ok(FetchResponse {
+            status: 0,
+            data: None,
+        });
     }
     let data = revolut_parsers::loads(&reply.text).ok();
-    FetchResponse {
+    Ok(FetchResponse {
         status: reply.status,
         data,
-    }
+    })
 }
 
 // ─── host / URL / member helpers ─────────────────────────────────────────────
@@ -1042,7 +1097,8 @@ pub fn is_revolut_host(host: &str) -> bool {
 }
 
 /// True once the WebView is on `https://app.revolut.com/home` (or another authenticated retail
-/// route on `app.revolut.com`, never `sso.revolut.com` or login/start pages).
+/// route on `app.revolut.com`, never `sso.revolut.com`, login/start pages, or an in-flight OAuth
+/// callback carrying `code` & `state`).
 pub fn on_revolut_home(url: &Url) -> bool {
     if url.scheme() != "https"
         || !url.username().is_empty()
@@ -1055,6 +1111,19 @@ pub fn on_revolut_home(url: &Url) -> bool {
         return false;
     };
     if !host.eq_ignore_ascii_case(API_HOST) {
+        return false;
+    }
+    let mut has_code = false;
+    let mut has_state = false;
+    for (k, _) in url.query_pairs() {
+        if k == "code" {
+            has_code = true;
+        }
+        if k == "state" {
+            has_state = true;
+        }
+    }
+    if has_code && has_state {
         return false;
     }
     let path = url.path().to_ascii_lowercase();
@@ -1092,6 +1161,13 @@ mod tests {
         ));
         assert!(!on_revolut_home(
             &Url::parse("https://evil.example/home").unwrap()
+        ));
+        assert!(!on_revolut_home(
+            &Url::parse("https://app.revolut.com/home?rwa_auth_type=auth&code=xxx&state=yyy")
+                .unwrap()
+        ));
+        assert!(!on_revolut_home(
+            &Url::parse("https://app.revolut.com/home?code=abc&state=def").unwrap()
         ));
         assert!(on_revolut_home(
             &Url::parse("https://app.revolut.com/home").unwrap()

@@ -109,6 +109,8 @@ describe('InstanceStatusDialog', () => {
     useAuthStore.setState({ user: ADMIN, isAuthenticated: true })
     useAppStore.setState({
       demoMode: false,
+      desktopMode: false,
+      advancedMode: false,
       dismissedInstanceStatusFingerprint: null,
     })
   })
@@ -125,6 +127,24 @@ describe('InstanceStatusDialog', () => {
   it('stays hidden in demo mode', async () => {
     useAppStore.setState({ demoMode: true })
     instanceStatus({ update: null, issues: [ISSUE] })
+    renderDialog()
+    await new Promise((r) => setTimeout(r, 20))
+    expect(api.getInstanceStatus).not.toHaveBeenCalled()
+    expect(screen.queryByText('admin.instanceStatus.title')).not.toBeInTheDocument()
+  })
+
+  it('never fetches or opens in desktop mode even when advanced mode is enabled', async () => {
+    useAuthStore.setState({ user: ADMIN, isAuthenticated: true })
+    useAppStore.setState({
+      demoMode: false,
+      desktopMode: true,
+      advancedMode: true,
+      dismissedInstanceStatusFingerprint: null,
+    })
+    instanceStatus({
+      update: { latestVersion: '1.3.0', releaseUrl: RELEASE },
+      issues: [ISSUE],
+    })
     renderDialog()
     await new Promise((r) => setTimeout(r, 20))
     expect(api.getInstanceStatus).not.toHaveBeenCalled()

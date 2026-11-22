@@ -11,17 +11,22 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD as BASE64;
-use chrono::{Local, TimeDelta};
 use axum::http::StatusCode;
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
+use chrono::{Local, TimeDelta};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use tauri::{
+    AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
+};
 use uuid::Uuid;
 
-use super::{ReadBodyError, read_capped_text};
+use super::{
+    document_ready_complete, poll_webview_slot, read_capped_text, EvalPollError, ReadBodyError,
+    PENDING_SENTINEL,
+};
 
 use super::bnp_parsers::{
     self, EnvelopeError, NormalizedAccount, NormalizedOperation, NormalizedPosition,
@@ -40,6 +45,7 @@ const EP_PORTFOLIO: &str = "/pe-war/rpc/portfolioDetails/get";
 const LOGIN_TTL: Duration = Duration::from_secs(300);
 const POLL_INTERVAL: Duration = Duration::from_millis(600);
 const FETCH_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(25);
 const SNAPSHOT_CACHE_TTL: Duration = Duration::from_secs(180);
 const MAX_PROCESSES: usize = 4;
@@ -231,10 +237,15 @@ impl BnpWebviewManager {
         let stale_labels: Vec<String> = {
             let mut procs = self.processes.lock().unwrap_or_else(|e| e.into_inner());
             let now = Instant::now();
-            procs.retain(|_, p| now.duration_since(p.created_at) < LOGIN_TTL + Duration::from_secs(60));
+            procs.retain(|_, p| {
+                now.duration_since(p.created_at) < LOGIN_TTL + Duration::from_secs(60)
+            });
             let mut labels = Vec::new();
             for entry in procs.values_mut() {
-                if matches!(entry.status, ProcessStatus::WaitingLogin | ProcessStatus::Fetching) {
+                if matches!(
+                    entry.status,
+                    ProcessStatus::WaitingLogin | ProcessStatus::Fetching
+                ) {
                     entry.status = ProcessStatus::Cancelled;
                     labels.push(entry.window_label.clone());
                 }
@@ -297,7 +308,10 @@ impl BnpWebviewManager {
             .focused(true)
             .build()?;
             win.on_window_event(move |event| {
-                if matches!(event, WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed) {
+                if matches!(
+                    event,
+                    WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed
+                ) {
                     manager_for_close.mark_cancelled_if_active(&pid_for_close);
                 }
             });
@@ -371,7 +385,10 @@ impl BnpWebviewManager {
             let Some(entry) = procs.get_mut(process_id) else {
                 return false;
             };
-            if matches!(entry.status, ProcessStatus::WaitingLogin | ProcessStatus::Fetching) {
+            if matches!(
+                entry.status,
+                ProcessStatus::WaitingLogin | ProcessStatus::Fetching
+            ) {
                 entry.status = ProcessStatus::Cancelled;
             }
             entry.window_label.clone()
@@ -388,7 +405,10 @@ impl BnpWebviewManager {
             procs
                 .values_mut()
                 .map(|entry| {
-                    if matches!(entry.status, ProcessStatus::WaitingLogin | ProcessStatus::Fetching) {
+                    if matches!(
+                        entry.status,
+                        ProcessStatus::WaitingLogin | ProcessStatus::Fetching
+                    ) {
                         entry.status = ProcessStatus::Cancelled;
                     }
                     entry.window_label.clone()
@@ -405,9 +425,15 @@ impl BnpWebviewManager {
     fn mark_cancelled_if_active(&self, process_id: &str) {
         let mut procs = self.processes.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(entry) = procs.get_mut(process_id) {
-            if matches!(entry.status, ProcessStatus::WaitingLogin | ProcessStatus::Fetching) {
+            if matches!(
+                entry.status,
+                ProcessStatus::WaitingLogin | ProcessStatus::Fetching
+            ) {
                 entry.status = ProcessStatus::Cancelled;
-                tracing::info!("BNP WebView login cancelled by user (brand={})", entry.brand.name);
+                tracing::info!(
+                    "BNP WebView login cancelled by user (brand={})",
+                    entry.brand.name
+                );
             }
         }
     }
@@ -437,7 +463,10 @@ impl BnpWebviewManager {
     fn mark_failed(&self, process_id: &str, error_code: &'static str) {
         let mut procs = self.processes.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(entry) = procs.get_mut(process_id) {
-            if matches!(entry.status, ProcessStatus::WaitingLogin | ProcessStatus::Fetching) {
+            if matches!(
+                entry.status,
+                ProcessStatus::WaitingLogin | ProcessStatus::Fetching
+            ) {
                 entry.status = ProcessStatus::Failed { error_code };
             }
         }
@@ -517,37 +546,74 @@ impl BnpWebviewManager {
             };
 
             if on_site(&current_url, brand) {
+                let path = current_url.path();
+                if !document_ready_complete(&window).await {
+                    tracing::debug!(
+                        brand = brand.name,
+                        path,
+                        "BNP WebView waiting for document readyState=complete"
+                    );
+                    tokio::time::sleep(POLL_INTERVAL).await;
+                    continue;
+                }
                 // Confirm the session is genuinely active before reading accounts.
-                if let Ok(info) = webview_fetch_json(&window, "GET", INFOS_CLIENT, None).await {
-                    if bnp_parsers::session_alive(&info) {
-                        if !self.mark_fetching(&process_id) {
+                match webview_fetch_json_with_timeout(
+                    &window,
+                    "GET",
+                    INFOS_CLIENT,
+                    None,
+                    PROBE_TIMEOUT,
+                )
+                .await
+                {
+                    Ok(info) => {
+                        let alive = bnp_parsers::session_alive(&info);
+                        tracing::info!(
+                            brand = brand.name,
+                            path,
+                            status = 200u16,
+                            alive,
+                            "BNP WebView auth probe completed"
+                        );
+                        if alive {
+                            if !self.mark_fetching(&process_id) {
+                                return;
+                            }
+                            tracing::info!(
+                                "BNP WebView authenticated, fetching read-only snapshot (brand={})",
+                                brand.name
+                            );
+                            let landing = landing_host(&current_url, brand);
+                            match self.finish_webview_snapshot(&window, brand, landing).await {
+                                Ok((session_state, accounts, unsupported)) => {
+                                    self.remember_snapshot(&session_state, accounts, unsupported);
+                                    self.mark_done(&process_id, session_state);
+                                    tracing::info!(
+                                        "BNP WebView snapshot ready, closing login window (brand={})",
+                                        brand.name
+                                    );
+                                }
+                                Err(err) => {
+                                    tracing::warn!(
+                                        "BNP WebView snapshot failed (brand={}; code={})",
+                                        brand.name,
+                                        err.detail
+                                    );
+                                    self.mark_failed(&process_id, err.detail);
+                                }
+                            }
+                            let _ = window.destroy();
                             return;
                         }
+                    }
+                    Err(err) => {
                         tracing::info!(
-                            "BNP WebView authenticated, fetching read-only snapshot (brand={})",
-                            brand.name
+                            brand = brand.name,
+                            path,
+                            status = err.status,
+                            reason = err.reason,
+                            "BNP WebView auth probe not ready"
                         );
-                        let landing = landing_host(&current_url, brand);
-                        match self.finish_webview_snapshot(&window, brand, landing).await {
-                            Ok((session_state, accounts, unsupported)) => {
-                                self.remember_snapshot(&session_state, accounts, unsupported);
-                                self.mark_done(&process_id, session_state);
-                                tracing::info!(
-                                    "BNP WebView snapshot ready, closing login window (brand={})",
-                                    brand.name
-                                );
-                            }
-                            Err(err) => {
-                                tracing::warn!(
-                                    "BNP WebView snapshot failed (brand={}; code={})",
-                                    brand.name,
-                                    err.detail
-                                );
-                                self.mark_failed(&process_id, err.detail);
-                            }
-                        }
-                        let _ = window.destroy();
-                        return;
                     }
                 }
             }
@@ -583,9 +649,7 @@ impl BnpWebviewManager {
                 value: c.value().to_owned(),
                 domain: c.domain().map(str::to_owned),
                 path: c.path().map(str::to_owned),
-                expires: c
-                    .expires_datetime()
-                    .map(|dt| dt.unix_timestamp()),
+                expires: c.expires_datetime().map(|dt| dt.unix_timestamp()),
                 http_only: c.http_only(),
                 secure: c.secure(),
                 same_site: c.same_site().map(|s| format!("{s:?}")),
@@ -698,11 +762,17 @@ impl BnpWebviewManager {
         }
 
         let status = resp.status();
-        if status.is_redirection() || status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+        if status.is_redirection()
+            || status == StatusCode::UNAUTHORIZED
+            || status == StatusCode::FORBIDDEN
+        {
             return Err(ApiError::new(StatusCode::UNAUTHORIZED, "SESSION_EXPIRED"));
         }
         if status != StatusCode::OK {
-            return Err(ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"));
+            return Err(ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "UPSTREAM_UNAVAILABLE",
+            ));
         }
         let text = read_capped_text(resp, MAX_RESPONSE_BYTES)
             .await
@@ -714,8 +784,7 @@ impl BnpWebviewManager {
                     ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED")
                 }
             })?;
-        bnp_parsers::loads(&text)
-            .map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, e.0))
+        bnp_parsers::loads(&text).map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, e.0))
     }
 }
 
@@ -807,15 +876,36 @@ fn unwrap_envelope(raw: &Value) -> Result<Value, ApiError> {
     })
 }
 
-/// Runs a same-origin `fetch(...)` inside the authenticated WebView and returns its parsed JSON
-/// via an ephemeral random `window` slot read with `eval_with_callback`. Never triggers cross-origin
-/// CSP (`connect-src`) or Mixed Content blocks.
+struct WebviewFetchFailure {
+    status: Option<u16>,
+    reason: &'static str,
+    api: ApiError,
+}
+
+/// Runs a same-origin `fetch(...)` inside the authenticated WebView using `FETCH_TIMEOUT`
+/// (for full account/operation harvesting).
 async fn webview_fetch_json(
     window: &WebviewWindow,
     method: &str,
     path: &str,
     body: Option<Value>,
 ) -> Result<Value, ApiError> {
+    webview_fetch_json_with_timeout(window, method, path, body, FETCH_TIMEOUT)
+        .await
+        .map_err(|err| err.api)
+}
+
+/// Runs a same-origin `fetch(...)` inside the WebView with an explicit timeout and returns its
+/// parsed JSON via an ephemeral random `window` slot read with `eval_with_callback`. Never
+/// triggers cross-origin CSP (`connect-src`) or Mixed Content blocks, and bails immediately if a
+/// page navigation wipes `window[slot]`.
+async fn webview_fetch_json_with_timeout(
+    window: &WebviewWindow,
+    method: &str,
+    path: &str,
+    body: Option<Value>,
+    timeout: Duration,
+) -> Result<Value, WebviewFetchFailure> {
     let slot = format!("__picsou_{}", random_hex(12));
     let method_js = serde_json::to_string(method).unwrap_or_else(|_| "\"GET\"".to_owned());
     let path_js = serde_json::to_string(path).unwrap_or_else(|_| "\"/\"".to_owned());
@@ -827,7 +917,7 @@ async fn webview_fetch_json(
     let start_js = format!(
         r#"(function(){{
   var k = "{slot}";
-  window[k] = null;
+  window[k] = "{PENDING_SENTINEL}";
   var init = {{ method: {method_js}, credentials: "same-origin", redirect: "error", headers: {{ "Accept": "application/json" }} }};
   var bodyStr = {body_js};
   if (bodyStr !== null) {{
@@ -846,40 +936,19 @@ async fn webview_fetch_json(
 }})();"#
     );
 
-    window
-        .eval(&start_js)
-        .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"))?;
+    window.eval(&start_js).map_err(|_| WebviewFetchFailure {
+        status: None,
+        reason: EvalPollError::EvalFailed.as_reason(),
+        api: ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"),
+    })?;
 
-    let read_js = format!(
-        r#"(function(){{ var k = "{slot}"; var v = window[k]; if (v !== null && v !== undefined) {{ delete window[k]; return v; }} return ""; }})()"#
-    );
-
-    let deadline = Instant::now() + FETCH_TIMEOUT;
-    let raw_payload = loop {
-        if Instant::now() >= deadline {
-            return Err(ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"));
-        }
-        let (tx, rx) = tokio::sync::oneshot::channel::<String>();
-        let sender = Arc::new(Mutex::new(Some(tx)));
-        if window
-            .eval_with_callback(&read_js, move |val| {
-                if let Some(tx) = sender.lock().unwrap_or_else(|e| e.into_inner()).take() {
-                    let _ = tx.send(val);
-                }
-            })
-            .is_err()
-        {
-            return Err(ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"));
-        }
-        if let Ok(Ok(res)) = tokio::time::timeout(Duration::from_secs(3), rx).await {
-            if let Some(unwrapped) = unwrap_eval_string(&res) {
-                if !unwrapped.is_empty() {
-                    break unwrapped;
-                }
-            }
-        }
-        tokio::time::sleep(FETCH_POLL_INTERVAL).await;
-    };
+    let raw_payload = poll_webview_slot(window, &slot, timeout, FETCH_POLL_INTERVAL)
+        .await
+        .map_err(|err| WebviewFetchFailure {
+            status: None,
+            reason: err.as_reason(),
+            api: ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"),
+        })?;
 
     #[derive(Deserialize)]
     struct JsFetchReply {
@@ -888,18 +957,38 @@ async fn webview_fetch_json(
         text: String,
     }
 
-    let reply: JsFetchReply = serde_json::from_str(&raw_payload)
-        .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED"))?;
+    let reply: JsFetchReply =
+        serde_json::from_str(&raw_payload).map_err(|_| WebviewFetchFailure {
+            status: None,
+            reason: "invalid_envelope",
+            api: ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED"),
+        })?;
     if !reply.ok || reply.text.len() > MAX_RESPONSE_BYTES {
-        return Err(ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"));
+        return Err(WebviewFetchFailure {
+            status: Some(reply.status),
+            reason: "fetch_failed",
+            api: ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"),
+        });
     }
     if reply.status == 401 || reply.status == 403 {
-        return Err(ApiError::new(StatusCode::UNAUTHORIZED, "SESSION_EXPIRED"));
+        return Err(WebviewFetchFailure {
+            status: Some(reply.status),
+            reason: "unauthorized",
+            api: ApiError::new(StatusCode::UNAUTHORIZED, "SESSION_EXPIRED"),
+        });
     }
     if reply.status != 200 {
-        return Err(ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"));
+        return Err(WebviewFetchFailure {
+            status: Some(reply.status),
+            reason: "http_status",
+            api: ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"),
+        });
     }
-    bnp_parsers::loads(&reply.text).map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, e.0))
+    bnp_parsers::loads(&reply.text).map_err(|e| WebviewFetchFailure {
+        status: Some(reply.status),
+        reason: "invalid_json",
+        api: ApiError::new(StatusCode::BAD_GATEWAY, e.0),
+    })
 }
 
 pub(crate) fn unwrap_eval_string(raw: &str) -> Option<String> {
@@ -1045,11 +1134,17 @@ pub(crate) fn build_cookie_header(cookies: &[StoredCookie], host: &str) -> Strin
         .join("; ")
 }
 
-pub(crate) fn merge_set_cookies(jar: &mut Vec<StoredCookie>, headers: &[String], default_host: &str) {
+pub(crate) fn merge_set_cookies(
+    jar: &mut Vec<StoredCookie>,
+    headers: &[String],
+    default_host: &str,
+) {
     for raw in headers {
         let mut parts = raw.split(';');
         let Some(first) = parts.next() else { continue };
-        let Some((name, value)) = first.split_once('=') else { continue };
+        let Some((name, value)) = first.split_once('=') else {
+            continue;
+        };
         let name = name.trim();
         let value = value.trim();
         if name.is_empty() {
@@ -1080,7 +1175,13 @@ pub(crate) fn merge_set_cookies(jar: &mut Vec<StoredCookie>, headers: &[String],
                 secure = Some(true);
             }
         }
-        jar.retain(|c| !(c.name == name && c.domain.as_deref().unwrap_or("").eq_ignore_ascii_case(&domain)));
+        jar.retain(|c| {
+            !(c.name == name
+                && c.domain
+                    .as_deref()
+                    .unwrap_or("")
+                    .eq_ignore_ascii_case(&domain))
+        });
         if expired {
             continue;
         }
@@ -1110,7 +1211,10 @@ pub fn encode_session(
         .filter(|c| cookie_in_scope(c, brand))
         .collect();
     if kept.len() > MAX_COOKIES {
-        return Err(ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED"));
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "UPSTREAM_FORMAT_CHANGED",
+        ));
     }
     let desktop_only = kept.is_empty().then_some(true);
     let nonce = desktop_only.map(|_| random_hex(16));
@@ -1128,7 +1232,10 @@ pub fn encode_session(
     let text = serde_json::to_string(&envelope)
         .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED"))?;
     if text.len() > MAX_SESSION_STATE_BYTES {
-        return Err(ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED"));
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "UPSTREAM_FORMAT_CHANGED",
+        ));
     }
     Ok(BASE64.encode(text.as_bytes()))
 }
@@ -1237,10 +1344,14 @@ mod tests {
                 same_site: None,
             },
         ];
-        let encoded = encode_session(BNP_BRAND, cookies, Some("mabanqueprivee.bnpparibas")).unwrap();
+        let encoded =
+            encode_session(BNP_BRAND, cookies, Some("mabanqueprivee.bnpparibas")).unwrap();
         let decoded = decode_session_state(&encoded).unwrap();
         assert_eq!(decoded.brand, BNP_BRAND);
-        assert_eq!(decoded.landing.as_deref(), Some("mabanqueprivee.bnpparibas"));
+        assert_eq!(
+            decoded.landing.as_deref(),
+            Some("mabanqueprivee.bnpparibas")
+        );
         assert_eq!(decoded.cookies.len(), 1);
         assert_eq!(decoded.cookies[0].name, "JSESSIONID");
     }

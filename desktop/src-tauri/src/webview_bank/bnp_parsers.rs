@@ -110,7 +110,9 @@ fn code_retour(body: &Value) -> Option<i64> {
     let map = body.as_object()?;
     let raw = map.get("codeRetour")?;
     match raw {
-        Value::Number(n) => n.as_i64().or_else(|| n.to_string().trim().parse::<i64>().ok()),
+        Value::Number(n) => n
+            .as_i64()
+            .or_else(|| n.to_string().trim().parse::<i64>().ok()),
         Value::String(s) => s.trim().parse::<i64>().ok(),
         _ => None,
     }
@@ -309,7 +311,11 @@ pub fn parse_accounts(
             let key = text(raw.get("key"), 400);
             let perso = text(raw.get("libellePersoProduit"), 120);
             let product = text(raw.get("libelleProduit"), 120);
-            let label = if !perso.is_empty() { perso } else { product.clone() };
+            let label = if !perso.is_empty() {
+                perso
+            } else {
+                product.clone()
+            };
             let value = text(raw.get("value"), 60);
             let iban = ibans.get(&key).cloned();
             let currency_raw = text(raw.get("devise"), 3);
@@ -666,10 +672,14 @@ mod tests {
 
     #[test]
     fn session_alive_requires_code_zero_and_non_empty_data() {
-        assert!(session_alive(&json!({"codeRetour": "0", "data": {"client": "ok"}})));
+        assert!(session_alive(
+            &json!({"codeRetour": "0", "data": {"client": "ok"}})
+        ));
         assert!(!session_alive(&json!({"codeRetour": "0", "data": null})));
         assert!(!session_alive(&json!({"codeRetour": "0", "data": {}})));
-        assert!(!session_alive(&json!({"codeRetour": "-10", "data": {"a": 1}})));
+        assert!(!session_alive(
+            &json!({"codeRetour": "-10", "data": {"a": 1}})
+        ));
     }
 
     #[test]
@@ -685,7 +695,16 @@ mod tests {
     #[test]
     fn families_and_labels_become_kinds_and_unknown_ones_are_unsupported() {
         let payload = accounts_payload(&[
-            ("1", vec![account_json("k1", "1", "Compte de cheques", json!("12.3"), "1111 2222")]),
+            (
+                "1",
+                vec![account_json(
+                    "k1",
+                    "1",
+                    "Compte de cheques",
+                    json!("12.3"),
+                    "1111 2222",
+                )],
+            ),
             (
                 "2",
                 vec![
@@ -708,9 +727,24 @@ mod tests {
                     account_json("k8", "5", "Multiplacements PER", json!(9), "9999"),
                 ],
             ),
-            ("8", vec![account_json("k9", "8", "Credit immobilier", json!(-500), "1010")]),
-            ("3", vec![account_json("k10", "3", "Depot a terme", json!(1), "1212")]),
-            ("7", vec![account_json("k11", "7", "Inconnu", json!(1), "1313")]),
+            (
+                "8",
+                vec![account_json(
+                    "k9",
+                    "8",
+                    "Credit immobilier",
+                    json!(-500),
+                    "1010",
+                )],
+            ),
+            (
+                "3",
+                vec![account_json("k10", "3", "Depot a terme", json!(1), "1212")],
+            ),
+            (
+                "7",
+                vec![account_json("k11", "7", "Inconnu", json!(1), "1313")],
+            ),
         ]);
         let parsed = loads(&payload.to_string()).unwrap();
         let (rows, unsupported) = parse_accounts(&parsed, &HashMap::new()).unwrap();
@@ -737,13 +771,31 @@ mod tests {
     #[test]
     fn external_id_does_not_depend_on_session_key() {
         let a = &parse_accounts(
-            &accounts_payload(&[("1", vec![account_json("k-one", "1", "Compte", json!(1), "0000 1234 5678")])]),
+            &accounts_payload(&[(
+                "1",
+                vec![account_json(
+                    "k-one",
+                    "1",
+                    "Compte",
+                    json!(1),
+                    "0000 1234 5678",
+                )],
+            )]),
             &HashMap::new(),
         )
         .unwrap()
         .0[0];
         let b = &parse_accounts(
-            &accounts_payload(&[("1", vec![account_json("k-two", "1", "Compte", json!(1), "0000 1234 5678")])]),
+            &accounts_payload(&[(
+                "1",
+                vec![account_json(
+                    "k-two",
+                    "1",
+                    "Compte",
+                    json!(1),
+                    "0000 1234 5678",
+                )],
+            )]),
             &HashMap::new(),
         )
         .unwrap()
@@ -755,10 +807,25 @@ mod tests {
     #[test]
     fn closed_loan_and_keyless_row_are_skipped_and_empty_answer_fails() {
         let payload = accounts_payload(&[
-            ("8", vec![account_json("k1", "8", "Credit immobilier", Value::Null, "0000 1234 5678")]),
-            ("1", vec![account_json("", "1", "X", json!(1), "0000 1234 5678")]),
+            (
+                "8",
+                vec![account_json(
+                    "k1",
+                    "8",
+                    "Credit immobilier",
+                    Value::Null,
+                    "0000 1234 5678",
+                )],
+            ),
+            (
+                "1",
+                vec![account_json("", "1", "X", json!(1), "0000 1234 5678")],
+            ),
         ]);
-        assert!(parse_accounts(&payload, &HashMap::new()).unwrap().0.is_empty());
+        assert!(parse_accounts(&payload, &HashMap::new())
+            .unwrap()
+            .0
+            .is_empty());
         assert!(parse_accounts(&json!({"infoUdc": {}}), &HashMap::new()).is_err());
     }
 
@@ -772,7 +839,16 @@ mod tests {
         }));
         assert_eq!(ibans, HashMap::from([("k1".to_owned(), IBAN.to_owned())]));
         let row = &parse_accounts(
-            &accounts_payload(&[("1", vec![account_json("k1", "1", "Compte", json!(1), "0000 1234 5678")])]),
+            &accounts_payload(&[(
+                "1",
+                vec![account_json(
+                    "k1",
+                    "1",
+                    "Compte",
+                    json!(1),
+                    "0000 1234 5678",
+                )],
+            )]),
             &ibans,
         )
         .unwrap()
@@ -784,8 +860,18 @@ mod tests {
     fn operations_are_normalized_and_deferred_card_summary_is_dropped() {
         let data = loads(
             &op_payload(vec![
-                op_json("CARTE SYNTHETIQUE", json!("-12.3"), "05/01/2026", Some("o1")),
-                op_json("FACTURE CARTE SELON RELEVE DU 31/01", json!(-50), "05/01/2026", Some("o2")),
+                op_json(
+                    "CARTE SYNTHETIQUE",
+                    json!("-12.3"),
+                    "05/01/2026",
+                    Some("o1"),
+                ),
+                op_json(
+                    "FACTURE CARTE SELON RELEVE DU 31/01",
+                    json!(-50),
+                    "05/01/2026",
+                    Some("o2"),
+                ),
             ])
             .to_string(),
         )
@@ -806,13 +892,29 @@ mod tests {
     #[test]
     fn dash_date_of_live_site_is_read_day_first() {
         let ops = parse_operations(&op_payload(vec![
-            op_json("CARTE SYNTHETIQUE", json!("-12.3"), "05-01-2026", Some("100000000000000001")),
-            op_json("CARTE SYNTHETIQUE", json!("-12.3"), "31-01-2026", Some("100000000000000002")),
+            op_json(
+                "CARTE SYNTHETIQUE",
+                json!("-12.3"),
+                "05-01-2026",
+                Some("100000000000000001"),
+            ),
+            op_json(
+                "CARTE SYNTHETIQUE",
+                json!("-12.3"),
+                "31-01-2026",
+                Some("100000000000000002"),
+            ),
         ]))
         .unwrap();
         let dates: Vec<&str> = ops.iter().map(|o| o.date.as_str()).collect();
         assert_eq!(dates, vec!["2026-01-05", "2026-01-31"]);
-        assert!(parse_operations(&op_payload(vec![op_json("CARTE", json!(-1), "31-02-2026", None)])).is_none());
+        assert!(parse_operations(&op_payload(vec![op_json(
+            "CARTE",
+            json!(-1),
+            "31-02-2026",
+            None
+        )]))
+        .is_none());
     }
 
     #[test]
@@ -846,13 +948,11 @@ mod tests {
             assert!(parse_operations(&op_payload(vec![bad])).is_none());
         }
         assert!(parse_operations(&json!({})).is_none());
-        assert!(
-            parse_operations(&op_payload(vec![
-                op_json("CARTE", json!(-1), "05/01/2026", Some("x")),
-                op_json("CARTE", json!(-1), "05/01/2026", Some("x")),
-            ]))
-            .is_none()
-        );
+        assert!(parse_operations(&op_payload(vec![
+            op_json("CARTE", json!(-1), "05/01/2026", Some("x")),
+            op_json("CARTE", json!(-1), "05/01/2026", Some("x")),
+        ]))
+        .is_none());
     }
 
     #[test]
@@ -885,30 +985,43 @@ mod tests {
                 pnl: Some("100.00".to_owned()),
             }]
         );
-        assert!(
-            parse_positions(&json!({
-                "listofPortfolios": [{
-                    "securityCode": "CASH",
-                    "securityName": "Action A",
-                    "quantityOwned": 10,
-                    "valorizationValuation": 1000,
-                    "profitLossValorisation": 100
-                }]
-            }))
-            .is_none()
-        );
+        assert!(parse_positions(&json!({
+            "listofPortfolios": [{
+                "securityCode": "CASH",
+                "securityName": "Action A",
+                "quantityOwned": 10,
+                "valorizationValuation": 1000,
+                "profitLossValorisation": 100
+            }]
+        }))
+        .is_none());
         assert!(parse_positions(&json!({})).is_none());
     }
 
     #[test]
     fn matching_needs_exactly_one_securities_account() {
         let one = vec![
-            SynthesisAccount { number: "XX5678".to_owned(), name: String::new(), value: Decimal::from(1) },
-            SynthesisAccount { number: "XX1111".to_owned(), name: String::new(), value: Decimal::from(2) },
+            SynthesisAccount {
+                number: "XX5678".to_owned(),
+                name: String::new(),
+                value: Decimal::from(1),
+            },
+            SynthesisAccount {
+                number: "XX1111".to_owned(),
+                name: String::new(),
+                value: Decimal::from(2),
+            },
         ];
-        assert_eq!(match_securities("0000 1234 5678", &one).unwrap().number, "XX5678");
+        assert_eq!(
+            match_securities("0000 1234 5678", &one).unwrap().number,
+            "XX5678"
+        );
         let mut two = one.clone();
-        two.push(SynthesisAccount { number: "YY5678".to_owned(), name: String::new(), value: Decimal::from(3) });
+        two.push(SynthesisAccount {
+            number: "YY5678".to_owned(),
+            name: String::new(),
+            value: Decimal::from(3),
+        });
         assert!(match_securities("0000 1234 5678", &two).is_none());
         assert!(match_securities("12", &one).is_none());
     }
@@ -942,7 +1055,11 @@ mod tests {
         );
         assert_eq!(out.len(), 1);
         assert_eq!(
-            (out[0].balance.as_str(), out[0].cash_balance.as_deref(), out[0].snapshot_complete),
+            (
+                out[0].balance.as_str(),
+                out[0].cash_balance.as_deref(),
+                out[0].snapshot_complete
+            ),
             ("1500.00", Some("500.00"), true)
         );
     }
@@ -993,7 +1110,10 @@ mod tests {
             out.iter()
                 .map(|a| (a.kind.as_str(), a.balance.as_str(), a.snapshot_complete))
                 .collect::<Vec<_>>(),
-            vec![("CURRENT_ACCOUNT", "12.30", false), ("LOAN", "-500.00", true)]
+            vec![
+                ("CURRENT_ACCOUNT", "12.30", false),
+                ("LOAN", "-500.00", true)
+            ]
         );
         let op = NormalizedOperation {
             external_id: "o".to_owned(),

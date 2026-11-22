@@ -24,17 +24,20 @@ function explanationKey(issue: InstanceStatusIssue): string {
 
 /**
  * Admin-only alert when a sidecar the household uses is unreachable or still on a pre-base image,
- * or when a newer Picsou release exists. Dismiss persists a fingerprint; the dialog returns only
- * when that fingerprint changes. A clean status clears it, so the same problem coming back alerts again. Stays closed while the telemetry consent dialog is on screen.
+ * or when a newer Picsou release exists. Disabled on Desktop (which has its own Tauri updater and
+ * native/WebView connectors). Dismiss persists a fingerprint; the dialog returns only when that
+ * fingerprint changes. A clean status clears it, so the same problem coming back alerts again.
+ * Stays closed while the telemetry consent dialog is on screen.
  */
 export function InstanceStatusDialog() {
   const { t } = useTranslation()
   const isAdmin = useAuthStore((s) => s.user?.role === 'ADMIN')
   const demoMode = useAppStore((s) => s.demoMode)
+  const desktopMode = useAppStore((s) => s.desktopMode)
   const isAdvancedMode = useAppStore(selectIsAdvancedMode)
   const dismissedFingerprint = useAppStore((s) => s.dismissedInstanceStatusFingerprint)
   const dismiss = useAppStore((s) => s.setDismissedInstanceStatusFingerprint)
-  const enabled = isAdmin && !demoMode && isAdvancedMode
+  const enabled = isAdmin && !demoMode && !desktopMode && isAdvancedMode
   const { data: status } = useInstanceStatus(enabled)
   const telemetryConsent = useTelemetryConsentPrompt()
 

@@ -65,7 +65,11 @@ fn browser(layout: &Layout, stack: &Shared) -> Browser {
 
 /// Runs `playwright install`; a no-op (seconds) when the browser is already in place.
 fn download_browser(layout: &Layout, stack: &Shared) -> Result<(), String> {
-    let log = || layout.log("browser-download.log").map_err(|e| e.to_string());
+    let log = || {
+        layout
+            .log("browser-download.log")
+            .map_err(|e| e.to_string())
+    };
     let mut command = child(python(&layout.runtime), Signal::Terminate);
     command
         .args(["-m", "playwright", "install", "chromium-headless-shell"])
@@ -78,13 +82,21 @@ fn download_browser(layout: &Layout, stack: &Shared) -> Result<(), String> {
     // Its own process group: Playwright's node downloader is a grandchild, ended with it.
     #[cfg(unix)]
     std::os::unix::process::CommandExt::process_group(&mut command, 0);
-    let mut install = command.spawn().map_err(|e| format!("the Chromium download did not start: {e}"))?;
+    let mut install = command
+        .spawn()
+        .map_err(|e| format!("the Chromium download did not start: {e}"))?;
     let deadline = Instant::now() + BROWSER_TIMEOUT;
     loop {
         match install.try_wait() {
             Ok(Some(status)) if status.success() => return Ok(()),
-            Ok(Some(status)) => return Err(format!("the Chromium download failed ({status}); see logs/browser-download.log")),
-            _ if Instant::now() > deadline || stack.lock().unwrap_or_else(|e| e.into_inner()).stopping => {
+            Ok(Some(status)) => {
+                return Err(format!(
+                    "the Chromium download failed ({status}); see logs/browser-download.log"
+                ))
+            }
+            _ if Instant::now() > deadline
+                || stack.lock().unwrap_or_else(|e| e.into_inner()).stopping =>
+            {
                 #[cfg(unix)]
                 unsafe {
                     libc::kill(-(install.id() as libc::pid_t), libc::SIGTERM);
@@ -100,7 +112,10 @@ fn download_browser(layout: &Layout, stack: &Shared) -> Result<(), String> {
 /// Starts the Chromium download in the background when a Chromium sidecar ships, so the first
 /// sync finds it ready. A no-op (seconds) when it is already there.
 pub fn prefetch_browser(layout: &Layout, stack: &Shared) {
-    if shipped(&layout.runtime).iter().any(|(_, base)| base == "chromium") {
+    if shipped(&layout.runtime)
+        .iter()
+        .any(|(_, base)| base == "chromium")
+    {
         browser(layout, stack);
     }
 }
@@ -135,8 +150,12 @@ fn answer_unavailable(mut client: TcpStream, detail: &str) {
 
 /// The (service, base) pairs listed by `fetch_runtime.py`; none when the runtime ships no sidecar.
 pub fn shipped(runtime: &Path) -> Vec<(String, String)> {
-    let Ok(text) = std::fs::read_to_string(runtime.join("sidecars.json")) else { return Vec::new() };
-    let Ok(serde_json::Value::Array(entries)) = serde_json::from_str(&text) else { return Vec::new() };
+    let Ok(text) = std::fs::read_to_string(runtime.join("sidecars.json")) else {
+        return Vec::new();
+    };
+    let Ok(serde_json::Value::Array(entries)) = serde_json::from_str(&text) else {
+        return Vec::new();
+    };
     entries
         .iter()
         .filter_map(|e| Some((e.get("service")?.as_str()?, e.get("base")?.as_str()?)))
@@ -147,13 +166,17 @@ pub fn shipped(runtime: &Path) -> Vec<(String, String)> {
 }
 
 fn well_formed(name: &str) -> bool {
-    !name.is_empty() && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
 /// The sidecars of the Docker release this desktop build does not ship (`fetch_runtime.py`),
 /// excluding services natively served by the embedded Tauri WebView bridge.
 pub fn unavailable_services(runtime: &Path) -> Vec<String> {
-    let text = std::fs::read_to_string(runtime.join("sidecars-unavailable.json")).unwrap_or_default();
+    let text =
+        std::fs::read_to_string(runtime.join("sidecars-unavailable.json")).unwrap_or_default();
     serde_json::from_str::<Vec<String>>(&text)
         .unwrap_or_default()
         .into_iter()
@@ -175,11 +198,19 @@ fn python(runtime: &Path) -> PathBuf {
 }
 
 /// Opens one port per shipped sidecar and returns the backend's variables for them.
-pub fn serve(layout: &Layout, stack: &Shared, key: &str, idle: Duration) -> io::Result<Vec<(String, String)>> {
+pub fn serve(
+    layout: &Layout,
+    stack: &Shared,
+    key: &str,
+    idle: Duration,
+) -> io::Result<Vec<(String, String)>> {
     // Surfaced by /actuator/info (`info.app.desktop`, `info.app.desktop-unavailable`): the SPA marks those banks unavailable.
     let mut env = vec![
         ("PICSOU_DESKTOP".to_owned(), "true".to_owned()),
-        ("PICSOU_DESKTOP_UNAVAILABLE".to_owned(), unavailable_services(&layout.runtime).join(",")),
+        (
+            "PICSOU_DESKTOP_UNAVAILABLE".to_owned(),
+            unavailable_services(&layout.runtime).join(","),
+        ),
     ];
     let services = shipped(&layout.runtime);
     if !services.is_empty() {
@@ -187,18 +218,28 @@ pub fn serve(layout: &Layout, stack: &Shared, key: &str, idle: Duration) -> io::
     }
     for (service, base) in services {
         let listener = TcpListener::bind((LOOPBACK, 0))?;
-        env.push((url_variable(&service), format!("http://{LOOPBACK}:{}", listener.local_addr()?.port())));
+        env.push((
+            url_variable(&service),
+            format!("http://{LOOPBACK}:{}", listener.local_addr()?.port()),
+        ));
         let (layout, stack, key) = (layout.clone(), stack.clone(), key.to_owned());
         // A thread per sidecar for the app's lifetime: Linux ties PR_SET_PDEATHSIG to the
         // spawning thread, so the sidecar must be started from a thread that does not end.
         thread::spawn(move || run(listener, &service, &base, &layout, &stack, &key, idle));
     }
     // For diagnostics (and the CI smoke test): which loopback port serves which sidecar.
-    let ports: serde_json::Map<_, _> =
-        env.iter().filter(|(k, _)| k.ends_with("_URL")).map(|(k, v)| (k.clone(), v.clone().into())).collect();
+    let ports: serde_json::Map<_, _> = env
+        .iter()
+        .filter(|(k, _)| k.ends_with("_URL"))
+        .map(|(k, v)| (k.clone(), v.clone().into()))
+        .collect();
     // Diagnostics only: a failed write must not stop Picsou.
-    let _ = std::fs::create_dir_all(&layout.data)
-        .and_then(|_| std::fs::write(layout.data.join("sidecar-ports.json"), serde_json::Value::Object(ports).to_string()));
+    let _ = std::fs::create_dir_all(&layout.data).and_then(|_| {
+        std::fs::write(
+            layout.data.join("sidecar-ports.json"),
+            serde_json::Value::Object(ports).to_string(),
+        )
+    });
     Ok(env)
 }
 
@@ -210,18 +251,33 @@ struct Activity {
 
 impl Activity {
     fn touch(&self) {
-        self.last.store(self.epoch.elapsed().as_millis() as u64, Ordering::SeqCst);
+        self.last
+            .store(self.epoch.elapsed().as_millis() as u64, Ordering::SeqCst);
     }
     fn quiet_for(&self) -> Duration {
-        Duration::from_millis((self.epoch.elapsed().as_millis() as u64).saturating_sub(self.last.load(Ordering::SeqCst)))
+        Duration::from_millis(
+            (self.epoch.elapsed().as_millis() as u64)
+                .saturating_sub(self.last.load(Ordering::SeqCst)),
+        )
     }
 }
 
-fn run(listener: TcpListener, service: &str, base: &str, layout: &Layout, stack: &Shared, key: &str, idle: Duration) {
+fn run(
+    listener: TcpListener,
+    service: &str,
+    base: &str,
+    layout: &Layout,
+    stack: &Shared,
+    key: &str,
+    idle: Duration,
+) {
     if listener.set_nonblocking(true).is_err() {
         return;
     }
-    let activity = Arc::new(Activity { epoch: Instant::now(), last: AtomicU64::new(0) });
+    let activity = Arc::new(Activity {
+        epoch: Instant::now(),
+        last: AtomicU64::new(0),
+    });
     let mut upstream: Option<u16> = None;
     loop {
         if stack.lock().unwrap_or_else(|e| e.into_inner()).stopping {
@@ -236,7 +292,10 @@ fn run(listener: TcpListener, service: &str, base: &str, layout: &Layout, stack:
                     match browser(layout, stack) {
                         Browser::Ready => {}
                         Browser::Failed(e) => {
-                            unavailable(client, &format!("Chromium is missing: {e}. Retry to download it again."));
+                            unavailable(
+                                client,
+                                &format!("Chromium is missing: {e}. Retry to download it again."),
+                            );
                             continue;
                         }
                         _ => {
@@ -277,7 +336,10 @@ fn run(listener: TcpListener, service: &str, base: &str, layout: &Layout, stack:
 
 fn running(stack: &Shared, service: &str) -> bool {
     let mut s = stack.lock().unwrap_or_else(|e| e.into_inner());
-    let alive = s.sidecars.get_mut(service).is_some_and(|c| matches!(c.try_wait(), Ok(None)));
+    let alive = s
+        .sidecars
+        .get_mut(service)
+        .is_some_and(|c| matches!(c.try_wait(), Ok(None)));
     if !alive {
         s.sidecars.remove(service);
     }
@@ -287,19 +349,43 @@ fn running(stack: &Shared, service: &str) -> bool {
 /// Stops an idle sidecar off the accept loop: `end` can wait STOP_TIMEOUT for it to exit, and the
 /// port must keep accepting meanwhile (the next call starts a fresh sidecar on another port).
 fn forget(stack: &Shared, service: &str) {
-    let taken = stack.lock().unwrap_or_else(|e| e.into_inner()).sidecars.remove(service);
+    let taken = stack
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .sidecars
+        .remove(service);
     if let Some(sidecar) = taken {
         thread::spawn(move || end(sidecar, Signal::Terminate));
     }
 }
 
-fn launch(service: &str, base: &str, layout: &Layout, stack: &Shared, key: &str) -> Result<u16, String> {
+fn launch(
+    service: &str,
+    base: &str,
+    layout: &Layout,
+    stack: &Shared,
+    key: &str,
+) -> Result<u16, String> {
     let port = free_port().map_err(|e| format!("no free port: {e}"))?;
     let root = layout.runtime.join("sidecars");
-    let path = std::env::join_paths([root.join("lib"), root.join("site")]).map_err(|e| e.to_string())?;
-    let log = || layout.log(&format!("{service}.log")).map_err(|e| e.to_string());
+    let path =
+        std::env::join_paths([root.join("lib"), root.join("site")]).map_err(|e| e.to_string())?;
+    let log = || {
+        layout
+            .log(&format!("{service}.log"))
+            .map_err(|e| e.to_string())
+    };
     let sidecar = child(python(&layout.runtime), Signal::Terminate)
-        .args(["-m", "uvicorn", "main:app", "--host", LOOPBACK, "--port", &port.to_string(), "--no-access-log"])
+        .args([
+            "-m",
+            "uvicorn",
+            "main:app",
+            "--host",
+            LOOPBACK,
+            "--port",
+            &port.to_string(),
+            "--no-access-log",
+        ])
         // Longer than the backend's pooled-connection idle time, so a reused one is not reset.
         .args(["--timeout-keep-alive", "65"])
         .current_dir(root.join(service))
@@ -378,20 +464,31 @@ mod tests {
     #[test]
     fn services_map_to_the_backend_variables() {
         assert_eq!(url_variable("bourso-auth"), "BOURSO_AUTH_URL");
-        assert_eq!(url_variable("caisse-epargne-auth"), "CAISSE_EPARGNE_AUTH_URL");
+        assert_eq!(
+            url_variable("caisse-epargne-auth"),
+            "CAISSE_EPARGNE_AUTH_URL"
+        );
     }
 
     #[test]
     fn the_unavailable_sidecars_reach_the_backend_info() {
-        let _ports = crate::supervisor::TEST_PORTS.lock().unwrap_or_else(|e| e.into_inner());
-        let dir = std::env::temp_dir().join(format!("picsou-sidecars-unavailable-{}", std::process::id()));
+        let _ports = crate::supervisor::TEST_PORTS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!(
+            "picsou-sidecars-unavailable-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(dir.join("runtime")).unwrap();
         std::fs::write(
             dir.join("runtime/sidecars-unavailable.json"),
             r#"["amex-auth","bnp-auth","revolut-auth","future-bank-auth","../x"]"#,
         )
         .unwrap();
-        let layout = Layout { runtime: dir.join("runtime"), data: dir.join("data") };
+        let layout = Layout {
+            runtime: dir.join("runtime"),
+            data: dir.join("data"),
+        };
         let env = serve(&layout, &Shared::default(), "k", IDLE).unwrap();
         assert!(env.contains(&("PICSOU_DESKTOP".to_owned(), "true".to_owned())));
         assert!(env.contains(&(
@@ -402,7 +499,8 @@ mod tests {
 
     #[test]
     fn only_well_formed_services_of_the_manifest_are_served() {
-        let dir = std::env::temp_dir().join(format!("picsou-sidecars-manifest-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("picsou-sidecars-manifest-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         assert!(shipped(&dir).is_empty());
         std::fs::write(
@@ -410,20 +508,28 @@ mod tests {
             r#"[{"service":"cic-auth","base":"python"},{"service":"../etc","base":"python"},{"service":"Bad","base":"python"},{"service":"x-auth"},{}]"#,
         )
         .unwrap();
-        assert_eq!(shipped(&dir), [("cic-auth".to_owned(), "python".to_owned())]);
+        assert_eq!(
+            shipped(&dir),
+            [("cic-auth".to_owned(), "python".to_owned())]
+        );
     }
 
     /// A fake runtime: the system Python, and a `uvicorn` module that answers every GET.
     #[cfg(unix)]
     fn fake_runtime(name: &str) -> Layout {
-        let root = std::env::temp_dir().join(format!("picsou-sidecars-{name}-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("picsou-sidecars-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let runtime = root.join("runtime");
         std::fs::create_dir_all(runtime.join("python/bin")).unwrap();
         std::os::unix::fs::symlink("/usr/bin/python3", runtime.join("python/bin/python3")).unwrap();
         std::fs::create_dir_all(runtime.join("sidecars/lib")).unwrap();
         std::fs::create_dir_all(runtime.join("sidecars/cic-auth")).unwrap();
-        std::fs::write(runtime.join("sidecars.json"), r#"[{"service":"cic-auth","base":"python"}]"#).unwrap();
+        std::fs::write(
+            runtime.join("sidecars.json"),
+            r#"[{"service":"cic-auth","base":"python"}]"#,
+        )
+        .unwrap();
         std::fs::write(
             runtime.join("sidecars/lib/uvicorn.py"),
             r#"import http.server, os, signal, sys
@@ -439,14 +545,21 @@ http.server.HTTPServer(("127.0.0.1", port), H).serve_forever()
 "#,
         )
         .unwrap();
-        Layout { runtime, data: root.join("data") }
+        Layout {
+            runtime,
+            data: root.join("data"),
+        }
     }
 
     #[cfg(unix)]
     fn get(url: &str) -> String {
         let address = url.trim_start_matches("http://");
         let mut stream = TcpStream::connect(address).unwrap();
-        write!(stream, "GET /health HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n").unwrap();
+        write!(
+            stream,
+            "GET /health HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n"
+        )
+        .unwrap();
         let mut answer = String::new();
         stream.read_to_string(&mut answer).unwrap();
         answer
@@ -461,17 +574,36 @@ http.server.HTTPServer(("127.0.0.1", port), H).serve_forever()
     #[test]
     fn a_chromium_sidecar_answers_503_while_its_browser_downloads_and_does_not_start() {
         let layout = fake_runtime("chromium");
-        std::fs::write(layout.runtime.join("sidecars.json"), r#"[{"service":"cic-auth","base":"chromium"}]"#).unwrap();
+        std::fs::write(
+            layout.runtime.join("sidecars.json"),
+            r#"[{"service":"cic-auth","base":"chromium"}]"#,
+        )
+        .unwrap();
         // A download that never ends: `python -m playwright` blocks.
         std::fs::create_dir_all(layout.runtime.join("sidecars/site/playwright")).unwrap();
-        std::fs::write(layout.runtime.join("sidecars/site/playwright/__init__.py"), "").unwrap();
-        std::fs::write(layout.runtime.join("sidecars/site/playwright/__main__.py"), "import time\ntime.sleep(60)\n").unwrap();
+        std::fs::write(
+            layout.runtime.join("sidecars/site/playwright/__init__.py"),
+            "",
+        )
+        .unwrap();
+        std::fs::write(
+            layout.runtime.join("sidecars/site/playwright/__main__.py"),
+            "import time\ntime.sleep(60)\n",
+        )
+        .unwrap();
         let stack = Shared::default();
         let env = serve(&layout, &stack, "k3y", Duration::from_secs(60)).unwrap();
-        let url = env.iter().find(|(k, _)| k == "CIC_AUTH_URL").map(|(_, v)| v.clone()).unwrap();
+        let url = env
+            .iter()
+            .find(|(k, _)| k == "CIC_AUTH_URL")
+            .map(|(_, v)| v.clone())
+            .unwrap();
 
         let answer = get(&url);
-        assert!(answer.starts_with("HTTP/1.1 503") && answer.contains("downloading"), "{answer}");
+        assert!(
+            answer.starts_with("HTTP/1.1 503") && answer.contains("downloading"),
+            "{answer}"
+        );
         assert!(get(&url).starts_with("HTTP/1.1 503"), "still downloading");
         assert_eq!(count(&stack), 0, "the sidecar is not started meanwhile");
         crate::supervisor::stop(&stack);
@@ -480,19 +612,31 @@ http.server.HTTPServer(("127.0.0.1", port), H).serve_forever()
     #[cfg(unix)]
     #[test]
     fn a_sidecar_runs_only_while_it_is_used() {
-        let _ports = crate::supervisor::TEST_PORTS.lock().unwrap_or_else(|e| e.into_inner());
+        let _ports = crate::supervisor::TEST_PORTS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let layout = fake_runtime("idle");
         let stack = Shared::default();
         let env = serve(&layout, &stack, "k3y", Duration::from_secs(1)).unwrap();
-        let url = env.iter().find(|(k, _)| k == "CIC_AUTH_URL").map(|(_, v)| v.clone()).unwrap();
+        let url = env
+            .iter()
+            .find(|(k, _)| k == "CIC_AUTH_URL")
+            .map(|(_, v)| v.clone())
+            .unwrap();
         assert!(env.contains(&("APP_SIDECAR_API_KEY".to_owned(), "k3y".to_owned())));
         sleep(Duration::from_millis(500));
         assert_eq!(count(&stack), 0, "nothing runs before the first call");
 
         let answer = get(&url);
-        assert!(answer.starts_with("HTTP/1.0 200") && answer.ends_with("k3y sidecar-python"), "{answer}");
+        assert!(
+            answer.starts_with("HTTP/1.0 200") && answer.ends_with("k3y sidecar-python"),
+            "{answer}"
+        );
         assert_eq!(count(&stack), 1);
-        assert!(get(&url).ends_with("k3y sidecar-python"), "a second call reuses the running sidecar");
+        assert!(
+            get(&url).ends_with("k3y sidecar-python"),
+            "a second call reuses the running sidecar"
+        );
 
         sleep(Duration::from_secs(3));
         assert_eq!(count(&stack), 0, "stopped once idle");
@@ -500,7 +644,10 @@ http.server.HTTPServer(("127.0.0.1", port), H).serve_forever()
         let _pooled = TcpStream::connect(url.trim_start_matches("http://")).unwrap();
         sleep(Duration::from_secs(3));
         assert_eq!(count(&stack), 0, "an idle open connection does not hold it");
-        assert!(get(&url).ends_with("k3y sidecar-python"), "started again on the next call");
+        assert!(
+            get(&url).ends_with("k3y sidecar-python"),
+            "started again on the next call"
+        );
         crate::supervisor::stop(&stack);
         assert_eq!(count(&stack), 0, "quitting ends it");
     }
@@ -508,19 +655,32 @@ http.server.HTTPServer(("127.0.0.1", port), H).serve_forever()
     #[cfg(unix)]
     #[test]
     fn a_slow_idle_stop_does_not_hold_the_next_call() {
-        let _ports = crate::supervisor::TEST_PORTS.lock().unwrap_or_else(|e| e.into_inner());
+        let _ports = crate::supervisor::TEST_PORTS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         // A sidecar that ignores SIGTERM keeps `end` waiting STOP_TIMEOUT (20 s) before SIGKILL.
         let layout = fake_runtime("stubborn");
         std::fs::write(layout.runtime.join("sidecars/cic-auth/stubborn"), "").unwrap();
         let stack = Shared::default();
         let env = serve(&layout, &stack, "k3y", Duration::from_secs(1)).unwrap();
-        let url = env.iter().find(|(k, _)| k == "CIC_AUTH_URL").map(|(_, v)| v.clone()).unwrap();
+        let url = env
+            .iter()
+            .find(|(k, _)| k == "CIC_AUTH_URL")
+            .map(|(_, v)| v.clone())
+            .unwrap();
         assert!(get(&url).ends_with("k3y sidecar-python"));
         sleep(Duration::from_secs(3)); // idle: the stop of the stubborn sidecar begins
 
         let asked = Instant::now();
-        assert!(get(&url).ends_with("k3y sidecar-python"), "a fresh sidecar answers");
-        assert!(asked.elapsed() < Duration::from_secs(10), "waited {:?} behind the idle stop", asked.elapsed());
+        assert!(
+            get(&url).ends_with("k3y sidecar-python"),
+            "a fresh sidecar answers"
+        );
+        assert!(
+            asked.elapsed() < Duration::from_secs(10),
+            "waited {:?} behind the idle stop",
+            asked.elapsed()
+        );
         crate::supervisor::stop(&stack);
     }
 }

@@ -15,14 +15,19 @@ use std::time::{Duration, Instant};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use tauri::{
+    AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
+};
 use uuid::Uuid;
 
-use super::{ReadBodyError, read_capped_text};
 use super::amex_parsers::{self, AccountPayload};
 use super::bnp::{
-    ApiError, StoredCookie, WebviewStartResponse, WebviewStatusResponse, build_cookie_header,
-    merge_set_cookies, random_hex, sha256_hex, unwrap_eval_string,
+    build_cookie_header, merge_set_cookies, random_hex, sha256_hex, ApiError, StoredCookie,
+    WebviewStartResponse, WebviewStatusResponse,
+};
+use super::{
+    document_ready_complete, poll_webview_slot, read_capped_text, EvalPollError, ReadBodyError,
+    PENDING_SENTINEL,
 };
 
 const LOGIN_URL: &str = "https://www.americanexpress.com/fr-fr/account/login/";
@@ -41,6 +46,7 @@ const TRANSACTION_HISTORY_SIZE: usize = 1000;
 const LOGIN_TTL: Duration = Duration::from_secs(300);
 const POLL_INTERVAL: Duration = Duration::from_millis(600);
 const FETCH_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(25);
 const SNAPSHOT_CACHE_TTL: Duration = Duration::from_secs(180);
 const MAX_PROCESSES: usize = 4;
@@ -418,56 +424,85 @@ impl AmexWebviewManager {
             };
 
             if on_authenticated_page(&current_url) {
+                let path = current_url.path();
                 let on_api_origin = current_url
                     .host_str()
                     .is_some_and(|h| h.eq_ignore_ascii_case(API_HOST));
                 if !on_api_origin {
                     if !navigated_to_global {
                         navigated_to_global = true;
-                        let _ = window
-                            .eval(format!("window.location.href = \"{DASHBOARD_URL}\";"));
+                        tracing::info!(path, "AMEX WebView navigating to global dashboard");
+                        let _ = window.eval(format!("window.location.href = \"{DASHBOARD_URL}\";"));
                     }
                     tokio::time::sleep(POLL_INTERVAL).await;
                     continue;
                 }
 
+                if !document_ready_complete(&window).await {
+                    tracing::debug!(
+                        path,
+                        "AMEX WebView waiting for document readyState=complete"
+                    );
+                    tokio::time::sleep(POLL_INTERVAL).await;
+                    continue;
+                }
+
                 // Confirm the servicing API accepts this session and reveals an account_token.
-                if let Ok(member_json) = webview_fetch_json(&window, MEMBER_PATH, None).await {
-                    let token = amex_parsers::account_token_from_member_payload(&member_json);
-                    if token.is_some() {
-                        if !self.mark_fetching(&process_id) {
+                match webview_fetch_json_with_timeout(&window, MEMBER_PATH, None, PROBE_TIMEOUT)
+                    .await
+                {
+                    Ok(member_json) => {
+                        let token = amex_parsers::account_token_from_member_payload(&member_json);
+                        let has_token = token.is_some();
+                        tracing::info!(
+                            path,
+                            status = 200u16,
+                            has_token,
+                            "AMEX WebView auth probe completed"
+                        );
+                        if token.is_some() {
+                            if !self.mark_fetching(&process_id) {
+                                return;
+                            }
+                            tracing::info!(
+                                "AMEX WebView authenticated, fetching read-only snapshot"
+                            );
+                            let (member_due, member_points) =
+                                amex_parsers::parse_dashboard_enrichment(&member_json);
+                            let member_enrichment = AmexEnrichment {
+                                due_date: member_due,
+                                reward_points: member_points,
+                            };
+                            match self
+                                .finish_webview_snapshot(&window, token, Some(member_enrichment))
+                                .await
+                            {
+                                Ok((session_state, accounts)) => {
+                                    self.remember_snapshot(&session_state, accounts);
+                                    self.mark_done(&process_id, session_state);
+                                    tracing::info!(
+                                        "AMEX WebView snapshot ready, closing login window"
+                                    );
+                                }
+                                Err(err) => {
+                                    tracing::warn!(
+                                        "AMEX WebView snapshot failed (code={})",
+                                        err.detail
+                                    );
+                                    self.mark_failed(&process_id, err.detail);
+                                }
+                            }
+                            let _ = window.destroy();
                             return;
                         }
+                    }
+                    Err(err) => {
                         tracing::info!(
-                            "AMEX WebView authenticated, fetching read-only snapshot"
+                            path,
+                            status = err.status,
+                            reason = err.reason,
+                            "AMEX WebView auth probe not ready"
                         );
-                        let (member_due, member_points) =
-                            amex_parsers::parse_dashboard_enrichment(&member_json);
-                        let member_enrichment = AmexEnrichment {
-                            due_date: member_due,
-                            reward_points: member_points,
-                        };
-                        match self
-                            .finish_webview_snapshot(&window, token, Some(member_enrichment))
-                            .await
-                        {
-                            Ok((session_state, accounts)) => {
-                                self.remember_snapshot(&session_state, accounts);
-                                self.mark_done(&process_id, session_state);
-                                tracing::info!(
-                                    "AMEX WebView snapshot ready, closing login window"
-                                );
-                            }
-                            Err(err) => {
-                                tracing::warn!(
-                                    "AMEX WebView snapshot failed (code={})",
-                                    err.detail
-                                );
-                                self.mark_failed(&process_id, err.detail);
-                            }
-                        }
-                        let _ = window.destroy();
-                        return;
                     }
                 }
             }
@@ -680,10 +715,12 @@ where
         .map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, e.0))?;
 
     let (pending, pending_complete) = match fetch(&tx_path("pending"), effective_token).await {
-        Ok(pending_json) => match amex_parsers::parse_transactions(&pending_json, Some("pending")) {
-            Ok(list) => (list, true),
-            Err(_) => (Vec::new(), false),
-        },
+        Ok(pending_json) => {
+            match amex_parsers::parse_transactions(&pending_json, Some("pending")) {
+                Ok(list) => (list, true),
+                Err(_) => (Vec::new(), false),
+            }
+        }
         Err(err) if err.detail == "SESSION_EXPIRED" => return Err(err),
         Err(_) => (Vec::new(), false),
     };
@@ -700,12 +737,32 @@ where
     Ok(vec![account])
 }
 
-/// Runs a same-origin `fetch(...)` inside the authenticated Amex WebView (`global.americanexpress.com`).
+struct WebviewFetchFailure {
+    status: Option<u16>,
+    reason: &'static str,
+    api: ApiError,
+}
+
+/// Runs a same-origin `fetch(...)` inside the authenticated Amex WebView
+/// (`global.americanexpress.com`) using `FETCH_TIMEOUT` (for account/transaction harvesting).
 async fn webview_fetch_json(
     window: &WebviewWindow,
     path: &str,
     account_token: Option<&str>,
 ) -> Result<Value, ApiError> {
+    webview_fetch_json_with_timeout(window, path, account_token, FETCH_TIMEOUT)
+        .await
+        .map_err(|err| err.api)
+}
+
+/// Runs a same-origin `fetch(...)` inside the Amex WebView with an explicit timeout, bailing
+/// immediately if page navigation wipes `window[slot]`.
+async fn webview_fetch_json_with_timeout(
+    window: &WebviewWindow,
+    path: &str,
+    account_token: Option<&str>,
+    timeout: Duration,
+) -> Result<Value, WebviewFetchFailure> {
     let slot = format!("__picsou_amex_{}", random_hex(12));
     let path_js = serde_json::to_string(path).unwrap_or_else(|_| "\"/\"".to_owned());
     let token_js = match account_token {
@@ -716,7 +773,7 @@ async fn webview_fetch_json(
     let start_js = format!(
         r#"(function(){{
   var k = "{slot}";
-  window[k] = null;
+  window[k] = "{PENDING_SENTINEL}";
   var headers = {{ "Accept": "application/json" }};
   var tok = {token_js};
   if (tok !== null) {{
@@ -734,40 +791,19 @@ async fn webview_fetch_json(
 }})();"#
     );
 
-    window
-        .eval(&start_js)
-        .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"))?;
+    window.eval(&start_js).map_err(|_| WebviewFetchFailure {
+        status: None,
+        reason: EvalPollError::EvalFailed.as_reason(),
+        api: ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"),
+    })?;
 
-    let read_js = format!(
-        r#"(function(){{ var k = "{slot}"; var v = window[k]; if (v !== null && v !== undefined) {{ delete window[k]; return v; }} return ""; }})()"#
-    );
-
-    let deadline = Instant::now() + FETCH_TIMEOUT;
-    let raw_payload = loop {
-        if Instant::now() >= deadline {
-            return Err(ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"));
-        }
-        let (tx, rx) = tokio::sync::oneshot::channel::<String>();
-        let sender = Arc::new(Mutex::new(Some(tx)));
-        if window
-            .eval_with_callback(&read_js, move |val| {
-                if let Some(tx) = sender.lock().unwrap_or_else(|e| e.into_inner()).take() {
-                    let _ = tx.send(val);
-                }
-            })
-            .is_err()
-        {
-            return Err(ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"));
-        }
-        if let Ok(Ok(res)) = tokio::time::timeout(Duration::from_secs(3), rx).await {
-            if let Some(unwrapped) = unwrap_eval_string(&res) {
-                if !unwrapped.is_empty() {
-                    break unwrapped;
-                }
-            }
-        }
-        tokio::time::sleep(FETCH_POLL_INTERVAL).await;
-    };
+    let raw_payload = poll_webview_slot(window, &slot, timeout, FETCH_POLL_INTERVAL)
+        .await
+        .map_err(|err| WebviewFetchFailure {
+            status: None,
+            reason: err.as_reason(),
+            api: ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"),
+        })?;
 
     #[derive(Deserialize)]
     struct JsFetchReply {
@@ -776,27 +812,45 @@ async fn webview_fetch_json(
         text: String,
     }
 
-    let reply: JsFetchReply = serde_json::from_str(&raw_payload)
-        .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED"))?;
+    let reply: JsFetchReply =
+        serde_json::from_str(&raw_payload).map_err(|_| WebviewFetchFailure {
+            status: None,
+            reason: "invalid_envelope",
+            api: ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED"),
+        })?;
     if !reply.ok || reply.text.len() > MAX_RESPONSE_BYTES {
-        return Err(ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"));
+        return Err(WebviewFetchFailure {
+            status: Some(reply.status),
+            reason: "fetch_failed",
+            api: ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"),
+        });
     }
     if reply.status == 401 || reply.status == 403 {
-        return Err(ApiError::new(StatusCode::UNAUTHORIZED, "SESSION_EXPIRED"));
+        return Err(WebviewFetchFailure {
+            status: Some(reply.status),
+            reason: "unauthorized",
+            api: ApiError::new(StatusCode::UNAUTHORIZED, "SESSION_EXPIRED"),
+        });
     }
     if reply.status == 429 || reply.status >= 500 {
-        return Err(ApiError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "UPSTREAM_UNAVAILABLE",
-        ));
+        return Err(WebviewFetchFailure {
+            status: Some(reply.status),
+            reason: "upstream_unavailable",
+            api: ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "UPSTREAM_UNAVAILABLE"),
+        });
     }
     if reply.status != 200 {
-        return Err(ApiError::new(
-            StatusCode::BAD_GATEWAY,
-            "UPSTREAM_FORMAT_CHANGED",
-        ));
+        return Err(WebviewFetchFailure {
+            status: Some(reply.status),
+            reason: "http_status",
+            api: ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED"),
+        });
     }
-    amex_parsers::loads(&reply.text).map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, e.0))
+    amex_parsers::loads(&reply.text).map_err(|e| WebviewFetchFailure {
+        status: Some(reply.status),
+        reason: "invalid_json",
+        api: ApiError::new(StatusCode::BAD_GATEWAY, e.0),
+    })
 }
 
 // ─── host / URL / session helpers ────────────────────────────────────────────
@@ -917,8 +971,10 @@ mod tests {
             &Url::parse("https://www.americanexpress.com/fr-fr/account/login/").unwrap()
         ));
         assert!(!on_authenticated_page(
-            &Url::parse("https://www.americanexpress.com/fr-fr/account/two-step-verification/verify")
-                .unwrap()
+            &Url::parse(
+                "https://www.americanexpress.com/fr-fr/account/two-step-verification/verify"
+            )
+            .unwrap()
         ));
         assert!(!on_authenticated_page(
             &Url::parse("https://evil.example/dashboard").unwrap()
@@ -973,7 +1029,10 @@ mod tests {
         assert_eq!(decoded.cookies[0].name, "amex_sess");
         assert_eq!(decoded.account_token.as_deref(), Some("tok-synthetic"));
         assert_eq!(
-            decoded.enrichment.as_ref().and_then(|e| e.due_date.as_deref()),
+            decoded
+                .enrichment
+                .as_ref()
+                .and_then(|e| e.due_date.as_deref()),
             Some("2026-04-05")
         );
         assert_eq!(
@@ -1010,7 +1069,10 @@ mod tests {
         assert!(!accounts[0].pending_complete);
         assert!(accounts[0].snapshot_complete);
         assert_eq!(accounts[0].transactions.len(), 1);
-        assert_eq!(accounts[0].transactions[0].status.as_deref(), Some("posted"));
+        assert_eq!(
+            accounts[0].transactions[0].status.as_deref(),
+            Some("posted")
+        );
     }
 
     #[tokio::test]

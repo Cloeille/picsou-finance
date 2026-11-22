@@ -1,0 +1,39 @@
+# Single-container Picsou deployment backed by embedded SQLite (no PostgreSQL container).
+#
+# Everything persists in the single `picsou_data` volume mounted at `/data`:
+#   - `/data/picsou.db`  (embedded SQLite database in WAL mode)
+#   - `/data/.secrets/`  (auto-generated JWT_SECRET and CRYPTO_ENCRYPTION_KEY)
+#   - `/data/keys/`      (Enable Banking private key, if configured)
+#
+# Quick start:
+#   docker compose -f docker/compose.sqlite.yml pull
+#   docker compose -f docker/compose.sqlite.yml up -d
+#
+# For the full multi-container PostgreSQL stack (with optional Caddy TLS and
+# browser-based bank sidecars), use `docker/docker-compose.yml` instead.
+
+services:
+  app:
+    image: ghcr.io/cloeille/picsou-finance:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - picsou_data:/data
+    environment:
+      DATABASE_URL: sqlite:///data/picsou.db
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      APP_TELEMETRY_DSN: ${APP_TELEMETRY_DSN:-}
+      APP_TELEMETRY_ENVIRONMENT: ${APP_TELEMETRY_ENVIRONMENT:-production}
+      # Run the 6 pure-HTTP bank connectors (bourso, cic, cmes, degiro, natixis, sofidy)
+      # natively in-process with zero extra containers.
+      APP_NATIVE_SIDECARS: ${APP_NATIVE_SIDECARS:-true}
+
+volumes:
+  picsou_data:

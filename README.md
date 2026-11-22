@@ -171,6 +171,28 @@ to rehearse migrations on a restored backup, migrate the live database, and veri
 before declaring the release ready. Keep Flyway enabled; a historical
 `SPRING_FLYWAY_ENABLED=false` workaround is not a migration strategy.
 
+### 2b. Single-Container SQLite Mode (optional, no PostgreSQL)
+
+Want the lightest possible self-hosted setup with a single container and a single `/data` volume? Picsou can run directly on an embedded SQLite database (`DATABASE_URL=sqlite:///data/picsou.db`) instead of PostgreSQL, with the 6 pure-HTTP bank connectors compiled natively in-process (`APP_NATIVE_SIDECARS=true`):
+
+```bash
+docker compose -f docker/compose.sqlite.yml pull
+docker compose -f docker/compose.sqlite.yml up -d
+```
+
+Or without Compose, as a single `docker run`:
+
+```bash
+docker run -d --name picsou --restart unless-stopped \
+  -p 8080:8080 \
+  -e DATABASE_URL=sqlite:///data/picsou.db \
+  -e APP_NATIVE_SIDECARS=true \
+  -v picsou_data:/data \
+  ghcr.io/cloeille/picsou-finance:latest
+```
+
+Everything persists under `/data` (`picsou.db`, `.secrets/`, and `keys/`). To back up, stop the container briefly and copy `/data/picsou.db` (plus `-wal` / `-shm` if present) and `/data/.secrets/`. PostgreSQL (`docker/docker-compose.yml` and the Helm chart) remains the default for multi-container deployments and browser-based bank sidecars.
+
 ### 3. HTTPS (decide before the first launch)
 
 **Required for bank sync.** Enable Banking rejects plain-HTTP callback URLs for PRODUCTION
@@ -394,6 +416,7 @@ cp docker/.env.example docker/.env
 
 | Variable | When to set | Description |
 |----------|-------------|-------------|
+| `DATABASE_URL` | Embedded SQLite or custom DB URI | `sqlite:///data/picsou.db` for single-container embedded SQLite mode, or a `postgres://` / `postgresql://` URL. Takes precedence over `SPRING_DATASOURCE_URL` |
 | `COMPOSE_PROFILES` | To enable connectors or TLS | Comma-separated connector profiles (`bourso,revolut`), optionally including `tls`, or `all-connectors`. Empty: app and database only |
 | `APP_NATIVE_SIDECARS` | Skip Python containers for 6 banks | `true` runs BoursoBank, CIC, CMES, DEGIRO, Natixis and Sofidy natively in-process in Rust without starting their Python sidecars (defaults to `false`) |
 | `APP_SIDECAR_API_KEY` | When a connector is enabled | `openssl rand -base64 32`. Shared by the app and every enabled `*-auth` sidecar; recreate them together after a rotation |

@@ -31,15 +31,20 @@ type Failure = Arc<Mutex<Option<Failed>>>;
 
 fn failure_script(failed: &Failed) -> String {
     let text = serde_json::to_string(&failed.message).unwrap_or_else(|_| "\"\"".to_owned());
-    format!("window.picsouFailed && window.picsouFailed({text}, {})", failed.can_restore)
+    format!(
+        "window.picsouFailed && window.picsouFailed({text}, {})",
+        failed.can_restore
+    )
 }
 
 fn layout(app: &tauri::AppHandle) -> tauri::Result<Layout> {
-    // Local, not roaming: a PostgreSQL cluster must not sync with a roaming profile.
-    // Tauri returns Windows paths as `\\?\C:\…`; initdb cannot find postgres.exe next to itself
-    // with that form, so both folders are simplified to `C:\…` (a no-op elsewhere).
+    // Local, not roaming: the embedded SQLite database must not sync with a roaming profile.
+    // Tauri returns Windows paths as `\\?\C:\…`; simplify both folders to `C:\…` (a no-op elsewhere).
     let data = dunce::simplified(&app.path().app_local_data_dir()?).to_path_buf();
-    Ok(Layout { runtime: dunce::simplified(&runtime_dir(app)).to_path_buf(), data })
+    Ok(Layout {
+        runtime: dunce::simplified(&runtime_dir(app)).to_path_buf(),
+        data,
+    })
 }
 
 /// Called by the error page only: IPC is limited to the local `ui/` page, never the backend's.
@@ -49,7 +54,9 @@ async fn restore_backup(app: tauri::AppHandle) -> Result<String, String> {
     let layout = layout(&app).map_err(|e| e.to_string())?;
     supervisor::restore_backup(&layout, app.state::<Shared>().inner())?;
     // A reload must not offer the button again: a second restore would move the restored data aside.
-    *app.state::<Failure>().lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *app.state::<Failure>()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = None;
     Ok("Your data from before the update is back. Reinstall the previous Picsou version, then open it.".to_owned())
 }
 
@@ -57,7 +64,12 @@ async fn restore_backup(app: tauri::AppHandle) -> Result<String, String> {
 fn runtime_dir(app: &tauri::AppHandle) -> PathBuf {
     std::env::var_os("PICSOU_DESKTOP_RUNTIME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| app.path().resource_dir().expect("resource dir").join("runtime"))
+        .unwrap_or_else(|| {
+            app.path()
+                .resource_dir()
+                .expect("resource dir")
+                .join("runtime")
+        })
 }
 
 fn started_hidden(args: impl IntoIterator<Item = String>) -> bool {
@@ -75,7 +87,9 @@ fn first_start(marker: &Path) -> std::io::Result<bool> {
 }
 
 fn since_launch() -> u128 {
-    picsou::PROCESS_START.get().map_or(0, |t| t.elapsed().as_millis())
+    picsou::PROCESS_START
+        .get()
+        .map_or(0, |t| t.elapsed().as_millis())
 }
 
 /// The canvas of the loading page (DESIGN.md: Vault Light, or the dark canvas), so the window
@@ -83,7 +97,11 @@ fn since_launch() -> u128 {
 fn paint_canvas(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let dark = matches!(window.theme(), Ok(tauri::Theme::Dark));
-        let _ = window.set_background_color(Some(if dark { Color(10, 10, 10, 255) } else { Color(255, 255, 255, 255) }));
+        let _ = window.set_background_color(Some(if dark {
+            Color(10, 10, 10, 255)
+        } else {
+            Color(255, 255, 255, 255)
+        }));
     }
 }
 
@@ -105,18 +123,31 @@ fn tray(app: &tauri::App) -> tauri::Result<()> {
     let data = app.path().app_local_data_dir()?;
     std::fs::create_dir_all(&data)?;
     let marker = data.join("autostart-default");
-    if can_launch_at_login() && first_start(&marker).unwrap_or(false) && autolaunch.enable().is_err() {
+    if can_launch_at_login()
+        && first_start(&marker).unwrap_or(false)
+        && autolaunch.enable().is_err()
+    {
         // Retried on the next start.
         let _ = std::fs::remove_file(&marker);
     }
     let open = MenuItem::with_id(app, "open", "Open Picsou", true, None::<&str>)?;
-    let login = CheckMenuItem::with_id(app, "login", "Launch at login", can_launch_at_login(), autolaunch.is_enabled().unwrap_or(false), None::<&str>)?;
+    let login = CheckMenuItem::with_id(
+        app,
+        "login",
+        "Launch at login",
+        can_launch_at_login(),
+        autolaunch.is_enabled().unwrap_or(false),
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, "quit", "Quit Picsou", true, None::<&str>)?;
     let mut items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = vec![&open, &login];
     // Only a release build (updater key in its config) checks for updates.
     let install = MenuItem::with_id(app, "update", "Picsou is up to date", false, None::<&str>)?;
     if update::enabled(app.config()) {
-        *app.state::<update::TrayItem>().0.lock().unwrap_or_else(|e| e.into_inner()) = Some(install.clone());
+        *app.state::<update::TrayItem>()
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(install.clone());
         items.push(&install);
     }
     items.push(&quit);
@@ -133,7 +164,11 @@ fn tray(app: &tauri::App) -> tauri::Result<()> {
             "login" => {
                 // The OS login item is the truth: read it back rather than trusting the toggle.
                 let autolaunch = app.autolaunch();
-                let _ = if autolaunch.is_enabled().unwrap_or(false) { autolaunch.disable() } else { autolaunch.enable() };
+                let _ = if autolaunch.is_enabled().unwrap_or(false) {
+                    autolaunch.disable()
+                } else {
+                    autolaunch.enable()
+                };
                 let _ = toggle.set_checked(autolaunch.is_enabled().unwrap_or(false));
             }
             "update" => update::install(app),
@@ -149,7 +184,9 @@ fn show_error(app: &tauri::AppHandle, failed: Failed) {
     // Even after a hidden start: an error nobody sees is a Picsou that silently never works.
     show_window(app);
     // Stored first: a page that finishes loading in between replays it.
-    *app.state::<Failure>().lock().unwrap_or_else(|e| e.into_inner()) = Some(failed.clone());
+    *app.state::<Failure>()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(failed.clone());
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.eval(failure_script(&failed));
     }
@@ -170,7 +207,10 @@ fn main() {
                 show_window(app);
             }
         }))
-        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![HIDDEN])))
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            Some(vec![HIDDEN]),
+        ))
         .manage(stack.clone())
         .manage(update::TrayItem::default())
         .on_window_event(|window, event| {
@@ -217,22 +257,27 @@ fn main() {
                 tracing::info!("window shown {} ms after launch", since_launch());
             }
             if update::enabled(app.config()) {
-                app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+                app.handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())?;
             }
             let stack = handle.state::<Shared>().inner().clone();
-            // The window shows ui/index.html while PostgreSQL starts, then the app.
+            // The window shows ui/index.html while the embedded SQLite backend starts, then the app.
             std::thread::spawn(move || {
                 match supervisor::start(&layout, &stack, Some(handle.clone())) {
-                    Ok(ready) => match (handle.get_webview_window("main"), Url::parse(&ready.url)) {
-                        (Some(window), Ok(url)) => {
-                            let _ = window.navigate(url);
-                            if update::enabled(handle.config()) {
-                                update::watch(&handle);
+                    Ok(ready) => {
+                        match (handle.get_webview_window("main"), Url::parse(&ready.url)) {
+                            (Some(window), Ok(url)) => {
+                                let _ = window.navigate(url);
+                                if update::enabled(handle.config()) {
+                                    update::watch(&handle);
+                                }
+                                ready.serve();
                             }
-                            ready.serve();
+                            _ => {
+                                show_error(&handle, Failed::from("The window is gone.".to_owned()))
+                            }
                         }
-                        _ => show_error(&handle, Failed::from("The window is gone.".to_owned())),
-                    },
+                    }
                     Err(failed) => show_error(&handle, failed),
                 }
                 // PR_SET_PDEATHSIG fires when the spawning thread ends, not the process: this
@@ -251,7 +296,10 @@ fn main() {
         RunEvent::Exit => supervisor::stop(&stack),
         // macOS: a click on the Dock icon of a running Picsou whose window is closed.
         #[cfg(target_os = "macos")]
-        RunEvent::Reopen { has_visible_windows: false, .. } => show_window(app),
+        RunEvent::Reopen {
+            has_visible_windows: false,
+            ..
+        } => show_window(app),
         _ => {
             let _ = app;
         }
@@ -266,7 +314,10 @@ mod tests {
     fn only_the_login_item_starts_hidden() {
         assert!(started_hidden(["picsou".to_owned(), "--hidden".to_owned()]));
         assert!(!started_hidden(["picsou".to_owned()]));
-        assert!(!started_hidden(["picsou".to_owned(), "--hidden-not".to_owned()]));
+        assert!(!started_hidden([
+            "picsou".to_owned(),
+            "--hidden-not".to_owned()
+        ]));
     }
 
     #[test]

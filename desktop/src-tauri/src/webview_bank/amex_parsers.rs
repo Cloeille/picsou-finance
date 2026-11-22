@@ -198,8 +198,8 @@ pub fn parse_balance(
             let Some(obj) = candidate.as_object() else {
                 continue;
             };
-            if let Some(tok) = first(obj, &["accountToken", "account_token"])
-                .and_then(value_to_non_empty_string)
+            if let Some(tok) =
+                first(obj, &["accountToken", "account_token"]).and_then(value_to_non_empty_string)
             {
                 if tok == wanted {
                     chosen = Some(obj);
@@ -379,9 +379,11 @@ pub fn parse_transactions(
         let category = normalize_category(extended.and_then(|e| e.get("category")))
             .or_else(|| normalize_category(obj.get("category")));
 
-        let Some(date_raw) = first(obj, &["chargeDate", "charge_date", "date", "transactionDate"])
-            .and_then(value_to_non_empty_string)
-        else {
+        let Some(date_raw) = first(
+            obj,
+            &["chargeDate", "charge_date", "date", "transactionDate"],
+        )
+        .and_then(value_to_non_empty_string) else {
             continue;
         };
         let Some(description) = first(obj, &["description"])
@@ -390,23 +392,18 @@ pub fn parse_transactions(
         else {
             continue;
         };
-        let Some(amount_val) = unwrap_amount(first(
-            obj,
-            &["amount", "billingAmount", "billing_amount"],
-        )) else {
+        let Some(amount_val) =
+            unwrap_amount(first(obj, &["amount", "billingAmount", "billing_amount"]))
+        else {
             continue;
         };
 
         let date: String = date_raw.chars().take(10).collect();
         let amount = -parse_decimal(amount_val)?;
-        let status = status_default.map(str::to_owned).or_else(|| {
-            obj.get("status")
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-        });
-        let identifier = obj
-            .get("identifier")
-            .and_then(value_to_non_empty_string);
+        let status = status_default
+            .map(str::to_owned)
+            .or_else(|| obj.get("status").and_then(Value::as_str).map(str::to_owned));
+        let identifier = obj.get("identifier").and_then(value_to_non_empty_string);
 
         out.push(RawParsedTransaction {
             date,
@@ -425,10 +422,7 @@ pub fn merge_transactions(
     posted: Vec<RawParsedTransaction>,
     pending: Vec<RawParsedTransaction>,
 ) -> Vec<TransactionPayload> {
-    let seen: HashSet<String> = posted
-        .iter()
-        .filter_map(|t| t.identifier.clone())
-        .collect();
+    let seen: HashSet<String> = posted.iter().filter_map(|t| t.identifier.clone()).collect();
     let mut merged = Vec::with_capacity(posted.len() + pending.len());
     for tx in posted {
         merged.push(TransactionPayload {
@@ -665,7 +659,9 @@ mod tests {
         );
         assert_eq!(parse_loyalty_earned(&json!({"totals": []})), None);
         assert_eq!(
-            parse_loyalty_earned(&json!({"totals": [{"type": "EARNED", "total": {"value": "junk"}}]})),
+            parse_loyalty_earned(
+                &json!({"totals": [{"type": "EARNED", "total": {"value": "junk"}}]})
+            ),
             None
         );
     }
