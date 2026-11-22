@@ -81,6 +81,10 @@ XML file ─► IbkrController#importStatement (rate-limited like /sync, BOM str
   de-dup, soft-deleted accounts not resurrected, one `ibkr_<accountId>` account per statement
   account. A file with no account at all (not a Flex statement) is refused with a `SyncException`
   instead of reporting "0 accounts".
+- **An uploaded file never feeds the shared ISIN store.** A sync records each ticker → ISIN pair
+  in `security_profile` (`SecurityIdentityService`), which is shared by every member and keeps the
+  first ISIN it receives. A hand-edited file could seed it with a wrong pair, so the import path
+  skips that step. The holdings are unaffected; a later Web Service sync records the pairs.
 - **One-off snapshot.** Nothing refreshes the positions between two imports (no daily job, since
   there is no token). The live EUR valuation still follows the market through the tickers; only the
   quantities and the cost basis are frozen. Re-importing a fresh file replaces them. Both paths

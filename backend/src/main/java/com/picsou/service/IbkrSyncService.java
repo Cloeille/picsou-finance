@@ -195,7 +195,7 @@ public class IbkrSyncService {
                 + "key may have changed. Please reconnect with a fresh token.", ex);
         }
 
-        List<AccountResponse> responses = applyStatement(ibkrFlexClient.fetchOpenPositions(token, queryId), memberId);
+        List<AccountResponse> responses = applyStatement(ibkrFlexClient.fetchOpenPositions(token, queryId), memberId, true);
 
         connection.setStatus("CONNECTED");
         connection.setLastSyncedAt(Instant.now());
@@ -224,15 +224,22 @@ public class IbkrSyncService {
             throw new SyncException("The file contains no Interactive Brokers account. Check that it is the "
                 + "XML report of a Flex Query that includes the Open Positions section.");
         }
-        List<AccountResponse> responses = applyStatement(accounts, memberId);
+        List<AccountResponse> responses = applyStatement(accounts, memberId, false);
         log.info("IBKR file import complete for member {}: {} account(s) updated", memberId, responses.size());
         return responses;
     }
 
-    /** Shared by the Flex Web Service sync and the file import: one statement, every account in it. */
-    private List<AccountResponse> applyStatement(List<IbkrAccountData> accounts, Long memberId) {
+    /**
+     * Shared by the Flex Web Service sync and the file import: one statement, every account in it.
+     *
+     * @param recordIdentities whether to learn ticker → ISIN pairs from the statement. {@code false}
+     *        for an uploaded file: {@code security_profile} is shared by every member and keeps the
+     *        first ISIN it is given, so a hand-edited file must not be able to seed it.
+     */
+    private List<AccountResponse> applyStatement(List<IbkrAccountData> accounts, Long memberId,
+                                                 boolean recordIdentities) {
         return accounts.stream()
-            .map(data -> upsertAccount(data, memberId))
+            .map(data -> upsertAccount(data, memberId, recordIdentities))
             .flatMap(Optional::stream)
             .toList();
     }
@@ -241,7 +248,7 @@ public class IbkrSyncService {
     // Mapping
     // ---------------------------------------------------------------------------
 
-    private Optional<AccountResponse> upsertAccount(IbkrAccountData data, Long memberId) {
+    private Optional<AccountResponse> upsertAccount(IbkrAccountData data, Long memberId, boolean recordIdentities) {
         String externalId = "ibkr_" + data.accountId();
 
         Optional<Account> existing = accountRepository.findByExternalAccountIdAndMemberId(externalId, memberId);
@@ -308,7 +315,9 @@ public class IbkrSyncService {
                 HoldingDedup::vwapMerge);
         }
         int persisted = 0;
-        identityService.record(isinByTicker);
+        if (recordIdentities) {
+            identityService.record(isinByTicker);
+        }
         for (Map.Entry<String, HoldingDedup.HoldingAgg> entry : deduped.entrySet()) {
             HoldingDedup.HoldingAgg agg = entry.getValue();
             if (agg.quantity().signum() == 0) {

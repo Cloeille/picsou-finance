@@ -147,6 +147,8 @@ class IbkrSyncServiceTest {
         assertThat(connection.getLastSyncedAt()).isNotNull();
         // Happy path never touches the error-status writer.
         verifyNoInteractions(statusWriter);
+        // A sync still teaches the shared identity store the ISIN behind each ticker.
+        verify(identityService).record(java.util.Map.of("AAPL", "US0378331005"));
     }
 
     @Test
@@ -235,6 +237,9 @@ class IbkrSyncServiceTest {
         assertThat(holding.getValue().getAverageBuyIn()).isEqualByComparingTo("138");
         verifyNoInteractions(connectionRepository, encryption, statusWriter);
         verify(ibkrFlexClient, never()).fetchOpenPositions(any(), any());
+        // security_profile is shared by every member and keeps the first ISIN it is given: an
+        // uploaded file must never seed it, unlike a statement the broker itself served.
+        verifyNoInteractions(identityService);
     }
 
     /** The base-currency guard protects an imported file exactly as it protects a sync. */
