@@ -695,8 +695,8 @@ export function AccountsPage() {
           {/* Wallet groups: parent account + nested pocket sub-accounts */}
           {displayWalletGroups.map(({ wallet, pockets: walletPockets }, wIndex) => (
             <div key={wallet.id} className={cn('space-y-2', reorderActive && wallet.listCollapsed && 'opacity-60')}>
-              {/* Parent wallet card */}
-              <div>
+              {/* Parent wallet card — same column width as regular account cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <AccountCard
                   account={wallet}
                   closed={closedPeerLoanIds.has(wallet.id)}
@@ -753,7 +753,7 @@ export function AccountsPage() {
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   {t('pockets.subAccountsCount', { count: walletPockets.length })}
                 </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                   {walletPockets.map((pocket) => (
                     <PocketCard
                       key={pocket.id}
