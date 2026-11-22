@@ -1,6 +1,7 @@
 package com.picsou.ibkr.client;
 
 import com.picsou.exception.SyncException;
+import com.picsou.util.LogSanitizer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.w3c.dom.Document;
@@ -193,7 +194,27 @@ public class IbkrFlexClient {
      * echoing any of its content into the logs.
      */
     public List<IbkrAccountData> parseUploadedStatement(byte[] xml) {
-        return parseOpenPositions(parse(xml, true));
+        Document doc = parse(xml, true);
+        requireOpenPositionsSection(doc);
+        return parseOpenPositions(doc);
+    }
+
+    /**
+     * Refuses a report that has no {@code <OpenPositions>} section for an account. Accounts are
+     * seeded from every {@code <FlexStatement>}, so a Trades, NAV or Cash report of a known account
+     * would otherwise parse to an account with no position, and importing it would empty that account.
+     * An empty {@code <OpenPositions/>} stays valid: that is how a liquidated account reports.
+     */
+    private void requireOpenPositionsSection(Document doc) {
+        NodeList statements = doc.getElementsByTagName("FlexStatement");
+        for (int i = 0; i < statements.getLength(); i++) {
+            Element statement = (Element) statements.item(i);
+            if (statement.getElementsByTagName("OpenPositions").getLength() == 0) {
+                throw new SyncException("This report has no Open Positions section for account "
+                    + LogSanitizer.safe(attr(statement, "accountId")) + ". Add the Open Positions section to "
+                    + "the Flex Query and download the report again; importing it as is would empty the account.");
+            }
+        }
     }
 
     private List<IbkrAccountData> parseOpenPositions(Document doc) {
@@ -279,11 +300,15 @@ public class IbkrFlexClient {
         if (raw == null) {
             return null;
         }
-        try {
-            return LocalDate.parse(raw, DateTimeFormatter.BASIC_ISO_DATE);
-        } catch (DateTimeParseException e) {
-            return null;
+        // Flex lets the user pick the date format of a query; these two cover the usual choices.
+        for (DateTimeFormatter format : List.of(DateTimeFormatter.BASIC_ISO_DATE, DateTimeFormatter.ISO_LOCAL_DATE)) {
+            try {
+                return LocalDate.parse(raw, format);
+            } catch (DateTimeParseException e) {
+                // try the next one
+            }
         }
+        return null;
     }
 
     /**
@@ -417,7 +442,7 @@ public class IbkrFlexClient {
         try {
             return new BigDecimal(raw);
         } catch (NumberFormatException e) {
-            log.warn("IBKR position: non-numeric {}='{}', treating as null", name, raw);
+            log.warn("IBKR position: non-numeric {}='{}', treating as null", name, LogSanitizer.safe(raw));
             return null;
         }
     }

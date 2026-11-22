@@ -22,11 +22,13 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Interactive Brokers Flex Web Service endpoints (Open Positions sync).
+ * Interactive Brokers endpoints (Open Positions sync).
  *
  * <p>Connect once with a read-only Flex token + query id; sync pulls the current
  * open positions (end-of-day) into accounts + holdings. Mirrors
- * {@link TradeRepublicController}'s shape: connect / status / sync / clear.
+ * {@link TradeRepublicController}'s shape: connect / status / sync / clear. Where the Flex Web
+ * Service cannot be activated, {@code /import} takes the XML report downloaded from Client Portal
+ * instead, with no connection.
  */
 @RestController
 @RequestMapping("/api/ibkr")
@@ -80,11 +82,8 @@ public class IbkrController {
      */
     @PostMapping("/import")
     public ResponseEntity<?> importStatement(@RequestParam("file") MultipartFile file, HttpServletRequest request) {
-        if (!checkSyncRateLimit(request)) {
-            ProblemDetail detail = ProblemDetail.forStatus(HttpStatus.TOO_MANY_REQUESTS);
-            detail.setDetail("Too many sync requests. Please wait a moment before trying again.");
-            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(detail);
-        }
+        // The cheap refusals come first, so picking the wrong file does not spend the budget a real
+        // sync shares with the import.
         if (file.isEmpty()) {
             throw new IllegalArgumentException("The uploaded file is empty.");
         }
@@ -92,6 +91,11 @@ public class IbkrController {
         // a loop of large files each be copied and DOM-parsed on the shared JVM.
         if (file.getSize() > MAX_IMPORT_BYTES) {
             throw new IllegalArgumentException("The uploaded file is too large for a Flex report.");
+        }
+        if (!checkSyncRateLimit(request)) {
+            ProblemDetail detail = ProblemDetail.forStatus(HttpStatus.TOO_MANY_REQUESTS);
+            detail.setDetail("Too many sync requests. Please wait a moment before trying again.");
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(detail);
         }
         byte[] xml;
         try {

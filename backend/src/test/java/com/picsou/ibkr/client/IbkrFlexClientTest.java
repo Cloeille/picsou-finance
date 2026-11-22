@@ -221,6 +221,40 @@ class IbkrFlexClientTest {
         }
     }
 
+    /** A Trades / NAV / Cash report of a known account must not parse to "no position" and empty it. */
+    @Test
+    void parseUploaded_aReportWithoutOpenPositions_isRefused_butAnEmptyOneIsAccepted() {
+        byte[] tradesOnly = """
+            <FlexQueryResponse><FlexStatements count="1">
+              <FlexStatement accountId="U1" toDate="20261120"><Trades/></FlexStatement>
+            </FlexStatements></FlexQueryResponse>
+            """.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] liquidated = """
+            <FlexQueryResponse><FlexStatements count="1">
+              <FlexStatement accountId="U1" toDate="20261120"><OpenPositions/></FlexStatement>
+            </FlexStatements></FlexQueryResponse>
+            """.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> client.parseUploadedStatement(tradesOnly))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("Open Positions section")
+            .hasMessageContaining("U1");
+        assertThat(client.parseUploadedStatement(liquidated)).singleElement()
+            .satisfies(account -> assertThat(account.positions()).isEmpty());
+    }
+
+    @Test
+    void parse_readsAnIsoStatementDateToo() {
+        String xml = """
+            <FlexQueryResponse><FlexStatements count="1">
+              <FlexStatement accountId="U1" toDate="2026-11-20"><OpenPositions/></FlexStatement>
+            </FlexStatements></FlexQueryResponse>
+            """;
+
+        assertThat(client.parseOpenPositions(xml)).singleElement()
+            .satisfies(account -> assertThat(account.statementDate()).isEqualTo(java.time.LocalDate.of(2026, 11, 20)));
+    }
+
     @Test
     void parseUploaded_rejectsAnyDoctype() {
         byte[] external = """

@@ -293,6 +293,22 @@ class IbkrSyncServiceTest {
         verifyNoInteractions(accountRepository, holdingRepository);
     }
 
+    /** Each position costs an OpenFIGI and a price lookup: a hand-edited file must not fan out into thousands. */
+    @Test
+    void importStatement_refusesAReportWithAbsurdlyManyPositions() {
+        List<IbkrPosition> many = java.util.stream.IntStream.range(0, 501)
+            .mapToObj(i -> new IbkrPosition("U123", null, "S" + i, "STOCK " + i, "EUR", "STK", "SUMMARY",
+                bd("1"), bd("10"), bd("10"), bd("1")))
+            .toList();
+        when(ibkrFlexClient.parseUploadedStatement(FILE)).thenReturn(List.of(
+            new IbkrAccountData("U123", many, "EUR", LocalDate.parse("2026-11-20"))));
+
+        assertThatThrownBy(() -> service.importStatement(FILE, 7L))
+            .isInstanceOf(com.picsou.exception.SyncException.class)
+            .hasMessageContaining("501 positions");
+        verifyNoInteractions(accountRepository, holdingRepository, isinConverter);
+    }
+
     /** A "Last Business Day" report opened on a weekend is two days old: it must go through. */
     @Test
     void importStatement_acceptsTheLastBusinessDaysReport() {
