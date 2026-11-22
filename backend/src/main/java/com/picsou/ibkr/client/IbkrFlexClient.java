@@ -29,10 +29,12 @@ import java.time.format.DateTimeParseException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Interactive Brokers Flex Web Service client (Open Positions).
@@ -55,6 +57,9 @@ import java.util.Map;
 @Component
 @Slf4j
 public class IbkrFlexClient {
+
+    /** What an IBKR account id looks like (U1234567, DU123456, an advisor sub-account U123456.1). */
+    private static final java.util.regex.Pattern ACCOUNT_ID = java.util.regex.Pattern.compile("[A-Za-z0-9._-]{1,32}");
 
     private static final String BASE_URL =
         "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService";
@@ -195,8 +200,38 @@ public class IbkrFlexClient {
      */
     public List<IbkrAccountData> parseUploadedStatement(byte[] xml) {
         Document doc = parse(xml, true);
+        requireConsistentAccounts(doc);
         requireOpenPositionsSection(doc);
         return parseOpenPositions(doc);
+    }
+
+    /**
+     * An account id becomes an account name and an external id, so an uploaded file's ids must look like
+     * IBKR's, and every position must belong to a statement of the file: a position with another id would
+     * parse to an account of its own, with no date, and be refused for a reason the user cannot act on.
+     */
+    private void requireConsistentAccounts(Document doc) {
+        Set<String> statementIds = new HashSet<>();
+        NodeList statements = doc.getElementsByTagName("FlexStatement");
+        for (int i = 0; i < statements.getLength(); i++) {
+            String id = blankToNull(attr((Element) statements.item(i), "accountId"));
+            if (id == null) {
+                continue;
+            }
+            if (!ACCOUNT_ID.matcher(id).matches()) {
+                throw new SyncException("This file carries an account id Picsou does not recognise as an "
+                    + "Interactive Brokers one. Check that it is the report of your Flex Query.");
+            }
+            statementIds.add(id);
+        }
+        NodeList positions = doc.getElementsByTagName("OpenPosition");
+        for (int i = 0; i < positions.getLength(); i++) {
+            String id = blankToNull(attr((Element) positions.item(i), "accountId"));
+            if (id == null || !statementIds.contains(id)) {
+                throw new SyncException("This report lists positions that belong to no account statement of the "
+                    + "file. Check that it is the unedited report of your Flex Query.");
+            }
+        }
     }
 
     /**
@@ -251,7 +286,7 @@ public class IbkrFlexClient {
                 // positions snapshot, and merging them would silently multiply every
                 // quantity by the number of days. Fail with the remedy instead.
                 throw new SyncException("The Flex statement contains several sections for account "
-                    + stmtAccount + " — set the Flex Query period to 'Last Business Day' "
+                    + LogSanitizer.safe(stmtAccount) + " — set the Flex Query period to 'Last Business Day' "
                     + "(and disable any day-by-day breakout) so positions are a single snapshot.");
             }
             byAccount.put(stmtAccount, new ArrayList<>());
@@ -297,13 +332,15 @@ public class IbkrFlexClient {
     }
 
     /**
-     * The last day the statement covers: its {@code toDate}, else the day it was generated
-     * ({@code whenGenerated="20261122;110616"}); null when neither reads as a date.
+     * The last day the statement covers: its {@code toDate}; only when that is absent, the day it was
+     * generated ({@code whenGenerated="20261122;110616"}). Null when the one that applies is not a date.
      */
     private LocalDate statementDate(Element statement) {
-        LocalDate toDate = flexDate(attr(statement, "toDate"));
-        if (toDate != null) {
-            return toDate;
+        String rawToDate = blankToNull(attr(statement, "toDate"));
+        if (rawToDate != null) {
+            // Present but unreadable stays unknown: a recent generation date must not vouch for a report
+            // whose covered period cannot be read (an old report re-generated today).
+            return flexDate(rawToDate);
         }
         String generated = blankToNull(attr(statement, "whenGenerated"));
         return generated == null ? null : flexDate(generated.split("[;, T]", 2)[0]);
@@ -404,8 +441,12 @@ public class IbkrFlexClient {
             factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
             factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
             factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
-            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+            try {
+                factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+                factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+            } catch (IllegalArgumentException e) {
+                // A parser other than the JDK's may not know these; any DOCTYPE is refused above anyway.
+            }
             factory.setXIncludeAware(false);
             factory.setExpandEntityReferences(false);
             DocumentBuilder builder = factory.newDocumentBuilder();

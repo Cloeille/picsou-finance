@@ -215,7 +215,7 @@ public class IbkrSyncService {
         List<AccountResponse> responses = applyStatement(ibkrFlexClient.fetchOpenPositions(token, queryId), memberId, true);
 
         connection.setStatus("CONNECTED");
-        connection.setLastSyncedAt(Instant.now());
+        connection.setLastSyncedAt(Instant.now(clock));
         connectionRepository.save(connection);
 
         log.info("IBKR sync complete for member {}: {} account(s) updated", memberId, responses.size());
@@ -318,7 +318,7 @@ public class IbkrSyncService {
         Account account;
         if (existing.isPresent()) {
             account = existing.get();
-            account.setLastSyncedAt(Instant.now());
+            account.setLastSyncedAt(Instant.now(clock));
         } else {
             FamilyMember member = familyMemberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
@@ -329,7 +329,7 @@ public class IbkrSyncService {
                 .provider("Interactive Brokers")
                 .currency("EUR")
                 .currentBalance(BigDecimal.ZERO)
-                .lastSyncedAt(Instant.now())
+                .lastSyncedAt(Instant.now(clock))
                 .externalAccountId(externalId)
                 .isManual(false)
                 .color("#d81222") // IBKR red
@@ -389,7 +389,7 @@ public class IbkrSyncService {
                 .quantity(agg.quantity())
                 .averageBuyIn(agg.averageBuyIn())
                 .currentPrice(agg.currentPrice())
-                .lastSyncedAt(Instant.now())
+                .lastSyncedAt(Instant.now(clock))
                 .build());
             persisted++;
         }
@@ -405,7 +405,7 @@ public class IbkrSyncService {
         BigDecimal liveEur = persisted == 0 ? BigDecimal.ZERO : accountService.liveBalanceEur(account);
         account.setCurrentBalance(liveEur);
         account = accountRepository.save(account);
-        accountService.upsertSnapshot(account, liveEur, LocalDate.now());
+        accountService.upsertSnapshot(account, liveEur, LocalDate.now(clock));
 
         return Optional.of(accountService.toResponse(account));
     }

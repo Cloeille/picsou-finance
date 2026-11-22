@@ -278,6 +278,47 @@ class IbkrFlexClientTest {
         assertThat(client.parseUploadedStatement(nested)).isEmpty();
     }
 
+    /** A recent generation date must not vouch for a report whose covered period cannot be read. */
+    @Test
+    void parse_anUnreadableToDateIsNotRescuedByTheGenerationDate() {
+        String xml = """
+            <FlexQueryResponse><FlexStatements count="1">
+              <FlexStatement accountId="U1" toDate="15/03/2025" whenGenerated="20261122;110616"><OpenPositions/></FlexStatement>
+            </FlexStatements></FlexQueryResponse>
+            """;
+
+        assertThat(client.parseOpenPositions(xml)).singleElement()
+            .satisfies(account -> assertThat(account.statementDate()).isNull());
+    }
+
+    /** The id becomes an account name and an external id: an absurd one is refused, not left to fail at save time. */
+    @Test
+    void parseUploaded_anAccountIdThatIsNotAnIbkrOneIsRefused() {
+        byte[] xml = ("<FlexQueryResponse><FlexStatements count=\"1\"><FlexStatement accountId=\"" + "X".repeat(150)
+            + "\" toDate=\"20261120\"><OpenPositions/></FlexStatement></FlexStatements></FlexQueryResponse>")
+            .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> client.parseUploadedStatement(xml))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("account id");
+    }
+
+    /** A position of another account would parse to an account of its own, undated: refuse it for what it is. */
+    @Test
+    void parseUploaded_aPositionBelongingToNoStatementIsRefused() {
+        byte[] xml = """
+            <FlexQueryResponse><FlexStatements count="1">
+              <FlexStatement accountId="U1" toDate="20261120"><OpenPositions>
+                <OpenPosition accountId="U2" symbol="CAC" position="1" levelOfDetail="SUMMARY"/>
+              </OpenPositions></FlexStatement>
+            </FlexStatements></FlexQueryResponse>
+            """.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> client.parseUploadedStatement(xml))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("belong to no account statement");
+    }
+
     @Test
     void parse_readsAnIsoStatementDateToo() {
         String xml = """

@@ -127,7 +127,7 @@ export function IbkrPanel({ onConnected }: IbkrPanelProps = {}) {
               },
               onError: (err: unknown) => setError(extractErrorMessage(err, t('sync.ibkr.errors.syncFailed'))),
             })}
-            disabled={syncMutation.isPending}
+            disabled={syncMutation.isPending || importMutation.isPending}
           >
             {syncMutation.isPending ? (
               <>
@@ -213,7 +213,7 @@ export function IbkrPanel({ onConnected }: IbkrPanelProps = {}) {
           <Button
             variant="outline"
             onClick={() => fileInput.current?.click()}
-            disabled={importMutation.isPending}
+            disabled={importMutation.isPending || syncMutation.isPending || connectMutation.isPending}
           >
             {importMutation.isPending ? (
               <>

@@ -87,10 +87,15 @@ XML file ─► IbkrController#importStatement (rate-limited like /sync, 2 MB ca
   empty it. An upload where any statement lacks an `OpenPositions` element is rejected; an empty
   `<OpenPositions/>` stays valid (a liquidated account). More than 500 positions (per-lot rows not counted) is rejected too: each one
   costs an OpenFIGI and a price lookup inside one transaction.
+- **An uploaded file's account ids are checked.** An id becomes an account name and an external id, so
+  it must look like IBKR's (`[A-Za-z0-9._-]{1,32}`), and every position must belong to a statement of the
+  file: an absurd id, or a position of another account, is refused with a message instead of failing at
+  save time or being refused for a date it never had.
 - **A stale or undated report is refused.** The import replaces the holdings and stamps today's net-worth
   snapshot, so a statement whose date is more than 7 days before today (`Clock` injected) is rejected with
   the date in the message. A "Last Business Day" report opened over a weekend or a holiday stretch passes.
-  The date is the statement's `toDate`, else its `whenGenerated` day, read as `yyyyMMdd` or `yyyy-MM-dd`;
+  The date is the statement's `toDate` (its `whenGenerated` day only when `toDate` is absent: an unreadable
+  `toDate` is never rescued by a recent generation date), read as `yyyyMMdd` or `yyyy-MM-dd`;
   an upload whose date cannot be read is refused too, with the format to choose in the Flex Query (a sync
   is lenient there, an uploaded file can be anything the user had lying around).
 - **The file is parsed as bytes.** The XML parser detects the encoding itself (UTF-8 with or without a
