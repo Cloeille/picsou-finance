@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Natixis Interépargne: a passkey requirement is no longer reported as a website format change.**
+  Natixis can require a passkey after accepting the password and the code. Picsou cannot sign in
+  with a passkey, and now says so instead of "the website format changed". (#686)
+
 ## [1.2.2] — 2026-11-21
 
 ### Added

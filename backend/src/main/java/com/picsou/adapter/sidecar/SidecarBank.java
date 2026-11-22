@@ -224,7 +224,7 @@ public enum SidecarBank {
     NATIXIS("Natixis Interépargne", "natixis-auth", Map.ofEntries(
         say(INVALID_CREDENTIALS, "Natixis Interépargne rejected the e-mail or password"),
         say(MFA_TYPE_UNSUPPORTED,
-            "Natixis Interépargne only offers passkey login or an unsupported second factor for this account"),
+            "Natixis Interépargne requires a passkey or a second factor Picsou cannot handle"),
         say(INVALID_OTP, "Natixis Interépargne rejected the verification code"),
         say(RATE_LIMITED, "Natixis Interépargne blocked further attempts, try again later"),
         say(AUTH_ATTEMPT_EXPIRED, "The Natixis Interépargne authentication attempt expired"),

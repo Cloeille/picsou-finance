@@ -1,6 +1,6 @@
 # Feature: Natixis Interépargne sync
 
-> Last updated: 2026-11-06
+> Last updated: 2026-11-22
 
 ## Context
 
@@ -177,8 +177,11 @@ spending. The rows stay visible on the account page and in exports.
   their own.
 - **At most 5 wrong codes per login attempt**: the fifth drops the attempt
   (`AUTH_ATTEMPT_EXPIRED`), well before Natixis would lock the account.
-- **Accounts without a password login** (passkey only), or without an SMS, e-mail or
-  voice channel, get `MFA_TYPE_UNSUPPORTED`.
+- **Natixis can require a passkey even when password and code sign-in are on.** After
+  the password and the code, the profile check answers `403` with
+  `WEBAUTHN_REGISTRATION_REQUIRED`. The sidecar reports `MFA_TYPE_UNSUPPORTED`: Picsou
+  has no passkey support. Accounts with no password login, or no SMS, e-mail or voice
+  channel, get the same code.
 - **Natixis accounts are never valued at market prices.** `AccountService.NEVER_MARKET_PRICED`
   skips quotes for them, so a quote found for a fund's ticker (a label slug can match an
   unrelated symbol) never replaces the Natixis value. CMES and Amundi are unchanged.

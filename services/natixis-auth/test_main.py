@@ -60,6 +60,8 @@ class FakeNatixis:
         self.authorize_html = AUTHORIZE_HTML
         self.password_status = 201
         self.code_status = 201
+        self.profile_status = 201
+        self.profile_errors = []
         self.token_status = 200
         self.api_status = 200
         self.fund_status = 200
@@ -144,6 +146,8 @@ class FakeNatixis:
                 return httpx.Response(self.code_status, json={"errors": [{"code": "invalid_code"}]})
             return httpx.Response(201, json={"id": VERIFICATION_ID})
         if path == "/auth/v1/profiles/me/verifications":
+            if self.profile_status != 201:
+                return httpx.Response(self.profile_status, json={"errors": self.profile_errors})
             return httpx.Response(201, json={"saml": {
                 "encodedValue": SAML_VALUE,
                 "serviceProviderUrl": self.service_provider_url,
@@ -418,6 +422,22 @@ class ErrorCodeTest(SidecarTestCase):
     def test_no_supported_second_factor(self):
         self.fake.strong_modes["items"] = []
         self.assertDetail(self.initiate(), 501, "MFA_TYPE_UNSUPPORTED")
+
+    def test_passkey_required_after_the_code(self):
+        process_id = self.initiate().json()["processId"]
+        self.fake.profile_status = 403
+        self.fake.profile_errors = [{"code": "WEBAUTHN_REGISTRATION_REQUIRED"}]
+        self.assertDetail(self.post("/complete", {"processId": process_id, "code": CODE}), 501,
+                          "MFA_TYPE_UNSUPPORTED")
+
+    def test_other_profile_check_refusal_is_a_format_change(self):
+        for errors in ([], [{"code": "SOMETHING_ELSE"}]):
+            with self.subTest(errors=errors):
+                process_id = self.initiate().json()["processId"]
+                self.fake.profile_status = 403
+                self.fake.profile_errors = errors
+                self.assertDetail(self.post("/complete", {"processId": process_id, "code": CODE}), 502,
+                                  "UPSTREAM_FORMAT_CHANGED")
 
     def test_throttled_login(self):
         self.fake.password_status = 429

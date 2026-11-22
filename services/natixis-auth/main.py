@@ -419,6 +419,9 @@ async def _finish_login(client: httpx.AsyncClient, state: dict[str, Any]) -> dic
     """Profile check → SAML response posted back → authorization code → tokens."""
     response = await client.post(f"{IDP}/auth/v1/profiles/me/verifications", headers=_idp_headers(state))
     _upstream(response, "profile check")
+    if response.status_code == 403 and "WEBAUTHN_REGISTRATION_REQUIRED" in _error_codes(response):
+        # Natixis can require a passkey even after the password and the code: Picsou has none.
+        raise NatixisError(501, "MFA_TYPE_UNSUPPORTED", "profile check requires a passkey")
     if response.status_code not in (200, 201):
         raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"profile check answered {response.status_code}")
     saml = _json(response, "profile check")["saml"]
