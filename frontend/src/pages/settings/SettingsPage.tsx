@@ -518,7 +518,7 @@ export function SettingsPage() {
 
       {effectiveTab === 'security' && (
         <div className="space-y-6">
-          {desktopMode && <DesktopLockCard />}
+          {desktopMode && isAdmin && <DesktopLockCard />}
           {(!desktopMode || desktopLockEnabled || isAdvancedMode) && (
             <SectionCard
               title={t('settings.security')}

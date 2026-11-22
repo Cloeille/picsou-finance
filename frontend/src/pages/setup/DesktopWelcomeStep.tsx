@@ -36,7 +36,7 @@ export function DesktopWelcomeStep() {
 
   return (
     <div className="mx-auto w-full max-w-md">
-      <Card className="rounded-xl border border-border/60 py-7 ring-0 sm:py-8">
+      <Card className="rounded-xl border-0 py-7 ring-1 ring-foreground/10 sm:py-8">
         <CardHeader className="items-center gap-2 px-6 text-center sm:px-8">
           <CardTitle className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
             {t('desktop.onboarding.title')}

@@ -85,9 +85,9 @@ export function DesktopLockCard() {
   }
 
   return (
-    <Card className="rounded-xl bg-card">
+    <Card className="rounded-xl border-0 bg-card ring-1 ring-foreground/10">
       <CardHeader>
-        <CardTitle className="text-base font-semibold">
+        <CardTitle className="text-sm font-bold">
           {t('desktop.lock.title')}
         </CardTitle>
         <CardDescription className="text-sm">

@@ -67,6 +67,7 @@ function notifyRefreshSubscribers() {
 const REFRESHABLE_AUTH_PATH = /^\/auth\/(sign-in-methods|password|identities\/\d+|reauth)$/
 
 function refreshesOn401(url: string | undefined): boolean {
+  if (url?.includes('/desktop/lock')) return false
   if (!url?.includes('/auth/')) return true
   return REFRESHABLE_AUTH_PATH.test(url)
 }
