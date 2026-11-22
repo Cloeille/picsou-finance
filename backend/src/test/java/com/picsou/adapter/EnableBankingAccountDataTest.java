@@ -3,6 +3,7 @@ package com.picsou.adapter;
 import com.picsou.config.EnableBankingConfigProvider;
 import com.picsou.exception.SyncException;
 import com.picsou.port.BankConnectorPort.AccountData;
+import com.picsou.service.EnableBankingCallLogger;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,6 +38,7 @@ class EnableBankingAccountDataTest {
     private final Map<String, Integer> responseStatuses = new ConcurrentHashMap<>();
     private final List<String> requestedPaths = new CopyOnWriteArrayList<>();
     private HttpServer server;
+    private final EnableBankingCallLogger callLogger = new EnableBankingCallLogger();
     private EnableBankingBankConnector connector;
 
     @BeforeEach
@@ -54,7 +56,7 @@ class EnableBankingAccountDataTest {
             }
         });
         server.start();
-        connector = spy(new EnableBankingBankConnector(configProvider,
+        connector = spy(new EnableBankingBankConnector(configProvider, callLogger,
             "http://127.0.0.1:" + server.getAddress().getPort()));
         doReturn("synthetic-jwt").when(connector).buildJwt();
         responses.put("/sessions/session", """
@@ -65,6 +67,38 @@ class EnableBankingAccountDataTest {
     @AfterEach
     void stopProvider() {
         if (server != null) server.stop(0);
+    }
+
+    @Test
+    void everyProviderCall_landsInTheAdminCallLog() {
+        // The admin call log once lost its writer in a merge and stayed empty for months
+        // while the panel kept reading it: this pins the connector's wiring, not the logger.
+        String balances = """
+            {"balances": [{"name": "Operations wallet", "balance_type": "CLBD",
+              "balance_amount": {"currency": "EUR", "amount": "12.00"}}]}
+            """;
+        responses.put("/accounts/uid-operations/balances", balances);
+        responses.put("/accounts/uid-operations/details", """
+            {"account_id": {"iban": "FR00SYNTHETICOPERATIONS"}, "name": "Synthetic company",
+             "details": "Operations wallet", "product": null, "cash_account_type": "CACC",
+             "uid": "uid-operations", "identification_hash": "synthetic-operations"}
+            """);
+
+        connector.fetchBalances("session");
+
+        String base = "http://127.0.0.1:" + server.getAddress().getPort();
+        assertThat(callLogger.entries())
+            .extracting(EnableBankingCallLogger.CallEntry::method, EnableBankingCallLogger.CallEntry::url)
+            .contains(
+                tuple("GET", base + "/sessions/session"),
+                tuple("GET", base + "/accounts/uid-operations/balances"));
+        assertThat(callLogger.entries())
+            .filteredOn(entry -> entry.url().endsWith("/balances"))
+            .singleElement()
+            .satisfies(entry -> {
+                assertThat(entry.responseStatus()).isEqualTo(200);
+                assertThat(entry.responseBody()).isEqualTo(balances);
+            });
     }
 
     @Test

@@ -321,6 +321,7 @@ Every public method of `EnableBankingBankConnector` maps **all** provider failur
 ### Key files
 
 - `backend/src/main/java/com/picsou/adapter/EnableBankingBankConnector.java` -- PSD2 adapter (RSA JWT, async account linking)
+- `backend/src/main/java/com/picsou/service/EnableBankingCallLogger.java` -- In-memory log of raw Enable Banking responses, read by the admin page (see [admin-page.md](./admin-page.md#enable-banking-call-log))
 - `backend/src/main/java/com/picsou/adapter/PowensBankConnector.java` -- Scraping adapter (experimental, OAuth webview; `@Primary` removed in 1.0.0)
 - `backend/src/main/java/com/picsou/port/BankConnectorPort.java` -- Port interface with `AccountData`, `InstitutionData` records, `DEFAULT_COUNTRY`, and the shared `parseInstitutionId()` static parser
 - `backend/src/main/java/com/picsou/service/SyncService.java` -- Orchestration: initiate, complete, retry, resync, type detection

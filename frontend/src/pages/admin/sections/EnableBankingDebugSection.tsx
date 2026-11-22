@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { DownloadSimple, Trash } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
@@ -19,6 +19,7 @@ import {
 import { useEbCallLog, useClearEbCallLog } from '@/features/admin/hooks'
 import { localeFromLanguage } from '@/lib/utils'
 import type { EbCallEntry } from '@/features/admin/api'
+import { buildEbCallLogExport, tryPretty } from './ebCallLogExport'
 
 function StatusBadge({ status }: { status: number }) {
   const ok = status >= 200 && status < 300
@@ -36,14 +37,7 @@ function StatusBadge({ status }: { status: number }) {
 }
 
 function exportTxt(entries: EbCallEntry[]) {
-  const lines = entries.map((e, i) => [
-    `── [${i + 1}] ${new Date(e.timestamp).toISOString()} ──────────────────────────────`,
-    `${e.method} ${e.url}`,
-    `HTTP ${e.responseStatus}`,
-    e.requestBody ? `\n>>> REQUEST BODY\n${tryPretty(e.requestBody)}` : '',
-    `\n<<< RESPONSE BODY\n${tryPretty(e.responseBody)}`,
-  ].filter(Boolean).join('\n'))
-  const blob = new Blob([lines.join('\n\n')], { type: 'text/plain' })
+  const blob = new Blob([buildEbCallLogExport(entries)], { type: 'text/plain' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -52,10 +46,6 @@ function exportTxt(entries: EbCallEntry[]) {
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
-}
-
-function tryPretty(json: string) {
-  try { return JSON.stringify(JSON.parse(json), null, 2) } catch { return json }
 }
 
 function EbCallLogDialog() {
@@ -94,6 +84,11 @@ function EbCallLogDialog() {
         </div>
       </div>
 
+      <p role="note" className="text-xs text-foreground">
+        Ces appels sont bruts : IBAN, titulaires, soldes, transactions et identifiants de session dans
+        les URL et les réponses. Relisez et retirez-les avant de partager l’export publiquement.
+      </p>
+
       {isLoading && (
         <p className="py-8 text-center text-sm text-muted-foreground animate-pulse">Chargement…</p>
       )}
@@ -120,9 +115,8 @@ function EbCallLogDialog() {
               </thead>
               <tbody>
                 {data.map((entry, idx) => (
-                  <>
+                  <Fragment key={`${entry.timestamp}-${idx}`}>
                     <tr
-                      key={idx}
                       className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
                       onClick={() => setExpandedIdx(expandedIdx === idx ? null : idx)}
                     >
@@ -140,7 +134,7 @@ function EbCallLogDialog() {
                       </td>
                     </tr>
                     {expandedIdx === idx && (
-                      <tr key={`${idx}-detail`} className="border-b last:border-0 bg-muted/10">
+                      <tr className="border-b last:border-0 bg-muted/10">
                         <td colSpan={4} className="px-2 pb-3 pt-1 space-y-3">
                           <p className="text-xs break-all text-muted-foreground">
                             {entry.method} {entry.url}
@@ -162,7 +156,7 @@ function EbCallLogDialog() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))}
               </tbody>
             </table>

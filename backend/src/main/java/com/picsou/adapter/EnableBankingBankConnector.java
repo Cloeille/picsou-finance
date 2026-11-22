@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.picsou.config.EnableBankingConfigProvider;
 import com.picsou.exception.SyncException;
 import com.picsou.port.BankConnectorPort;
+import com.picsou.service.EnableBankingCallLogger;
 import com.picsou.util.LogSanitizer;
 import io.jsonwebtoken.Jwts;
 import org.slf4j.Logger;
@@ -65,6 +66,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
 
     public EnableBankingBankConnector(
         EnableBankingConfigProvider configProvider,
+        EnableBankingCallLogger callLogger,
         @Value("${app.enablebanking.base-url:https://api.enablebanking.com}") String baseUrl
     ) {
         this.configProvider = configProvider;
@@ -78,6 +80,8 @@ public class EnableBankingBankConnector implements BankConnectorPort {
             .exchangeStrategies(ExchangeStrategies.builder()
                 .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(8 * 1024 * 1024))
                 .build())
+            // Feeds the admin panel's Enable Banking call log (raw responses for debugging).
+            .filter(callLogger.filter())
             .build();
     }
 

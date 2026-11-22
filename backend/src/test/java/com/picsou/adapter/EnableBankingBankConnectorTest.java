@@ -3,6 +3,7 @@ package com.picsou.adapter;
 import com.picsou.config.EnableBankingConfigProvider;
 import com.picsou.exception.SyncException;
 import com.picsou.port.BankConnectorPort;
+import com.picsou.service.EnableBankingCallLogger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -31,7 +32,7 @@ class EnableBankingBankConnectorTest {
     @Mock EnableBankingConfigProvider configProvider;
 
     private EnableBankingBankConnector connector() {
-        return new EnableBankingBankConnector(configProvider, "https://api.enablebanking.test");
+        return new EnableBankingBankConnector(configProvider, new EnableBankingCallLogger(), "https://api.enablebanking.test");
     }
 
     private EnableBankingBankConnector balanceConnector() {
