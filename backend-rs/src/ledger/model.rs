@@ -75,6 +75,8 @@ macro_rules! string_enum {
                 f.write_str(self.as_str())
             }
         }
+
+        $crate::db::impl_db_string_enum!($name);
     };
 }
 
@@ -269,7 +271,7 @@ string_enum!(ValuationConfidence {
 pub const CORUM_LIFE_EXTERNAL_ID_PREFIX: &str = "corum_life_";
 
 /// An account row (soft-deleted rows are never loaded, as Account's @SQLRestriction).
-#[derive(Debug, Clone, PartialEq, FromRow)]
+#[derive(Debug, Clone, PartialEq, FromRow, crate::db::DbFromRow)]
 pub struct Account {
     pub id: i64,
     pub member_id: i64,
@@ -327,7 +329,7 @@ pub(crate) const ACCOUNT_COLUMNS: &str = "a.id, a.member_id, a.name, a.type::tex
     a.provider_paid_in_eur, a.scheduled_payment_eur, a.scheduled_payment_cadence, a.deleted_at, \
     a.parent_account_id, a.hidden, a.created_at, a.updated_at";
 
-#[derive(Debug, Clone, PartialEq, FromRow)]
+#[derive(Debug, Clone, PartialEq, FromRow, crate::db::DbFromRow)]
 pub struct AccountHolding {
     pub id: i64,
     pub account_id: i64,
@@ -385,7 +387,7 @@ impl From<&AccountHolding> for HoldingDraft {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, FromRow)]
+#[derive(Debug, Clone, PartialEq, FromRow, crate::db::DbFromRow)]
 pub struct Transaction {
     pub id: i64,
     pub account_id: i64,
@@ -487,7 +489,7 @@ impl NewTransaction {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, FromRow)]
+#[derive(Debug, Clone, PartialEq, FromRow, crate::db::DbFromRow)]
 pub struct BalanceSnapshot {
     pub id: i64,
     pub account_id: i64,
@@ -504,7 +506,7 @@ pub struct BalanceSnapshot {
 pub(crate) const SNAPSHOT_COLUMNS: &str = "s.id, s.account_id, s.date, s.balance, s.invested_amount, \
     s.created_at, s.source, s.native_balance, s.statement_entered_at";
 
-#[derive(Debug, Clone, PartialEq, FromRow)]
+#[derive(Debug, Clone, PartialEq, FromRow, crate::db::DbFromRow)]
 pub struct AccountOwnership {
     pub id: i64,
     pub account_id: i64,
@@ -513,7 +515,7 @@ pub struct AccountOwnership {
     pub share_percent: Decimal,
 }
 
-#[derive(Debug, Clone, PartialEq, FromRow)]
+#[derive(Debug, Clone, PartialEq, FromRow, crate::db::DbFromRow)]
 pub struct AccountDisplayPref {
     pub id: i64,
     pub account_id: i64,
@@ -522,7 +524,7 @@ pub struct AccountDisplayPref {
     pub list_collapsed: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, FromRow)]
+#[derive(Debug, Clone, PartialEq, FromRow, crate::db::DbFromRow)]
 pub struct FamilyMember {
     pub id: i64,
     pub display_name: String,
@@ -532,7 +534,7 @@ pub struct FamilyMember {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, PartialEq, FromRow)]
+#[derive(Debug, Clone, PartialEq, FromRow, crate::db::DbFromRow)]
 pub struct Debt {
     pub id: i64,
     pub member_id: i64,
@@ -548,7 +550,7 @@ pub struct Debt {
     pub file_fees: Option<Decimal>,
 }
 
-#[derive(Debug, Clone, PartialEq, FromRow)]
+#[derive(Debug, Clone, PartialEq, FromRow, crate::db::DbFromRow)]
 pub struct PeerLoanTerms {
     pub id: i64,
     pub account_id: i64,
@@ -567,7 +569,7 @@ pub struct PeerLoanTerms {
     pub closed_at: Option<NaiveDate>,
 }
 
-#[derive(Debug, Clone, PartialEq, FromRow)]
+#[derive(Debug, Clone, PartialEq, FromRow, crate::db::DbFromRow)]
 pub struct PeerLoanRepayment {
     pub id: i64,
     pub account_id: i64,
@@ -579,7 +581,7 @@ pub struct PeerLoanRepayment {
     pub cash_leg_owned: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, FromRow)]
+#[derive(Debug, Clone, PartialEq, FromRow, crate::db::DbFromRow)]
 pub struct Category {
     pub id: i64,
     pub member_id: i64,
@@ -597,7 +599,7 @@ pub struct Category {
 pub(crate) const CATEGORY_COLUMNS: &str = "c.id, c.member_id, c.parent_id, c.name, c.slug, c.kind::text AS kind, \
     c.color, c.icon, c.is_default, c.archived, c.sort_order";
 
-#[derive(Debug, Clone, PartialEq, FromRow)]
+#[derive(Debug, Clone, PartialEq, FromRow, crate::db::DbFromRow)]
 pub struct CategorizationRule {
     pub id: i64,
     pub member_id: i64,
@@ -616,7 +618,7 @@ string_enum!(AiCategorizationMode {
 });
 
 /// A member's budget settings; absent until the member saves them.
-#[derive(Debug, Clone, PartialEq, FromRow)]
+#[derive(Debug, Clone, PartialEq, FromRow, crate::db::DbFromRow)]
 pub struct BudgetSettings {
     pub id: i64,
     pub member_id: i64,
@@ -629,7 +631,7 @@ pub struct BudgetSettings {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, PartialEq, FromRow)]
+#[derive(Debug, Clone, PartialEq, FromRow, crate::db::DbFromRow)]
 pub struct MerchantBrand {
     pub id: i64,
     pub slug: String,
@@ -640,7 +642,7 @@ pub struct MerchantBrand {
     pub logo_domain: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, FromRow)]
+#[derive(Debug, Clone, PartialEq, FromRow, crate::db::DbFromRow)]
 pub struct MerchantAlias {
     pub id: i64,
     pub brand_id: i64,
@@ -648,7 +650,7 @@ pub struct MerchantAlias {
     pub match_type: AliasMatchType,
 }
 
-#[derive(Debug, Clone, PartialEq, FromRow)]
+#[derive(Debug, Clone, PartialEq, FromRow, crate::db::DbFromRow)]
 pub struct PriceSnapshot {
     pub id: i64,
     pub ticker: String,

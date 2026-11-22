@@ -26,7 +26,9 @@ pub fn register(routes: &mut Routes) {
         .put("/api/family/sharing", update_settings);
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, crate::db::DbEnum,
+)]
 #[sqlx(type_name = "sharing_level")]
 #[serde(rename_all = "UPPERCASE")]
 #[sqlx(rename_all = "UPPERCASE")]

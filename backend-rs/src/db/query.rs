@@ -4,11 +4,12 @@
 use std::marker::PhantomData;
 
 use futures::future::BoxFuture;
+use sqlx::pool::PoolConnection;
 use sqlx::{PgConnection, PgPool, Postgres, Transaction};
 
 use super::args::{DbArgs, DbBind};
 use super::row::{DbDecode, DbFromRow, DbRow};
-use super::{Db, DbConn, DbTx};
+use super::{Db, DbConn, DbHandle, DbTx};
 
 /// Result metadata returned by [`DbQuery::execute`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -428,6 +429,130 @@ impl<'e> DbExec<'e> for &'e mut DbConn {
             DbConn::Postgres(conn) => (&mut **conn).execute_raw(sql, args),
             DbConn::Sqlite(conn) => Box::pin(async move {
                 let n = conn.execute(sql, args.into_sqlite()).await?;
+                Ok(DbQueryResult::new(n))
+            }),
+        }
+    }
+}
+
+impl<'e> DbExec<'e> for &'e mut PoolConnection<Postgres> {
+    fn is_sqlite(&self) -> bool {
+        false
+    }
+
+    fn fetch_all_raw<'f>(
+        self,
+        sql: &'f str,
+        args: DbArgs,
+    ) -> BoxFuture<'f, Result<Vec<DbRow>, sqlx::Error>>
+    where
+        Self: 'f,
+    {
+        (&mut **self).fetch_all_raw(sql, args)
+    }
+
+    fn fetch_optional_raw<'f>(
+        self,
+        sql: &'f str,
+        args: DbArgs,
+    ) -> BoxFuture<'f, Result<Option<DbRow>, sqlx::Error>>
+    where
+        Self: 'f,
+    {
+        (&mut **self).fetch_optional_raw(sql, args)
+    }
+
+    fn fetch_one_raw<'f>(
+        self,
+        sql: &'f str,
+        args: DbArgs,
+    ) -> BoxFuture<'f, Result<DbRow, sqlx::Error>>
+    where
+        Self: 'f,
+    {
+        (&mut **self).fetch_one_raw(sql, args)
+    }
+
+    fn execute_raw<'f>(
+        self,
+        sql: &'f str,
+        args: DbArgs,
+    ) -> BoxFuture<'f, Result<DbQueryResult, sqlx::Error>>
+    where
+        Self: 'f,
+    {
+        (&mut **self).execute_raw(sql, args)
+    }
+}
+
+impl<'e, 'h> DbExec<'e> for &'e mut DbHandle<'h> {
+    fn is_sqlite(&self) -> bool {
+        matches!(self, DbHandle::Sqlite(_))
+    }
+
+    fn fetch_all_raw<'f>(
+        self,
+        sql: &'f str,
+        args: DbArgs,
+    ) -> BoxFuture<'f, Result<Vec<DbRow>, sqlx::Error>>
+    where
+        Self: 'f,
+    {
+        match self {
+            DbHandle::Postgres(conn) => (&mut **conn).fetch_all_raw(sql, args),
+            DbHandle::Sqlite(handle) => Box::pin(async move {
+                let rows = handle.fetch_all(sql, args.into_sqlite()).await?;
+                Ok(rows.into_iter().map(DbRow::Sqlite).collect())
+            }),
+        }
+    }
+
+    fn fetch_optional_raw<'f>(
+        self,
+        sql: &'f str,
+        args: DbArgs,
+    ) -> BoxFuture<'f, Result<Option<DbRow>, sqlx::Error>>
+    where
+        Self: 'f,
+    {
+        match self {
+            DbHandle::Postgres(conn) => (&mut **conn).fetch_optional_raw(sql, args),
+            DbHandle::Sqlite(handle) => Box::pin(async move {
+                let row = handle.fetch_optional(sql, args.into_sqlite()).await?;
+                Ok(row.map(DbRow::Sqlite))
+            }),
+        }
+    }
+
+    fn fetch_one_raw<'f>(
+        self,
+        sql: &'f str,
+        args: DbArgs,
+    ) -> BoxFuture<'f, Result<DbRow, sqlx::Error>>
+    where
+        Self: 'f,
+    {
+        match self {
+            DbHandle::Postgres(conn) => (&mut **conn).fetch_one_raw(sql, args),
+            DbHandle::Sqlite(handle) => Box::pin(async move {
+                let row = handle.fetch_one(sql, args.into_sqlite()).await?;
+                Ok(DbRow::Sqlite(row))
+            }),
+        }
+    }
+
+    fn execute_raw<'f>(
+        self,
+        sql: &'f str,
+        args: DbArgs,
+    ) -> BoxFuture<'f, Result<DbQueryResult, sqlx::Error>>
+    where
+        Self: 'f,
+    {
+        match self {
+            DbHandle::Postgres(conn) => (&mut **conn).execute_raw(sql, args),
+            DbHandle::Sqlite(handle) => Box::pin(async move {
+                let n = handle.execute(sql, args.into_sqlite()).await?;
                 Ok(DbQueryResult::new(n))
             }),
         }

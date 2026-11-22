@@ -486,6 +486,115 @@ impl SqliteConn {
             finished: false,
         })
     }
+
+    pub(crate) fn handle(&mut self) -> SqliteHandle<'_> {
+        SqliteHandle {
+            conn: &self.conn,
+            tx_depth: None,
+        }
+    }
+}
+
+/// Borrowed mutable handle to either an acquired [`SqliteConn`] or an active [`SqliteTx`].
+pub struct SqliteHandle<'a> {
+    conn: &'a Arc<Mutex<Connection>>,
+    tx_depth: Option<usize>,
+}
+
+impl<'a> SqliteHandle<'a> {
+    pub(crate) fn reborrow(&mut self) -> SqliteHandle<'_> {
+        SqliteHandle {
+            conn: self.conn,
+            tx_depth: self.tx_depth,
+        }
+    }
+
+    pub(crate) async fn fetch_all(
+        &mut self,
+        sql: &str,
+        params: Vec<SqliteValue>,
+    ) -> Result<Vec<SqliteRow>, sqlx::Error> {
+        let translated = dialect::translate_cached(sql);
+        run_on_writer(Arc::clone(self.conn), move |conn| {
+            query_rows(conn, &translated, &params)
+        })
+        .await
+    }
+
+    pub(crate) async fn fetch_optional(
+        &mut self,
+        sql: &str,
+        params: Vec<SqliteValue>,
+    ) -> Result<Option<SqliteRow>, sqlx::Error> {
+        let mut rows = self.fetch_all(sql, params).await?;
+        if rows.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(rows.swap_remove(0)))
+        }
+    }
+
+    pub(crate) async fn fetch_one(
+        &mut self,
+        sql: &str,
+        params: Vec<SqliteValue>,
+    ) -> Result<SqliteRow, sqlx::Error> {
+        self.fetch_optional(sql, params)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound)
+    }
+
+    pub(crate) async fn execute(
+        &mut self,
+        sql: &str,
+        params: Vec<SqliteValue>,
+    ) -> Result<u64, sqlx::Error> {
+        let translated = dialect::translate_cached(sql);
+        run_on_writer(Arc::clone(self.conn), move |conn| {
+            execute_stmt(conn, &translated, &params)
+        })
+        .await
+    }
+
+    /// Starts a transaction (if not yet inside one) or a nested `SAVEPOINT` (if already in one).
+    pub async fn begin(&mut self) -> Result<SqliteTx<'_>, sqlx::Error> {
+        let conn = Arc::clone(self.conn);
+        match self.tx_depth {
+            None => {
+                run_on_writer(Arc::clone(&conn), |c| {
+                    c.execute_batch("BEGIN IMMEDIATE")
+                        .map_err(error::rusqlite_to_sqlx)
+                })
+                .await?;
+                Ok(SqliteTx {
+                    conn,
+                    depth: 0,
+                    kind: Some(SqliteTxKind::BorrowedRoot {
+                        _parent: PhantomData,
+                    }),
+                    finished: false,
+                })
+            }
+            Some(depth) => {
+                let next_depth = depth + 1;
+                let name = format!("picsou_sp_{next_depth}");
+                let sp_sql = format!("SAVEPOINT {name}");
+                run_on_writer(Arc::clone(&conn), move |c| {
+                    c.execute_batch(&sp_sql).map_err(error::rusqlite_to_sqlx)
+                })
+                .await?;
+                Ok(SqliteTx {
+                    conn,
+                    depth: next_depth,
+                    kind: Some(SqliteTxKind::Savepoint {
+                        name,
+                        _parent: PhantomData,
+                    }),
+                    finished: false,
+                })
+            }
+        }
+    }
 }
 
 enum SqliteTxKind<'a> {
@@ -513,6 +622,13 @@ pub struct SqliteTx<'a> {
 }
 
 impl<'a> SqliteTx<'a> {
+    pub(crate) fn handle(&mut self) -> SqliteHandle<'_> {
+        SqliteHandle {
+            conn: &self.conn,
+            tx_depth: Some(self.depth),
+        }
+    }
+
     /// Starts a nested `SAVEPOINT` inside this transaction.
     pub async fn begin(&mut self) -> Result<SqliteTx<'_>, sqlx::Error> {
         let next_depth = self.depth + 1;

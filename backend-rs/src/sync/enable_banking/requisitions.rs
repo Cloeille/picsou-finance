@@ -6,7 +6,7 @@ use sqlx::{FromRow, PgExecutor};
 
 use crate::error::AppError;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, sqlx::Type, crate::db::DbEnum)]
 #[sqlx(type_name = "requisition_status", rename_all = "SCREAMING_SNAKE_CASE")]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RequisitionStatus {

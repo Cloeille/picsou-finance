@@ -43,7 +43,9 @@ pub fn register(routes: &mut Routes) {
         .post("/api/recurring/{id}/undo", undo);
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, crate::db::DbEnum,
+)]
 #[sqlx(type_name = "recurring_status", rename_all = "SCREAMING_SNAKE_CASE")]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RecurringStatus {

@@ -17,11 +17,11 @@ pub use self::row::{DbDecode, DbFromRow, DbIndex, DbRow};
 
 use sqlx::pool::PoolConnection;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{PgConnection, PgPool, Postgres, Transaction};
 
 use crate::config::{Config, DatabaseConfig, Datasource, SqliteTarget};
 use crate::db::sqlite::error::sqlite_err_to_sqlx;
-use crate::db::sqlite::{SqliteConn, SqliteDb, SqliteTx};
+use crate::db::sqlite::{SqliteConn, SqliteDb, SqliteHandle, SqliteTx};
 
 /// Dual-engine database handle supporting both PostgreSQL and embedded SQLite transparently.
 #[derive(Clone, Debug)]
@@ -165,6 +165,88 @@ impl DbConn {
             }
             Self::Sqlite(conn) => Ok(DbTx::Sqlite(conn.begin().await?)),
         }
+    }
+}
+
+/// Borrowed mutable handle to any active dual-engine connection or transaction (`&mut DbConn`,
+/// `&mut DbTx`, `&mut PgConnection`, `&mut sqlx::Transaction<'_, Postgres>`).
+///
+/// Drop-in dual-engine replacement for `&mut PgConnection` in multi-statement repository helpers
+/// and `#[async_trait]` seams: pass `&mut *conn` to nested helpers or `db::query*`, and call
+/// `conn.begin().await?` for nested transactions / savepoints.
+pub enum DbHandle<'a> {
+    Postgres(&'a mut PgConnection),
+    Sqlite(SqliteHandle<'a>),
+}
+
+impl<'a> DbHandle<'a> {
+    /// Returns `true` when backed by embedded SQLite.
+    pub fn is_sqlite(&self) -> bool {
+        matches!(self, Self::Sqlite(_))
+    }
+
+    /// Starts a transaction (if not yet inside one) or a nested `SAVEPOINT` (if already inside
+    /// a transaction) on both PostgreSQL and SQLite.
+    pub async fn begin(&mut self) -> Result<DbTx<'_>, sqlx::Error> {
+        match self {
+            Self::Postgres(conn) => {
+                use sqlx::Connection;
+                Ok(DbTx::Postgres(conn.begin().await?))
+            }
+            Self::Sqlite(handle) => Ok(DbTx::Sqlite(handle.begin().await?)),
+        }
+    }
+}
+
+/// Converts a mutable connection or transaction into a borrowed [`DbHandle`] uniformly across
+/// both PostgreSQL (`PgConnection`, `PoolConnection<Postgres>`, `Transaction<'_, Postgres>`) and
+/// dual-engine (`DbConn`, `DbTx`, `DbHandle`) handles.
+pub trait AsDbHandle {
+    fn as_handle(&mut self) -> DbHandle<'_>;
+}
+
+impl AsDbHandle for DbConn {
+    fn as_handle(&mut self) -> DbHandle<'_> {
+        match self {
+            Self::Postgres(conn) => DbHandle::Postgres(&mut *conn),
+            Self::Sqlite(conn) => DbHandle::Sqlite(conn.handle()),
+        }
+    }
+}
+
+impl AsDbHandle for DbTx<'_> {
+    fn as_handle(&mut self) -> DbHandle<'_> {
+        match self {
+            Self::Postgres(tx) => DbHandle::Postgres(&mut *tx),
+            Self::Sqlite(tx) => DbHandle::Sqlite(tx.handle()),
+        }
+    }
+}
+
+impl AsDbHandle for DbHandle<'_> {
+    fn as_handle(&mut self) -> DbHandle<'_> {
+        match self {
+            Self::Postgres(conn) => DbHandle::Postgres(conn),
+            Self::Sqlite(handle) => DbHandle::Sqlite(SqliteHandle::reborrow(handle)),
+        }
+    }
+}
+
+impl AsDbHandle for PgConnection {
+    fn as_handle(&mut self) -> DbHandle<'_> {
+        DbHandle::Postgres(self)
+    }
+}
+
+impl AsDbHandle for PoolConnection<Postgres> {
+    fn as_handle(&mut self) -> DbHandle<'_> {
+        DbHandle::Postgres(&mut *self)
+    }
+}
+
+impl AsDbHandle for Transaction<'_, Postgres> {
+    fn as_handle(&mut self) -> DbHandle<'_> {
+        DbHandle::Postgres(&mut *self)
     }
 }
 
