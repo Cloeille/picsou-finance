@@ -91,6 +91,11 @@ backend stores it encrypted, queues a sync, exactly as after /auth/complete
   revoke the session server-side, so the saver closes the tab instead. If Natixis rotates refresh tokens,
   the browser and Picsou would invalidate each other; it does not today. The session ends like any
   other (`SESSION_EXPIRED`, then reconnect: sign in with the passkey again and paste a new token).
+- **UI.** The card sits under the login form and stays visible while a session is active, so a live
+  session can be replaced by a fresh one. A 422 is only read as "this does not look like a token" when it
+  carries no connector code (a bean-validation refusal); every connector failure is a 422 too, so those
+  show their own message. The panel reports the connection (the Add account modal closes) once the first
+  sync has succeeded, not when it is merely queued, as for a password login.
 - **Verified live (2026-11-22).** A refresh token copied from a browser session signed in with a
   passkey was accepted by the sidecar's refresh grant (a mistyped paste was refused with
   `SESSION_EXPIRED`, as designed), and the first sync read the saver's two plans. Not observed yet:

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { CircleNotch, Fingerprint } from '@phosphor-icons/react'
@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { useImportNatixisBrowserSession } from '@/features/sync/hooks'
+import { useImportNatixisBrowserSession, useProviderStatus } from '@/features/sync/hooks'
 import { extractErrorMessage, getErrorCode, getErrorStatus } from '@/lib/errors'
 
 interface NatixisBrowserSessionProps {
@@ -15,6 +15,14 @@ interface NatixisBrowserSessionProps {
 
 const SITE = 'epargnants.interepargne.natixis.fr'
 const CONSOLE_COMMAND = 'copy(sessionStorage.refresh_token)'
+
+/** Backend codes that have a message of their own in the Natixis panel (`sync.natixis.errors.*`). */
+const UPSTREAM_ERROR_SUFFIXES: Record<string, string> = {
+  UPSTREAM_UNAVAILABLE: 'serverError',
+  UPSTREAM_FORMAT_CHANGED: 'formatChanged',
+  INVALID_DATA: 'invalidData',
+  RATE_LIMITED: 'tooManyAttempts',
+}
 
 /**
  * Passkey sign-in. Natixis now makes a new device register a passkey, which Picsou's connector cannot do:
@@ -26,26 +34,42 @@ export function NatixisBrowserSession({ onConnected }: NatixisBrowserSessionProp
   const [token, setToken] = useState('')
   const [error, setError] = useState<string | null>(null)
   const importSession = useImportNatixisBrowserSession()
+  const status = useProviderStatus('natixis')
+  const syncStatus = status.data?.syncStatus
+  // The import only queues the first sync: the panel is "connected" once that sync has succeeded,
+  // as for a password login, so a failure of that first sync is seen here and not after the modal closed.
+  const notifyConnectedOnSuccess = useRef(false)
+
+  useEffect(() => {
+    if (syncStatus !== 'SUCCESS' || !notifyConnectedOnSuccess.current) return
+    notifyConnectedOnSuccess.current = false
+    onConnected?.()
+  }, [onConnected, syncStatus])
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const refreshToken = token.trim()
     if (!refreshToken) return
     importSession.mutate(refreshToken, {
-      onSuccess: () => {
+      onSuccess: (result) => {
         setToken('')
         setError(null)
         toast.success(t('sync.natixis.browser.adopted'))
-        onConnected?.()
+        if (result.syncStatus === 'SUCCESS') onConnected?.()
+        else notifyConnectedOnSuccess.current = true
       },
       onError: (err: unknown) => setError(messageFor(err)),
     })
   }
 
   function messageFor(err: unknown): string {
+    const code = getErrorCode(err)
     // Natixis refusing the token is the usual case: a stale or mistyped paste.
-    if (getErrorCode(err) === 'SESSION_EXPIRED') return t('sync.natixis.browser.errors.refused')
-    if (getErrorStatus(err) === 422) return t('sync.natixis.browser.errors.malformed')
+    if (code === 'SESSION_EXPIRED') return t('sync.natixis.browser.errors.refused')
+    // Every connector failure is a 422 too: only one that carries no code is the validation of the paste.
+    if (code === undefined && getErrorStatus(err) === 422) return t('sync.natixis.browser.errors.malformed')
+    const suffix = code === undefined ? undefined : UPSTREAM_ERROR_SUFFIXES[code]
+    if (suffix) return t(`sync.natixis.errors.${suffix}`)
     return extractErrorMessage(err, t('sync.natixis.browser.errors.failed'))
   }
 
