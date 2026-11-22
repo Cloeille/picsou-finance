@@ -49,13 +49,15 @@ class NatixisControllerTest {
     private ConcurrentHashMap<String, Bucket> completeBuckets;
     private ConcurrentHashMap<String, Bucket> syncBuckets;
     private MockMvc mockMvc;
+    private static final jakarta.validation.Validator VALIDATOR =
+        jakarta.validation.Validation.buildDefaultValidatorFactory().getValidator();
 
     @BeforeEach
     void setUp() {
         authBuckets = new ConcurrentHashMap<>();
         completeBuckets = new ConcurrentHashMap<>();
         syncBuckets = new ConcurrentHashMap<>();
-        controller = new NatixisController(service, userContext, authBuckets, completeBuckets, syncBuckets);
+        controller = new NatixisController(service, userContext, authBuckets, completeBuckets, syncBuckets, VALIDATOR);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
@@ -125,6 +127,20 @@ class NatixisControllerTest {
                 .content("{}"))
             .andExpect(status().isUnprocessableEntity());
         verify(service, never()).importBrowserSession(anyString(), anyLong());
+    }
+
+    /** A token pasted with an accident in it is still a live credential: it must not be echoed anywhere. */
+    @Test
+    void aRefusedPasteNeverEchoesTheTokenBack() throws Exception {
+        String pasted = "live-looking-token with-a-stray-space";
+
+        String body = mockMvc.perform(post("/api/natixis/auth/browser-session")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"" + pasted + "\"}"))
+            .andExpect(status().isUnprocessableEntity())
+            .andReturn().getResponse().getContentAsString();
+
+        assertThat(body).doesNotContain("live-looking-token").doesNotContain("stray-space");
     }
 
     @Test

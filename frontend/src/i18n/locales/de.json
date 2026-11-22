@@ -1691,7 +1691,7 @@
         "authAttemptExpired": "Der Anmeldeversuch ist abgelaufen. Bitte starte neu.",
         "sessionExpired": "Die Natixis-Interépargne-Sitzung ist abgelaufen. Verbinde dich erneut, um die Synchronisierung fortzusetzen.",
         "portfolioIncomplete": "Natixis Interépargne hat unvollständige Sparpläne geliefert. Deine bestehenden Daten wurden beibehalten.",
-        "formatChanged": "Das Format der Natixis-Interépargne-Website hat sich geändert. Deine bestehenden Daten wurden beibehalten.",
+        "formatChanged": "Das Format der Natixis-Interépargne-Website hat sich geändert. Deine bestehenden Daten wurden beibehalten. Wenn Sie sich mit einem Passkey anmelden, nutzen Sie unten die Karte „Mit einem Passkey anmelden“.",
         "invalidData": "Natixis Interépargne hat ungültige Sparplandaten geliefert. Deine bestehenden Daten wurden beibehalten.",
         "serverError": "Natixis Interépargne ist vorübergehend nicht erreichbar. Bitte versuche es erneut.",
         "invalidCode": "Falscher Bestätigungscode. Prüfe ihn und gib ihn erneut ein."

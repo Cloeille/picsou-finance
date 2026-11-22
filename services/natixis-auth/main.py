@@ -716,7 +716,15 @@ async def import_session(req: ImportSessionRequest) -> dict:
     async with _new_client() as client:
         async with _errors("session import"):
             tokens = await _token(client, {"grant_type": "refresh_token", "refresh_token": req.refreshToken})
-            employee_id = await _employee_id(client, tokens["access_token"])
+            try:
+                employee_id = await _employee_id(client, tokens["access_token"])
+            except Exception:
+                if tokens["refresh_token"] != req.refreshToken:
+                    # The error contract carries no session state, so a rotated token is lost here,
+                    # exactly as in /positions: the saver has to sign in again and paste a new one.
+                    log.warning("Natixis rotated the refresh token and the profile read failed: "
+                                "sign in again on the Natixis site and paste a new token")
+                raise
             # Natixis hands back the same refresh token today; keeping whatever it returns stays
             # right if it ever rotates them, as /positions does.
             return {"sessionState": serialize_session(tokens["refresh_token"], str(uuid.uuid4()), employee_id)}

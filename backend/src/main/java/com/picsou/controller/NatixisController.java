@@ -5,13 +5,18 @@ import com.picsou.service.NatixisSyncService;
 import com.picsou.service.UserContext;
 import io.github.bucket4j.Bucket;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Valid;
+import jakarta.validation.Validator;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.*;
+import org.springframework.validation.BindingResult;
+import org.springframework.validation.beanvalidation.SpringValidatorAdapter;
+import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -30,19 +35,34 @@ public class NatixisController {
     private final Map<String, Bucket> authBuckets;
     private final Map<String, Bucket> completeBuckets;
     private final Map<String, Bucket> syncBuckets;
+    private final SpringValidatorAdapter tokenValidator;
 
     public NatixisController(
         NatixisSyncService service,
         UserContext userContext,
         @Qualifier("natixisAuthBuckets") Map<String, Bucket> authBuckets,
         @Qualifier("natixisCompleteBuckets") Map<String, Bucket> completeBuckets,
-        @Qualifier("syncBuckets") Map<String, Bucket> syncBuckets
+        @Qualifier("syncBuckets") Map<String, Bucket> syncBuckets,
+        Validator validator
     ) {
         this.service = service;
         this.userContext = userContext;
         this.authBuckets = authBuckets;
         this.completeBuckets = completeBuckets;
         this.syncBuckets = syncBuckets;
+        // The pasted token is a credential: a failed validation must not carry it, as the rejected
+        // value, into the exception message that a log or an error report would then record.
+        this.tokenValidator = new SpringValidatorAdapter(validator) {
+            @Override
+            protected Object getRejectedValue(String field, ConstraintViolation<Object> violation, BindingResult binding) {
+                return null;
+            }
+        };
+    }
+
+    @InitBinder("browserSessionRequest")
+    void redactRejectedToken(WebDataBinder binder) {
+        binder.replaceValidators(tokenValidator);
     }
 
     @PostMapping("/auth/initiate")

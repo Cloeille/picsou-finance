@@ -216,7 +216,8 @@ public class NatixisSyncService {
         }
         SyncJob job;
         synchronized (sessionWriteLock) {
-            requireGeneration(memberId, generation);
+            requireGeneration(memberId, generation,
+                "The Natixis connection was removed while the session was being checked");
             job = insertSession(plainState, memberId);
         }
         submit(job);
@@ -261,8 +262,12 @@ public class NatixisSyncService {
 
     /** Must be called under {@link #sessionWriteLock}, in the same block as the write it guards. */
     private void requireGeneration(Long memberId, long generation) {
+        requireGeneration(memberId, generation, "The Natixis connection was removed during the login");
+    }
+
+    private void requireGeneration(Long memberId, long generation, String message) {
         if (authGeneration(memberId) != generation) {
-            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED, "The Natixis connection was removed during the login", null);
+            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED, message, null);
         }
     }
 

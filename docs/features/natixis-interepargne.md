@@ -245,18 +245,22 @@ spending. The rows stay visible on the account page and in exports.
 
 ## Tests
 
-- `services/natixis-auth/test_main.py`: the whole login and positions flow against
-  a fake Natixis, `/session/import` included (success, refused token, malformed paste, log hygiene); every error code, the route deadline after a failed detail
-  included; the API-path guard, which sends nothing outside `_API_PATH`; a log test
-  proving that no credential, code, token, CSRF or SAML value is ever logged.
+- `services/natixis-auth/test_main.py`: the whole login and positions flow against a fake Natixis; every
+  error code, the route deadline after a failed detail included; the API-path guard, which sends nothing
+  outside `_API_PATH`; `/session/import` (success, refused token, malformed paste, rotated token lost);
+  a log test proving that no credential, code, token, CSRF or SAML value is ever logged, a pasted
+  browser token included.
 - `services/natixis-auth/test_parsers.py`: mapping and reconciliation on the
   synthetic fixtures.
 - `services/natixis-auth/test_sidecar_auth.py`: the shared sidecar-key contract.
 - `services/natixis-auth/test_operations.py`: the operations mapping and the
   detail-link guard (traversal, encoded characters, another host or saver).
-- `NatixisSyncServiceTest`, `NatixisSyncRecoveryTest` and `NatixisControllerTest`; the NATIXIS rows of
+- `NatixisSyncServiceTest`, `NatixisSyncRecoveryTest`, `NatixisControllerTest` and `NatixisAdapterTest`, whose
+  browser-session cases cover the stored state, a refused token, the rate limit and a paste that is never
+  echoed back; the NATIXIS rows of
   `SidecarContractTest` and `SidecarBankCodesTest`.
-- `frontend/src/demo/natixis.test.ts` and `NatixisPanel.test.tsx`.
+- `frontend/src/demo/natixis.test.ts` (the demo mode answers the browser-session call too) and
+  `NatixisPanel.test.tsx` (the passkey card).
 
 ## Links
 

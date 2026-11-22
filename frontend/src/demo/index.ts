@@ -1403,6 +1403,7 @@ handlers.set(key('POST', '/natixis/auth/initiate'), () => ({
   processId: 'demo-natixis', mfaRequired: true, mfaType: 'SMS',
 }))
 handlers.set(key('POST', '/natixis/auth/complete'), activateDemoNatixis)
+handlers.set(key('POST', '/natixis/auth/browser-session'), activateDemoNatixis)
 handlers.set(key('POST', '/natixis/sync'), () => (demoNatixisStatus.isActive ? activateDemoNatixis() : demoNatixisStatus))
 handlers.set(key('DELETE', '/natixis/session'), () => {
   demoNatixisStatus = NATIXIS_DISCONNECTED

@@ -2025,7 +2025,7 @@
         "authAttemptExpired": "The authentication attempt expired. Please start over.",
         "sessionExpired": "The Natixis Interépargne session expired. Reconnect to resume syncing.",
         "portfolioIncomplete": "Natixis Interépargne returned incomplete savings plans. Your existing data was kept.",
-        "formatChanged": "The Natixis Interépargne website format changed. Your existing data was kept.",
+        "formatChanged": "The Natixis Interépargne website format changed. Your existing data was kept. If you sign in with a passkey, use the \"Sign in with a passkey\" card below.",
         "invalidData": "Natixis Interépargne returned invalid savings plan data. Your existing data was kept.",
         "serverError": "Natixis Interépargne is temporarily unavailable. Please try again.",
         "invalidCode": "Wrong verification code. Check it and type it again."

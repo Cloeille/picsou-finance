@@ -485,6 +485,18 @@ class ErrorCodeTest(SidecarTestCase):
         self.assertDetail(self.post("/session/import", {"refreshToken": "token-from-the-browser"}),
                           401, "SESSION_EXPIRED")
 
+    def test_a_rotated_token_lost_to_a_failed_profile_read_is_warned_about(self):
+        # The grant burns the pasted token when Natixis rotates; the profile read then fails, and the
+        # error contract carries no state: the log is the only trace that explains the next refusal.
+        self.fake.returned_refresh_token = "rotated-refresh-token"
+        self.fake.api_status = 500
+        with self.assertLogs("natixis-auth", level="WARNING") as logged:
+            response = self.post("/session/import", {"refreshToken": "token-from-the-browser"})
+        self.assertEqual(response.status_code, 502)
+        self.assertTrue(any("rotated the refresh token" in line for line in logged.output))
+        self.assertFalse(any("rotated-refresh-token" in line or "token-from-the-browser" in line
+                             for line in logged.output))
+
     def test_a_pasted_value_that_cannot_be_a_token_never_reaches_natixis(self):
         for pasted in ("", "short", "has a space in it", "line\nbreak-in-it", "x" * 4097, '"quotedé"'):
             with self.subTest(pasted=pasted[:12]):
