@@ -69,18 +69,27 @@ Client Portal, download the **XML** report and upload it from the IBKR panel ("I
 report"), `POST /api/ibkr/import` (multipart field `file`).
 
 ```
-XML file ─► IbkrController#importStatement (rate-limited like /sync, BOM stripped)
-        ─► IbkrSyncService#importStatement ─► IbkrFlexClient#parseOpenPositions   (same parser)
-        ─► applyStatement ─► upsertAccount                                        (same mapping as a sync)
+XML file ─► IbkrController#importStatement (rate-limited like /sync, 2 MB cap, raw bytes)
+        ─► IbkrSyncService#importStatement ─► IbkrFlexClient#parseUploadedStatement  (same parser)
+        ─► requireRecent ─► applyStatement ─► upsertAccount                          (same mapping as a sync)
 ```
 
 - **No connection needed**, and none is created or touched: the stored token, the connection
   status and `IbkrStatusWriter` are not involved. A failed import leaves the previous
   positions untouched (the service is transactional).
 - **Same rules as a sync**: EUR base-currency guard, `LOT`/`CASH`/derivative filtering, VWAP
-  de-dup, soft-deleted accounts not resurrected, one `ibkr_<accountId>` account per statement
-  account. A file with no account at all (not a Flex statement) is refused with a `SyncException`
-  instead of reporting "0 accounts".
+  de-dup, one `ibkr_<accountId>` account per statement account.
+- **A file that imports nothing is an error, not a success.** A file with no account at all (not a Flex
+  statement), or whose accounts the member all deleted (a soft-deleted account is never resurrected, as
+  in a sync), is refused with a `SyncException` (HTTP 422) instead of reporting "0 accounts".
+- **A stale report is refused.** The import replaces the holdings and stamps today's net-worth
+  snapshot, so a statement whose `toDate` is more than 7 days before today (`Clock` injected) is
+  rejected with the date in the message. A "Last Business Day" report opened over a weekend or a
+  holiday stretch passes; a statement with no readable `toDate` is let through, as a sync does.
+- **The file is parsed as bytes.** The XML parser detects the encoding itself (UTF-8 with or without a
+  BOM, UTF-16, a declared ISO-8859-1), instead of a UTF-8 decode that would corrupt the others. A file
+  that does not parse answers "The file is not a valid XML Flex report", and the log keeps only its size and
+  the error type: an uploaded file can hold account ids and positions, which never reach the logs.
 - **An uploaded file never feeds the shared ISIN store.** A sync records each ticker → ISIN pair
   in `security_profile` (`SecurityIdentityService`), which is shared by every member and keeps the
   first ISIN it receives. A hand-edited file could seed it with a wrong pair, so the import path
@@ -91,7 +100,8 @@ XML file ─► IbkrController#importStatement (rate-limited like /sync, BOM str
   write to the same account, so a user can switch to the Web Service later without duplicates.
 - **Period must be a single day** ("Last Business Day"), as for the Web Service: a multi-day
   statement is refused by the parser.
-- The XML is parsed XXE-safe (doctype disabled), and the multipart limit is the global 10 MB.
+- The XML is parsed XXE-safe (any DOCTYPE refused). The endpoint caps a file at 2 MB, far above a real
+  open-positions report, so a loop of large uploads cannot each be copied and DOM-parsed.
 
 ## Technical choices
 
@@ -161,8 +171,10 @@ See the [ADR](../decisions/2026-07-19-ibkr-flex-web-service.md) for the full API
 - `IbkrSyncServiceTest` — mapping: cost-basis → base-currency conversion, LOT filtering,
   "not connected" error, error-status persistence, derivative asset-category filtering,
   zero-net-quantity positions; file import: same mapping with no connection, non-EUR refusal,
-  a file with no account
-- `IbkrControllerTest` — `/import`: XML handed to the service with a BOM stripped, empty file
+  a file with no account, a stale report, a weekend-old report, every account deleted
+- `IbkrFlexClientTest` — the statement date, the encoding of an uploaded file (BOM, UTF-16, ISO-8859-1),
+  a non-XML file reported without logging its content, any DOCTYPE refused
+- `IbkrControllerTest` — `/import`: raw bytes handed to the service, empty and oversized files
   refused, shared per-IP budget
 - `IbkrTab.test.tsx` — the import button posts the multipart file and shows the server message
 - `HoldingDedupTest` — VWAP merge (shared with TR/Bourso), including the sign-aware

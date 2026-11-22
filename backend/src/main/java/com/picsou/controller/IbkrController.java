@@ -18,7 +18,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -32,6 +31,9 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/ibkr")
 public class IbkrController {
+
+    /** Upper bound for an uploaded Flex report. */
+    static final long MAX_IMPORT_BYTES = 2L * 1024 * 1024;
 
     private final IbkrSyncService ibkrService;
     private final UserContext userContext;
@@ -86,13 +88,15 @@ public class IbkrController {
         if (file.isEmpty()) {
             throw new IllegalArgumentException("The uploaded file is empty.");
         }
-        String xml;
+        // A real open-positions report is a few kilobytes: the global 10 MB upload limit would let
+        // a loop of large files each be copied and DOM-parsed on the shared JVM.
+        if (file.getSize() > MAX_IMPORT_BYTES) {
+            throw new IllegalArgumentException("The uploaded file is too large for a Flex report.");
+        }
+        byte[] xml;
         try {
-            xml = new String(file.getBytes(), StandardCharsets.UTF_8);
-            // A byte-order mark in front of the prolog makes the XML parser reject the document.
-            if (xml.startsWith("﻿")) {
-                xml = xml.substring(1);
-            }
+            // Raw bytes, not a String: the XML parser then detects the encoding and any byte-order mark itself.
+            xml = file.getBytes();
         } catch (IOException e) {
             throw new IllegalArgumentException("The uploaded file could not be read.", e);
         }

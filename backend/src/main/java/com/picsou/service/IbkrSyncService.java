@@ -26,6 +26,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.HashMap;
@@ -66,10 +67,18 @@ public class IbkrSyncService {
     private final SecurityIdentityService identityService;
     private final CryptoEncryption encryption;
     private final IbkrStatusWriter statusWriter;
+    private final Clock clock;
 
     /** Column limits of {@code account_holding} (see V11): ticker VARCHAR(30), name VARCHAR(100). */
     private static final int MAX_TICKER_LEN = 30;
     private static final int MAX_NAME_LEN = 100;
+
+    /**
+     * How old an uploaded statement may be. A "Last Business Day" report covers at most the previous
+     * weekday, so a week leaves room for a holiday stretch; older than that is a forgotten download,
+     * whose quantities would replace the current ones.
+     */
+    private static final int MAX_STATEMENT_AGE_DAYS = 7;
 
     /**
      * Asset categories we price and cost-basis correctly (stocks/ETFs, mutual funds,
@@ -216,17 +225,40 @@ public class IbkrSyncService {
      * to what a sync of that statement would have produced. The balance is a one-off snapshot —
      * the user re-imports a fresh file to refresh it (live prices still move with the market).
      */
-    public List<AccountResponse> importStatement(String xml, Long memberId) {
-        List<IbkrAccountData> accounts = ibkrFlexClient.parseOpenPositions(xml);
+    public List<AccountResponse> importStatement(byte[] xml, Long memberId) {
+        List<IbkrAccountData> accounts = ibkrFlexClient.parseUploadedStatement(xml);
         if (accounts.isEmpty()) {
             // An uploaded file that is not a Flex statement parses to nothing; say so rather than
             // answer "0 accounts updated" as if the import had worked.
             throw new SyncException("The file contains no Interactive Brokers account. Check that it is the "
                 + "XML report of a Flex Query that includes the Open Positions section.");
         }
+        requireRecent(accounts);
         List<AccountResponse> responses = applyStatement(accounts, memberId, false);
+        if (responses.isEmpty()) {
+            // Every account in the file is one the member deleted: nothing was imported, and a
+            // silent "0 accounts" would read as a success.
+            throw new SyncException("Every account in this file was deleted from Picsou, so nothing was "
+                + "imported. Add the Interactive Brokers account again to import it.");
+        }
         log.info("IBKR file import complete for member {}: {} account(s) updated", memberId, responses.size());
         return responses;
+    }
+
+    /**
+     * Refuses a statement older than {@link #MAX_STATEMENT_AGE_DAYS}: the import replaces the current
+     * holdings and stamps today's net-worth snapshot, so a forgotten old download must not get through.
+     * A statement without a readable date is let through, as the Web Service sync does.
+     */
+    private void requireRecent(List<IbkrAccountData> accounts) {
+        LocalDate oldest = LocalDate.now(clock).minusDays(MAX_STATEMENT_AGE_DAYS);
+        for (IbkrAccountData data : accounts) {
+            if (data.statementDate() != null && data.statementDate().isBefore(oldest)) {
+                throw new SyncException("This Flex report is dated " + data.statementDate() + ", more than "
+                    + MAX_STATEMENT_AGE_DAYS + " days old. Run the Flex Query again in Client Portal and "
+                    + "download a fresh report.");
+            }
+        }
     }
 
     /**

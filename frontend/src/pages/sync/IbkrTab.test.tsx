@@ -90,7 +90,7 @@ describe('IbkrTab', () => {
 
   it('shows the server message when the imported file is refused', async () => {
     apiGet.mockResolvedValue({ data: { connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null } })
-    apiPost.mockRejectedValue({ response: { status: 502, data: { detail: 'The file contains no Interactive Brokers account.' } } })
+    apiPost.mockRejectedValue({ response: { status: 422, data: { detail: 'The file contains no Interactive Brokers account.' } } })
 
     renderTab()
 

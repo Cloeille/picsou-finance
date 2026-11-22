@@ -150,6 +150,88 @@ class IbkrFlexClientTest {
         assertThatThrownBy(() -> client.parseOpenPositions(internal)).isInstanceOf(SyncException.class);
     }
 
+    /** The statement's {@code toDate} is what tells a fresh report from a forgotten download. */
+    @Test
+    void parse_readsTheStatementDate_andToleratesItsAbsence() {
+        String xml = """
+            <FlexQueryResponse><FlexStatements count="3">
+              <FlexStatement accountId="U1" toDate="20261120"><OpenPositions/></FlexStatement>
+              <FlexStatement accountId="U2"><OpenPositions/></FlexStatement>
+              <FlexStatement accountId="U3" toDate="not-a-date"><OpenPositions/></FlexStatement>
+            </FlexStatements></FlexQueryResponse>
+            """;
+
+        List<IbkrAccountData> accounts = client.parseOpenPositions(xml);
+
+        assertThat(accounts).extracting(IbkrAccountData::statementDate)
+            .containsExactly(java.time.LocalDate.of(2026, 11, 20), null, null);
+    }
+
+    /** The XML parser, not a UTF-8 decode, must work out the encoding of an uploaded file. */
+    @Test
+    void parseUploaded_detectsTheEncodingOfTheFile() {
+        String doc = """
+            <?xml version="1.0" encoding="%s"?>
+            <FlexQueryResponse><FlexStatements count="1"><FlexStatement accountId="U1">
+              <OpenPositions><OpenPosition accountId="U1" symbol="CAC" description="AMUNDI CAC 40 ÉTF"
+                position="3" levelOfDetail="SUMMARY"/></OpenPositions>
+            </FlexStatement></FlexStatements></FlexQueryResponse>
+            """;
+        java.io.ByteArrayOutputStream withBom = new java.io.ByteArrayOutputStream();
+        withBom.writeBytes(new byte[] {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF});
+        withBom.writeBytes(doc.formatted("UTF-8").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        for (byte[] file : List.of(
+            withBom.toByteArray(),
+            doc.formatted("UTF-16").getBytes(java.nio.charset.StandardCharsets.UTF_16),
+            doc.formatted("ISO-8859-1").getBytes(java.nio.charset.StandardCharsets.ISO_8859_1))) {
+            List<IbkrAccountData> accounts = client.parseUploadedStatement(file);
+
+            assertThat(accounts).singleElement().satisfies(account ->
+                assertThat(account.positions()).singleElement().satisfies(position ->
+                    assertThat(position.description()).isEqualTo("AMUNDI CAC 40 ÉTF")));
+        }
+    }
+
+    /**
+     * A wrong file says it is a wrong file (not that Interactive Brokers failed), and nothing of
+     * its content reaches the logs: it may hold account ids, positions or another document.
+     */
+    @Test
+    void parseUploaded_aFileThatIsNotXml_isReportedAsSuch_withoutLoggingItsContent() {
+        ch.qos.logback.classic.Logger logger =
+            (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(IbkrFlexClient.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+            new ch.qos.logback.core.read.ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            byte[] csv = "account,secret-marker-U9999999,quantity\n1,2,3"
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+            assertThatThrownBy(() -> client.parseUploadedStatement(csv))
+                .isInstanceOf(SyncException.class)
+                .hasMessage("The file is not a valid XML Flex report.");
+
+            assertThat(appender.list).isNotEmpty()
+                .allSatisfy(event -> assertThat(event.getFormattedMessage()).doesNotContain("secret-marker"));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    void parseUploaded_rejectsAnyDoctype() {
+        byte[] external = """
+            <?xml version="1.0"?>
+            <!DOCTYPE FlexQueryResponse [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+            <FlexQueryResponse><FlexStatements><FlexStatement accountId="&xxe;"/></FlexStatements></FlexQueryResponse>
+            """.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> client.parseUploadedStatement(external)).isInstanceOf(SyncException.class);
+    }
+
     @Test
     void parse_groupsMultipleAccountsAndReadsShortAndSparsePositions() {
         // Two account ids in one statement; a short (negative) position; and a row

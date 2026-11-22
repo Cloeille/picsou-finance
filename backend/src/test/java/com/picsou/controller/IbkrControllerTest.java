@@ -135,18 +135,30 @@ class IbkrControllerTest {
             .isSameAs(boom);
     }
 
+    /** The bytes go through untouched: the XML parser, not the controller, detects the encoding and any BOM. */
     @Test
-    void importStatement_passesTheXmlToTheService_andStripsAByteOrderMark() {
+    void importStatement_passesTheRawBytesToTheService() {
         when(userContext.currentMemberId()).thenReturn(42L);
         List<AccountResponse> accounts = List.of();
-        when(ibkrService.importStatement("<FlexQueryResponse/>", 42L)).thenReturn(accounts);
-        MockMultipartFile file = new MockMultipartFile(
-            "file", "picsou.xml", "text/xml", "﻿<FlexQueryResponse/>".getBytes(StandardCharsets.UTF_8));
+        byte[] utf16 = "<FlexQueryResponse/>".getBytes(StandardCharsets.UTF_16);
+        when(ibkrService.importStatement(utf16, 42L)).thenReturn(accounts);
+        MockMultipartFile file = new MockMultipartFile("file", "picsou.xml", "text/xml", utf16);
 
         ResponseEntity<?> res = controller.importStatement(file, httpReq);
 
         assertThat(res.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(res.getBody()).isSameAs(accounts);
+    }
+
+    @Test
+    void importStatement_refusesAFileFarLargerThanAReport_beforeTheService() {
+        MockMultipartFile huge = new MockMultipartFile(
+            "file", "huge.xml", "text/xml", new byte[(int) IbkrController.MAX_IMPORT_BYTES + 1]);
+
+        assertThatThrownBy(() -> controller.importStatement(huge, httpReq))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("too large");
+        verifyNoInteractions(ibkrService);
     }
 
     @Test
@@ -162,7 +174,7 @@ class IbkrControllerTest {
     @Test
     void importStatement_returns429_onceThePerIpBudgetIsExhausted() {
         when(userContext.currentMemberId()).thenReturn(42L);
-        when(ibkrService.importStatement("<x/>", 42L)).thenReturn(List.of());
+        when(ibkrService.importStatement("<x/>".getBytes(StandardCharsets.UTF_8), 42L)).thenReturn(List.of());
         MockMultipartFile file = new MockMultipartFile("file", "p.xml", "text/xml", "<x/>".getBytes(StandardCharsets.UTF_8));
 
         for (int i = 0; i < SYNC_BUDGET_PER_MINUTE; i++) {
@@ -170,7 +182,7 @@ class IbkrControllerTest {
         }
 
         assertThat(controller.importStatement(file, httpReq).getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
-        verify(ibkrService, times(SYNC_BUDGET_PER_MINUTE)).importStatement("<x/>", 42L);
+        verify(ibkrService, times(SYNC_BUDGET_PER_MINUTE)).importStatement("<x/>".getBytes(StandardCharsets.UTF_8), 42L);
     }
 
     /** The budget is per client IP: exhausting one IP must not throttle another. */

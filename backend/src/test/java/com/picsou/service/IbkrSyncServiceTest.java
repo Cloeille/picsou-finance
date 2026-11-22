@@ -56,8 +56,19 @@ class IbkrSyncServiceTest {
     @Mock SecurityIdentityService identityService;
     @Mock CryptoEncryption encryption;
     @Mock IbkrStatusWriter statusWriter;
+    @Mock java.time.Clock clock;
 
     @InjectMocks IbkrSyncService service;
+
+    /** A Sunday: the last business day, Friday the 20th, is two days back. */
+    private static final java.time.Instant NOW = java.time.Instant.parse("2026-11-22T10:00:00Z");
+    private static final byte[] FILE = "<xml/>".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+    @org.junit.jupiter.api.BeforeEach
+    void fixedClock() {
+        lenient().when(clock.instant()).thenReturn(NOW);
+        lenient().when(clock.getZone()).thenReturn(java.time.ZoneOffset.UTC);
+    }
 
     @Test
     void deleteConnectionReportsTheConnectionItDeleted() {
@@ -212,7 +223,7 @@ class IbkrSyncServiceTest {
         IbkrPosition summary = new IbkrPosition(
             "U123", "US0378331005", "AAPL", "APPLE INC", "USD", "STK", "SUMMARY",
             bd("10"), bd("200"), bd("150"), bd("0.92"));
-        when(ibkrFlexClient.parseOpenPositions("<xml/>"))
+        when(ibkrFlexClient.parseUploadedStatement(FILE))
             .thenReturn(List.of(new IbkrAccountData("U123", List.of(summary), "EUR")));
         when(isinConverter.resolve("US0378331005")).thenReturn(new TickerResult("AAPL", "Apple"));
         when(accountRepository.findByExternalAccountIdAndMemberId("ibkr_U123", memberId))
@@ -229,7 +240,7 @@ class IbkrSyncServiceTest {
             BigDecimal.ZERO);
         when(accountService.toResponse(any(Account.class))).thenReturn(dummy);
 
-        List<AccountResponse> result = service.importStatement("<xml/>", memberId);
+        List<AccountResponse> result = service.importStatement(FILE, memberId);
 
         assertThat(result).containsExactly(dummy);
         ArgumentCaptor<AccountHolding> holding = ArgumentCaptor.forClass(AccountHolding.class);
@@ -246,12 +257,12 @@ class IbkrSyncServiceTest {
     @Test
     void importStatement_refusesANonEurBaseCurrency_andPersistsNothing() {
         Long memberId = 7L;
-        when(ibkrFlexClient.parseOpenPositions("<xml/>"))
+        when(ibkrFlexClient.parseUploadedStatement(FILE))
             .thenReturn(List.of(new IbkrAccountData("U123", List.of(), "USD")));
         when(accountRepository.findByExternalAccountIdAndMemberId("ibkr_U123", memberId))
             .thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.importStatement("<xml/>", memberId))
+        assertThatThrownBy(() -> service.importStatement(FILE, memberId))
             .isInstanceOf(com.picsou.exception.SyncException.class)
             .hasMessageContaining("base currency is USD");
         verify(accountRepository, never()).save(any(Account.class));
@@ -261,12 +272,54 @@ class IbkrSyncServiceTest {
     /** A file that is not a Flex statement must not read as a successful import of nothing. */
     @Test
     void importStatement_rejectsAFileWithNoAccount() {
-        when(ibkrFlexClient.parseOpenPositions("<other/>")).thenReturn(List.of());
+        when(ibkrFlexClient.parseUploadedStatement(FILE)).thenReturn(List.of());
 
-        assertThatThrownBy(() -> service.importStatement("<other/>", 7L))
+        assertThatThrownBy(() -> service.importStatement(FILE, 7L))
             .isInstanceOf(com.picsou.exception.SyncException.class)
             .hasMessageContaining("no Interactive Brokers account");
         verifyNoInteractions(accountRepository, holdingRepository);
+    }
+
+    /** A forgotten old download would replace today's holdings and stamp today's snapshot. */
+    @Test
+    void importStatement_refusesAStatementOlderThanAWeek() {
+        when(ibkrFlexClient.parseUploadedStatement(FILE)).thenReturn(List.of(
+            new IbkrAccountData("U123", List.of(), "EUR", LocalDate.parse("2026-11-14"))));
+
+        assertThatThrownBy(() -> service.importStatement(FILE, 7L))
+            .isInstanceOf(com.picsou.exception.SyncException.class)
+            .hasMessageContaining("2026-11-14")
+            .hasMessageContaining("fresh report");
+        verifyNoInteractions(accountRepository, holdingRepository);
+    }
+
+    /** A "Last Business Day" report opened on a weekend is two days old: it must go through. */
+    @Test
+    void importStatement_acceptsTheLastBusinessDaysReport() {
+        when(ibkrFlexClient.parseUploadedStatement(FILE)).thenReturn(List.of(
+            new IbkrAccountData("U123", List.of(), "EUR", LocalDate.parse("2026-11-20"))));
+        when(accountRepository.findByExternalAccountIdAndMemberId("ibkr_U123", 7L)).thenReturn(Optional.empty());
+        when(familyMemberRepository.findById(7L))
+            .thenReturn(Optional.of(FamilyMember.builder().id(7L).displayName("Owner").build()));
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
+        AccountResponse dummy = AccountResponse.from(
+            Account.builder().id(1L).name("IBKR U123").type(AccountType.COMPTE_TITRES).build(), BigDecimal.ZERO);
+        when(accountService.toResponse(any(Account.class))).thenReturn(dummy);
+
+        assertThat(service.importStatement(FILE, 7L)).containsExactly(dummy);
+    }
+
+    /** Importing for an account the member deleted must not read as a success. */
+    @Test
+    void importStatement_failsWhenEveryAccountInTheFileWasDeleted() {
+        when(ibkrFlexClient.parseUploadedStatement(FILE)).thenReturn(List.of(
+            new IbkrAccountData("U123", List.of(), "EUR", null)));
+        when(accountRepository.findByExternalAccountIdAndMemberId("ibkr_U123", 7L)).thenReturn(Optional.empty());
+        when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId("ibkr_U123", 7L)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.importStatement(FILE, 7L))
+            .isInstanceOf(com.picsou.exception.SyncException.class)
+            .hasMessageContaining("was deleted");
     }
 
     @Test
