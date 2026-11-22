@@ -15,7 +15,7 @@ use serde::Serialize;
 use unicode_normalization::UnicodeNormalization;
 
 use super::forecast::{self, Origin};
-use super::model::{DividendEvent, DividendSource, sources_by_ticker};
+use super::model::{DividendEvent, DividendSource, sources_by_ticker, sources_by_ticker_on};
 use crate::AppState;
 use crate::error::AppResult;
 use crate::ledger::model::{
@@ -116,7 +116,7 @@ pub async fn received(
         return Ok(Vec::new());
     }
     let tickers: Vec<String> = rows.iter().filter_map(|t| t.ticker.clone()).collect();
-    let by_ticker = sources_by_ticker(&state.db, &tickers).await?;
+    let by_ticker = sources_by_ticker_on(&mut conn.as_handle(), &tickers).await?;
     let lines: Vec<(&Account, AccountHolding)> =
         holdings::find_positive_by_accounts(&mut conn, &ids)
             .await?

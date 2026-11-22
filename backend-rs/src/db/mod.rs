@@ -93,6 +93,15 @@ impl Db {
         }
     }
 
+    /// Returns a pooled [`DbHandle`] that dispatches each statement through the pool without
+    /// pinning a connection (or acquiring SQLite's `writer_gate`) across awaits or external I/O.
+    ///
+    /// Prefer this over [`Db::acquire`] in read-only handlers and helpers that call external HTTP
+    /// services or re-entrant `&Db` readers (such as `PriceRead` / `IntradayPrices`).
+    pub fn pool_handle(&self) -> DbHandle<'_> {
+        DbHandle::Pool(self)
+    }
+
     /// Executes a raw SQL script (possibly containing multiple semicolon-separated statements) on
     /// either PostgreSQL or SQLite (translating PostgreSQL syntax via `db::sqlite::dialect`).
     pub async fn execute_batch(&self, sql: &str) -> Result<(), sqlx::Error> {
@@ -202,12 +211,17 @@ impl DbConn {
 pub enum DbHandle<'a> {
     Postgres(&'a mut PgConnection),
     Sqlite(SqliteHandle<'a>),
+    Pool(&'a Db),
 }
 
 impl<'a> DbHandle<'a> {
     /// Returns `true` when backed by embedded SQLite.
     pub fn is_sqlite(&self) -> bool {
-        matches!(self, Self::Sqlite(_))
+        match self {
+            Self::Sqlite(_) => true,
+            Self::Postgres(_) => false,
+            Self::Pool(db) => db.is_sqlite(),
+        }
     }
 
     /// Starts a transaction (if not yet inside one) or a nested `SAVEPOINT` (if already inside
@@ -219,6 +233,7 @@ impl<'a> DbHandle<'a> {
                 Ok(DbTx::Postgres(conn.begin().await?))
             }
             Self::Sqlite(handle) => Ok(DbTx::Sqlite(handle.begin().await?)),
+            Self::Pool(db) => db.begin().await,
         }
     }
 }
@@ -253,6 +268,7 @@ impl AsDbHandle for DbHandle<'_> {
         match self {
             Self::Postgres(conn) => DbHandle::Postgres(conn),
             Self::Sqlite(handle) => DbHandle::Sqlite(SqliteHandle::reborrow(handle)),
+            Self::Pool(db) => DbHandle::Pool(db),
         }
     }
 }

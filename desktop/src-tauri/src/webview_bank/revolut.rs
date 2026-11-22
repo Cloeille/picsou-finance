@@ -1036,11 +1036,15 @@ async fn webview_revolut_fetch_with_timeout(
   }})
     .then(function(r) {{
       return r.text().then(function(t) {{
-        window[k] = JSON.stringify({{ ok: true, status: r.status, text: t }});
+        if (window[k] === "{PENDING_SENTINEL}") {{
+          window[k] = JSON.stringify({{ ok: true, status: r.status, text: t }});
+        }}
       }});
     }})
     .catch(function() {{
-      window[k] = JSON.stringify({{ ok: false, status: 0, text: "" }});
+      if (window[k] === "{PENDING_SENTINEL}") {{
+        window[k] = JSON.stringify({{ ok: false, status: 0, text: "" }});
+      }}
     }});
 }})();"#
     );
@@ -1098,7 +1102,7 @@ pub fn is_revolut_host(host: &str) -> bool {
 
 /// True once the WebView is on `https://app.revolut.com/home` (or another authenticated retail
 /// route on `app.revolut.com`, never `sso.revolut.com`, login/start pages, or an in-flight OAuth
-/// callback carrying `code` & `state`).
+/// callback carrying `code` or `rwa_auth_type`).
 pub fn on_revolut_home(url: &Url) -> bool {
     if url.scheme() != "https"
         || !url.username().is_empty()
@@ -1113,18 +1117,10 @@ pub fn on_revolut_home(url: &Url) -> bool {
     if !host.eq_ignore_ascii_case(API_HOST) {
         return false;
     }
-    let mut has_code = false;
-    let mut has_state = false;
     for (k, _) in url.query_pairs() {
-        if k == "code" {
-            has_code = true;
+        if k == "code" || k == "rwa_auth_type" {
+            return false;
         }
-        if k == "state" {
-            has_state = true;
-        }
-    }
-    if has_code && has_state {
-        return false;
     }
     let path = url.path().to_ascii_lowercase();
     path == "/home"
@@ -1168,6 +1164,12 @@ mod tests {
         ));
         assert!(!on_revolut_home(
             &Url::parse("https://app.revolut.com/home?code=abc&state=def").unwrap()
+        ));
+        assert!(!on_revolut_home(
+            &Url::parse("https://app.revolut.com/home?code=abc").unwrap()
+        ));
+        assert!(!on_revolut_home(
+            &Url::parse("https://app.revolut.com/home?rwa_auth_type=auth").unwrap()
         ));
         assert!(on_revolut_home(
             &Url::parse("https://app.revolut.com/home").unwrap()

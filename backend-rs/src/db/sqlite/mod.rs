@@ -22,12 +22,14 @@ pub mod seed;
 
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use chrono::{SecondsFormat, Utc};
 use rusqlite::functions::FunctionFlags;
 use rusqlite::types::Value as SqliteValue;
 use rusqlite::{Connection, OpenFlags, params_from_iter};
+use rust_decimal::Decimal;
 use tokio::sync::{OwnedMutexGuard, Semaphore};
 
 /// Default `PRAGMA busy_timeout` in milliseconds.
@@ -141,6 +143,7 @@ impl SqliteReadPool {
         conn.pragma_update(None, "temp_store", "MEMORY")?;
         decimal::register_decimal_functions(&conn)?;
         register_now_function(&conn)?;
+        register_pg_extrema_functions(&conn)?;
         Ok(conn)
     }
 
@@ -177,7 +180,15 @@ impl SqliteReadPool {
         .map_err(|e| sqlx::Error::Protocol(format!("blocking SQLite read task failed: {e}")))?
     }
 
-    fn drain(&self) {
+    async fn drain_async(&self) {
+        // Acquire all reader permits first so every in-flight WAL reader finishes and returns
+        // its connection before we close the semaphore and drop all pooled connections. This
+        // guarantees zero open readers hold a WAL snapshot during shutdown checkpointing.
+        let _all = self
+            .semaphore
+            .acquire_many(MAX_READ_CONNECTIONS as u32)
+            .await;
+        self.semaphore.close();
         if let Ok(mut idle) = self.idle.lock() {
             idle.clear();
         }
@@ -246,6 +257,10 @@ impl SqliteDb {
     }
 
     /// Runs a synchronous closure with exclusive access to the underlying `rusqlite::Connection`.
+    ///
+    /// **Startup / exclusive-access only**: bypasses the async `writer_gate`, so callers must
+    /// only use this during single-owner startup, migrations, exports, or tests when no
+    /// [`SqliteTx`] can be active concurrently. Use [`SqliteDb::interact`] for runtime operations.
     pub fn with_conn<F, T>(&self, f: F) -> Result<T, SqliteError>
     where
         F: FnOnce(&mut Connection) -> Result<T, SqliteError>,
@@ -254,13 +269,15 @@ impl SqliteDb {
         f(&mut guard)
     }
 
-    /// Runs a blocking SQLite operation on Tokio's blocking thread pool so async handlers never
-    /// stall the async runtime.
+    /// Runs a blocking SQLite operation on Tokio's blocking thread pool under the writer gate so
+    /// async handlers never stall the runtime and can never interleave statements into an active
+    /// [`SqliteTx`].
     pub async fn interact<F, T>(&self, f: F) -> Result<T, SqliteError>
     where
         F: FnOnce(&mut Connection) -> Result<T, SqliteError> + Send + 'static,
         T: Send + 'static,
     {
+        let _gate = self.acquire_writer_gate().await;
         let conn = Arc::clone(&self.conn);
         tokio::task::spawn_blocking(move || {
             let mut guard = conn.lock().map_err(|_| SqliteError::MutexPoisoned)?;
@@ -270,9 +287,15 @@ impl SqliteDb {
         .map_err(|e| SqliteError::Join(e.to_string()))?
     }
 
-    /// Applies all pending SQLite schema migrations idempotently.
+    /// Applies all pending SQLite schema migrations idempotently and ensures owner-only file
+    /// permissions (`0o600`) on file-backed databases and their WAL/SHM sidecars.
     pub fn migrate(&self) -> Result<usize, SqliteError> {
-        self.with_conn(|conn| Ok(migrate::migrate(conn)?))
+        let applied = self.with_conn(|conn| Ok(migrate::migrate(conn)?))?;
+        #[cfg(unix)]
+        if let Some(path) = &self.file_path {
+            restrict_sqlite_permissions(path)?;
+        }
+        Ok(applied)
     }
 
     /// Ensures the reference seed catalog (`app_setting`, `crypto_asset`, `merchant_brand`,
@@ -319,6 +342,7 @@ impl SqliteDb {
                 _marker: PhantomData,
             }),
             finished: false,
+            pending_finish: None,
         })
     }
 
@@ -351,12 +375,12 @@ impl SqliteDb {
         }
     }
 
-    /// Drains pooled WAL reader connections and runs `PRAGMA wal_checkpoint(TRUNCATE)` for a clean
-    /// shutdown.
+    /// Drains all in-flight and pooled WAL reader connections and runs
+    /// `PRAGMA wal_checkpoint(TRUNCATE)` for a clean shutdown.
     pub async fn close(&self) {
         let _gate = self.acquire_writer_gate().await;
         if let Some(pool) = &self.read_pool {
-            pool.drain();
+            pool.drain_async().await;
         }
         if self.file_path.is_some() {
             let conn = Arc::clone(&self.conn);
@@ -503,6 +527,7 @@ impl SqliteConn {
                 _parent: PhantomData,
             }),
             finished: false,
+            pending_finish: None,
         })
     }
 
@@ -592,6 +617,7 @@ impl<'a> SqliteHandle<'a> {
                         _parent: PhantomData,
                     }),
                     finished: false,
+                    pending_finish: None,
                 })
             }
             Some(depth) => {
@@ -610,6 +636,7 @@ impl<'a> SqliteHandle<'a> {
                         _parent: PhantomData,
                     }),
                     finished: false,
+                    pending_finish: None,
                 })
             }
         }
@@ -638,6 +665,10 @@ pub struct SqliteTx<'a> {
     depth: usize,
     kind: Option<SqliteTxKind<'a>>,
     finished: bool,
+    /// Shared cancellation flag for an in-flight `commit()`/`rollback()` blocking task so that if
+    /// the future is cancelled before `spawn_blocking` acquires `conn`, `Drop` rolls back
+    /// synchronously and disarms the orphaned blocking task before releasing `_gate`.
+    pending_finish: Option<Arc<AtomicBool>>,
 }
 
 impl<'a> SqliteTx<'a> {
@@ -666,6 +697,7 @@ impl<'a> SqliteTx<'a> {
                 _parent: PhantomData,
             }),
             finished: false,
+            pending_finish: None,
         })
     }
 
@@ -676,12 +708,20 @@ impl<'a> SqliteTx<'a> {
             _ => "COMMIT".to_owned(),
         };
         let conn = Arc::clone(&self.conn);
-        run_on_writer(conn, move |c| {
+        let aborted = Arc::new(AtomicBool::new(false));
+        self.pending_finish = Some(Arc::clone(&aborted));
+        let res = run_on_writer(conn, move |c| {
+            if aborted.load(Ordering::SeqCst) {
+                return Ok(());
+            }
             c.execute_batch(&sql).map_err(error::rusqlite_to_sqlx)
         })
-        .await?;
-        self.finished = true;
-        Ok(())
+        .await;
+        self.pending_finish = None;
+        if res.is_ok() {
+            self.finished = true;
+        }
+        res
     }
 
     /// Explicitly rolls back the transaction (or rolls back and releases the nested savepoint).
@@ -693,11 +733,18 @@ impl<'a> SqliteTx<'a> {
             _ => "ROLLBACK".to_owned(),
         };
         let conn = Arc::clone(&self.conn);
-        self.finished = true;
-        run_on_writer(conn, move |c| {
+        let aborted = Arc::new(AtomicBool::new(false));
+        self.pending_finish = Some(Arc::clone(&aborted));
+        let res = run_on_writer(conn, move |c| {
+            if aborted.load(Ordering::SeqCst) {
+                return Ok(());
+            }
             c.execute_batch(&sql).map_err(error::rusqlite_to_sqlx)
         })
-        .await
+        .await;
+        self.pending_finish = None;
+        self.finished = true;
+        res
     }
 
     pub(crate) async fn fetch_all(
@@ -763,6 +810,9 @@ impl Drop for SqliteTx<'_> {
         // parent transaction holding it), so locking `self.conn` here cannot deadlock and ensures
         // rollback completes strictly BEFORE the writer gate is released when `self.kind` drops.
         if let Ok(conn) = self.conn.lock() {
+            if let Some(aborted) = &self.pending_finish {
+                aborted.store(true, Ordering::SeqCst);
+            }
             let _ = conn.execute_batch(&sql);
         }
         self.finished = true;
@@ -857,7 +907,80 @@ pub fn register_now_function(conn: &Connection) -> rusqlite::Result<()> {
     })
 }
 
-/// Applies Picsou's mandatory PRAGMAs and registers all exact decimal SQLite functions plus `now()`.
+/// Registers PostgreSQL-compatible `pg_least(...)` and `pg_greatest(...)` variadic scalar UDFs.
+///
+/// Unlike SQLite's built-in scalar `MIN(a, b)` / `MAX(a, b)`, PostgreSQL `LEAST` and `GREATEST`
+/// ignore `NULL` arguments (returning `NULL` only when every argument is `NULL`) and compare
+/// exact `NUMERIC` values numerically rather than lexicographically.
+pub fn register_pg_extrema_functions(conn: &Connection) -> rusqlite::Result<()> {
+    let flags = FunctionFlags::SQLITE_UTF8
+        | FunctionFlags::SQLITE_INNOCUOUS
+        | FunctionFlags::SQLITE_DETERMINISTIC;
+    conn.create_scalar_function("pg_least", -1, flags, |ctx| eval_pg_extrema(ctx, true))?;
+    conn.create_scalar_function("pg_greatest", -1, flags, |ctx| eval_pg_extrema(ctx, false))?;
+    Ok(())
+}
+
+fn eval_pg_extrema(
+    ctx: &rusqlite::functions::Context<'_>,
+    pick_min: bool,
+) -> rusqlite::Result<SqliteValue> {
+    let mut best: Option<SqliteValue> = None;
+    for i in 0..ctx.len() {
+        let val = SqliteValue::from(ctx.get_raw(i));
+        if matches!(val, SqliteValue::Null) {
+            continue;
+        }
+        best = match best {
+            None => Some(val),
+            Some(current) => {
+                let ord = compare_pg_values(&val, &current);
+                let replace = if pick_min { ord.is_lt() } else { ord.is_gt() };
+                Some(if replace { val } else { current })
+            }
+        };
+    }
+    Ok(best.unwrap_or(SqliteValue::Null))
+}
+
+fn compare_pg_values(a: &SqliteValue, b: &SqliteValue) -> std::cmp::Ordering {
+    match (a, b) {
+        (SqliteValue::Integer(x), SqliteValue::Integer(y)) => x.cmp(y),
+        (SqliteValue::Text(x), SqliteValue::Text(y)) => {
+            if let (Ok(dx), Ok(dy)) = (x.parse::<Decimal>(), y.parse::<Decimal>()) {
+                dx.cmp(&dy)
+            } else {
+                x.cmp(y)
+            }
+        }
+        (SqliteValue::Integer(x), SqliteValue::Text(y)) => {
+            if let Ok(dy) = y.parse::<Decimal>() {
+                Decimal::from(*x).cmp(&dy)
+            } else {
+                x.to_string().cmp(y)
+            }
+        }
+        (SqliteValue::Text(x), SqliteValue::Integer(y)) => {
+            if let Ok(dx) = x.parse::<Decimal>() {
+                dx.cmp(&Decimal::from(*y))
+            } else {
+                x.cmp(&y.to_string())
+            }
+        }
+        (SqliteValue::Real(x), SqliteValue::Real(y)) => x.total_cmp(y),
+        (SqliteValue::Integer(x), SqliteValue::Real(y)) => {
+            Decimal::try_from(*y).map_or(std::cmp::Ordering::Equal, |dy| Decimal::from(*x).cmp(&dy))
+        }
+        (SqliteValue::Real(x), SqliteValue::Integer(y)) => {
+            Decimal::try_from(*x).map_or(std::cmp::Ordering::Equal, |dx| dx.cmp(&Decimal::from(*y)))
+        }
+        (SqliteValue::Blob(x), SqliteValue::Blob(y)) => x.cmp(y),
+        _ => std::cmp::Ordering::Equal,
+    }
+}
+
+/// Applies Picsou's mandatory PRAGMAs and registers all exact decimal SQLite functions plus `now()`
+/// and `pg_least`/`pg_greatest`.
 pub fn configure_connection(
     conn: &Connection,
     busy_timeout_ms: u32,
@@ -878,6 +1001,7 @@ pub fn configure_connection(
 
     decimal::register_decimal_functions(conn)?;
     register_now_function(conn)?;
+    register_pg_extrema_functions(conn)?;
     Ok(())
 }
 

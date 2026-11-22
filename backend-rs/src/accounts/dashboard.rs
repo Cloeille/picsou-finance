@@ -14,7 +14,6 @@ use super::query::Params;
 use super::scale::{add, sub};
 use crate::AppState;
 use crate::auth::Auth;
-use crate::db::AsDbHandle;
 use crate::error::AppResult;
 use crate::ledger::decimal::divide;
 use crate::ledger::model::{Account, AccountType};
@@ -136,8 +135,8 @@ pub async fn get_dashboard(
     let member_id = auth.member_id;
     let today = state.clock.today();
     let prices = &*state.ledger.prices;
-    let mut conn = state.db.acquire().await?;
-    let mut visible = access::readable_accounts(&mut conn.as_handle(), member_id).await?;
+    let mut conn = state.db.pool_handle();
+    let mut visible = access::readable_accounts(&mut conn, member_id).await?;
     super::scale::fix_accounts(&mut visible);
     visible.retain(|a| !a.hidden);
     let shares = access::shares_for(&mut conn, &visible, member_id).await?;
@@ -156,9 +155,7 @@ pub async fn get_dashboard(
     // Child accounts (pockets) are already inside their parent's balance.
     for a in visible.iter().filter(|a| a.parent_account_id.is_none()) {
         let value = match a.account_type {
-            AccountType::Loan => {
-                valuation::live_balance_eur(&mut conn.as_handle(), prices, a, today).await?
-            }
+            AccountType::Loan => valuation::live_balance_eur(&mut conn, prices, a, today).await?,
             AccountType::CreditCard => {
                 -prices
                     .to_eur(
@@ -180,7 +177,7 @@ pub async fn get_dashboard(
                     .await
             }
             _ => {
-                valuation::valuation(&mut conn.as_handle(), prices, a, today)
+                valuation::valuation(&mut conn, prices, a, today)
                     .await?
                     .live_eur
             }
@@ -205,15 +202,7 @@ pub async fn get_dashboard(
         .map(|a| a.id)
         .collect();
     let months = range_months(range.as_deref(), today);
-    let history = build_history(
-        &state,
-        &mut conn.as_handle(),
-        &top_level,
-        months,
-        false,
-        member_id,
-    )
-    .await?;
+    let history = build_history(&state, &mut conn, &top_level, months, false, member_id).await?;
 
     let all: Vec<&Account> = visible.iter().collect();
     let distributable: Vec<&Account> = visible
@@ -290,7 +279,6 @@ pub async fn get_dashboard(
             payment_due_date: due_date,
         });
     }
-    drop(conn);
     let goal_summaries = state.accounts.goals.summaries(&state, member_id).await?;
     Ok(axum::Json(DashboardResponse {
         total_net_worth,

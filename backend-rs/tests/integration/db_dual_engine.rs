@@ -9,7 +9,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use picsou::config::{Config, Env};
 use picsou::db::sqlite::SqliteDb;
 use picsou::db::sqlite::seed;
-use picsou::db::{self, Db, DbEnum, DbExec, DbFromRow};
+use picsou::db::{self, AsDbHandle, Db, DbEnum, DbExec, DbFromRow};
 use picsou::testing::fresh_database;
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -602,4 +602,184 @@ async fn db_connect_opens_sqlite_from_config() {
     let one: i64 = db::query_scalar("SELECT 1").fetch_one(&db).await.unwrap();
     assert_eq!(one, 1);
     db.close().await;
+}
+
+#[tokio::test]
+async fn sqlite_tx_rollback_is_cancellation_safe_and_never_wedges_writer() {
+    let sq = SqliteDb::open_in_memory().expect("open in-memory SQLite");
+    sq.migrate().expect("migrate SQLite");
+    let db = Db::Sqlite(sq);
+
+    // Begin a transaction, insert a member, then construct `tx.rollback()` and drop the future
+    // without awaiting it to completion (simulating client disconnect / tokio::select! cancel).
+    {
+        let mut tx = db.begin().await.expect("begin tx 1");
+        db::query(
+            "INSERT INTO family_member (display_name, is_managed) VALUES ('Cancelled', false)",
+        )
+        .execute(&mut tx)
+        .await
+        .expect("insert in tx 1");
+        let rollback_fut = tx.rollback();
+        drop(rollback_fut);
+    }
+
+    // The writer connection must NOT be stuck inside an uncommitted transaction, and the row must
+    // have been rolled back by `Drop`.
+    let count: i64 =
+        db::query_scalar("SELECT count(*) FROM family_member WHERE display_name = 'Cancelled'")
+            .fetch_one(&db)
+            .await
+            .expect("count after cancelled rollback");
+    assert_eq!(count, 0);
+
+    let mut tx2 = db
+        .begin()
+        .await
+        .expect("subsequent begin() must succeed after cancelled rollback");
+    db::query("INSERT INTO family_member (display_name, is_managed) VALUES ('Committed', false)")
+        .execute(&mut tx2)
+        .await
+        .expect("insert in tx 2");
+    tx2.commit().await.expect("commit tx 2");
+
+    let committed: i64 =
+        db::query_scalar("SELECT count(*) FROM family_member WHERE display_name = 'Committed'")
+            .fetch_one(&db)
+            .await
+            .expect("count committed");
+    assert_eq!(committed, 1);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn sqlite_interact_serializes_with_active_tx_and_extrema_and_defaults_match_pg() {
+    let sq = SqliteDb::open_in_memory().expect("open in-memory SQLite");
+    sq.migrate().expect("migrate SQLite");
+
+    // Verify `interact()` waits for an active `SqliteTx` rather than interleaving into it.
+    let tx = sq.begin().await.expect("begin tx");
+    let sq_clone = sq.clone();
+    let interact_task = tokio::spawn(async move {
+        sq_clone
+            .interact(|conn| {
+                let n: i64 = conn.query_row("SELECT 42", [], |r| r.get(0))?;
+                Ok(n)
+            })
+            .await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    assert!(
+        !interact_task.is_finished(),
+        "interact() must block behind writer_gate while SqliteTx is active"
+    );
+    tx.commit().await.expect("commit tx");
+    let val = interact_task.await.expect("join").expect("interact result");
+    assert_eq!(val, 42);
+
+    // Verify PostgreSQL-compatible LEAST / GREATEST (NULL-ignoring & exact decimal comparisons).
+    let db = Db::Sqlite(sq);
+    let least_null: i64 = db::query_scalar("SELECT LEAST(5, NULL)")
+        .fetch_one(&db)
+        .await
+        .expect("LEAST(5, NULL)");
+    assert_eq!(least_null, 5);
+    let least_all_null: Option<i64> = db::query_scalar("SELECT LEAST(NULL, NULL)")
+        .fetch_one(&db)
+        .await
+        .expect("LEAST(NULL, NULL)");
+    assert_eq!(least_all_null, None);
+    let least_num: String = db::query_scalar("SELECT LEAST('10.50', '2.50', NULL)")
+        .fetch_one(&db)
+        .await
+        .expect("LEAST numeric text");
+    assert_eq!(least_num, "2.50");
+    let greatest_num: String = db::query_scalar("SELECT GREATEST('-10.00', '2.00', NULL)")
+        .fetch_one(&db)
+        .await
+        .expect("GREATEST numeric text");
+    assert_eq!(greatest_num, "2.00");
+    let greatest_date: String =
+        db::query_scalar("SELECT GREATEST('2026-01-01', '2026-02-01', NULL)")
+            .fetch_one(&db)
+            .await
+            .expect("GREATEST dates");
+    assert_eq!(greatest_date, "2026-02-01");
+
+    // Verify default timestamps in schema.sql use 6 fractional digits (`...000Z`) matching now().
+    db::query("INSERT INTO family_member (display_name, is_managed) VALUES ('TsCheck', false)")
+        .execute(&db)
+        .await
+        .expect("insert member with default timestamps");
+    let created_at: String =
+        db::query_scalar("SELECT created_at FROM family_member WHERE display_name = 'TsCheck'")
+            .fetch_one(&db)
+            .await
+            .expect("select created_at");
+    assert!(
+        created_at.ends_with("000Z") && created_at.len() == 27,
+        "expected 6-digit fractional UTC RFC 3339 timestamp, got {created_at}"
+    );
+
+    // Verify `sources_by_ticker_on` works cleanly on an in-memory SQLite `DbConn` without deadlocking.
+    let mut conn = db.acquire().await.expect("acquire in-memory conn");
+    let sources = picsou::wealth::dividends::model::sources_by_ticker_on(
+        &mut conn.as_handle(),
+        &["AAPL".to_owned()],
+    )
+    .await
+    .expect("sources_by_ticker_on must not deadlock in-memory SQLite");
+    assert!(sources.is_empty());
+    drop(conn);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn sqlite_close_drains_in_flight_readers_and_migrate_tightens_permissions() {
+    let dir = std::env::temp_dir().join(format!("picsou-sqlite-polish-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    let db_path = dir.join("picsou.db");
+
+    let sq = SqliteDb::open(&db_path).expect("open file-backed SQLite");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // Simulate a pre-existing DB file with overly permissive mode before migrate().
+        std::fs::set_permissions(&db_path, std::fs::Permissions::from_mode(0o644)).expect("chmod");
+    }
+    sq.migrate().expect("migrate");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&db_path)
+            .expect("stat")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "migrate() must enforce 0o600 on file-backed DB"
+        );
+    }
+
+    let db = Db::Sqlite(sq);
+    // Launch a read on the WAL read pool and then close() so drain_async drains all readers
+    // cleanly before running PRAGMA wal_checkpoint(TRUNCATE).
+    let reader_db = db.clone();
+    let read_task = tokio::spawn(async move {
+        let _: Result<i64, _> = db::query_scalar("SELECT count(*) FROM family_member")
+            .fetch_one(&reader_db)
+            .await;
+    });
+    let _ = read_task.await;
+    db.close().await;
+    // Subsequent read on the closed read pool returns PoolClosed instead of reopening readers.
+    let after_close: Result<i64, _> = db::query_scalar("SELECT count(*) FROM family_member")
+        .fetch_one(&db)
+        .await;
+    assert!(
+        after_close.is_err(),
+        "read pool should be closed after close()"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }

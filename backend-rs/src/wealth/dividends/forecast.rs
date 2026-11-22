@@ -8,7 +8,7 @@ use chrono::{Datelike, Days, Months, NaiveDate};
 use rust_decimal::Decimal;
 use serde::Serialize;
 
-use super::model::{Cadence, DividendEvent, sources_by_ticker};
+use super::model::{Cadence, DividendEvent, sources_by_ticker_on};
 use crate::AppState;
 use crate::db::{AsDbHandle, DbFromRow, DbHandle};
 use crate::error::AppResult;
@@ -117,7 +117,6 @@ pub async fn upcoming(
     }
     let shares = access::shares_for(&mut conn, &scoped, member_id).await?;
     let mut lines = holding_lines(
-        state,
         &mut conn.as_handle(),
         &scoped,
         &readable,
@@ -146,7 +145,6 @@ fn share_of(shares: &HashMap<i64, Decimal>, id: i64) -> Decimal {
 }
 
 async fn holding_lines(
-    state: &AppState,
     conn: &mut DbHandle<'_>,
     accounts: &[Account],
     lag_accounts: &[Account],
@@ -176,7 +174,7 @@ async fn holding_lines(
         return Ok(Vec::new());
     }
     let tickers: Vec<String> = held.iter().map(|h| h.ticker.clone()).collect();
-    let by_ticker = sources_by_ticker(&state.db, &tickers).await?;
+    let by_ticker = sources_by_ticker_on(&mut *conn, &tickers).await?;
     let cash_dates = dividend_cash_dates(&mut conn.as_handle(), lag_accounts, today).await?;
 
     let mut lines = Vec::new();

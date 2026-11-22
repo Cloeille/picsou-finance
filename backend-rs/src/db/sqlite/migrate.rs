@@ -238,7 +238,7 @@ fn ensure_history_table(conn: &Connection) -> Result<(), rusqlite::Error> {
              version TEXT PRIMARY KEY,
              description TEXT NOT NULL,
              checksum TEXT NOT NULL,
-             applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+             applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
              execution_time_ms INTEGER NOT NULL
          );",
     )

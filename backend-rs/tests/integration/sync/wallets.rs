@@ -785,3 +785,95 @@ async fn a_resync_keeps_the_account_name_and_the_logo_the_user_picked() {
     assert!(account.get("ticker").is_none(), "a sync clears the ticker");
     assert_eq!(account["currentBalance"], num("3000.00"));
 }
+
+#[tokio::test]
+async fn wallet_add_and_sync_with_live_price_service_do_not_deadlock_sqlite() {
+    let chain = MockServer::start().await;
+    let coingecko = MockServer::start().await;
+    let yahoo = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/simple/price"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(r#"{"ethereum":{"eur":2500.5}}"#, "application/json"),
+        )
+        .mount(&coingecko)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/evm/ethereum"))
+        .and(body_partial_json(json!({"method": "eth_getBalance"})))
+        .respond_with(rpc_result(json!(wei(2_000_000_000_000_000_000))))
+        .with_priority(1)
+        .mount(&chain)
+        .await;
+    Mock::given(method("POST"))
+        .and(path_regex("^/evm/"))
+        .and(body_partial_json(json!({"method": "eth_getBalance"})))
+        .respond_with(rpc_result(json!("0x0")))
+        .with_priority(5)
+        .mount(&chain)
+        .await;
+    Mock::given(method("POST"))
+        .and(path_regex("^/evm/"))
+        .and(body_partial_json(json!({"method": "eth_call"})))
+        .respond_with(rpc_result(json!(format!("0x{}", "0".repeat(64)))))
+        .with_priority(5)
+        .mount(&chain)
+        .await;
+
+    // Do NOT override `set_prices`: exercise the real production MarketWalletPrices ->
+    // PriceService::refresh_prices -> price_snapshot upsert path.
+    let mut builder = TestApp::builder()
+        .with_admin()
+        .env("COINGECKO_BASE_URL", coingecko.uri())
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .env("BITCOIN_API_URL", chain.uri())
+        .env("SOLANA_RPC_URL", format!("{}/solana", chain.uri()));
+    for (key, name) in NETWORKS {
+        builder = builder.env(key, format!("{}/evm/{name}", chain.uri()));
+    }
+    let app = builder.spawn().await;
+    let (_, _member_id) = app.create_member("alex", "password-1234").await;
+    let client = app.login("alex", "password-1234").await;
+
+    let add_resp = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        client
+            .post("/api/crypto/wallet")
+            .json(&json!({"chain": "EVM", "address": EVM_ADDRESS, "label": "LivePrice"}))
+            .send(),
+    )
+    .await
+    .expect("wallet add must not deadlock SQLite writer_gate");
+    assert_eq!(add_resp.status, StatusCode::OK, "{}", add_resp.text());
+    let added = add_resp.json();
+    assert_eq!(added["currentBalance"], num("5001.00"));
+
+    // Verify PriceService persisted the live ETH price into price_snapshot.
+    let recorded_eth: Option<Decimal> = picsou::db::query_scalar(
+        "SELECT price_eur FROM price_snapshot WHERE ticker = 'ETH' AND date = $1",
+    )
+    .bind(app.state.clock.today())
+    .fetch_optional(&app.state.db)
+    .await
+    .expect("query price_snapshot");
+    assert_eq!(recorded_eth, Some(d("2500.5")));
+
+    // Clear PriceService cache so the follow-up sync also hits CoinGecko + writes price_snapshot.
+    app.state.market.prices().clear_cache();
+    let wallets = client.get("/api/crypto/wallet").send().await.json();
+    let wallet_id = wallets[0]["id"].as_i64().unwrap();
+
+    let sync_resp = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        client
+            .post(&format!("/api/crypto/wallet/{wallet_id}/sync"))
+            .send(),
+    )
+    .await
+    .expect("wallet sync must not deadlock SQLite writer_gate");
+    assert_eq!(sync_resp.status, StatusCode::OK, "{}", sync_resp.text());
+    assert_eq!(sync_resp.json()["currentBalance"], num("5001.00"));
+}

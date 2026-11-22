@@ -225,6 +225,13 @@ pub(crate) fn classify_eval_poll(raw: &str) -> SlotPollState {
     }
 }
 
+/// Builds the cleanup JS snippet that removes an ephemeral `window[slot]` on timeout so a
+/// late-resolving `fetch()` cannot retain an orphaned payload on `window`.
+pub(crate) fn build_slot_delete_js(slot: &str) -> String {
+    let slot_js = serde_json::to_string(slot).unwrap_or_else(|_| "\"\"".to_owned());
+    format!(r#"(function(){{ delete window[{slot_js}]; }})()"#)
+}
+
 /// Polls an ephemeral `window[slot]` until it resolves to a JSON payload, loses JS context
 /// (e.g. SPA redirect/reload wipes `window[slot]` -> immediate `ContextLost`), or hits `timeout`.
 pub(crate) async fn poll_webview_slot(
@@ -234,10 +241,12 @@ pub(crate) async fn poll_webview_slot(
     poll_interval: Duration,
 ) -> Result<String, EvalPollError> {
     let read_js = build_slot_read_js(slot);
+    let delete_js = build_slot_delete_js(slot);
     let deadline = Instant::now() + timeout;
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
+            let _ = window.eval(&delete_js);
             return Err(EvalPollError::Timeout);
         }
         let (tx, rx) = oneshot::channel::<String>();
@@ -262,12 +271,14 @@ pub(crate) async fn poll_webview_slot(
             Ok(Err(_)) => return Err(EvalPollError::ContextLost),
             Err(_) => {
                 if Instant::now() >= deadline {
+                    let _ = window.eval(&delete_js);
                     return Err(EvalPollError::Timeout);
                 }
             }
         }
         let sleep_for = poll_interval.min(deadline.saturating_duration_since(Instant::now()));
         if sleep_for.is_zero() {
+            let _ = window.eval(&delete_js);
             return Err(EvalPollError::Timeout);
         }
         tokio::time::sleep(sleep_for).await;
@@ -687,5 +698,12 @@ mod tests {
         assert!(read_js.contains(CONTEXT_LOST_SENTINEL));
         assert!(read_js.contains(PENDING_SENTINEL));
         assert!(read_js.contains("delete window[k]"));
+
+        // Timeout cleanup JS must safely JSON-escape the slot name and delete it.
+        let delete_js = build_slot_delete_js("__picsou_test_slot");
+        assert_eq!(
+            delete_js,
+            r#"(function(){ delete window["__picsou_test_slot"]; })()"#
+        );
     }
 }

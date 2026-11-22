@@ -424,10 +424,22 @@ pub fn restore_backup(layout: &Layout, stack: &Shared) -> Result<(), String> {
 /// Formats a database file path as a `DATABASE_URL` accepted by `picsou::config::DatabaseConfig::parse`.
 ///
 /// Forward-slashes Windows separators so `C:\Users\...\picsou.db` becomes `sqlite://C:/Users/.../picsou.db`
-/// and Unix `/Users/.../picsou.db` becomes `sqlite:///Users/.../picsou.db`.
+/// and Unix `/Users/.../picsou.db` becomes `sqlite:///Users/.../picsou.db`, while percent-encoding
+/// URI-significant characters (`%`, `?`, `#`, and spaces) so special characters in OS user paths
+/// never truncate or corrupt the path.
 pub fn sqlite_url(path: &Path) -> String {
     let normalized = path.to_string_lossy().replace('\\', "/");
-    format!("sqlite://{normalized}")
+    let mut encoded = String::with_capacity(normalized.len());
+    for ch in normalized.chars() {
+        match ch {
+            '%' => encoded.push_str("%25"),
+            '?' => encoded.push_str("%3F"),
+            '#' => encoded.push_str("%23"),
+            ' ' => encoded.push_str("%20"),
+            _ => encoded.push(ch),
+        }
+    }
+    format!("sqlite://{encoded}")
 }
 
 /// Pure-HTTP bank sidecars compiled natively into `picsou` (`backend-rs/src/native_sidecars/`).
@@ -696,12 +708,24 @@ mod tests {
         ));
         assert_eq!(
             unix,
-            "sqlite:///Users/alice/Library/Application Support/com.picsou.desktop/picsou.db"
+            "sqlite:///Users/alice/Library/Application%20Support/com.picsou.desktop/picsou.db"
         );
         assert_eq!(
             DatabaseConfig::parse(&unix, "", "").unwrap(),
             DatabaseConfig::Sqlite(SqliteTarget::File(PathBuf::from(
                 "/Users/alice/Library/Application Support/com.picsou.desktop/picsou.db"
+            )))
+        );
+
+        let special = sqlite_url(Path::new("/Users/alice?bob#home/100% real/picsou.db"));
+        assert_eq!(
+            special,
+            "sqlite:///Users/alice%3Fbob%23home/100%25%20real/picsou.db"
+        );
+        assert_eq!(
+            DatabaseConfig::parse(&special, "", "").unwrap(),
+            DatabaseConfig::Sqlite(SqliteTarget::File(PathBuf::from(
+                "/Users/alice?bob#home/100% real/picsou.db"
             )))
         );
 
@@ -716,6 +740,14 @@ mod tests {
             DatabaseConfig::parse(&windows, "", "").unwrap(),
             DatabaseConfig::Sqlite(SqliteTarget::File(PathBuf::from(
                 "C:/Users/alice/AppData/Local/com.picsou.desktop/picsou.db"
+            )))
+        );
+
+        // Standard 3-slash Windows URI parses cleanly too.
+        assert_eq!(
+            DatabaseConfig::parse("sqlite:///C:/Users/Alice/picsou.db", "", "").unwrap(),
+            DatabaseConfig::Sqlite(SqliteTarget::File(PathBuf::from(
+                "C:/Users/Alice/picsou.db"
             )))
         );
     }

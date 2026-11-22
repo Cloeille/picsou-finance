@@ -7,7 +7,6 @@ use std::panic::AssertUnwindSafe;
 use futures::FutureExt;
 
 use crate::AppState;
-use crate::db::AsDbHandle;
 use crate::error::AppResult;
 use crate::ledger::model::AccountType;
 use crate::ledger::sidecar::SyncStatus;
@@ -123,33 +122,21 @@ pub async fn daily_snapshots(state: &AppState) -> AppResult<usize> {
             if existing.is_some() && !refresh_insurer {
                 continue;
             }
-            let val = {
-                let mut conn = match state.db.acquire().await {
-                    Ok(c) => c,
-                    Err(e) => {
-                        tracing::error!(
-                            "Daily snapshot could not acquire connection for account {} (member {member_id}) -- skipping it: {e}",
-                            account.id
-                        );
-                        continue;
-                    }
-                };
-                match valuation::valuation(
-                    &mut conn.as_handle(),
-                    &*state.ledger.prices,
-                    &account,
-                    today,
-                )
-                .await
-                {
-                    Ok(v) => v,
-                    Err(e) => {
-                        tracing::error!(
-                            "Daily snapshot failed for account {} (member {member_id}) -- skipping it: {e}",
-                            account.id
-                        );
-                        continue;
-                    }
+            let val = match valuation::valuation(
+                &mut state.db.pool_handle(),
+                &*state.ledger.prices,
+                &account,
+                today,
+            )
+            .await
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::error!(
+                        "Daily snapshot failed for account {} (member {member_id}) -- skipping it: {e}",
+                        account.id
+                    );
+                    continue;
                 }
             };
             if !val.any_priced {

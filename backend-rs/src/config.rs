@@ -141,6 +141,14 @@ impl DatabaseConfig {
     }
 }
 
+fn is_windows_drive_path(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'/' || bytes[2] == b'\\')
+}
+
 fn parse_sqlite_url(raw: &str) -> Result<Option<SqliteTarget>, ConfigError> {
     let rest = if let Some(r) = raw.strip_prefix("jdbc:sqlite:") {
         r
@@ -150,31 +158,50 @@ fn parse_sqlite_url(raw: &str) -> Result<Option<SqliteTarget>, ConfigError> {
         return Ok(None);
     };
 
-    let without_query = rest.split('?').next().unwrap_or_default();
-    if without_query == ":memory:" || without_query == "//:memory:" {
+    // Strip RFC 3986 query (`?...`) and fragment (`#...`) before decoding the file path.
+    let without_query_or_frag = rest.split(['?', '#']).next().unwrap_or_default();
+    if without_query_or_frag == ":memory:" || without_query_or_frag == "//:memory:" {
         return Ok(Some(SqliteTarget::InMemory));
     }
 
-    // Handle `sqlite:///abs/path.db`, `sqlite://./rel/path.db`, `sqlite://rel/path.db`,
-    // `sqlite:/abs/path.db`, and `jdbc:sqlite:/abs/path.db`.
-    let path_str = if let Some(abs) = without_query.strip_prefix("///") {
+    // Handle `sqlite:///abs/path.db`, standard 3-slash Windows URIs `sqlite:///C:/Users/...`,
+    // `sqlite://./rel/path.db`, `sqlite://C:/Users/...`, `sqlite:/abs/path.db`, and
+    // `jdbc:sqlite:/abs/path.db`.
+    let has_triple_slash = without_query_or_frag.starts_with("///");
+    let raw_path = if let Some(abs) = without_query_or_frag.strip_prefix("///") {
         if abs.is_empty() {
             return Err(invalid("SQLite URL must name a database file path"));
         }
-        format!("/{abs}")
-    } else if let Some(rel) = without_query.strip_prefix("//") {
+        if is_windows_drive_path(abs) {
+            abs.to_owned()
+        } else {
+            format!("/{abs}")
+        }
+    } else if let Some(rel) = without_query_or_frag.strip_prefix("//") {
         if rel.is_empty() {
             return Err(invalid("SQLite URL must name a database file path"));
         }
         rel.to_owned()
     } else {
-        if without_query.is_empty() {
+        if without_query_or_frag.is_empty() {
             return Err(invalid("SQLite URL must name a database file path"));
         }
-        without_query.to_owned()
+        without_query_or_frag.to_owned()
     };
 
-    Ok(Some(SqliteTarget::File(PathBuf::from(path_str))))
+    let decoded = percent_encoding::percent_decode_str(&raw_path)
+        .decode_utf8_lossy()
+        .into_owned();
+    let normalized = if has_triple_slash
+        && let Some(stripped) = decoded.strip_prefix('/')
+        && is_windows_drive_path(stripped)
+    {
+        stripped.to_owned()
+    } else {
+        decoded
+    };
+
+    Ok(Some(SqliteTarget::File(PathBuf::from(normalized))))
 }
 
 /// The datasource, parsed from the JDBC-style SPRING_DATASOURCE_URL.
@@ -1065,5 +1092,59 @@ mod tests {
         let mut env = base_env();
         env.set("DATABASE_URL", "sqlite:///");
         assert!(Config::load(&env).is_err());
+    }
+
+    #[test]
+    fn sqlite_url_parser_handles_percent_encoding_special_chars_and_windows_uris() {
+        // Percent-encoded spaces, `?`, `#`, and `%` in path, plus query & fragment stripping.
+        assert_eq!(
+            DatabaseConfig::parse(
+                "sqlite:///Users/Alice%20Smith/a%3Fb%23c%2520/picsou.db?mode=rwc#frag",
+                "",
+                ""
+            )
+            .unwrap(),
+            DatabaseConfig::Sqlite(SqliteTarget::File(PathBuf::from(
+                "/Users/Alice Smith/a?b#c%20/picsou.db"
+            )))
+        );
+
+        // Literal spaces (hand-written env var) remain supported.
+        assert_eq!(
+            DatabaseConfig::parse(
+                "sqlite:///Users/Alice/Application Support/picsou.db#ignored",
+                "",
+                ""
+            )
+            .unwrap(),
+            DatabaseConfig::Sqlite(SqliteTarget::File(PathBuf::from(
+                "/Users/Alice/Application Support/picsou.db"
+            )))
+        );
+
+        // Standard 3-slash Windows URI (`sqlite:///C:/...`) strips the leading `/`.
+        assert_eq!(
+            DatabaseConfig::parse("sqlite:///C:/Users/Alice/picsou.db", "", "").unwrap(),
+            DatabaseConfig::Sqlite(SqliteTarget::File(PathBuf::from(
+                "C:/Users/Alice/picsou.db"
+            )))
+        );
+        assert_eq!(
+            DatabaseConfig::parse(
+                "sqlite:///C%3A/Users/Alice%20B/a%3Fb%23c%25/picsou.db?cache=shared",
+                "",
+                ""
+            )
+            .unwrap(),
+            DatabaseConfig::Sqlite(SqliteTarget::File(PathBuf::from(
+                "C:/Users/Alice B/a?b#c%/picsou.db"
+            )))
+        );
+        assert_eq!(
+            DatabaseConfig::parse("sqlite://C:/Users/Alice/picsou.db", "", "").unwrap(),
+            DatabaseConfig::Sqlite(SqliteTarget::File(PathBuf::from(
+                "C:/Users/Alice/picsou.db"
+            )))
+        );
     }
 }

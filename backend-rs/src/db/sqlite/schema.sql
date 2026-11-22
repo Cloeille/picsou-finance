@@ -22,8 +22,8 @@ CREATE TABLE access_key (
     last_used_at TEXT,
     expires_at TEXT,
     revoked_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT uk_access_key_prefix UNIQUE (key_prefix),
     CONSTRAINT access_key_created_by_fkey FOREIGN KEY (created_by) REFERENCES app_user(id) ON DELETE CASCADE,
     CONSTRAINT access_key_member_id_fkey FOREIGN KEY (member_id) REFERENCES family_member(id) ON DELETE CASCADE
@@ -42,8 +42,8 @@ CREATE TABLE account (
     is_manual INTEGER NOT NULL DEFAULT 1 CHECK (is_manual IN (0, 1)),
     color TEXT NOT NULL DEFAULT '#6366f1',
     ticker TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     member_id INTEGER NOT NULL,
     deleted_at TEXT,
     parent_account_id INTEGER,
@@ -85,8 +85,8 @@ CREATE TABLE account_display_pref (
     member_id INTEGER NOT NULL,
     list_position INTEGER,
     list_collapsed INTEGER NOT NULL DEFAULT 0 CHECK (list_collapsed IN (0, 1)),
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT uk_account_display_pref_account_member UNIQUE (account_id, member_id),
     CONSTRAINT account_display_pref_account_id_fkey FOREIGN KEY (account_id) REFERENCES account(id) ON DELETE CASCADE,
     CONSTRAINT account_display_pref_member_id_fkey FOREIGN KEY (member_id) REFERENCES family_member(id) ON DELETE CASCADE
@@ -102,8 +102,8 @@ CREATE TABLE account_holding (
     average_buy_in TEXT,
     current_price TEXT,
     last_synced_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     quote_currency TEXT,
     provider_value_eur TEXT,
     provider_pnl_eur TEXT,
@@ -120,8 +120,8 @@ CREATE TABLE account_ownership (
     account_id INTEGER NOT NULL,
     member_id INTEGER NOT NULL,
     share_percent TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT uk_account_ownership_account_member UNIQUE (account_id, member_id),
     CONSTRAINT ck_account_ownership_share CHECK ((dec_cmp(share_percent, '0') > 0) AND (dec_cmp(share_percent, '100') <= 0)),
     CONSTRAINT account_ownership_account_id_fkey FOREIGN KEY (account_id) REFERENCES account(id) ON DELETE CASCADE,
@@ -132,7 +132,7 @@ CREATE INDEX idx_account_ownership_member ON account_ownership (member_id);
 
 CREATE TABLE ai_call_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     member_id INTEGER,
     transaction_id INTEGER,
     merchant_label TEXT,
@@ -159,8 +159,8 @@ CREATE INDEX idx_ai_call_log_member ON ai_call_log (member_id, created_at DESC);
 CREATE TABLE app_setting (
     setting_key TEXT NOT NULL,
     value TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT app_setting_pkey PRIMARY KEY (setting_key)
 );
 
@@ -168,8 +168,8 @@ CREATE TABLE app_user (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL,
     password_hash TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     member_id INTEGER NOT NULL,
     role TEXT NOT NULL DEFAULT 'MEMBER',
     is_activated INTEGER NOT NULL DEFAULT 1 CHECK (is_activated IN (0, 1)),
@@ -188,7 +188,7 @@ CREATE TABLE balance_snapshot (
     account_id INTEGER NOT NULL,
     date TEXT NOT NULL,
     balance TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     invested_amount TEXT NOT NULL,
     source TEXT NOT NULL DEFAULT 'DERIVED',
     native_balance TEXT,
@@ -204,8 +204,8 @@ CREATE TABLE budget (
     member_id INTEGER NOT NULL,
     category_id INTEGER NOT NULL,
     monthly_limit TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT budget_category_id_key UNIQUE (category_id),
     CONSTRAINT budget_monthly_limit_check CHECK (dec_cmp(monthly_limit, '0') >= 0),
     CONSTRAINT budget_category_id_fkey FOREIGN KEY (category_id) REFERENCES category(id) ON DELETE CASCADE,
@@ -217,7 +217,7 @@ CREATE TABLE budget_settings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     member_id INTEGER NOT NULL,
     cycle_start_day INTEGER NOT NULL DEFAULT 1,
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     kb_version INTEGER,
     logo_fetch_enabled INTEGER NOT NULL DEFAULT 0 CHECK (logo_fetch_enabled IN (0, 1)),
     ai_categorization_enabled INTEGER NOT NULL DEFAULT 0 CHECK (ai_categorization_enabled IN (0, 1)),
@@ -236,7 +236,7 @@ CREATE TABLE categorization_rule (
     category_id INTEGER NOT NULL,
     priority INTEGER NOT NULL DEFAULT 0,
     source TEXT NOT NULL DEFAULT 'USER',
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT categorization_rule_category_id_fkey FOREIGN KEY (category_id) REFERENCES category(id) ON DELETE CASCADE,
     CONSTRAINT categorization_rule_member_id_fkey FOREIGN KEY (member_id) REFERENCES family_member(id) ON DELETE CASCADE
 );
@@ -252,8 +252,8 @@ CREATE TABLE category (
     is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
     archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1)),
     sort_order INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     parent_id INTEGER,
     slug TEXT,
     CONSTRAINT category_member_id_fkey FOREIGN KEY (member_id) REFERENCES family_member(id) ON DELETE CASCADE,
@@ -268,7 +268,7 @@ CREATE TABLE crypto_asset (
     coingecko_id TEXT NOT NULL,
     name TEXT NOT NULL,
     source TEXT NOT NULL,
-    resolved_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    resolved_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT crypto_asset_pkey PRIMARY KEY (ticker),
     CONSTRAINT ck_crypto_asset_source CHECK (source IN ('CURATED', 'AUTO')),
     CONSTRAINT ck_crypto_asset_ticker_upper CHECK (ticker = upper(ticker))
@@ -283,8 +283,8 @@ CREATE TABLE crypto_exchange_position (
     principal TEXT,
     interest TEXT,
     last_synced_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT uk_crypto_exchange_position_account_product_ticker UNIQUE (account_id, product, ticker),
     CONSTRAINT crypto_exchange_position_account_id_fkey FOREIGN KEY (account_id) REFERENCES account(id) ON DELETE CASCADE
 );
@@ -297,8 +297,8 @@ CREATE TABLE crypto_exchange_session (
     api_secret TEXT,
     status TEXT NOT NULL DEFAULT 'CONNECTED',
     last_synced_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     member_id INTEGER NOT NULL,
     api_passphrase TEXT,
     region TEXT,
@@ -316,8 +316,8 @@ CREATE TABLE debt (
     lender_name TEXT,
     start_date TEXT,
     end_date TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     member_id INTEGER NOT NULL,
     insurance_monthly TEXT,
     file_fees TEXT,
@@ -336,8 +336,8 @@ CREATE TABLE degiro_session (
     status TEXT NOT NULL DEFAULT 'ACTIVE',
     last_synced_at TEXT,
     last_error TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT uq_degiro_session_member UNIQUE (member_id),
     CONSTRAINT ck_degiro_session_failed_error CHECK (((status = 'FAILED') AND (last_error IS NOT NULL)) OR (status <> 'FAILED')),
     CONSTRAINT ck_degiro_session_status CHECK (status IN ('ACTIVE', 'REAUTH_REQUIRED', 'FAILED')),
@@ -352,8 +352,8 @@ CREATE TABLE dividend_event (
     amount_eur TEXT NOT NULL,
     payment_date TEXT,
     declared INTEGER NOT NULL DEFAULT 0 CHECK (declared IN (0, 1)),
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT uk_dividend_event_source_ex_date UNIQUE (source_id, ex_date),
     CONSTRAINT dividend_event_source_id_fkey FOREIGN KEY (source_id) REFERENCES dividend_source(id) ON DELETE CASCADE
 );
@@ -366,8 +366,8 @@ CREATE TABLE dividend_source (
     refreshed_at TEXT,
     last_attempt_at TEXT,
     last_error TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT uk_dividend_source_ticker UNIQUE (ticker),
     CONSTRAINT ck_dividend_source_status CHECK (status IN ('NEVER_FETCHED', 'OK', 'NO_DATA', 'FAILED'))
 );
@@ -377,8 +377,8 @@ CREATE TABLE family_member (
     display_name TEXT NOT NULL,
     avatar_color TEXT NOT NULL DEFAULT '#6366f1',
     is_managed INTEGER NOT NULL DEFAULT 0 CHECK (is_managed IN (0, 1)),
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now'))
 );
 
 CREATE TABLE finary_session (
@@ -387,8 +387,8 @@ CREATE TABLE finary_session (
     password TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'CONNECTED',
     last_synced_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     member_id INTEGER NOT NULL,
     CONSTRAINT finary_session_member_id_fkey FOREIGN KEY (member_id) REFERENCES family_member(id) ON DELETE CASCADE
 );
@@ -399,8 +399,8 @@ CREATE TABLE goal (
     name TEXT NOT NULL,
     target_amount TEXT,
     deadline TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     member_id INTEGER NOT NULL,
     history_start_month TEXT,
     type TEXT NOT NULL DEFAULT 'SAVINGS_TARGET',
@@ -430,8 +430,8 @@ CREATE TABLE goal_allocation (
     goal_id INTEGER NOT NULL,
     ticker TEXT NOT NULL,
     monthly_amount TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT uk_goal_allocation_goal_ticker UNIQUE (goal_id, ticker),
     CONSTRAINT ck_goal_allocation_amount CHECK (dec_cmp(monthly_amount, '0') > 0),
     CONSTRAINT goal_allocation_goal_id_fkey FOREIGN KEY (goal_id) REFERENCES goal(id) ON DELETE CASCADE
@@ -470,8 +470,8 @@ CREATE TABLE holding_classification (
     member_id INTEGER NOT NULL,
     ticker TEXT NOT NULL,
     wealth_tier TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     sector_key TEXT,
     country_key TEXT,
     CONSTRAINT uk_holding_classification_member_ticker UNIQUE (member_id, ticker),
@@ -487,8 +487,8 @@ CREATE TABLE ibkr_connection (
     query_id TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'CONNECTED',
     last_synced_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT ibkr_connection_member_id_fkey FOREIGN KEY (member_id) REFERENCES family_member(id) ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX idx_ibkr_connection_member ON ibkr_connection (member_id);
@@ -520,8 +520,8 @@ CREATE TABLE lbp_session (
     last_sync_completed_at TEXT,
     last_sync_error TEXT,
     unsupported_products TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     encrypted_identifier TEXT,
     CONSTRAINT lbp_session_member_id_key UNIQUE (member_id),
     CONSTRAINT ck_lbp_session_failed_error CHECK (((sync_status = 'FAILED') AND (last_sync_error IS NOT NULL)) OR ((sync_status <> 'FAILED') AND (last_sync_error IS NULL))),
@@ -542,8 +542,8 @@ CREATE TABLE louve_connection (
     oauth_redirect_uri TEXT,
     oauth_client_id TEXT,
     oauth_started_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT ck_louve_connection_attempt CHECK ((oauth_state IS NULL) = (oauth_verifier IS NULL)),
     CONSTRAINT ck_louve_connection_status CHECK (status IN ('PENDING', 'CONNECTED', 'ERROR', 'REAUTH_REQUIRED')),
     CONSTRAINT louve_connection_member_id_fkey FOREIGN KEY (member_id) REFERENCES family_member(id) ON DELETE CASCADE
@@ -559,8 +559,8 @@ CREATE TABLE member_allocation_profile (
     equity_pct TEXT NOT NULL DEFAULT '50.00',
     crypto_pct TEXT NOT NULL DEFAULT '10.00',
     alternative_pct TEXT NOT NULL DEFAULT '10.00',
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT uk_member_allocation_profile_member UNIQUE (member_id),
     CONSTRAINT ck_member_allocation_profile_expenses CHECK ((monthly_essential_expenses IS NULL) OR (dec_cmp(monthly_essential_expenses, '0') >= 0)),
     CONSTRAINT ck_member_allocation_profile_months CHECK ((safety_net_months >= 1) AND (safety_net_months <= 24)),
@@ -583,8 +583,8 @@ CREATE TABLE member_profile (
     monthly_savings_capacity TEXT,
     target_retirement_age INTEGER,
     risk_profile TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT uk_member_profile_member UNIQUE (member_id),
     CONSTRAINT ck_member_profile_annual_gross_income CHECK ((annual_gross_income IS NULL) OR (dec_cmp(annual_gross_income, '0') >= 0)),
     CONSTRAINT ck_member_profile_birth_date CHECK ((birth_date IS NULL) OR (birth_date > '1900-01-01')),
@@ -667,7 +667,7 @@ CREATE TABLE oauth2_authorization_consent (
 CREATE TABLE oauth2_registered_client (
     id TEXT NOT NULL,
     client_id TEXT NOT NULL,
-    client_id_issued_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    client_id_issued_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     client_secret TEXT DEFAULT NULL,
     client_secret_expires_at TEXT,
     client_name TEXT NOT NULL,
@@ -686,8 +686,8 @@ CREATE TABLE peer_counterparty (
     member_id INTEGER NOT NULL,
     name TEXT NOT NULL,
     note TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT peer_counterparty_member_id_fkey FOREIGN KEY (member_id) REFERENCES family_member(id) ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX uk_peer_counterparty_member_name ON peer_counterparty (member_id, lower(name));
@@ -699,8 +699,8 @@ CREATE TABLE peer_loan_repayment (
     amount TEXT NOT NULL,
     kind TEXT NOT NULL DEFAULT 'PRINCIPAL',
     note TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     cash_transaction_id INTEGER,
     cash_leg_owned INTEGER NOT NULL DEFAULT 1 CHECK (cash_leg_owned IN (0, 1)),
     CONSTRAINT ck_peer_loan_repayment_amount CHECK (dec_cmp(amount, '0') > 0),
@@ -723,8 +723,8 @@ CREATE TABLE peer_loan_terms (
     linked_account_id INTEGER,
     note TEXT,
     closed_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     lending_transaction_id INTEGER,
     rate_period TEXT NOT NULL DEFAULT 'ANNUAL',
     CONSTRAINT uk_peer_loan_terms_account UNIQUE (account_id),
@@ -747,8 +747,8 @@ CREATE TABLE persistent_session (
     user_agent TEXT,
     ip_prefix TEXT,
     trusted_for_2fa INTEGER NOT NULL DEFAULT 0 CHECK (trusted_for_2fa IN (0, 1)),
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    last_used_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    last_used_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     expires_at TEXT NOT NULL,
     revoked_at TEXT,
     previous_token_hash TEXT,
@@ -765,7 +765,7 @@ CREATE TABLE price_snapshot (
     ticker TEXT NOT NULL,
     date TEXT NOT NULL,
     price_eur TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT uk_price_snapshot_ticker_date UNIQUE (ticker, date)
 );
 CREATE INDEX idx_price_snapshot_ticker_date ON price_snapshot (ticker, date);
@@ -784,8 +784,8 @@ CREATE TABLE property_valuation (
     sample_size INTEGER,
     source_year INTEGER,
     method_detail TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT uk_property_valuation_account_date UNIQUE (account_id, valued_at),
     CONSTRAINT ck_property_valuation_confidence CHECK ((confidence IS NULL) OR (confidence IN ('HIGH', 'MEDIUM', 'LOW'))),
     CONSTRAINT property_valuation_account_id_fkey FOREIGN KEY (account_id) REFERENCES account(id) ON DELETE CASCADE,
@@ -803,8 +803,8 @@ CREATE TABLE real_estate_metadata (
     address TEXT,
     property_type TEXT,
     rental_income TEXT DEFAULT '0',
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     member_id INTEGER NOT NULL,
     category TEXT,
     description TEXT,
@@ -858,8 +858,8 @@ CREATE TABLE recurring_series (
     last_seen_date TEXT,
     category_id INTEGER,
     status TEXT NOT NULL DEFAULT 'SUGGESTED' CHECK (status IN ('SUGGESTED', 'CONFIRMED', 'IGNORED')),
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     confidence TEXT,
     amount_min TEXT,
     amount_max TEXT,
@@ -880,8 +880,8 @@ CREATE TABLE requisition (
     institution_name TEXT,
     status TEXT NOT NULL DEFAULT 'CREATED' CHECK (status IN ('CREATED', 'LINKED', 'EXPIRED', 'FAILED')),
     auth_link TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     last_synced_at TEXT,
     member_id INTEGER NOT NULL,
     logo_url TEXT,
@@ -898,8 +898,8 @@ CREATE TABLE revolut_session (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     member_id INTEGER NOT NULL,
     expires_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     credentials_enc TEXT,
     remember_credentials INTEGER NOT NULL DEFAULT 0 CHECK (remember_credentials IN (0, 1)),
     last_synced_at TEXT,
@@ -914,8 +914,8 @@ CREATE TABLE savings_interest_config (
     rate_basis TEXT NOT NULL DEFAULT 'NET' CHECK (rate_basis IN ('GROSS', 'NET')),
     tax_rate_pct TEXT,
     ceiling TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT savings_interest_config_account_id_key UNIQUE (account_id),
     CONSTRAINT savings_interest_config_account_id_fkey FOREIGN KEY (account_id) REFERENCES account(id) ON DELETE CASCADE
 );
@@ -933,8 +933,8 @@ CREATE TABLE scpi_position (
     dividend_policy TEXT NOT NULL DEFAULT 'CASH',
     jouissance_date TEXT,
     valuation_status TEXT NOT NULL DEFAULT 'PRICE_INCOMPLETE',
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     corum_fund_code TEXT,
     sofidy_fund_code TEXT,
     annual_distribution_per_share_eur TEXT,
@@ -965,8 +965,8 @@ CREATE TABLE scpi_provider_fund (
     last_outcome TEXT,
     last_seen_at TEXT,
     last_synced_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT uq_scpi_provider_fund UNIQUE (member_id, provider, fund_code),
     CONSTRAINT ck_scpi_provider_fund_outcome CHECK ((last_outcome IS NULL) OR (last_outcome IN ('CREATED', 'LINKED', 'UPDATED', 'PRICE_INCOMPLETE', 'AMBIGUOUS', 'IGNORED', 'MISSING_AT_PROVIDER', 'UNSUPPORTED_OWNERSHIP'))),
     CONSTRAINT ck_scpi_provider_fund_provider CHECK (provider IN ('CORUM', 'SOFIDY', 'LOUVE')),
@@ -994,8 +994,8 @@ CREATE TABLE security_profile (
     source TEXT,
     as_of TEXT,
     refreshed_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     isin TEXT,
     status TEXT NOT NULL DEFAULT 'OK',
     last_error TEXT,
@@ -1021,7 +1021,7 @@ CREATE TABLE setup_audit (
     ip TEXT,
     user_agent TEXT,
     details TEXT,
-    at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now'))
 );
 CREATE INDEX idx_setup_audit_event_at ON setup_audit (event, at);
 
@@ -1030,7 +1030,7 @@ CREATE TABLE shared_resource (
     owner_member_id INTEGER NOT NULL,
     resource_type TEXT NOT NULL,
     resource_id INTEGER NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT shared_resource_owner_member_id_resource_type_resource_id_key UNIQUE (owner_member_id, resource_type, resource_id),
     CONSTRAINT shared_resource_owner_member_id_fkey FOREIGN KEY (owner_member_id) REFERENCES family_member(id) ON DELETE CASCADE
 );
@@ -1041,7 +1041,7 @@ CREATE TABLE sharing_settings (
     member_id INTEGER NOT NULL,
     resource_type TEXT NOT NULL,
     sharing_level TEXT NOT NULL DEFAULT 'NONE' CHECK (sharing_level IN ('ALL', 'NONE', 'MANUAL')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT sharing_settings_member_id_resource_type_key UNIQUE (member_id, resource_type),
     CONSTRAINT sharing_settings_member_id_fkey FOREIGN KEY (member_id) REFERENCES family_member(id) ON DELETE CASCADE
 );
@@ -1060,8 +1060,8 @@ CREATE TABLE sidecar_session (
     last_sync_completed_at TEXT,
     last_sync_error TEXT,
     last_sync_life_ambiguous INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     region TEXT,
     CONSTRAINT uq_sidecar_session_bank_member UNIQUE (bank, member_id),
     CONSTRAINT ck_sidecar_session_bank CHECK (bank IN ('AMEX', 'AMUNDI', 'BANQUE_POPULAIRE', 'BNP', 'BOURSE_DIRECT', 'BOURSO', 'CAISSE_EPARGNE', 'CIC', 'CMES', 'CORUM', 'FORTUNEO', 'NATIXIS', 'SOFIDY', 'TRADE_REPUBLIC')),
@@ -1082,8 +1082,8 @@ CREATE TABLE simplefin_connection (
     access_url TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'CONNECTED',
     last_synced_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT simplefin_connection_member_id_fkey FOREIGN KEY (member_id) REFERENCES family_member(id) ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX idx_simplefin_connection_member ON simplefin_connection (member_id);
@@ -1097,7 +1097,7 @@ CREATE TABLE "transaction" (
     type TEXT,
     category TEXT,
     native_currency TEXT NOT NULL DEFAULT 'EUR',
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     is_manual INTEGER NOT NULL DEFAULT 0 CHECK (is_manual IN (0, 1)),
     tx_type TEXT,
     ticker TEXT,
@@ -1168,8 +1168,8 @@ CREATE TABLE user_identity (
     email TEXT,
     display_name TEXT,
     last_login_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT uk_user_identity_issuer_subject UNIQUE (issuer, subject),
     CONSTRAINT fk_user_identity_user FOREIGN KEY (user_id) REFERENCES app_user(id) ON DELETE CASCADE
 );
@@ -1182,8 +1182,8 @@ CREATE TABLE user_mfa (
     totp_secret_enc TEXT NOT NULL,
     last_used_step INTEGER,
     enrolled_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT user_mfa_user_id_key UNIQUE (user_id),
     CONSTRAINT user_mfa_user_id_fkey FOREIGN KEY (user_id) REFERENCES app_user(id) ON DELETE CASCADE
 );
@@ -1193,7 +1193,7 @@ CREATE TABLE user_mfa_recovery_code (
     user_mfa_id INTEGER NOT NULL,
     code_hash TEXT NOT NULL,
     used_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT user_mfa_recovery_code_user_mfa_id_fkey FOREIGN KEY (user_mfa_id) REFERENCES user_mfa(id) ON DELETE CASCADE
 );
 CREATE INDEX idx_recovery_code_active ON user_mfa_recovery_code (user_mfa_id) WHERE used_at IS NULL;
@@ -1204,8 +1204,8 @@ CREATE TABLE wallet_address (
     address TEXT NOT NULL,
     label TEXT,
     last_synced_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     member_id INTEGER NOT NULL,
     CONSTRAINT wallet_address_member_id_fkey FOREIGN KEY (member_id) REFERENCES family_member(id) ON DELETE CASCADE
 );
@@ -1217,8 +1217,8 @@ CREATE TABLE wise_connection (
     api_token TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'CONNECTED',
     last_synced_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')),
     CONSTRAINT wise_connection_member_id_fkey FOREIGN KEY (member_id) REFERENCES family_member(id) ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX idx_wise_connection_member ON wise_connection (member_id);

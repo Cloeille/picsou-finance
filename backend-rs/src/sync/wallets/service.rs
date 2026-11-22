@@ -92,22 +92,23 @@ pub async fn add_wallet(
 
     let now = state.clock.now();
     let label = clean(request.label.as_deref());
-    // The insert and the sync commit together: a wallet that cannot sync is not kept.
+    // Fetch on-chain balances and refresh live prices BEFORE opening the write transaction so
+    // SQLite's writer gate is never held across RPC/HTTP calls or re-entered by PriceService's
+    // price_snapshot upserts. A wallet that cannot sync is never inserted.
+    let prepared = prepare(state, chain, &address, None).await?;
     let mut tx = state.db.begin().await?;
     let wallet = repo::insert(&mut tx, member_id, chain, &address, label.as_deref(), now).await?;
-    let prepared = prepare(state, &wallet).await?;
     let account = write(state, &mut tx.as_handle(), &wallet, &prepared, member_id)
         .await?
         .ok_or_else(account_deleted)?;
-    let response = response::build(
-        &mut tx.as_handle(),
+    tx.commit().await?;
+    response::build(
+        &mut state.db.pool_handle(),
         &*state.ledger.prices,
         &account,
         state.clock.today(),
     )
-    .await?;
-    tx.commit().await?;
-    Ok(response)
+    .await
 }
 
 fn account_deleted() -> AppError {
@@ -120,37 +121,43 @@ fn account_deleted() -> AppError {
 /// The user-triggered sync of one wallet. A wallet whose account was deleted can never produce
 /// one again, so it is a 422 naming the way out rather than a silent success.
 pub async fn sync(state: &AppState, wallet_id: i64, member_id: i64) -> AppResult<AccountResponse> {
+    let prepared = prepare_wallet(state, wallet_id, member_id).await?;
     let mut tx = state.db.begin().await?;
-    let account = sync_locked(state, &mut tx.as_handle(), wallet_id, member_id)
+    let account = sync_locked(state, &mut tx.as_handle(), wallet_id, member_id, &prepared)
         .await?
         .ok_or_else(account_deleted)?;
-    let response = response::build(
-        &mut tx.as_handle(),
+    tx.commit().await?;
+    response::build(
+        &mut state.db.pool_handle(),
         &*state.ledger.prices,
         &account,
         state.clock.today(),
     )
-    .await?;
-    tx.commit().await?;
-    Ok(response)
+    .await
 }
 
-/// Syncs one wallet in the caller's transaction; None when its account was soft-deleted.
+/// Reads the wallet and fetches chain balances + live prices outside any write transaction.
+async fn prepare_wallet(state: &AppState, wallet_id: i64, member_id: i64) -> AppResult<Prepared> {
+    let wallet = repo::find_by_id_and_member(&state.db, wallet_id, member_id)
+        .await?
+        .ok_or_else(wallet_not_found)?;
+    prepare(state, wallet.chain, &wallet.address, Some(wallet.id)).await
+}
+
+/// Applies a prepared wallet sync inside the caller's transaction; None when its account was
+/// soft-deleted.
 async fn sync_locked(
     state: &AppState,
     conn: &mut DbHandle<'_>,
     wallet_id: i64,
     member_id: i64,
+    prepared: &Prepared,
 ) -> AppResult<Option<Account>> {
-    let wallet = repo::find_by_id_and_member(&state.db, wallet_id, member_id)
-        .await?
-        .ok_or_else(wallet_not_found)?;
-    let prepared = prepare(state, &wallet).await?;
     // Re-read under a row lock: the wallet may have been removed while the chain answered.
     let wallet = repo::lock(&mut *conn, wallet_id, member_id)
         .await?
         .ok_or_else(wallet_not_found)?;
-    write(state, conn, &wallet, &prepared, member_id).await
+    write(state, conn, &wallet, prepared, member_id).await
 }
 
 /// MemberSyncService's "wallets" source: every wallet of the member, each in its own
@@ -190,8 +197,9 @@ pub async fn resync_all(state: &AppState, member_id: i64) -> ResyncSummary {
 }
 
 async fn resync_one(state: &AppState, wallet_id: i64, member_id: i64) -> AppResult<bool> {
+    let prepared = prepare_wallet(state, wallet_id, member_id).await?;
     let mut tx = state.db.begin().await?;
-    let synced = sync_locked(state, &mut tx.as_handle(), wallet_id, member_id)
+    let synced = sync_locked(state, &mut tx.as_handle(), wallet_id, member_id, &prepared)
         .await?
         .is_some();
     tx.commit().await?;
@@ -249,50 +257,53 @@ struct Prepared {
 
 async fn fetch_balances(
     state: &AppState,
-    wallet: &Wallet,
+    chain: Chain,
+    address: &str,
 ) -> Result<Vec<WalletBalance>, WalletError> {
-    match wallet.chain {
-        Chain::Evm => evm::fetch_balances(state, &wallet.address).await,
-        Chain::Bitcoin => bitcoin::fetch_balances(state, &wallet.address).await,
-        Chain::Solana => solana::fetch_balances(state, &wallet.address).await,
+    match chain {
+        Chain::Evm => evm::fetch_balances(state, address).await,
+        Chain::Bitcoin => bitcoin::fetch_balances(state, address).await,
+        Chain::Solana => solana::fetch_balances(state, address).await,
     }
 }
 
-async fn prepare(state: &AppState, wallet: &Wallet) -> AppResult<Prepared> {
+async fn prepare(
+    state: &AppState,
+    chain: Chain,
+    address: &str,
+    wallet_id: Option<i64>,
+) -> AppResult<Prepared> {
     let today = state.clock.today();
-    match try_prepare(state, wallet, today).await {
+    match try_prepare(state, chain, address, today).await {
         Ok(prepared) => Ok(prepared),
         Err(e) => {
+            let id_label = wallet_id.map_or_else(|| "new".to_owned(), |id| id.to_string());
             if e.expected {
                 tracing::warn!(
-                    "Wallet sync failed for {} wallet {}: {}",
-                    wallet.chain,
-                    wallet.id,
+                    "Wallet sync failed for {chain} wallet {id_label}: {}",
                     e.message
                 );
             } else {
                 tracing::error!(
-                    "Unexpected error during wallet sync for {} wallet {}: {}",
-                    wallet.chain,
-                    wallet.id,
+                    "Unexpected error during wallet sync for {chain} wallet {id_label}: {}",
                     e.message
                 );
             }
-            Err(sync_failed(wallet.chain))
+            Err(sync_failed(chain))
         }
     }
 }
 
 async fn try_prepare(
     state: &AppState,
-    wallet: &Wallet,
+    chain: Chain,
+    address: &str,
     today: NaiveDate,
 ) -> Result<Prepared, WalletError> {
-    let balances = fetch_balances(state, wallet).await?;
+    let balances = fetch_balances(state, chain, address).await?;
     let Some(first) = balances.first() else {
         return Err(WalletError::rpc(format!(
-            "Adapter returned no balances for {}",
-            wallet.chain
+            "Adapter returned no balances for {chain}"
         )));
     };
     // The chain's native asset leads by contract; it is the account's display ticker.
@@ -338,8 +349,7 @@ async fn try_prepare(
     // recording the zero would corrupt the net-worth history. A partial total is still written.
     if any_held && !any_priced {
         return Err(WalletError::rpc(format!(
-            "No EUR price available for any asset held in this wallet -- refusing to record a zero balance for {}",
-            wallet.chain
+            "No EUR price available for any asset held in this wallet -- refusing to record a zero balance for {chain}"
         )));
     }
     Ok(Prepared {

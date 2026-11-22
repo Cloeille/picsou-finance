@@ -18,7 +18,8 @@
 //! - Row-level locks: `FOR UPDATE`, `FOR NO KEY UPDATE`, `FOR SHARE`, `FOR KEY SHARE`
 //!   (including optional `NOWAIT` / `SKIP LOCKED`) -> stripped (`BEGIN IMMEDIATE` serializes writers).
 //! - UTC timezone conversion: `AT TIME ZONE 'UTC'` -> stripped (SQLite stores RFC 3339 UTC text).
-//! - Functions: `NOW()` -> `now()`, `LEAST(` -> `MIN(`, `GREATEST(` -> `MAX(`.
+//! - Functions: `NOW()` -> `now()`, `LEAST(` -> `pg_least(`, `GREATEST(` -> `pg_greatest(`
+//!   (registered UDFs that match PostgreSQL's NULL-ignoring and exact decimal comparison semantics).
 //! - Typed ANSI date literals: `DATE 'YYYY-MM-DD'` -> `'YYYY-MM-DD'`.
 
 use std::collections::HashMap;
@@ -593,7 +594,7 @@ pub fn translate_pg_to_sqlite(sql: &str) -> String {
                 if let Some(open) = next_non_space(&tokens, i + 1)
                     && tokens[open].sym_eq("(")
                 {
-                    out.push_str("MIN(");
+                    out.push_str("pg_least(");
                     i = open + 1;
                     continue;
                 }
@@ -604,7 +605,7 @@ pub fn translate_pg_to_sqlite(sql: &str) -> String {
                 if let Some(open) = next_non_space(&tokens, i + 1)
                     && tokens[open].sym_eq("(")
                 {
-                    out.push_str("MAX(");
+                    out.push_str("pg_greatest(");
                     i = open + 1;
                     continue;
                 }
@@ -889,7 +890,7 @@ mod tests {
     fn maps_least_and_greatest() {
         assert_eq!(
             translate_pg_to_sqlite("SELECT LEAST($1, $2), GREATEST(a, b, c) FROM t"),
-            "SELECT MIN(?1, ?2), MAX(a, b, c) FROM t"
+            "SELECT pg_least(?1, ?2), pg_greatest(a, b, c) FROM t"
         );
     }
 

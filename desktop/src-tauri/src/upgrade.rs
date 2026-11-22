@@ -10,6 +10,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use picsou::db::flyway::MigrationError;
+use picsou::db::sqlite::migrate::SqliteMigrationError;
 use semver::Version;
 
 const MARKER: &str = "app-version";
@@ -274,8 +275,31 @@ pub fn restore(data: &Path, copy: &Path, now_secs: u64) -> io::Result<()> {
     Ok(())
 }
 
+fn format_migration_reason(text: &str) -> String {
+    let reason: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(2)
+        .collect();
+    reason.join(". ").chars().take(300).collect()
+}
+
 /// Why the backend did not start, when its migrations are the reason.
 pub fn classify(error: &anyhow::Error) -> Option<Failure> {
+    if let Some(sqlite) = error
+        .chain()
+        .find_map(|e| e.downcast_ref::<SqliteMigrationError>())
+    {
+        if let SqliteMigrationError::Validation(problems) = sqlite {
+            if problems.contains("is not known to this binary") {
+                return Some(Failure::NewerData);
+            }
+        }
+        return Some(Failure::Migration(format_migration_reason(
+            &sqlite.to_string(),
+        )));
+    }
     let migration = error
         .chain()
         .find_map(|e| e.downcast_ref::<MigrationError>())?;
@@ -284,16 +308,9 @@ pub fn classify(error: &anyhow::Error) -> Option<Failure> {
             return Some(Failure::NewerData);
         }
     }
-    let text = migration.to_string();
-    let reason: Vec<&str> = text
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .take(2)
-        .collect();
-    Some(Failure::Migration(
-        reason.join(". ").chars().take(300).collect(),
-    ))
+    Some(Failure::Migration(format_migration_reason(
+        &migration.to_string(),
+    )))
 }
 
 #[cfg(test)]
@@ -519,5 +536,36 @@ mod tests {
             ))
         );
         assert_eq!(classify(&anyhow::anyhow!("connection refused")), None);
+    }
+
+    #[test]
+    fn sqlite_migration_failures_distinguish_newer_data_from_migration_errors() {
+        let newer = anyhow::Error::from(picsou::db::sqlite::SqliteError::Migration(
+            SqliteMigrationError::Validation(
+                "applied migration V2 (future schema) is not known to this binary".into(),
+            ),
+        ))
+        .context("startup");
+        assert_eq!(classify(&newer), Some(Failure::NewerData));
+
+        let checksum = anyhow::Error::from(SqliteMigrationError::Validation(
+            "checksum mismatch for migration V1: database has aaa, binary expects bbb".into(),
+        ));
+        assert_eq!(
+            classify(&checksum),
+            Some(Failure::Migration(
+                "SQLite migration validation failed: checksum mismatch for migration V1: database has aaa, binary expects bbb".into()
+            ))
+        );
+
+        let schema = anyhow::Error::from(picsou::db::sqlite::SqliteError::Migration(
+            SqliteMigrationError::Schema("missing column [foo] in table [account]".into()),
+        ));
+        assert_eq!(
+            classify(&schema),
+            Some(Failure::Migration(
+                "SQLite schema verification failed: missing column [foo] in table [account]".into()
+            ))
+        );
     }
 }

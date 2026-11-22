@@ -487,7 +487,7 @@ impl<'e> DbExec<'e> for &'e mut PoolConnection<Postgres> {
 
 impl<'e, 'h> DbExec<'e> for &'e mut DbHandle<'h> {
     fn is_sqlite(&self) -> bool {
-        matches!(self, DbHandle::Sqlite(_))
+        DbHandle::is_sqlite(self)
     }
 
     fn fetch_all_raw<'f>(
@@ -504,6 +504,7 @@ impl<'e, 'h> DbExec<'e> for &'e mut DbHandle<'h> {
                 let rows = handle.fetch_all(sql, args.into_sqlite()).await?;
                 Ok(rows.into_iter().map(DbRow::Sqlite).collect())
             }),
+            DbHandle::Pool(db) => (*db).fetch_all_raw(sql, args),
         }
     }
 
@@ -521,6 +522,7 @@ impl<'e, 'h> DbExec<'e> for &'e mut DbHandle<'h> {
                 let row = handle.fetch_optional(sql, args.into_sqlite()).await?;
                 Ok(row.map(DbRow::Sqlite))
             }),
+            DbHandle::Pool(db) => (*db).fetch_optional_raw(sql, args),
         }
     }
 
@@ -538,6 +540,7 @@ impl<'e, 'h> DbExec<'e> for &'e mut DbHandle<'h> {
                 let row = handle.fetch_one(sql, args.into_sqlite()).await?;
                 Ok(DbRow::Sqlite(row))
             }),
+            DbHandle::Pool(db) => (*db).fetch_one_raw(sql, args),
         }
     }
 
@@ -555,6 +558,7 @@ impl<'e, 'h> DbExec<'e> for &'e mut DbHandle<'h> {
                 let n = handle.execute(sql, args.into_sqlite()).await?;
                 Ok(DbQueryResult::new(n))
             }),
+            DbHandle::Pool(db) => (*db).execute_raw(sql, args),
         }
     }
 }

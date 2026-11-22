@@ -2,12 +2,10 @@
 
 use std::collections::HashMap;
 
-use crate::db::Db;
+use crate::db::{Db, DbFromRow, DbHandle};
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use serde::Serialize;
-
-use crate::db::DbFromRow;
 
 /// DividendCadence: (months, min gap days, max gap days), fastest first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -79,6 +77,15 @@ pub async fn sources_by_ticker(
     db: &Db,
     tickers: &[String],
 ) -> sqlx::Result<HashMap<String, DividendSource>> {
+    sources_by_ticker_on(&mut db.pool_handle(), tickers).await
+}
+
+/// findAllWithEventsByTickerIn executed on an existing [`DbHandle`] (avoiding re-entrant `&Db`
+/// calls when the caller already holds a `DbConn` or `DbTx`).
+pub async fn sources_by_ticker_on(
+    conn: &mut DbHandle<'_>,
+    tickers: &[String],
+) -> sqlx::Result<HashMap<String, DividendSource>> {
     let upper: Vec<String> = tickers
         .iter()
         .filter(|t| !t.trim().is_empty())
@@ -92,7 +99,7 @@ pub async fn sources_by_ticker(
             "SELECT id, ticker, currency FROM dividend_source WHERE ticker = ANY($1) ORDER BY id",
         )
         .bind(&upper)
-        .fetch_all(db)
+        .fetch_all(&mut *conn)
         .await?;
     let ids: Vec<i64> = rows.iter().map(|r| r.0).collect();
     let events: Vec<DividendEvent> = crate::db::query_as::<DividendEvent>(
@@ -100,7 +107,7 @@ pub async fn sources_by_ticker(
          WHERE source_id = ANY($1) ORDER BY source_id, ex_date",
     )
     .bind(&ids)
-    .fetch_all(db)
+    .fetch_all(&mut *conn)
     .await?;
     let mut out = HashMap::new();
     for (id, ticker, currency) in rows {

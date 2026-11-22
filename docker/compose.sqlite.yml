@@ -25,6 +25,9 @@ services:
       - path: .env
         required: false
     volumes:
+      # The container runs as uid 1000. The default named volume `picsou_data` works out of the
+      # box; if you switch to a host bind mount (e.g. `./data:/data`), make sure it is writable
+      # by uid 1000 (`chown -R 1000:1000 ./data` or mount options `uid=1000,gid=1000`).
       - picsou_data:/data
     environment:
       DATABASE_URL: sqlite:///data/picsou.db

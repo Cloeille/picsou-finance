@@ -927,11 +927,15 @@ async fn webview_fetch_json_with_timeout(
   fetch({path_js}, init)
     .then(function(r) {{
       return r.text().then(function(t) {{
-        window[k] = JSON.stringify({{ ok: true, status: r.status, text: t }});
+        if (window[k] === "{PENDING_SENTINEL}") {{
+          window[k] = JSON.stringify({{ ok: true, status: r.status, text: t }});
+        }}
       }});
     }})
     .catch(function() {{
-      window[k] = JSON.stringify({{ ok: false, status: 0, text: "" }});
+      if (window[k] === "{PENDING_SENTINEL}") {{
+        window[k] = JSON.stringify({{ ok: false, status: 0, text: "" }});
+      }}
     }});
 }})();"#
     );

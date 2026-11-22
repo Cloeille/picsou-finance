@@ -286,16 +286,16 @@ pub async fn find_all(
     RawQuery(query): RawQuery,
 ) -> AppResult<axum::Json<Vec<AccountResponse>>> {
     let include_hidden = Params::parse(query.as_deref()).boolean("includeHidden", false)?;
-    let mut conn = state.db.acquire().await?;
-    let mut list = access::readable_accounts(&mut conn.as_handle(), auth.member_id).await?;
+    let mut conn = state.db.pool_handle();
+    let mut list = access::readable_accounts(&mut conn, auth.member_id).await?;
     super::scale::fix_accounts(&mut list);
     if !include_hidden {
         list.retain(|a| !a.hidden);
     }
     let shares = access::shares_for(&mut conn, &list, auth.member_id).await?;
-    let prefs = prefs_by_account(&mut conn.as_handle(), auth.member_id).await?;
+    let prefs = prefs_by_account(&mut conn, auth.member_id).await?;
     let out = responses_for_viewer(
-        &mut conn.as_handle(),
+        &mut conn,
         &*state.ledger.prices,
         &list,
         &shares,
@@ -312,12 +312,11 @@ pub async fn find_by_id(
     auth: Auth,
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<AccountResponse>> {
-    let mut conn = state.db.acquire().await?;
-    let account = super::scale::fixed(
-        access::require_readable(&mut conn.as_handle(), id, auth.member_id).await?,
-    );
+    let mut conn = state.db.pool_handle();
+    let account =
+        super::scale::fixed(access::require_readable(&mut conn, id, auth.member_id).await?);
     Ok(axum::Json(
-        viewer_response(&state, &mut conn.as_handle(), &account, auth.member_id).await?,
+        viewer_response(&state, &mut conn, &account, auth.member_id).await?,
     ))
 }
 
@@ -410,12 +409,42 @@ pub async fn update(
     Path(id): Path<i64>,
     ValidJson(req): ValidJson<AccountRequest>,
 ) -> AppResult<axum::Json<AccountResponse>> {
+    let kind = req.kind();
+    // Pre-read and resolve any external Enable Banking logo lookup BEFORE opening the write
+    // transaction so we neither deadlock in-memory SQLite nor hold the SQLite writer gate across
+    // an external HTTP request (matching `create()`).
+    let existing =
+        super::scale::fixed(accounts::get_or_throw(&state.db, id, auth.member_id).await?);
+    if existing.account_type != AccountType::Scpi
+        && kind == AccountType::Scpi
+        && !holdings::find_by_account(&state.db, existing.id)
+            .await?
+            .is_empty()
+    {
+        return Err(AppError::BadRequest(
+            "Cannot convert an account that still has holdings to SCPI".to_owned(),
+        ));
+    }
+    let resolved_logo: Option<Option<String>> = if existing.is_manual {
+        match req.provider.as_deref().filter(|p| !p.trim().is_empty()) {
+            None => Some(None),
+            Some(provider) => {
+                let changed = existing.provider.as_deref() != Some(provider);
+                if changed || existing.logo_url.is_none() {
+                    Some(bank_logo_url(&state, Some(provider), req.institution_id.as_deref()).await)
+                } else {
+                    None
+                }
+            }
+        }
+    } else {
+        None
+    };
+
     let mut tx = state.db.begin().await?;
     let mut account =
         super::scale::fixed(accounts::get_or_throw(&mut tx, id, auth.member_id).await?);
-    let kind = req.kind();
     let name_changed = req.name() != account.name;
-    let previous_provider = account.provider.clone();
     let previous_type = account.account_type;
     if previous_type != AccountType::Scpi
         && kind == AccountType::Scpi
@@ -435,11 +464,9 @@ pub async fn update(
     if account.is_manual {
         match account.provider.as_deref().filter(|p| !p.trim().is_empty()) {
             None => account.logo_url = None,
-            Some(provider) => {
-                let changed = previous_provider.as_deref() != Some(provider);
-                if changed || account.logo_url.is_none() {
-                    account.logo_url =
-                        bank_logo_url(&state, Some(provider), req.institution_id.as_deref()).await;
+            Some(_) => {
+                if let Some(logo_url) = resolved_logo {
+                    account.logo_url = logo_url;
                 }
             }
         }
@@ -501,15 +528,6 @@ pub async fn update(
 
     let saved = accounts::update(&mut tx, &account, ctx.now).await?;
     account.updated_at = saved.updated_at;
-    let response = to_response(
-        &mut tx.as_handle(),
-        ctx.prices,
-        &account,
-        None,
-        None,
-        ctx.today,
-    )
-    .await?;
 
     // A renamed Revolut pocket carries its new name onto its transactions and the wallet-side legs.
     if name_changed
@@ -526,6 +544,15 @@ pub async fn update(
         update_pocket_wallet_side(&mut tx, parent, external, &account.name).await?;
     }
     tx.commit().await?;
+    let response = to_response(
+        &mut state.db.pool_handle(),
+        ctx.prices,
+        &account,
+        None,
+        None,
+        ctx.today,
+    )
+    .await?;
     Ok(axum::Json(response))
 }
 
@@ -573,8 +600,9 @@ pub async fn set_hidden(
     account.hidden = req.hidden;
     let saved = accounts::update(&mut tx, &account, state.clock.now()).await?;
     account.updated_at = saved.updated_at;
+    tx.commit().await?;
     let response = to_response(
-        &mut tx.as_handle(),
+        &mut state.db.pool_handle(),
         &*state.ledger.prices,
         &account,
         None,
@@ -582,7 +610,6 @@ pub async fn set_hidden(
         state.clock.today(),
     )
     .await?;
-    tx.commit().await?;
     Ok(axum::Json(response))
 }
 
@@ -597,8 +624,14 @@ pub async fn set_collapsed(
         access::require_readable(&mut tx.as_handle(), id, auth.member_id).await?,
     );
     display_prefs::upsert(&mut tx, id, auth.member_id, None, Some(req.collapsed)).await?;
-    let response = viewer_response(&state, &mut tx.as_handle(), &account, auth.member_id).await?;
     tx.commit().await?;
+    let response = viewer_response(
+        &state,
+        &mut state.db.pool_handle(),
+        &account,
+        auth.member_id,
+    )
+    .await?;
     Ok(axum::Json(response))
 }
 
@@ -630,13 +663,19 @@ pub async fn set_display_order(
     }
     let prefs = prefs_by_account(&mut tx.as_handle(), auth.member_id).await?;
     let shares = access::shares_for(&mut tx, &readable, auth.member_id).await?;
+    for (position, account) in readable.iter().enumerate() {
+        let position = i32::try_from(position).map_err(AppError::internal)?;
+        display_prefs::upsert(&mut tx, account.id, auth.member_id, Some(position), None).await?;
+    }
+    tx.commit().await?;
+
+    let mut conn = state.db.pool_handle();
     let mut out = Vec::with_capacity(readable.len());
     for (position, account) in readable.iter().enumerate() {
         let collapsed = prefs.get(&account.id).is_some_and(|p| p.list_collapsed);
         let position = i32::try_from(position).map_err(AppError::internal)?;
-        display_prefs::upsert(&mut tx, account.id, auth.member_id, Some(position), None).await?;
         let mut response = to_response(
-            &mut tx.as_handle(),
+            &mut conn,
             &*state.ledger.prices,
             account,
             shares.get(&account.id).copied(),
@@ -648,7 +687,6 @@ pub async fn set_display_order(
         response.list_collapsed = collapsed;
         out.push(response);
     }
-    tx.commit().await?;
     Ok(axum::Json(out))
 }
 
