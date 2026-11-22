@@ -102,6 +102,19 @@ public class NatixisAdapter {
     }
 
     /**
+     * Adopts a session the saver opened in their own browser, for accounts where Natixis asks a new
+     * device to register a passkey: the sidecar cannot, so the browser signs in and the saver hands
+     * over its refresh token. The sidecar proves the token with a refresh grant before answering, so
+     * a refused one fails here ({@code SESSION_EXPIRED}) rather than at the first sync.
+     */
+    public String importSession(String refreshToken) {
+        SidecarSessionState response = sidecar.post("/session/import", Map.of("refreshToken", refreshToken),
+            SidecarSessionState.class, completeTimeout, "Could not adopt the Natixis Interépargne session",
+            SidecarErrorCode.SESSION_EXPIRED);
+        return response.sessionState();
+    }
+
+    /**
      * Tells the sidecar to drop a parked login attempt so its pending slot frees at once.
      * Best effort: the sidecar forgets the attempt on its own after 600 s anyway, so a
      * failure is logged -- without the attempt id -- and never thrown.

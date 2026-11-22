@@ -372,6 +372,52 @@ class NatixisSyncServiceTest {
     }
 
     @Test
+    void aBrowserSessionIsStoredEncryptedAndQueuesASync() {
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(owner()));
+        when(port.importSession("browser-refresh-token")).thenReturn("adopted-state");
+        when(encryption.encrypt("adopted-state")).thenReturn("adopted-encrypted");
+        when(sessionRepository.saveAndFlush(any(SidecarSession.class))).thenAnswer(invocation -> {
+            SidecarSession stored = invocation.getArgument(0);
+            lenient().when(sessionRepository.findByIdAndMemberIdForUpdate(stored.getId(), 7L))
+                .thenReturn(Optional.of(stored));
+            lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.NATIXIS, 7L)).thenReturn(Optional.of(stored));
+            return stored;
+        });
+        when(port.fetchPlans("adopted-state"))
+            .thenThrow(new SyncException("transient", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
+
+        service.importBrowserSession("browser-refresh-token", 7L);
+
+        ArgumentCaptor<SidecarSession> stored = ArgumentCaptor.forClass(SidecarSession.class);
+        verify(sessionRepository).saveAndFlush(stored.capture());
+        // Only the state the sidecar built is stored, encrypted: never the pasted token as such.
+        assertThat(stored.getValue().getSessionState()).isEqualTo("adopted-encrypted");
+        verify(port).fetchPlans("adopted-state");
+    }
+
+    @Test
+    void aBrowserTokenNatixisRefusesStoresNothing() {
+        when(port.importSession("stale-token"))
+            .thenThrow(new SyncException("refused", null, SidecarErrorCode.SESSION_EXPIRED.name()));
+
+        assertThatThrownBy(() -> service.importBrowserSession("stale-token", 7L))
+            .isInstanceOf(SyncException.class);
+
+        verify(sessionRepository, never()).saveAndFlush(any(SidecarSession.class));
+        verify(port, never()).fetchPlans(anyString());
+    }
+
+    @Test
+    void aBrowserSessionAnswerWithoutAStateIsRefused() {
+        when(port.importSession("browser-refresh-token")).thenReturn(" ");
+
+        assertThatThrownBy(() -> service.importBrowserSession("browser-refresh-token", 7L))
+            .isInstanceOf(SyncException.class);
+
+        verify(sessionRepository, never()).saveAndFlush(any(SidecarSession.class));
+    }
+
+    @Test
     void aMistypedCodeKeepsTheAttemptOpenForAnotherTry() {
         when(port.initiateAuth("saver@example.com", "secret"))
             .thenReturn(new SidecarInitiate("process", true, "EMAIL", null));

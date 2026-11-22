@@ -49,13 +49,15 @@ class NatixisControllerTest {
     private ConcurrentHashMap<String, Bucket> completeBuckets;
     private ConcurrentHashMap<String, Bucket> syncBuckets;
     private MockMvc mockMvc;
+    private static final jakarta.validation.Validator VALIDATOR =
+        jakarta.validation.Validation.buildDefaultValidatorFactory().getValidator();
 
     @BeforeEach
     void setUp() {
         authBuckets = new ConcurrentHashMap<>();
         completeBuckets = new ConcurrentHashMap<>();
         syncBuckets = new ConcurrentHashMap<>();
-        controller = new NatixisController(service, userContext, authBuckets, completeBuckets, syncBuckets);
+        controller = new NatixisController(service, userContext, authBuckets, completeBuckets, syncBuckets, VALIDATOR);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
@@ -86,6 +88,76 @@ class NatixisControllerTest {
                 .content("{\"processId\":\"process\",\"code\":\"123456\"}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.syncStatus").value("QUEUED"));
+    }
+
+    @Test
+    void browserSessionScopesTheTokenToTheCurrentMember() throws Exception {
+        when(service.importBrowserSession("browser-refresh-token", MEMBER_ID))
+            .thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
+
+        mockMvc.perform(post("/api/natixis/auth/browser-session")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"browser-refresh-token\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.syncStatus").value("QUEUED"));
+    }
+
+    @Test
+    void aBrowserTokenNatixisRefusesReachesTheClientAsAnExpiredSession() throws Exception {
+        when(service.importBrowserSession("stale-token", MEMBER_ID))
+            .thenThrow(new SyncException("refused", null, SidecarErrorCode.SESSION_EXPIRED.name()));
+
+        mockMvc.perform(post("/api/natixis/auth/browser-session")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"stale-token\"}"))
+            .andExpect(status().is4xxClientError())
+            .andExpect(jsonPath("$.code").value("SESSION_EXPIRED"));
+    }
+
+    @Test
+    void aPastedValueThatCannotBeATokenIsRefusedBeforeTheService() throws Exception {
+        for (String pasted : new String[] {"", "short", "has a space", "x".repeat(4097)}) {
+            mockMvc.perform(post("/api/natixis/auth/browser-session")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"refreshToken\":\"" + pasted + "\"}"))
+                .andExpect(status().isUnprocessableEntity());
+        }
+        mockMvc.perform(post("/api/natixis/auth/browser-session")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isUnprocessableEntity());
+        verify(service, never()).importBrowserSession(anyString(), anyLong());
+    }
+
+    /** A token pasted with an accident in it is still a live credential: it must not be echoed anywhere. */
+    @Test
+    void aRefusedPasteNeverEchoesTheTokenBack() throws Exception {
+        String pasted = "live-looking-token with-a-stray-space";
+
+        String body = mockMvc.perform(post("/api/natixis/auth/browser-session")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"" + pasted + "\"}"))
+            .andExpect(status().isUnprocessableEntity())
+            .andReturn().getResponse().getContentAsString();
+
+        assertThat(body).doesNotContain("live-looking-token").doesNotContain("stray-space");
+    }
+
+    @Test
+    void aBrowserSessionSharesTheCodeCheckBudget() throws Exception {
+        when(service.importBrowserSession("browser-refresh-token", MEMBER_ID))
+            .thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
+        int allowed = 0;
+        while (allowed < 100) {
+            int status = mockMvc.perform(post("/api/natixis/auth/browser-session")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"refreshToken\":\"browser-refresh-token\"}")
+                    .with(req -> { req.setRemoteAddr("10.1.1.1"); return req; }))
+                .andReturn().getResponse().getStatus();
+            if (status == 429) break;
+            allowed++;
+        }
+        assertThat(allowed).isBetween(1, 99);
     }
 
     @Test

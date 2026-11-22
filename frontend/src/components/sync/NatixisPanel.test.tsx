@@ -30,14 +30,14 @@ function apiError(code: string) {
   return Object.assign(new Error(code), { response: { status: 400, data: { code } } })
 }
 
-function renderPanel() {
+function renderPanel(props: { onConnected?: () => void } = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   function Wrapper({ children }: { children: ReactNode }) {
     return <QueryClientProvider client={client}>{children}</QueryClientProvider>
   }
-  return render(<NatixisPanel />, { wrapper: Wrapper })
+  return render(<NatixisPanel {...props} />, { wrapper: Wrapper })
 }
 
 async function reachSmsCode() {
@@ -108,5 +108,87 @@ describe('NatixisPanel', () => {
 
     expect(await screen.findByText('sync.natixis.errors.authAttemptExpired')).toBeInTheDocument()
     expect(screen.queryByLabelText('sync.natixis.otpCode')).not.toBeInTheDocument()
+  })
+
+  describe('passkey sign-in (browser session)', () => {
+    it('hands the pasted session token to the backend, trimmed', async () => {
+      apiPost.mockResolvedValue({ data: { ...NO_SESSION, isActive: true, syncStatus: 'QUEUED' } })
+      renderPanel()
+
+      fireEvent.change(await screen.findByLabelText('sync.natixis.browser.token'), {
+        target: { value: '  token-from-the-browser  ' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'sync.natixis.browser.submit' }))
+
+      await waitFor(() =>
+        expect(apiPost).toHaveBeenCalledWith('/natixis/auth/browser-session', { refreshToken: 'token-from-the-browser' }),
+      )
+    })
+
+    it('keeps the submit button off until something is pasted', async () => {
+      renderPanel()
+
+      await screen.findByLabelText('sync.natixis.browser.token')
+
+      expect(screen.getByRole('button', { name: 'sync.natixis.browser.submit' })).toBeDisabled()
+    })
+
+    it('says so when Natixis refuses the token', async () => {
+      apiPost.mockRejectedValue(Object.assign(new Error('x'), { response: { status: 401, data: { code: 'SESSION_EXPIRED' } } }))
+      renderPanel()
+
+      fireEvent.change(await screen.findByLabelText('sync.natixis.browser.token'), { target: { value: 'stale-token-value' } })
+      fireEvent.click(screen.getByRole('button', { name: 'sync.natixis.browser.submit' }))
+
+      expect(await screen.findByText('sync.natixis.browser.errors.refused')).toBeInTheDocument()
+    })
+
+    /** Every connector failure is a 422 too: a good token must not be blamed when Natixis is down. */
+    it('does not blame the token when Natixis or the connector is unavailable', async () => {
+      apiPost.mockRejectedValue(Object.assign(new Error('x'), {
+        response: { status: 422, data: { code: 'UPSTREAM_UNAVAILABLE' } },
+      }))
+      renderPanel()
+
+      fireEvent.change(await screen.findByLabelText('sync.natixis.browser.token'), { target: { value: 'fresh-token-value' } })
+      fireEvent.click(screen.getByRole('button', { name: 'sync.natixis.browser.submit' }))
+
+      expect(await screen.findByText('sync.natixis.errors.serverError')).toBeInTheDocument()
+      expect(screen.queryByText('sync.natixis.browser.errors.malformed')).not.toBeInTheDocument()
+    })
+
+    /** The import only queues the first sync: the modal must not close before that sync has succeeded. */
+    it('reports the connection only once the first sync has succeeded', async () => {
+      const onConnected = vi.fn()
+      const active = { ...NO_SESSION, isActive: true }
+      let status = NO_SESSION
+      apiGet.mockImplementation(() => Promise.resolve({ data: status }))
+      apiPost.mockImplementation(() => {
+        status = { ...active, syncStatus: 'RUNNING' }
+        return Promise.resolve({ data: { ...active, syncStatus: 'QUEUED' } })
+      })
+      renderPanel({ onConnected })
+
+      fireEvent.change(await screen.findByLabelText('sync.natixis.browser.token'), { target: { value: 'fresh-token-value' } })
+      fireEvent.click(screen.getByRole('button', { name: 'sync.natixis.browser.submit' }))
+      await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1))
+      expect(onConnected).not.toHaveBeenCalled()
+
+      status = { ...active, syncStatus: 'SUCCESS' }
+      await waitFor(() => expect(onConnected).toHaveBeenCalledTimes(1), { timeout: 4000 })
+    })
+
+    it('says so when the pasted value cannot be a token', async () => {
+      // A bean-validation refusal: 422 with the field errors and no connector code.
+      apiPost.mockRejectedValue(Object.assign(new Error('x'), {
+        response: { status: 422, data: { errors: { refreshToken: 'must match' } } },
+      }))
+      renderPanel()
+
+      fireEvent.change(await screen.findByLabelText('sync.natixis.browser.token'), { target: { value: 'has some spaces' } })
+      fireEvent.click(screen.getByRole('button', { name: 'sync.natixis.browser.submit' }))
+
+      expect(await screen.findByText('sync.natixis.browser.errors.malformed')).toBeInTheDocument()
+    })
   })
 })

@@ -201,6 +201,29 @@ public class NatixisSyncService {
         return getStatus(memberId);
     }
 
+    /**
+     * Stores a session the saver opened in their own browser (passkey sign-in) instead of one the
+     * sidecar logged in itself. From here it is an ordinary session: queued, synced daily, and
+     * ended the same way when Natixis refuses its refresh token.
+     */
+    public SessionStatusResponse importBrowserSession(String refreshToken, Long memberId) {
+        // Read before asking Natixis: a disconnect that lands while the sidecar is proving the
+        // token must win, as it does for a login waiting on its code.
+        long generation = authGeneration(memberId);
+        String plainState = port.importSession(refreshToken);
+        if (plainState == null || plainState.isBlank()) {
+            throw error(SidecarErrorCode.INVALID_DATA, "Natixis did not return a session", null);
+        }
+        SyncJob job;
+        synchronized (sessionWriteLock) {
+            requireGeneration(memberId, generation,
+                "The Natixis connection was removed while the session was being checked");
+            job = insertSession(plainState, memberId);
+        }
+        submit(job);
+        return getStatus(memberId);
+    }
+
     public SessionStatusResponse queueSync(Long memberId) {
         QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
             SidecarSession session = sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.NATIXIS, memberId)
@@ -239,8 +262,12 @@ public class NatixisSyncService {
 
     /** Must be called under {@link #sessionWriteLock}, in the same block as the write it guards. */
     private void requireGeneration(Long memberId, long generation) {
+        requireGeneration(memberId, generation, "The Natixis connection was removed during the login");
+    }
+
+    private void requireGeneration(Long memberId, long generation, String message) {
         if (authGeneration(memberId) != generation) {
-            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED, "The Natixis connection was removed during the login", null);
+            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED, message, null);
         }
     }
 
