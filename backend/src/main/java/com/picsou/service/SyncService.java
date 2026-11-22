@@ -485,21 +485,21 @@ public class SyncService {
         String sessionId
     ) {
         String currency = data.currency() != null ? data.currency() : "EUR";
+        // A card may carry the IBAN of the account it is debited from: never match or store it on the card.
+        String iban = data.type() == AccountType.CREDIT_CARD ? null : data.iban();
         Optional<Account> existing =
             accountRepository.findByExternalAccountIdAndMemberId(data.externalId(), member.getId());
         if (existing.isEmpty()) {
             // A deleted uid is not a rotation, even when another connector owns the IBAN.
             boolean deletedUid = accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(
                 data.externalId(), member.getId());
-            // A card may carry the IBAN of the account it is debited from: matching on it would
-            // turn that current account into the card for good.
-            if (!deletedUid && data.iban() != null && data.type() != AccountType.CREDIT_CARD) {
-                existing = accountRepository.findByIbanAndCurrencyAndMemberId(data.iban(), currency, member.getId());
+            if (!deletedUid && iban != null) {
+                existing = accountRepository.findByIbanAndCurrencyAndMemberId(iban, currency, member.getId());
             }
-            if (deletedUid || (existing.isEmpty() && data.iban() != null &&
-                accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(data.iban(), currency, member.getId()))) {
+            if (deletedUid || (existing.isEmpty() && iban != null &&
+                accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(iban, currency, member.getId()))) {
                 log.info("Skipping resurrection of soft-deleted account externalId={} iban={} member={}",
-                    data.externalId(), LogSanitizer.fingerprint(data.iban()), member.getId());
+                    data.externalId(), LogSanitizer.fingerprint(iban), member.getId());
                 return Optional.empty();
             }
         }
@@ -519,11 +519,11 @@ public class SyncService {
             // Refresh uid in case the provider rotated it (EB v0.16.4 Boursorama case)
             account.setExternalAccountId(data.externalId());
             // A deleted sidecar can be restored on reconnect, so it still reserves its IBAN.
-            if (data.iban() != null && !accountRepository.existsByIbanAndCurrencyAndMemberIdAndIdNot(
-                data.iban(), currency, member.getId(), account.getId()) &&
+            if (iban != null && !accountRepository.existsByIbanAndCurrencyAndMemberIdAndIdNot(
+                iban, currency, member.getId(), account.getId()) &&
                 !accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(
-                    data.iban(), currency, member.getId())) {
-                account.setIban(data.iban());
+                    iban, currency, member.getId())) {
+                account.setIban(iban);
             }
             // Backfill the bank logo on a pre-logo account once the requisition has one.
             if (account.getLogoUrl() == null && requisition.getLogoUrl() != null) {
@@ -544,7 +544,7 @@ public class SyncService {
                 .currentBalance(balance != null ? balance : BigDecimal.ZERO)
                 .lastSyncedAt(Instant.now())
                 .externalAccountId(data.externalId())
-                .iban(data.iban())
+                .iban(iban)
                 .isManual(false)
                 .color("#6366f1")
                 .logoUrl(requisition.getLogoUrl())

@@ -159,12 +159,14 @@ class SyncServiceCardAccountTest {
     }
 
     @Test
-    void cardCarryingItsCurrentAccountIban_isNeverMatchedToIt() {
+    void cardCarryingItsCurrentAccountIban_isNeitherMatchedToItNorStoresIt() {
         AccountData card = new AccountData("uid-new-card", "Carte Visa Synthetic Holder", "FR00SYNTHETIC", "EUR",
             new BigDecimal("-12.00"), AccountType.CREDIT_CARD, CardNature.DEFERRED_DEBIT, "delayed_debit");
         Account saved = sync(null, card);
         verify(accountRepository, never()).findByIbanAndCurrencyAndMemberId(any(), any(), any());
         assertThat(saved.getExternalAccountId()).isEqualTo("uid-new-card");
+        // Two active accounts sharing (iban, currency) would break the current account's IBAN fallback.
+        assertThat(saved.getIban()).isNull();
     }
 
     @Test
