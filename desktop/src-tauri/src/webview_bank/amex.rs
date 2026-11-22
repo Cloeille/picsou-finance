@@ -26,8 +26,9 @@ use super::bnp::{
     WebviewStartResponse, WebviewStatusResponse,
 };
 use super::{
-    document_ready_complete, is_allowed_https_navigation, is_domain_or_subdomain,
-    poll_webview_slot, read_capped_text, EvalPollError, ReadBodyError, PENDING_SENTINEL,
+    check_navigation_scheme, document_ready_complete, enforce_main_frame_url,
+    is_domain_or_subdomain, poll_webview_slot, read_capped_text, EvalPollError, ReadBodyError,
+    PENDING_SENTINEL,
 };
 
 const LOGIN_URL: &str = "https://www.americanexpress.com/fr-fr/account/login/";
@@ -179,6 +180,9 @@ impl AmexWebviewManager {
 
         let app_for_build = app.clone();
         let label_for_build = window_label.clone();
+        let login_url_for_load = entry_url.clone();
+        let manager_for_load = Arc::clone(self);
+        let pid_for_load = process_id.clone();
         let manager_for_close = Arc::clone(self);
         let pid_for_close = process_id.clone();
 
@@ -195,16 +199,16 @@ impl AmexWebviewManager {
             .incognito(true)
             .visible(true)
             .focused(true)
-            .on_navigation(|url| {
-                let allowed = is_allowed_navigation_url(url);
-                if !allowed {
-                    tracing::warn!(
-                        "AMEX WebView blocked navigation to scheme={} host={:?}",
-                        url.scheme(),
-                        url.host_str()
-                    );
-                }
-                allowed
+            .on_navigation(|url| check_navigation_scheme("AMEX", url))
+            .on_page_load(move |window, payload| {
+                enforce_main_frame_url(
+                    "AMEX",
+                    &window,
+                    payload.url(),
+                    &login_url_for_load,
+                    is_allowed_main_frame_url,
+                    || manager_for_load.mark_failed(&pid_for_load, "UPSTREAM_UNAVAILABLE"),
+                );
             })
             .build()?;
             win.on_window_event(move |event| {
@@ -874,16 +878,19 @@ pub fn is_amex_host(host: &str) -> bool {
     is_domain_or_subdomain(&host.to_ascii_lowercase(), "americanexpress.com")
 }
 
-/// Host allowlist for `WebviewWindowBuilder::on_navigation`: permits `about:blank` and HTTPS
-/// navigations within American Express domains (`americanexpress.com`, `americanexpress.fr`,
+/// Main-frame host allowlist for `WebviewWindowBuilder::on_page_load`: permits `about:blank` and
+/// HTTPS navigations within American Express domains (`americanexpress.com`, `americanexpress.fr`,
 /// `aexp-static.com`, `aexp.com` and their subdomains), blocking all other schemes and hosts.
-pub fn is_allowed_navigation_url(url: &Url) -> bool {
-    is_allowed_https_navigation(url, |host| {
-        is_domain_or_subdomain(host, "americanexpress.com")
-            || is_domain_or_subdomain(host, "americanexpress.fr")
-            || is_domain_or_subdomain(host, "aexp-static.com")
-            || is_domain_or_subdomain(host, "aexp.com")
-    })
+pub fn is_allowed_main_frame_url(url: &Url) -> bool {
+    super::is_allowed_main_frame_url(
+        url,
+        &[
+            "americanexpress.com",
+            "americanexpress.fr",
+            "aexp-static.com",
+            "aexp.com",
+        ],
+    )
 }
 
 /// True once the WebView has left the login / 2FA / logon screens and reached an authenticated
@@ -1018,7 +1025,7 @@ mod tests {
     }
 
     #[test]
-    fn navigation_allowlist_restricts_to_amex_https_and_about_blank() {
+    fn main_frame_allowlist_restricts_to_amex_https_and_about_blank() {
         for allowed in [
             "about:blank",
             "https://americanexpress.com/",
@@ -1032,7 +1039,7 @@ mod tests {
             "https://auth.aexp.com/verify",
         ] {
             assert!(
-                is_allowed_navigation_url(&Url::parse(allowed).unwrap()),
+                is_allowed_main_frame_url(&Url::parse(allowed).unwrap()),
                 "expected allowed: {allowed}"
             );
         }
@@ -1044,12 +1051,14 @@ mod tests {
             "https://americanexpress.com.evil.example/",
             "https://evil-aexp.com/",
             "https://evil.example/",
+            "about:srcdoc",
+            "blob:https://global.americanexpress.com/abc",
             "file:///etc/passwd",
             "javascript:alert(1)",
             "data:text/html,<svg/onload=alert(1)>",
         ] {
             assert!(
-                !is_allowed_navigation_url(&Url::parse(rejected).unwrap()),
+                !is_allowed_main_frame_url(&Url::parse(rejected).unwrap()),
                 "expected rejected: {rejected}"
             );
         }

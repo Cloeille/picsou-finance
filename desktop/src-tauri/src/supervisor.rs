@@ -250,10 +250,11 @@ struct Backend {
     stopped: mpsc::Receiver<()>,
 }
 
-/// True when the app-data folder holds a legacy embedded PostgreSQL cluster from an older
-/// Desktop release and no SQLite database yet.
-pub fn has_legacy_postgres_only(layout: &Layout) -> bool {
-    !layout.database().exists() && layout.legacy_postgres().exists()
+/// True when the app-data folder holds a legacy embedded PostgreSQL directory from an older
+/// Desktop release. The backend gates `legacyPostgresDetected` on setup not being complete, so
+/// the onboarding notice persists across restarts until setup finishes.
+pub fn has_legacy_postgres(layout: &Layout) -> bool {
+    layout.legacy_postgres().is_dir()
 }
 
 /// Starts the embedded SQLite backend in this process and returns once it is ready.
@@ -273,10 +274,10 @@ pub fn start(
     let sidecar_key =
         secret(&secrets.join("sidecar_api_key")).map_err(|e| format!("sidecar key: {e}"))?;
     let fresh = !db_path.exists();
-    if has_legacy_postgres_only(layout) {
+    if has_legacy_postgres(layout) {
         tracing::info!(
-            "legacy PostgreSQL data folder detected at {} with no SQLite database yet; \
-             leaving the legacy postgres/ folder untouched and starting with a fresh SQLite database at {}",
+            "legacy PostgreSQL data folder detected at {}; \
+             leaving the legacy postgres/ folder untouched and using the SQLite database at {}",
             layout.legacy_postgres().display(),
             db_path.display()
         );
@@ -483,7 +484,7 @@ pub fn backend_env(layout: &Layout, port: u16, desktop_token: &str) -> Vec<(Stri
     .into_iter()
     .map(|(k, v)| (k.to_owned(), v))
     .collect();
-    if has_legacy_postgres_only(layout) {
+    if has_legacy_postgres(layout) {
         vars.push(("APP_DESKTOP_LEGACY_POSTGRES".to_owned(), "true".to_owned()));
     }
     vars.extend(
@@ -838,11 +839,22 @@ mod tests {
     }
 
     #[test]
-    fn legacy_postgres_folder_is_detected_when_sqlite_is_absent() {
+    fn legacy_postgres_folder_is_detected_whenever_present() {
         let root = scratch("legacy-pg");
         let l = layout(&root);
+        assert!(!has_legacy_postgres(&l));
+        let env_without_legacy: std::collections::HashMap<_, _> =
+            backend_env(&l, 8123, "tok").into_iter().collect();
+        assert!(!env_without_legacy.contains_key("APP_DESKTOP_LEGACY_POSTGRES"));
+
+        // A regular file named `postgres` is not a legacy cluster directory.
+        fs::create_dir_all(&l.data).unwrap();
+        fs::write(l.legacy_postgres(), "not-a-dir").unwrap();
+        assert!(!has_legacy_postgres(&l));
+        fs::remove_file(l.legacy_postgres()).unwrap();
+
         fs::create_dir_all(l.legacy_postgres()).unwrap();
-        assert!(has_legacy_postgres_only(&l));
+        assert!(has_legacy_postgres(&l));
 
         let env_with_legacy: std::collections::HashMap<_, _> =
             backend_env(&l, 8123, "tok").into_iter().collect();
@@ -853,13 +865,20 @@ mod tests {
             Some("true")
         );
 
+        // Once picsou.db is created on first launch, postgres/ is still reported so the onboarding
+        // notice remains visible across restarts until setup completes.
         fs::write(l.database(), "sqlite").unwrap();
-        assert!(!has_legacy_postgres_only(&l));
-        assert!(l.legacy_postgres().exists());
+        assert!(has_legacy_postgres(&l));
+        assert!(l.legacy_postgres().is_dir());
 
         let env_after_sqlite: std::collections::HashMap<_, _> =
             backend_env(&l, 8123, "tok").into_iter().collect();
-        assert!(!env_after_sqlite.contains_key("APP_DESKTOP_LEGACY_POSTGRES"));
+        assert_eq!(
+            env_after_sqlite
+                .get("APP_DESKTOP_LEGACY_POSTGRES")
+                .map(String::as_str),
+            Some("true")
+        );
     }
 
     #[test]

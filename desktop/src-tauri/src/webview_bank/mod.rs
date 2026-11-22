@@ -177,9 +177,43 @@ fn build_router(state: Arc<BridgeState>) -> axum::Router {
         .with_state(state)
 }
 
+/// Scheme-only navigation allowlist for `WebviewWindowBuilder::on_navigation`.
+///
+/// On macOS (`WKWebView`) and Linux (`WebKitGTK`), `wry` invokes `on_navigation` for every frame
+/// including iframes (captchas, 3-D Secure, anti-fraud widgets from third-party HTTPS domains,
+/// `about:srcdoc`, `blob:`). Restricting hosts here would break bank subframes; main-frame host
+/// enforcement runs in `on_page_load` via [`enforce_main_frame_url`].
+pub(crate) fn is_allowed_navigation_scheme(url: &Url) -> bool {
+    if matches!(url.as_str(), "about:blank" | "about:srcdoc") {
+        return true;
+    }
+    if url.scheme() == "blob" {
+        return !url.path().is_empty();
+    }
+    url.scheme() == "https"
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && matches!(url.port(), None | Some(443))
+}
+
+/// Logs only the scheme (never full URL, host, query, or tokens) when `on_navigation` blocks a
+/// disallowed scheme.
+pub(crate) fn check_navigation_scheme(bank: &'static str, url: &Url) -> bool {
+    let allowed = is_allowed_navigation_scheme(url);
+    if !allowed {
+        tracing::warn!(
+            bank,
+            scheme = url.scheme(),
+            "WebView blocked navigation with disallowed scheme"
+        );
+    }
+    allowed
+}
+
 /// Returns `true` when `url` is `about:blank`, or an `https` URL on default port 443 with no
 /// embedded userinfo whose lowercased host satisfies `host_allowed`.
-pub(crate) fn is_allowed_https_navigation(
+pub(crate) fn is_allowed_main_frame_with(
     url: &Url,
     host_allowed: impl FnOnce(&str) -> bool,
 ) -> bool {
@@ -197,6 +231,53 @@ pub(crate) fn is_allowed_https_navigation(
         return false;
     };
     host_allowed(&host.to_ascii_lowercase())
+}
+
+/// Returns `true` when `url` is `about:blank`, or an `https` URL on default port 443 with no
+/// embedded userinfo whose lowercased host matches any domain (or subdomain) in `allowed_hosts`.
+pub(crate) fn is_allowed_main_frame_url(url: &Url, allowed_hosts: &[&str]) -> bool {
+    is_allowed_main_frame_with(url, |host| {
+        allowed_hosts
+            .iter()
+            .any(|domain| is_domain_or_subdomain(host, domain))
+    })
+}
+
+/// Evaluates a main-frame URL against `is_allowed`. When disallowed, logs ONLY the host (never
+/// path, query, tokens, or cookies), runs `on_violation`, and returns `false`.
+pub(crate) fn check_main_frame_url(
+    bank: &'static str,
+    url: &Url,
+    is_allowed: impl FnOnce(&Url) -> bool,
+    on_violation: impl FnOnce(),
+) -> bool {
+    if is_allowed(url) {
+        return true;
+    }
+    let host = url.host_str().unwrap_or("<none>");
+    tracing::warn!(
+        bank,
+        host,
+        "WebView main frame left allowed bank domain; aborting login"
+    );
+    on_violation();
+    false
+}
+
+/// Main-frame host guard for `WebviewWindowBuilder::on_page_load` (which fires only for the
+/// top-level document). If the main frame leaves the bank's allowed host list, logs only the host,
+/// marks the login process failed via `on_violation`, and navigates back to `login_url`.
+pub(crate) fn enforce_main_frame_url(
+    bank: &'static str,
+    window: &WebviewWindow,
+    url: &Url,
+    login_url: &Url,
+    is_allowed: impl FnOnce(&Url) -> bool,
+    on_violation: impl FnOnce(),
+) {
+    if !check_main_frame_url(bank, url, is_allowed, on_violation) {
+        let _ = window.navigate(login_url.clone());
+    }
 }
 
 /// Returns `true` when `host_lower` equals `domain` or is a proper subdomain (`*.domain`).
@@ -735,5 +816,72 @@ mod tests {
             delete_js,
             r#"(function(){ delete window["__picsou_test_slot"]; })()"#
         );
+    }
+
+    #[test]
+    fn navigation_scheme_allows_subframe_https_about_and_blob_only() {
+        for allowed in [
+            "https://challenges.cloudflare.com/turnstile",
+            "https://3ds.bank.example/auth",
+            "https://app.revolut.com:443/home",
+            "about:blank",
+            "about:srcdoc",
+            "blob:https://app.revolut.com/abc",
+            "blob:null/1234-5678",
+        ] {
+            assert!(
+                is_allowed_navigation_scheme(&Url::parse(allowed).unwrap()),
+                "expected allowed: {allowed}"
+            );
+        }
+        for rejected in [
+            "http://revolut.com",
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "data:text/html,hi",
+            "custom-app://open",
+            "about:config",
+            "blob:",
+            "https://user:pass@revolut.com",
+            "https://user@revolut.com/",
+            "https://:pass@revolut.com/",
+            "https://revolut.com:8443/",
+        ] {
+            assert!(
+                !is_allowed_navigation_scheme(&Url::parse(rejected).unwrap()),
+                "expected rejected: {rejected}"
+            );
+        }
+    }
+
+    #[test]
+    fn check_main_frame_url_triggers_violation_only_for_disallowed_hosts() {
+        let mut violations = 0usize;
+        let allowed = Url::parse("https://app.revolut.com/home").unwrap();
+        assert!(check_main_frame_url(
+            "Revolut",
+            &allowed,
+            |u| is_allowed_main_frame_url(u, &["revolut.com"]),
+            || violations += 1,
+        ));
+        assert_eq!(violations, 0);
+
+        let foreign = Url::parse("https://evil.example/phish?token=secret").unwrap();
+        assert!(!check_main_frame_url(
+            "Revolut",
+            &foreign,
+            |u| is_allowed_main_frame_url(u, &["revolut.com"]),
+            || violations += 1,
+        ));
+        assert_eq!(violations, 1);
+
+        let srcdoc = Url::parse("about:srcdoc").unwrap();
+        assert!(!check_main_frame_url(
+            "Revolut",
+            &srcdoc,
+            |u| is_allowed_main_frame_url(u, &["revolut.com"]),
+            || violations += 1,
+        ));
+        assert_eq!(violations, 2);
     }
 }
