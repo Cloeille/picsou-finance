@@ -8,10 +8,11 @@ use axum::extract::{RawQuery, State};
 use http::StatusCode;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use sqlx::{PgConnection, PgExecutor};
+use sqlx::PgConnection;
 
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db::{self, DbExec};
 use crate::error::{AppError, AppResult};
 use crate::http::json::{Errors, Json, Validate};
 use crate::ledger::accounts;
@@ -40,11 +41,11 @@ pub enum SharingLevel {
 
 /// The member's level for a resource type; NONE without a row.
 pub async fn level<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     resource_type: &str,
 ) -> sqlx::Result<SharingLevel> {
-    let level: Option<SharingLevel> = sqlx::query_scalar(
+    let level: Option<SharingLevel> = db::query_scalar(
         "SELECT sharing_level FROM sharing_settings WHERE member_id = $1 AND resource_type = $2",
     )
     .bind(member_id)
@@ -56,11 +57,11 @@ pub async fn level<'e>(
 
 /// The ids the member shares by hand for a resource type, in the order they were stored.
 pub async fn shared_ids<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     resource_type: &str,
 ) -> sqlx::Result<Vec<i64>> {
-    sqlx::query_scalar(
+    db::query_scalar(
         "SELECT resource_id FROM shared_resource WHERE owner_member_id = $1 AND resource_type = $2 ORDER BY id",
     )
     .bind(member_id)
@@ -70,12 +71,12 @@ pub async fn shared_ids<'e>(
 }
 
 pub async fn is_shared<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     resource_type: &str,
     resource_id: i64,
 ) -> sqlx::Result<bool> {
-    sqlx::query_scalar(
+    db::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM shared_resource WHERE owner_member_id = $1 AND resource_type = $2 AND resource_id = $3)",
     )
     .bind(member_id)
@@ -107,9 +108,9 @@ async fn get_settings(
 ) -> AppResult<axum::Json<SharingSettingsResponse>> {
     let resource_type = required_param(query.as_deref(), "resourceType")?;
     let mut conn = state.db.acquire().await?;
-    let sharing_level = level(&mut *conn, auth.member_id, &resource_type).await?;
+    let sharing_level = level(&mut conn, auth.member_id, &resource_type).await?;
     let shared_resource_ids = match sharing_level {
-        SharingLevel::Manual => shared_ids(&mut *conn, auth.member_id, &resource_type).await?,
+        SharingLevel::Manual => shared_ids(&mut conn, auth.member_id, &resource_type).await?,
         // The client reads [-1] as "everything".
         SharingLevel::All => vec![-1],
         SharingLevel::None => Vec::new(),
@@ -175,7 +176,7 @@ async fn validated_ids(
             .await?
             .len() as i64,
         _ => {
-            sqlx::query_scalar::<_, i64>(
+            db::query_scalar::<i64>(
                 "SELECT count(*) FROM goal WHERE id = ANY($1) AND member_id = $2",
             )
             .bind(&distinct)
@@ -218,30 +219,30 @@ async fn update_settings(
     } else {
         Vec::new()
     };
-    sqlx::query(
+    db::query(
         "INSERT INTO sharing_settings (member_id, resource_type, sharing_level) VALUES ($1, $2, $3) \
          ON CONFLICT (member_id, resource_type) DO UPDATE SET sharing_level = EXCLUDED.sharing_level",
     )
     .bind(member_id)
     .bind(resource_type)
     .bind(sharing_level)
-    .execute(&mut *tx)
+    .execute(&mut tx)
     .await?;
-    sqlx::query("DELETE FROM shared_resource WHERE owner_member_id = $1 AND resource_type = $2")
+    db::query("DELETE FROM shared_resource WHERE owner_member_id = $1 AND resource_type = $2")
         .bind(member_id)
         .bind(resource_type)
-        .execute(&mut *tx)
+        .execute(&mut tx)
         .await?;
     let now = state.clock.now();
     for id in manual_ids {
-        sqlx::query(
+        db::query(
             "INSERT INTO shared_resource (owner_member_id, resource_type, resource_id, created_at) VALUES ($1, $2, $3, $4)",
         )
         .bind(member_id)
         .bind(resource_type)
         .bind(id)
         .bind(now)
-        .execute(&mut *tx)
+        .execute(&mut tx)
         .await?;
     }
     tx.commit().await?;

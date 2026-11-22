@@ -11,6 +11,7 @@ use rust_decimal::prelude::ToPrimitive;
 use serde::Serialize;
 use sqlx::PgConnection;
 
+use crate::db;
 use crate::ledger::access::{self, weigh};
 use crate::ledger::decimal::{HALF_UP, divide, set_scale};
 use crate::ledger::model::{
@@ -77,7 +78,7 @@ pub async fn estimate(
     let to = this_month - chrono::Days::new(1);
     let by_id: HashMap<i64, &Account> = readable.iter().map(|a| (a.id, a)).collect();
     let ids: Vec<i64> = readable.iter().map(|a| a.id).collect();
-    let all: Vec<Transaction> = sqlx::query_as(&format!(
+    let all: Vec<Transaction> = db::query_as(&format!(
         "SELECT {TRANSACTION_COLUMNS} FROM transaction t WHERE t.account_id = ANY($1) \
          AND t.date BETWEEN $2 AND $3 ORDER BY t.date, t.id"
     ))

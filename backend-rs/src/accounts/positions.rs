@@ -9,10 +9,10 @@ use axum::extract::State;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use serde::Serialize;
-use sqlx::FromRow;
 
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db::{self, DbFromRow};
 use crate::error::AppResult;
 use crate::http::json::Path;
 use crate::ledger::decimal::{HALF_UP, divide};
@@ -69,7 +69,7 @@ pub struct ExchangePositionResponse {
     pub price_stale: bool,
 }
 
-#[derive(FromRow)]
+#[derive(DbFromRow)]
 struct PositionRow {
     product: String,
     ticker: String,
@@ -92,7 +92,7 @@ pub async fn positions(
             unit_cost.entry(holding.ticker).or_insert(average);
         }
     }
-    let rows: Vec<PositionRow> = sqlx::query_as(
+    let rows: Vec<PositionRow> = db::query_as(
         "SELECT product, ticker, quantity, principal, interest FROM crypto_exchange_position \
          WHERE account_id = $1 ORDER BY product, ticker",
     )

@@ -7,11 +7,11 @@ use std::sync::LazyLock;
 use axum::extract::State;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use sqlx::PgExecutor;
 
 use crate::AppState;
 use crate::accounts::analysis::profiles;
 use crate::auth::Auth;
+use crate::db::{self, AsDbHandle, DbExec, DbFromRow};
 use crate::error::AppResult;
 use crate::http::json::{Errors, Json, Path, Validate};
 use crate::ledger::access;
@@ -29,7 +29,7 @@ pub fn register(routes: &mut Routes) {
 }
 
 /// A holding_classification row.
-#[derive(Debug, Clone, PartialEq, sqlx::FromRow)]
+#[derive(Debug, Clone, PartialEq, DbFromRow)]
 pub struct HoldingClassification {
     pub id: i64,
     pub ticker: String,
@@ -42,10 +42,10 @@ const COLUMNS: &str = "id, ticker, wealth_tier, sector_key, country_key";
 
 /// findByMemberId keyed by upper-cased ticker, as every reader looks it up.
 pub async fn overrides_of<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<HashMap<String, HoldingClassification>> {
-    let rows: Vec<HoldingClassification> = sqlx::query_as(&format!(
+    let rows: Vec<HoldingClassification> = db::query_as(&format!(
         "SELECT {COLUMNS} FROM holding_classification WHERE member_id = $1 ORDER BY id"
     ))
     .bind(member_id)
@@ -58,11 +58,11 @@ pub async fn overrides_of<'e>(
 }
 
 async fn find<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
     ticker: &str,
 ) -> sqlx::Result<Option<HoldingClassification>> {
-    sqlx::query_as(&format!(
+    db::query_as(&format!(
         "SELECT {COLUMNS} FROM holding_classification WHERE member_id = $1 AND ticker = $2"
     ))
     .bind(member_id)
@@ -128,8 +128,8 @@ async fn view(
     let mut conn = state.db.acquire().await?;
     access::require_readable(&mut conn, id, auth.member_id).await?;
     let upper = ticker.to_uppercase();
-    let found = find(&mut *conn, auth.member_id, &upper).await?;
-    let profile = profiles::load(&mut conn, [upper.as_str()])
+    let found = find(&mut conn, auth.member_id, &upper).await?;
+    let profile = profiles::load(&mut conn.as_handle(), [upper.as_str()])
         .await?
         .remove(&upper);
     Ok(axum::Json(HoldingClassificationView {
@@ -155,16 +155,16 @@ async fn classify(
     let mut tx = state.db.begin().await?;
     access::require_owner(&mut tx, id, auth.member_id).await?;
     let upper = ticker.to_uppercase();
-    let existing = find(&mut *tx, auth.member_id, &upper).await?;
+    let existing = find(&mut tx, auth.member_id, &upper).await?;
     if request.wealth_tier.is_none()
         && request.sector_key.is_none()
         && request.country_key.is_none()
     {
         // Every field cleared means "stop overriding": drop the row rather than keep a blank.
         if let Some(row) = existing {
-            sqlx::query("DELETE FROM holding_classification WHERE id = $1")
+            db::query("DELETE FROM holding_classification WHERE id = $1")
                 .bind(row.id)
-                .execute(&mut *tx)
+                .execute(&mut tx)
                 .await?;
         }
         tx.commit().await?;
@@ -179,7 +179,7 @@ async fn classify(
     // The entity trims and upper-cases on persist: the database constraint is case-sensitive.
     let stored_ticker = java_trim(&upper).to_uppercase();
     let saved: HoldingClassification = match existing {
-        Some(row) => sqlx::query_as(&format!(
+        Some(row) => db::query_as(&format!(
             "UPDATE holding_classification SET ticker = $2, wealth_tier = $3, sector_key = $4, \
              country_key = $5, updated_at = $6 WHERE id = $1 RETURNING {COLUMNS}"
         ))
@@ -189,9 +189,9 @@ async fn classify(
         .bind(&request.sector_key)
         .bind(&request.country_key)
         .bind(now)
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut tx)
         .await?,
-        None => sqlx::query_as(&format!(
+        None => db::query_as(&format!(
             "INSERT INTO holding_classification (member_id, ticker, wealth_tier, sector_key, country_key, \
              created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING {COLUMNS}"
         ))
@@ -201,7 +201,7 @@ async fn classify(
         .bind(&request.sector_key)
         .bind(&request.country_key)
         .bind(now)
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut tx)
         .await?,
     };
     tx.commit().await?;

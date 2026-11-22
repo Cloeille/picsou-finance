@@ -8,17 +8,17 @@ use axum::extract::State;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use sqlx::PgConnection;
 
 use super::dto::{
     DebtResponse, REAL_ESTATE_COLUMNS, RealEstateMetadata, RealEstateMetadataResponse,
-    SCPI_COLUMNS, ScpiPosition, ScpiPositionResponse, last_valued_at, real_estate_of,
-    scpi_position_of, withdrawal_value,
+    ScpiPosition, ScpiPositionResponse, last_valued_at, real_estate_of, scpi_position_of,
+    withdrawal_value,
 };
 use super::seams::PropertyValuer;
 use super::validation::{Check, ValidJson, ValidateAt};
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db::{self, AsDbHandle, DbExec, DbHandle};
 use crate::error::{AppError, AppResult};
 use crate::http::json::Path;
 use crate::ledger::model::{AccountType, Debt, ValuationMode};
@@ -232,8 +232,8 @@ pub async fn update_real_estate(
     Ok(axum::Json(RealEstateMetadataResponse::from_row(&m, valued)))
 }
 
-async fn save_real_estate(conn: &mut PgConnection, m: &RealEstateMetadata) -> sqlx::Result<()> {
-    sqlx::query(
+async fn save_real_estate(db: impl DbExec<'_>, m: &RealEstateMetadata) -> sqlx::Result<()> {
+    db::query(
         "INSERT INTO real_estate_metadata (account_id, member_id, purchase_price, purchase_date, agency_fees, \
          notary_fees, works_cost, property_type, category, description, address, postal_code, city, country, \
          insee_code, latitude, longitude, ban_id, geocode_score, geocoded_at, surface_area, land_area, \
@@ -295,7 +295,7 @@ async fn save_real_estate(conn: &mut PgConnection, m: &RealEstateMetadata) -> sq
     .bind(&m.energy_class)
     .bind(m.valuation_mode)
     .bind(m.rental_income)
-    .execute(conn)
+    .execute(db)
     .await?;
     Ok(())
 }
@@ -360,7 +360,7 @@ pub async fn update_debt(
         insurance_monthly: req.insurance_monthly,
         file_fees: req.file_fees,
     };
-    sqlx::query(
+    db::query(
         "INSERT INTO debt (account_id, member_id, linked_account_id, borrowed_amount, interest_rate, \
          monthly_payment, lender_name, start_date, end_date, insurance_monthly, file_fees, created_at, updated_at) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW()) ON CONFLICT (account_id) DO UPDATE SET \
@@ -380,7 +380,7 @@ pub async fn update_debt(
     .bind(debt.end_date)
     .bind(debt.insurance_monthly)
     .bind(debt.file_fees)
-    .execute(&mut *tx)
+    .execute(&mut tx)
     .await?;
     tx.commit().await?;
     Ok(axum::Json(DebtResponse::with_linked(
@@ -527,7 +527,7 @@ fn blank_to_null(value: Option<&str>) -> Option<String> {
 /// ScpiFundService.tombstone / clearTombstone: a fund the member detached stays ignored, so a
 /// later sync does not recreate its account.
 async fn tombstone(
-    conn: &mut PgConnection,
+    db: impl DbExec<'_>,
     member_id: i64,
     provider: &str,
     code: Option<&str>,
@@ -535,7 +535,7 @@ async fn tombstone(
     let Some(code) = code.filter(|c| !c.trim().is_empty()) else {
         return Ok(());
     };
-    sqlx::query(
+    db::query(
         "INSERT INTO scpi_provider_fund (member_id, provider, fund_code, ignored, created_at, updated_at) \
          VALUES ($1, $2, $3, TRUE, NOW(), NOW()) ON CONFLICT (member_id, provider, fund_code) \
          DO UPDATE SET ignored = TRUE, updated_at = NOW()",
@@ -543,13 +543,13 @@ async fn tombstone(
     .bind(member_id)
     .bind(provider)
     .bind(code)
-    .execute(conn)
+    .execute(db)
     .await?;
     Ok(())
 }
 
 async fn clear_tombstone(
-    conn: &mut PgConnection,
+    db: impl DbExec<'_>,
     member_id: i64,
     provider: &str,
     code: &str,
@@ -557,21 +557,21 @@ async fn clear_tombstone(
     if code.trim().is_empty() {
         return Ok(());
     }
-    sqlx::query(
+    db::query(
         "UPDATE scpi_provider_fund SET ignored = FALSE, updated_at = NOW() \
          WHERE member_id = $1 AND provider = $2 AND fund_code = $3 AND ignored",
     )
     .bind(member_id)
     .bind(provider)
     .bind(code)
-    .execute(conn)
+    .execute(db)
     .await?;
     Ok(())
 }
 
 /// Tombstones the funds of the position an account deletion orphans and clears its links.
 pub async fn detach_scpi_funds(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account_id: i64,
     member_id: i64,
 ) -> sqlx::Result<()> {
@@ -587,7 +587,7 @@ pub async fn detach_scpi_funds(
     )
     .await?;
     tombstone(&mut *conn, member_id, "LOUVE", p.louve_fund_code.as_deref()).await?;
-    sqlx::query(
+    db::query(
         "UPDATE scpi_position SET corum_fund_code = NULL, sofidy_fund_code = NULL, louve_fund_code = NULL, \
          updated_at = NOW() WHERE id = $1",
     )
@@ -598,7 +598,7 @@ pub async fn detach_scpi_funds(
 }
 
 async fn relink(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     member_id: i64,
     provider: &str,
     previous: Option<&str>,
@@ -660,7 +660,7 @@ pub async fn update_scpi(
         if let Some(requested) = requested {
             let next = blank_to_null(Some(requested));
             relink(
-                &mut tx,
+                &mut tx.as_handle(),
                 member_id,
                 provider,
                 slot.as_deref(),
@@ -700,8 +700,8 @@ pub async fn update_scpi(
     Ok(axum::Json(ScpiPositionResponse::from_position(&p, value)))
 }
 
-async fn save_scpi(conn: &mut PgConnection, p: &ScpiPosition) -> sqlx::Result<()> {
-    sqlx::query(&format!(
+async fn save_scpi(db: impl DbExec<'_>, p: &ScpiPosition) -> sqlx::Result<()> {
+    db::query(
         "INSERT INTO scpi_position (account_id, member_id, isin, management_company, share_count, \
          subscription_price_eur, withdrawal_price_eur, dividend_policy, jouissance_date, valuation_status, \
          corum_fund_code, sofidy_fund_code, louve_fund_code, annual_distribution_per_share_eur, \
@@ -714,8 +714,8 @@ async fn save_scpi(conn: &mut PgConnection, p: &ScpiPosition) -> sqlx::Result<()
          corum_fund_code = EXCLUDED.corum_fund_code, sofidy_fund_code = EXCLUDED.sofidy_fund_code, \
          louve_fund_code = EXCLUDED.louve_fund_code, \
          annual_distribution_per_share_eur = EXCLUDED.annual_distribution_per_share_eur, \
-         distribution_frequency = EXCLUDED.distribution_frequency, updated_at = NOW() RETURNING {SCPI_COLUMNS}"
-    ))
+         distribution_frequency = EXCLUDED.distribution_frequency, updated_at = NOW()",
+    )
     .bind(p.account_id)
     .bind(p.member_id)
     .bind(&p.isin)
@@ -731,7 +731,7 @@ async fn save_scpi(conn: &mut PgConnection, p: &ScpiPosition) -> sqlx::Result<()
     .bind(&p.louve_fund_code)
     .bind(p.annual_distribution_per_share_eur)
     .bind(&p.distribution_frequency)
-    .execute(conn)
+    .execute(db)
     .await?;
     Ok(())
 }
@@ -786,11 +786,11 @@ impl PropertyValuer for ValuationDisabled {
         let mut tx = state.db.begin().await?;
         let mut account =
             super::scale::fixed(access::require_owner(&mut tx, account_id, member_id).await?);
-        let meta = sqlx::query_as::<_, RealEstateMetadata>(&format!(
+        let meta = db::query_as::<RealEstateMetadata>(&format!(
             "SELECT {REAL_ESTATE_COLUMNS} FROM real_estate_metadata WHERE account_id = $1"
         ))
         .bind(account_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut tx)
         .await?
         .ok_or_else(|| AppError::internal("Property has no metadata yet"))?;
         let cost_basis = meta.cost_basis();

@@ -8,12 +8,12 @@ use http::StatusCode;
 use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sqlx::{FromRow, PgConnection};
 
 use super::username;
 use crate::AppState;
 use crate::auth::Auth;
 use crate::auth::users::{self, Role};
+use crate::db::{self, DbExec, DbFromRow};
 use crate::error::{AppError, AppResult};
 use crate::http::json::{Errors, Json, Path, Validate};
 use crate::ledger::sync_values::java_is_blank;
@@ -49,7 +49,7 @@ pub struct FamilyMemberResponse {
 }
 
 /// A member with its login, MFA state and whether an SSO identity is linked.
-#[derive(FromRow)]
+#[derive(DbFromRow)]
 struct MemberRow {
     id: i64,
     display_name: String,
@@ -110,7 +110,7 @@ async fn list(
 ) -> AppResult<axum::Json<Vec<FamilyMemberResponse>>> {
     require_admin(&auth)?;
     let rows: Vec<MemberRow> =
-        sqlx::query_as(&format!("{MEMBER_SELECT} ORDER BY m.created_at, m.id"))
+        db::query_as(&format!("{MEMBER_SELECT} ORDER BY m.created_at, m.id"))
             .fetch_all(&state.db)
             .await?;
     Ok(axum::Json(rows.into_iter().map(Into::into).collect()))
@@ -140,7 +140,7 @@ async fn create(
     let avatar = req
         .avatar_color
         .unwrap_or_else(|| DEFAULT_AVATAR_COLOR.to_owned());
-    let row: (i64, String, String, bool) = sqlx::query_as(
+    let row: (i64, String, String, bool) = db::query_as(
         "INSERT INTO family_member (display_name, avatar_color, is_managed) VALUES ($1, $2, true) \
          RETURNING id, display_name, avatar_color, is_managed",
     )
@@ -196,7 +196,7 @@ async fn update(
         .filter(|n| !java_is_blank(n))
         .ok_or_else(|| AppError::status(StatusCode::BAD_REQUEST, "displayName is required"))?;
     let updated =
-        sqlx::query("UPDATE family_member SET display_name = $2, updated_at = $3 WHERE id = $1")
+        db::query("UPDATE family_member SET display_name = $2, updated_at = $3 WHERE id = $1")
             .bind(id)
             .bind(&display_name)
             .bind(state.clock.now())
@@ -205,17 +205,17 @@ async fn update(
     if updated.rows_affected() == 0 {
         return Err(member_not_found());
     }
-    let row: MemberRow = sqlx::query_as(&format!("{MEMBER_SELECT} WHERE m.id = $1"))
+    let row: MemberRow = db::query_as(&format!("{MEMBER_SELECT} WHERE m.id = $1"))
         .bind(id)
         .fetch_one(&state.db)
         .await?;
     Ok(axum::Json(row.into()))
 }
 
-async fn member_exists(conn: &mut PgConnection, id: i64) -> sqlx::Result<bool> {
-    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM family_member WHERE id = $1)")
+async fn member_exists(db: impl DbExec<'_>, id: i64) -> sqlx::Result<bool> {
+    db::query_scalar("SELECT EXISTS (SELECT 1 FROM family_member WHERE id = $1)")
         .bind(id)
-        .fetch_one(conn)
+        .fetch_one(db)
         .await
 }
 
@@ -240,8 +240,8 @@ async fn delete(
     if let Some(user) = users::find_by_member_id(&mut *tx, id).await? {
         if user.role == Role::Admin {
             let admins: Vec<i64> =
-                sqlx::query_scalar("SELECT id FROM app_user WHERE role = 'ADMIN' FOR UPDATE")
-                    .fetch_all(&mut *tx)
+                db::query_scalar("SELECT id FROM app_user WHERE role = 'ADMIN' FOR UPDATE")
+                    .fetch_all(&mut tx)
                     .await?;
             if admins.len() <= 1 {
                 return Err(AppError::status(
@@ -250,14 +250,14 @@ async fn delete(
                 ));
             }
         }
-        sqlx::query("DELETE FROM app_user WHERE id = $1")
+        db::query("DELETE FROM app_user WHERE id = $1")
             .bind(user.id)
-            .execute(&mut *tx)
+            .execute(&mut tx)
             .await?;
     }
-    sqlx::query("DELETE FROM family_member WHERE id = $1")
+    db::query("DELETE FROM family_member WHERE id = $1")
         .bind(id)
-        .execute(&mut *tx)
+        .execute(&mut tx)
         .await?;
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
@@ -278,9 +278,9 @@ async fn activate(
     require_admin(&auth)?;
     let mut tx = state.db.begin().await?;
     let display_name: String =
-        sqlx::query_scalar("SELECT display_name FROM family_member WHERE id = $1")
+        db::query_scalar("SELECT display_name FROM family_member WHERE id = $1")
             .bind(id)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut tx)
             .await?
             .ok_or_else(member_not_found)?;
     let existing = users::find_by_member_id(&mut *tx, id).await?;
@@ -294,16 +294,16 @@ async fn activate(
     let expires = state.clock.now() + Duration::days(TOKEN_LIFETIME_DAYS);
     match existing {
         Some(user) => {
-            sqlx::query("UPDATE app_user SET activation_token = $2, activation_token_expires = $3 WHERE id = $1")
+            db::query("UPDATE app_user SET activation_token = $2, activation_token_expires = $3 WHERE id = $1")
                 .bind(user.id)
                 .bind(&token)
                 .bind(expires)
-                .execute(&mut *tx)
+                .execute(&mut tx)
                 .await?;
         }
         None => {
             let username = username::derive(&mut tx, &display_name).await?;
-            sqlx::query(
+            db::query(
                 "INSERT INTO app_user (username, password_hash, member_id, role, is_activated, \
                  activation_token, activation_token_expires, acknowledged_warning) \
                  VALUES ($1, '', $2, 'MEMBER', false, $3, $4, false)",
@@ -312,7 +312,7 @@ async fn activate(
             .bind(id)
             .bind(&token)
             .bind(expires)
-            .execute(&mut *tx)
+            .execute(&mut tx)
             .await?;
         }
     }
@@ -338,13 +338,13 @@ async fn reset_password(
         .await?
         .ok_or_else(|| AppError::status(StatusCode::BAD_REQUEST, "Member has no login to reset"))?;
     let token = new_token();
-    sqlx::query(
+    db::query(
         "UPDATE app_user SET activation_token = $2, activation_token_expires = $3 WHERE id = $1",
     )
     .bind(user.id)
     .bind(&token)
     .bind(state.clock.now() + Duration::days(TOKEN_LIFETIME_DAYS))
-    .execute(&mut *conn)
+    .execute(&mut conn)
     .await?;
     Ok(axum::Json(
         json!({ "resetLink": format!("/activate/{token}") }),

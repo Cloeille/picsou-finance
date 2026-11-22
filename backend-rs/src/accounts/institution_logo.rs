@@ -20,6 +20,7 @@ use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db;
 use crate::error::AppResult;
 use crate::http::client_ip::ClientIp;
 use crate::http::json::Path;
@@ -213,7 +214,7 @@ impl InstitutionLogos {
 /// BudgetSettingsService.logoFetchEnabled: the member's opt-in, off without a settings row.
 async fn logo_fetch_enabled(state: &AppState, member_id: i64) -> sqlx::Result<bool> {
     let enabled: Option<bool> =
-        sqlx::query_scalar("SELECT logo_fetch_enabled FROM budget_settings WHERE member_id = $1")
+        db::query_scalar("SELECT logo_fetch_enabled FROM budget_settings WHERE member_id = $1")
             .bind(member_id)
             .fetch_optional(&state.db)
             .await?;

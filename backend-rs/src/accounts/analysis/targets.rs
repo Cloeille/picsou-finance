@@ -5,16 +5,16 @@ use axum::extract::State;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Deserializer, Serialize};
-use sqlx::PgExecutor;
 
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db::{self, DbExec, DbFromRow};
 use crate::error::AppResult;
 use crate::http::json::{Errors, Json, Lang, Validate};
 use crate::ledger::model::WealthTier;
 
 /// A member_allocation_profile row, or the defaults.
-#[derive(Debug, Clone, PartialEq, sqlx::FromRow)]
+#[derive(Debug, Clone, PartialEq, DbFromRow)]
 pub struct AllocationProfile {
     pub monthly_essential_expenses: Option<Decimal>,
     pub safety_net_months: i16,
@@ -52,10 +52,10 @@ impl AllocationProfile {
 
 /// profileFor: the stored profile, or an unsaved one carrying the defaults.
 pub async fn profile_for<'e>(
-    db: impl PgExecutor<'e>,
+    db: impl DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<AllocationProfile> {
-    let row: Option<AllocationProfile> = sqlx::query_as(
+    let row: Option<AllocationProfile> = db::query_as(
         "SELECT monthly_essential_expenses, safety_net_months, real_estate_pct, equity_pct, crypto_pct, \
          alternative_pct FROM member_allocation_profile WHERE member_id = $1",
     )
@@ -210,7 +210,7 @@ pub async fn replace(
         alternative_pct: request.alternative_pct.unwrap_or_default(),
     };
     let now = state.clock.now();
-    sqlx::query(
+    db::query(
         "INSERT INTO member_allocation_profile (member_id, monthly_essential_expenses, safety_net_months, \
          real_estate_pct, equity_pct, crypto_pct, alternative_pct, created_at, updated_at) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8) ON CONFLICT (member_id) DO UPDATE SET \

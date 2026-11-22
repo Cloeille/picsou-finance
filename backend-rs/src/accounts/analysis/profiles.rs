@@ -6,9 +6,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use rust_decimal::Decimal;
-use sqlx::{PgConnection, PgPool};
+use sqlx::PgPool;
 
 use super::seams::SecurityProfileRefresher;
+use crate::db::{self, DbHandle};
 use crate::ledger::holdings;
 
 /// SecurityProfileStatus.NEVER_FETCHED: a row a sync seeded from an ISIN, never looked up.
@@ -40,7 +41,7 @@ impl SecurityProfile {
 
 /// load: the persisted profiles of the tickers, keyed upper-case. Never fetches.
 pub async fn load(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     tickers: impl IntoIterator<Item = &str>,
 ) -> sqlx::Result<HashMap<String, SecurityProfile>> {
     let upper: BTreeSet<String> = tickers.into_iter().map(str::to_uppercase).collect();
@@ -49,15 +50,15 @@ pub async fn load(
     }
     let keys: Vec<&str> = upper.iter().map(String::as_str).collect();
     type ProfileRow = (i64, String, String, Option<String>, Option<String>);
-    let rows: Vec<ProfileRow> = sqlx::query_as(
+    let rows: Vec<ProfileRow> = db::query_as(
         "SELECT id, ticker, status, sector_key, country_key FROM security_profile WHERE ticker = ANY($1)",
     )
-    .bind(&keys)
+    .bind(keys.as_slice())
     .fetch_all(&mut *conn)
     .await?;
     let ids: Vec<i64> = rows.iter().map(|r| r.0).collect();
     let mut slices: HashMap<i64, Vec<ProfileSlice>> = HashMap::new();
-    let slice_rows: Vec<(i64, String, String, Decimal)> = sqlx::query_as(
+    let slice_rows: Vec<(i64, String, String, Decimal)> = db::query_as(
         "SELECT profile_id, kind, label, percent FROM security_composition_slice \
          WHERE profile_id = ANY($1) ORDER BY id",
     )

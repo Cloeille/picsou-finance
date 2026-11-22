@@ -17,6 +17,7 @@ use super::query::Params;
 use super::validation::{Check, ValidJson, ValidateAt};
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db::{self, AsDbHandle, DbExec, DbHandle};
 use crate::error::{AppError, AppResult};
 use crate::http::json::{Errors, Json, Path, Validate, null_as_false};
 use crate::ledger::manual_transactions::{
@@ -499,10 +500,10 @@ pub async fn update(
             account.external_account_id.as_deref(),
         )
     {
-        sqlx::query("UPDATE transaction SET merchant_label = $2 WHERE account_id = $1")
+        db::query("UPDATE transaction SET merchant_label = $2 WHERE account_id = $1")
             .bind(account.id)
             .bind(&account.name)
-            .execute(&mut *tx)
+            .execute(&mut tx)
             .await?;
         update_pocket_wallet_side(&mut tx, parent, external, &account.name).await?;
     }
@@ -516,7 +517,7 @@ async fn mark_manual(
     native: Decimal,
     now: DateTime<Utc>,
 ) -> sqlx::Result<BalanceSnapshot> {
-    sqlx::query("UPDATE balance_snapshot SET source = 'MANUAL' WHERE id = $1")
+    db::query("UPDATE balance_snapshot SET source = 'MANUAL' WHERE id = $1")
         .bind(snapshot_id)
         .execute(&mut *conn)
         .await?;
@@ -528,16 +529,16 @@ const POCKET_WALLET_SIDE_SQL: &str = "UPDATE transaction SET merchant_label = $3
     AND LOWER(description) LIKE LOWER('%mb:' || $2)";
 
 async fn update_pocket_wallet_side(
-    conn: &mut PgConnection,
+    db: impl DbExec<'_>,
     parent_id: i64,
     pocket_external_id: &str,
     name: &str,
 ) -> sqlx::Result<()> {
-    sqlx::query(POCKET_WALLET_SIDE_SQL)
+    db::query(POCKET_WALLET_SIDE_SQL)
         .bind(parent_id)
         .bind(pocket_external_id)
         .bind(name)
-        .execute(conn)
+        .execute(db)
         .await?;
     Ok(())
 }
@@ -728,7 +729,7 @@ pub async fn get_transactions(
         super::scale::fixed(accounts::get_or_throw(&mut *conn, id, auth.member_id).await?);
     let rows = transactions::find_by_account_newest_first(&mut *conn, id).await?;
     let ids: Vec<i64> = rows.iter().map(|t| t.id).collect();
-    let links = peer_loan_links(&mut conn, &ids).await?;
+    let links = peer_loan_links(&mut conn.as_handle(), &ids).await?;
     let names = category_names(&mut conn, &rows).await?;
     Ok(axum::Json(
         rows.iter()
@@ -745,7 +746,7 @@ pub async fn get_transactions(
 }
 
 async fn category_names(
-    conn: &mut PgConnection,
+    db: impl DbExec<'_>,
     rows: &[crate::ledger::model::Transaction],
 ) -> sqlx::Result<HashMap<i64, String>> {
     let ids: Vec<i64> = rows.iter().filter_map(|t| t.category_id).collect();
@@ -753,23 +754,23 @@ async fn category_names(
         return Ok(HashMap::new());
     }
     let pairs: Vec<(i64, String)> =
-        sqlx::query_as("SELECT id, name FROM category WHERE id = ANY($1)")
+        db::query_as("SELECT id, name FROM category WHERE id = ANY($1)")
             .bind(&ids)
-            .fetch_all(conn)
+            .fetch_all(db)
             .await?;
     Ok(pairs.into_iter().collect())
 }
 
 /// PeerLoanTransactionLinks.linksFor: the lending outflow of a loan, then repayments.
 async fn peer_loan_links(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     ids: &[i64],
 ) -> sqlx::Result<HashMap<i64, PeerLoanLink>> {
     let mut links = HashMap::new();
     if ids.is_empty() {
         return Ok(links);
     }
-    let lending: Vec<(i64, i64, String)> = sqlx::query_as(
+    let lending: Vec<(i64, i64, String)> = db::query_as(
         "SELECT t.lending_transaction_id, a.id, a.name FROM peer_loan_terms t \
          JOIN account a ON a.id = t.account_id AND a.deleted_at IS NULL \
          WHERE t.lending_transaction_id = ANY($1) ORDER BY t.id",
@@ -784,7 +785,7 @@ async fn peer_loan_links(
             account_name: Some(name),
         });
     }
-    let repayments: Vec<(i64, i64, String)> = sqlx::query_as(
+    let repayments: Vec<(i64, i64, String)> = db::query_as(
         "SELECT r.cash_transaction_id, a.id, a.name FROM peer_loan_repayment r \
          JOIN account a ON a.id = r.account_id AND a.deleted_at IS NULL \
          WHERE r.cash_transaction_id = ANY($1) ORDER BY r.id",

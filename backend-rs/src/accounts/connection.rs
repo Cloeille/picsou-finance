@@ -12,6 +12,7 @@ use super::meta::detach_scpi_funds;
 use super::seams::{ConnectionKind, ConnectionRef};
 use crate::AppState;
 use crate::auth::Auth;
+use crate::db::{self, AsDbHandle, DbExec, DbHandle};
 use crate::error::{AppError, AppResult};
 use crate::http::json::Path;
 use crate::ledger::accounts;
@@ -41,13 +42,13 @@ struct ScpiLinks {
     louve: HashSet<i64>,
 }
 
-async fn scpi_links(conn: &mut PgConnection, member_id: i64) -> sqlx::Result<ScpiLinks> {
-    let rows: Vec<(i64, bool, bool)> = sqlx::query_as(
+async fn scpi_links(db: impl DbExec<'_>, member_id: i64) -> sqlx::Result<ScpiLinks> {
+    let rows: Vec<(i64, bool, bool)> = db::query_as(
         "SELECT p.account_id, p.corum_fund_code IS NOT NULL, p.louve_fund_code IS NOT NULL FROM scpi_position p \
          JOIN account a ON a.id = p.account_id AND a.deleted_at IS NULL WHERE a.member_id = $1",
     )
     .bind(member_id)
-    .fetch_all(conn)
+    .fetch_all(db)
     .await?;
     Ok(ScpiLinks {
         corum: rows.iter().filter(|r| r.1).map(|r| r.0).collect(),
@@ -137,7 +138,7 @@ async fn has_other_live_account(
 }
 
 async fn label(
-    conn: &mut PgConnection,
+    db: impl DbExec<'_>,
     connection: &ConnectionRef,
     account: &Account,
     member_id: i64,
@@ -147,12 +148,12 @@ async fn label(
         K::Wallet => {
             let wallet: Option<(Option<String>, String)> =
                 match connection.discriminator.parse::<i64>() {
-                    Ok(id) => sqlx::query_as(
+                    Ok(id) => db::query_as(
                         "SELECT label, chain FROM wallet_address WHERE id = $1 AND member_id = $2",
                     )
                     .bind(id)
                     .bind(member_id)
-                    .fetch_optional(conn)
+                    .fetch_optional(db)
                     .await?,
                     Err(_) => None,
                 };
@@ -182,12 +183,12 @@ async fn label(
         K::EnableBanking => {
             let name: Option<Option<String>> =
                 match connection.discriminator.parse::<i64>() {
-                    Ok(id) => sqlx::query_scalar(
+                    Ok(id) => db::query_scalar(
                         "SELECT institution_name FROM requisition WHERE id = $1 AND member_id = $2",
                     )
                     .bind(id)
                     .bind(member_id)
-                    .fetch_optional(conn)
+                    .fetch_optional(db)
                     .await?,
                     Err(_) => None,
                 };
@@ -260,7 +261,7 @@ pub async fn delete_account_with_impact(
         links = scpi_links(&mut tx, member_id).await?;
     }
     soft_delete(
-        &mut tx,
+        &mut tx.as_handle(),
         &account,
         member_id,
         state.clock.now(),
@@ -280,10 +281,10 @@ pub async fn delete_account_with_impact(
         let connection_label = label(&mut tx, &connection, &account, member_id).await?;
         let removed = if connection.kind == ConnectionKind::EnableBanking {
             if let Ok(requisition) = connection.discriminator.parse::<i64>() {
-                sqlx::query("DELETE FROM requisition WHERE id = $1 AND member_id = $2")
+                db::query("DELETE FROM requisition WHERE id = $1 AND member_id = $2")
                     .bind(requisition)
                     .bind(member_id)
-                    .execute(&mut *tx)
+                    .execute(&mut tx)
                     .await?
                     .rows_affected()
                     > 0
@@ -315,7 +316,7 @@ pub async fn delete_account_with_impact(
 
 /// AccountService.delete: soft-deletes the row after detaching what still points at it.
 async fn soft_delete(
-    conn: &mut PgConnection,
+    conn: &mut DbHandle<'_>,
     account: &Account,
     member_id: i64,
     now: chrono::DateTime<chrono::Utc>,
@@ -325,17 +326,17 @@ async fn soft_delete(
     // the account of a fund it has not seen: detach and tombstone the funds.
     detach_scpi_funds(&mut *conn, account.id, member_id).await?;
     // ON DELETE SET NULL never fires on a soft delete.
-    sqlx::query("UPDATE debt SET linked_account_id = NULL WHERE linked_account_id = $1")
+    db::query("UPDATE debt SET linked_account_id = NULL WHERE linked_account_id = $1")
         .bind(account.id)
         .execute(&mut *conn)
         .await?;
-    sqlx::query("UPDATE peer_loan_terms SET linked_account_id = NULL WHERE linked_account_id = $1")
+    db::query("UPDATE peer_loan_terms SET linked_account_id = NULL WHERE linked_account_id = $1")
         .bind(account.id)
         .execute(&mut *conn)
         .await?;
     // deleted_at is a TIMESTAMP without zone, written as Hibernate writes an Instant there: the
     // wall-clock time of the JVM zone, which TimeZoneConfig pins to app.timezone.
-    sqlx::query("UPDATE account SET deleted_at = $2, updated_at = $3 WHERE id = $1")
+    db::query("UPDATE account SET deleted_at = $2, updated_at = $3 WHERE id = $1")
         .bind(account.id)
         .bind(now.with_timezone(&zone).naive_local())
         .bind(now)

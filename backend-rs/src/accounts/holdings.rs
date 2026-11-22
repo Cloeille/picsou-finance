@@ -1,6 +1,7 @@
 //! The holdings read model (AccountService.getHoldings / toHoldingResponse) and the two edits
 //! a member makes on a line: its quantity and buy-in, or its removal.
 
+use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap};
 
 use axum::extract::State;
@@ -15,6 +16,7 @@ use crate::AppState;
 use crate::accounts::analysis::math::jmul;
 use crate::accounts::instrument_logo::{self, LogoUrls};
 use crate::auth::Auth;
+use crate::db::{self, DbExec};
 use crate::error::{AppError, AppResult};
 use crate::http::json::{Errors, Json, Path, Validate};
 use crate::ledger::decimal::{HALF_UP, divide};
@@ -96,21 +98,29 @@ pub async fn owned_holdings(
         .collect())
 }
 
-/// findByAccountIdOrderByCurrentPriceDesc as PostgreSQL answers it for Java: the
-/// (account_id, ticker) index is walked, so equal prices come out in ticker order.
-async fn by_price_desc(
-    conn: &mut PgConnection,
-    account_id: i64,
-) -> sqlx::Result<Vec<AccountHolding>> {
-    let mut rows: Vec<AccountHolding> = sqlx::query_as(&format!(
+/// findByAccountIdOrderByCurrentPriceDesc as PostgreSQL answers it for Java:
+/// `ORDER BY current_price DESC NULLS FIRST, ticker ASC`, sorted in Rust with exact `Decimal`
+/// comparison so SQLite (which stores `NUMERIC` as canonical `TEXT`) produces identical ordering.
+async fn by_price_desc(db: impl DbExec<'_>, account_id: i64) -> sqlx::Result<Vec<AccountHolding>> {
+    let mut rows: Vec<AccountHolding> = db::query_as(&format!(
         "SELECT {HOLDING_COLUMNS} FROM account_holding h WHERE h.account_id = $1 \
-         ORDER BY h.current_price DESC, h.ticker"
+         ORDER BY h.ticker"
     ))
     .bind(account_id)
-    .fetch_all(conn)
+    .fetch_all(db)
     .await?;
     rows.iter_mut().for_each(fix_holding);
+    sort_by_price_desc(&mut rows);
     Ok(rows)
+}
+
+fn sort_by_price_desc(rows: &mut [AccountHolding]) {
+    rows.sort_by(|a, b| match (a.current_price, b.current_price) {
+        (None, None) => a.ticker.cmp(&b.ticker),
+        (None, Some(_)) => Ordering::Less,
+        (Some(_), None) => Ordering::Greater,
+        (Some(pa), Some(pb)) => pb.cmp(&pa).then_with(|| a.ticker.cmp(&b.ticker)),
+    });
 }
 
 fn fix_holding(h: &mut AccountHolding) {
@@ -127,7 +137,7 @@ fn fix_holding(h: &mut AccountHolding) {
 
 /// logosFor: a crypto account asks the crypto logo source, any other one reads the stored marks.
 async fn logos_for(
-    conn: &mut PgConnection,
+    db: impl DbExec<'_>,
     crypto_logos: &dyn crate::accounts::positions::CryptoLogoRead,
     account: &Account,
     lines: &[AccountHolding],
@@ -137,7 +147,7 @@ async fn logos_for(
         return Ok(HashMap::new());
     }
     if account.account_type != AccountType::Crypto {
-        return instrument_logo::stored_urls(&mut *conn, &tickers).await;
+        return instrument_logo::stored_urls(db, &tickers).await;
     }
     Ok(crypto_logos
         .logo_urls(&tickers)
@@ -324,10 +334,109 @@ async fn remove(
     let holding = holdings::find_by_account_and_ticker(&mut *tx, id, &ticker)
         .await?
         .ok_or_else(holding_not_found)?;
-    sqlx::query("DELETE FROM account_holding WHERE id = $1")
+    db::query("DELETE FROM account_holding WHERE id = $1")
         .bind(holding.id)
-        .execute(&mut *tx)
+        .execute(&mut tx)
         .await?;
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::DateTime;
+    use rust_decimal::Decimal;
+
+    use super::*;
+    use crate::db::Db;
+    use crate::db::sqlite::{SqliteDb, migrate};
+
+    fn stub_holding(ticker: &str, price: Option<&str>) -> AccountHolding {
+        let epoch = DateTime::from_timestamp(0, 0).unwrap();
+        AccountHolding {
+            id: 1,
+            account_id: 1,
+            ticker: ticker.to_owned(),
+            name: None,
+            quantity: Decimal::ONE,
+            average_buy_in: None,
+            current_price: price.map(|p| p.parse().unwrap()),
+            quote_currency: None,
+            provider_value_eur: None,
+            provider_pnl_eur: None,
+            provider_price_date: None,
+            provider_wealth_tier: None,
+            last_synced_at: None,
+            created_at: epoch,
+            updated_at: epoch,
+        }
+    }
+
+    #[test]
+    fn sort_by_price_desc_matches_pg_nulls_first_and_exact_decimal() {
+        let mut rows = vec![
+            stub_holding("B_NINE", Some("9.5")),
+            stub_holding("Z_NONE", None),
+            stub_holding("A_NINE", Some("9.50")),
+            stub_holding("HUNDRED", Some("100")),
+            stub_holding("TWENTY", Some("20")),
+            stub_holding("A_NONE", None),
+        ];
+        sort_by_price_desc(&mut rows);
+        let tickers: Vec<&str> = rows.iter().map(|h| h.ticker.as_str()).collect();
+        assert_eq!(
+            tickers,
+            vec!["A_NONE", "Z_NONE", "HUNDRED", "TWENTY", "A_NINE", "B_NINE"]
+        );
+    }
+
+    #[tokio::test]
+    async fn by_price_desc_on_sqlite_sorts_exact_decimal_with_nulls_first() {
+        let sq = SqliteDb::open_in_memory().unwrap();
+        sq.with_conn(|c| Ok(migrate::migrate(c).unwrap())).unwrap();
+        let db = Db::from(sq);
+
+        let member_id: i64 =
+            db::query_scalar("INSERT INTO family_member (display_name) VALUES ($1) RETURNING id")
+                .bind("Alice")
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        let account_id: i64 = db::query_scalar(
+            "INSERT INTO account (name, type, member_id) VALUES ($1, 'PEA', $2) RETURNING id",
+        )
+        .bind("PEA")
+        .bind(member_id)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+
+        for (ticker, price) in [
+            ("B_NINE", Some("9.5")),
+            ("Z_NONE", None),
+            ("A_NINE", Some("9.50")),
+            ("HUNDRED", Some("100")),
+            ("TWENTY", Some("20")),
+            ("A_NONE", None),
+        ] {
+            db::query(
+                "INSERT INTO account_holding (account_id, ticker, quantity, current_price) \
+                 VALUES ($1, $2, $3, $4)",
+            )
+            .bind(account_id)
+            .bind(ticker)
+            .bind(Decimal::ONE)
+            .bind(price.map(|p| p.parse::<Decimal>().unwrap()))
+            .execute(&db)
+            .await
+            .unwrap();
+        }
+
+        let rows = by_price_desc(&db, account_id).await.unwrap();
+        let tickers: Vec<&str> = rows.iter().map(|h| h.ticker.as_str()).collect();
+        assert_eq!(
+            tickers,
+            vec!["A_NONE", "Z_NONE", "HUNDRED", "TWENTY", "A_NINE", "B_NINE"]
+        );
+    }
 }

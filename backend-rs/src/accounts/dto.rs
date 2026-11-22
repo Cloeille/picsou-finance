@@ -5,10 +5,11 @@ use std::collections::HashMap;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::Serialize;
-use sqlx::{FromRow, PgConnection};
+use sqlx::PgConnection;
 
 use super::jdecimal;
 use super::scale::{column, column_opt};
+use crate::db::{self, DbExec, DbFromRow};
 use crate::error::AppResult;
 use crate::ledger::model::{
     Account, AccountDisplayPref, AccountType, CardNature, Debt, RecurringCadence, ValuationMode,
@@ -221,7 +222,7 @@ impl DebtResponse {
 }
 
 #[serde_with::skip_serializing_none]
-#[derive(Debug, Clone, PartialEq, Serialize, FromRow)]
+#[derive(Debug, Clone, PartialEq, Serialize, DbFromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct SavingsConfigDto {
     pub product: String,
@@ -235,7 +236,7 @@ pub struct SavingsConfigDto {
 }
 
 /// A real_estate_metadata row.
-#[derive(Debug, Clone, PartialEq, FromRow)]
+#[derive(Debug, Clone, PartialEq, DbFromRow)]
 pub struct RealEstateMetadata {
     pub id: i64,
     pub account_id: i64,
@@ -406,7 +407,7 @@ impl RealEstateMetadataResponse {
 }
 
 /// A scpi_position row.
-#[derive(Debug, Clone, PartialEq, FromRow)]
+#[derive(Debug, Clone, PartialEq, DbFromRow)]
 pub struct ScpiPosition {
     pub id: i64,
     pub account_id: i64,
@@ -431,16 +432,16 @@ pub const SCPI_COLUMNS: &str = "id, account_id, member_id, isin, management_comp
     corum_fund_code, sofidy_fund_code, louve_fund_code, annual_distribution_per_share_eur, distribution_frequency";
 
 pub async fn scpi_position_of(
-    conn: &mut PgConnection,
+    db: impl DbExec<'_>,
     account_id: i64,
     member_id: i64,
 ) -> sqlx::Result<Option<ScpiPosition>> {
-    sqlx::query_as(&format!(
+    db::query_as(&format!(
         "SELECT {SCPI_COLUMNS} FROM scpi_position WHERE account_id = $1 AND member_id = $2"
     ))
     .bind(account_id)
     .bind(member_id)
-    .fetch_optional(conn)
+    .fetch_optional(db)
     .await
     .map(|row| {
         row.map(|mut p: ScpiPosition| {
@@ -519,14 +520,14 @@ impl ScpiPositionResponse {
 }
 
 pub async fn real_estate_of(
-    conn: &mut PgConnection,
+    db: impl DbExec<'_>,
     account_id: i64,
 ) -> sqlx::Result<Option<RealEstateMetadata>> {
-    sqlx::query_as(&format!(
+    db::query_as(&format!(
         "SELECT {REAL_ESTATE_COLUMNS} FROM real_estate_metadata WHERE account_id = $1"
     ))
     .bind(account_id)
-    .fetch_optional(conn)
+    .fetch_optional(db)
     .await
     .map(|row| {
         row.map(|mut m: RealEstateMetadata| {
@@ -547,27 +548,27 @@ pub async fn real_estate_of(
 
 /// When the property was last valued (property_valuation), or None.
 pub async fn last_valued_at(
-    conn: &mut PgConnection,
+    db: impl DbExec<'_>,
     account_id: i64,
 ) -> sqlx::Result<Option<NaiveDate>> {
-    sqlx::query_scalar(
+    db::query_scalar(
         "SELECT valued_at FROM property_valuation WHERE account_id = $1 ORDER BY valued_at DESC LIMIT 1",
     )
     .bind(account_id)
-    .fetch_optional(conn)
+    .fetch_optional(db)
     .await
 }
 
 async fn savings_config_of(
-    conn: &mut PgConnection,
+    db: impl DbExec<'_>,
     account_id: i64,
 ) -> sqlx::Result<Option<SavingsConfigDto>> {
-    sqlx::query_as(
+    db::query_as(
         "SELECT product::text AS product, annual_rate, rate_basis::text AS rate_basis, tax_rate_pct, ceiling \
          FROM savings_interest_config WHERE account_id = $1",
     )
     .bind(account_id)
-    .fetch_optional(conn)
+    .fetch_optional(db)
     .await
     .map(|row| {
         row.map(|mut s: SavingsConfigDto| {

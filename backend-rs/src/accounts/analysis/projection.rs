@@ -10,6 +10,7 @@ use sqlx::PgConnection;
 
 use super::math::{jmax, scale2};
 use super::pyramid::WealthPyramidResponse;
+use crate::db;
 use crate::ledger::access::{self, weigh};
 use crate::ledger::decimal::{HALF_UP, divide, round_significant};
 use crate::ledger::model::{AccountType, WealthTier};
@@ -200,7 +201,7 @@ async fn plans_for(conn: &mut PgConnection, member_id: i64) -> sqlx::Result<Vec<
         Option<NaiveDate>,
         Option<NaiveDate>,
     );
-    let goals: Vec<GoalRow> = sqlx::query_as(
+    let goals: Vec<GoalRow> = db::query_as(
         "SELECT id, type, monthly_amount, expected_return, start_date, end_date FROM goal \
          WHERE member_id = $1 ORDER BY created_at, id",
     )
@@ -215,7 +216,7 @@ async fn plans_for(conn: &mut PgConnection, member_id: i64) -> sqlx::Result<Vec<
         let Some(monthly_amount) = monthly_amount else {
             continue;
         };
-        let first: Option<(i64, String)> = sqlx::query_as(
+        let first: Option<(i64, String)> = db::query_as(
             "SELECT a.id, a.type::text FROM goal_account ga JOIN account a ON a.id = ga.account_id \
              WHERE ga.goal_id = $1 AND a.deleted_at IS NULL LIMIT 1",
         )
