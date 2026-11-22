@@ -18,9 +18,10 @@ use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use subtle::ConstantTimeEq;
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 use uuid::Uuid;
+
+use super::{ReadBodyError, read_capped_text};
 
 use super::bnp_parsers::{
     self, EnvelopeError, NormalizedAccount, NormalizedOperation, NormalizedPosition,
@@ -156,8 +157,6 @@ struct ProcessEntry {
     brand: Brand,
     status: ProcessStatus,
     window_label: String,
-    callback_nonce: String,
-    callback_payload: Option<Value>,
     created_at: Instant,
 }
 
@@ -195,6 +194,8 @@ struct SessionEnvelope {
     landing: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     desktop_only: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    nonce: Option<String>,
 }
 
 pub struct BnpWebviewManager {
@@ -259,7 +260,6 @@ impl BnpWebviewManager {
 
         let process_id = Uuid::new_v4().simple().to_string();
         let window_label = format!("picsou-bnp-{process_id}");
-        let callback_nonce = random_hex(24);
         let entry_url = Url::parse(brand.entry)
             .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR"))?;
 
@@ -271,8 +271,6 @@ impl BnpWebviewManager {
                     brand,
                     status: ProcessStatus::WaitingLogin,
                     window_label: window_label.clone(),
-                    callback_nonce,
-                    callback_payload: None,
                     created_at: Instant::now(),
                 },
             );
@@ -402,29 +400,6 @@ impl BnpWebviewManager {
                 let _ = win.destroy();
             }
         }
-    }
-
-    /// Receives an optional one-time bearer-authenticated callback payload for a process.
-    pub fn receive_callback(
-        &self,
-        process_id: &str,
-        bearer_token: &str,
-        payload: Value,
-    ) -> Result<(), ApiError> {
-        let mut procs = self.processes.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(entry) = procs.get_mut(process_id) else {
-            return Err(ApiError::new(StatusCode::NOT_FOUND, "AUTH_ATTEMPT_EXPIRED"));
-        };
-        if !bool::from(
-            entry
-                .callback_nonce
-                .as_bytes()
-                .ct_eq(bearer_token.as_bytes()),
-        ) {
-            return Err(ApiError::new(StatusCode::UNAUTHORIZED, "UNAUTHORIZED"));
-        }
-        entry.callback_payload = Some(payload);
-        Ok(())
     }
 
     fn mark_cancelled_if_active(&self, process_id: &str) {
@@ -729,13 +704,16 @@ impl BnpWebviewManager {
         if status != StatusCode::OK {
             return Err(ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"));
         }
-        let text = resp
-            .text()
+        let text = read_capped_text(resp, MAX_RESPONSE_BYTES)
             .await
-            .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE"))?;
-        if text.len() > MAX_RESPONSE_BYTES {
-            return Err(ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED"));
-        }
+            .map_err(|err| match err {
+                ReadBodyError::Transport => {
+                    ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE")
+                }
+                ReadBodyError::TooLarge => {
+                    ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED")
+                }
+            })?;
         bnp_parsers::loads(&text)
             .map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, e.0))
     }
@@ -1081,13 +1059,20 @@ pub(crate) fn merge_set_cookies(jar: &mut Vec<StoredCookie>, headers: &[String],
         let mut path = Some("/".to_owned());
         let mut http_only = None;
         let mut secure = None;
+        let mut expired = false;
         for attr in parts {
             let trimmed = attr.trim();
             if let Some((k, v)) = trimmed.split_once('=') {
-                if k.eq_ignore_ascii_case("domain") && !v.trim().is_empty() {
-                    domain = v.trim().to_ascii_lowercase();
-                } else if k.eq_ignore_ascii_case("path") && !v.trim().is_empty() {
-                    path = Some(v.trim().to_owned());
+                let k = k.trim();
+                let v = v.trim();
+                if k.eq_ignore_ascii_case("domain") && !v.is_empty() {
+                    domain = v.to_ascii_lowercase();
+                } else if k.eq_ignore_ascii_case("path") && !v.is_empty() {
+                    path = Some(v.to_owned());
+                } else if k.eq_ignore_ascii_case("max-age")
+                    && v.parse::<i64>().is_ok_and(|secs| secs <= 0)
+                {
+                    expired = true;
                 }
             } else if trimmed.eq_ignore_ascii_case("httponly") {
                 http_only = Some(true);
@@ -1096,6 +1081,12 @@ pub(crate) fn merge_set_cookies(jar: &mut Vec<StoredCookie>, headers: &[String],
             }
         }
         jar.retain(|c| !(c.name == name && c.domain.as_deref().unwrap_or("").eq_ignore_ascii_case(&domain)));
+        if expired {
+            continue;
+        }
+        while jar.len() >= MAX_COOKIES {
+            jar.remove(0);
+        }
         jar.push(StoredCookie {
             name: name.to_owned(),
             value: value.to_owned(),
@@ -1122,6 +1113,7 @@ pub fn encode_session(
         return Err(ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED"));
     }
     let desktop_only = kept.is_empty().then_some(true);
+    let nonce = desktop_only.map(|_| random_hex(16));
     let landing = landing
         .filter(|h| valid_landing(h, brand))
         .map(str::to_owned);
@@ -1131,6 +1123,7 @@ pub fn encode_session(
         cookies: kept,
         landing,
         desktop_only,
+        nonce,
     };
     let text = serde_json::to_string(&envelope)
         .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED"))?;
@@ -1180,7 +1173,7 @@ pub(crate) fn sha256_hex(input: &str) -> String {
 
 pub(crate) fn random_hex(num_bytes: usize) -> String {
     let mut bytes = vec![0u8; num_bytes];
-    let _ = getrandom::fill(&mut bytes);
+    getrandom::fill(&mut bytes).expect("OS CSPRNG unavailable");
     hex::encode(bytes)
 }
 
@@ -1253,26 +1246,35 @@ mod tests {
     }
 
     #[test]
-    fn callback_requires_matching_bearer_nonce() {
-        let mgr = BnpWebviewManager::new();
-        {
-            let mut procs = mgr.processes.lock().unwrap();
-            procs.insert(
-                "p1".to_owned(),
-                ProcessEntry {
-                    brand: BNP_BRAND,
-                    status: ProcessStatus::WaitingLogin,
-                    window_label: "w1".to_owned(),
-                    callback_nonce: "secret-nonce".to_owned(),
-                    callback_payload: None,
-                    created_at: Instant::now(),
-                },
-            );
-        }
-        assert_eq!(
-            mgr.receive_callback("p1", "wrong", json!({})).unwrap_err().status,
-            StatusCode::UNAUTHORIZED
+    fn desktop_only_envelopes_carry_unique_nonces() {
+        let a = encode_session(BNP_BRAND, vec![], None).unwrap();
+        let b = encode_session(BNP_BRAND, vec![], None).unwrap();
+        assert_ne!(a, b);
+        assert_ne!(sha256_hex(&a), sha256_hex(&b));
+        assert!(decode_session_state(&a).is_ok());
+        assert!(decode_session_state(&b).is_ok());
+    }
+
+    #[test]
+    fn merge_set_cookies_handles_max_age_zero_and_caps_jar() {
+        let mut jar = Vec::new();
+        merge_set_cookies(
+            &mut jar,
+            &["SID=abc; Path=/; HttpOnly".to_owned()],
+            "mabanque.bnpparibas",
         );
-        assert!(mgr.receive_callback("p1", "secret-nonce", json!({"ok": true})).is_ok());
+        assert_eq!(jar.len(), 1);
+        merge_set_cookies(
+            &mut jar,
+            &["SID=; Max-Age=0; Path=/".to_owned()],
+            "mabanque.bnpparibas",
+        );
+        assert!(jar.is_empty());
+
+        let many: Vec<String> = (0..(MAX_COOKIES + 15))
+            .map(|i| format!("c{i}=v{i}; Path=/"))
+            .collect();
+        merge_set_cookies(&mut jar, &many, "mabanque.bnpparibas");
+        assert_eq!(jar.len(), MAX_COOKIES);
     }
 }

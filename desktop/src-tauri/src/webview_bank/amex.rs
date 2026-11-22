@@ -18,6 +18,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 use uuid::Uuid;
 
+use super::{ReadBodyError, read_capped_text};
 use super::amex_parsers::{self, AccountPayload};
 use super::bnp::{
     ApiError, StoredCookie, WebviewStartResponse, WebviewStatusResponse, build_cookie_header,
@@ -89,6 +90,8 @@ struct AmexSessionEnvelope {
     enrichment: Option<AmexEnrichment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     desktop_only: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    nonce: Option<String>,
 }
 
 pub struct AmexWebviewManager {
@@ -619,16 +622,16 @@ impl AmexWebviewManager {
                 "UPSTREAM_FORMAT_CHANGED",
             ));
         }
-        let text = resp
-            .text()
+        let text = read_capped_text(resp, MAX_RESPONSE_BYTES)
             .await
-            .map_err(|_| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "UPSTREAM_UNAVAILABLE"))?;
-        if text.len() > MAX_RESPONSE_BYTES {
-            return Err(ApiError::new(
-                StatusCode::BAD_GATEWAY,
-                "UPSTREAM_FORMAT_CHANGED",
-            ));
-        }
+            .map_err(|err| match err {
+                ReadBodyError::Transport => {
+                    ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "UPSTREAM_UNAVAILABLE")
+                }
+                ReadBodyError::TooLarge => {
+                    ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED")
+                }
+            })?;
         amex_parsers::loads(&text).map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, e.0))
     }
 }
@@ -857,11 +860,13 @@ fn encode_session(
         ));
     }
     let desktop_only = kept.is_empty().then_some(true);
+    let nonce = desktop_only.map(|_| random_hex(16));
     let envelope = AmexSessionEnvelope {
         cookies: kept,
         account_token,
         enrichment,
         desktop_only,
+        nonce,
     };
     let text = serde_json::to_string(&envelope)
         .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED"))?;
@@ -1035,5 +1040,15 @@ mod tests {
         let err = mgr.accounts(&state, false).await.unwrap_err();
         assert_eq!(err.status, StatusCode::UNAUTHORIZED);
         assert_eq!(err.detail, "SESSION_EXPIRED");
+    }
+
+    #[test]
+    fn desktop_only_envelopes_carry_unique_nonces() {
+        let a = encode_session(vec![], Some("tok-1".to_owned()), None).unwrap();
+        let b = encode_session(vec![], Some("tok-1".to_owned()), None).unwrap();
+        assert_ne!(a, b);
+        assert_ne!(sha256_hex(&a), sha256_hex(&b));
+        assert!(decode_session_state(&a).is_ok());
+        assert!(decode_session_state(&b).is_ok());
     }
 }

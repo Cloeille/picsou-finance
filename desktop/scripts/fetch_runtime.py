@@ -192,7 +192,7 @@ def _sha256_file(path):
 
 
 def _otool_rpath_deps(path):
-    """Returns unique @rpath/@loader_path dependencies of a Mach-O file (excluding its own install ID)."""
+    """Returns unique @rpath/@loader_path/@executable_path dependencies of a Mach-O file (excluding its own install ID)."""
     out = subprocess.run(["otool", "-L", str(path)], capture_output=True, text=True)
     if out.returncode != 0:
         return []
@@ -209,7 +209,7 @@ def _otool_rpath_deps(path):
                     i += 1
             continue
         dep = line.strip().split(" (")[0]
-        if dep.startswith(("@rpath/", "@loader_path/")):
+        if dep.startswith(("@rpath/", "@loader_path/", "@executable_path/")):
             deps.append(dep)
         i += 1
     return list(dict.fromkeys(deps))

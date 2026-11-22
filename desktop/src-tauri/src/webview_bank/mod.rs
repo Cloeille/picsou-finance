@@ -1,8 +1,7 @@
 //! Reusable native Tauri WebView bank connector bridge (`127.0.0.1` loopback HTTP).
 //!
 //! Hosts interactive WebView bank connectors inside `picsou-desktop` for BNP Paribas / Hello bank!,
-//! American Express, and Revolut. Every route except health checks and BNP's per-process
-//! bearer-authenticated `POST /webview/callback/{processId}` requires the shared
+//! American Express, and Revolut. Every route except health checks requires the shared
 //! `X-Picsou-Sidecar-Key` (`APP_SIDECAR_API_KEY`) verified in constant time.
 
 pub mod amex;
@@ -20,9 +19,9 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::json;
 use subtle::ConstantTimeEq;
 use tauri::AppHandle;
 use tokio::sync::oneshot;
@@ -143,7 +142,6 @@ fn build_router(state: Arc<BridgeState>) -> axum::Router {
         .route("/webview/start", post(bnp_webview_start))
         .route("/webview/status/{process_id}", get(bnp_webview_status))
         .route("/webview/cancel/{process_id}", post(bnp_webview_cancel))
-        .route("/webview/callback/{process_id}", post(bnp_webview_callback))
         .route("/accounts", post(bnp_accounts))
         // American Express
         .route("/amex/health", get(health))
@@ -165,7 +163,42 @@ fn build_router(state: Arc<BridgeState>) -> axum::Router {
         .route("/revolut/sync", post(revolut_sync))
         .route("/revolut/progress/{member_id}", get(revolut_progress))
         .route("/revolut/accounts", post(revolut_accounts))
+        .route("/revolut/session/{member_id}", delete(revolut_delete_session))
         .with_state(state)
+}
+
+pub(crate) enum ReadBodyError {
+    Transport,
+    TooLarge,
+}
+
+/// Streams an upstream HTTP response body chunk-by-chunk, aborting immediately if total bytes
+/// exceed `max_bytes`.
+pub(crate) async fn read_capped_bytes(
+    mut resp: reqwest::Response,
+    max_bytes: usize,
+) -> Result<Vec<u8>, ReadBodyError> {
+    if let Some(len) = resp.content_length() {
+        if len > max_bytes as u64 {
+            return Err(ReadBodyError::TooLarge);
+        }
+    }
+    let mut buf = Vec::new();
+    while let Some(chunk) = resp.chunk().await.map_err(|_| ReadBodyError::Transport)? {
+        if buf.len().saturating_add(chunk.len()) > max_bytes {
+            return Err(ReadBodyError::TooLarge);
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    Ok(buf)
+}
+
+pub(crate) async fn read_capped_text(
+    resp: reqwest::Response,
+    max_bytes: usize,
+) -> Result<String, ReadBodyError> {
+    let bytes = read_capped_bytes(resp, max_bytes).await?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 fn sidecar_key_valid(headers: &HeaderMap, expected: &str) -> bool {
@@ -252,23 +285,6 @@ async fn bnp_webview_cancel(
     }
     let cancelled = state.bnp.cancel(&state.app, &process_id);
     (StatusCode::OK, Json(json!({ "cancelled": cancelled }))).into_response()
-}
-
-async fn bnp_webview_callback(
-    State(state): State<Arc<BridgeState>>,
-    headers: HeaderMap,
-    Path(process_id): Path<String>,
-    Json(payload): Json<Value>,
-) -> Response {
-    let token = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .unwrap_or("");
-    match state.bnp.receive_callback(&process_id, token, payload) {
-        Ok(()) => (StatusCode::OK, Json(json!({ "received": true }))).into_response(),
-        Err(err) => error_response(err),
-    }
 }
 
 #[derive(Deserialize)]
@@ -464,6 +480,18 @@ async fn revolut_progress(
     }
     let snap = state.revolut.get_progress(&member_id);
     (StatusCode::OK, Json(snap)).into_response()
+}
+
+async fn revolut_delete_session(
+    State(state): State<Arc<BridgeState>>,
+    headers: HeaderMap,
+    Path(member_id): Path<String>,
+) -> Response {
+    if !sidecar_key_valid(&headers, &state.api_key) {
+        return unauthorized_response();
+    }
+    let cleared = state.revolut.clear_member(&member_id);
+    (StatusCode::OK, Json(json!({ "cleared": cleared }))).into_response()
 }
 
 #[cfg(test)]

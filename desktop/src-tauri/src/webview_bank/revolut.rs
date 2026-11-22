@@ -20,6 +20,7 @@ use serde_json::{Value, json};
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 use uuid::Uuid;
 
+use super::read_capped_text;
 use super::bnp::{
     ApiError, StoredCookie, WebviewStartResponse, WebviewStatusResponse, build_cookie_header,
     merge_set_cookies, random_hex, unwrap_eval_string,
@@ -46,6 +47,8 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(25);
 const SNAPSHOT_CACHE_TTL: Duration = Duration::from_secs(300);
 const MAX_PROCESSES: usize = 4;
 const MAX_CACHE_ENTRIES: usize = 16;
+const MAX_SESSIONS: usize = 64;
+const MAX_PROGRESS: usize = 64;
 const MAX_RESPONSE_BYTES: usize = 8_000_000;
 const REFRESH_USER_AGENT: &str =
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
@@ -73,6 +76,7 @@ struct CachedSnapshot {
 struct StoredRevolutSession {
     device_id: String,
     cookies: Vec<StoredCookie>,
+    updated_at: Instant,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -323,6 +327,55 @@ impl RevolutWebviewManager {
             })
     }
 
+    /// Clears all in-memory Revolut state (cookies, cached snapshot, and progress) for `member_id`.
+    pub fn clear_member(&self, member_id: &str) -> bool {
+        let key = normalize_member_key(member_id);
+        let removed_session = self
+            .sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&key)
+            .is_some();
+        let removed_snapshot = self
+            .snapshots
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&key)
+            .is_some();
+        let removed_progress = self
+            .progress
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&key)
+            .is_some();
+        removed_session || removed_snapshot || removed_progress
+    }
+
+    fn store_session(&self, member_key: String, device_id: String, cookies: Vec<StoredCookie>) {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        if !sessions.contains_key(&member_key) {
+            while sessions.len() >= MAX_SESSIONS {
+                if let Some(oldest) = sessions
+                    .iter()
+                    .min_by_key(|(_, s)| s.updated_at)
+                    .map(|(k, _)| k.clone())
+                {
+                    sessions.remove(&oldest);
+                } else {
+                    break;
+                }
+            }
+        }
+        sessions.insert(
+            member_key,
+            StoredRevolutSession {
+                device_id,
+                cookies,
+                updated_at: Instant::now(),
+            },
+        );
+    }
+
     /// Serves `POST /revolut/sync` and `POST /revolut/accounts`: returns a fresh in-memory
     /// snapshot captured from the native WebView, or replays stored retail cookies over `reqwest`
     /// if the session is still alive, returning `401 SESSION_EXPIRED` when re-login is needed.
@@ -407,13 +460,7 @@ impl RevolutWebviewManager {
             .filter(|c| cookie_in_scope(c))
             .cloned()
             .collect();
-        self.sessions.lock().unwrap_or_else(|e| e.into_inner()).insert(
-            key,
-            StoredRevolutSession {
-                device_id,
-                cookies: updated_cookies,
-            },
-        );
+        self.store_session(key, device_id, updated_cookies);
         Ok(payload)
     }
 
@@ -422,17 +469,28 @@ impl RevolutWebviewManager {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .ok();
-        self.progress
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(
-                member_key.to_owned(),
-                ProgressSnapshot {
-                    phase: Some(phase.to_owned()),
-                    accounts_found,
-                    updated_at,
-                },
-            );
+        let mut progress = self.progress.lock().unwrap_or_else(|e| e.into_inner());
+        if !progress.contains_key(member_key) {
+            while progress.len() >= MAX_PROGRESS {
+                if let Some(oldest) = progress
+                    .iter()
+                    .min_by_key(|(_, p)| p.updated_at.unwrap_or(0))
+                    .map(|(k, _)| k.clone())
+                {
+                    progress.remove(&oldest);
+                } else {
+                    break;
+                }
+            }
+        }
+        progress.insert(
+            member_key.to_owned(),
+            ProgressSnapshot {
+                phase: Some(phase.to_owned()),
+                accounts_found,
+                updated_at,
+            },
+        );
     }
 
     fn mark_cancelled_if_active(&self, process_id: &str) {
@@ -635,13 +693,7 @@ impl RevolutWebviewManager {
                 .unwrap_or_default()
         };
         if !stored.is_empty() && !final_device_id.is_empty() {
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).insert(
-                member_key.to_owned(),
-                StoredRevolutSession {
-                    device_id: final_device_id,
-                    cookies: stored,
-                },
-            );
+            self.store_session(member_key.to_owned(), final_device_id, stored);
         }
 
         Ok(payload)
@@ -700,10 +752,9 @@ impl RevolutWebviewManager {
             merge_set_cookies(&mut guard, &set_cookies, API_HOST);
         }
         let status = resp.status().as_u16();
-        let text = resp.text().await.unwrap_or_default();
-        if text.len() > MAX_RESPONSE_BYTES {
+        let Ok(text) = read_capped_text(resp, MAX_RESPONSE_BYTES).await else {
             return FetchResponse { status: 0, data: None };
-        }
+        };
         let data = revolut_parsers::loads(&text).ok();
         FetchResponse { status, data }
     }
@@ -897,7 +948,8 @@ async fn webview_revolut_fetch(
   }}
   fetch(url.toString(), {{
     method: {method_js},
-    credentials: "include",
+    credentials: "same-origin",
+    redirect: "error",
     headers: {{
       "x-device-id": dev,
       "x-browser-application": "WEB_CLIENT",
@@ -1108,5 +1160,39 @@ mod tests {
         let second = mgr.sync_member("7").await.unwrap_err();
         assert_eq!(second.status, StatusCode::UNAUTHORIZED);
         assert_eq!(second.detail, "SESSION_EXPIRED");
+    }
+
+    #[test]
+    fn clear_member_purges_ram_and_maps_stay_bounded() {
+        let mgr = RevolutWebviewManager::new();
+        mgr.store_session(
+            "42".to_owned(),
+            "dev-42".to_owned(),
+            vec![StoredCookie {
+                name: "sid".to_owned(),
+                value: "secret".to_owned(),
+                domain: Some(".revolut.com".to_owned()),
+                path: Some("/".to_owned()),
+                expires: None,
+                http_only: Some(true),
+                secure: Some(true),
+                same_site: None,
+            }],
+        );
+        mgr.remember_snapshot("42", RevolutHarvestPayload { accounts: vec![] });
+        mgr.set_progress("42", "HARVESTING", Some(2));
+
+        assert!(mgr.clear_member("42"));
+        assert!(!mgr.clear_member("42"));
+        assert!(mgr.get_progress("42").phase.is_none());
+        assert!(mgr.sessions.lock().unwrap().is_empty());
+        assert!(mgr.snapshots.lock().unwrap().is_empty());
+
+        for i in 0..(MAX_SESSIONS + 12) {
+            mgr.store_session(format!("m{i}"), "dev".to_owned(), vec![]);
+            mgr.set_progress(&format!("m{i}"), "HARVESTING", Some(1));
+        }
+        assert_eq!(mgr.sessions.lock().unwrap().len(), MAX_SESSIONS);
+        assert_eq!(mgr.progress.lock().unwrap().len(), MAX_PROGRESS);
     }
 }
