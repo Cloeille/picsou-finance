@@ -4,7 +4,7 @@ import { day, post, sql, type Scenario, type Vars } from "../lib/scenario.ts";
 /** A cell: a string (inline), a number written verbatim as the stored value, or a formula. */
 type Cell = string | { n: string } | { f: string; v: string } | null;
 
-const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 function sheetXml(rows: Cell[][]): string {
   const body = rows
