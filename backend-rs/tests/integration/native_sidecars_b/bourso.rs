@@ -2911,3 +2911,22 @@ async fn rejects_cross_origin_redirects_and_tampered_api_url_or_path_segments() 
         "tampered API_URL host must never be contacted"
     );
 }
+
+#[test]
+fn accounts_parser_never_panics_on_a_mangled_page() {
+    use crate::native_sidecars_a::assert_never_panics;
+    use picsou::native_sidecars::bourso::accounts_parser;
+
+    let pages = [
+        DASHBOARD_HTML.to_owned(),
+        RIB_HTML.to_owned(),
+        MOVEMENTS_HTML.to_owned(),
+        dashboard_with_life_insurance(),
+    ];
+    assert_never_panics("bourso", &pages, |page| {
+        let _ = accounts_parser::parse_dashboard(page);
+        let _ = accounts_parser::parse_iban_page(page);
+        let _ = accounts_parser::choose_personal_identity(page);
+        let _ = accounts_parser::parse_amount(page);
+    });
+}

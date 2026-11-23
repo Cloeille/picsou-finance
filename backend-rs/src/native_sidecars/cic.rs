@@ -610,6 +610,7 @@ fn extract_class_tokens(raw_attrs: &str) -> Vec<String> {
     let len = bytes.len();
     let mut i = 0;
     while i < len {
+        let attribute_start = i;
         while i < len && (bytes[i].is_ascii_whitespace() || bytes[i] == b'/') {
             i += 1;
         }
@@ -655,6 +656,11 @@ fn extract_class_tokens(raw_attrs: &str) -> Vec<String> {
                 .split_whitespace()
                 .map(str::to_owned)
                 .collect();
+        }
+        // A stray `>` (an unbalanced quote earlier in the tag) is neither a name nor a value:
+        // step over it, or the scan would never end.
+        if i == attribute_start {
+            i += 1;
         }
     }
     Vec::new()

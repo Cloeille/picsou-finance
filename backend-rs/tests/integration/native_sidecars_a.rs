@@ -1844,3 +1844,138 @@ async fn cic_end_to_end_native_through_test_app() {
 
     let _ = SidecarBank::Cic; // verify bank enum linkage
 }
+
+// ---------------------------------------------------------------------------------------------
+// Robustness: a mangled page is an error or an empty answer, never a panic. A bank changes its
+// markup without notice, and a panic in a parser would abort the request instead of reporting
+// UPSTREAM_FORMAT_CHANGED. Synthetic pages only.
+// ---------------------------------------------------------------------------------------------
+
+/// The page cut short at every character, cut from the start at every character, with one
+/// character removed, and with a multi-byte character pushed in, at a stride that keeps the run
+/// short. Byte offsets that split a UTF-8 sequence are exactly what a hand-written scanner trips on.
+pub(crate) fn mangled(page: &str) -> Vec<String> {
+    let boundaries: Vec<usize> = page.char_indices().map(|(i, _)| i).collect();
+    let stride = (boundaries.len() / 1500).max(1);
+    let mut out = Vec::new();
+    for &at in boundaries.iter().step_by(stride) {
+        out.push(page[..at].to_owned());
+        out.push(page[at..].to_owned());
+        let next = page[at..].chars().next().map_or(at, |c| at + c.len_utf8());
+        out.push(format!("{}{}", &page[..at], &page[next..]));
+        for inserted in ["é", "€", "𝄞", "<", ">", "\"", "&"] {
+            out.push(format!("{}{inserted}{}", &page[..at], &page[at..]));
+        }
+    }
+    out.push(String::new());
+    out.push(page.to_owned());
+    out
+}
+
+/// Runs `parse` over every mangled page on a worker thread. A panic fails the test with the
+/// page that caused it; so does a parse that does not come back, which a scanner that stops
+/// advancing would otherwise turn into a hung sync.
+pub(crate) fn assert_never_panics(
+    parser: &'static str,
+    pages: &[String],
+    parse: impl Fn(&str) + Send + 'static,
+) {
+    use std::sync::{Arc, Mutex, mpsc};
+
+    let pages: Vec<String> = pages.iter().flat_map(|seed| mangled(seed)).collect();
+    let current = Arc::new(Mutex::new(String::new()));
+    let (tick, ticks) = mpsc::channel::<Result<(), String>>();
+    let worker_current = Arc::clone(&current);
+    std::thread::spawn(move || {
+        for page in pages {
+            *worker_current.lock().unwrap() = page.clone();
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| parse(&page)));
+            if tick.send(outcome.map_err(|_| page)).is_err() {
+                return;
+            }
+        }
+    });
+    let excerpt = |page: &str| page.chars().take(240).collect::<String>();
+    loop {
+        match ticks.recv_timeout(Duration::from_secs(10)) {
+            Ok(Ok(())) => {}
+            Ok(Err(page)) => panic!(
+                "{parser} panicked on a mangled page of {} bytes: {:?}",
+                page.len(),
+                excerpt(&page)
+            ),
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let page = current.lock().unwrap().clone();
+                panic!(
+                    "{parser} did not return within 10 s on a mangled page of {} bytes: {:?}",
+                    page.len(),
+                    excerpt(&page)
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn cic_parsers_never_panic_on_a_mangled_page() {
+    let pages = [
+        cic_accounts_page(),
+        CIC_LOGIN_PAGE.to_owned(),
+        CIC_MOBILE_MFA.to_owned(),
+        CIC_SMS_MFA.to_owned(),
+        CIC_AUTHORITY_PAGE.to_owned(),
+        "<!-- é --><script>var a = '</scr';</script><style>é</style><!DOCTYPE é><td>1 234,56 €</td>"
+            .to_owned(),
+    ];
+    assert_never_panics("cic", &pages, |page| {
+        let _ = cic::visible_html(page);
+        let _ = cic::has_balance(page);
+        let _ = cic::categories_read(page);
+        let _ = cic::parse_accounts_listing(page);
+        let _ = cic::parse_amount(page);
+        let _ = euro_info::parse_forms(page);
+        let _ = euro_info::field_names(page);
+        let _ = euro_info::find_form_by_name(page, "é");
+        let _ = euro_info::link_with(page, &["déconnexion", "é"]);
+    });
+}
+
+#[test]
+fn cmes_parsers_never_panic_on_a_mangled_page() {
+    let pages = [
+        cmes_default_situation(),
+        cmes_fund_savings("1 234,56", "12,34", "10,0000", "123,456"),
+        cmes_fund_summary(0, "QS0000000001"),
+        CMES_LOGIN_PAGE.to_owned(),
+        CMES_MOBILE_MFA.to_owned(),
+        CMES_SMS_MFA.to_owned(),
+    ];
+    assert_never_panics("cmes", &pages, |page| {
+        let _ = cmes::parse_profile(page);
+        let _ = cmes::parse_situation(page);
+        let _ = cmes::my_savings_tab(page);
+        let _ = cmes::parse_fund_identity(page);
+        let _ = cmes::parse_my_savings(page);
+        let _ = cmes::parse_money(page);
+        let _ = cmes::parse_percent(page);
+        let _ = cmes::parse_units(page);
+        let _ = euro_info::parse_forms(page);
+        let _ = euro_info::field_names(page);
+    });
+}
+
+#[test]
+fn sofidy_parser_never_panics_on_a_mangled_page() {
+    let row = sofidy_fund_row(
+        "SOFIDY PIERRE EUROPE é",
+        "10.00000",
+        "235.00",
+        "2350.00",
+        "SPE",
+    );
+    let pages = [sofidy_page(&row, &sofidy_total_row("10.00000", "2350.00"))];
+    assert_never_panics("sofidy", &pages, |page| {
+        let _ = sofidy::parse_portfolio(page);
+    });
+}

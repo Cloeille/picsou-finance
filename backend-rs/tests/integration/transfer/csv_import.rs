@@ -376,3 +376,28 @@ async fn validation_and_missing_file_errors() {
         .await;
     assert_eq!(r.status, 415);
 }
+
+/// A broken export is refused or read as it is, never a panic or a parse that does not return.
+#[test]
+fn csv_parser_never_panics_on_a_mangled_file() {
+    use picsou::transfer::csv_import::csv;
+
+    let files = [
+        CSV.to_owned(),
+        "Date,Montant\n\"01/02/2020\",\"1 234,56 €\"\n\"a\"\"b\",\u{a0}-1\u{202f}000.5\n"
+            .to_owned(),
+    ];
+    crate::native_sidecars_a::assert_never_panics("csv import", &files, |file| {
+        let delimiter = csv::detect_delimiter(file);
+        let rows = csv::parse(file, delimiter);
+        let _ = csv::parse(file, ';');
+        let _ = csv::detect_decimal(&rows);
+        let _ = csv::detect_date_format(&rows);
+        let _ = csv::java_big_decimal(file);
+        for cell in rows.iter().flatten() {
+            let _ = csv::parse_decimal(Some(cell), csv::DecimalStyle::Comma);
+            let _ = csv::parse_decimal(Some(cell), csv::DecimalStyle::Dot);
+            let _ = csv::java_big_decimal(cell);
+        }
+    });
+}

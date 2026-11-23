@@ -512,3 +512,29 @@ fn java_hash_set_iterates_like_java() {
         "Cat6:Sub2,Cat11:Sub2,Cat18,Cat17:Sub4,Cat25:Sub0,Cat17,Cat19,Cat14,Cat13,Cat16,Cat15,Cat10,Cat12,Cat11,Cat10:Sub0,Cat0:Sub0,Cat29,Cat5,Cat28,Cat4,Cat3,Cat2,Cat25,Cat1,Cat0,Cat24,Cat18:Sub1,Cat27,Cat26,Cat21,Cat20,Cat23,Cat2:Sub4,Cat22,Cat23:Sub1,Cat29:Sub3,Cat26:Sub2,Cat15:Sub0,Cat5:Sub0,Cat12:Sub4,Cat20:Sub0,Cat8:Sub1,Cat9:Sub3,Cat14:Sub3,Cat28:Sub1,Cat3:Sub1,Cat22:Sub4,Cat13:Sub1,Cat9,Cat8,Cat7,Cat6,Cat27:Sub4,Cat21:Sub2,Cat7:Sub4,Cat4:Sub3,Cat24:Sub3,Cat16:Sub2,Cat19:Sub3,Cat1:Sub2"
     );
 }
+
+/// A QIF file cut short or with a stray multi-byte character is refused or read, never a panic.
+#[test]
+fn qif_parser_never_panics_on_a_mangled_file() {
+    let boundaries: Vec<usize> = QIF.char_indices().map(|(i, _)| i).collect();
+    let stride = (boundaries.len() / 400).max(1);
+    for &at in boundaries.iter().step_by(stride) {
+        let mut variants = vec![QIF[..at].to_owned(), QIF[at..].to_owned()];
+        for inserted in ["é", "€", "^", "\n", "!"] {
+            variants.push(format!("{}{inserted}{}", &QIF[..at], &QIF[at..]));
+        }
+        for variant in variants {
+            let outcome = std::panic::catch_unwind(|| {
+                let _ = qif::parse(variant.as_bytes(), Some("EUR"));
+                let _ = qif::parse(variant.as_bytes(), None);
+            });
+            assert!(
+                outcome.is_ok(),
+                "the QIF parser panicked on: {:?}",
+                variant.chars().take(200).collect::<String>()
+            );
+        }
+    }
+    // Bytes that are not UTF-8 at all.
+    let _ = qif::parse(&[0xff, 0xfe, b'!', b'T', 0x80, b'\n', b'^'], Some("EUR"));
+}
