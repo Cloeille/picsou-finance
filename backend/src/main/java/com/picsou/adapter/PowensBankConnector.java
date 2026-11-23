@@ -295,8 +295,8 @@ public class PowensBankConnector implements BankConnectorPort {
     }
 
     /**
-     * Maps Powens account type to a product string that SyncService.detectType() understands.
-     * LEP is a savings account — detected by checking the account name.
+     * Maps Powens account type to a readable product string. Powens accounts are synced as
+     * {@code CHECKING}: no type detection reads this value.
      */
     private String mapProduct(String powensType, String name) {
         if (powensType == null) return null;

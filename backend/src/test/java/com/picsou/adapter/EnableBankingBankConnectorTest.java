@@ -94,7 +94,7 @@ class EnableBankingBankConnectorTest {
         var account = iban != null
             ? new EnableBankingBankConnector.AccountDetailsResponse.AccountIdentification(iban) : null;
         return new EnableBankingBankConnector.AccountBalanceCandidates(
-            new EnableBankingBankConnector.AccountDetailsResponse(account, null, label, null, null),
+            new EnableBankingBankConnector.AccountDetailsResponse(account, null, label, null, null, null),
             List.of(balance), EnableBankingBankConnector.BalanceSelection.ACCOUNT_SCOPED);
     }
 

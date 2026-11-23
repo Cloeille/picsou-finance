@@ -3,6 +3,8 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.picsou.config.EnableBankingConfigProvider;
 import com.picsou.exception.SyncException;
+import com.picsou.model.AccountType;
+import com.picsou.model.CardNature;
 import com.picsou.port.BankConnectorPort;
 import com.picsou.util.LogSanitizer;
 import io.jsonwebtoken.Jwts;
@@ -27,7 +29,9 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
@@ -57,6 +61,11 @@ public class EnableBankingBankConnector implements BankConnectorPort {
     private static final int MAX_CATEGORY_LENGTH = 100;
     /** {@code account.name} is VARCHAR(100). */
     private static final int MAX_ACCOUNT_NAME_LENGTH = 100;
+    /** ISO 20022 cash account type of a card account, as Enable Banking relays it. */
+    private static final String CARD_CASH_ACCOUNT_TYPE = "CARD";
+    private static final String NO_CURRENCY = "XXX";
+    /** ISO 20022 balance types that state credit still available, not an amount owed. */
+    private static final Set<String> AVAILABLE_BALANCE_TYPES = Set.of("ITAV", "CLAV", "OPAV", "FWAV");
     private static final List<String> BALANCE_TYPE_PRIORITY = List.of("CLBD", "XPCD", "ITBD", "ITAV", "CLAV");
 
     private final EnableBankingConfigProvider configProvider;
@@ -739,17 +748,89 @@ public class EnableBankingBankConnector implements BankConnectorPort {
     }
 
     AccountData fetchAccountData(String accountId, AccountBalanceCandidates response, BalanceOwnership ownership) {
-        var selected = selectBalance(accountId, response, ownership);
         AccountDetailsResponse details = response.details();
+        // A shared balance list (fallback) cannot say which balance a card owes: imported as before.
+        if (details != null && response.selection() != BalanceSelection.FALLBACK
+            && CARD_CASH_ACCOUNT_TYPE.equalsIgnoreCase(nullToEmpty(details.cashAccountType()).trim())) {
+            return fetchCardData(accountId, response, ownership);
+        }
+        var selected = selectBalance(accountId, response, ownership);
         BigDecimal balance = new BigDecimal(selected.balanceAmount().amount().trim());
         String currency = firstNonBlank(selected.balanceAmount().currency(),
             details != null ? details.currency() : null, "EUR");
-        String name = details != null
-            ? firstNonBlank(details.details(), details.product(), details.name(), "Account") : "Account";
-        String iban = details != null && details.accountId() != null
-            ? firstNonBlank(details.accountId().iban()) : null;
+        String name = details != null ? accountName(details) : "Account";
+        return new AccountData(accountId, name, ibanOf(details), currency, balance);
+    }
 
-        return new AccountData(accountId, truncate(name, MAX_ACCOUNT_NAME_LENGTH), iban, currency, balance);
+    /**
+     * A card stores what it owes, signed negative, like the BPCE and La Banque Postale cards. An
+     * "available" balance (credit left) never says that, and a positive one could only be read with the
+     * ASPSP's sign convention: such a card is still returned, so it stays a card and its transactions
+     * import, but with no balance, which leaves the stored one untouched.
+     */
+    private AccountData fetchCardData(String accountId, AccountBalanceCandidates response, BalanceOwnership ownership) {
+        AccountDetailsResponse details = response.details();
+        List<BalancesResponse.BalanceItem> owed = response.candidates().stream()
+            .filter(item -> !isAvailableBalance(item)).toList();
+        BalancesResponse.BalanceItem selected = null;
+        if (!owed.isEmpty()) {
+            try {
+                selected = selectBalance(accountId,
+                    new AccountBalanceCandidates(details, owed, response.selection()), ownership);
+            } catch (SyncException ex) {
+                // Two owed balances of the same rank: no single amount owed, so none is stored.
+                selected = null;
+            }
+        }
+        BigDecimal balance = selected != null ? new BigDecimal(selected.balanceAmount().amount().trim()) : null;
+        if (selected == null || balance.signum() > 0) {
+            log.warn("Enable Banking card {} sent no balance readable as an amount owed; its balance is left as is",
+                LogSanitizer.fingerprint(accountId));
+            balance = null;
+        }
+        // ISO 4217 "XXX" (no currency) is what Boursorama declares on its cards.
+        String currency = firstNonBlank(
+            balance != null ? realCurrency(selected.balanceAmount().currency()) : null,
+            realCurrency(details.currency()), "EUR");
+        String accountName = accountName(details);
+        CardNature nature = cardNatureOf(details.details());
+        // Only a known technical token in `details` (Boursorama: `immediat_debit`) is worth skipping:
+        // `name` is then the label the holder sees, e.g. the brand and holder. Elsewhere `details`
+        // describes the card better than the holder's name does, so the usual order stays.
+        String cardName = nature == null ? accountName
+            : truncate(firstNonBlank(details.name(), details.product(), "Card"), MAX_ACCOUNT_NAME_LENGTH);
+        return new AccountData(accountId, cardName, ibanOf(details), currency, balance, AccountType.CREDIT_CARD,
+            nature, accountName.equals(cardName) ? null : accountName);
+    }
+
+    private static boolean isAvailableBalance(BalancesResponse.BalanceItem item) {
+        return AVAILABLE_BALANCE_TYPES.contains(nullToEmpty(item.balanceType()).trim().toUpperCase(Locale.ROOT));
+    }
+
+    /** First nonblank of {@code details}, {@code product}, {@code name}: the description beats the holder. */
+    private static String accountName(AccountDetailsResponse details) {
+        return truncate(firstNonBlank(details.details(), details.product(), details.name(), "Account"),
+            MAX_ACCOUNT_NAME_LENGTH);
+    }
+
+    private static String ibanOf(AccountDetailsResponse details) {
+        return details != null && details.accountId() != null ? firstNonBlank(details.accountId().iban()) : null;
+    }
+
+    /** ISO 4217 {@code XXX} means "no currency" (Boursorama sends it on cards): treat it as absent. */
+    private static String realCurrency(String currency) {
+        String value = firstNonBlank(currency);
+        return value == null || NO_CURRENCY.equalsIgnoreCase(value) ? null : value;
+    }
+
+    /** Only the exact tokens seen on an ASPSP are mapped; a token we don't know leaves the nature unknown. */
+    private static CardNature cardNatureOf(String token) {
+        String value = nullToEmpty(token).trim().toLowerCase(Locale.ROOT);
+        return switch (value) {
+            case "immediat_debit" -> CardNature.IMMEDIATE_DEBIT;
+            case "delayed_debit" -> CardNature.DEFERRED_DEBIT;
+            default -> null;
+        };
     }
 
     private static BalancesResponse.BalanceItem selectBalance(String accountId, AccountBalanceCandidates response,
@@ -899,7 +980,8 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         String name,
         String details,
         String product,
-        String currency
+        String currency,
+        @com.fasterxml.jackson.annotation.JsonProperty("cash_account_type") String cashAccountType
     ) {
         @JsonIgnoreProperties(ignoreUnknown = true)
         record AccountIdentification(String iban) {}

@@ -18,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -484,37 +485,45 @@ public class SyncService {
         String sessionId
     ) {
         String currency = data.currency() != null ? data.currency() : "EUR";
+        // A card may carry the IBAN of the account it is debited from: never match or store it on the card.
+        String iban = data.type() == AccountType.CREDIT_CARD ? null : data.iban();
         Optional<Account> existing =
             accountRepository.findByExternalAccountIdAndMemberId(data.externalId(), member.getId());
         if (existing.isEmpty()) {
             // A deleted uid is not a rotation, even when another connector owns the IBAN.
             boolean deletedUid = accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(
                 data.externalId(), member.getId());
-            if (!deletedUid && data.iban() != null) {
-                existing = accountRepository.findByIbanAndCurrencyAndMemberId(data.iban(), currency, member.getId());
+            if (!deletedUid && iban != null) {
+                existing = accountRepository.findByIbanAndCurrencyAndMemberId(iban, currency, member.getId());
             }
-            if (deletedUid || (existing.isEmpty() && data.iban() != null &&
-                accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(data.iban(), currency, member.getId()))) {
+            if (deletedUid || (existing.isEmpty() && iban != null &&
+                accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(iban, currency, member.getId()))) {
                 log.info("Skipping resurrection of soft-deleted account externalId={} iban={} member={}",
-                    data.externalId(), LogSanitizer.fingerprint(data.iban()), member.getId());
+                    data.externalId(), LogSanitizer.fingerprint(iban), member.getId());
                 return Optional.empty();
             }
         }
 
+        // A card never takes a positive balance: whatever the path, that figure is credit left, not owed.
+        BigDecimal balance = existing.isPresent() && existing.get().getType() == AccountType.CREDIT_CARD
+            && data.balance() != null && data.balance().signum() > 0 ? null : data.balance();
         Account account;
         if (existing.isPresent()) {
             account = existing.get();
-            account.setCurrency(currency);
-            account.setCurrentBalance(data.balance());
+            // A balance left as is keeps the currency it was stored in.
+            if (balance != null) {
+                account.setCurrency(currency);
+                account.setCurrentBalance(balance);
+            }
             account.setLastSyncedAt(Instant.now());
             // Refresh uid in case the provider rotated it (EB v0.16.4 Boursorama case)
             account.setExternalAccountId(data.externalId());
             // A deleted sidecar can be restored on reconnect, so it still reserves its IBAN.
-            if (data.iban() != null && !accountRepository.existsByIbanAndCurrencyAndMemberIdAndIdNot(
-                data.iban(), currency, member.getId(), account.getId()) &&
+            if (iban != null && !accountRepository.existsByIbanAndCurrencyAndMemberIdAndIdNot(
+                iban, currency, member.getId(), account.getId()) &&
                 !accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(
-                    data.iban(), currency, member.getId())) {
-                account.setIban(data.iban());
+                    iban, currency, member.getId())) {
+                account.setIban(iban);
             }
             // Backfill the bank logo on a pre-logo account once the requisition has one.
             if (account.getLogoUrl() == null && requisition.getLogoUrl() != null) {
@@ -523,17 +532,19 @@ public class SyncService {
             // Also on the update path, so accounts that predate V76 and the ones its
             // name-matching backfill had to leave NULL get linked on their next sync.
             account.setRequisitionId(requisition.getId());
+            refreshCardIdentity(account, data);
         } else {
             account = Account.builder()
                 .member(member)
                 .name(data.name() != null ? data.name() : "Account")
-                .type(AccountType.CHECKING)
+                .type(data.type())
+                .cardNature(data.type() == AccountType.CREDIT_CARD ? data.cardNature() : null)
                 .provider(requisition.getInstitutionName())
                 .currency(currency)
-                .currentBalance(data.balance())
+                .currentBalance(balance != null ? balance : BigDecimal.ZERO)
                 .lastSyncedAt(Instant.now())
                 .externalAccountId(data.externalId())
-                .iban(data.iban())
+                .iban(iban)
                 .isManual(false)
                 .color("#6366f1")
                 .logoUrl(requisition.getLogoUrl())
@@ -542,7 +553,9 @@ public class SyncService {
         }
 
         account = accountRepository.save(account);
-        accountService.upsertSnapshotFromNative(account, data.balance(), LocalDate.now());
+        if (balance != null) {
+            accountService.upsertSnapshotFromNative(account, balance, LocalDate.now());
+        }
 
         // Balances first, transactions after, and never the other way round: the import
         // is best-effort (it swallows provider failures) so that an ASPSP which serves
@@ -550,6 +563,36 @@ public class SyncService {
         bankTransactionImportService.importFor(account, sessionId);
 
         return Optional.of(accountService.toResponse(account));
+    }
+
+    /**
+     * Brings an account synced before the provider's card type was read up to date (#664): a
+     * still-{@code CHECKING} account becomes a card, a card nature is only filled in when unknown, and
+     * only a name still equal to the one an earlier release generated is replaced. A type other than
+     * {@code CHECKING} and a name the user typed are kept; {@code CHECKING} itself cannot be told apart
+     * from the old default, so a card set back to it by hand is upgraded again.
+     */
+    private static void refreshCardIdentity(Account account, BankConnectorPort.AccountData data) {
+        if (data.type() != AccountType.CREDIT_CARD) {
+            return;
+        }
+        // An IBAN stored in the current-account days is its funding account's: it would block that
+        // account from storing it and could match the card to it after a uid rotation.
+        account.setIban(null);
+        // Kept as is (no readable balance), a positive figure from the current-account days is
+        // credit left, not owed: as a card it would read as a negative debt, so wait for one.
+        if (account.getType() == AccountType.CHECKING) {
+            if (data.balance() == null && account.getCurrentBalance().signum() > 0) {
+                return;
+            }
+            account.setType(AccountType.CREDIT_CARD);
+        }
+        if (account.getType() == AccountType.CREDIT_CARD && account.getCardNature() == null) {
+            account.setCardNature(data.cardNature());
+        }
+        if (data.legacyName() != null && data.legacyName().equals(account.getName())) {
+            account.setName(data.name());
+        }
     }
 
     /**
