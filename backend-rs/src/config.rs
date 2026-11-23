@@ -592,6 +592,17 @@ pub fn parse_timezone(value: Option<&str>) -> Result<Tz, ConfigError> {
 
 impl Config {
     /// Resolves the install secrets (SecretBootstrap) and then every key.
+    /// LOGGING_FILE_NAME, else spring.log under LOGGING_FILE_PATH. Read on its own so the log is
+    /// installed before the configuration loads: what loading warns about must reach it.
+    pub fn log_file_of(env: &Env) -> Option<PathBuf> {
+        env.non_blank("LOGGING_FILE_NAME")
+            .map(PathBuf::from)
+            .or_else(|| {
+                env.non_blank("LOGGING_FILE_PATH")
+                    .map(|dir| PathBuf::from(dir).join("spring.log"))
+            })
+    }
+
     pub fn load(env: &Env) -> Result<Self, ConfigError> {
         let secrets = secrets::bootstrap(env).map_err(|e| invalid(e.to_string()))?;
         Self::from_resolved(env, &secrets)
@@ -686,13 +697,7 @@ impl Config {
             })
             .collect();
 
-        let log_file = env
-            .non_blank("LOGGING_FILE_NAME")
-            .map(PathBuf::from)
-            .or_else(|| {
-                env.non_blank("LOGGING_FILE_PATH")
-                    .map(|dir| PathBuf::from(dir).join("spring.log"))
-            });
+        let log_file = Self::log_file_of(env);
 
         let sso = SsoConfig {
             issuer_uri: env.or("SSO_ISSUER_URI", "").to_owned(),

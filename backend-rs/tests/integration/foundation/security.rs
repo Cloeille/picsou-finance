@@ -359,3 +359,70 @@ fn secrets_are_generated_once_with_private_permissions() {
     );
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// The server binary itself. A warning raised while the configuration loads reaches the log, and
+/// a value holding a line break stays on its own line: it cannot forge the next one.
+#[test]
+fn a_startup_warning_is_logged_on_one_line() {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let dir = std::env::temp_dir().join(format!("picsou-log-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_picsou"))
+        .env_clear()
+        .env(
+            "DATABASE_URL",
+            format!("sqlite://{}", dir.join("picsou.db").display()),
+        )
+        .env("JWT_SECRET", picsou::testing::JWT_SECRET)
+        .env("CRYPTO_ENCRYPTION_KEY", picsou::testing::CRYPTO_KEY)
+        .env("SERVER_ADDRESS", "127.0.0.1")
+        .env("SERVER_PORT", port.to_string())
+        .env("APP_STARTUP_SYNC_ENABLED", "false")
+        .env("APP_UPDATE_CHECK_ENABLED", "false")
+        .env("NO_COLOR", "1")
+        .env("HSTS_ENABLED", "t rue\nINFO forged")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let (lines_tx, lines_rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if lines_tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let mut lines = Vec::new();
+    while let Ok(line) = lines_rx.recv_timeout(Duration::from_secs(30)) {
+        let started = line.contains("Started Picsou");
+        lines.push(line);
+        if started {
+            break;
+        }
+    }
+    child.kill().unwrap();
+    child.wait().unwrap();
+    std::fs::remove_dir_all(&dir).ok();
+
+    assert!(
+        lines.iter().any(|line| line.contains("Started Picsou")),
+        "the backend did not start: {lines:#?}"
+    );
+    let warnings: Vec<_> = lines
+        .iter()
+        .filter(|line| line.contains("not understood, HSTS disabled."))
+        .collect();
+    assert_eq!(warnings.len(), 1, "{lines:#?}");
+    assert!(warnings[0].contains("HSTS_ENABLED='t rue?INFO forged'"));
+    assert!(lines.iter().all(|line| !line.starts_with("INFO forged")));
+}

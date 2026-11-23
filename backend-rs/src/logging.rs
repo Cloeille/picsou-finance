@@ -79,13 +79,50 @@ impl Write for RollingFile {
     }
 }
 
+/// One event, one line. tracing-subscriber writes each event in one call and escapes terminal
+/// control sequences in what it logs, but leaves line breaks alone: a logged value holding one
+/// could forge a log line. Line breaks and control characters inside an event become `?`; the
+/// line break that ends the event, tabs and the formatter's own colour codes are kept.
+#[derive(Clone)]
+struct OneLine<W>(W);
+
+impl<W: Write> Write for OneLine<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let (body, end) = match buf.split_last() {
+            Some((b'\n', body)) => (body, &b"\n"[..]),
+            _ => (buf, &b""[..]),
+        };
+        let forges = |c: char| {
+            (c.is_control() && !matches!(c, '\t' | '\x1b')) || matches!(c, '\u{2028}' | '\u{2029}')
+        };
+        match std::str::from_utf8(body) {
+            Ok(text) if text.contains(forges) => {
+                let line: String = text
+                    .chars()
+                    .map(|c| if forges(c) { '?' } else { c })
+                    .collect();
+                self.0.write_all(line.as_bytes())?;
+                self.0.write_all(end)?;
+            }
+            _ => self.0.write_all(buf)?,
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.0.flush()
+    }
+}
+
 static FILE_GUARD: OnceLock<tracing_appender::non_blocking::WorkerGuard> = OnceLock::new();
 
 /// Installs the global subscriber once; later calls are ignored (tests start many apps).
 pub fn init(log_file: Option<&Path>) {
     let filter =
         EnvFilter::try_from_env("RUST_LOG").unwrap_or_else(|_| EnvFilter::new("info,sqlx=warn"));
-    let stdout = tracing_subscriber::fmt::layer().with_target(false);
+    let stdout = tracing_subscriber::fmt::layer()
+        .with_target(false)
+        .with_writer(|| OneLine(io::stdout()));
     let file = log_file.and_then(|path| match RollingFile::open(path) {
         Ok(writer) => {
             let (writer, guard) = tracing_appender::non_blocking(writer);
@@ -93,7 +130,7 @@ pub fn init(log_file: Option<&Path>) {
             Some(
                 tracing_subscriber::fmt::layer()
                     .with_ansi(false)
-                    .with_writer(writer),
+                    .with_writer(move || OneLine(writer.clone())),
             )
         }
         Err(e) => {
@@ -106,4 +143,28 @@ pub fn init(log_file: Option<&Path>) {
         .with(stdout)
         .with(file)
         .try_init();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_logged_value_cannot_start_a_new_line() {
+        let mut out = OneLine(Vec::new());
+        out.write_all("WARN lookup failed for AAPL\nINFO forged\r\u{2028}\u{0}\tend\n".as_bytes())
+            .unwrap();
+        assert_eq!(
+            String::from_utf8(out.0).unwrap(),
+            "WARN lookup failed for AAPL?INFO forged???\tend\n"
+        );
+    }
+
+    #[test]
+    fn a_plain_event_and_its_colour_codes_pass_through() {
+        let event = "\x1b[2m12:00:00\x1b[0m \x1b[32m INFO\x1b[0m Started Picsou é\n";
+        let mut out = OneLine(Vec::new());
+        out.write_all(event.as_bytes()).unwrap();
+        assert_eq!(String::from_utf8(out.0).unwrap(), event);
+    }
 }

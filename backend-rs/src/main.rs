@@ -21,14 +21,15 @@ async fn main() {
         };
         std::process::exit(code);
     }
-    let config = match Config::load(&Env::from_process()) {
+    let env = Env::from_process();
+    picsou::logging::init(Config::log_file_of(&env).as_deref());
+    let config = match Config::load(&env) {
         Ok(config) => config,
         Err(e) => {
             eprintln!("Application failed to start: {e}");
             std::process::exit(1);
         }
     };
-    picsou::logging::init(config.log_file.as_deref());
     let addr = SocketAddr::new(config.server_address, config.server_port);
     let outcome = match tokio::net::TcpListener::bind(addr).await {
         Ok(listener) => picsou::serve(config, listener).await,

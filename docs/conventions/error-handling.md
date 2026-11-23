@@ -77,8 +77,10 @@ Everything else follows two rules:
 
 ## Logging outside-controlled values (backend)
 
-The log output does not rewrite messages. Wrap a value an outsider controls in a one-line
-helper at the call site (`log_safe` in `backend-rs/src/identity/common.rs`, `safe` in
+The log output keeps each event on one line: a line break or a control character inside an
+event becomes `?` (`OneLine` in `backend-rs/src/logging.rs`), so a logged value cannot forge a
+log line. On top of that, wrap a value an outsider controls in a one-line helper at the call
+site (`log_safe` in `backend-rs/src/identity/common.rs`, `safe` in
 `backend-rs/src/sync/enable_banking/wire.rs`): request parameters and headers, usernames
 (user-chosen and renamable), user-supplied tickers, uploaded file names and content, upstream
 response bodies and status texts. The helper replaces line breaks and control characters, so a logged value
