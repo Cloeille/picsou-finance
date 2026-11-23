@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Enable Banking is recorded again, in memory only and bounded (200 newest calls, 256 K
   characters per body, 8 M in all). The panel and the `.txt` export now warn that they hold raw
   bank data to review before sharing. (#665)
+- **La Banque Postale sign-in works again.** The bank moved its login to a new page that shows the
+  "Pour plus de sécurité" step without changing the address, so the connector never pressed
+  *Continuer*: no notification reached the phone, and the connection failed after the keypad as
+  "temporarily unavailable". The connector now continues that step and waits for the approval on
+  the phone, and a refused password is reported as such. A login that asks for an SMS code or
+  Certicode Plus still fails, with the screen named in the sidecar log.
 
 ## [1.2.2] — 2026-11-21
 

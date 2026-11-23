@@ -1,8 +1,12 @@
 # Feature: La Banque Postale sync (sidecar, replaces Enable Banking)
 
-> Last updated: 2026-11-06
+> Last updated: 2026-11-22 (login through the bank's new `digital-authentification` app)
 > Status: 🟢 **Live-validated by the author on a test stack; the maintainer's
-> live run is still pending.** The backend contract, storage, adapter, sync
+> live run is still pending.** In November 2026 the bank moved its login to a
+> new app that shows the strong-authentication screens in place; see
+> [the new login app](#the-digital-authentification-app-2026-11). A live run on
+> 2026-11-22 through that app imported the accounts and their transactions.
+> The backend contract, storage, adapter, sync
 > service and REST endpoints are in place. `services/lbp-auth`
 > runs the login in headless Chromium (base `chromium`) so the bank's anti-fraud
 > scripts set `iscdName`; the keypad is clicked in that browser and the digits
@@ -126,6 +130,43 @@ page's `URL_AF_POLLING` every 3 s until the bank redirects. No SMS path was
 observed, but an additive `/otp` step could be added without changing the rest
 of the contract.
 
+#### The digital-authentification app (2026-11)
+
+`identif.ea?origin=particuliers` now lands on
+`/auth/digital-authentification/connexion`, an Angular app. The field ids the
+sidecar uses are unchanged (`#identifiant`, the `data-tb-cvd-id='password'`
+keypad, `#btnConfirmer`), so `/initiate` kept working; what changed is the
+submit. The app checks the password over XHR
+(`/auth/api/mdp/mdp-courant/valider`, then
+`/auth/api/connexion/determiner-eligibilite`) and **keeps the URL**:
+
+- a refused password or any error routes to `/message/<code>` in the app;
+  `0x132120c8` is the refused password, as on the old `message.html` page, and
+  maps to `INVALID_CREDENTIALS`;
+- a trusted device redirects through `/auth/routing/connexion/session` into the
+  client area (`/keypad` waits for the URL to leave that route before
+  classifying the page);
+- a new device gets the *Pour plus de sécurité* notice **in place**
+  (`hj9-authentification-forte-information`). Its **Continuer** mounts
+  `hj9-terminal-confiance`, which creates the transaction
+  (`/auth/api/af/transaction`) that sends the mobile notification, then renders
+  the approval screen (`hj9-authentification-terminal-confiance`) that polls
+  `/auth/api/af/transaction/verifier` every 3 s. On approval the app redirects
+  through `/auth/routing/connexion/session` into the client area.
+
+`/keypad` waits up to 15 s for one of: a URL change, the notice or the approval
+screen. It clicks the notice's **Continuer**, then waits up to 30 s for the
+approval screen (`hj9-authentification-terminal-confiance`, rendered once the
+transaction exists) before answering `APPROVAL_PENDING`. The SMS code
+(`hj9-authentification-numero-securise`), Certicode Plus and keypad re-entry
+screens have no flow: they fail with `UPSTREAM_UNAVAILABLE` and the screen's
+component name in the log. `/complete` accepts the old synthesis URLs or, once
+the URL has left `/auth/`, a page carrying the logged-in markers (*Se
+déconnecter*, *Mon profil*); a `/message/<code>` route fails the approval. A
+login still stuck on the form logs `unexpected page path=… left_form=…` (the
+path only) before failing, so the next layout change shows where it stopped.
+The old `loginform` / `message.html` handling stays as a fallback.
+
 The backend can remember the **identifier** (10 digits) when the user ticks the
 box: it is encrypted with `CryptoEncryption` and returned to the form on the next
 login. The password and the keypad positions are still never stored; unticking
@@ -171,6 +212,16 @@ the box clears the remembered identifier on the next successful login.
   `dqnjn206bwvk2` / `d2ydsn9mah1r4u.cloudfront.net` (anti-fraud `fruprem.js` /
   `loreo.js` scripts only). Nothing else is needed; anything else fails
   closed.
+- Since November 2026 the anti-fraud also loads from a third distribution
+  (`d21j9nkdg2p3wo.cloudfront.net`: scripts, XHR and subframes, auto-admitted)
+  and opens a subframe on `aweucn1.advanced-web-analytics.com`
+  (`/321226/peper.html`). That frame stays **blocked** (`hop blocked … frame=sub`
+  in the log): on 2026-11-22 the bank accepted the password and showed the
+  in-place notice with it blocked, and a full login on a recognized device
+  (no approval asked) imported the accounts. The only mobile approval seen so
+  far ran with the frame allowed. If a new-device approval fails while the log
+  shows `hop blocked … peper.html`, allowing that frame below the top-level
+  document is the first thing to try.
 
 ### Storage
 
@@ -244,7 +295,8 @@ Two real sessions were captured (trusted device and new device):
 2. **Mobile approval** — only on a non-trusted device. Trusted device skips it.
    The bank first shows the *Pour plus de sécurité* notice; its **Continuer**
    button opens `cu=attenteAF`, which sends the notification. No SMS path
-   observed.
+   observed. Since November 2026 the same notice is rendered in place by the
+   new login app; see [the new login app](#the-digital-authentification-app-2026-11).
 3. **Account data** — server-rendered XHTML, no account JSON. Synthesis pages
    plus `init-releve_ccp` / `init-releve_cne`.
 4. **Anti-bot** — `fruprem.js` / `loreo.js` set a 52-character `iscdName`; no
@@ -320,8 +372,10 @@ layer is `httpx` cookie replay.
   two captures, with every value invented; used by the tests only.
 - Tests: the shared key contract, request validation, parsers and the
   `HttpxBankClient` login/approval/import flow through `httpx.MockTransport`
-  (30 cases), run in the published image like every other sidecar. The browser
-  login is exercised live only.
+  (30 cases), run in the published image like every other sidecar.
+  `test_spa_login.py` plays the new login app with a fake page (notice,
+  approval screen, `/message/<code>` routes, unsupported screens); the real
+  browser login is exercised live only.
 - Wired into Compose (`lbp` profile, `sidecar-chromium` base) and the Helm chart.
 
 **Frontend**
@@ -356,6 +410,13 @@ cookie serialization, the `afficheSyntheseCCP` / `afficheSyntheseEP` import and
 the write of the current account, a Livret A and a LEP with 27 transactions.
 A second sync 15 seconds later reused the stored cookies and returned the same
 three accounts. The session row was `SUCCESS` and active afterwards.
+
+The live run on 2026-11-22 went through the new login app: the in-place notice,
+the mobile approval (about 22 s) and the import of the accounts and their
+transactions. That run allowed the anti-fraud frame; the
+shipped code blocks it (see the host notes above). A second login five minutes later, on the same
+recognized device, skipped the approval and went straight to the synthesis.
+The 108 sidecar tests pass in the published image.
 
 ## Not in this slice
 
