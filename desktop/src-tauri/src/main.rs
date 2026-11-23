@@ -1,14 +1,15 @@
 // No console window next to the app on Windows.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod external;
+mod i18n;
 mod sidecars;
 mod supervisor;
 mod update;
 mod upgrade;
 mod webview_bank;
 
-use std::fs::OpenOptions;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -57,7 +58,7 @@ async fn restore_backup(app: tauri::AppHandle) -> Result<String, String> {
     *app.state::<Failure>()
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = None;
-    Ok("Your data from before the update is back. Reinstall the previous Picsou version, then open it.".to_owned())
+    Ok(i18n::restored(i18n::Lang::system()).to_owned())
 }
 
 /// `PICSOU_DESKTOP_RUNTIME` points a dev build at `desktop/runtime`; a bundle uses its resources.
@@ -74,16 +75,6 @@ fn runtime_dir(app: &tauri::AppHandle) -> PathBuf {
 
 fn started_hidden(args: impl IntoIterator<Item = String>) -> bool {
     args.into_iter().any(|arg| arg == HIDDEN)
-}
-
-/// True once per data folder: launch at login is switched on by default on the first start
-/// only, so a user who turns it off keeps it off.
-fn first_start(marker: &Path) -> std::io::Result<bool> {
-    match OpenOptions::new().write(true).create_new(true).open(marker) {
-        Ok(_) => Ok(true),
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
-        Err(e) => Err(e),
-    }
 }
 
 fn since_launch() -> u128 {
@@ -105,6 +96,30 @@ fn paint_canvas(app: &tauri::AppHandle) {
     }
 }
 
+/// The main window, built here rather than by Tauri (`"create": false` in tauri.conf.json): only
+/// a builder can attach the new-window handler. A link the page opens in a new window goes to
+/// the system browser, and the app never gets a second window of its own.
+fn main_window(app: &tauri::App) -> tauri::Result<()> {
+    if app.get_webview_window("main").is_some() {
+        return Ok(());
+    }
+    let config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == "main")
+        .cloned()
+        .ok_or(tauri::Error::WindowNotFound)?;
+    tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?
+        .on_new_window(|url, _features| {
+            external::open_in_browser(&url);
+            tauri::webview::NewWindowResponse::Deny
+        })
+        .build()?;
+    Ok(())
+}
+
 fn show_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -119,30 +134,29 @@ fn can_launch_at_login() -> bool {
 }
 
 fn tray(app: &tauri::App) -> tauri::Result<()> {
+    // Launch at login is the user's choice, off until they tick it: nothing is added to the
+    // system's login items on their behalf.
     let autolaunch = app.autolaunch();
-    let data = app.path().app_local_data_dir()?;
-    std::fs::create_dir_all(&data)?;
-    let marker = data.join("autostart-default");
-    if can_launch_at_login()
-        && first_start(&marker).unwrap_or(false)
-        && autolaunch.enable().is_err()
-    {
-        // Retried on the next start.
-        let _ = std::fs::remove_file(&marker);
-    }
-    let open = MenuItem::with_id(app, "open", "Open Picsou", true, None::<&str>)?;
+    let lang = i18n::Lang::system();
+    let open = MenuItem::with_id(app, "open", i18n::tray_open(lang), true, None::<&str>)?;
     let login = CheckMenuItem::with_id(
         app,
         "login",
-        "Launch at login",
+        i18n::tray_launch_at_login(lang),
         can_launch_at_login(),
         autolaunch.is_enabled().unwrap_or(false),
         None::<&str>,
     )?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Picsou", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", i18n::tray_quit(lang), true, None::<&str>)?;
     let mut items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = vec![&open, &login];
     // Only a release build (updater key in its config) checks for updates.
-    let install = MenuItem::with_id(app, "update", "Picsou is up to date", false, None::<&str>)?;
+    let install = MenuItem::with_id(
+        app,
+        "update",
+        i18n::tray_up_to_date(lang),
+        false,
+        None::<&str>,
+    )?;
     if update::enabled(app.config()) {
         *app.state::<update::TrayItem>()
             .0
@@ -245,6 +259,7 @@ fn main() {
             let layout = layout(&handle)?;
             // The shell and the linked backend log to the same rolling file.
             picsou::logging::init(Some(&layout.data.join("logs").join("backend.log")));
+            main_window(app)?;
             paint_canvas(&handle);
             // libappindicator panics when its library is missing: the app then runs without a tray.
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tray(app))) {
@@ -311,6 +326,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_main_window_is_left_to_the_builder_that_routes_external_links() {
+        // Tauri must not create it: a window made from the config has no new-window handler, and
+        // every link the page opens in a new window would then do nothing.
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let windows = config["app"]["windows"].as_array().unwrap();
+        assert_eq!(windows.len(), 1);
+        assert_eq!(windows[0]["label"], "main");
+        assert_eq!(windows[0]["create"], false);
+    }
+
+    #[test]
+    fn the_loading_page_speaks_the_four_languages() {
+        let page = include_str!("../../ui/index.html");
+        for key in ["waiting", "failed", "restore", "restoring", "restoreFailed"] {
+            let entries = page.matches(&format!("{key}: \"")).count();
+            assert_eq!(entries, 4, "{key} should be translated once per language");
+        }
+        for lang in ["en: {", "fr: {", "es: {", "de: {"] {
+            assert!(page.contains(lang), "{lang} block missing");
+        }
+    }
+
+    #[test]
     fn only_the_login_item_starts_hidden() {
         assert!(started_hidden(["picsou".to_owned(), "--hidden".to_owned()]));
         assert!(!started_hidden(["picsou".to_owned()]));
@@ -318,16 +357,5 @@ mod tests {
             "picsou".to_owned(),
             "--hidden-not".to_owned()
         ]));
-    }
-
-    #[test]
-    fn launch_at_login_is_defaulted_once() {
-        let dir = std::env::temp_dir().join(format!("picsou-desktop-first-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let marker = dir.join("autostart-default");
-
-        assert!(first_start(&marker).unwrap());
-        assert!(!first_start(&marker).unwrap());
     }
 }

@@ -101,7 +101,10 @@ fn offer(app: &AppHandle, version: &str) {
         .unwrap_or_else(|e| e.into_inner())
         .as_ref()
     {
-        let _ = item.set_text(format!("Install Picsou {version}"));
+        let _ = item.set_text(crate::i18n::tray_install(
+            crate::i18n::Lang::system(),
+            version,
+        ));
         let _ = item.set_enabled(true);
     }
 }

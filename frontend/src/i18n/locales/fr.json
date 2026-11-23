@@ -3763,6 +3763,10 @@
       "title": "Verrouillage par mot de passe requis",
       "description": "Picsou Desktop fonctionne sans mot de passe. Pour connecter une application externe (comme un client MCP) depuis votre navigateur, activez d'abord le verrouillage par mot de passe dans Picsou Desktop, rubrique Paramètres, onglet Sécurité.",
       "apiTabNote": "Pour autoriser une application OAuth ou un client MCP depuis votre navigateur, activez d'abord le verrouillage par mot de passe dans Paramètres, onglet Sécurité."
+    },
+    "autologinFailed": {
+      "title": "Ouverture de session impossible",
+      "description": "Picsou n'a pas pu ouvrir votre session automatiquement. Quittez Picsou depuis son icône (barre des menus ou zone de notification), puis relancez-le."
     }
   }
 }

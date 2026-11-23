@@ -307,5 +307,53 @@ describe('LoginPage SSO', () => {
 
       expect(screen.queryByText(en.desktop.oauthLogin.title)).not.toBeInTheDocument()
     })
+
+    it('asks for a restart instead when the page runs inside the Desktop window', () => {
+      // Tauri defines window.isTauri on every page its WebView loads.
+      Object.defineProperty(window, 'isTauri', { value: true, configurable: true })
+      try {
+        useSsoInfo.mockReturnValue(SSO_DISABLED)
+        useSetupStatus.mockReturnValue({
+          data: {
+            state: 'COMPLETE',
+            needsSetup: false,
+            integrations: {},
+            desktopMode: true,
+            desktopLockEnabled: false,
+          },
+        })
+
+        renderLogin('/login')
+
+        const notice = screen.getByRole('status')
+        expect(notice).toHaveTextContent(en.desktop.autologinFailed.title)
+        expect(notice).toHaveTextContent(en.desktop.autologinFailed.description)
+        expect(screen.queryByText(en.desktop.oauthLogin.title)).not.toBeInTheDocument()
+      } finally {
+        delete (window as Window & { isTauri?: boolean }).isTauri
+      }
+    })
+
+    it('shows no Desktop notice inside the Desktop window once the lock is enabled', () => {
+      Object.defineProperty(window, 'isTauri', { value: true, configurable: true })
+      try {
+        useSsoInfo.mockReturnValue(SSO_DISABLED)
+        useSetupStatus.mockReturnValue({
+          data: {
+            state: 'COMPLETE',
+            needsSetup: false,
+            integrations: {},
+            desktopMode: true,
+            desktopLockEnabled: true,
+          },
+        })
+
+        renderLogin('/login')
+
+        expect(screen.queryByRole('status')).not.toBeInTheDocument()
+      } finally {
+        delete (window as Window & { isTauri?: boolean }).isTauri
+      }
+    })
   })
 })

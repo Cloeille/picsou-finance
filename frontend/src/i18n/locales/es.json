@@ -3763,6 +3763,10 @@
       "title": "Se requiere bloqueo con contraseña",
       "description": "Picsou Desktop funciona actualmente sin contraseña. Para autorizar una aplicación externa (como un cliente MCP) desde tu navegador, activa primero el bloqueo con contraseña en Picsou Desktop, en Ajustes > Seguridad.",
       "apiTabNote": "Para autorizar una aplicación OAuth o MCP externa desde tu navegador, activa primero el bloqueo con contraseña en Ajustes > Seguridad."
+    },
+    "autologinFailed": {
+      "title": "No se ha podido iniciar sesión",
+      "description": "Picsou no ha podido abrir tu sesión automáticamente. Sal de Picsou desde su icono en la bandeja del sistema y vuelve a abrirlo."
     }
   }
 }

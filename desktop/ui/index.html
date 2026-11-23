@@ -76,21 +76,57 @@
       <button id="restore" type="button">Restore my data from before the update</button>
     </main>
     <script>
+      // The shell's four languages, as in the app; the markup above is the English fallback.
+      const TEXTS = {
+        en: {
+          waiting: "Opening your data",
+          failed: "Picsou could not start.",
+          restore: "Restore my data from before the update",
+          restoring: "Restoring your data. This can take a minute; keep Picsou open.",
+          restoreFailed: "The restore did not complete: ",
+        },
+        fr: {
+          waiting: "Ouverture de vos données",
+          failed: "Picsou n'a pas pu démarrer.",
+          restore: "Restaurer mes données d'avant la mise à jour",
+          restoring: "Restauration de vos données. Cela peut prendre une minute, gardez Picsou ouvert.",
+          restoreFailed: "La restauration n'a pas abouti : ",
+        },
+        es: {
+          waiting: "Abriendo tus datos",
+          failed: "Picsou no ha podido iniciarse.",
+          restore: "Restaurar mis datos anteriores a la actualización",
+          restoring: "Restaurando tus datos. Puede tardar un minuto; mantén Picsou abierto.",
+          restoreFailed: "La restauración no se ha completado: ",
+        },
+        de: {
+          waiting: "Deine Daten werden geöffnet",
+          failed: "Picsou konnte nicht gestartet werden.",
+          restore: "Meine Daten von vor dem Update wiederherstellen",
+          restoring: "Deine Daten werden wiederhergestellt. Das kann eine Minute dauern. Lass Picsou geöffnet.",
+          restoreFailed: "Die Wiederherstellung wurde nicht abgeschlossen: ",
+        },
+      };
+      const lang = (navigator.language || "en").slice(0, 2).toLowerCase();
+      const text = TEXTS[lang] || TEXTS.en;
+      document.documentElement.lang = TEXTS[lang] ? lang : "en";
+      document.getElementById("waiting").textContent = text.waiting;
       const error = document.getElementById("error");
       const restore = document.getElementById("restore");
+      restore.textContent = text.restore;
       window.picsouFailed = (message, canRestore) => {
-        error.textContent = "Picsou could not start.\n" + message;
+        error.textContent = text.failed + "\n" + message;
         document.body.classList.add("failed");
         document.body.classList.toggle("restorable", Boolean(canRestore));
       };
       restore.addEventListener("click", async () => {
         restore.disabled = true;
-        error.textContent = "Restoring your data. This can take a minute; keep Picsou open.";
+        error.textContent = text.restoring;
         try {
           error.textContent = await window.__TAURI__.core.invoke("restore_backup");
           document.body.classList.remove("restorable");
         } catch (failure) {
-          error.textContent = "The restore did not complete: " + failure;
+          error.textContent = text.restoreFailed + failure;
           restore.disabled = false;
         }
       });

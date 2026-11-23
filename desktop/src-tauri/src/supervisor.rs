@@ -19,6 +19,7 @@ use picsou::clock::SystemClock;
 use picsou::config::{Config, Env};
 use tokio::sync::oneshot;
 
+use crate::i18n::{self, Lang};
 use crate::{sidecars, upgrade, webview_bank};
 
 pub const LOOPBACK: &str = "127.0.0.1";
@@ -285,14 +286,13 @@ pub fn start(
     let upgrade_from =
         match upgrade::compare(upgrade::recorded(&layout.data).as_deref(), APP_VERSION) {
             _ if fresh => None,
-            upgrade::Before::Downgrade { from } => return Err(newer_data(&from).into()),
+            upgrade::Before::Downgrade { from } => {
+                return Err(i18n::newer_data(Lang::system(), Some(&from), APP_VERSION).into())
+            }
             upgrade::Before::Upgrade { from } => {
                 // The backend is not running yet, so copying picsou.db (+ -wal/-shm) is consistent.
-                upgrade::backup(&layout.data, &from, APP_VERSION, now_secs()).map_err(|e| {
-                    format!(
-                    "Picsou could not copy your data before the update, so it did not start: {e}"
-                )
-                })?;
+                upgrade::backup(&layout.data, &from, APP_VERSION, now_secs())
+                    .map_err(|e| i18n::backup_failed(Lang::system(), e))?;
                 Some(from)
             }
             upgrade::Before::Nothing => None,
@@ -345,8 +345,10 @@ pub fn start(
         .block_on(picsou::start(config, Arc::new(SystemClock)))
         .map_err(|e| {
             tracing::error!("the backend did not start: {e:#}");
+            let lang = Lang::system();
             explain(
-                "The backend did not start. See the logs folder.",
+                lang,
+                i18n::did_not_start(lang),
                 upgrade::classify(&e),
                 upgrade_from.as_deref(),
             )
@@ -383,32 +385,25 @@ fn now_secs() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
-fn newer_data(from: &str) -> String {
-    format!(
-        "Your data was last opened by Picsou {from}, which is newer than this one ({APP_VERSION}). \
-         Install Picsou {from} or later. Your data was not changed."
-    )
-}
-
-/// The message for a backend that did not start, from why its migrations failed.
+/// The message for a backend that did not start, from why its migrations failed, in `lang`.
 pub fn explain(
+    lang: Lang,
     stopped: &str,
     failure: Option<upgrade::Failure>,
     upgrade_from: Option<&str>,
 ) -> Failed {
     match (failure, upgrade_from) {
-        (Some(upgrade::Failure::NewerData), _) => newer_data("a newer version").into(),
+        (Some(upgrade::Failure::NewerData), _) => i18n::newer_data(lang, None, APP_VERSION).into(),
         (Some(upgrade::Failure::Migration(reason)), Some(from)) => Failed {
-            message: format!(
-                "The update from {from} to {APP_VERSION} could not update your data ({reason}). \
-                 A copy from before the update is kept: restore it, then reinstall Picsou {from}."
-            ),
+            message: i18n::update_failed_with_copy(lang, from, APP_VERSION, &reason),
             can_restore: true,
         },
-        (Some(upgrade::Failure::Migration(reason)), None) => format!("Your data could not be updated ({reason}). See the logs folder.").into(),
+        (Some(upgrade::Failure::Migration(reason)), None) => {
+            i18n::data_update_failed(lang, &reason).into()
+        }
         // A timeout or a crash mid-update may have touched the data too.
         (None, Some(from)) => Failed {
-            message: format!("{stopped} This happened during the update from {from}: a copy from before it is kept."),
+            message: i18n::stopped_during_update(lang, stopped, from),
             can_restore: true,
         },
         (None, None) => stopped.to_owned().into(),
@@ -664,6 +659,7 @@ mod tests {
     #[test]
     fn a_failed_migration_after_an_update_offers_the_copy_and_newer_data_never_does() {
         let failed = explain(
+            Lang::En,
             "The backend stopped",
             Some(upgrade::Failure::Migration("V150 failed".into())),
             Some("1.0.0"),
@@ -673,17 +669,23 @@ mod tests {
 
         assert!(
             !explain(
+                Lang::En,
                 "x",
                 Some(upgrade::Failure::Migration("V150 failed".into())),
                 None
             )
             .can_restore
         );
-        let newer = explain("x", Some(upgrade::Failure::NewerData), Some("1.0.0"));
+        let newer = explain(
+            Lang::En,
+            "x",
+            Some(upgrade::Failure::NewerData),
+            Some("1.0.0"),
+        );
         assert!(!newer.can_restore && newer.message.contains("was not changed"));
-        assert!(explain("The backend stopped.", None, Some("1.0.0")).can_restore);
+        assert!(explain(Lang::En, "The backend stopped.", None, Some("1.0.0")).can_restore);
         assert_eq!(
-            explain("The backend stopped", None, None),
+            explain(Lang::En, "The backend stopped", None, None),
             Failed::from("The backend stopped".to_owned())
         );
     }

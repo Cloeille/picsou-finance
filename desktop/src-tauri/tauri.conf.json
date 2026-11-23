@@ -10,6 +10,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "Picsou",
         "width": 1280,
         "height": 820,

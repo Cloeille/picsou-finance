@@ -3763,6 +3763,10 @@
       "title": "Password lock required",
       "description": "Picsou Desktop is currently unlocked. To authorize an external application (such as an MCP client) from your browser, first enable Desktop password lock in Picsou Desktop under Settings > Security.",
       "apiTabNote": "To authorize an external OAuth or MCP application in your browser, enable Desktop password lock in Settings > Security first."
+    },
+    "autologinFailed": {
+      "title": "Could not sign you in",
+      "description": "Picsou could not open your session automatically. Quit Picsou from its tray icon, then start it again."
     }
   }
 }

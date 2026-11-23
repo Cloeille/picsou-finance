@@ -21,7 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   allowlist, and cross-site request checks), optional Desktop password lock coordinated with
   two-factor authentication (password lock required before enabling 2FA, and 2FA must be disabled
   before turning off the lock), clear browser guidance when authorizing external OAuth/MCP clients
-  while unlocked, and an opt-in **Advanced Mode** toggle in Settings for admin, API/MCP, and
+  while unlocked, external links that open in the system browser, a tray menu and startup screen
+  in the system language (English, French, Spanish, German), launch at login as an opt-in choice
+  in the tray menu, and an opt-in **Advanced Mode** toggle in Settings for admin, API/MCP, and
   developer controls.
 - **Native OS WebView bank connectors for Picsou Desktop.** BNP Paribas / Hello bank!, American
   Express, and Revolut now authenticate directly through a sandboxed native OS WebView window in

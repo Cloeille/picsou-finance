@@ -31,6 +31,8 @@ uuid = { version = "1.29.3", features = ["v4"] }
 getrandom = "0.4"
 semver = "1"
 dunce = "1"
+open = "5"
+sys-locale = "0.3"
 picsou = { version = "0.1.0", path = "../../backend-rs" }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "net", "sync", "time"] }
 anyhow = "1.0.104"

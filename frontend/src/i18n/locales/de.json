@@ -3763,6 +3763,10 @@
       "title": "Passwortsperre erforderlich",
       "description": "Picsou Desktop läuft derzeit ohne Passwort. Um eine externe Anwendung (wie einen MCP-Client) im Browser zu autorisieren, aktiviere zuerst die Passwortsperre in Picsou Desktop unter Einstellungen > Sicherheit.",
       "apiTabNote": "Um eine externe OAuth- oder MCP-Anwendung im Browser zu autorisieren, aktiviere zuerst die Passwortsperre unter Einstellungen > Sicherheit."
+    },
+    "autologinFailed": {
+      "title": "Anmeldung nicht möglich",
+      "description": "Picsou konnte deine Sitzung nicht automatisch öffnen. Beende Picsou über sein Symbol im Infobereich und starte es erneut."
     }
   }
 }

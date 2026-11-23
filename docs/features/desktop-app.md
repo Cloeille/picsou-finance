@@ -72,10 +72,12 @@ no external database process, and no bundled PostgreSQL server.
      backend and the thread serves (`picsou::run`) until Quit.
    - The shell and the backend log to `logs/backend.log` (rolling, 10 MB, seven kept), with
      "window shown", "Started Picsou", and "the app page loaded" timings.
-3. The tray menu has Open Picsou, Launch at login and Quit Picsou. Closing the window hides
+3. The tray menu has Open Picsou, Launch at login and Quit Picsou. Its labels, the loading page
+   and the startup failure messages follow the system language (English, French, Spanish,
+   German; `i18n.rs` and `ui/index.html`), English otherwise. Closing the window hides
    it; only Quit stops the processes. Launch at login (`tauri-plugin-autostart`, an XDG
-   autostart entry on Linux) is switched on at the first start only (`autostart-default`
-   marker), so turning it off sticks. The check mark is read back from the OS entry.
+   autostart entry on Linux) is off until the user ticks it in the tray menu: Picsou adds
+   nothing to the system's login items on its own. The check mark is read back from the OS entry.
 4. Quitting asks the backend to finish requests in flight, flush SQLite WAL state and close its
    database handles (up to 20 s), and shuts down the WebView bridge and any active on-demand
    sidecars. On Linux, child sidecars also die with the app if it crashes or is killed
@@ -242,8 +244,10 @@ SmartScreen still warns on the first install (see Windows above).
 
 - `desktop/src-tauri/src/supervisor.rs` — embedded SQLite setup, in-process backend, ports, secrets, legacy `postgres/` detection, first start
 - `desktop/src-tauri/src/upgrade.rs` — version marker, pre-upgrade `picsou.db` + `secrets/` backups (`0600`/`0700`), downgrade guard, restore, migration failure reading
-- `desktop/src-tauri/src/webview_bank/` — loopback HTTP bridge and native OS WebView bank connectors (Revolut, BNP Paribas / Hello bank!, Amex) with `on_navigation` host allowlists
+- `desktop/src-tauri/src/webview_bank/` — loopback HTTP bridge and native OS WebView bank connectors (Revolut, BNP Paribas / Hello bank!, Amex) with an `on_navigation` scheme filter and `on_page_load` main-frame host allowlists
 - `desktop/src-tauri/src/main.rs` — the window and the startup thread
+- `desktop/src-tauri/src/external.rs` — https links the page opens in a new window, handed to the system browser
+- `desktop/src-tauri/src/i18n.rs` — tray, restore and startup failure texts in the four languages
 - `desktop/src-tauri/src/sidecars.rs` — on-demand Chromium sidecars behind loopback ports
 - `desktop/scripts/fetch_runtime.py` — builds `desktop/runtime` from the Docker release pins (`--target linux|windows|macos`)
 - `desktop/ui/index.html` — the waiting and error page
@@ -267,14 +271,18 @@ SmartScreen still warns on the first install (see Windows above).
   per child (see macOS above).
 - A startup error can come before `ui/index.html` finished loading: it is kept and shown again
   from `on_page_load`.
+- **The main window is built in code** (`"create": false` in `tauri.conf.json`, `main_window`
+  in `main.rs`). A window Tauri creates from the config has no new-window handler, and
+  `target="_blank"` links and `window.open` then do nothing on any system. The handler hands
+  https links to the system browser (`external.rs`) and never opens a second window.
 - `backend.log` rotates; sidecar logs grow without rotation.
 - Logout and shutdown send SIGTERM to the app, which skips `RunEvent::Exit`: the backend ends
   with the process, and any spawned sidecars stop through `PR_SET_PDEATHSIG` (Linux), the job
   object (Windows), or the watcher (macOS).
 - If the tray cannot be made (`libayatana-appindicator3` missing), Picsou runs without it:
   the window always opens and closing it quits.
-- AppImage: Launch at login is greyed out and never defaulted, because the login item would
-  point at the AppImage's temporary mount. Use the `.deb` for it.
+- AppImage: Launch at login is greyed out, because the login item would point at the
+  AppImage's temporary mount. Use the `.deb` for it.
 - A startup error shows the window, even after a hidden start.
 - The tray needs an AppIndicator host. GNOME shows none without the AppIndicator extension:
   the app still runs, and launching it again opens the window.
@@ -282,10 +290,11 @@ SmartScreen still warns on the first install (see Windows above).
 ## Tests
 
 - `cargo test` in `desktop/src-tauri` (CI job `desktop`): hidden start only with `--hidden`,
-  launch at login defaulted once, backend environment (loopback, `DATABASE_URL=sqlite://...`,
+  backend environment (loopback, `DATABASE_URL=sqlite://...`,
   data paths, legacy `postgres/` detection), secret generated once and `0600`, port reuse,
   quitting during startup, pre-upgrade SQLite + `secrets/` backups (`0600`/`0700`, two kept),
-  downgrade guard, migration failure classification, and WebView `on_navigation` host allowlists.
+  downgrade guard, migration failure classification, the WebView navigation scheme filter and
+  main-frame host allowlists, the external link filter, and the shell texts in four languages.
 - `backend-rs`: `sqlite_foundation` and `desktop_mode` integration tests cover SQLite schema
   parity, exact `Decimal` precision, V1->V2 migrations, and Desktop auth/setup flows.
 - Manual run: `make desktop`, or `PICSOU_DESKTOP_RUNTIME=../runtime cargo run` from `desktop/src-tauri`.

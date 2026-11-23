@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
+import { isInsideDesktopShell } from '@/features/desktop/shell'
 import { useLoginWithRememberMe } from '@/features/mfa/hooks'
 import { useSetupStatus } from '@/features/setup/hooks'
 import { ssoErrorMessage } from '@/features/sso/errors'
@@ -42,7 +43,12 @@ export function LoginPage() {
     setupStatus.data !== undefined
       ? Boolean(setupStatus.data.desktopLockEnabled)
       : storeDesktopLockEnabled
-  const showDesktopLockNotice = !demoMode && desktopMode && !desktopLockEnabled
+  // Without a password lock nobody can type a password. In a browser the way forward is to turn
+  // the lock on in the app; inside the app the automatic sign-in failed and a restart retries it.
+  const desktopUnlocked = !demoMode && desktopMode && !desktopLockEnabled
+  const insideDesktopShell = isInsideDesktopShell()
+  const showDesktopLockNotice = desktopUnlocked && !insideDesktopShell
+  const showDesktopRestartNotice = desktopUnlocked && insideDesktopShell
   const navigate = useNavigate()
   const redirect = safeRedirect(searchParams.get('redirect'))
   const ssoInfo = useSsoInfo(!demoMode)
@@ -125,17 +131,21 @@ export function LoginPage() {
   return (
     <div className="flex min-h-dvh items-center justify-center bg-background px-4 py-10">
       <div className="mx-auto flex w-full max-w-md flex-col gap-4">
-        {showDesktopLockNotice && (
+        {(showDesktopLockNotice || showDesktopRestartNotice) && (
           <Card
             role="status"
             className="rounded-xl border-0 bg-muted/50 py-0 ring-1 ring-foreground/10"
           >
             <CardContent className="space-y-1 px-6 py-4 sm:px-8">
               <p className="text-sm font-semibold text-foreground">
-                {t('desktop.oauthLogin.title')}
+                {showDesktopRestartNotice
+                  ? t('desktop.autologinFailed.title')
+                  : t('desktop.oauthLogin.title')}
               </p>
               <p className="text-sm leading-relaxed text-muted-foreground">
-                {t('desktop.oauthLogin.description')}
+                {showDesktopRestartNotice
+                  ? t('desktop.autologinFailed.description')
+                  : t('desktop.oauthLogin.description')}
               </p>
             </CardContent>
           </Card>
