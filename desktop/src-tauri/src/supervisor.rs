@@ -68,7 +68,7 @@ pub type Shared = std::sync::Arc<std::sync::Mutex<Stack>>;
 #[cfg(test)]
 pub static TEST_PORTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// The version this shell and its linked backend are built from (Cargo.toml follows backend/pom.xml).
+/// The version this shell and its linked backend are built from.
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// A start that did not reach the dashboard. `can_restore` offers the copy taken before the update.

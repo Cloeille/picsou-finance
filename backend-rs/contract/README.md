@@ -1,6 +1,6 @@
 # Contract harness
 
-Replays scripted HTTP scenarios against the Java backend and the Rust backend, each on its own fresh PostgreSQL database, and reports every difference in status, compared headers, cookies and normalized JSON body. Goldens recorded from Java are the specification the Rust tracks check against.
+Replays scripted HTTP scenarios against the backend, each on its own fresh database, and reports every difference from the goldens in status, compared headers, cookies and normalized JSON body. The goldens were recorded from the Java backend of 1.2.x, removed in 1.3.0: they are the HTTP contract the backend keeps.
 
 Bun only, no dependencies: Bun's built-in `SQL` client creates and drops the databases, `fetch` and `Bun.serve` do the HTTP.
 
@@ -10,23 +10,22 @@ From the repository root:
 
 ```sh
 bun run backend-rs/contract/run.ts list                      # every scenario
-bun run backend-rs/contract/run.ts record --all              # Java -> golden/*.json
-bun run backend-rs/contract/run.ts check --all               # Rust vs golden
-bun run backend-rs/contract/run.ts check auth --backend java # golden still valid on Java
-bun run backend-rs/contract/run.ts diff --all                # Java vs Rust, both live
-bun run backend-rs/contract/run.ts diff --all --right java   # Java vs Java: proves normalization is stable
+bun run backend-rs/contract/run.ts check --all               # the backend vs the goldens, on PostgreSQL
+bun run backend-rs/contract/run.ts check --all --sqlite      # the same on embedded SQLite
+bun run backend-rs/contract/run.ts record accounts.example   # write golden/accounts.example.json
 bun test backend-rs/contract                                 # the harness's own tests
 ```
+
+On SQLite, two import-preview scenarios (`transfer.actual.import`, `transfer.homebank.ios`) differ from the goldens, which were recorded on PostgreSQL, in id numbering only.
 
 A selector is a scenario name (`auth.mfa`) or a prefix (`auth`). The exit code is 0 only when nothing differs and nothing errored. `record` writes no golden for a scenario whose responses miss a step's `expect` status.
 
 | Option | Default |
 |---|---|
-| `--java-jar` / `CONTRACT_JAVA_JAR` | `backend/target/picsou-backend-*.jar` |
-| `--java-home` / `CONTRACT_JAVA_HOME` | `JAVA_HOME`, then `/usr/libexec/java_home -v 21` |
 | `--rust-bin` / `CONTRACT_RUST_BIN` | `backend-rs/target/release/picsou` |
 | `--pg host:port` / `CONTRACT_PG` | `127.0.0.1:55432`, user `picsou` (`--pg-user`, `CONTRACT_PG_USER`), trust auth |
-| `--jobs n` | 2 scenarios at a time (`diff` runs two backends per scenario) |
+| `--sqlite` | off: PostgreSQL. On, each instance gets its own SQLite file and no PostgreSQL is needed |
+| `--jobs n` | 2 scenarios at a time |
 | `--keep-logs` | keep each instance's work directory and `backend.log` |
 | `--verbose` | instance URLs, log paths and every stub hit |
 
@@ -34,16 +33,15 @@ A backend that fails to start keeps its log and the error names its path.
 
 ## What an instance gets
 
-`lib/launcher.ts` creates a database named `contract_<backend>_<scenario>_<random>`, starts the backend on a free port with a minimal environment, waits for `/actuator/health/readiness`, and at the end stops it (SIGTERM, then SIGKILL after 15 s) and drops that database. Ctrl-C stops every running instance too.
+`lib/launcher.ts` creates a database named `contract_<scenario>_<random>`, starts the backend on a free port with a minimal environment, waits for `/actuator/health/readiness`, and at the end stops it (SIGTERM, then SIGKILL after 15 s) and drops that database. Ctrl-C stops every running instance too.
 
-The environment is built from `backend/src/main/resources/application.yml`, nothing is inherited from the shell except `PATH`:
+The environment holds the variables `backend-rs/src/config.rs` reads, nothing is inherited from the shell except `PATH`:
 
 - `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, an empty `SPRING_DATASOURCE_PASSWORD`, `SERVER_PORT`.
 - `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` generated per instance.
 - `SECURE_COOKIES=false`, `APP_STARTUP_SYNC_ENABLED=false`, `APP_UPDATE_CHECK_ENABLED=false`, `INSTRUMENT_LOGOS_ENABLED=false`, `VALUATION_ENABLED=false`, `ADMIN_RECOVERY_ENABLED=false`, `HSTS_ENABLED=false`, `APP_TIMEZONE=Europe/Paris`, `PUBLIC_BASE_URL=http://localhost:5173`.
 - Every configurable external base URL points at the harness's stub server: `CEREMA_API_URL`, `INSEE_API_URL`, `GEOCODING_API_URL`, `MERIA_BASE_URL`, `ENABLEBANKING_BASE_URL` and the 17 `*_AUTH_URL` sidecars. The stub answers 503 to everything.
-- Hosts no variable redirects (price feeds, logos) go through the stub as an HTTP proxy, which refuses them: `-Dhttp(s).proxyHost` for Java, `HTTP_PROXY`/`HTTPS_PROXY` for Rust. A scenario never reaches the internet.
-- The JVM runs with `-Duser.language=en -Duser.country=US`, as in the container. Without it a French Mac localizes validation messages.
+- Hosts no variable redirects (price feeds, logos) go through the stub as an HTTP proxy (`HTTP_PROXY`, `HTTPS_PROXY`), which refuses them. A scenario never reaches the internet.
 
 The harness's cookie jar follows RFC 6265: cookies keyed by name and path, default path the request's directory, `Max-Age` before `Expires`.
 
@@ -81,7 +79,7 @@ export const scenarios: Scenario[] = [{
 - Dates: use `day(n)`, `monthEdge(k, "first" | "last")`, or a literal date more than 400 days old. Their labels are stable; any other recent literal date normalizes to an offset that moves as the calendar does.
 - Stay under the backend's rate limits: 5 logins per 15 minutes per instance, so per scenario.
 
-After adding or changing a scenario: `record` it, read the golden, then `diff <name> --right java` must report zero differences.
+After adding or changing a scenario: `record` it and read the golden's diff before committing it. A golden only changes when the HTTP contract is meant to change.
 
 ## Normalization
 

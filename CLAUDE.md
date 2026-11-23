@@ -4,10 +4,11 @@ Self-hosted personal-finance dashboard for an individual or a small family — b
 
 ## Stack
 
-- Backend: Java 21 / Spring Boot 3.5.16 / Maven
+- Backend: Rust (Axum, Tokio, sqlx), one crate in `backend-rs/`
 - Frontend: React 19 / TypeScript 5.9 / Vite 8 / Tailwind v4
-- DB: PostgreSQL 16 / Flyway
-- Build: Maven (backend), bun (frontend)
+- DB: PostgreSQL 16 (Flyway-compatible migrations), or embedded SQLite (desktop app, single-container Docker)
+- Desktop: Tauri shell in `desktop/` that links the backend
+- Build: Cargo (backend, desktop), bun (frontend)
 - Deployment: Docker Compose; Kubernetes with the Helm chart in `charts/picsou`
 
 ## Essential commands
@@ -16,14 +17,14 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md#commands): one `make` target per task, r
 
 ## Code conventions
 
-See [`docs/conventions/`](docs/conventions/) and module-specific CLAUDE.md files (`backend/CLAUDE.md`, `frontend/CLAUDE.md`).
+See [`docs/conventions/`](docs/conventions/) and the module guides (`backend-rs/README.md`, `frontend/CLAUDE.md`).
 
 ## Project architecture
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full architecture overview, data flows, and external dependencies.
 
 For module-specific details, see:
-- [`backend/CLAUDE.md`](backend/CLAUDE.md) -- package structure, ports & adapters, auth, configuration
+- [`backend-rs/README.md`](backend-rs/README.md) -- module layout, routes, handlers, configuration, tests
 - [`frontend/CLAUDE.md`](frontend/CLAUDE.md) -- component hierarchy, API layer, demo mode, i18n
 
 ## Technical documentation

@@ -64,8 +64,8 @@ Track bank accounts, brokerage, crypto, and net worth — all in one place.
 
 ```
 ┌──────────────────┐     ┌───────────────────────┐     ┌────────────┐
-│  React Frontend  │────▶│  Spring Boot Backend   │────▶│ PostgreSQL │
-│   (Vite/Bun)     │◀────│     (Tomcat :8080)     │     │  (:5432)   │
+│  React Frontend  │────▶│     Rust Backend       │────▶│ PostgreSQL │
+│   (Vite/Bun)     │◀────│      (Axum :8080)      │     │ or SQLite  │
 └──────────────────┘     └───────────┬────────────┘     └────────────┘
                                      │
                       ┌──────────────┼──────────────┬──────────────┐
@@ -80,10 +80,10 @@ Modules, data flows and key constraints: [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Java 21, Spring Boot 3.5, Maven |
+| Backend | Rust (Axum, Tokio, sqlx) |
 | Frontend | React 19, TypeScript 5.9, Vite 8, Tailwind v4, Bun |
-| Database | PostgreSQL 16, Flyway |
-| Runtime | Docker (one non-root Spring Boot process) |
+| Database | PostgreSQL 16, or embedded SQLite (desktop app, single-container Docker) |
+| Runtime | Docker (one non-root process), or the desktop app (Tauri) |
 
 ## Getting started
 
@@ -344,7 +344,7 @@ curl -sI https://picsou.example.com/ | grep -i strict-transport
 
 Exactly one `Strict-Transport-Security` line when enabled, none when disabled.
 
-In this image Spring Boot is the only emitter, gated by `HSTS_ENABLED`, and it sends the header
+In this image the backend is the only emitter, gated by `HSTS_ENABLED`, and it sends the header
 once on every response over HTTPS. To check the backend without the proxy in front, ask it
 directly from inside the container (`curl` is in the base image). The backend applies
 `X-Forwarded-Proto` from any peer, so the loopback request below counts as HTTPS; it prints one

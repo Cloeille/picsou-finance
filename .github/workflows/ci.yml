@@ -26,8 +26,6 @@ jobs:
       all: ${{ steps.filter.outcome == 'skipped' }}
       jobs: ${{ steps.sidecars.outputs.jobs }}
       sidecar-matrix: ${{ steps.sidecars.outputs.matrix }}
-      # The timings cache every backend shard restores; '' when there is none yet.
-      backend-timings-key: ${{ steps.backend-timings.outputs.cache-matched-key }}
       # The release smoke case ids, one release-deployment leg each.
       release-cases: ${{ steps.release.outputs.release-cases }}
     steps:
@@ -40,16 +38,13 @@ jobs:
         if: github.event_name == 'pull_request' && github.event.pull_request.changed_files < 3000
         with:
           list-files: json
-          # backend reads services/sofidy-auth (Java/Python contract), services/base
-          # (its interpreter's pins).
           filters: |
             workflows: &workflows ['.github/**', 'Makefile']
             # Not a job: a change to the dependencies the release image downloads
             # makes the release smoke build refresh its cache.
-            release-deps: ['backend/pom.xml', 'backend-rs/Cargo.lock', 'frontend/package.json', 'frontend/bun.lock']
-            release-deployment: [*workflows, 'backend/**', 'backend-rs/**', 'frontend/**', 'docker/**', '.dockerignore']
+            release-deps: ['backend-rs/Cargo.lock', 'frontend/package.json', 'frontend/bun.lock']
+            release-deployment: [*workflows, 'backend-rs/**', 'frontend/**', 'docker/**', '.dockerignore']
             docker-compose: [*workflows, 'docker/**']
-            backend: [*workflows, 'backend/**', 'services/base/**', 'services/sofidy-auth/**']
             backend-rs: &backend-rs [*workflows, 'backend-rs/**']
             frontend: [*workflows, 'frontend/**']
             # The entrypoint tests read each Camoufox sidecar's runtime parameters.
@@ -59,13 +54,12 @@ jobs:
             sidecar: [*workflows, 'services/base/**', 'services/*-auth/**']
             compose-sidecar-build: [*workflows, 'services/**', 'docker/docker-compose.yml']
             native-sidecars: [*workflows, 'services/base/**', 'services/*-auth/**']
-            # The shell links the Rust backend.
+            # The shell links the backend.
             desktop: [*backend-rs, 'desktop/**']
             desktop-windows: [*backend-rs, 'desktop/**']
             desktop-macos: [*backend-rs, 'desktop/**']
             workflow-inventory: [*workflows, 'services/**', 'backend-rs/src/sidecars.tsv', '.env.example',
-                                 'docker/.env.example', 'docker/docker-compose.yml', 'docker/Dockerfile',
-                                 'backend/pom.xml', 'backend/src/test/**']
+                                 'docker/.env.example', 'docker/docker-compose.yml', 'docker/Dockerfile']
             helm-chart: [*workflows, 'charts/**', 'backend-rs/src/sidecars.tsv', 'docker/docker-compose.yml']
             e2e: [*workflows, 'frontend/**']
       - name: Select the jobs and the sidecar matrix
@@ -76,13 +70,6 @@ jobs:
           CHANGES: ${{ steps.filter.outputs.changes }}
           FILES: ${{ steps.filter.outputs.sidecar_count < 1000 && steps.filter.outputs.sidecar_files || '[]' }}
         run: python3 .github/scripts/sidecars.py --select
-      # Looked up once here, not per shard: a main ci-ok saving newer timings between two
-      # shards' restores would split them differently. A re-run keeps this output, so its
-      # shards split as the first attempt did.
-      - name: Find the backend class timings
-        id: backend-timings
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with: {path: '${{ runner.temp }}/backend-timings.json', key: 'backend-timings-${{ github.run_id }}', restore-keys: backend-timings-}
       - name: List the release smoke cases
         id: release
         run: python3 .github/scripts/release_cases.py >> "$GITHUB_OUTPUT"
@@ -125,10 +112,9 @@ jobs:
       - name: Set up Docker Buildx
         if: matrix.task != 'unit'
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      # A cold build downloads every Maven and bun dependency, and Maven Central answers
-      # shared runner IPs with 429 Too Many Requests. Reusing the layers of the release
-      # build (docker.yml, scope `app`) and of earlier smoke builds keeps registries out
-      # of the run unless backend/pom.xml, frontend/package.json or frontend/bun.lock
+      # A cold build downloads every crate and bun dependency. Reusing the layers of the
+      # release build (docker.yml, scope `app`) and of earlier smoke builds keeps registries
+      # out of the run unless backend-rs/Cargo.lock, frontend/package.json or frontend/bun.lock
       # changed, or the cached layers are missing (evicted or cache unavailable).
       # mode=max is required: the dependency layers live in the build stages, not the
       # final image. ignore-error keeps a cache export failure from failing the job.
@@ -178,63 +164,8 @@ jobs:
           python3 -m pip install pytest
           python3 -m pytest docker/tests/test_proxy_client_ip.py -v
 
-  # The suite in shards of test classes, balanced by the last main run's class times
-  # (.github/scripts/backend_shards.py). ci-ok checks every class ran exactly once.
-  # One job key with a matrix: ci-ok reads a skipped `backend` as skipped, whatever its legs.
-  backend:
-    needs: changes
-    if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'backend')
-    name: backend (${{ matrix.shard }}/3)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3]
-    steps:
-      - *checkout
-      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
-        with: {distribution: temurin, java-version: '21', cache: maven}
-      - *python
-      - name: Install the Sofidy contract interpreter
-        run: pip install -r services/base/requirements.txt
-      # The exact cache `changes` found, so every shard splits on the same timings. ci-ok
-      # saves them on main pushes. None (or evicted since) splits by hash: slower, still complete.
-      - name: Restore the backend class timings
-        if: needs.changes.outputs.backend-timings-key != ''
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with: {path: '${{ runner.temp }}/backend-timings.json', key: '${{ needs.changes.outputs.backend-timings-key }}'}
-      - name: Select this shard's test classes
-        id: shard
-        run: >-
-          python3 .github/scripts/backend_shards.py --shards ${{ strategy.job-total }} --shard ${{ matrix.shard }}
-          --timings "$RUNNER_TEMP/backend-timings.json" --out "$RUNNER_TEMP"
-      - name: Run backend tests
-        # Migration tests skip themselves when Docker is unreachable so local runs
-        # without a socket still work. Runners always have Docker, so require it here --
-        # otherwise environment drift would silently drop the PostgreSQL coverage of
-        # data-mutating migrations and the build would stay green.
-        env:
-          PICSOU_REQUIRE_DOCKER_TESTS: 'true'
-          SHARD_INCLUDES: ${{ steps.shard.outputs.includes }}
-          SHARD_EXCLUDES: ${{ steps.shard.outputs.excludes }}
-        run: make test-backend-java SOFIDY_PYTHON=python3
-      # A re-run of a failed shard uploads under the same name as its first attempt, which
-      # stays in the run: overwrite it, or the upload fails with a 409 conflict.
-      - name: Upload the test reports
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: surefire-${{ matrix.shard }}
-          overwrite: true
-          path: |
-            backend/target/surefire-reports/*.xml
-            backend/target/surefire-reports/*.txt
-          if-no-files-found: error
-          retention-days: 7
-
-  # The Rust backend (docs/decisions/2026-11-21-rust-backend.md): fmt, clippy, then every test,
-  # the route inventory against the Java endpoints included, on the PostgreSQL major it targets.
+  # The backend (docs/decisions/2026-11-21-rust-backend.md): fmt, clippy, then every test, the
+  # route inventory included, on the PostgreSQL major it targets and again on embedded SQLite.
   backend-rs:
     needs: changes
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'backend-rs')
@@ -248,7 +179,7 @@ jobs:
         options: --health-cmd "pg_isready -U picsou" --health-interval 2s --health-timeout 5s --health-retries 30
     steps:
       - *checkout
-      - name: Format, lint and test the Rust backend
+      - name: Format, lint and test the backend
         run: make test-backend
 
   frontend:
@@ -378,7 +309,7 @@ jobs:
           bun install --frozen-lockfile
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           bun run build
-      - name: Assemble the Windows runtime (PostgreSQL, pg_dump, sidecars)
+      - name: Assemble the Windows runtime (CPython, the Chromium sidecars)
         run: python desktop/scripts/fetch_runtime.py --target windows
       - name: Build the installer
         working-directory: desktop/src-tauri
@@ -393,8 +324,6 @@ jobs:
           if ($setup.ExitCode) { throw "the installer exited with $($setup.ExitCode)" }
           $exe = Join-Path $env:LOCALAPPDATA 'Picsou\picsou-desktop.exe'
           if (-not (Test-Path $exe)) { throw "$exe is not installed" }
-          # A fresh Windows may lack the VC++ runtime: PostgreSQL must carry its own.
-          if (-not (Test-Path (Join-Path $env:LOCALAPPDATA 'Picsou\runtime\postgres\bin\vcruntime140.dll'))) { throw 'PostgreSQL ships without vcruntime140.dll' }
           $app = Start-Process $exe -PassThru
           $data = "$env:LOCALAPPDATA/com.picsou.desktop"
           $ready = $false
@@ -411,11 +340,12 @@ jobs:
           # The SPA is served from the install folder: the one check of a backslash SPA_LOCATION.
           $page = (Invoke-WebRequest "http://127.0.0.1:$port/" -UseBasicParsing -TimeoutSec 5).Content
           if ($page -notmatch '<div id="root"') { throw 'the SPA is not served' }
-          # The banks the desktop does not ship reach the SPA through /actuator/info.
+          # /actuator/info tells the SPA it runs in the desktop app and which banks the app lacks:
+          # none of the three Camoufox banks, which sign in through the OS WebView instead.
           # Actuator answers application/vnd.spring-boot.actuator.v3+json, which Invoke-WebRequest leaves as bytes.
           $info = (Invoke-RestMethod "http://127.0.0.1:$port/actuator/info" -TimeoutSec 5).app
           "desktop: $($info.desktop), unavailable: $($info.'desktop-unavailable')"
-          if ("$($info.desktop)" -ne 'true' -or $info.'desktop-unavailable' -notmatch 'amex-auth') { throw 'the unavailable banks are not exposed' }
+          if ("$($info.desktop)" -ne 'true' -or "$($info.'desktop-unavailable')" -match 'bnp-auth|amex-auth|revolut-auth') { throw 'the desktop flags are wrong' }
           # Chromium is fetched in the background right after the start, before any sync asks.
           $t0 = Get-Date
           foreach ($try in 1..60) { if (Test-Path "$data/browsers/chromium_headless_shell-*/INSTALLATION_COMPLETE") { break }; Start-Sleep 5 }
@@ -423,18 +353,15 @@ jobs:
           "Chromium prefetched $([int]((Get-Date) - $t0).TotalSeconds) s after ready, before any corum call"
           # The one-off `playwright install` exits once Chromium is in place.
           foreach ($try in 1..12) { if (-not (Get-Process python -ErrorAction SilentlyContinue)) { break }; Start-Sleep 5 }
-          # Bank sidecars (#589): none runs at idle, the first call starts one on loopback.
+          # Bank sidecars (#589): none runs at idle.
           if (Get-Process python -ErrorAction SilentlyContinue) { throw 'a sidecar runs at idle' }
-          # The setup check gives a sidecar 3 s; a cold Python start may need more, so retry.
-          foreach ($try in 1..15) {
-            $bourso = Invoke-WebRequest "http://127.0.0.1:$port/api/setup/integrations/boursobank/health" -UseBasicParsing -TimeoutSec 90 | Select-Object -ExpandProperty Content
-            if ($bourso -match '"ok":true') { break }
-            Start-Sleep 2
-          }
-          "bourso health after $try call(s): $bourso"
-          if ($bourso -notmatch '"ok":true') { throw 'the bourso sidecar did not answer' }
-          if (-not (Get-Process python -ErrorAction SilentlyContinue)) { throw 'no sidecar process after the call' }
-          # A Chromium sidecar: its first start downloads Chromium once, the next start reuses it.
+          # BoursoBank is one of the six banks the backend serves in-process: no sidecar starts.
+          $bourso = Invoke-WebRequest "http://127.0.0.1:$port/api/setup/integrations/boursobank/health" -UseBasicParsing -TimeoutSec 90 | Select-Object -ExpandProperty Content
+          "bourso health: $bourso"
+          if ($bourso -notmatch '"ok":true') { throw 'the in-process bourso connector did not answer' }
+          if (Get-Process python -ErrorAction SilentlyContinue) { throw 'an in-process bank started a sidecar' }
+          # A Chromium sidecar starts on the first call, on loopback: its first start downloads
+          # Chromium once, the next start reuses it.
           $corum = (Get-Content "$data/sidecar-ports.json" | ConvertFrom-Json).CORUM_AUTH_URL
           $t0 = Get-Date; $ok = $false
           # 503 while Chromium downloads, then the sidecar's own /health.
@@ -445,15 +372,15 @@ jobs:
           "corum first start: $([int]((Get-Date) - $t0).TotalSeconds) s"
           if (-not (Test-Path "$data/browsers/chromium_headless_shell-*")) { throw 'Chromium was not downloaded' }
           Get-Content "$data/logs/browser-download.log" -Tail 3
-          $pids = (Get-Process picsou-desktop, postgres, python -ErrorAction SilentlyContinue).Id
+          $pids = (Get-Process picsou-desktop, python -ErrorAction SilentlyContinue).Id
           $listening = Get-NetTCPConnection -State Listen | Where-Object { $pids -contains $_.OwningProcess }
           $listening | Format-Table LocalAddress, LocalPort, OwningProcess
-          if (@($listening).Count -lt 2) { throw 'expected PostgreSQL and the backend to listen' }
+          if (@($listening).Count -lt 2) { throw 'expected the backend and the corum sidecar to listen' }
           if ($listening | Where-Object LocalAddress -notin '127.0.0.1', '::ffff:127.0.0.1') { throw 'a service listens beyond loopback' }
-          # A hard kill, like a crash: the job object must take PostgreSQL and the sidecars with it.
+          # A hard kill, like a crash: the job object must take the sidecars with it.
           Stop-Process -Id $app.Id -Force
           Start-Sleep 10
-          $left = Get-Process postgres, pg_ctl, python -ErrorAction SilentlyContinue
+          $left = Get-Process python -ErrorAction SilentlyContinue
           if ($left) { $left | Format-Table Name, Id; throw 'processes outlived the app' }
           'no process left'
           # An update (#588): data last opened by an older version is copied before it starts.
@@ -470,7 +397,7 @@ jobs:
           }
           if (-not $ready) { throw 'the app never became ready after an update' }
           $copy = Get-ChildItem "$data/backups" -Directory | Where-Object Name -like '*-1.0.0-to-*'
-          if (-not $copy -or -not (Test-Path "$($copy.FullName)/postgres/PG_VERSION")) { throw 'no copy of the data from before the update' }
+          if (-not $copy -or -not (Test-Path "$($copy.FullName)/picsou.db")) { throw 'no copy of the data from before the update' }
           "update ready after $($i * 2) s, copy: $($copy.Name), marker: $(Get-Content $data/app-version)"
           Stop-Process -Id $app.Id -Force
       - name: Show the app logs
@@ -504,7 +431,7 @@ jobs:
       - name: Build the SPA
         working-directory: frontend
         run: bun install --frozen-lockfile && bun run build
-      - name: Assemble the macOS runtime (PostgreSQL, pg_dump, sidecars)
+      - name: Assemble the macOS runtime (CPython, the Chromium sidecars)
         run: python desktop/scripts/fetch_runtime.py --target macos
       - name: Build the app and the disk image
         working-directory: desktop/src-tauri
@@ -534,19 +461,19 @@ jobs:
           port=$(cat "$data/desktop-port")
           curl -fs "http://127.0.0.1:$port/api/setup/status"; echo
           curl -fs "http://127.0.0.1:$port/" | grep -q '<div id="root"'
-          curl -fs "http://127.0.0.1:$port/actuator/info" | jq -e '(.app.desktop | tostring) == "true" and (.app["desktop-unavailable"] | contains("amex-auth"))'
+          # The OS WebView signs in to the three Camoufox banks, so the app lacks none of them.
+          curl -fs "http://127.0.0.1:$port/actuator/info" | jq -e '(.app.desktop | tostring) == "true" and (.app["desktop-unavailable"] | test("bnp-auth|amex-auth|revolut-auth") | not)'
           # Chromium is fetched right after the start; the one-off installer then exits.
           for try in $(seq 1 60); do ls "$data"/browsers/chromium_headless_shell-*/INSTALLATION_COMPLETE >/dev/null 2>&1 && break; sleep 5; done
           ls "$data"/browsers/chromium_headless_shell-*/INSTALLATION_COMPLETE
           for try in $(seq 1 12); do pgrep -f "$runtime/python" >/dev/null || break; sleep 5; done
           if pgrep -f "$runtime/python" >/dev/null; then echo '::error::a sidecar runs at idle'; exit 1; fi
-          for try in $(seq 1 15); do
-            bourso=$(curl -s --max-time 90 "http://127.0.0.1:$port/api/setup/integrations/boursobank/health")
-            case "$bourso" in *'"ok":true'*) break ;; esac
-            sleep 2
-          done
-          echo "bourso health after $try call(s): $bourso"
-          case "$bourso" in *'"ok":true'*) ;; *) exit 1 ;; esac
+          # BoursoBank is one of the six banks the backend serves in-process: no sidecar starts.
+          bourso=$(curl -s --max-time 90 "http://127.0.0.1:$port/api/setup/integrations/boursobank/health")
+          echo "bourso health: $bourso"
+          case "$bourso" in *'"ok":true'*) ;; *) echo '::error::the in-process bourso connector did not answer'; exit 1 ;; esac
+          if pgrep -f "$runtime/python" >/dev/null; then echo '::error::an in-process bank started a sidecar'; exit 1; fi
+          # A Chromium sidecar starts on the first call, on loopback.
           corum=$(jq -r .CORUM_AUTH_URL "$data/sidecar-ports.json")
           for try in $(seq 1 60); do curl -fs --max-time 10 "$corum/health" >/dev/null && break; sleep 5; done
           curl -fs "$corum/health"; echo
@@ -554,7 +481,7 @@ jobs:
            pids=$({ pgrep -f "$runtime/"; pgrep -f "$app/Contents/MacOS/picsou-desktop"; } | paste -sd, -)
           listening=$(lsof -nP -iTCP -sTCP:LISTEN -a -p "$pids" | awk 'NR > 1 {print $9}' | sort -u)
           echo "$listening"
-          [ "$(echo "$listening" | wc -l)" -ge 2 ] || { echo '::error::expected PostgreSQL and the backend to listen'; exit 1; }
+          [ "$(echo "$listening" | wc -l)" -ge 2 ] || { echo '::error::expected the backend and the corum sidecar to listen'; exit 1; }
           if echo "$listening" | grep -v '^127\.0\.0\.1:'; then echo '::error::a service listens beyond loopback'; exit 1; fi
           # A hard kill, like a crash: each child's watcher must end it (macOS has no PDEATHSIG).
           pkill -9 -f "$app/Contents/MacOS/picsou-desktop"
@@ -567,7 +494,7 @@ jobs:
           open -n "$app"
           ready 'the app never became ready after an update'
           copy=$(ls -d "$data"/backups/*-1.0.0-to-* | head -1)
-          [ -f "$copy/postgres/PG_VERSION" ] || { echo '::error::no copy of the data from before the update'; exit 1; }
+          [ -f "$copy/picsou.db" ] || { echo '::error::no copy of the data from before the update'; exit 1; }
           echo "update copy: $(basename "$copy"), marker: $(cat "$data/app-version")"
           pkill -9 -f "$app/Contents/MacOS/picsou-desktop"
       - name: Show the app logs
@@ -691,7 +618,7 @@ jobs:
   # prevent application images from being published.
   ci-ok:
     if: always()
-    needs: [changes, release-deployment, docker-compose, backend, backend-rs, frontend, e2e, sidecar-base, sidecar, native-sidecars, compose-sidecar-build, workflow-inventory]
+    needs: [changes, release-deployment, docker-compose, backend-rs, frontend, e2e, sidecar-base, sidecar, native-sidecars, compose-sidecar-build, workflow-inventory]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -706,57 +633,11 @@ jobs:
                 | "\(.key): \(.value.result)"]
             | if . == [] then true else error("not green: \(join(", "))") end'
       # A green matrix only proves each shard passed what it selected: check the reports
-      # cover every test file. One checkout of just the test sources and the scripts serves both.
+      # cover every test file, from a checkout of just the test sources and the scripts.
       - name: Check out the test sources
-        if: needs.backend.result == 'success' || needs.frontend.result == 'success'
+        if: needs.frontend.result == 'success'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {persist-credentials: false, sparse-checkout: "backend/src/test/java\nfrontend/src\n.github/scripts"}
-      # One folder per shard: a merged download would hide a class that ran twice. Outside
-      # the workspace, so a later checkout's clean cannot delete the reports.
-      - name: Download the backend test reports
-        if: needs.backend.result == 'success'
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with: {pattern: surefire-*, path: '${{ runner.temp }}/surefire'}
-      - name: Require every backend test class to run exactly once
-        if: needs.backend.result == 'success'
-        run: python3 .github/scripts/backend_shards.py --check "$RUNNER_TEMP/surefire"
-      # A skipped PostgreSQL test class reports green: require each one ran, with nothing skipped.
-      # No per-class count: Skipped: 0 already catches a skip, and a count breaks on every new test or bank.
-      - name: Require the PostgreSQL tests
-        if: needs.backend.result == 'success'
-        working-directory: ${{ runner.temp }}/surefire
-        run: |
-          while read -r class; do
-            grep -qE "Tests run: [1-9][0-9]*, Failures: 0, Errors: 0, Skipped: 0," ./*/"com.picsou.$class.txt" \
-              || { echo "::error::$class did not run in full"; cat ./*/"com.picsou.$class.txt"; exit 1; }
-          done <<'EOF'
-          service.ScpiSyncSessionPostgresTest
-          service.HomeBankImportPersistenceTest
-          service.HomeBankQifPersistenceTest
-          migration.LegacyMigrationRenumberingTest
-          service.SidecarBudgetPostgresTest
-          service.SetupAuditServicePostgresTest
-          config.SsoLoginIntegrationTest
-          config.SsoHandshakeSessionRaceIntegrationTest
-          adapter.sidecar.SidecarBankCodesTest
-          service.PeerLoanTransactionLinksPostgresTest
-          service.LouveConnectionPostgresTest
-          service.LouveClientRegistryPostgresTest
-          migration.V142SidecarSessionMigrationTest
-          migration.V146NatixisSidecarSessionMigrationTest
-          migration.V149TradeRepublicSidecarSessionMigrationTest
-          migration.V150BnpSidecarSessionMigrationTest
-          migration.FutureMigrationStartupTest
-          EOF
-      # The next runs balance their shards on these class times.
-      - name: Collect the backend class timings
-        if: github.event_name == 'push' && needs.backend.result == 'success'
-        run: python3 .github/scripts/backend_shards.py --write-timings "$RUNNER_TEMP/surefire" "$RUNNER_TEMP/backend-timings.json"
-      # The same path as the restores: the cache version depends on it.
-      - name: Save the backend class timings
-        if: github.event_name == 'push' && needs.backend.result == 'success'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with: {path: '${{ runner.temp }}/backend-timings.json', key: 'backend-timings-${{ github.run_id }}'}
+        with: {persist-credentials: false, sparse-checkout: "frontend/src\n.github/scripts"}
       - name: Download the Vitest reports
         if: needs.frontend.result == 'success'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -768,7 +649,7 @@ jobs:
   # Images are only published after every release-blocking CI job is green, and
   # only on a push to main or a version tag — not on pull requests or release branches.
   docker:
-    needs: [ci-ok, release-deployment, docker-compose, backend, backend-rs, frontend, e2e, sidecar-base, sidecar, native-sidecars, compose-sidecar-build, workflow-inventory]
+    needs: [ci-ok, release-deployment, docker-compose, backend-rs, frontend, e2e, sidecar-base, sidecar, native-sidecars, compose-sidecar-build, workflow-inventory]
     if: github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/release/')
     uses: ./.github/workflows/docker.yml
     secrets: inherit

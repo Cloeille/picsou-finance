@@ -1,20 +1,16 @@
 import { SQL } from "bun";
 import { mkdtemp, rm } from "node:fs/promises";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { StubServer } from "./stub.ts";
-
-export type BackendKind = "java" | "rust";
 
 export interface LaunchConfig {
   repoRoot: string;
   pgHost: string;
   pgPort: number;
   pgUser: string;
-  javaJar?: string;
-  javaHome?: string;
   rustBin?: string;
   sqlite?: boolean;
   readyTimeoutMs: number;
@@ -22,7 +18,6 @@ export interface LaunchConfig {
 }
 
 export interface Instance {
-  kind: BackendKind;
   baseUrl: string;
   database: string;
   databaseUrl: string;
@@ -55,7 +50,7 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-/** What a throwaway instance needs: application.yml's variables, nothing inherited from the caller's shell. */
+/** What a throwaway instance needs: the variables config.rs reads, nothing inherited from the caller's shell. */
 function environment(
   port: number,
   database: string,
@@ -108,53 +103,21 @@ function environment(
   return env;
 }
 
-function findJar(cfg: LaunchConfig): string {
-  if (cfg.javaJar) return cfg.javaJar;
-  const dir = join(cfg.repoRoot, "backend", "target");
-  const jar = existsSync(dir) ? readdirSync(dir).find((f) => /^picsou-backend-.*\.jar$/.test(f) && !f.includes("plain")) : undefined;
-  if (!jar) throw new Error("no Java jar: build backend/ or pass --java-jar");
-  return join(dir, jar);
+function command(cfg: LaunchConfig): string[] {
+  const bin = resolve(cfg.rustBin ?? join(cfg.repoRoot, "backend-rs", "target", "release", "picsou"));
+  if (!existsSync(bin)) throw new Error(`no backend binary at ${bin}: cargo build --release or pass --rust-bin`);
+  return [bin];
 }
 
-function javaBinary(cfg: LaunchConfig): string {
-  if (cfg.javaHome) return join(cfg.javaHome, "bin", "java");
-  if (process.env.JAVA_HOME) return join(process.env.JAVA_HOME, "bin", "java");
-  const probe = Bun.spawnSync(["/usr/libexec/java_home", "-v", "21"]);
-  if (probe.exitCode === 0) return join(probe.stdout.toString().trim(), "bin", "java");
-  return "java";
-}
-
-function command(kind: BackendKind, cfg: LaunchConfig, stub: StubServer): string[] {
-  if (kind === "rust") {
-    const bin = resolve(cfg.rustBin ?? join(cfg.repoRoot, "backend-rs", "target", "release", "picsou"));
-    if (!existsSync(bin)) throw new Error(`no Rust binary at ${bin}: cargo build --release or pass --rust-bin`);
-    return [bin];
-  }
-  return [
-    javaBinary(cfg),
-    "-Dhttp.proxyHost=127.0.0.1",
-    `-Dhttp.proxyPort=${stub.port}`,
-    "-Dhttps.proxyHost=127.0.0.1",
-    `-Dhttps.proxyPort=${stub.port}`,
-    "-Dhttp.nonProxyHosts=localhost|127.0.0.1",
-    // The container's JVM runs in the POSIX locale; a developer Mac's would localize validation messages.
-    "-Duser.language=en",
-    "-Duser.country=US",
-    "-XX:TieredStopAtLevel=1",
-    "-jar",
-    resolve(findJar(cfg)),
-  ];
-}
-
-export async function launch(kind: BackendKind, label: string, cfg: LaunchConfig, stub: StubServer): Promise<Instance> {
+export async function launch(label: string, cfg: LaunchConfig, stub: StubServer): Promise<Instance> {
   // Resolved first: a missing binary must fail before a database exists to leak.
-  const argv = command(kind, cfg, stub);
-  const useSqlite = Boolean(cfg.sqlite && kind === "rust");
+  const argv = command(cfg);
+  const useSqlite = Boolean(cfg.sqlite);
   const suffix = randomBytes(4).toString("hex");
-  const stem = `contract_${kind}_${label.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}`.slice(0, 50);
+  const stem = `contract_${label.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}`.slice(0, 50);
   const database = `${stem}_${suffix}`;
 
-  const workDir = await mkdtemp(join(tmpdir(), `picsou-contract-${kind}-`));
+  const workDir = await mkdtemp(join(tmpdir(), "picsou-contract-"));
   let sqlitePath: string | undefined;
   let sqliteUrl: string | undefined;
   if (useSqlite) {
@@ -178,7 +141,6 @@ export async function launch(kind: BackendKind, label: string, cfg: LaunchConfig
   let stopped = false;
   let keep = cfg.keepLogs;
   const instance: Instance = {
-    kind,
     baseUrl: `http://127.0.0.1:${port}`,
     database: sqlitePath ?? database,
     databaseUrl: sqliteUrl ?? adminDsn(cfg, database),
@@ -220,5 +182,5 @@ export async function launch(kind: BackendKind, label: string, cfg: LaunchConfig
   keep = true;
   await instance.stop();
   const why = exitCode === null ? "was not ready in time" : `exited with code ${exitCode}`;
-  throw new Error(`${kind} backend ${why}; log kept at ${logPath}\n${tail}`);
+  throw new Error(`backend ${why}; log kept at ${logPath}\n${tail}`);
 }

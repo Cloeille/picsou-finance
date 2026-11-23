@@ -97,8 +97,8 @@ export default defineConfig(({ command }) => {
           changeOrigin: true,
         },
         // SSO chain endpoints (start/callback POSTs + the authorization-server
-        // authorize/consent flow). xfwd lets Tomcat build the dev redirect_uri on
-        // the Vite origin: ForwardedOriginCustomizer applies the forwarded origin
+        // authorize/consent flow). xfwd lets the backend build the dev redirect_uri on
+        // the Vite origin: it applies the forwarded origin
         // from any peer, and the client address only comes from PICSOU_PROXY_IP.
         '/oauth2': {
           target: process.env.VITE_API_TARGET || 'http://localhost:8080',

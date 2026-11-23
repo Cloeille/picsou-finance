@@ -4,11 +4,8 @@
 *.log
 .env
 .env.*
-backend/target/
 backend-rs/target/
 desktop/
-backend/.mvn/
-backend/mvnw*
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/

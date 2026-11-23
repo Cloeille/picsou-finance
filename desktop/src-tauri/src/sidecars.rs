@@ -184,7 +184,7 @@ pub fn unavailable_services(runtime: &Path) -> Vec<String> {
         .collect()
 }
 
-/// `bourso-auth` → `BOURSO_AUTH_URL`, the variable `application.yml` reads.
+/// `bourso-auth` → `BOURSO_AUTH_URL`, the variable the backend reads (sidecars.tsv).
 pub fn url_variable(service: &str) -> String {
     format!("{}_URL", service.to_uppercase().replace('-', "_"))
 }

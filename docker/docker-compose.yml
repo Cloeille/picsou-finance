@@ -43,7 +43,7 @@ services:
       # Opt-in anonymous telemetry: empty DSN = feature fully inactive (docs/features/telemetry.md)
       APP_TELEMETRY_DSN: ${APP_TELEMETRY_DSN:-}
       APP_TELEMETRY_ENVIRONMENT: ${APP_TELEMETRY_ENVIRONMENT:-production}
-      # Must match the proxy's exact address on tls-proxy below. It is Tomcat's only
+      # Must match the proxy's exact address on tls-proxy below. It is the backend's only
       # trusted forwarded-address peer.
       PICSOU_PROXY_IP: ${PICSOU_PROXY_IP:-172.30.253.2}
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}

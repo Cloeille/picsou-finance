@@ -44,6 +44,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `APP_NATIVE_SIDECARS=true` (or Helm `nativeSidecars: true`). They remain deployed by default
   in Docker Compose and Helm during the transition period.
 
+### Removed
+
+- **The Java backend.** The Rust backend is the only one: the Java sources, their Maven build and
+  their tests are gone, and the PostgreSQL migrations now live in `backend-rs/migrations/` (same
+  files, same Flyway history). Nothing changes for an existing database. The backend reads
+  environment variables only: `SPRING_APPLICATION_JSON`, `-D` properties and `--spring.*`
+  arguments, which the Java backend accepted, are ignored. The experimental Powens adapter,
+  which existed only in Java and was never enabled, is gone with it.
+
 ### Fixed
 
 - **Enable Banking: bank cards are imported as cards.** A card the bank declares as such (Boursorama's

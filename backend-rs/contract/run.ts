@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
 /**
- * Differential contract harness: replays scenarios against the Java and the Rust backends, each on
- * a fresh database, and diffs the normalized responses. See README.md.
+ * Contract harness: replays scenarios against the backend on a fresh database and diffs the
+ * normalized responses against the goldens. See README.md.
  */
 import { mkdir, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { diffRuns, type Difference, formatDifferences } from "./lib/diff.ts";
 import { parse, stringify, type Json } from "./lib/json.ts";
-import { type BackendKind, launch, type LaunchConfig, stopAll } from "./lib/launcher.ts";
+import { launch, type LaunchConfig, stopAll } from "./lib/launcher.ts";
 import { type RunResult, runScenario } from "./lib/runner.ts";
 import type { Scenario } from "./lib/scenario.ts";
 import { startStub, type StubServer } from "./lib/stub.ts";
@@ -16,29 +16,21 @@ const HERE = import.meta.dir;
 const GOLDEN_DIR = join(HERE, "golden");
 const SCENARIO_DIR = join(HERE, "scenarios");
 
-const USAGE = `usage: bun run backend-rs/contract/run.ts <record|check|diff|list> (<scenario-or-prefix>... | --all)
-  record   run on Java, write golden/<name>.json
-  check    run on Rust (or --backend java), diff against the golden
-  diff     run two backends live and diff them (--left java --right rust by default)
+const USAGE = `usage: bun run backend-rs/contract/run.ts <check|record|list> (<scenario-or-prefix>... | --all)
+  check    run the backend, diff against the golden
+  record   run the backend, write golden/<name>.json
 options:
-  --left <java|rust> --right <java|rust>   backends for diff
-  --backend <java|rust> backend for check (default rust)
   --jobs <n>            scenarios run concurrently (default 2)
-  --java-jar <path>     default: backend/target/picsou-backend-*.jar
-  --java-home <path>    default: JAVA_HOME, then /usr/libexec/java_home -v 21
   --rust-bin <path>     default: backend-rs/target/release/picsou
-  --sqlite              run Rust backend on embedded SQLite (no PostgreSQL needed)
+  --sqlite              run the backend on embedded SQLite (no PostgreSQL needed)
   --pg <host:port>      default 127.0.0.1:55432 (or CONTRACT_PG); --pg-user default picsou
   --keep-logs           keep each instance's work directory and log
   --verbose             print stub hits and log paths`;
 
 interface Options {
-  mode: "record" | "check" | "diff" | "list";
+  mode: "record" | "check" | "list";
   selectors: string[];
   all: boolean;
-  left: BackendKind;
-  right: BackendKind;
-  backend: BackendKind;
   jobs: number;
   verbose: boolean;
   launch: LaunchConfig;
@@ -46,7 +38,7 @@ interface Options {
 
 function parseArgs(argv: string[]): Options {
   const [mode, ...rest] = argv;
-  if (mode !== "record" && mode !== "check" && mode !== "diff" && mode !== "list") {
+  if (mode !== "record" && mode !== "check" && mode !== "list") {
     console.error(USAGE);
     process.exit(2);
   }
@@ -55,9 +47,6 @@ function parseArgs(argv: string[]): Options {
     mode,
     selectors: [],
     all: false,
-    left: "java",
-    right: "rust",
-    backend: "rust",
     jobs: 2,
     verbose: false,
     launch: {
@@ -65,8 +54,6 @@ function parseArgs(argv: string[]): Options {
       pgHost: pg.split(":")[0]!,
       pgPort: Number(pg.split(":")[1] ?? 5432),
       pgUser: process.env.CONTRACT_PG_USER ?? "picsou",
-      javaJar: process.env.CONTRACT_JAVA_JAR,
-      javaHome: process.env.CONTRACT_JAVA_HOME,
       rustBin: process.env.CONTRACT_RUST_BIN,
       sqlite: false,
       readyTimeoutMs: 180_000,
@@ -80,17 +67,8 @@ function parseArgs(argv: string[]): Options {
       if (v === undefined) throw new Error(`${a} needs a value`);
       return v;
     };
-    const backend = (v: string): BackendKind => {
-      if (v !== "java" && v !== "rust") throw new Error(`unknown backend ${v}`);
-      return v;
-    };
     if (a === "--all") opts.all = true;
-    else if (a === "--left") opts.left = backend(value());
-    else if (a === "--right") opts.right = backend(value());
-    else if (a === "--backend") opts.backend = backend(value());
     else if (a === "--jobs") opts.jobs = Math.max(1, Number(value()));
-    else if (a === "--java-jar") opts.launch.javaJar = value();
-    else if (a === "--java-home") opts.launch.javaHome = value();
     else if (a === "--rust-bin") opts.launch.rustBin = value();
     else if (a === "--sqlite") opts.launch.sqlite = true;
     else if (a === "--pg") {
@@ -104,9 +82,6 @@ function parseArgs(argv: string[]): Options {
     else opts.selectors.push(a);
   }
   if (opts.mode !== "list" && !opts.all && opts.selectors.length === 0) throw new Error(USAGE);
-  if (opts.launch.sqlite && (opts.mode === "record" || (opts.mode === "check" && opts.backend === "java"))) {
-    throw new Error("--sqlite only applies to the Rust backend");
-  }
   return opts;
 }
 
@@ -134,10 +109,10 @@ function select(all: Scenario[], opts: Options): Scenario[] {
   return picked;
 }
 
-async function execute(kind: BackendKind, scenario: Scenario, opts: Options, stub: StubServer): Promise<RunResult> {
-  const instance = await launch(kind, scenario.name, opts.launch, stub);
+async function execute(scenario: Scenario, opts: Options, stub: StubServer): Promise<RunResult> {
+  const instance = await launch(scenario.name, opts.launch, stub);
   try {
-    if (opts.verbose) console.log(`  [${kind}] ${scenario.name}: ${instance.baseUrl} log ${instance.logPath}`);
+    if (opts.verbose) console.log(`  ${scenario.name}: ${instance.baseUrl} log ${instance.logPath}`);
     return await runScenario(scenario, instance);
   } finally {
     await instance.stop();
@@ -166,27 +141,19 @@ async function runOne(scenario: Scenario, opts: Options, stub: StubServer): Prom
   const outcome: Outcome = { name: scenario.name, steps: 0, diffs: [], errors: [] };
   try {
     if (opts.mode === "record") {
-      const r = await execute("java", scenario, opts, stub);
+      const r = await execute(scenario, opts, stub);
       outcome.steps = r.steps.length;
       outcome.errors.push(...r.unmet);
       if (r.unmet.length === 0) {
         const doc = { scenario: r.scenario, description: scenario.description, steps: r.steps } as unknown as Json;
         await Bun.write(goldenPath(scenario.name), stringify(doc) + "\n");
       }
-    } else if (opts.mode === "check") {
+    } else {
       const golden = await readGolden(scenario.name);
-      const r = await execute(opts.backend, scenario, opts, stub);
+      const r = await execute(scenario, opts, stub);
       outcome.steps = r.steps.length;
       outcome.diffs = diffRuns(golden, r);
-      outcome.errors.push(...r.unmet.map((u) => `[${opts.backend}] ${u}`));
-    } else {
-      // allSettled: when one side fails, the other still runs to its end and stops its instance.
-      const [l, r] = await Promise.allSettled([execute(opts.left, scenario, opts, stub), execute(opts.right, scenario, opts, stub)]);
-      if (l.status === "rejected") throw l.reason;
-      if (r.status === "rejected") throw r.reason;
-      outcome.steps = r.value.steps.length;
-      outcome.diffs = diffRuns(l.value, r.value);
-      outcome.errors.push(...l.value.unmet.map((u) => `[${opts.left}] ${u}`), ...r.value.unmet.map((u) => `[${opts.right}] ${u}`));
+      outcome.errors.push(...r.unmet);
     }
   } catch (e) {
     outcome.errors.push((e as Error).message);
@@ -224,8 +191,8 @@ async function main() {
   };
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
-  const backendTag = opts.launch.sqlite ? `${opts.backend}+sqlite` : opts.backend;
-  const label = opts.mode === "record" ? "java -> golden" : opts.mode === "check" ? `golden vs ${backendTag}` : `${opts.left} vs ${opts.right}`;
+  const engine = opts.launch.sqlite ? "sqlite" : "postgresql";
+  const label = opts.mode === "record" ? `${engine} -> golden` : `golden vs ${engine}`;
   console.log(`contract ${opts.mode} (${label}): ${scenarios.length} scenario(s), ${opts.jobs} at a time`);
   const started = Date.now();
   const outcomes = await pool(scenarios, opts.jobs, async (s) => {
