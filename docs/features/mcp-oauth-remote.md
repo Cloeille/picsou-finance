@@ -84,15 +84,15 @@ Properties B (no `?memberId=` override) and C (scope-only authorities, never `RO
 ## Key files
 
 **Backend**
-- `config/AuthorizationServerConfig.java` — JDBC repos, `picsou-ios` seed, MCP-token claim customizer, `consentPage("/consent")`, metadata customizer (`registration_endpoint`), `MCP_CLIENT_SETTING`.
-- `config/JwtTokenAuthenticator.java` — `authenticateMcpToken` (path-scoped: `type=mcp`+`aud=picsou-mcp` on `/mcp` only; `/api` requires `type=access`).
-- `config/AccessKeyAuthFilter.java` — non-`psk_` Bearer on `/mcp` → MCP JWT → `AccessKeyAuthentication`.
-- `config/McpAuthenticationEntryPoint.java` — `WWW-Authenticate` challenge on `/mcp` 401.
-- `config/ProtectedResourceMetadataController.java` — RFC 9728.
-- `config/DynamicClientRegistrationController.java` + `dto/ClientRegistration{Request,Response}.java` — RFC 7591.
-- `controller/OAuthConsentController.java` — `GET /api/oauth2/consent-info`.
-- `controller/ConnectedAppsController.java` + `dto/ConnectedAppResponse.java` — list/revoke.
-- `mcp/tools/OAuth2Tools.java` — `get_oauth2_session_status` now handles MCP-JWT sessions (no `AccessKey` row; `source="oauth2"`).
+- `backend-rs/src/identity/oauth/mod.rs` — JDBC repos, `picsou-ios` seed, MCP-token claim customizer, `consentPage("/consent")`, metadata customizer (`registration_endpoint`), `MCP_CLIENT_SETTING`.
+- `JwtTokenAuthenticator.java` — `authenticateMcpToken` (path-scoped: `type=mcp`+`aud=picsou-mcp` on `/mcp` only; `/api` requires `type=access`).
+- `AccessKeyAuthFilter.java` — non-`psk_` Bearer on `/mcp` → MCP JWT → `AccessKeyAuthentication`.
+- `McpAuthenticationEntryPoint.java` — `WWW-Authenticate` challenge on `/mcp` 401.
+- `ProtectedResourceMetadataController.java` — RFC 9728.
+- `backend-rs/src/identity/oauth/clients.rs` + `dto/ClientRegistration{Request,Response}.java` — RFC 7591.
+- `backend-rs/src/identity/oauth/clients.rs` — `GET /api/oauth2/consent-info`.
+- `backend-rs/src/identity/oauth/apps.rs` + `ConnectedAppResponse.java` — list/revoke.
+- `backend-rs/src/mcp/tools/oauth2.rs` — `get_oauth2_session_status` now handles MCP-JWT sessions (no `AccessKey` row; `source="oauth2"`).
 - `backend-rs/migrations/V54__oauth2_authorization_server.sql` — AS JDBC schema (blob columns → `text`; see Gotchas).
 
 **Frontend**

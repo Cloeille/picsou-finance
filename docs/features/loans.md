@@ -50,14 +50,14 @@ remaining capital from the formula. As a result, the historical balance chart sh
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/model/Debt.java` — entity (now includes `insuranceMonthly`, `fileFees`)
-- `backend/src/main/java/com/picsou/service/LoanAmortizationService.java` — formula + records
+- `backend-rs/src/ledger/loans.rs` — entity (now includes `insuranceMonthly`, `fileFees`)
+- `backend-rs/src/ledger/loans.rs` — formula + records
   (`LoanInstallment`, `LoanSummary`, `LoanScheduleResponse`)
-- `backend/src/main/java/com/picsou/service/AccountService.java`
+- `AccountService.java`
   - `liveBalanceEur` — branched for LOAN to return the (positive) remaining capital
   - `signedLiveBalanceEur` — applies the liability sign (LOAN → negative) for net-worth sums
   - `getLoanSummary(id, memberId)` — loads the Debt, validates type, delegates to amortization service
-- `backend/src/main/java/com/picsou/controller/AccountController.java` — `GET /accounts/{id}/loan-summary`
+- `backend-rs/src/accounts/service.rs` — `GET /accounts/{id}/loan-summary`
 - `backend-rs/migrations/V27__loan_extra_fields.sql` — adds `insurance_monthly`, `file_fees`
 - `frontend/src/components/loan/LoanDetailSection.tsx` — orchestrator
   (monthly breakdown, progress, cost summary, amortization chart)

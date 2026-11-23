@@ -250,19 +250,19 @@ silently).
 ### Key files
 
 **Backend:**
-- `controller/SavingsController.java` — REST entry points
-- `service/SavingsService.java` — orchestration (config lifecycle, suggestion filter, projection delegation)
-- `service/SavingsInterestService.java` — quinzaine interest engine (read-only)
-- `service/SavingsBookDetector.java` — detector interface
-- `service/NameBasedSavingsBookDetector.java` — name-pattern implementation
-- `service/RegulatedRates.java` — official rate constants (LIVRET_A, LDDS, LEP)
-- `model/SavingsInterestConfig.java` — JPA entity
-- `model/SavingsProduct.java` — product enum
-- `model/RateBasis.java` — GROSS / NET enum
-- `dto/SavingsInterestProjection.java` — projection response record
-- `dto/SavingsConfigDto.java` — config request/response record
-- `dto/SavingsSuggestionResponse.java` — suggestion list item
-- `dto/SavingsBookSuggestion.java` — internal suggestion from the detector
+- `backend-rs/src/wealth/savings/mod.rs` — REST entry points
+- `backend-rs/src/wealth/savings/mod.rs` — orchestration (config lifecycle, suggestion filter, projection delegation)
+- `backend-rs/src/wealth/savings/` — quinzaine interest engine (read-only)
+- `SavingsBookDetector.java` — detector interface
+- `backend-rs/src/wealth/savings/detector.rs` — name-pattern implementation
+- `backend-rs/src/wealth/savings/model.rs` — official rate constants (LIVRET_A, LDDS, LEP)
+- `SavingsInterestConfig.java` — JPA entity
+- `backend-rs/src/wealth/savings/model.rs` — product enum
+- `backend-rs/src/wealth/savings/model.rs` — GROSS / NET enum
+- `backend-rs/src/wealth/savings/interest.rs` — projection response record
+- `backend-rs/src/accounts/dto.rs` — config request/response record
+- `backend-rs/src/wealth/savings/mod.rs` — suggestion list item
+- `SavingsBookSuggestion.java` — internal suggestion from the detector
 - `backend-rs/migrations/V44__savings_interest_config.sql` — schema migration
 
 **Frontend:**

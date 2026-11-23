@@ -57,13 +57,13 @@ Both halves are split by account type before the call: `AccountRepository.findDi
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/service/PriceService.java` -- Caching, EUR conversion, snapshot persistence (routing delegated to the port)
-- `backend/src/main/java/com/picsou/service/SchedulerService.java` -- Hourly price refresh cron
-- `backend/src/main/java/com/picsou/adapter/CoinGeckoPriceProvider.java` -- CoinGecko `/simple/price`, plus `resolveBySymbol` (`/coins/markets?symbols=`) for learning a coin
-- `backend/src/main/java/com/picsou/adapter/CryptoAssetRegistry.java` -- the `crypto_asset` table, cached in memory; `supports()` reads it
-- `backend/src/main/java/com/picsou/adapter/YahooFinancePriceProvider.java` -- Yahoo Finance `/v8/finance/chart/{ticker}`
-- `backend/src/main/java/com/picsou/adapter/CompositePriceProvider.java` -- `@Primary` port bean; routes crypto to CoinGecko and everything else to Yahoo
-- `backend/src/main/java/com/picsou/port/PriceProviderPort.java` -- Port interface: `supports()`, `getPricesEur()`, `getHistoricalPricesEur()`, `getIntradayPricesEur()`
+- `backend-rs/src/market/prices.rs` -- Caching, EUR conversion, snapshot persistence (routing delegated to the port)
+- `backend-rs/src/jobs/scheduler.rs` -- Hourly price refresh cron
+- `backend-rs/src/market/coingecko.rs` -- CoinGecko `/simple/price`, plus `resolveBySymbol` (`/coins/markets?symbols=`) for learning a coin
+- `backend-rs/src/market/coingecko.rs` -- the `crypto_asset` table, cached in memory; `supports()` reads it
+- `backend-rs/src/market/yahoo.rs` -- Yahoo Finance `/v8/finance/chart/{ticker}`
+- `backend-rs/src/market/prices.rs` -- `@Primary` port bean; routes crypto to CoinGecko and everything else to Yahoo
+- `PriceProviderPort.java` -- Port interface: `supports()`, `getPricesEur()`, `getHistoricalPricesEur()`, `getIntradayPricesEur()`
 
 ### Flow
 

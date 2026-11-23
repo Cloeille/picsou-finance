@@ -170,14 +170,14 @@ The export scope is **the data tied to the AppUser making the call**. If an admi
 
 Backend:
 
-- `backend/src/main/java/com/picsou/controller/MeExportController.java` — REST endpoint at `/api/me/export`, re-auth gate, rate limit, audit log
-- `backend/src/main/java/com/picsou/export/DataExportService.java` — orchestrator: opens ZIP, drives all exporters
-- `backend/src/main/java/com/picsou/service/ReAuthService.java` — accepts a valid `reauth_proof` cookie (same user id and token version), else verifies password OR TOTP based on `user.mfaEnabled`; also backs `POST /api/auth/reauth` and the SSO sign-in-method changes
-- `backend/src/main/java/com/picsou/export/EntityExporter.java` — interface: `void writeJson(JsonGenerator g)` + `void writeCsv(Writer w)` + `String csvFileName()` + `String jsonKey()`
-- `backend/src/main/java/com/picsou/export/{Profile,Accounts,Holdings,Transactions,Goals,Debts,WalletAddresses,SharedResources,BankConnections,BalanceSnapshots,PeerCounterparties,PeerLoanTerms,PeerLoanRepayments}Exporter.java` — one per entity root (family members are folded into `ProfileExporter`)
-- `backend/src/main/java/com/picsou/dto/ExportRequest.java` — record `(ReAuthDto reAuth, boolean includeBalanceSnapshots)`
-- `backend/src/main/java/com/picsou/dto/ReAuthDto.java` — record `(String password, String totpCode)` (XOR depending on user)
-- `backend/src/main/java/com/picsou/config/RateLimitConfig.java` — extend with the export bucket (5/h per userId)
+- `backend-rs/src/transfer/me_export/mod.rs` — REST endpoint at `/api/me/export`, re-auth gate, rate limit, audit log
+- `backend-rs/src/transfer/me_export/` — orchestrator: opens ZIP, drives all exporters
+- `ReAuthService.java` — accepts a valid `reauth_proof` cookie (same user id and token version), else verifies password OR TOTP based on `user.mfaEnabled`; also backs `POST /api/auth/reauth` and the SSO sign-in-method changes
+- `EntityExporter.java` — interface: `void writeJson(JsonGenerator g)` + `void writeCsv(Writer w)` + `String csvFileName()` + `String jsonKey()`
+- `backend-rs/src/transfer/me_export/exporters.rs` — one exporter per entity root: profile, accounts, holdings, transactions, goals, debts, wallet addresses, shared resources, bank connections, balance snapshots, peer counterparties, peer loan terms, peer loan repayments (family members are folded into the profile exporter)
+- `ExportRequest.java` — record `(ReAuthDto reAuth, boolean includeBalanceSnapshots)`
+- `ReAuthDto.java` — record `(String password, String totpCode)` (XOR depending on user)
+- `backend-rs/src/http/rate_limit.rs` — extend with the export bucket (5/h per userId)
 
 Frontend:
 

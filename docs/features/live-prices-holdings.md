@@ -112,9 +112,9 @@ For each past date, both `total` and `invested` are read from `balance_snapshot`
 - `frontend/src/features/accounts/api.ts` — `prices(tickers)` API function
 - `frontend/src/features/accounts/hooks.ts` — `useHoldingsWithLivePrices(id)` hook
 - `frontend/src/pages/accounts/AccountDetailPage.tsx` — uses the hook; `displayBalance` for holding accounts
-- `backend/src/main/java/com/picsou/service/AccountService.java` — `liveBalanceEur()` method
-- `backend/src/main/java/com/picsou/service/GoalService.java` — uses `liveBalanceEur()` in `toProgressResponse()`
-- `backend/src/main/java/com/picsou/service/DashboardService.java` — `buildDistribution()` uses live values from `holdingsByAccount`
+- `AccountService.java` — `liveBalanceEur()` method
+- `backend-rs/src/wealth/goals/` — uses `liveBalanceEur()` in `toProgressResponse()`
+- `backend-rs/src/accounts/dashboard.rs` — `buildDistribution()` uses live values from `holdingsByAccount`
 
 ## Technical choices
 

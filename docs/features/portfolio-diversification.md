@@ -159,18 +159,18 @@ and "deliberately unclassified" cannot diverge.
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/port/EquityProfileProvider.java` — the port, and `dto/EquityProfile.java`
-- `backend/src/main/java/com/picsou/adapter/YahooFinancePriceProvider.java` — `fetch()`, `sectorFrom()`, `sectorKey()`
-- `backend/src/main/java/com/picsou/adapter/BoursoramaEquityProfileProvider.java` — country from the ISIN
-- `backend/src/main/java/com/picsou/adapter/BoursoramaClient.java` — symbol resolution, shared with the composition provider
-- `backend/src/main/java/com/picsou/service/SecurityProfileService.java` — `load` (read) vs `refresh` (network)
-- `backend/src/main/java/com/picsou/service/PortfolioDiversificationService.java` — the roll-up
-- `backend/src/main/java/com/picsou/service/HoldingClassificationService.java` — the manual override
+- `EquityProfileProvider.java` — the port, and `EquityProfile.java`
+- `backend-rs/src/market/yahoo.rs` — `fetch()`, `sectorFrom()`, `sectorKey()`
+- `BoursoramaEquityProfileProvider.java` — country from the ISIN
+- `backend-rs/src/market/boursorama.rs` — symbol resolution, shared with the composition provider
+- `backend-rs/src/accounts/analysis/profiles.rs` — `load` (read) vs `refresh` (network)
+- `backend-rs/src/accounts/analysis/diversification.rs` — the roll-up
+- `backend-rs/src/accounts/classification.rs` — the manual override
 - `backend-rs/migrations/V84__security_profile.sql`
-- `backend/src/main/java/com/picsou/service/SecurityProfileRefreshRunner.java` — the on-demand pass
-- `backend/src/main/java/com/picsou/service/SecurityIdentityService.java` — ticker → ISIN, recorded at sync
-- `backend/src/main/java/com/picsou/adapter/JustEtfProvider.java` — fees, policy, fallback breakdown
-- `backend/src/main/java/com/picsou/model/ClassificationKeys.java` — the unlisted sector and region
+- `backend-rs/src/accounts/analysis/profiles.rs` — the on-demand pass
+- `SecurityIdentityService.java` — ticker → ISIN, recorded at sync
+- `backend-rs/src/market/justetf.rs` — fees, policy, fallback breakdown
+- `ClassificationKeys.java` — the unlisted sector and region
 - `frontend/src/lib/treemap.ts` — the layout, shared with the account distribution chart
 - `frontend/src/pages/analysis/BreakdownChart.tsx`, `SliceContributors.tsx`
 - `frontend/src/pages/analysis/DiversificationSection.tsx`, `frontend/src/lib/chart-palette.ts`

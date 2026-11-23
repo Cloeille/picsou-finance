@@ -71,24 +71,24 @@ Three security properties are guaranteed structurally (not by per-call checks):
 ### Key files
 
 **Backend — auth & data**
-- `backend/src/main/java/com/picsou/mcp/AccessKeyService.java` — issue / validate / list / revoke keys; SHA-256 hashing, throttled `last_used_at`.
-- `backend/src/main/java/com/picsou/mcp/AccessKeyUsageRecorder.java` — `REQUIRES_NEW` best-effort `last_used_at` writer (off the hot path).
-- `backend/src/main/java/com/picsou/mcp/Scopes.java` — the scope vocabulary (`domain:action`) and the `ALL` allowlist.
-- `backend/src/main/java/com/picsou/mcp/ScopeSetConverter.java` — `Set<String>` ↔ space-delimited column.
-- `backend/src/main/java/com/picsou/config/AccessKeyAuthentication.java` — the `Authentication` a key runs as (principal = owner `AppUser`; authorities = scopes).
-- `backend/src/main/java/com/picsou/config/AccessKeyAuthFilter.java` — validates the Bearer key for `/mcp/**` only; per-key Bucket4j throttle (429).
-- `backend/src/main/java/com/picsou/config/SecurityConfig.java` — registers the filter (4th, anchored to `UsernamePasswordAuthenticationFilter`) and `requestMatchers("/mcp/**").authenticated()`.
-- `backend/src/main/java/com/picsou/config/McpSecurityContextPropagationConfig.java` + `backend/src/main/java/com/picsou/config/SecurityContextThreadLocalAccessor.java` — carry the authenticated `SecurityContext` from the servlet thread to Spring AI's reactive tool-execution thread (see Gotchas: scope enforcement across the thread hop).
-- `backend/src/main/java/com/picsou/service/UserContext.java` — Property B guard at the top of `getMemberIdOverride()`.
-- `backend/src/main/java/com/picsou/model/AccessKey.java` + `backend/src/main/java/com/picsou/repository/AccessKeyRepository.java` + `backend-rs/migrations/V37__access_keys.sql`.
+- `backend-rs/src/auth/access_key.rs` — issue / validate / list / revoke keys; SHA-256 hashing, throttled `last_used_at`.
+- `AccessKeyUsageRecorder.java` — `REQUIRES_NEW` best-effort `last_used_at` writer (off the hot path).
+- `backend-rs/src/identity/scopes.rs` — the scope vocabulary (`domain:action`) and the `ALL` allowlist.
+- `ScopeSetConverter.java` — `Set<String>` ↔ space-delimited column.
+- `AccessKeyAuthentication.java` — the `Authentication` a key runs as (principal = owner `AppUser`; authorities = scopes).
+- `AccessKeyAuthFilter.java` — validates the Bearer key for `/mcp/**` only; per-key Bucket4j throttle (429).
+- `SecurityConfig.java` — registers the filter (4th, anchored to `UsernamePasswordAuthenticationFilter`) and `requestMatchers("/mcp/**").authenticated()`.
+- `McpSecurityContextPropagationConfig.java` + `SecurityContextThreadLocalAccessor.java` — carry the authenticated `SecurityContext` from the servlet thread to Spring AI's reactive tool-execution thread (see Gotchas: scope enforcement across the thread hop).
+- `UserContext.java` — Property B guard at the top of `getMemberIdOverride()`.
+- `AccessKey.java` + `AccessKeyRepository.java` + `backend-rs/migrations/V37__access_keys.sql`.
 
 **Backend — MCP surface**
-- `backend/src/main/java/com/picsou/config/McpToolConfig.java` — the single `ToolCallbackProvider` bean; the one place tools are wired.
-- `backend/src/main/java/com/picsou/mcp/tools/{Account,Transaction,Goal,Insight,Sync,Analysis,Budget,OAuth2,AiCategorization,PeerLoan}Tools.java` — the `@Tool` methods, each gated by `@RequiresScope`.
-- `backend/src/main/java/com/picsou/mcp/RequiresScope.java` + `backend/src/main/java/com/picsou/mcp/ScopeEnforcementAspect.java` + `backend/src/main/java/com/picsou/exception/MissingScopeException.java` — scope enforcement (AOP) and its clean error.
-- `backend/src/main/java/com/picsou/controller/AccessKeyController.java` + `dto/AccessKey{CreateRequest,Response,CreatedResponse}.java` — self-service management REST API under `/api/access-keys`.
-- `backend/src/main/java/com/picsou/config/RateLimitConfig.java` — `mcpKeyBuckets`, `accessKeyCreateBuckets`, and the bucket factories.
-- `backend/src/main/resources/application.yml` — `spring.ai.mcp.server.*` (`MCP_PROTOCOL`, default `SSE`; `STREAMABLE` at `/mcp`; `SYNC`; keep-alive (`MCP_KEEP_ALIVE_INTERVAL`, 60 s); `MCP_ENABLED` gate; instructions string).
+- `McpToolConfig.java` — the single `ToolCallbackProvider` bean; the one place tools are wired.
+- `backend-rs/src/mcp/tools/` (`accounts.rs`, `transactions.rs`, `goals.rs`, `insights.rs`, `sync.rs`, `analysis.rs`, `budget.rs`, `oauth2.rs`, `ai.rs`, `peer_loans.rs`) — the tools, each gated by a scope.
+- `RequiresScope.java` + `ScopeEnforcementAspect.java` + `MissingScopeException.java` — scope enforcement (AOP) and its clean error.
+- `backend-rs/src/identity/access_keys.rs` + `dto/AccessKey{CreateRequest,Response,CreatedResponse}.java` — self-service management REST API under `/api/access-keys`.
+- `backend-rs/src/http/rate_limit.rs` — `mcpKeyBuckets`, `accessKeyCreateBuckets`, and the bucket factories.
+- `backend-rs/src/config.rs` — the MCP settings (`MCP_PROTOCOL`, default `SSE`; `STREAMABLE` at `/mcp`; `SYNC`; keep-alive (`MCP_KEEP_ALIVE_INTERVAL`, 60 s); `MCP_ENABLED` gate; instructions string).
 
 **Frontend**
 - `frontend/src/features/accessKeys/{api,hooks,scopes,status}.ts` — TanStack Query layer + scope/status helpers.

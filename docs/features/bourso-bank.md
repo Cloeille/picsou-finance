@@ -453,12 +453,12 @@ disconnect removes saved credentials with the session.
   plus reconciliation, kept free of FastAPI and httpx so the rules that silently
   break are unit-testable
 - `services/bourso-auth/fixtures.py` — the real SVGs and a real captured dashboard
-- `backend/.../port/SidecarErrorCode.java`, `adapter/sidecar/SidecarBank.java`
-- `backend/.../adapter/BoursoAdapter.java` — 45 s auth / 150 s validation / 90 s accounts
-- `backend/.../service/BoursoSyncService.java` — job state machine, validation, atomic persistence
-- `backend/.../controller/BoursoController.java` — `/api/bourso/*`
-- `backend/.../model/SidecarSession.java`, `SidecarSyncStatus.java` (shared, see the [ADR](../decisions/2026-11-02-one-sidecar-session-table.md))
-- `backend/.../config/SyncExecutorConfig.java`, `SidecarSyncRecovery.java`
+- `backend-rs/src/ledger/sidecar.rs`, `backend-rs/src/ledger/sidecar.rs`
+- `backend-rs/src/connectors/bourso/sync.rs` — 45 s auth / 150 s validation / 90 s accounts
+- `backend-rs/src/connectors/bourso/sync.rs` — job state machine, validation, atomic persistence
+- `backend-rs/src/connectors/bourso/mod.rs` — `/api/bourso/*`
+- `backend-rs/src/connectors/sidecar/session.rs`, `backend-rs/src/connectors/sidecar/session.rs` (shared, see the [ADR](../decisions/2026-11-02-one-sidecar-session-table.md))
+- `backend-rs/src/connectors/sidecar/jobs.rs`, `backend-rs/src/jobs/startup.rs`
 - `backend-rs/migrations/V78__bourso_session.sql`
 - `frontend/src/components/sync/BoursoPanel.tsx` (serves the Sync tab and the
   Add-account modal), `frontend/src/pages/sync/BoursoTab.tsx`

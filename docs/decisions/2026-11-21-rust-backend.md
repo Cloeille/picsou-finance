@@ -49,3 +49,13 @@ Data compatibility decides the database question: the switch must be invisible t
 - `backend-rs/` holds the new backend, its tests and the contract harness.
 - The Docker image and the desktop bundle drop the JRE.
 - The Java backend stays as the reference until every endpoint passes the contract harness, then it is deleted in its own change.
+
+## Update (2026-11-23): the Java backend is removed
+
+- `backend/` is deleted. The migrations moved, unchanged, to `backend-rs/migrations/`, and the
+  sidecar URLs to `backend-rs/src/sidecars.tsv`.
+- The contract harness no longer starts a Java backend: it checks the Rust backend against the
+  goldens recorded from Java, which stay as the HTTP contract.
+- The desktop app no longer starts PostgreSQL: it runs on embedded SQLite
+  ([dual-engine ADR](./2026-11-22-sqlite-dual-engine.md)).
+- The experimental Powens adapter was not ported.

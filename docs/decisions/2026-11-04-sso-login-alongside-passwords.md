@@ -153,7 +153,7 @@ authorizations first; otherwise a removed member's app would keep access indefin
   Authorization Server's endpoints.
 - New endpoints under `/api/auth` (`sso`, `sign-in-methods`, `reauth`, `password`, `identities`)
   and `DELETE /api/admin/members/{memberId}/identities`; see
-  [backend/docs/API.md](../../backend/docs/API.md).
+  [backend-rs/docs/API.md](../../backend-rs/docs/API.md).
 - The GDPR export gains a `linked_identities` table, and accepts the `reauth_proof` cookie in
   place of the inline password or TOTP.
 - Refresh tokens (and the access tokens minted with them) of SSO sessions carry an `sso_at` claim;

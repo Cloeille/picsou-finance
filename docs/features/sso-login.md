@@ -104,7 +104,7 @@ first, so it is accepted like an invitation (its holder read the server log).
 Every callback that resolves an account syncs the admin role (see below). Errors redirect with
 `ssoError=<CODE>` to the page the flow came from (`/login`, `/activate/{token}`, `/setup/admin`,
 or the `redirect` of a `link` / `reauth`). The full code list is in
-[API.md](../../backend/docs/API.md#sso-error-codes); the SPA translates the codes it can display
+[API.md](../../backend-rs/docs/API.md#sso-error-codes); the SPA translates the codes it can display
 (`ssoErrors.*`).
 
 ### Admin group and role sync
@@ -218,27 +218,27 @@ instance).
 
 ### Key files
 
-Backend (`backend/src/main/java/com/picsou/`):
+Backend (`backend-rs/src/identity/sso/`; a `.java` name is a class of the Java backend):
 
-- `config/SsoProperties.java`, `config/SsoEnabledCondition.java`: settings and the single
+- `backend-rs/src/identity/sso/mod.rs`, `SsoEnabledCondition.java`: settings and the single
   "is SSO on" rule shared by every SSO bean.
-- `config/SsoClientRegistrationRepository.java`: lazy discovery, cached on success, retried
+- `backend-rs/src/identity/sso/mod.rs`: lazy discovery, cached on success, retried
   after 60 s on failure; one discovery at a time and outside any lock, so a lookup arriving while
   it runs answers "unavailable" at once instead of holding a worker; PKCE required; redirect URI
   `{baseUrl}/login/sso/callback`.
-- `config/SsoSecurityConfig.java`: the `@Order(0)` chain.
-- `config/SsoStartGuardFilter.java`: POST-only, rate limit, intent checks.
-- `config/SsoAuthorizationRequestResolver.java`, `config/SsoAuthorizationRequestRepository.java`:
+- `SsoSecurityConfig.java`: the `@Order(0)` chain.
+- `backend-rs/src/identity/sso/mod.rs`: POST-only, rate limit, intent checks.
+- `SsoAuthorizationRequestResolver.java`, `SsoAuthorizationRequestRepository.java`:
   intent attached to the authorization request; `prompt=login&max_age=0` for `reauth`.
-- `config/SsoAuthenticationSuccessHandler.java`, `config/SsoAuthenticationFailureHandler.java`.
-- `config/SafeRedirect.java`: same-origin relative paths only.
+- `backend-rs/src/identity/sso/account.rs`, `SsoAuthenticationFailureHandler.java`.
+- `SafeRedirect.java`: same-origin relative paths only.
 - `service/sso/{SsoAccountService,SsoRoleSyncService,GroupsClaimParser,SsoIdentity,SsoIntent,SsoFlowException}.java`.
-- `service/SessionIssuer.java`, `service/ActivationService.java`, `service/SignInMethodsService.java`,
-  `service/ReAuthService.java`, `service/UsernameDeriver.java`.
-- `controller/SignInMethodsController.java` (`/api/auth/sso`, `sign-in-methods`, `reauth`,
-  `password`, `identities/{id}`), `controller/AdminIdentityController.java`.
-- `model/UserIdentity.java`, `repository/UserIdentityRepository.java`,
-  `export/LinkedIdentitiesExporter.java`, `backend-rs/migrations/V128__sso_identities.sql`.
+- `backend-rs/src/setup_auth/auth.rs`, `ActivationService.java`, `backend-rs/src/identity/sign_in.rs`,
+  `ReAuthService.java`, `UsernameDeriver.java`.
+- `backend-rs/src/identity/sign_in.rs` (`/api/auth/sso`, `sign-in-methods`, `reauth`,
+  `password`, `identities/{id}`), `backend-rs/src/admin/members.rs`.
+- `UserIdentity.java`, `UserIdentityRepository.java`,
+  `LinkedIdentitiesExporter.java`, `backend-rs/migrations/V128__sso_identities.sql`.
 
 Frontend (`frontend/src/`):
 
@@ -360,7 +360,7 @@ only be verified manually against the operator's instance.
 
 - ADR: [SSO login alongside passwords](../decisions/2026-11-04-sso-login-alongside-passwords.md)
 - Design brief: [2026-10-31-sso-login-design.md](../briefs/2026-10-31-sso-login-design.md)
-- API: [backend/docs/API.md](../../backend/docs/API.md#1b-single-sign-on-oidc--oauth2sso)
+- API: [backend-rs/docs/API.md](../../backend-rs/docs/API.md#1b-single-sign-on-oidc--oauth2sso)
 - Related: [mfa-and-remember-me.md](./mfa-and-remember-me.md),
   [multi-account-family.md](./multi-account-family.md), [setup-wizard.md](./setup-wizard.md),
   [admin-recovery.md](./admin-recovery.md), [security-cors-cookies.md](./security-cors-cookies.md),

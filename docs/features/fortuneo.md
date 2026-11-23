@@ -299,11 +299,11 @@ They must be deleted after diagnosis and must not be attached to public issues.
 
 - `services/fortuneo-auth/main.py` — sidecar API, browser lifecycle and fetches.
 - `services/fortuneo-auth/fortuneo_parser.py` — response and legacy-page parsers.
-- `backend/src/main/java/com/picsou/adapter/FortuneoAdapter.java` — sidecar
+- `backend-rs/src/connectors/fortuneo/sync.rs` — sidecar
   adapter and its typed transport records.
-- `backend/src/main/java/com/picsou/service/FortuneoSyncService.java` — sync
+- `backend-rs/src/connectors/fortuneo/sync.rs` — sync
   orchestration and persistence.
-- `backend/src/main/java/com/picsou/service/BalanceHistoryReconstructor.java` —
+- `backend-rs/src/connectors/fortuneo/history.rs` —
   historical balance reconstruction.
 - `frontend/src/components/sync/FortuneoPanel.tsx` — shared authentication and
   sync UI.
@@ -313,4 +313,4 @@ They must be deleted after diagnosis and must not be attached to public issues.
 
 - [Architecture](../ARCHITECTURE.md)
 - [Docker deployment](docker-deployment.md)
-- [API documentation](../../backend/docs/API.md)
+- [API documentation](../../backend-rs/docs/API.md)

@@ -2,23 +2,24 @@
 
 ## Schema ownership
 
-**Flyway owns the schema.** Hibernate is set to `ddl-auto: validate` only — it checks that entities match the database but never modifies it.
+**Migrations own the schema.** The backend never creates or alters a table outside a migration.
+It applies the pending migrations at startup, as Flyway did for the Java backend: same file
+naming, same checksums, same `flyway_schema_history` rows (`backend-rs/src/db/flyway.rs`).
 
-```yaml
-spring:
-  jpa:
-    hibernate:
-      ddl-auto: validate
-  flyway:
-    enabled: true
-    locations: classpath:db/migration
-```
+Two engines, two sets of migrations:
 
-**Never** use `ddl-auto: create`, `update`, or `create-drop`. Every schema change requires a new Flyway migration file.
+- **PostgreSQL**: `backend-rs/migrations/V{n}__description.sql`.
+- **SQLite** (desktop app, single-container Docker): `backend-rs/src/db/sqlite/schema.sql` is the
+  frozen baseline, equal to PostgreSQL `V1..V155`. Later changes go in
+  `backend-rs/src/db/sqlite/migrations/`
+  ([how to add one](../../backend-rs/src/db/sqlite/migrations/README.md)).
+
+A schema change needs both, and `backend-rs/src/db/schema.tsv`, the schema the release CLI
+(`picsou verify`) expects. A test keeps that file equal to what the migrations build.
 
 ## Migrations
 
-Migration files live in `backend-rs/migrations/`.
+PostgreSQL migration files live in `backend-rs/migrations/`.
 
 ### Naming
 
@@ -83,7 +84,7 @@ Note: V8 is absent by design (skipped — never rolled into another migration). 
 
 ### Writing a new migration
 
-1. Create `V{next}__descriptive_name.sql` in `db/migration/`, where `{next}` is the next free
+1. Create `V{next}__descriptive_name.sql` in `backend-rs/migrations/`, where `{next}` is the next free
    version on an up-to-date target branch, counting `main` and every open `release/*` branch. Another open pull request may take the same number; the one
    that merges second renumbers its own, still unmerged, files after syncing with the target branch, along
    with every test or doc that names them. Keep their relative order and number them after the
@@ -91,19 +92,20 @@ Note: V8 is absent by design (skipped — never rolled into another migration). 
    already applied the old numbers has to be recreated, which deletes its data and encryption key
    ([how to do it safely](../../CONTRIBUTING.md#before-you-open-a-pull-request)).
    The `every_migration_has_a_unique_version` test fails on a duplicate version.
-2. Use plain SQL — no Hibernate-generated DDL.
+2. Use plain SQL.
 3. Include constraints, indexes, and foreign keys explicitly.
 4. For new enums, use `CREATE TYPE ... AS ENUM (...)` at the top of the file.
-5. Test by running the application (Flyway applies on startup).
+5. Add the SQLite counterpart and update `schema.tsv` (see above). `make test-backend` runs the
+   tests on both engines.
 
 **Never rename or renumber a migration that is on `main` or a release branch, or that any deployed database may have
 applied**, even to fix a version collision. Flyway resolves applied rows by version: the old row stops matching any file
 and the renamed file runs a second time. When it happened anyway (commit 2839c94 moved 1.1.0's
-V80, V81 and V86–V88 to V93–V99), the repair is a Flyway callback that rewrites those history rows
+V80, V81 and V86–V88 to V93–V99), the repair is a startup step that rewrites those history rows
 before validation, matching old version, description and checksum together. Merging main into
 1.1.0 did it again to the 1.0.x releases' V38 and V54–V64 (#265), and also edited comments in
 applied files: a comment change alters the checksum just like a SQL change. See
-`LegacyMigrationRenumberingCallback` and
+the legacy renumbering in `backend-rs/src/db/flyway.rs` and
 [the upgrade note](../features/docker-deployment.md#upgrading-a-110-install-that-applied-the-old-v80v88-numbering).
 
 Example:
@@ -119,91 +121,61 @@ CREATE TABLE goal_manual_contribution (
 );
 ```
 
-## Entities
+## Rows and queries
 
-### Base class: AuditableEntity
+A table row is a plain struct that derives `DbFromRow` (`backend-rs/src/db/`), kept next to the
+queries that read and write it:
 
-All entities with timestamps extend `AuditableEntity`:
-
-```java
-@MappedSuperclass
-@EntityListeners(AuditingEntityListener.class)
-@Getter
-public abstract class AuditableEntity {
-    @CreatedDate
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private Instant createdAt;
-
-    @LastModifiedDate
-    @Column(name = "updated_at", nullable = false)
-    private Instant updatedAt;
+```rust
+#[derive(Debug, Clone, PartialEq, crate::db::DbFromRow)]
+pub struct Account {
+    pub id: i64,
+    pub member_id: i64,
+    pub name: String,
+    #[sqlx(rename = "type")]
+    pub account_type: AccountType,
+    pub currency: String,
+    pub current_balance: Decimal,
+    pub last_synced_at: Option<DateTime<Utc>>,
+    // …
 }
 ```
 
-### Entity conventions
-
-```java
-@Entity
-@Table(name = "account")
-@Getter @Setter
-@NoArgsConstructor @AllArgsConstructor
-@Builder
-public class Account extends AuditableEntity {
-
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-
-    // Fields use @Column with explicit name, nullable, length, precision
-    @Column(nullable = false, length = 100)
-    private String name;
-
-    // PostgreSQL enums via @JdbcTypeCode + columnDefinition
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, columnDefinition = "account_type")
-    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    private AccountType type;
-
-    // Defaults via @Builder.Default
-    @Column(nullable = false)
-    @Builder.Default
-    private boolean isManual = true;
-}
-```
+Queries are SQL text with `$n` placeholders, run through `crate::db::query`, `query_as` and
+`query_scalar`. Those wrappers serve both engines: the SQLite dialect layer
+(`backend-rs/src/db/sqlite/dialect.rs`) translates the PostgreSQL syntax, so a query is written
+once.
 
 ### Key patterns
 
 | Pattern | Convention |
 |---------|-----------|
-| Lombok | `@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder` on every entity |
-| ID generation | `GenerationType.IDENTITY` (PostgreSQL sequences/serials) |
-| Monetary values | `NUMERIC(20, 8)` in SQL, `BigDecimal` in Java |
-| Timestamps | `TIMESTAMPTZ` in SQL, `Instant` in Java |
-| Dates | `DATE` in SQL, `LocalDate` in Java |
-| Enums | PostgreSQL native enums (`CREATE TYPE ... AS ENUM`) mapped via `@JdbcTypeCode(SqlTypes.NAMED_ENUM)` |
-| Defaults | `@Builder.Default` on fields, matching SQL `DEFAULT` in migration |
+| Monetary values | `NUMERIC(20, 8)` in SQL, `rust_decimal::Decimal` in Rust. `f32` and `f64` fail a test (`no_floats.rs`) |
+| Timestamps | `TIMESTAMPTZ` in SQL, `chrono::DateTime<Utc>` in Rust, taken from `state.clock`, never from the system clock |
+| Dates | `DATE` in SQL, `chrono::NaiveDate` in Rust |
+| Enums | PostgreSQL native enums (`CREATE TYPE ... AS ENUM`), a `string_enum!` type in Rust, cast in the query (`$4::account_type`) |
+| Nullable columns | `Option<T>` |
+| `created_at`, `updated_at` | set by the query, from the `now` the caller passes |
 | Foreign keys | Always `ON DELETE CASCADE` where appropriate |
 | Unique constraints | Named: `CONSTRAINT uk_{table}_{columns}` |
 | Indexes | Named: `idx_{table}_{columns}`; partial indexes with `WHERE` clause for nullable columns |
 
 ## Connection
 
-- **Database:** PostgreSQL 16
-- **Connection pool:** HikariCP (max 10 connections, 30s timeout)
-- **URL:** `jdbc:postgresql://localhost:5432/picsou` (overridden by `SPRING_DATASOURCE_URL`)
+- **PostgreSQL 16**: an sqlx pool, from `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`
+  and `SPRING_DATASOURCE_PASSWORD` (the names the Java backend read).
+- **SQLite**: `DATABASE_URL=sqlite:///path/picsou.db`. One file in WAL mode with foreign keys on;
+  writes go through one writer at a time.
 
-## Jackson serialization
+## JSON serialization
 
-```yaml
-spring.jackson:
-  write-dates-as-timestamps: false       # ISO-8601 strings
-  default-property-inclusion: non_null   # omit null fields from JSON
-```
+Response types carry `#[serde_with::skip_serializing_none]` (a `null` field is omitted) and
+`#[serde(rename_all = "camelCase")]`. Dates and timestamps are ISO-8601 strings.
 
 ## Don'ts
 
-- **Never use `ddl-auto: create`, `update`, or `create-drop`** — Flyway owns every schema change.
-- **Never use `GenerationType.AUTO` or `SEQUENCE`** — always `GenerationType.IDENTITY`.
-- **Never use `Float` or `Double` for monetary values** — always `BigDecimal` / `NUMERIC(20, 8)`.
+- **Never change the schema outside a migration**, and never edit a migration that shipped.
+- **Never use `f32` or `f64` for monetary values** — always `Decimal` / `NUMERIC(20, 8)`.
+- **Never read the system clock** in a query or a handler — use `state.clock`.
 - **Never skip `ON DELETE CASCADE`** on child table FKs unless orphan rows are intentional.
 - **Never use unnamed constraints** — always `CONSTRAINT uk_{table}_{columns}` / `idx_{table}_{columns}`.

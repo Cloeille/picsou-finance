@@ -60,18 +60,18 @@ by `V131__wise_connection.sql`.
 ### Key files
 
 **Backend**
-- `backend/src/main/java/com/picsou/port/WisePort.java` — the jar record and token limit
-- `backend/src/main/java/com/picsou/adapter/WiseClient.java` — fixed host, token check, status handling
-- `backend/src/main/java/com/picsou/adapter/WiseJson.java` — profile and balance parsing, jars only
-- `backend/src/main/java/com/picsou/adapter/WiseTransport.java` — HTTP seam, faked in tests
-- `backend/src/main/java/com/picsou/adapter/BoundedUtf8Body.java` — capped body reader, shared with SimpleFIN
-- `backend/src/main/java/com/picsou/service/WiseSyncService.java` — connect, sync, jar upsert, status
-- `backend/src/main/java/com/picsou/service/WiseStatusWriter.java` — `ERROR` status in its own transaction
-- `backend/src/main/java/com/picsou/controller/WiseController.java` — `/api/wise`
-- `backend/src/main/java/com/picsou/model/WiseConnection.java`, `repository/WiseConnectionRepository.java`
+- `WisePort.java` — the jar record and token limit
+- `backend-rs/src/sync/wise/` — fixed host, token check, status handling
+- `backend-rs/src/sync/wise/json.rs` — profile and balance parsing, jars only
+- `WiseTransport.java` — HTTP seam, faked in tests
+- `BoundedUtf8Body.java` — capped body reader, shared with SimpleFIN
+- `backend-rs/src/sync/wise/` — connect, sync, jar upsert, status
+- `backend-rs/src/sync/wise/store.rs` — `ERROR` status in its own transaction
+- `backend-rs/src/sync/wise/mod.rs` — `/api/wise`
+- `backend-rs/src/sync/wise/store.rs`, `backend-rs/src/sync/wise/store.rs`
 - `backend-rs/migrations/V131__wise_connection.sql`
 - Wiring: `RateLimitConfig` (`wiseRequestBuckets`), `MemberSyncService`, `SyncStatusService`,
-  `mcp/tools/SyncTools.java`, `service/sync/SourceSyncResult.java`, `AccountConnectionService`
+  `backend-rs/src/mcp/tools/sync.rs`, `backend-rs/src/ledger/sidecar.rs`, `AccountConnectionService`
 
 **Frontend**
 - `frontend/src/components/sync/WisePanel.tsx` — token form, sync, disconnect
@@ -141,6 +141,6 @@ Frontend (`bunx vitest run`, `bun run test:e2e`):
 ## Links
 
 - ADR: [Wise jars beside Enable Banking](../decisions/2026-11-03-wise-jars-beside-enable-banking.md)
-- API: [`/api/wise`](../../backend/docs/API.md#16d-wise-jars--apiwise)
+- API: [`/api/wise`](../../backend-rs/docs/API.md#16d-wise-jars--apiwise)
 - Related: [SimpleFIN sync](./simplefin-sync.md), [Bank sync](./bank-sync.md),
   [Account deletion removes its connection](../decisions/2026-08-11-account-deletion-removes-its-connection.md)

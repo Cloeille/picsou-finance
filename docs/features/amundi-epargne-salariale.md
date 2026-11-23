@@ -56,16 +56,16 @@ listPositionsSalarieDispositifsDto[]          one entry per plan (dispositif)
   `/complete`, `/positions`, `/health`
 - `services/amundi-auth/positions_parser.py` — payload normalisation, kept free
   of FastAPI and Playwright so the rules that silently break are unit-testable
-- `backend/.../port/SidecarInitiate.java`, `SidecarErrorCode.java` (stable failure codes) and
+- `backend-rs/src/connectors/sidecar/web.rs`, `backend-rs/src/ledger/sidecar.rs` (stable failure codes) and
   `adapter/sidecar/SidecarBank.AMUNDI` (the codes Amundi declares)
-- `backend/.../adapter/AmundiAdapter.java` — nests `PlanData` and `Position`; WebClient onto the sidecar, maps
+- `AmundiAdapter.java` — nests `PlanData` and `Position`; WebClient onto the sidecar, maps
   its `detail` onto `SidecarErrorCode` through `SidecarClient`, wraps everything in `SyncException`
-- `backend/.../service/AmundiSyncService.java` — job state machine, validation,
+- `backend-rs/src/connectors/amundi/mod.rs` — job state machine, validation,
   reconciliation, atomic persistence
-- `backend/.../controller/AmundiController.java` — `/api/amundi/*`
-- `backend/.../model/SidecarSession.java`, `SidecarSyncStatus.java` (shared, see the [ADR](../decisions/2026-11-02-one-sidecar-session-table.md))
-- `backend/.../config/SyncExecutorConfig.java` (single-thread executor),
-  `SidecarSyncRecovery.java` (fails interrupted jobs at boot for every sidecar bank except CORUM and Sofidy)
+- `backend-rs/src/connectors/amundi/mod.rs` — `/api/amundi/*`
+- `backend-rs/src/connectors/sidecar/session.rs`, `backend-rs/src/connectors/sidecar/session.rs` (shared, see the [ADR](../decisions/2026-11-02-one-sidecar-session-table.md))
+- `backend-rs/src/connectors/sidecar/jobs.rs` (single-thread executor),
+  `backend-rs/src/jobs/startup.rs` (fails interrupted jobs at boot for every sidecar bank except CORUM and Sofidy)
 - `backend-rs/migrations/V69__account_type_employee_savings.sql`,
   `V70__amundi_session.sql`
 - `frontend/src/components/sync/AmundiPanel.tsx` (serves both the Sync tab and

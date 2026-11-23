@@ -82,20 +82,20 @@ Possible status values: `OK`, `NEEDS_MAPPING`, `TOTP_REQUIRED`, `NOT_CONNECTED`.
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/service/FinaryImportService.java` -- XLSX file import (Apache POI parsing, two-phase flow)
-- `backend/src/main/java/com/picsou/finary/FinaryApiSyncService.java` -- Direct API sync (Clerk auth, two-phase flow, cache, `autoSync()`)
-- `backend/src/main/java/com/picsou/finary/client/FinaryApiClient.java` -- Finary/Clerk HTTP client (6-step auth, TOTP, pagination, `fetchLoans()`)
-- `backend/src/main/java/com/picsou/finary/dto/FinaryLoanDto.java` -- a loan/mortgage entry from the dedicated `/loans` endpoint
-- `backend/src/main/java/com/picsou/exception/TotpRequiredException.java` -- Thrown when 2FA is required but no TOTP provided (returns 403)
-- `backend/src/main/java/com/picsou/exception/FinaryServiceUnavailableException.java` -- Thrown when Clerk/Finary APIs are unreachable (network, timeout, DNS); returns 502
-- `backend/src/main/java/com/picsou/finary/FinaryPersistenceHelper.java` -- Shared helper: account creation, snapshot reconstruction, transaction import (preserves manual transactions), type suggestion
-- `backend/src/main/java/com/picsou/finary/FinaryHoldingsImporter.java` -- Maps Finary `securities` / `cryptos` / `fonds_euro` / generic assets onto `account_holding`, records leftover cash on `account.cash_balance`
-- `backend/src/main/java/com/picsou/finary/dto/FinaryPositionDto.java` -- One Finary position line (`display_*` = EUR)
-- `backend/src/main/java/com/picsou/controller/FinaryImportController.java` -- REST endpoints for xlsx upload
-- `backend/src/main/java/com/picsou/controller/FinaryApiSyncController.java` -- REST endpoints for API sync (`/preview`, `/execute`, `/auto`)
-- `backend/src/main/java/com/picsou/finary/dto/` -- 14 DTOs for Finary API responses (incl. `FinaryLoanDto`)
-- `backend/src/main/java/com/picsou/finary/SyncSessionData.java` -- Cache record for API sync session
-- `backend/src/main/java/com/picsou/dto/FinaryAutoSyncResponse.java` -- Response DTO for `/api/finary/api-sync/auto`
+- `backend-rs/src/transfer/finary/` -- XLSX file import (Apache POI parsing, two-phase flow)
+- `backend-rs/src/sync/finary/service.rs` -- Direct API sync (Clerk auth, two-phase flow, cache, `autoSync()`)
+- `backend-rs/src/sync/finary/client.rs` -- Finary/Clerk HTTP client (6-step auth, TOTP, pagination, `fetchLoans()`)
+- `FinaryLoanDto.java` -- a loan/mortgage entry from the dedicated `/loans` endpoint
+- `TotpRequiredException.java` -- Thrown when 2FA is required but no TOTP provided (returns 403)
+- `FinaryServiceUnavailableException.java` -- Thrown when Clerk/Finary APIs are unreachable (network, timeout, DNS); returns 502
+- `FinaryPersistenceHelper.java` -- Shared helper: account creation, snapshot reconstruction, transaction import (preserves manual transactions), type suggestion
+- `backend-rs/src/sync/finary/holdings.rs` -- Maps Finary `securities` / `cryptos` / `fonds_euro` / generic assets onto `account_holding`, records leftover cash on `account.cash_balance`
+- `FinaryPositionDto.java` -- One Finary position line (`display_*` = EUR)
+- `FinaryImportController.java` -- REST endpoints for xlsx upload
+- `backend-rs/src/sync/finary/` -- REST endpoints for API sync (`/preview`, `/execute`, `/auto`)
+- `backend-rs/src/sync/finary/upstream.rs` -- the shapes of the Finary API responses (loans included)
+- `SyncSessionData.java` -- Cache record for API sync session
+- `backend-rs/src/sync/finary/api.rs` -- Response DTO for `/api/finary/api-sync/auto`
 
 ### Flow
 

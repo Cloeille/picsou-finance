@@ -51,30 +51,30 @@ opened (`POST /api/auth/refresh`) instead of logging in. See [sso-login.md](./ss
 ### Key files
 
 Backend:
-- `backend/src/main/java/com/picsou/controller/SetupController.java` — all `/api/setup/*`
+- `backend-rs/src/setup_auth/` — all `/api/setup/*`
   endpoints (public, rate-limited by Bucket4j).
-- `backend/src/main/java/com/picsou/service/SetupService.java` — state-machine
+- `SetupService.java` — state-machine
   transitions (`PENDING_ADMIN → IN_PROGRESS → COMPLETE`) and admin seeding (`seedAdmin`,
   and `seedSsoAdmin` for the SSO first admin).
-- `backend/src/main/java/com/picsou/service/SetupAuditService.java` — append-only
+- `backend-rs/src/setup_auth/audit.rs` — append-only
   `setup_audit` table writes; swallows its own errors so audit failure never blocks a
   controller response.
-- `backend/src/main/java/com/picsou/service/EnableBankingKeyPairService.java` —
+- `backend-rs/src/setup_auth/enable_banking.rs` —
   idempotent RSA-2048 PEM generation at `/data/keys/enablebanking-private.pem` (POSIX
   `0600`).
-- `backend/src/main/java/com/picsou/service/CryptoKeyGeneratorService.java` —
+- `CryptoKeyGeneratorService.java` —
   idempotent AES-256 key checker/writer. If `CRYPTO_ENCRYPTION_KEY` is already present
   in the running process (the normal bare-metal `.env.local` flow), the wizard treats
   that as configured and does not touch Docker's `/data` path. Otherwise it writes the
   same `/data/.secrets/crypto_key` path as `SecretBootstrap`.
-- `backend/src/main/java/com/picsou/config/SetupFilter.java` — 503/410 gate.
-- `backend/src/main/java/com/picsou/config/DynamicCorsConfigurationSource.java` — reads
+- `SetupFilter.java` — 503/410 gate.
+- `DynamicCorsConfigurationSource.java` — reads
   `cors.allowed-origins` from `app_setting` so the wizard's Security step takes effect
   without a container restart.
 - `backend-rs/migrations/V25__setup_state.sql` — conditional seed:
   `setup.state='COMPLETE'` for existing installs (admin already present), else
   `'PENDING_ADMIN'`.
-- `backend/src/main/java/com/picsou/config/SecretBootstrap.java`: resolves the secrets from
+- `backend-rs/src/crypto/secrets.rs`: resolves the secrets from
   `PICSOU_SECRETS_DIR` before any bean exists, generating the JWT and encryption keys (Docker
   and bare metal).
 

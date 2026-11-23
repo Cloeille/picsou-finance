@@ -26,13 +26,13 @@ trusted for EUR valuation.
 
 ### Key files
 
-- `controller/IbkrController.java` — `/api/ibkr/connect|status|sync|connection`
-- `service/IbkrSyncService.java` — connect/status/sync + position→holding mapping
+- `backend-rs/src/sync/ibkr/` — `/api/ibkr/connect|status|sync|connection`
+- `backend-rs/src/sync/ibkr/` — connect/status/sync + position→holding mapping
   (lives in `com.picsou.service` with the other broker sync services)
-- `service/IbkrStatusWriter.java` — persists the `ERROR` status in its own
+- `backend-rs/src/sync/ibkr/mod.rs` — persists the `ERROR` status in its own
   `REQUIRES_NEW` transaction so it survives the sync transaction's rollback
-- `ibkr/client/IbkrFlexClient.java` — Flex Web Service HTTP + XML parsing; nests `IbkrPosition` / `IbkrAccountData`
-- `model/IbkrConnection.java`, `repository/IbkrConnectionRepository.java` — encrypted token + query id
+- `backend-rs/src/sync/ibkr/` — Flex Web Service HTTP + XML parsing; nests `IbkrPosition` / `IbkrAccountData`
+- `backend-rs/src/sync/ibkr/connection.rs`, `backend-rs/src/sync/ibkr/connection.rs` — encrypted token + query id
 - `backend-rs/migrations/V59__ibkr_connection.sql` — `ibkr_connection` table (originally `V57`,
   shifted to `V59` when merged into `1.1.0`, which already had `V57`/`V58` published)
 - Reuses: `OpenFigiIsinConverter` (ISIN→ticker), `HoldingDedup` (VWAP), `CryptoEncryption`,

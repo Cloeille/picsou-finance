@@ -131,22 +131,22 @@ trade-offs that come with it.
 ### Key files
 
 **Backend**
-- `service/SavingsRateCalculator.java` — monthly contributions and the rate, shared with nothing
+- `SavingsRateCalculator.java` — monthly contributions and the rate, shared with nothing
   else yet
-- `controller/AccountExportController.java` — `POST /api/accounts/export`, rate limit, audit log,
+- `backend-rs/src/transfer/account_export/mod.rs` — `POST /api/accounts/export`, rate limit, audit log,
   streaming response
-- `export/xlsx/AccountsWorkbookService.java` — gathers each account's data, opens the workbook,
+- `backend-rs/src/transfer/account_export/workbook.rs` — gathers each account's data, opens the workbook,
   names the sheets
-- `export/xlsx/AccountSheetWriter.java` — one account's sheet, block by block
-- `export/xlsx/SheetCursor.java` — append-only write head; also where "typed cell, not string"
+- `backend-rs/src/transfer/account_export/workbook.rs` — one account's sheet, block by block
+- `backend-rs/src/transfer/account_export/sheet.rs` — append-only write head; also where "typed cell, not string"
   is enforced
-- `export/xlsx/WorkbookStyles.java` — the shared cell formats
-- `export/xlsx/SheetLabels.java` / `LabelKey.java` — heading resolution and the wire contract
-- `export/xlsx/AccountExportData.java` — one account's gathered data
-- `export/xlsx/DebtExportData.java` — one loan and its amortization
-- `export/xlsx/PeerLoanExportData.java` — one peer loan, its computed figures and the journal rows
-- `dto/AccountsExportRequest.java` — `(List<Long> accountIds, Map<String,String> labels)`
-- `config/RateLimitConfig.java` — `accountExportBuckets` bean + `createAccountExportBucket()`
+- `backend-rs/src/transfer/account_export/sheet.rs` — the shared cell formats
+- `backend-rs/src/transfer/account_export/labels.rs` / `backend-rs/src/transfer/account_export/labels.rs` — heading resolution and the wire contract
+- `AccountExportData.java` — one account's gathered data
+- `DebtExportData.java` — one loan and its amortization
+- `PeerLoanExportData.java` — one peer loan, its computed figures and the journal rows
+- `AccountsExportRequest.java` — `(List<Long> accountIds, Map<String,String> labels)`
+- `backend-rs/src/http/rate_limit.rs` — `accountExportBuckets` bean + `createAccountExportBucket()`
 
 **Frontend**
 - `components/shared/ExportAccountsModal.tsx` — the picker

@@ -125,14 +125,14 @@ A budget is single-currency. When the file records no currency, the wizard asks 
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/imports/actual/ActualBudgetFileParser.java` — signature
+- `backend-rs/src/transfer/actual/parser.rs` — signature
   check, bounded zip extraction, private temp directory and its cleanup.
-- `backend/src/main/java/com/picsou/imports/actual/ActualBudgetDatabaseReader.java` — read-only
+- `backend-rs/src/transfer/actual/parser.rs` — read-only
   SQLite access and Actual's visibility rules (tombstones, splits, transfers, merges).
-- `backend/src/main/java/com/picsou/imports/actual/ParsedActualBudget.java` — the parsed shape.
-- `backend/src/main/java/com/picsou/service/ActualBudgetImportService.java` — preview cache,
+- `ParsedActualBudget.java` — the parsed shape.
+- `backend-rs/src/transfer/actual/` — preview cache,
   mapping validation, dedup, persistence.
-- `backend/src/main/java/com/picsou/controller/ActualBudgetImportController.java` — endpoints,
+- `backend-rs/src/transfer/actual/mod.rs` — endpoints,
   member scope, `syncBuckets` throttle.
 - `frontend/src/features/actual/{api,hooks,types}.ts` and
   `frontend/src/pages/sync/ActualBudgetTab.tsx` — the wizard on the sync page.

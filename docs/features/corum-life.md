@@ -37,24 +37,24 @@ validates both parts, then writes both in one transaction.
   kept for one release), `_select_contracts`, `_read_operations`
 - `services/corum-auth/Dockerfile` — copies `life_parser.py`; a missing `COPY` breaks the import
   at startup
-- `backend/.../adapter/CorumAdapter.java` — `Portfolio`, `LifeContract`, `LifeHolding`; `fetchPortfolio`, 120 s timeout, refuses any
+- `backend-rs/src/connectors/corum/adapter.rs` — `Portfolio`, `LifeContract`, `LifeHolding`; `fetchPortfolio`, 120 s timeout, refuses any
   contract the sidecar did not certify
-- `backend/.../service/CorumSyncService.java` — `validatePortfolio`, `commitPortfolio`
-- `backend/.../service/CorumLifeWriter.java` — `validate` and `write`, adoption
-- `backend/.../service/CorumLifeOperationWriter.java` — operations to transactions, reconcile
+- `backend-rs/src/connectors/corum/mod.rs` — `validatePortfolio`, `commitPortfolio`
+- `backend-rs/src/connectors/corum/life.rs` — `validate` and `write`, adoption
+- `backend-rs/src/connectors/corum/operations.rs` — operations to transactions, reconcile
   (`Propagation.MANDATORY`)
 - `backend-rs/migrations/V126__transaction_budget_neutral.sql` —
   `transaction.budget_neutral`
-- `backend/.../service/SyncValues.java` — `linesClose`, shared with BoursoBank
-- `backend/.../service/AccountService.java` — `isProviderValued` / `isSyncedCorumLife`: non-manual
+- `SyncValues.java` — `linesClose`, shared with BoursoBank
+- `AccountService.java` — `isProviderValued` / `isSyncedCorumLife`: non-manual
   accounts whose `externalAccountId` starts with `Account.CORUM_LIFE_EXTERNAL_ID_PREFIX`
 - `backend-rs/migrations/V124__corum_session_life_ambiguous.sql` —
   `corum_session.last_sync_life_ambiguous` (copied into `sidecar_session` by V142), exposed as `lifeAmbiguousCount` in the CORUM status
 - `backend-rs/migrations/V125__corum_life_contract_facts.sql` — the contract
   facts on `account` and `account_holding.provider_wealth_tier`
-- `backend/.../service/AccountService.java` — `valuation`: the contract's value and net invested
+- `AccountService.java` — `valuation`: the contract's value and net invested
   pair; `HistoryService.buildIntradayHistory` takes the same pair
-- `backend/.../service/WealthPyramidService.java` — `tierFor`; `PortfolioDiversificationService`
+- `backend-rs/src/accounts/analysis/pyramid.rs` — `tierFor`; `PortfolioDiversificationService`
   leaves out lines tiered elsewhere
 - `frontend/src/components/sync/CorumLifeSyncSummary.tsx` — accounts written by the last run
 - `frontend/src/components/sync/CorumPanel.tsx` — shows the SCPI summary and the Life summary

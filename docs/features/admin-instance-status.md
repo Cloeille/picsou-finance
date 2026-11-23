@@ -77,11 +77,11 @@ global error redirect: a 5xx on this optional check never sends the app to `/err
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/service/InstanceStatusService.java` — sidecar registry,
+- `backend-rs/src/admin/status.rs` — sidecar registry,
   probes, classification
-- `backend/src/main/java/com/picsou/service/ReleaseCheckService.java` — GitHub release check
+- `backend-rs/src/admin/status.rs` — GitHub release check
   and cache
-- `backend/src/main/java/com/picsou/controller/AdminController.java` — `GET /instance-status`
+- `backend-rs/src/admin/settings.rs` — `GET /instance-status`
 - `services/base/Dockerfile` — `PICSOU_SIDECAR_BASE`; each base-built sidecar's `main.py`
   echoes it in `/health`
 - `frontend/src/components/shared/InstanceStatusDialog.tsx`, `instance-status.ts`

@@ -42,23 +42,23 @@ sub-sections so the page renders from a single query — no fan-out, single
 ### Key files
 
 Backend:
-- `backend/src/main/java/com/picsou/controller/AdminController.java` — endpoints:
+- `backend-rs/src/admin/settings.rs` — endpoints:
   `GET /settings`, `PUT /settings/security`, `PUT /settings/enablebanking`,
   `PATCH /settings/integrations/{key}?enabled=...`, plus EB keypair management
   `POST /settings/enablebanking/keypair` (idempotent generate) and
   `/keypair/import` (422 on a bad PEM). `GET /settings` reads EB credentials from
   the *resolved* `EnableBankingConfigProvider` (DB-then-env), not raw DB rows, so
   env-configured installs report their real values rather than blanks.
-- `backend/src/main/java/com/picsou/dto/AdminSettingsResponse.java` — record with
+- `AdminSettingsResponse.java` — record with
   nested `SecuritySettings` and `EnableBankingSettings` (the latter carries a
   `privateKeyPresent` boolean so the UI can flag a missing key-file).
-- `backend/src/main/java/com/picsou/dto/AdminSecurityRequest.java` — `@NotNull
+- `AdminSecurityRequest.java` — `@NotNull
   @Size(min=1) List<String> allowedOrigins`, `boolean secureCookies`.
-- `backend/src/main/java/com/picsou/dto/AdminEnableBankingRequest.java` — three
+- `AdminEnableBankingRequest.java` — three
   `@NotBlank` fields.
-- `backend/src/main/java/com/picsou/config/SecurityConfig.java:57` — the
+- `SecurityConfig.java:57` — the
   `hasRole("ADMIN")` matcher.
-- `backend/src/main/java/com/picsou/service/SetupService.java` — re-used writers
+- `SetupService.java` — re-used writers
   (`writeSecurity` line 151, `writeEnableBankingConfig` line 168, `readSetting`
   line 186, `INTEGRATIONS` constant line 37).
 
@@ -84,7 +84,7 @@ Frontend:
   `createMember` + `generateActivationLink` (one loading/error state, returns the
   activation link); plus `useFamilyMembers`, `useDeleteMember`,
   `useGenerateActivationLink`, `useResetMemberPassword`.
-- `backend/src/main/java/com/picsou/service/FamilyService.java` — `deriveUsername`
+- `FamilyService.java` — `deriveUsername`
   slugifier (used by `generateActivationToken`) + member CRUD / token writers.
 - `frontend/src/features/admin/api.ts` — `adminApi` (typed endpoints).
 - `frontend/src/features/admin/hooks.ts` — `useAdminSettings`,
@@ -188,13 +188,13 @@ On submit / toggle ──► PUT or PATCH ──► invalidate adminKeys.setting
 
 ## Tests
 
-- `backend/src/test/java/com/picsou/controller/AdminControllerTest.java` —
+- `AdminControllerTest.java` —
   Mockito tests covering the four endpoints: `getSettings` aggregation,
   `updateSecurity` and `updateEnableBanking` delegation to `SetupService`,
   `toggleIntegration` with `enabled=true/false`. URL-level role gate is enforced by
   Spring Security and not exercised by these unit tests; coverage relies on the
   `SecurityConfig` matcher being correct.
-- `backend/src/test/java/com/picsou/service/FamilyServiceTest.java` — Mockito tests
+- `backend-rs/tests/integration/family/members.rs` — Mockito tests
   for the username derivation in `generateActivationToken`: simple slug, accent +
   space normalization (`Jean Dupont` → `jean.dupont`, `Élodie` → `elodie`),
   collision suffix (`alice` → `alice.2`), and the blank/non-alphanumeric fallback

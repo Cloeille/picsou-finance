@@ -4,7 +4,7 @@
 > Status: ✅ Implemented (2026-04-26)
 >
 > Implementation notes vs. original design:
-> - `AdminMfaController` lives at `backend/src/main/java/com/picsou/controller/AdminMfaController.java` (flat) — the URL stays `/api/admin/members/{id}/mfa` so the security-config URL pattern is unchanged.
+> - `AdminMfaController` lives at `backend-rs/src/admin/members.rs` (flat) — the URL stays `/api/admin/members/{id}/mfa` so the security-config URL pattern is unchanged.
 > - `MfaController.regenerate` accepts only TOTP, not recovery codes (rejects `isRecoveryCode=true`) — extra paranoia: don't let one stolen recovery code mint a fresh batch of ten.
 > - `FamilyMemberResponse` was extended with `mfaEnabled: boolean` so the admin Members list can show a "2FA on" badge and gate the Reset 2FA button without an extra round-trip.
 > - Settings UI: `pages/settings/security/` (`SecuritySection`, `MfaEnrollDialog`, `MfaDisableDialog`, `RecoveryCodesDialog`, `RecoveryCodesView`, `SessionsList`) — split out of the design's flat `features/mfa/` proposal because the dialogs are tightly coupled to the settings page layout.
@@ -355,20 +355,20 @@ All UIs are mobile-responsive (per repo convention).
 ## Key files
 
 **Backend (new):**
-- `backend/src/main/java/com/picsou/model/UserMfa.java`, `backend/src/main/java/com/picsou/model/UserMfaRecoveryCode.java`, `backend/src/main/java/com/picsou/model/PersistentSession.java`
-- `backend/src/main/java/com/picsou/repository/UserMfaRepository.java`, `backend/src/main/java/com/picsou/repository/UserMfaRecoveryCodeRepository.java`, `backend/src/main/java/com/picsou/repository/PersistentSessionRepository.java`
-- `backend/src/main/java/com/picsou/service/MfaService.java`, `backend/src/main/java/com/picsou/service/PersistentSessionService.java`
-- `backend/src/main/java/com/picsou/controller/MfaController.java`, `backend/src/main/java/com/picsou/controller/SessionController.java`, `backend/src/main/java/com/picsou/controller/AdminMfaController.java`
-- `backend/src/main/java/com/picsou/config/PersistentTokenAuthFilter.java`
-- `backend/src/main/java/com/picsou/dto/MfaDtos.java` — all MFA DTOs as nested records (`MfaStatusResponse`, `EnrollInitRequest`, `EnrollInitResponse`, `EnrollVerifyRequest`, `RecoveryCodesResponse`, `MfaVerifyRequest`, `DisableMfaRequest`, `RegenerateCodesRequest`) — plus `backend/src/main/java/com/picsou/dto/SessionResponse.java`
+- `backend-rs/src/setup_auth/mfa.rs`, `UserMfaRecoveryCode.java`, `backend-rs/src/auth/persistent.rs`
+- `UserMfaRepository.java`, `UserMfaRecoveryCodeRepository.java`, `PersistentSessionRepository.java`
+- `backend-rs/src/setup_auth/mfa.rs`, `backend-rs/src/auth/persistent.rs`
+- `backend-rs/src/setup_auth/`, `backend-rs/src/setup_auth/`, `backend-rs/src/admin/members.rs`
+- `PersistentTokenAuthFilter.java`
+- `MfaDtos.java` — all MFA DTOs as nested records (`MfaStatusResponse`, `EnrollInitRequest`, `EnrollInitResponse`, `EnrollVerifyRequest`, `RecoveryCodesResponse`, `MfaVerifyRequest`, `DisableMfaRequest`, `RegenerateCodesRequest`) — plus `SessionResponse.java`
 - `backend-rs/migrations/V28__mfa_and_persistent_sessions.sql`
 
 **Backend (modified):**
-- `backend/src/main/java/com/picsou/model/AppUser.java` — no change required; relationship is held on `UserMfa.user_id` side.
-- `backend/src/main/java/com/picsou/controller/AuthController.java` — `login` branches on MFA + persistent token; new `mfaVerify`; cookie helpers reused; `change-password` wipes sessions.
-- `backend/src/main/java/com/picsou/config/SecurityConfig.java` — register `PersistentTokenAuthFilter`; permit `/api/auth/mfa/verify`, `/api/auth/mfa/enroll/init`, `/api/auth/mfa/status` after authentication; permit `/api/auth/mfa/verify` with anonymous (uses challenge cookie).
-- `backend/src/main/java/com/picsou/config/JwtUtil.java` — add `generateMfaChallengeToken`, `isMfaChallengeToken`, `getMfaChallengeExpirySeconds`.
-- `backend/src/main/java/com/picsou/config/RateLimitConfig.java` — add `mfaVerifyBuckets`, `mfaEnrollBuckets` beans.
+- `backend-rs/src/auth/users.rs` — no change required; relationship is held on `UserMfa.user_id` side.
+- `backend-rs/src/setup_auth/` — `login` branches on MFA + persistent token; new `mfaVerify`; cookie helpers reused; `change-password` wipes sessions.
+- `SecurityConfig.java` — register `PersistentTokenAuthFilter`; permit `/api/auth/mfa/verify`, `/api/auth/mfa/enroll/init`, `/api/auth/mfa/status` after authentication; permit `/api/auth/mfa/verify` with anonymous (uses challenge cookie).
+- `backend-rs/src/auth/jwt.rs` — add `generateMfaChallengeToken`, `isMfaChallengeToken`, `getMfaChallengeExpirySeconds`.
+- `backend-rs/src/http/rate_limit.rs` — add `mfaVerifyBuckets`, `mfaEnrollBuckets` beans.
 - `application.yml` — `app.jwt.mfa-challenge-expiry-minutes: 5`, `app.persistent-session.expiry-days: 90`, `app.persistent-session.trust-days: 30`.
 - `pom.xml` — add `dev.samstevens.totp:totp-spring-boot-starter`.
 

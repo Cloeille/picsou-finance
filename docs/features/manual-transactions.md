@@ -158,15 +158,15 @@ After submit, `useAddTransaction` / `useDeleteTransaction` hooks invalidate the 
 |------|------|
 | `backend-rs/migrations/V24__manual_transactions.sql` | Schema extension (is_manual, tx_type, ticker, quantity, price_per_unit) |
 | `backend-rs/migrations/V36__transaction_security_name.sql` | Adds `transaction.name` (position label) |
-| `backend/src/main/java/com/picsou/model/TransactionType.java` | Enum (DEPOSIT, WITHDRAWAL, BUY, SELL, DIVIDEND, FEE) |
-| `backend/src/main/java/com/picsou/service/HoldingComputeService.java` | Derives holdings (qty, VWAP, **name**) from BUY/SELL transactions |
-| `backend/src/main/java/com/picsou/service/ManualTransactionService.java` | Orchestrates add/edit/delete + re-derivation; persists `fees`; delegates ISIN/ticker/description to `InstrumentFieldResolver` |
-| `backend/src/main/java/com/picsou/service/InstrumentFieldResolver.java` | Shared ISIN→ticker/name resolver with language-neutral persisted descriptions (reused by the CSV importer) |
-| `backend/src/main/java/com/picsou/imports/TransactionAmountCalculator.java` | Single source of truth for the signed `amount` incl. fees |
+| `backend-rs/src/ledger/model.rs` | Enum (DEPOSIT, WITHDRAWAL, BUY, SELL, DIVIDEND, FEE) |
+| `backend-rs/src/ledger/holding_compute.rs` | Derives holdings (qty, VWAP, **name**) from BUY/SELL transactions |
+| `backend-rs/src/ledger/manual_transactions.rs` | Orchestrates add/edit/delete + re-derivation; persists `fees`; delegates ISIN/ticker/description to `InstrumentFieldResolver` |
+| `InstrumentFieldResolver.java` | Shared ISIN→ticker/name resolver with language-neutral persisted descriptions (reused by the CSV importer) |
+| `TransactionAmountCalculator.java` | Single source of truth for the signed `amount` incl. fees |
 | `backend-rs/migrations/V53__transaction_fees.sql` | Adds `transaction.fees` (folds into the PMP) |
-| `backend/src/main/java/com/picsou/adapter/OpenFigiIsinConverter.java` | `isIsin()` detection + `resolve()` ISIN→ticker+name (shared with bank sync) |
-| `backend/src/main/java/com/picsou/controller/AccountController.java` | POST/DELETE `/accounts/{id}/transactions` |
-| `backend/src/main/java/com/picsou/repository/TransactionRepository.java` | `deleteByAccountIdAndIsManualFalse`, `sumAmountByAccountId`, `findByAccountIdAndTxTypeInOrderByDateAsc` |
+| `backend-rs/src/market/openfigi.rs` | `isIsin()` detection + `resolve()` ISIN→ticker+name (shared with bank sync) |
+| `backend-rs/src/accounts/service.rs` | POST/DELETE `/accounts/{id}/transactions` |
+| `TransactionRepository.java` | `deleteByAccountIdAndIsManualFalse`, `sumAmountByAccountId`, `findByAccountIdAndTxTypeInOrderByDateAsc` |
 | `frontend/src/components/shared/AddTransactionModal.tsx` | Account-type-aware form modal |
 | `frontend/src/components/shared/TransactionsList.tsx` | Localized transaction-type fallbacks, date grouping with unambiguous historical years, manual badge, and delete button |
 | `frontend/src/features/accounts/hooks.ts` | `useAddTransaction`, `useDeleteTransaction` |

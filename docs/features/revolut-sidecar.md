@@ -204,22 +204,22 @@ and while polling for approval; shared app initialization does not replace it.
   CPU (`lin.x86_64` or `lin.arm64`), GeoIP and addons once in the base. The GeoIP
   download uses a direct release asset URL to avoid GitHub API rate limits.
   `services/base/test_pin_camoufox.py` covers both CPUs and direct downloads.
-- `backend/.../adapter/RevolutAdapter.java` — `SidecarWebClientFactory` client → sidecar `/sync` (480 s
+- `backend-rs/src/connectors/revolut/adapter.rs` — `SidecarWebClientFactory` client → sidecar `/sync` (480 s
   timeout) + a best-effort `/progress` poll side-channel relayed into `SyncProgressService`; maps
   `401`/`408`/`409`/`503`. A 401 carrying the `Picsou-Sidecar-Key` challenge is a key mismatch
   (`SIDECAR_UNAUTHORIZED`), never `SESSION_EXPIRED`.
-- `backend/.../service/sync/SyncProgressService.java` — per-member+provider live progress (single-flight
+- `backend-rs/src/connectors/revolut/progress.rs` — per-member+provider live progress (single-flight
   guard, phase/countdown/count, + Revolut's harvested-but-unpersisted discovery held in memory between
   discover and confirm). `dto/{SyncProgress,DiscoveredRevolutAccount}.java`, `service/sync/{SyncProvider,
-  RevolutSyncPhase}.java`, `config/SyncExecutorConfig.java` (`revolutSyncExecutor`).
-- `backend/.../service/RevolutSyncService.java` — `sync` (synchronous, scheduler), `discover` (background
+  RevolutSyncPhase}.java`, `backend-rs/src/connectors/sidecar/jobs.rs` (`revolutSyncExecutor`).
+- `backend-rs/src/connectors/revolut/sync.rs` — `sync` (synchronous, scheduler), `discover` (background
   harvest), `confirmSync(selected, remember, voluntary)` (additive upsert of the selection), IBAN-first upsert.
-- `backend/.../controller/RevolutController.java` — `/api/revolut/{sync→202,sync/progress,sync/confirm,status,session}`.
-- `backend/.../service/DashboardService.java` — excludes pocket children from net-worth AND from the
+- `backend-rs/src/connectors/revolut/mod.rs` — `/api/revolut/{sync→202,sync/progress,sync/confirm,status,session}`.
+- `backend-rs/src/accounts/dashboard.rs` — excludes pocket children from net-worth AND from the
   history account-id set (the latter fixes a double-count once real pocket balances flow).
-- `backend/.../service/FamilyViewService.java` (shared net worth) and `mcp/tools/InsightTools.java` (default
+- `FamilyViewService.java` (shared net worth) and `backend-rs/src/mcp/tools/insights.rs` (default
   account ids) — leave out a pocket whose parent wallet is in the same list; a pocket without it still counts.
-- `backend/.../model/RevolutSession.java`; `backend-rs/migrations/V48__revolut_session.sql`, `V49__…credentials.sql`.
+- `RevolutSession.java`; `backend-rs/migrations/V48__revolut_session.sql`, `V49__…credentials.sql`.
 - `frontend/src/pages/sync/RevolutTab.tsx` — auto-sync tab (live phase → auto-confirm all, no selection).
 - `frontend/src/components/sync/RevolutSelectionCard.tsx` — Add-account selection (only not-imported;
   child-check implies parent-check). `features/sync/revolut-phase.ts` — shared phase and error labels.
@@ -443,7 +443,7 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
 - `RevolutAdapterTest` (`403`/`424` mapping), `RevolutSyncServiceTest` (code + friendly message on
   `discover`/`sync`), `SyncProgressServiceTest` (`errorCode`), and `features/sync/revolut-phase.test.ts`
   plus `SyncAllModal.test.tsx` (translated captcha message, no countdown).
-- `backend/.../service/RevolutSyncServiceTest.java` — sync mapping (pockets/vaults), IBAN dedup vs
+- `RevolutSyncServiceTest.java` — sync mapping (pockets/vaults), IBAN dedup vs
   Enable Banking, transaction dedup, remembered-vs-not credentials, always-upsert session marker row.
 - `SyncServiceCurrencyMatchTest` persists synthetic Enable Banking accounts with a shared IBAN,
   then runs Revolut discovery and confirmation for EUR, GBP, and missing-currency wallets. It

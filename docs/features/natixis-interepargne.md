@@ -21,13 +21,13 @@ ends the session.
   and fund lines, and reconciles them.
 - `services/natixis-auth/fixtures.py` and `op_fixtures.py`: synthetic responses
   shaped after the real API, with no value from a real account.
-- `backend/.../adapter/NatixisAdapter.java`: the sidecar client, a concrete
+- `NatixisAdapter.java`: the sidecar client, a concrete
   component with no port.
-- `backend/.../service/NatixisSyncService.java`: the login hand-off, the job queue,
+- `backend-rs/src/connectors/natixis/mod.rs`: the login hand-off, the job queue,
   the reconciliation and account writes, and `resyncReporting`.
-- `backend/.../controller/NatixisController.java`: `/api/natixis` with
+- `backend-rs/src/connectors/natixis/mod.rs`: `/api/natixis` with
   `/auth/initiate`, `/auth/complete`, `/sync`, `GET /status` and `DELETE /session`.
-- `backend/.../model/SidecarSession.java` (`bank = 'NATIXIS'`) and
+- `backend-rs/src/connectors/sidecar/session.rs` (`bank = 'NATIXIS'`) and
   `backend-rs/migrations/V146__natixis_sidecar_session.sql`: one `sidecar_session` row per member,
   holding the encrypted session state and the sync status. No credentials are stored (the
   database refuses `encrypted_credentials` on it).

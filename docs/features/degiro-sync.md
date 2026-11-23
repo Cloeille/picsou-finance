@@ -101,12 +101,12 @@ position. Holdings that resolve to the same ticker are merged with
 - `services/degiro-auth/portfolio_parser.py` — dependency-free parsing of DEGIRO's
   `{"value": [{"name", "value"}, ...]}` row shape, unit-tested in isolation
   (mirrors `services/bourse-direct-auth/portfolio_parser.py`)
-- `backend/src/main/java/com/picsou/adapter/DegiroAdapter.java` — `WebClient` calls to the sidecar
-- `backend/src/main/java/com/picsou/service/DegiroSyncService.java` — auth orchestration, sync, `REAUTH_REQUIRED` handling
-- `backend/src/main/java/com/picsou/service/DegiroSessionStatusWriter.java` — commits the `REAUTH_REQUIRED` flip in its own transaction
-- `backend/src/main/java/com/picsou/exception/DegiroSessionExpiredException.java` — typed expiry signal between adapter and service
-- `backend/src/main/java/com/picsou/controller/DegiroController.java` — REST endpoints under `/api/degiro/`
-- `backend/src/main/java/com/picsou/model/DegiroSession.java`, `DegiroSessionStatus.java`
+- `DegiroAdapter.java` — `WebClient` calls to the sidecar
+- `backend-rs/src/connectors/degiro/mod.rs` — auth orchestration, sync, `REAUTH_REQUIRED` handling
+- `DegiroSessionStatusWriter.java` — commits the `REAUTH_REQUIRED` flip in its own transaction
+- `DegiroSessionExpiredException.java` — typed expiry signal between adapter and service
+- `backend-rs/src/connectors/degiro/mod.rs` — REST endpoints under `/api/degiro/`
+- `backend-rs/src/connectors/degiro/mod.rs`, `DegiroSessionStatus.java`
 - `backend-rs/migrations/V71__degiro_session.sql`
 - `frontend/src/pages/sync/DegiroTab.tsx` — the DEGIRO tab in `SyncPage`
 - `frontend/src/components/sync/DegiroPanel.tsx` — same auth/sync flow, compact form for the unified "Add account" modal (mirrors `BourseDirectPanel.tsx`)
@@ -226,7 +226,7 @@ keeping an eye on across future syncs, especially the 2FA response shape.
   end-to-end regression test for the int/string product-id key mismatch that
   caused every "NULL" ticker seen live), run with `python3 -m unittest` —
   30/30 passing.
-- `backend/src/test/java/com/picsou/service/DegiroSyncServiceTest.java` —
+- `DegiroSyncServiceTest.java` —
   auth flow, sync upsert + holding dedup, expired-session → `REAUTH_REQUIRED`
   transition (asserted through `DegiroSessionStatusWriter`, since an
   in-transaction write would be rolled back by the rethrow), the non-expiry

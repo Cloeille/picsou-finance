@@ -86,8 +86,8 @@ Demo mode ships a fictional AMEX card (account 12, with history and transactions
 ### Key files
 
 - `services/amex-auth/main.py` — login, OTP, API capture and accounts contract
-- `backend/src/main/java/com/picsou/service/AmexSyncService.java` — account, transaction and history-recovery persistence
-- `backend/src/main/java/com/picsou/service/budget/RecurringSeriesService.java` — budget calendar occurrence
+- `AmexSyncService.java` — account, transaction and history-recovery persistence
+- `backend-rs/src/budget/recurring.rs` — budget calendar occurrence
 - `backend-rs/migrations/V102__amex_payment_details.sql` — nullable account fields
 - `frontend/src/pages/accounts/AccountDetailPage.tsx` and `frontend/src/pages/budget/RecurringTab.tsx` — display
 - `frontend/src/components/sync/AmexPanel.tsx` — connection, sync and history recovery

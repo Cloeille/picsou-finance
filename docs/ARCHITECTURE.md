@@ -7,88 +7,72 @@
 
 Picsou is a self-hosted personal-finance dashboard for an individual or a small family. It aggregates accounts from banks (PSD2/scraping), brokers (Trade Republic), crypto exchanges (Binance, Meria), and on-chain wallets (BTC/ETH/SOL); tracks balances over time, computes net worth, and helps members set savings goals, manage debts, and export their data. Each authenticated `AppUser` is linked to a `FamilyMember`, and every financial row is scoped by `member_id` with optional sharing.
 
-The backend uses Spring Boot 3.5.16 with Spring AI 1.1.8, as recorded in the
-[Spring AI keep-alive decision](./decisions/2026-10-27-spring-ai-1-1-for-mcp-sse-keep-alive.md).
-A Spring Boot 4 upgrade also requires coordinated Spring AI, Jackson, Spring Security, and test
-changes, so it remains a separately scoped migration.
+The backend is one Rust crate (`backend-rs/`: Axum, Tokio, sqlx). It replaced the Java backend
+in 1.3.0 and keeps its HTTP contract, its PostgreSQL schema and its Flyway history
+([decision](./decisions/2026-11-21-rust-backend.md)). It runs on PostgreSQL 16 or on an embedded
+SQLite file, the engine of the desktop app (`desktop/`, a Tauri shell that links the backend) and
+of the single-container Docker stack.
+
+The data flows below and the feature notes were written against the Java backend and still name
+its classes (`SyncService`, `AccountController`) as the names of the components. Each Rust module
+names the class it took over in its header comment: `grep -rn "SyncService" backend-rs/src` finds
+it. A `.java` file name with no path is a class of the Java backend that no single Rust file
+replaces.
 
 ## Backend modules
 
 ```
-com.picsou/
-├── model/          JPA entities — financial: Account, AccountHolding, Transaction,
-│                   BalanceSnapshot, Goal, GoalManualContribution, GoalContributor,
-│                   Debt, RealEstateMetadata, PropertyValuation, AccountOwnership, WalletAddress;
-│                   integrations: Requisition, CryptoExchangeSession,
-│                   FinarySession, DegiroSession, RevolutSession,
-│                   SidecarSession (one row per sidecar bank and member, Trade Republic included),
-│                   PriceSnapshot;
-│                   identity & sharing: AppUser, FamilyMember, UserRole, SharingSettings,
-│                   SharingLevel, SharedResource, UserMfa, UserMfaRecoveryCode,
-│                   PersistentSession, UserIdentity (linked SSO identity);
-│                   setup: AppSetting, SetupState, SetupAudit
-├── repository/     Spring Data JPA interfaces (one per entity, ~25 repos)
-├── service/        Business logic — financial: AccountService, GoalService,
-│                   DashboardService, HistoryService, ManualTransactionService,
-│                   HoldingComputeService, LoanAmortizationService, PriceService,
-│                   SchedulerService;
-│                   integrations: SyncService, TradeRepublicSyncService,
-│                   CryptoExchangeSyncService, WalletSyncService, BoursoSyncService,
-│                   BourseDirectSyncService, DegiroSyncService, DegiroSessionStatusWriter,
-│                   AmundiSyncService,
-│                   FinaryImportService, FinaryApiSyncService;
-│                   identity & family: UserContext, FamilyService, FamilyViewService,
-│                   MfaService, PersistentSessionService, ReAuthService,
-│                   SessionIssuer, ActivationService, SignInMethodsService,
-│                   UsernameDeriver;
-│                   sso/: SsoAccountService, SsoRoleSyncService, GroupsClaimParser,
-│                   SsoIdentity, SsoIntent;
-│                   setup: SetupService, SetupAuditService, IntegrationsService,
-│                   IntegrationsHealthService, CryptoKeyGeneratorService,
-│                   EnableBankingKeyPairService
-├── controller/     REST controllers under /api/ — auth, mfa, sessions, family,
-│                   accounts, transactions, holdings, goals, debts, dashboard, history,
-│                   sync, tr, bourso, bourse-direct, degiro, amundi, crypto-exchange, wallet,
-│                   finary-import, finary-api-sync, setup, admin, admin-mfa, me-export, price,
-│                   sign-in methods (/api/auth/sso, reauth, password, identities),
-│                   admin member identities
-├── dto/            Request/response records (records are the convention)
-├── port/           Port interfaces for swappable providers (BankConnectorPort,
-│                   PriceProviderPort, CryptoExchangePort, WalletPort, ...) and the
-│                   shared sidecar types (SidecarErrorCode, SidecarInitiate)
-├── adapter/        Port implementations, single-provider connector clients
-│                   (TradeRepublicAdapter, BoursoAdapter, ...) + util/BitcoinKeyUtils
-│   ├── EnableBankingBankConnector (bank sync)
-│   ├── PowensBankConnector (Powens / Budget Insight — experimental, disabled in 1.0.0)
-│   ├── BoursoAdapter (BoursoBank — current accounts, livrets and PEA/CTO sidecar)
-│   ├── DegiroAdapter (DEGIRO — compte-titres sync; runs as `degiro-auth` in docker/docker-compose.yml)
-│   ├── CoinGeckoPriceProvider, YahooFinancePriceProvider (prices)
-│   ├── OpenFigiIsinConverter (ISIN → Yahoo ticker)
-│   ├── TradeRepublicAdapter (broker)
-│   ├── BourseDirectAdapter (broker sidecar)
-│   ├── AmundiAdapter (employee-savings sidecar)
-│   ├── BinanceAdapter, MeriaAdapter (crypto exchanges)
-│   ├── BitcoinWalletAdapter, EvmWalletAdapter, SolanaWalletAdapter (on-chain)
-│   └── util/BitcoinKeyUtils (BIP32 key derivation, Base58Check, Bech32)
-├── finary/         Finary import + API-sync subsystem (client, DTOs, SyncSessionData,
-│                   FinaryPersistenceHelper, FinaryApiSyncService)
-├── export/         GDPR data export — DataExportService orchestrator + per-entity
-│                   exporters (Profile, Accounts, Holdings, Transactions, Goals, Debts,
-│                   Wallets, LinkedIdentities, SharedResources, BankConnections,
-│                   BalanceSnapshots) + CsvWriter
-├── config/         SecurityConfig, JwtUtil, JwtAuthenticationFilter,
-│                   PersistentTokenAuthFilter, AuthCookieWriter, SecureCookieProvider,
-│                   DynamicCorsConfigurationSource, LoggingCorsProcessor, SetupFilter,
-│                   DataSeeder, RateLimitConfig, FinaryProperties, CryptoEncryption,
-│                   TotpConfig, EnableBankingConfigProvider, PriceBackfillRunner,
-│                   StartupSyncService;
-│                   SSO: SsoProperties, SsoEnabledCondition, SsoSecurityConfig,
-│                   SsoClientRegistrationRepository, SsoStartGuardFilter,
-│                   SsoAuthorizationRequestResolver, SsoAuthorizationRequestRepository,
-│                   SsoAuthentication{Success,Failure}Handler, SafeRedirect
-└── exception/      GlobalExceptionHandler, ResourceNotFoundException, SyncException,
-                    MfaException, TotpRequiredException
+backend-rs/
+├── migrations/          PostgreSQL migrations (Flyway naming and checksums), embedded at build time
+├── src/
+│   ├── main.rs, lib.rs  the binary (server, `picsou healthcheck`, the release CLI) and the crate root
+│   ├── config.rs        typed configuration from the environment; sidecars.tsv lists the connector sidecars
+│   ├── routes.rs        the route registry: every module registers its (method, path) here
+│   ├── wiring.rs        connects each domain's seam traits to their implementations in AppState
+│   ├── clock.rs         the injectable clock behind every "now" and "today"
+│   ├── error.rs         AppError and its RFC 7807 rendering
+│   ├── logging.rs       tracing to stdout, optional rolling file
+│   ├── actuator.rs      /actuator/health (liveness, readiness) and /actuator/info
+│   ├── db/              both engines (PostgreSQL, embedded SQLite), the query layer and the
+│   │                    Flyway-compatible migrator; sqlite/ holds the SQLite schema, dialect and migrations
+│   ├── http/            the HTTP edge: forwarded headers, body limit, CORS, security headers, CSRF,
+│   │                    setup gate, rate limits, compression, the SPA
+│   ├── auth/            JWT session cookies, remember-me tokens, access keys, the Auth extractor
+│   ├── crypto/          encryption at rest (AES-256-GCM) and the install secrets
+│   ├── setup_auth/      setup wizard, login, MFA, sessions, the desktop gate
+│   ├── identity/        sign-in methods, access keys, member profile, the OAuth2 authorization
+│   │                    server (oauth/), SSO (sso/)
+│   ├── admin/           admin settings, member resets, call logs, telemetry, instance status
+│   ├── family/          family members and the family view
+│   ├── ledger/          shared by every domain: accounts, holdings, transactions, balance snapshots,
+│   │                    FX reads, ownership shares, the ingestion primitives
+│   ├── accounts/        accounts, dashboard, history, analysis/, logos, securities
+│   ├── budget/          budgets, cashflow, categories, rules, recurring series, merchants
+│   ├── wealth/          goals, savings, peer loans, real estate, SCPI, dividends
+│   ├── market/          prices, FX, metals, instrument data providers
+│   ├── sync/            Enable Banking, exchanges, wallets, IBKR, SimpleFIN, Wise, Louve, Finary
+│   ├── connectors/      one module per sidecar bank, and sidecar/, the generic sidecar client
+│   ├── native_sidecars/ the six pure-HTTP banks served in-process (BoursoBank, CIC, CMES, DEGIRO,
+│   │                    Natixis Interépargne, Sofidy)
+│   ├── transfer/        imports and exports: CSV, Actual Budget, HomeBank, Finary, the XLSX
+│   │                    workbook, the member export
+│   ├── ai/              AI transaction categorization
+│   ├── mcp/             the embedded MCP server and its tools
+│   ├── jobs/            schedulers, catch-up, cleanups, startup runners
+│   └── testing/         TestApp, the in-process test harness
+├── tests/integration/   one test binary, one file or folder per module
+└── contract/            the HTTP contract harness and its goldens
+
+desktop/
+├── src-tauri/src/       the shell: supervisor.rs (in-process backend, data folder, secrets),
+│                        sidecars.rs (Chromium sidecars on demand), webview_bank/ (BNP, AMEX and
+│                        Revolut sign-in in the OS WebView), upgrade.rs (backup before an update),
+│                        update.rs, i18n.rs
+├── ui/                  the loading and error page
+└── scripts/             fetch_runtime.py assembles CPython and the Chromium sidecars
 ```
+
+Module layout, routes, handlers and tests: [`backend-rs/README.md`](../backend-rs/README.md).
 
 ## Frontend modules
 
@@ -117,7 +101,7 @@ frontend/src/
 Client → SyncController → SyncService → BankConnectorPort → Enable Banking
 ```
 
-Enable Banking (PSD2) is the canonical `BankConnectorPort` in 1.0.0. The Powens adapter (`PowensBankConnector`) ships in the codebase behind `@ConditionalOnExpression` but is **experimental and untested** — `@Primary` was removed for 1.0.0 so Enable Banking remains injected even when `POWENS_CLIENT_ID` is set. The connector reports each account's type; Enable Banking maps only `cash_account_type = CARD` to `CREDIT_CARD`, everything else is `CHECKING` (see `docs/features/bank-sync.md`).
+Enable Banking (PSD2) is the bank connector. The connector reports each account's type; Enable Banking maps only `cash_account_type = CARD` to `CREDIT_CARD`, everything else is `CHECKING` (see `docs/features/bank-sync.md`).
 
 ### 2. Price refresh
 
@@ -148,7 +132,7 @@ Client -> BourseDirectController -> BourseDirectSyncService
 
 The sidecar owns browser login, one-time-code completion and normalization of
 modern/legacy portfolio streams. It returns only strict, reconciled snapshots.
-The Java service queues imports, performs external calls outside database
+The backend queues imports, performs external calls outside database
 transactions, then atomically replaces holdings and writes the daily account
 snapshot. The encrypted browser state and observable job status live in
 `SidecarSession`, shared with the other sidecar banks ([ADR](./decisions/2026-11-02-one-sidecar-session-table.md)). See the [Bourse Direct ADR](./decisions/2026-07-21-bourse-direct-isolated-atomic-sync.md).
@@ -163,7 +147,7 @@ Client -> AmundiController -> AmundiSyncService
 Same shape as Bourse Direct, for a login that is captcha-gated and always
 second-factor protected. The sidecar owns the browser login, the app-push or SMS
 step, and normalization of the `dispositifsMulti` payload; it returns only strict,
-reconciled snapshots. The Java service queues imports, calls upstream outside
+reconciled snapshots. The backend queues imports, calls upstream outside
 database transactions, then atomically replaces each plan's holdings and writes
 the daily snapshot. One Picsou account per *dispositif*, typed `EMPLOYEE_SAVINGS`.
 Encrypted session and job status live in `SidecarSession`. See the
@@ -185,7 +169,7 @@ Client -> FortuneoController -> FortuneoSyncService
 The sidecar owns SSO login, six-digit-code completion and normalization of the
 provider API and legacy HTML pages. It returns only complete, reconciled account
 snapshots and follows securities-history pagination to the declared row count.
-The Java service performs upstream I/O before one atomic persistence phase,
+The backend performs upstream I/O before one atomic persistence phase,
 backfills market prices and reconstructs value and invested history from batched
 inputs. Encrypted browser state and observable job status live in
 `SidecarSession`. See the
@@ -275,7 +259,7 @@ POST /api/me/export → ReAuthService accepts a valid reauth_proof cookie,
                     → emits a single ZIP containing JSON + CSV per entity
 ```
 
-Wrapped in a read-only Spring transaction; rate-limited via `RateLimitConfig`.
+Runs in one read-only transaction; rate-limited (`backend-rs/src/http/rate_limit.rs`).
 
 ### 15. Loan amortization
 
@@ -291,15 +275,15 @@ Computed on the fly from `Debt` (principal, rate, term, fees) — no per-month r
 ```
 /login → form POST /oauth2/sso/authorization/oidc → SsoStartGuardFilter → IdP (PKCE, state, nonce)
 IdP → GET /login/sso/callback (SPA page) → form POST /oauth2/sso/code/oidc
-    → Spring OIDC client (code exchange, ID token, userinfo)
+    → OIDC client (code exchange, ID token, userinfo)
     → SsoAuthenticationSuccessHandler → SsoAccountService (resolve by iss + sub)
                                       → SsoRoleSyncService (admin group)
                                       → SessionIssuer (Picsou's own cookies, sso_at)
     → /login/sso-complete → POST /api/auth/refresh → app
 ```
 
-Optional, configured by the `SSO_*` environment variables, and served by its own
-`SecurityFilterChain` at `@Order(0)` on `/oauth2/sso/**`. The IdP only authenticates; IdP tokens
+Optional, configured by the `SSO_*` environment variables, and handled by
+`backend-rs/src/identity/sso/` on `/oauth2/sso/**`. The IdP only authenticates; IdP tokens
 are discarded. SSO sessions pass through the IdP again after `SSO_SESSION_REVALIDATE_AFTER`
 (refresh answers 401 `SSO_REVALIDATE`). The same flow handles re-authentication, identity
 linking, invitation activation and the first admin. See [sso-login.md](./features/sso-login.md)
@@ -310,11 +294,11 @@ and the [ADR](./decisions/2026-11-04-sso-login-alongside-passwords.md).
 | Service | Usage | Config |
 |---------|-------|--------|
 | PostgreSQL 16 | Persistence | `SPRING_DATASOURCE_URL` |
+| SQLite (embedded) | Persistence for the desktop app and `docker/compose.sqlite.yml` | `DATABASE_URL=sqlite:///…` |
 | Flyway | Schema migrations | `backend-rs/migrations/` |
 | Enable Banking | PSD2 bank sync (optional) | `ENABLEBANKING_*` |
 | SimpleFIN | Bank balances and posted transactions from a setup token (optional, no app credentials) | User-supplied token |
 | Wise API | Wise jar balances from a personal API token (optional, no app credentials) | User-supplied token |
-| Powens / Budget Insight | Scraping bank sync (**experimental, disabled in 1.0.0**) | `POWENS_*` |
 | Trade Republic | Broker sync via Python microservice | `TR_AUTH_URL` |
 | Bourse Direct | PEA/CTO sync via internal Python sidecar | `BOURSE_DIRECT_AUTH_URL` |
 | Amundi Épargne Salariale | PEE/PEG/PERCO/PER sync via internal Python sidecar | `AMUNDI_AUTH_URL` |
@@ -340,7 +324,7 @@ and the [ADR](./decisions/2026-11-04-sso-login-alongside-passwords.md).
 ## Key constraints
 
 - **Ports & adapters:** a port exists only where providers are swappable (two implementations or a real swap seam); services depend on the port there. A single-provider connector client is injected as its concrete class. See [the ADR](./decisions/2026-11-02-ports-only-for-swappable-providers.md).
-- **Flyway owns schema:** never use `ddl-auto: create/update`. Every schema change is a new migration file.
+- **Migrations own the schema:** every schema change is a new migration file, in `backend-rs/migrations/` for PostgreSQL and in `backend-rs/src/db/sqlite/migrations/` for SQLite.
 - **Multi-member families:** each authenticated user is an `AppUser` linked to a `FamilyMember`. All financial rows are scoped by `member_id`; cross-member visibility is gated by `SharingSettings` + `SharedResource`. Admin role can impersonate any member.
 - **Auth:** JWT (`access_token` + `refresh_token`) in HttpOnly `SameSite=Lax` cookies. Optional TOTP 2FA, rotating persistent sessions ("Remember Me"), stateless invalidation via `tokenVersion` claim on password change. Optional SSO through one external OIDC provider ends in the same cookies: the IdP only authenticates, accounts are linked by `(iss, sub)` only, SSO sessions carry `sso_at` and are re-validated through the IdP after `SSO_SESSION_REVALIDATE_AFTER`, and accounts may have no password. Credential changes need the short-lived `reauth_proof` cookie.
 - **First-launch setup wizard:** on a fresh install, `SetupFilter` redirects to a wizard that creates the admin, configures CORS, generates the encryption key, and seeds integration credentials. No env-var editing required.
@@ -351,8 +335,6 @@ and the [ADR](./decisions/2026-11-04-sso-login-alongside-passwords.md).
 
 ## Disabled / experimental integrations
 
-- **Powens / Budget Insight** — `PowensBankConnector` ships in 1.0.0 but is
-  experimental and has not been tested end-to-end against a real Powens tenant.
-  The `@Primary` annotation was removed so Enable Banking remains the injected
-  `BankConnectorPort` even when `POWENS_CLIENT_ID` is set. Re-enable by
-  re-adding `@Primary` once the adapter has been validated.
+- **Powens / Budget Insight** — the experimental adapter of the Java backend, never
+  validated against a real Powens tenant, was not carried over to the Rust backend.
+  Enable Banking is the bank connector.

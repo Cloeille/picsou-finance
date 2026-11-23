@@ -67,13 +67,13 @@ Boursorama's labels are French. To keep the API locale-agnostic:
 ### Key files
 
 Backend:
-- `backend/src/main/java/com/picsou/controller/SecurityController.java` — `GET /api/securities/{ticker}/insight`, optional `name` query param. Not member-scoped (market data, like `PriceController`).
-- `backend/src/main/java/com/picsou/service/SecurityInsightService.java` — type classification, provider orchestration, in-memory cache. No aggregation (providers return pre-aggregated data).
-- `backend/src/main/java/com/picsou/port/EtfCompositionProvider.java` — port: `supports(ticker, name)` + `fetch(ticker, name) → Optional<EtfComposition>`.
-- `backend/src/main/java/com/picsou/adapter/BoursoramaCompositionProvider.java` — **the** composition adapter (symbol resolution → composition page → parse). WebClient with `followRedirect(false)` and a 16 MB in-memory limit.
-- `backend/src/main/java/com/picsou/adapter/BoursoramaLabels.java` — FR→key maps for ~11 sectors and the common countries; accent-insensitive normalisation; verbatim passthrough on miss.
-- `backend/src/main/java/com/picsou/adapter/YahooFinancePriceProvider.java` — `getInstrumentType(ticker)` + `instrumentType` on the `Meta` record.
-- `backend/src/main/java/com/picsou/dto/SecurityInsightResponse.java`, `backend/src/main/java/com/picsou/dto/EtfComposition.java` (adds `source` + `asOf`), `backend/src/main/java/com/picsou/dto/WeightedSlice.java`.
+- `backend-rs/src/accounts/security.rs` — `GET /api/securities/{ticker}/insight`, optional `name` query param. Not member-scoped (market data, like `PriceController`).
+- `backend-rs/src/accounts/security.rs` — type classification, provider orchestration, in-memory cache. No aggregation (providers return pre-aggregated data).
+- `backend-rs/src/accounts/analysis/seams.rs` — port: `supports(ticker, name)` + `fetch(ticker, name) → Optional<EtfComposition>`.
+- `backend-rs/src/market/boursorama.rs` — **the** composition adapter (symbol resolution → composition page → parse). WebClient with `followRedirect(false)` and a 16 MB in-memory limit.
+- `backend-rs/src/market/boursorama.rs` — FR→key maps for ~11 sectors and the common countries; accent-insensitive normalisation; verbatim passthrough on miss.
+- `backend-rs/src/market/yahoo.rs` — `getInstrumentType(ticker)` + `instrumentType` on the `Meta` record.
+- `backend-rs/src/accounts/security.rs`, `EtfComposition.java` (adds `source` + `asOf`), `WeightedSlice.java`.
 
 Frontend:
 - `frontend/src/components/ui/partition-bar.tsx` — partition-bar primitive (proportional flex segments).

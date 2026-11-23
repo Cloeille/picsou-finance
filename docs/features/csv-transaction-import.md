@@ -26,15 +26,15 @@ Two phases, modelled on the Finary XLSX importer but mapping **columns** into an
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/imports/csv/` — `CsvReader` (RFC-4180, configurable delimiter),
+- `backend-rs/src/transfer/csv_import/` — `CsvReader` (RFC-4180, configurable delimiter),
   `CsvDialectDetector` (delimiter/decimal/date sniffing), `CsvValueParser` (`BigDecimal`/`LocalDate`
   parsing), `CsvDialect` + `DecimalStyle`. Dependency-free; symmetric with the GDPR `CsvWriter`.
-- `backend/src/main/java/com/picsou/imports/TransactionRowMapper.java` — one row → unsaved
+- `backend-rs/src/transfer/csv_import/mod.rs` — one row → unsaved
   `Transaction`; reuses `InstrumentFieldResolver` (ISIN→ticker) and `TransactionAmountCalculator`
   (signed amount incl. fees).
-- `backend/src/main/java/com/picsou/service/TransactionImportService.java` — preview/execute + the
+- `backend-rs/src/transfer/csv_import/mod.rs` — preview/execute + the
   `fileToken` cache and its `@Scheduled` TTL sweep.
-- `backend/src/main/java/com/picsou/controller/TransactionImportController.java` —
+- `backend-rs/src/transfer/csv_import/mod.rs` —
   `POST /api/accounts/{id}/transactions/import/preview` (multipart) and
   `POST /api/accounts/{id}/transactions/import` (JSON, `201`). Member-scoped + `syncBuckets` throttle.
 - `frontend/src/components/shared/ImportTransactionsModal.tsx` — the 3-step wizard.

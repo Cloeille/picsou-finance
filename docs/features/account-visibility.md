@@ -16,7 +16,7 @@ exporting, and being scheduled exactly like a visible one.
 
 `account.hidden boolean NOT NULL DEFAULT false` (`V55__account_hidden.sql`). Deliberately **not**
 folded into the entity's `@org.hibernate.annotations.SQLRestriction("deleted_at IS NULL")`
-(`Account.java`). That restriction is global — it also gates every sync-matching query
+(`backend-rs/src/ledger/model.rs`). That restriction is global — it also gates every sync-matching query
 (`findByExternalAccountIdAndMemberId`, `findByIbanAndMemberId`, etc., see
 [bank-sync.md](./bank-sync.md)). Baking `hidden` into it would silently stop a hidden account from
 being matched/updated by sync, reproducing the soft-delete behavior this feature exists to avoid.
@@ -89,16 +89,16 @@ success, since a visibility change can affect all three.
 ### Key files
 
 - `backend-rs/migrations/V55__account_hidden.sql` — the `hidden` column
-- `backend/src/main/java/com/picsou/model/Account.java` — `hidden` field, outside `@SQLRestriction`
-- `backend/src/main/java/com/picsou/repository/AccountRepository.java` — `HiddenFalse` vs.
+- `backend-rs/src/ledger/model.rs` — `hidden` field, outside `@SQLRestriction`
+- `backend-rs/src/ledger/accounts.rs` — `HiddenFalse` vs.
   unfiltered finders
-- `backend/src/main/java/com/picsou/service/AccountService.java` — `findAll(memberId, includeHidden)`, `setHidden()`
-- `backend/src/main/java/com/picsou/controller/AccountController.java` — `GET ?includeHidden`, `PUT /{id}/visibility`
-- `backend/src/main/java/com/picsou/dto/AccountVisibilityRequest.java` — `{ hidden: boolean }`
-- `backend/src/main/java/com/picsou/service/DashboardService.java`,
-  `backend/src/main/java/com/picsou/service/budget/AllocationService.java`,
-  `backend/src/main/java/com/picsou/service/SavingsService.java`,
-  `backend/src/main/java/com/picsou/service/FamilyViewService.java` — hidden-excluding call sites
+- `AccountService.java` — `findAll(memberId, includeHidden)`, `setHidden()`
+- `backend-rs/src/accounts/service.rs` — `GET ?includeHidden`, `PUT /{id}/visibility`
+- `AccountVisibilityRequest.java` — `{ hidden: boolean }`
+- `backend-rs/src/accounts/dashboard.rs`,
+  `backend-rs/src/budget/allocation.rs`,
+  `backend-rs/src/wealth/savings/mod.rs`,
+  `FamilyViewService.java` — hidden-excluding call sites
 - `frontend/src/features/accounts/hooks.ts` — `useAccountTree`, `useAllAccounts`, `useToggleAccountVisibility`
 - `frontend/src/pages/sync/AccountsVisibilityTab.tsx` — the "Comptes" tab UI
 - `frontend/src/pages/sync/SyncPage.tsx` — tab wiring
@@ -135,7 +135,7 @@ success, since a visibility change can affect all three.
 
 ## Tests
 
-- `backend/src/test/java/com/picsou/service/AccountServiceTest.java`:
+- `AccountServiceTest.java`:
   - `findAll_excludesHiddenAccounts_byDefault()`
   - `findAll_includesHiddenAccounts_whenRequested()`
   - `setHidden_persistsFlag_forOwnedAccount()`

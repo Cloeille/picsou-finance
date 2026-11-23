@@ -103,6 +103,11 @@
 
 ## Feature notes
 
+> Notes written before 1.3.0 describe the Java backend. A path to one of its files was
+> redirected to the Rust module that took it over; a `.java` name with no path is a Java class
+> that no single Rust file replaces. Each Rust module names the class it took over in its
+> header comment: `grep -rn "SyncService" backend-rs/src` finds it.
+
 | Feature | Last updated | Note |
 |---------|-------------|------|
 | Desktop app (Linux shell) | 2026-11-15 | [desktop-app.md](./features/desktop-app.md) |

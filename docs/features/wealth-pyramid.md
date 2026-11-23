@@ -177,14 +177,14 @@ The figure is offered, never stored: accepting it is a `PUT`.
 ### Key files
 
 Backend:
-- `backend/src/main/java/com/picsou/model/WealthTier.java` — the tiers and the exhaustive mapping
-- `backend/src/main/java/com/picsou/model/AccountType.java` — `ASSURANCE_VIE`, `SCPI`, `isInvestment()`
-- `backend/src/main/java/com/picsou/model/MemberAllocationProfile.java` — targets; absence means defaults
-- `backend/src/main/java/com/picsou/model/HoldingClassification.java` — the user's override
-- `backend/src/main/java/com/picsou/service/WealthPyramidService.java` — classification and scoring
-- `backend/src/main/java/com/picsou/service/AllocationTargetService.java` — read/replace, owns the defaults
-- `backend/src/main/java/com/picsou/service/EssentialExpenseEstimator.java` — the transaction-derived estimate
-- `backend/src/main/java/com/picsou/controller/AnalysisController.java` — `/api/analysis`
+- `backend-rs/src/ledger/model.rs` — the tiers and the exhaustive mapping
+- `backend-rs/src/ledger/model.rs` — `ASSURANCE_VIE`, `SCPI`, `isInvestment()`
+- `MemberAllocationProfile.java` — targets; absence means defaults
+- `backend-rs/src/accounts/classification.rs` — the user's override
+- `backend-rs/src/accounts/analysis/pyramid.rs` — classification and scoring
+- `backend-rs/src/accounts/analysis/targets.rs` — read/replace, owns the defaults
+- `backend-rs/src/accounts/analysis/expenses.rs` — the transaction-derived estimate
+- `backend-rs/src/accounts/analysis/mod.rs` — `/api/analysis`
 - `backend-rs/migrations/V82__account_type_life_insurance_and_scpi.sql`
 - `backend-rs/migrations/V83__wealth_allocation.sql`
 
