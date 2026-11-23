@@ -1167,7 +1167,8 @@
         "US": "Vereinigte Staaten"
       },
       "apiKeyOnly": "Meria verbindet sich mit einem einzigen schreibgeschützten API-Key — kein Secret nötig.",
-      "okxHint": "Erstelle einen API-Schlüssel mit reinen Leserechten. Wähle die Region der Website, auf der du dein Konto eröffnet hast (okx.com → Global, my.okx.com → Europäischer Wirtschaftsraum, app.okx.com → Vereinigte Staaten).",
+      "okxRegionHelp": "Wähle Global für okx.com, Europäischer Wirtschaftsraum für my.okx.com oder Vereinigte Staaten für app.okx.com.",
+      "okxRegionMismatch": "Wähle die Region, in der du deinen OKX-API-Key erstellt hast.",
       "showSecret": "API-Secret anzeigen",
       "hideSecret": "API-Secret verbergen",
       "connect": "Verbinden",
@@ -2713,7 +2714,7 @@
         },
         "crypto": {
           "title": "Krypto-Exchanges",
-          "description": "Verfolge Binance, Meria und OKX mit API-Schlüsseln, die nur Leserechte haben und verschlüsselt gespeichert werden."
+          "description": "Verfolge Binance, Meria und OKX mit schreibgeschützten API-Keys, die verschlüsselt gespeichert werden."
         },
         "revolut": {
           "title": "Revolut",

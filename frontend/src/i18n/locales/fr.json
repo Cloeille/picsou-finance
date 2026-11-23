@@ -1501,7 +1501,8 @@
         "US": "États-Unis"
       },
       "apiKeyOnly": "Meria se connecte avec une seule clé API en lecture seule, sans secret supplémentaire.",
-      "okxHint": "Créez une clé API en lecture seule, puis choisissez la région du site où vous avez ouvert votre compte : Monde pour okx.com, Espace économique européen pour my.okx.com, États-Unis pour app.okx.com.",
+      "okxRegionHelp": "Sélectionnez Monde pour okx.com, Espace économique européen pour my.okx.com ou États-Unis pour app.okx.com.",
+      "okxRegionMismatch": "Choisissez la région dans laquelle vous avez créé votre clé API OKX.",
       "showSecret": "Afficher le secret API",
       "hideSecret": "Masquer le secret API",
       "connect": "Connecter",

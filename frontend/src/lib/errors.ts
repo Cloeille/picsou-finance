@@ -264,6 +264,11 @@ export function formatFortuneoError(err: unknown, t: TFunc): string {
   )
 }
 
+export function formatCryptoExchangeError(err: unknown, t: TFunc, fallbackKey?: string): string {
+  if (getErrorCode(err) === 'OKX_REGION_MISMATCH') return t('sync.exchanges.okxRegionMismatch')
+  return formatApiError(err, t, fallbackKey)
+}
+
 export function formatApiError(err: unknown, t: TFunc, fallbackKey = 'common.error'): string {
   const status = (err as { response?: { status?: number } })?.response?.status
   const code = (err as { code?: string })?.code

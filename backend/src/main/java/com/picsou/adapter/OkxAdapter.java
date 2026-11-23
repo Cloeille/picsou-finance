@@ -103,10 +103,10 @@ public class OkxAdapter implements CryptoExchangePort {
     @Override
     public List<ExchangePosition> fetchPositions(ExchangeCredentials credentials) {
         Map<String, BigDecimal> spot = fetchTradingBalances(credentials);
-        addBalances(spot, fetch(FUNDING, credentials), "bal", FUNDING);
+        readCurrencyBalances(fetch(FUNDING, credentials), "bal", FUNDING)
+            .forEach((currency, amount) -> spot.merge(currency, amount, BigDecimal::add));
 
-        Map<String, BigDecimal> lending = new TreeMap<>();
-        addBalances(lending, fetch(SAVINGS, credentials), "amt", SAVINGS);
+        Map<String, BigDecimal> lending = readCurrencyBalances(fetch(SAVINGS, credentials), "amt", SAVINGS);
 
         Map<String, BigDecimal> staking = new TreeMap<>();
         Set<String> orderIds = new HashSet<>();
@@ -116,7 +116,11 @@ public class OkxAdapter implements CryptoExchangePort {
             if (!orderIds.add(orderId)) throw invalidShape(ORDERS, "duplicate ordId");
             JsonNode investments = requireArray(order, "investData", ORDERS);
             if (investments.isEmpty()) throw invalidShape(ORDERS, "investData");
-            addBalances(staking, investments, "amt", ORDERS);
+            for (JsonNode investment : investments) {
+                String currency = requireCurrency(investment, ORDERS);
+                BigDecimal amount = requireBalance(investment, "amt", ORDERS);
+                if (amount.signum() > 0) staking.merge(currency, amount, BigDecimal::add);
+            }
         }
         addStakingReceipts(spot, staking, credentials, ETH_STAKING, "BETH", "ETH");
         addStakingReceipts(spot, staking, credentials, SOL_STAKING, "OKSOL", "SOL");
@@ -137,52 +141,55 @@ public class OkxAdapter implements CryptoExchangePort {
 
     private Map<String, BigDecimal> fetchTradingBalances(ExchangeCredentials credentials) {
         JsonNode trading = fetch(TRADING, credentials);
-        // OKX always answers with exactly one account row. A missing row, or an empty detail list
-        // whose total does not say zero, would otherwise read as "nothing held" and write a short
-        // balance into today's snapshot.
+        // OKX answers with exactly one account row. Require a zero total before treating it as empty.
         if (trading.size() != 1) throw invalidShape(TRADING, "data");
-        Map<String, BigDecimal> balances = new TreeMap<>();
-
         JsonNode account = trading.get(0);
         JsonNode details = requireArray(account, "details", TRADING);
-        if (details.isEmpty() && requireAmount(account, "totalEq", TRADING).signum() != 0) {
-            throw new SyncException("OKX returned empty details with non-zero totalEq for " + TRADING + ".");
+        BigDecimal totalEquity = requireAmount(account, "totalEq", TRADING);
+        Map<String, BigDecimal> balances = readCurrencyBalances(details, "eq", TRADING);
+        if (balances.isEmpty() && totalEquity.signum() != 0) {
+            throw new SyncException("OKX returned no non-zero details with non-zero totalEq for " + TRADING + ".");
         }
-        addBalances(balances, details, "eq", TRADING);
         return balances;
     }
 
     private void addStakingReceipts(Map<String, BigDecimal> spot, Map<String, BigDecimal> staking,
                                     ExchangeCredentials credentials, String path, String receipt, String underlying) {
-        Map<String, BigDecimal> receipts = new TreeMap<>();
-        for (JsonNode row : fetch(path, credentials)) {
+        JsonNode rows = fetch(path, credentials);
+        if (rows.size() > 1) throw invalidShape(path, "multiple staking balances");
+        BigDecimal quantity = BigDecimal.ZERO;
+        if (!rows.isEmpty()) {
+            JsonNode row = rows.get(0);
             if (!requireCurrency(row, path).equals(receipt)) throw invalidShape(path, "ccy");
-            addBalance(receipts, row, receipt, "amt", path);
+            quantity = requireBalance(row, "amt", path);
         }
-        BigDecimal quantity = receipts.get(receipt);
-        if (quantity != null && spot.containsKey(receipt)) {
-            throw new SyncException("OKX reported " + receipt + " in both spot and staking. "
-                + "Picsou cannot determine whether these balances overlap.");
-        }
+        // The dedicated balance includes receipts held in trading and funding or being redeemed.
         BigDecimal spotQuantity = spot.remove(receipt);
-        if (spotQuantity != null) spot.merge(underlying, spotQuantity, BigDecimal::add);
-        if (quantity == null) return;
-        staking.merge(underlying, quantity, BigDecimal::add);
-    }
-
-    private static void addBalances(Map<String, BigDecimal> totals, JsonNode rows, String field, String path) {
-        for (JsonNode row : rows) {
-            addBalance(totals, row, requireCurrency(row, path), field, path);
+        if (spotQuantity != null && spotQuantity.compareTo(quantity) > 0) {
+            throw new SyncException("Picsou cannot reconcile OKX " + receipt + " balances. "
+                + "The combined trading and funding balance exceeds the dedicated staking balance.");
         }
+        if (quantity.signum() > 0) staking.merge(underlying, quantity, BigDecimal::add);
     }
 
-    private static void addBalance(Map<String, BigDecimal> totals, JsonNode row, String currency, String field, String path) {
+    private static Map<String, BigDecimal> readCurrencyBalances(JsonNode rows, String field, String path) {
+        Map<String, BigDecimal> balances = new TreeMap<>();
+        for (JsonNode row : rows) {
+            String currency = requireCurrency(row, path);
+            BigDecimal quantity = requireBalance(row, field, path);
+            if (balances.putIfAbsent(currency, quantity) != null) throw invalidShape(path, "duplicate ccy");
+        }
+        balances.values().removeIf(quantity -> quantity.signum() == 0);
+        return balances;
+    }
+
+    private static BigDecimal requireBalance(JsonNode row, String field, String path) {
         BigDecimal quantity = requireAmount(row, field, path);
         if (quantity.signum() < 0) {
             throw new SyncException("OKX returned a negative " + field + " for " + path
                 + ". Picsou does not support exchange liabilities.");
         }
-        if (quantity.signum() > 0) totals.merge(currency, quantity, BigDecimal::add);
+        return quantity;
     }
 
     private static String requireCurrency(JsonNode row, String path) {
@@ -257,12 +264,15 @@ public class OkxAdapter implements CryptoExchangePort {
 
     private static SyncException apiFailure(String path, int status, String code) {
         // Report only recognised codes and local text. Upstream messages may echo credentials.
+        if (code.equals("50119")) {
+            return new SyncException("The OKX API key does not exist in the selected region (50119). "
+                + "Choose the region where the key was created.", null, "OKX_REGION_MISMATCH");
+        }
         String message = switch (code) {
-            case "50119" -> "The OKX API key does not exist in the selected region (50119). "
-                + "Use Add exchange to submit OKX credentials with the region where the key was created "
-                + "(Global = okx.com, EEA = my.okx.com, US = app.okx.com). "
-                + "This updates the existing connection if you have one.";
+            case "50100" -> "The OKX API key is frozen (50100).";
             case "50102" -> "OKX rejected the request timestamp (50102). Check the server clock.";
+            case "50105" -> "The OKX API passphrase is incorrect (50105).";
+            case "50110" -> "The request IP address is not on the API key's allowlist (50110).";
             case "50113" -> "OKX rejected the request signature (50113).";
             case "50111" -> "OKX rejected the API key (50111).";
             case "50011" -> "OKX rate-limited the sync (50011). Please try again later.";

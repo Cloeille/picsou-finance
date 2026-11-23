@@ -179,7 +179,10 @@ class OkxAdapterTest {
             Arguments.of("{\"totalEq\":\"1\",\"details\":[]}", "details"),
             Arguments.of("{\"totalEq\":\"1\"}", "details"),
             Arguments.of("{\"totalEq\":\"bad\",\"details\":[]}", "totalEq"),
-            Arguments.of("{\"details\":[{\"ccy\":\"COIN\"}]}", "eq"),
+            Arguments.of("{\"details\":[{\"ccy\":\"COIN\",\"eq\":\"1\"}]}", "totalEq"),
+            Arguments.of("{\"totalEq\":\"bad\",\"details\":[{\"ccy\":\"COIN\",\"eq\":\"1\"}]}", "totalEq"),
+            Arguments.of("{\"totalEq\":\"1\",\"details\":[{\"ccy\":\"COIN\",\"eq\":\"0\"}]}", "details"),
+            Arguments.of("{\"totalEq\":\"1\",\"details\":[{\"ccy\":\"COIN\"}]}", "eq"),
             Arguments.of("{\"details\":[]},{\"details\":[]}", "data"));
     }
 
@@ -212,7 +215,7 @@ class OkxAdapterTest {
 
     private enum Failure {
         PARTIAL_CONTENT, UNAUTHORIZED, RATE_LIMIT, SERVER_ERROR, API_ERROR, TIMEOUT, TRANSPORT, NON_JSON,
-        MISSING_DATA, OBJECT_DATA, DUPLICATE_DATA;
+        MISSING_CODE, NUMERIC_CODE, MISSING_DATA, OBJECT_DATA, DUPLICATE_DATA, TRAILING_JSON;
 
         Mono<ClientResponse> reply() {
             return switch (this) {
@@ -224,9 +227,12 @@ class OkxAdapterTest {
                 case TIMEOUT -> Mono.never();
                 case TRANSPORT -> Mono.error(new IOException("synthetic disconnect"));
                 case NON_JSON -> response(HttpStatus.OK, "<html>synthetic edge error</html>");
+                case MISSING_CODE -> response(HttpStatus.OK, "{\"data\":[]}");
+                case NUMERIC_CODE -> response(HttpStatus.OK, "{\"code\":0,\"data\":[]}");
                 case MISSING_DATA -> response(HttpStatus.OK, "{\"code\":\"0\"}");
                 case OBJECT_DATA -> response(HttpStatus.OK, "{\"code\":\"0\",\"data\":{}}");
                 case DUPLICATE_DATA -> response(HttpStatus.OK, "{\"code\":\"0\",\"data\":[{}],\"data\":[]}");
+                case TRAILING_JSON -> response(HttpStatus.OK, EMPTY + EMPTY);
             };
         }
     }
@@ -241,18 +247,40 @@ class OkxAdapterTest {
     }
 
     @ParameterizedTest
+    @CsvSource({
+        "50105,UNAUTHORIZED,passphrase is incorrect",
+        "50110,UNAUTHORIZED,IP address is not on the API key's allowlist",
+        "50100,BAD_REQUEST,API key is frozen"
+    })
+    void explainsCredentialErrorsWithoutEchoingCredentials(String code, HttpStatus status, String explanation,
+                                                            CapturedOutput output) {
+        String echoed = String.join(" ", CREDENTIALS.apiKey(), CREDENTIALS.apiSecret(), CREDENTIALS.apiPassphrase());
+        var adapter = adapter(path -> response(status,
+            "{\"code\":\"%s\",\"data\":[],\"msg\":\"%s\"}".formatted(code, echoed)));
+        assertThatThrownBy(() -> adapter.testConnection(CREDENTIALS)).isInstanceOf(SyncException.class)
+            .hasMessageContainingAll(code, explanation)
+            .hasMessageNotContainingAny(CREDENTIALS.apiKey(), CREDENTIALS.apiSecret(), CREDENTIALS.apiPassphrase())
+            .hasNoCause();
+        assertThatThrownBy(() -> adapter.fetchPositions(CREDENTIALS)).isInstanceOf(SyncException.class)
+            .hasMessageContainingAll(code, explanation)
+            .hasMessageNotContainingAny(CREDENTIALS.apiKey(), CREDENTIALS.apiSecret(), CREDENTIALS.apiPassphrase())
+            .hasNoCause();
+        assertThat(output.toString()).doesNotContain(CREDENTIALS.apiKey(), CREDENTIALS.apiSecret(), CREDENTIALS.apiPassphrase());
+    }
+
+    @ParameterizedTest
     @CsvSource({"OK", "UNAUTHORIZED"})
     void explainsRegionalKeyErrorsWithoutEchoingCredentials(HttpStatus status, CapturedOutput output) {
         String echoed = String.join(" ", CREDENTIALS.apiKey(), CREDENTIALS.apiSecret(), CREDENTIALS.apiPassphrase());
         OkxAdapter adapter = adapter(path -> response(status,
             "{\"code\":\"50119\",\"data\":[],\"msg\":\"" + echoed + "\"}"));
-        assertThatThrownBy(() -> adapter.fetchPositions(CREDENTIALS)).isInstanceOf(SyncException.class)
-            .hasMessageContainingAll("does not exist in the selected region", "Add exchange",
-                "region where the key was created", "updates the existing connection",
-                "Global = okx.com", "EEA = my.okx.com", "US = app.okx.com")
-            .hasMessageNotContainingAny("Remove", CREDENTIALS.apiKey(), CREDENTIALS.apiSecret(), CREDENTIALS.apiPassphrase())
+        assertThatThrownBy(() -> adapter.fetchPositions(CREDENTIALS))
+            .isInstanceOfSatisfying(SyncException.class, ex -> assertThat(ex.getCode()).isEqualTo("OKX_REGION_MISMATCH"))
+            .hasMessageContainingAll("does not exist in the selected region", "50119", "region where the key was created")
+            .hasMessageNotContainingAny(CREDENTIALS.apiKey(), CREDENTIALS.apiSecret(), CREDENTIALS.apiPassphrase())
             .hasNoCause();
-        assertThatThrownBy(() -> adapter.testConnection(CREDENTIALS)).isInstanceOf(SyncException.class)
+        assertThatThrownBy(() -> adapter.testConnection(CREDENTIALS))
+            .isInstanceOfSatisfying(SyncException.class, ex -> assertThat(ex.getCode()).isEqualTo("OKX_REGION_MISMATCH"))
             .hasMessageContaining("50119")
             .hasMessageNotContainingAny(CREDENTIALS.apiKey(), CREDENTIALS.apiSecret(), CREDENTIALS.apiPassphrase());
         assertThat(output.toString()).doesNotContain(CREDENTIALS.apiKey(), CREDENTIALS.apiSecret(), CREDENTIALS.apiPassphrase());
@@ -260,9 +288,24 @@ class OkxAdapterTest {
 
     @Test
     void rejectsNegativeEquityBeforeNettingSpotBalances() {
-        assertThatThrownBy(() -> withBody(TRADING,
-            "{\"code\":\"0\",\"data\":[{\"details\":[{\"ccy\":\"COIN\",\"eq\":\"-2\"}]}]}")
+        assertThatThrownBy(() -> withBody(TRADING, balance(TRADING, "{\"ccy\":\"COIN\",\"eq\":\"-2\"}"))
             .fetchPositions(CREDENTIALS)).isInstanceOf(SyncException.class).hasMessageContaining("liabilities");
+    }
+
+    @ParameterizedTest
+    @CsvSource({TRADING + ",eq", FUNDING + ",bal", SAVINGS + ",amt"})
+    void rejectsRepeatedCurrencyBalancesEvenWhenOneRowIsZero(String path, String field) {
+        String rows = "{\"ccy\":\"COIN\",\"%s\":\"2\"},{\"ccy\":\" coin \",\"%s\":\"0\"}".formatted(field, field);
+        assertThatThrownBy(() -> withBody(path, balance(path, rows)).fetchPositions(CREDENTIALS))
+            .isInstanceOf(SyncException.class).hasMessageContainingAll("duplicate ccy", path);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"BETH," + ETH_STAKING, "OKSOL," + SOL_STAKING})
+    void rejectsRepeatedAccountWideStakingBalances(String receipt, String path) {
+        String row = "{\"ccy\":\"%s\",\"amt\":\"2\"}".formatted(receipt);
+        assertThatThrownBy(() -> withBody(path, envelope(row + "," + row)).fetchPositions(CREDENTIALS))
+            .isInstanceOf(SyncException.class).hasMessageContainingAll("multiple staking balances", path);
     }
 
     @ParameterizedTest
@@ -332,27 +375,50 @@ class OkxAdapterTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"ETH,BETH," + ETH_STAKING, "SOL,OKSOL," + SOL_STAKING})
-    void valuesSpotReceiptsAsTheUnderlyingAssetWhenStakingIsZero(String asset, String receipt, String stakingPath) {
-        var adapter = adapter(path -> response(HttpStatus.OK, path.equals(stakingPath)
-            ? envelope("{\"ccy\":\"%s\",\"amt\":\"0.0\"}".formatted(receipt))
-            : path.equals(FUNDING) ? envelope("{\"ccy\":\"%s\",\"bal\":\"2\"}".formatted(receipt)) : emptyFor(path)));
-        assertThat(adapter.fetchPositions(CREDENTIALS)).containsExactly(ExchangePosition.spot(asset, BigDecimal.valueOf(2)));
+    @CsvSource({
+        "ETH,BETH," + ETH_STAKING + ",0,4.00",
+        "ETH,BETH," + ETH_STAKING + ",3,0",
+        "ETH,BETH," + ETH_STAKING + ",2,2",
+        "SOL,OKSOL," + SOL_STAKING + ",0,4.00",
+        "SOL,OKSOL," + SOL_STAKING + ",3,0",
+        "SOL,OKSOL," + SOL_STAKING + ",2,2"
+    })
+    void countsReceiptsFromTradingAndFundingOnlyAsStaking(String asset, String receipt, String stakingPath,
+                                                        String trading, String funding) {
+        var adapter = adapterWithReceipts(receipt, stakingPath, trading, funding, "4");
+        assertThat(adapter.fetchPositions(CREDENTIALS))
+            .containsExactly(new ExchangePosition(STAKING, asset, BigDecimal.valueOf(4), null, null));
     }
 
     @ParameterizedTest
-    @CsvSource({"BETH," + ETH_STAKING + "," + TRADING + ",eq", "OKSOL," + SOL_STAKING + "," + FUNDING + ",bal"})
-    void rejectsAmbiguousReceiptOverlap(String receipt, String stakingPath, String spotPath, String field) {
-        var bodies = Map.of(stakingPath, envelope("{\"ccy\":\"%s\",\"amt\":\"3\"}".formatted(receipt)),
-            spotPath, balance(spotPath, "{\"ccy\":\"%s\",\"%s\":\"2\"}".formatted(receipt, field)));
-        assertThatThrownBy(() -> adapter(path -> response(HttpStatus.OK, bodies.getOrDefault(path, emptyFor(path))))
-            .fetchPositions(CREDENTIALS)).isInstanceOf(SyncException.class)
-            .hasMessageContainingAll(receipt, "both spot and staking", "overlap");
+    @CsvSource({
+        "BETH," + ETH_STAKING + ",0,4,3",
+        "BETH," + ETH_STAKING + ",2,2,3",
+        "BETH," + ETH_STAKING + ",0,2,0",
+        "BETH," + ETH_STAKING + ",2,0,",
+        "OKSOL," + SOL_STAKING + ",0,4,3",
+        "OKSOL," + SOL_STAKING + ",2,2,3",
+        "OKSOL," + SOL_STAKING + ",0,2,0",
+        "OKSOL," + SOL_STAKING + ",2,0,"
+    })
+    void rejectsReceiptsAboveTheDedicatedStakingBalance(String receipt, String stakingPath,
+                                                       String trading, String funding, String staked) {
+        var adapter = adapterWithReceipts(receipt, stakingPath, trading, funding, staked);
+        assertThatThrownBy(() -> adapter.fetchPositions(CREDENTIALS)).isInstanceOf(SyncException.class)
+            .hasMessageContainingAll(receipt, "cannot reconcile", "trading and funding", "staking balance");
+    }
+
+    private OkxAdapter adapterWithReceipts(String receipt, String stakingPath, String trading, String funding, String staked) {
+        var bodies = Map.of(
+            TRADING, balance(TRADING, "{\"ccy\":\"%s\",\"eq\":\"%s\"}".formatted(receipt, trading)),
+            FUNDING, envelope("{\"ccy\":\"%s\",\"bal\":\"%s\"}".formatted(receipt, funding)),
+            stakingPath, staked == null ? EMPTY : envelope("{\"ccy\":\"%s\",\"amt\":\"%s\"}".formatted(receipt, staked)));
+        return adapter(path -> response(HttpStatus.OK, bodies.getOrDefault(path, emptyFor(path))));
     }
 
     private static String balance(String path, String row) {
         return envelope(switch (path) {
-            case TRADING -> "{\"details\":[" + row + "]}";
+            case TRADING -> "{\"totalEq\":\"0\",\"details\":[" + row + "]}";
             case ORDERS -> "{\"ordId\":\"1\",\"investData\":[" + row + "]}";
             default -> row;
         });

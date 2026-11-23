@@ -1733,7 +1733,7 @@ rate limiting returns `429`.
 | Status | When |
 |--------|------|
 | `400` | Blank API key, missing required secret or passphrase, unexpected secret or passphrase, a passphrase beyond the UTF-8 byte limit, or a missing, unknown or unexpected region. When the adapter declares regions, region errors list the allowed codes. |
-| `422` | Bean-validation failure (`errors` map), the credentials were refused by the exchange, or the immediate sync failed |
+| `422` | Bean-validation failure (`errors` map), the credentials were refused by the exchange, or the immediate sync failed. OKX error `50119` carries `code: "OKX_REGION_MISMATCH"`. |
 
 ---
 
@@ -1743,6 +1743,8 @@ rate limiting returns `429`.
 - **Body:** none
 
 **Response `200` — `AccountResponse`** (updated with latest holdings).
+
+**Errors:** `422` when the sync fails. OKX error `50119` carries `code: "OKX_REGION_MISMATCH"`.
 
 ---
 

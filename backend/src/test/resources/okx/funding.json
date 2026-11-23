@@ -2,6 +2,8 @@
   "code": "0",
   "msg": "",
   "data": [
-    {"ccy": "COIN", "bal": "5", "availBal": "4", "frozenBal": "1"}
+    {"ccy": "COIN", "bal": "5", "availBal": "4", "frozenBal": "1"},
+    {"ccy": "BETH", "bal": "5", "availBal": "5", "frozenBal": "0"},
+    {"ccy": "OKSOL", "bal": "7", "availBal": "7", "frozenBal": "0"}
   ]
 }

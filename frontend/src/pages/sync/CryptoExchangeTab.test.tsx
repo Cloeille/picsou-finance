@@ -157,12 +157,11 @@ describe('CryptoExchangeTab credential fields', () => {
     expect(apiPost.mock.calls[0][1]).toMatchObject({ type: 'BINANCE', apiKey: 'k', apiSecret: 's' })
   })
 
-  it('shows the OKX setup hint and requires and submits all four connection fields', async () => {
+  it('describes the OKX region picker and requires and submits all four connection fields', async () => {
     await openAddForm()
     expect(screen.queryByLabelText('sync.exchanges.apiPassphrase')).not.toBeInTheDocument()
     expect(screen.queryByRole('combobox', { name: 'sync.exchanges.region' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'OKX' }))
-    expect(screen.getByText('sync.exchanges.okxHint')).toBeInTheDocument()
     const key = screen.getByLabelText('sync.exchanges.apiKey')
     const secret = screen.getByLabelText('sync.exchanges.apiSecret')
     expect(key).toBeRequired()
@@ -180,6 +179,7 @@ describe('CryptoExchangeTab credential fields', () => {
     const connect = screen.getByRole('button', { name: 'sync.exchanges.connect' })
     expect(region).toBeRequired()
     expect(region).toHaveTextContent('sync.exchanges.regionPlaceholder')
+    expect(region).toHaveAccessibleDescription('sync.exchanges.okxRegionHelp')
     expect(connect).toBeDisabled()
     fireEvent.submit(connect.closest('form')!)
     expect(apiPost).not.toHaveBeenCalled()
@@ -197,10 +197,33 @@ describe('CryptoExchangeTab credential fields', () => {
     }))
   })
 
+  it.each([
+    ['OKX_REGION_MISMATCH', 'sync.exchanges.okxRegionMismatch'],
+    [undefined, 'The OKX API key does not exist in the selected region (50119).'],
+  ])('displays the OKX connection error for code %s', async (code, expected) => {
+    apiPost.mockRejectedValueOnce({
+      response: {
+        status: 422,
+        data: { code, detail: 'The OKX API key does not exist in the selected region (50119).' },
+      },
+    })
+    await openAddForm()
+    fireEvent.click(screen.getByRole('button', { name: 'OKX' }))
+    fireEvent.change(screen.getByLabelText('sync.exchanges.apiKey'), { target: { value: 'test-key' } })
+    fireEvent.change(screen.getByLabelText('sync.exchanges.apiSecret'), { target: { value: 'test-secret' } })
+    fireEvent.change(screen.getByLabelText('sync.exchanges.apiPassphrase'), { target: { value: 'test-passphrase' } })
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'sync.exchanges.region' }), { key: 'ArrowDown' })
+    fireEvent.click(screen.getByRole('option', { name: 'sync.exchanges.regions.EEA' }))
+    fireEvent.click(screen.getByRole('button', { name: 'sync.exchanges.connect' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(expected)
+  })
+
   it('shows the stored region on the connection card', async () => {
     apiGet.mockResolvedValue({ data: [{ id: 1, exchangeType: 'OKX', status: 'CONNECTED', region: 'EEA' }] })
     renderTab()
 
     expect(await screen.findByText(/sync\.exchanges\.regions\.EEA/)).toBeInTheDocument()
   })
+
 })

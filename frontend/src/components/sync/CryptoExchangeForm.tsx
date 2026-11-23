@@ -9,7 +9,7 @@ import { Eye, EyeSlash, CircleNotch } from '@phosphor-icons/react'
 import type { ExchangeType } from '@/types/api'
 import { SUPPORTED_EXCHANGES, exchangeRequiresApiPassphrase, exchangeRequiresApiSecret } from '@/types/api'
 import { useAddCryptoExchange } from '@/features/sync/hooks'
-import { extractErrorMessage, getErrorDetail } from '@/lib/errors'
+import { extractErrorMessage, getErrorCode, getErrorDetail } from '@/lib/errors'
 import { EXCHANGE_API_KEY_MAX_LENGTH, EXCHANGE_API_PASSPHRASE_MAX_LENGTH, EXCHANGE_API_SECRET_MAX_LENGTH } from '@/lib/constants'
 
 interface CryptoExchangeFormProps {
@@ -68,6 +68,10 @@ export function CryptoExchangeForm({ onSuccess, onCancel, variant }: CryptoExcha
         // user to check a secret they were never asked for sends them looking for a field that
         // does not exist.
         onError: (err: unknown) => {
+          if (getErrorCode(err) === 'OKX_REGION_MISMATCH') {
+            setError(t('sync.exchanges.okxRegionMismatch'))
+            return
+          }
           const fallback = t(requiresPassphrase
             ? 'common.error'
             : requiresSecret ? 'sync.exchanges.connectError' : 'sync.exchanges.connectErrorKeyOnly')
@@ -123,7 +127,9 @@ export function CryptoExchangeForm({ onSuccess, onCancel, variant }: CryptoExcha
                 ))}
               </SelectContent>
             </Select>
-            <p id="exchange-region-help" className="text-sm text-muted-foreground">{t('sync.exchanges.regionHelp')}</p>
+            <p id="exchange-region-help" className="text-sm text-muted-foreground">
+              {t(exchangeType === 'OKX' ? 'sync.exchanges.okxRegionHelp' : 'sync.exchanges.regionHelp')}
+            </p>
           </div>
         )}
 
@@ -181,10 +187,6 @@ export function CryptoExchangeForm({ onSuccess, onCancel, variant }: CryptoExcha
               maxLength={EXCHANGE_API_PASSPHRASE_MAX_LENGTH}
             />
           </div>
-        )}
-
-        {exchangeType === 'OKX' && (
-          <p className="text-sm text-muted-foreground">{t('sync.exchanges.okxHint')}</p>
         )}
 
         {!modal ? (

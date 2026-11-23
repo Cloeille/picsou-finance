@@ -195,7 +195,8 @@ class CryptoExchangeSyncServiceTest {
         CryptoExchangePort adapter = okxAdapter();
         var credentials = new ExchangeCredentials(KEY, SECRET, PASSPHRASE, "EEA");
         String safeMessage = "The OKX API key does not exist in the selected region (50119).";
-        when(adapter.testConnection(credentials)).thenThrow(new SyncException(safeMessage));
+        var failure = new SyncException(safeMessage, null, "OKX_REGION_MISMATCH");
+        when(adapter.testConnection(credentials)).thenThrow(failure);
         var existing = session(ExchangeType.OKX, "original-key", "original-secret");
         existing.setApiPassphrase("original-passphrase");
         existing.setRegion("US");
@@ -206,7 +207,7 @@ class CryptoExchangeSyncServiceTest {
         }
 
         assertThatThrownBy(() -> serviceWith(adapter).addExchange(ExchangeType.OKX, credentials, MEMBER_ID))
-            .isInstanceOf(SyncException.class)
+            .isSameAs(failure)
             .hasMessage(safeMessage)
             .hasMessageNotContainingAny(KEY, SECRET, PASSPHRASE.strip());
 

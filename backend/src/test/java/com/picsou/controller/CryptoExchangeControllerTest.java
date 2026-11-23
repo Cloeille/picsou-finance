@@ -1,6 +1,7 @@
 package com.picsou.controller;
 
 import com.picsou.exception.GlobalExceptionHandler;
+import com.picsou.exception.SyncException;
 import com.picsou.model.ExchangeType;
 import com.picsou.port.CryptoExchangePort.ExchangeCredentials;
 import com.picsou.service.CryptoExchangeSyncService;
@@ -62,6 +63,26 @@ class CryptoExchangeControllerTest {
         mvc.perform(get("/api/crypto/exchange/status"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[0].region").value("EEA"));
+    }
+
+    @Test
+    void okxRegionMismatchIsACodedProblemForAddAndSync() throws Exception {
+        when(userContext.currentMemberId()).thenReturn(1L);
+        var failure = new SyncException("The OKX API key does not exist in the selected region (50119).",
+            null, "OKX_REGION_MISMATCH");
+        when(service.addExchange(ExchangeType.OKX,
+            new ExchangeCredentials("test-key", "test-secret", "test-passphrase", "EEA"), 1L)).thenThrow(failure);
+        when(service.sync(7L, 1L)).thenThrow(failure);
+
+        mvc.perform(post("/api/crypto/exchange").contentType("application/json")
+                .content("""
+                    {"type":"OKX","apiKey":"test-key","apiSecret":"test-secret","apiPassphrase":"test-passphrase","region":"EEA"}
+                    """))
+            .andExpect(status().isUnprocessableEntity())
+            .andExpect(jsonPath("$.code").value("OKX_REGION_MISMATCH"));
+        mvc.perform(post("/api/crypto/exchange/7/sync"))
+            .andExpect(status().isUnprocessableEntity())
+            .andExpect(jsonPath("$.code").value("OKX_REGION_MISMATCH"));
     }
 
     @Test

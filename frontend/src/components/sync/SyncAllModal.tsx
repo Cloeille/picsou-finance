@@ -69,7 +69,7 @@ import {
 import { useAccounts } from '@/features/accounts/hooks'
 import { formatTimeAgo } from '@/lib/utils'
 import type { Account } from '@/types/api'
-import { formatApiError, formatTrAuthError, isTrAttemptOverError, isTrInvalidSessionStateError, isTrSessionDeadError } from '@/lib/errors'
+import { formatApiError, formatCryptoExchangeError, formatTrAuthError, isTrAttemptOverError, isTrInvalidSessionStateError, isTrSessionDeadError } from '@/lib/errors'
 import { TrAppConfirmation } from '@/components/sync/TrAppConfirmation'
 import { syncKeys } from '@/features/sync/keys'
 import { revolutErrorLabel } from '@/features/sync/revolut-phase'
@@ -602,7 +602,10 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
         if (connection.syncId !== undefined) retryBankMutation.mutate(connection.syncId, rowCallbacks(formatGeneric))
         break
       case 'exchange':
-        if (connection.syncId !== undefined) syncExchangeMutation.mutate(connection.syncId, rowCallbacks(formatGeneric))
+        if (connection.syncId !== undefined) {
+          syncExchangeMutation.mutate(connection.syncId,
+            rowCallbacks(err => formatCryptoExchangeError(err, t, 'common.errors.serverError')))
+        }
         break
       case 'wallet':
         if (connection.syncId !== undefined) syncWalletMutation.mutate(connection.syncId, rowCallbacks(formatGeneric))
