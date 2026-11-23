@@ -17,6 +17,7 @@ use crate::ledger::members;
 use crate::ledger::model::{Account, AccountType};
 use crate::ledger::sidecar::{SourceSyncResult, SyncStatus};
 use crate::ledger::valuation::{self, SnapshotContext};
+use rust_decimal::Decimal;
 
 pub const SOURCE: &str = "enable-banking";
 pub const RETRY_SOURCE: &str = "enable-banking-retry";
@@ -621,6 +622,10 @@ async fn upsert_account(
 ) -> Result<Option<serde_json::Value>, EbError> {
     let member_id = req.member_id;
     let currency = data.currency.clone().unwrap_or_else(|| "EUR".to_owned());
+    let is_card = data.account_type == AccountType::CreditCard;
+    // A card may carry the IBAN of the account it is debited from: never match or store it on the
+    // card.
+    let iban = data.iban.as_deref().filter(|_| !is_card);
     let mut existing =
         accounts::find_by_external_id_and_member(&mut *conn, &data.external_id, member_id).await?;
     if existing.is_none() {
@@ -628,12 +633,12 @@ async fn upsert_account(
         let deleted_uid =
             accounts::exists_soft_deleted_by_external_id(&mut *conn, &data.external_id, member_id)
                 .await?;
-        if !deleted_uid && let Some(iban) = &data.iban {
+        if !deleted_uid && let Some(iban) = iban {
             existing =
                 accounts::find_by_iban_currency_and_member(&mut *conn, iban, &currency, member_id)
                     .await?;
         }
-        let deleted_iban = match (&existing, &data.iban) {
+        let deleted_iban = match (&existing, iban) {
             (None, Some(iban)) if !deleted_uid => {
                 accounts::exists_soft_deleted_by_iban(
                     &mut *conn,
@@ -650,20 +655,32 @@ async fn upsert_account(
             tracing::info!(
                 "Skipping resurrection of soft-deleted account externalId={} iban={} member={member_id}",
                 fingerprint(Some(&data.external_id)),
-                fingerprint(data.iban.as_deref())
+                fingerprint(iban)
             );
             return Ok(None);
         }
     }
+    // A card never takes a positive balance: whatever the path, that figure is credit left, not
+    // owed.
+    let stored_card = existing
+        .as_ref()
+        .is_some_and(|account| account.account_type == AccountType::CreditCard);
+    let balance = data
+        .balance
+        .filter(|balance| !(stored_card && *balance > Decimal::ZERO));
     let now = state.clock.now();
+    let created = existing.is_none();
     let account = match existing {
         Some(mut account) => {
-            account.currency = currency.clone();
-            account.current_balance = data.balance;
+            // A balance left as is keeps the currency it was stored in.
+            if let Some(balance) = balance {
+                account.currency = currency.clone();
+                account.current_balance = balance;
+            }
             account.last_synced_at = Some(now);
             // The provider may have rotated the uid (Enable Banking v0.16.4, Boursorama).
             account.external_account_id = Some(data.external_id.clone());
-            if let Some(iban) = &data.iban {
+            if let Some(iban) = iban {
                 // A deleted sidecar account can be restored on reconnect, so it still reserves its IBAN.
                 let taken = accounts::exists_by_iban_currency_and_member_other_than(
                     &mut *conn, iban, &currency, member_id, account.id,
@@ -678,27 +695,29 @@ async fn upsert_account(
                     )
                     .await?;
                 if !taken {
-                    account.iban = Some(iban.clone());
+                    account.iban = Some(iban.to_owned());
                 }
             }
             if account.logo_url.is_none() && req.logo_url.is_some() {
                 account.logo_url = req.logo_url.clone();
             }
             account.requisition_id = Some(req.id);
+            refresh_card_identity(&mut account, data);
             accounts::update(&mut *conn, &account, now).await?
         }
         None => {
             let mut draft = NewAccount::new(
                 member_id,
                 data.name.clone().unwrap_or_else(|| "Account".to_owned()),
-                AccountType::Checking,
+                data.account_type,
             );
+            draft.card_nature = data.card_nature.filter(|_| is_card);
             draft.provider = req.institution_name.clone();
             draft.currency = currency.clone();
-            draft.current_balance = data.balance;
+            draft.current_balance = balance.unwrap_or(Decimal::ZERO);
             draft.last_synced_at = Some(now);
             draft.external_account_id = Some(data.external_id.clone());
-            draft.iban = data.iban.clone();
+            draft.iban = iban.map(str::to_owned);
             draft.is_manual = false;
             draft.color = ACCOUNT_COLOR.to_owned();
             draft.logo_url = req.logo_url.clone();
@@ -706,18 +725,25 @@ async fn upsert_account(
             accounts::insert(&mut *conn, &draft, now).await?
         }
     };
-    // The response carries the balance as the provider sent it, not as the column rescaled it.
+    // The response carries the balance as the provider sent it, not as the column rescaled it; a
+    // balance left as is answers with the stored one, and a new account without one with zero.
     let account = Account {
-        current_balance: data.balance,
+        current_balance: match balance {
+            Some(balance) => balance,
+            None if created => Decimal::ZERO,
+            None => account.current_balance,
+        },
         ..account
     };
-    let ctx = SnapshotContext {
-        prices: &*state.ledger.prices,
-        today: state.clock.today(),
-        now,
-    };
-    valuation::upsert_snapshot_from_native(&mut *conn, &ctx, &account, data.balance, ctx.today)
-        .await?;
+    if let Some(balance) = balance {
+        let ctx = SnapshotContext {
+            prices: &*state.ledger.prices,
+            today: state.clock.today(),
+            now,
+        };
+        valuation::upsert_snapshot_from_native(&mut *conn, &ctx, &account, balance, ctx.today)
+            .await?;
+    }
     // Balances first, transactions after: the import is best-effort, so an ASPSP serving balances
     // but refusing /transactions still produces the sync the user asked for.
     import_transactions(state, conn, &account, session_id).await?;
@@ -728,6 +754,36 @@ async fn upsert_account(
         .to_response(state, conn, &account)
         .await?;
     Ok(Some(response))
+}
+
+/// Brings an account synced before the provider's card type was read up to date (#664): a
+/// still-Checking account becomes a card, a card nature is only filled in when unknown, and only a
+/// name still equal to the one an earlier release generated is replaced. A type other than
+/// Checking and a name the user typed are kept; Checking itself cannot be told apart from the old
+/// default, so a card set back to it by hand is upgraded again.
+fn refresh_card_identity(account: &mut Account, data: &AccountData) {
+    if data.account_type != AccountType::CreditCard {
+        return;
+    }
+    // An IBAN stored in the current-account days is its funding account's: it would block that
+    // account from storing it and could match the card to it after a uid rotation.
+    account.iban = None;
+    if account.account_type == AccountType::Checking {
+        // Kept as is (no readable balance), a positive figure from the current-account days is
+        // credit left, not owed: as a card it would read as a negative debt, so wait for one.
+        if data.balance.is_none() && account.current_balance > Decimal::ZERO {
+            return;
+        }
+        account.account_type = AccountType::CreditCard;
+    }
+    if account.account_type == AccountType::CreditCard && account.card_nature.is_none() {
+        account.card_nature = data.card_nature;
+    }
+    if let (Some(legacy), Some(name)) = (&data.legacy_name, &data.name)
+        && *legacy == account.name
+    {
+        account.name = name.clone();
+    }
 }
 
 /// BankTransactionImportService.importFor: a provider failure logs and imports nothing.
