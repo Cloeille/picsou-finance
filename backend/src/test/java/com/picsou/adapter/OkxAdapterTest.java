@@ -237,6 +237,18 @@ class OkxAdapterTest {
         }
     }
 
+    @Test
+    void logsOnlyTheTypeOfAnUnexpectedClientFailure(CapturedOutput output) {
+        // A header validation error can quote the header value, here the passphrase.
+        var adapter = adapter(path -> Mono.error(
+            new IllegalArgumentException("invalid header value: " + CREDENTIALS.apiPassphrase())));
+        assertThatThrownBy(() -> adapter.fetchPositions(CREDENTIALS)).isInstanceOf(SyncException.class)
+            .hasMessageContaining("Could not read " + TRADING)
+            .hasMessageNotContaining(CREDENTIALS.apiPassphrase())
+            .hasNoCause();
+        assertThat(output.toString()).contains("IllegalArgumentException").doesNotContain(CREDENTIALS.apiPassphrase());
+    }
+
     @ParameterizedTest
     @CsvSource({"50011,rate-limited", "50102,server clock", "50111,rejected the API key",
         "50113,rejected the request signature", "51024,check the account's status and region on OKX"})
@@ -406,6 +418,25 @@ class OkxAdapterTest {
         var adapter = adapterWithReceipts(receipt, stakingPath, trading, funding, staked);
         assertThatThrownBy(() -> adapter.fetchPositions(CREDENTIALS)).isInstanceOf(SyncException.class)
             .hasMessageContainingAll(receipt, "cannot reconcile", "trading and funding", "staking balance");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "BETH," + ETH_STAKING + "," + SAVINGS,
+        "BETH," + ETH_STAKING + "," + ORDERS,
+        "OKSOL," + SOL_STAKING + "," + SAVINGS,
+        "OKSOL," + SOL_STAKING + "," + ORDERS
+    })
+    void rejectsReceiptsPlacedInEarnProducts(String receipt, String stakingPath, String earnPath) {
+        String earn = earnPath.equals(SAVINGS)
+            ? envelope("{\"ccy\":\"%s\",\"amt\":\"1\"}".formatted(receipt))
+            : envelope("{\"ordId\":\"1\",\"investData\":[{\"ccy\":\"%s\",\"amt\":\"1\"}]}".formatted(receipt));
+        var bodies = Map.of(
+            earnPath, earn,
+            stakingPath, envelope("{\"ccy\":\"%s\",\"amt\":\"4\"}".formatted(receipt)));
+        var adapter = adapter(path -> response(HttpStatus.OK, bodies.getOrDefault(path, emptyFor(path))));
+        assertThatThrownBy(() -> adapter.fetchPositions(CREDENTIALS)).isInstanceOf(SyncException.class)
+            .hasMessageContainingAll(receipt, "Simple Earn or On-chain Earn");
     }
 
     private OkxAdapter adapterWithReceipts(String receipt, String stakingPath, String trading, String funding, String staked) {

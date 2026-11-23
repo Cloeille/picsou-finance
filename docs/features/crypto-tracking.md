@@ -71,7 +71,9 @@ in `SPOT`. OKX credits BETH rewards and new OKSOL receipts to funding. The dedic
 balances include receipts in trading and funding as well as those being redeemed, so Picsou uses
 each endpoint's `amt` once as `STAKING` ETH or SOL. If the combined trading and funding receipts
 exceed the corresponding staking amount, the sync fails without recording a partial balance.
-A zero or absent staking balance therefore requires zero receipts in trading and funding.
+A zero or absent staking balance therefore requires zero receipts in trading and funding. BETH or
+OKSOL placed in Simple Earn or in an On-chain Earn order also fails the sync, because OKX does not
+say whether the staking balance includes it.
 [OKX v5 Earn reference](https://www.okx.com/docs-v5/en/#financial-product),
 [OKX ETH staking FAQ](https://www.okx.com/en-eu/help/eth-staking-faq),
 [OKX SOL staking guide](https://www.okx.com/en-eu/help/how-do-i-stake-and-redeem-oksol-crypto)
@@ -86,9 +88,9 @@ a currency and a non-negative quantity string. Duplicate JSON keys, malformed da
 transport errors and non-zero codes fail the sync. For `51024`, check the account's status and region
 on OKX.
 
-Only the EEA region was checked against a real account. Unauthenticated requests to the four Earn
-routes return `50103` on `us.okx.com`, `www.okx.com` and `eea.okx.com`. Availability for an
-authenticated US account is unverified.
+Unauthenticated requests to the four Earn routes return `50103` on `us.okx.com`, `www.okx.com` and
+`eea.okx.com`, so the routes exist on every host; whether OKX serves them to a US account is not
+documented. If it does not, the sync fails and reports it rather than recording a partial balance.
 
 As with other exchanges, Picsou sends non-EUR fiat balances, such as USD cash in funding, through
 the crypto pricing path. If that path has no EUR quote, Picsou logs the omission and may leave the

@@ -122,8 +122,8 @@ public class OkxAdapter implements CryptoExchangePort {
                 if (amount.signum() > 0) staking.merge(currency, amount, BigDecimal::add);
             }
         }
-        addStakingReceipts(spot, staking, credentials, ETH_STAKING, "BETH", "ETH");
-        addStakingReceipts(spot, staking, credentials, SOL_STAKING, "OKSOL", "SOL");
+        addStakingReceipts(spot, lending, staking, credentials, ETH_STAKING, "BETH", "ETH");
+        addStakingReceipts(spot, lending, staking, credentials, SOL_STAKING, "OKSOL", "SOL");
 
         List<ExchangePosition> positions = new ArrayList<>();
         spot.forEach((symbol, quantity) -> positions.add(ExchangePosition.spot(symbol, quantity)));
@@ -153,8 +153,15 @@ public class OkxAdapter implements CryptoExchangePort {
         return balances;
     }
 
-    private void addStakingReceipts(Map<String, BigDecimal> spot, Map<String, BigDecimal> staking,
-                                    ExchangeCredentials credentials, String path, String receipt, String underlying) {
+    private void addStakingReceipts(Map<String, BigDecimal> spot, Map<String, BigDecimal> lending,
+                                    Map<String, BigDecimal> staking, ExchangeCredentials credentials,
+                                    String path, String receipt, String underlying) {
+        // Whether the dedicated balance also covers a receipt placed in Simple Earn or On-chain Earn
+        // is not documented: counting it twice or dropping it would both be a wrong balance.
+        if (lending.containsKey(receipt) || staking.containsKey(receipt)) {
+            throw new SyncException("OKX reported " + receipt + " in Simple Earn or On-chain Earn. "
+                + "Picsou cannot tell whether the dedicated staking balance already includes it.");
+        }
         JsonNode rows = fetch(path, credentials);
         if (rows.size() > 1) throw invalidShape(path, "multiple staking balances");
         BigDecimal quantity = BigDecimal.ZERO;
@@ -234,7 +241,9 @@ public class OkxAdapter implements CryptoExchangePort {
             if (cause instanceof WebClientRequestException) {
                 throw new SyncException("Could not reach OKX for " + path + ".");
             }
-            // Client errors can carry request headers, and parsing errors can echo the body.
+            // Client errors can carry request headers (key, passphrase), and parsing errors can echo
+            // the body: log the exception type only, and keep it out of the SyncException.
+            log.error("OKX request for {} failed with {}", path, cause.getClass().getName());
             throw new SyncException("Could not read " + path + " from OKX.");
         }
         if (raw == null) throw new SyncException("OKX returned no response for " + path + ".");
