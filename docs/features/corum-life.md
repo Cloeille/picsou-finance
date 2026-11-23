@@ -43,14 +43,14 @@ validates both parts, then writes both in one transaction.
 - `backend/.../service/CorumLifeWriter.java` — `validate` and `write`, adoption
 - `backend/.../service/CorumLifeOperationWriter.java` — operations to transactions, reconcile
   (`Propagation.MANDATORY`)
-- `backend/src/main/resources/db/migration/V126__transaction_budget_neutral.sql` —
+- `backend-rs/migrations/V126__transaction_budget_neutral.sql` —
   `transaction.budget_neutral`
 - `backend/.../service/SyncValues.java` — `linesClose`, shared with BoursoBank
 - `backend/.../service/AccountService.java` — `isProviderValued` / `isSyncedCorumLife`: non-manual
   accounts whose `externalAccountId` starts with `Account.CORUM_LIFE_EXTERNAL_ID_PREFIX`
-- `backend/src/main/resources/db/migration/V124__corum_session_life_ambiguous.sql` —
+- `backend-rs/migrations/V124__corum_session_life_ambiguous.sql` —
   `corum_session.last_sync_life_ambiguous` (copied into `sidecar_session` by V142), exposed as `lifeAmbiguousCount` in the CORUM status
-- `backend/src/main/resources/db/migration/V125__corum_life_contract_facts.sql` — the contract
+- `backend-rs/migrations/V125__corum_life_contract_facts.sql` — the contract
   facts on `account` and `account_holding.provider_wealth_tier`
 - `backend/.../service/AccountService.java` — `valuation`: the contract's value and net invested
   pair; `HistoryService.buildIntradayHistory` takes the same pair

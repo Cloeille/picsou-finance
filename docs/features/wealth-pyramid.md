@@ -185,8 +185,8 @@ Backend:
 - `backend/src/main/java/com/picsou/service/AllocationTargetService.java` — read/replace, owns the defaults
 - `backend/src/main/java/com/picsou/service/EssentialExpenseEstimator.java` — the transaction-derived estimate
 - `backend/src/main/java/com/picsou/controller/AnalysisController.java` — `/api/analysis`
-- `backend/src/main/resources/db/migration/V82__account_type_life_insurance_and_scpi.sql`
-- `backend/src/main/resources/db/migration/V83__wealth_allocation.sql`
+- `backend-rs/migrations/V82__account_type_life_insurance_and_scpi.sql`
+- `backend-rs/migrations/V83__wealth_allocation.sql`
 
 Frontend:
 - `frontend/src/pages/analysis/AnalysisPage.tsx`, `PyramidSection.tsx`, `AllocationTargetsModal.tsx`

@@ -107,7 +107,7 @@ position. Holdings that resolve to the same ticker are merged with
 - `backend/src/main/java/com/picsou/exception/DegiroSessionExpiredException.java` — typed expiry signal between adapter and service
 - `backend/src/main/java/com/picsou/controller/DegiroController.java` — REST endpoints under `/api/degiro/`
 - `backend/src/main/java/com/picsou/model/DegiroSession.java`, `DegiroSessionStatus.java`
-- `backend/src/main/resources/db/migration/V71__degiro_session.sql`
+- `backend-rs/migrations/V71__degiro_session.sql`
 - `frontend/src/pages/sync/DegiroTab.tsx` — the DEGIRO tab in `SyncPage`
 - `frontend/src/components/sync/DegiroPanel.tsx` — same auth/sync flow, compact form for the unified "Add account" modal (mirrors `BourseDirectPanel.tsx`)
 - `frontend/src/components/shared/AddAccountModal.tsx` — `degiro` wizard step, renders `DegiroPanel`

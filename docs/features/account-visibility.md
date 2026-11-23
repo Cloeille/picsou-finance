@@ -88,7 +88,7 @@ success, since a visibility change can affect all three.
 
 ### Key files
 
-- `backend/src/main/resources/db/migration/V55__account_hidden.sql` — the `hidden` column
+- `backend-rs/migrations/V55__account_hidden.sql` — the `hidden` column
 - `backend/src/main/java/com/picsou/model/Account.java` — `hidden` field, outside `@SQLRestriction`
 - `backend/src/main/java/com/picsou/repository/AccountRepository.java` — `HiddenFalse` vs.
   unfiltered finders

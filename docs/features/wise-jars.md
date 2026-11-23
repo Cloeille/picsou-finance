@@ -69,7 +69,7 @@ by `V131__wise_connection.sql`.
 - `backend/src/main/java/com/picsou/service/WiseStatusWriter.java` — `ERROR` status in its own transaction
 - `backend/src/main/java/com/picsou/controller/WiseController.java` — `/api/wise`
 - `backend/src/main/java/com/picsou/model/WiseConnection.java`, `repository/WiseConnectionRepository.java`
-- `backend/src/main/resources/db/migration/V131__wise_connection.sql`
+- `backend-rs/migrations/V131__wise_connection.sql`
 - Wiring: `RateLimitConfig` (`wiseRequestBuckets`), `MemberSyncService`, `SyncStatusService`,
   `mcp/tools/SyncTools.java`, `service/sync/SourceSyncResult.java`, `AccountConnectionService`
 

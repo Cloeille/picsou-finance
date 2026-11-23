@@ -365,7 +365,7 @@ Backend:
   receivable out of the "financial" wealth mode (figure and curve): it counts in net and
   gross wealth only
 - `backend/.../model/AssetClass.java`, `WealthTier.java` — exhaustive switches
-- `backend/.../db/migration/V135__account_type_peer_loan.sql`,
+- `backend-rs/migrations/V135__account_type_peer_loan.sql`,
   `V136__peer_loans.sql`, `V137__peer_loan_cash_leg.sql`,
   `V138__peer_loan_linked_repayment.sql`, `V139__peer_loan_rate_period.sql`,
   `V140__widen_peer_loan_rate.sql`, `V141__peer_loan_rate_no_upper_bound.sql`

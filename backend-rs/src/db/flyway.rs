@@ -1,8 +1,8 @@
-//! Applies backend/src/main/resources/db/migration exactly as Flyway 11 does, so a database can
-//! move between the Java and the Rust backend in both directions: same flyway_schema_history
-//! rows (version, description, type, script, CRC32 checksum, installed_by, installed_rank), out of
-//! order allowed, no applied version may be missing locally, plus the startup callback
-//! LegacyMigrationRenumberingCallback and the baseline check of ReleaseMigrationCli.
+//! Applies backend-rs/migrations exactly as Flyway 11 does, so a database a Java release (up to
+//! 1.2.x) migrated carries on unchanged: same flyway_schema_history rows (version, description,
+//! type, script, CRC32 checksum, installed_by, installed_rank), out of order allowed, no applied
+//! version may be missing locally, plus the startup callback LegacyMigrationRenumberingCallback
+//! and the baseline check of ReleaseMigrationCli.
 
 use std::cmp::Ordering;
 use std::time::Instant;
@@ -10,8 +10,7 @@ use std::time::Instant;
 use include_dir::{Dir, include_dir};
 use sqlx::{Connection, PgConnection, Row};
 
-static MIGRATIONS: Dir<'_> =
-    include_dir!("$CARGO_MANIFEST_DIR/../backend/src/main/resources/db/migration");
+static MIGRATIONS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/migrations");
 
 const TABLE: &str = "flyway_schema_history";
 const QUOTED_TABLE: &str = "\"public\".\"flyway_schema_history\"";
@@ -650,6 +649,24 @@ mod tests {
     fn checksum_ignores_line_endings() {
         assert_eq!(checksum("a\nb\n"), checksum("a\r\nb"));
         assert_eq!(checksum("\u{feff}a\nb"), checksum("a\nb"));
+    }
+
+    /// Two branches that each add the next migration produce two files with the same version
+    /// and different names, which git merges without a conflict. This fails on the merge and
+    /// names both files.
+    #[test]
+    fn every_migration_has_a_unique_version() {
+        let all = migrations().unwrap();
+        assert!(!all.is_empty());
+        let shared: Vec<_> = all
+            .windows(2)
+            .filter(|pair| pair[0].version == pair[1].version)
+            .map(|pair| (&pair[0].script, &pair[1].script))
+            .collect();
+        assert!(
+            shared.is_empty(),
+            "migration versions used by more than one file: {shared:?}"
+        );
     }
 
     #[test]

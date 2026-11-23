@@ -265,7 +265,7 @@ to a 1 / 2 / 2.5 / 5 × 10ⁿ figure so the ticks stay readable.
 - `backend/src/main/java/com/picsou/service/GoalService.java` — `toRecurringResponse`, `requireSavingsTarget`
 - `backend/src/main/java/com/picsou/service/ProjectionService.java`
 - `backend/src/main/java/com/picsou/model/GoalAllocation.java`
-- `backend/src/main/resources/db/migration/V85__goal_recurring_investment.sql`,
+- `backend-rs/migrations/V85__goal_recurring_investment.sql`,
   `V89__goal_allocation.sql`
 - `frontend/src/pages/goals/GoalsPage.tsx` — two sections, two form shapes, `RecurringPlanCard`
 - `frontend/src/pages/goals/AllocationPicker.tsx` — the split editor

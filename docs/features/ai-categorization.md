@@ -68,8 +68,8 @@ inbox can render "AI: Transport · 92%" and pre-select that category — accepti
 - `backend/.../controller/TransactionCategorizationController.java` — `POST /api/transactions/categorize-ai` (202) + `GET /api/transactions/categorize-ai/status`
 - `backend/.../mcp/tools/AiCategorizationTools.java` — the same job over MCP; the status is aggregate counters, without the error text
 - `backend/.../controller/AdminController.java` — `PUT /api/admin/settings/ai` + `POST /api/admin/settings/ai/test` + `GET /api/admin/ai-calls`
-- `backend/.../resources/db/migration/V41__ai_categorization.sql` — settings + suggestion columns
-- `backend/.../resources/db/migration/V42__ai_call_log.sql` — `ai_call_log` table
+- `backend-rs/migrations/V41__ai_categorization.sql` — settings + suggestion columns
+- `backend-rs/migrations/V42__ai_call_log.sql` — `ai_call_log` table
 - `frontend/.../pages/budget/ManageTab.tsx` — `AiCategorizationCard` (toggle + mode + sensitivity)
 - `frontend/.../pages/budget/CategorizeTab.tsx` — suggestion chip + "Categorize with AI" button + live job progress poll
 - `frontend/.../pages/admin/sections/AiCategorizationSection.tsx` — admin UI: provider, API key, model, base URL, parallel requests, test button

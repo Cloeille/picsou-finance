@@ -88,7 +88,7 @@ Demo mode ships a fictional AMEX card (account 12, with history and transactions
 - `services/amex-auth/main.py` — login, OTP, API capture and accounts contract
 - `backend/src/main/java/com/picsou/service/AmexSyncService.java` — account, transaction and history-recovery persistence
 - `backend/src/main/java/com/picsou/service/budget/RecurringSeriesService.java` — budget calendar occurrence
-- `backend/src/main/resources/db/migration/V102__amex_payment_details.sql` — nullable account fields
+- `backend-rs/migrations/V102__amex_payment_details.sql` — nullable account fields
 - `frontend/src/pages/accounts/AccountDetailPage.tsx` and `frontend/src/pages/budget/RecurringTab.tsx` — display
 - `frontend/src/components/sync/AmexPanel.tsx` — connection, sync and history recovery
 - `frontend/src/demo/data/accounts.ts` — demo AMEX card

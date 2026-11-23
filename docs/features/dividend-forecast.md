@@ -155,7 +155,7 @@ notifier (iOS, 2.0) can use to tell "already sent" from "new".
 - `service/DividendForecastService.java` — cadence, projection, lag, SCPI, budget flag
 - `service/DividendReceiptService.java` — recognises received dividends, `received` list
 - `controller/DividendController.java`
-- `db/migration/V116__dividend_forecast.sql` — `dividend_source`, `dividend_event`, SCPI fields,
+- `backend-rs/migrations/V116__dividend_forecast.sql` — `dividend_source`, `dividend_event`, SCPI fields,
   `revenus-capital` category back-fill
 - `frontend/src/features/dividends/`, `components/dividends/AccountDividendsSection.tsx`,
   `pages/budget/OverviewTab.tsx`

@@ -71,7 +71,7 @@ Backend:
 - `backend/src/main/java/com/picsou/config/DynamicCorsConfigurationSource.java` — reads
   `cors.allowed-origins` from `app_setting` so the wizard's Security step takes effect
   without a container restart.
-- `backend/src/main/resources/db/migration/V25__setup_state.sql` — conditional seed:
+- `backend-rs/migrations/V25__setup_state.sql` — conditional seed:
   `setup.state='COMPLETE'` for existing installs (admin already present), else
   `'PENDING_ADMIN'`.
 - `backend/src/main/java/com/picsou/config/SecretBootstrap.java`: resolves the secrets from

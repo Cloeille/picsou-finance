@@ -76,7 +76,7 @@ characters.
 - `backend/src/main/java/com/picsou/service/MemberSyncService.java`, `service/sync/SourceSyncResult.java` — scheduled order, `NEEDS_REAUTH` mapping
 - `backend/src/main/java/com/picsou/service/SyncStatusService.java`, `mcp/tools/SyncTools.java` — MCP status and bank trigger
 - `backend/src/main/java/com/picsou/service/AccountConnectionService.java` — `sfin_` prefix for deletion cleanup
-- `backend/src/main/resources/db/migration/V113__simplefin_connection.sql`
+- `backend-rs/migrations/V113__simplefin_connection.sql`
 
 **Frontend**
 - `frontend/src/components/sync/SimplefinPanel.tsx` — token form, sync, disconnect

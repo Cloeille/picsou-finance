@@ -156,14 +156,14 @@ After submit, `useAddTransaction` / `useDeleteTransaction` hooks invalidate the 
 
 | File | Role |
 |------|------|
-| `backend/src/main/resources/db/migration/V24__manual_transactions.sql` | Schema extension (is_manual, tx_type, ticker, quantity, price_per_unit) |
-| `backend/src/main/resources/db/migration/V36__transaction_security_name.sql` | Adds `transaction.name` (position label) |
+| `backend-rs/migrations/V24__manual_transactions.sql` | Schema extension (is_manual, tx_type, ticker, quantity, price_per_unit) |
+| `backend-rs/migrations/V36__transaction_security_name.sql` | Adds `transaction.name` (position label) |
 | `backend/src/main/java/com/picsou/model/TransactionType.java` | Enum (DEPOSIT, WITHDRAWAL, BUY, SELL, DIVIDEND, FEE) |
 | `backend/src/main/java/com/picsou/service/HoldingComputeService.java` | Derives holdings (qty, VWAP, **name**) from BUY/SELL transactions |
 | `backend/src/main/java/com/picsou/service/ManualTransactionService.java` | Orchestrates add/edit/delete + re-derivation; persists `fees`; delegates ISIN/ticker/description to `InstrumentFieldResolver` |
 | `backend/src/main/java/com/picsou/service/InstrumentFieldResolver.java` | Shared ISIN→ticker/name resolver with language-neutral persisted descriptions (reused by the CSV importer) |
 | `backend/src/main/java/com/picsou/imports/TransactionAmountCalculator.java` | Single source of truth for the signed `amount` incl. fees |
-| `backend/src/main/resources/db/migration/V53__transaction_fees.sql` | Adds `transaction.fees` (folds into the PMP) |
+| `backend-rs/migrations/V53__transaction_fees.sql` | Adds `transaction.fees` (folds into the PMP) |
 | `backend/src/main/java/com/picsou/adapter/OpenFigiIsinConverter.java` | `isIsin()` detection + `resolve()` ISIN→ticker+name (shared with bank sync) |
 | `backend/src/main/java/com/picsou/controller/AccountController.java` | POST/DELETE `/accounts/{id}/transactions` |
 | `backend/src/main/java/com/picsou/repository/TransactionRepository.java` | `deleteByAccountIdAndIsManualFalse`, `sumAmountByAccountId`, `findByAccountIdAndTxTypeInOrderByDateAsc` |

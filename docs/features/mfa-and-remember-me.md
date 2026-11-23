@@ -361,7 +361,7 @@ All UIs are mobile-responsive (per repo convention).
 - `backend/src/main/java/com/picsou/controller/MfaController.java`, `backend/src/main/java/com/picsou/controller/SessionController.java`, `backend/src/main/java/com/picsou/controller/AdminMfaController.java`
 - `backend/src/main/java/com/picsou/config/PersistentTokenAuthFilter.java`
 - `backend/src/main/java/com/picsou/dto/MfaDtos.java` — all MFA DTOs as nested records (`MfaStatusResponse`, `EnrollInitRequest`, `EnrollInitResponse`, `EnrollVerifyRequest`, `RecoveryCodesResponse`, `MfaVerifyRequest`, `DisableMfaRequest`, `RegenerateCodesRequest`) — plus `backend/src/main/java/com/picsou/dto/SessionResponse.java`
-- `backend/src/main/resources/db/migration/V28__mfa_and_persistent_sessions.sql`
+- `backend-rs/migrations/V28__mfa_and_persistent_sessions.sql`
 
 **Backend (modified):**
 - `backend/src/main/java/com/picsou/model/AppUser.java` — no change required; relationship is held on `UserMfa.user_id` side.

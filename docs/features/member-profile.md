@@ -119,7 +119,7 @@ only exists if the two are recorded apart.
 - `dto/MemberProfileRequest.java` / `MemberProfileResponse.java`
 - `service/MemberProfileService.java` — modelled on `AllocationTargetService`
 - `controller/MeProfileController.java` — `GET` / `PUT /api/me/profile`
-- `db/migration/V90__member_profile.sql`
+- `backend-rs/migrations/V90__member_profile.sql`
 
 **Frontend**
 - `features/profile/{api,hooks}.ts` — `useMemberProfile`, `useSaveMemberProfile`, key `['me','profile']`

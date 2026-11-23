@@ -119,11 +119,11 @@ Nothing is written to the database and no backend change was needed: an existing
 - `backend/src/main/java/com/picsou/service/AccountService.java` — `refreshBankLogo()` / `bankLogoUrl()`: when a manual account re-resolves its bank's logo
 - `backend/src/main/java/com/picsou/dto/AccountRequest.java` — `institutionId`, consumed once and never stored
 - `frontend/src/components/shared/BankPicker.tsx` — the bank field: free text that also searches the catalog
-- `backend/src/main/resources/db/migration/V50__account_bank_logo.sql`
+- `backend-rs/migrations/V50__account_bank_logo.sql`
 - `frontend/src/components/shared/AccountCard.tsx` — `AccountAvatar` and `PropertyAvatar` sub-components
 - `frontend/src/components/shared/AddAccountModal.tsx` — `InstitutionLogo` (bank search list preview)
 - `frontend/src/components/ui/avatar.tsx` — shared Radix Avatar primitives
-- `backend/src/main/resources/db/migration/V75__account_logo_key.sql` — `account.logo_key` + wallet backfill
+- `backend-rs/migrations/V75__account_logo_key.sql` — `account.logo_key` + wallet backfill
 - `backend/src/main/java/com/picsou/service/WalletSyncService.java` — `DEFAULT_LOGO_KEY`, written at account creation
 - `backend/src/main/java/com/picsou/service/AccountService.java` — `normalizeLogoKey()`: a key is swappable only where one is already stored, and `update()` keeps it when the request omits it
 - `frontend/src/lib/provider-logos.ts` — `PROVIDER_LOGOS` + `LOGO_KEYS` maps, `providerLogoUrl()` / `logoKeyUrl()`; `HOLDING_PREFIX_LOGOS` + `bundledHoldingLogoUrl()` for provider-only fund lines (see [holding-logos.md](./holding-logos.md#bundled-marks-for-provider-only-funds))

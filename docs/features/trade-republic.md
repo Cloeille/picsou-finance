@@ -175,7 +175,7 @@ The daily and MCP syncs never start a login: an expired session stays `SESSION_E
 - `backend/src/main/java/com/picsou/service/TradeRepublicSyncService.java` -- Auth flow, `SidecarSyncStrategy`, CSV import, session management
 - `backend/src/main/java/com/picsou/controller/TradeRepublicController.java` -- REST endpoints under `/api/tr/`
 - `backend/src/main/java/com/picsou/model/SidecarSession.java` -- the shared session entity (bank `TRADE_REPUBLIC`)
-- `backend/src/main/resources/db/migration/V149__trade_republic_sidecar_session.sql` -- CHECK constraints + drop of the old table
+- `backend-rs/migrations/V149__trade_republic_sidecar_session.sql` -- CHECK constraints + drop of the old table
 
 ### Flow
 

@@ -67,7 +67,7 @@ accept the browser warning once.
   [`frontend/CLAUDE.md`](frontend/CLAUDE.md)) before coding. The
   non-negotiables live in [`docs/CODING_RULES.md`](docs/CODING_RULES.md).
 - **Database**: schema changes go through Flyway migrations
-  (`backend/src/main/resources/db/migration/`) — never edit a migration that is on
+  (`backend-rs/migrations/`) — never edit a migration that is on
   `main`; add a new versioned file (numbering: see
   [Before you open a pull request](#before-you-open-a-pull-request)).
 - **i18n**: user-visible strings go through `useTranslation()`; add every new
@@ -248,7 +248,7 @@ finished releases, and a release is tagged from it (`make release`).
   `main` is merged into the minor branch. So before merging a pull request that adds a migration,
   a maintainer runs `git fetch origin` and checks that its version is neither on `main` nor on any
   other open release branch (for each such `<branch>`, `git ls-tree --name-only origin/<branch>
-  backend/src/main/resources/db/migration/ | grep '/V<n>__'` prints nothing); if it is on one, the
+  backend-rs/migrations/ | grep '/V<n>__'` prints nothing); if it is on one, the
   pull request renumbers first. Merges are done one at a time, which serialises the check.
 - **`CHANGELOG.md`**: your entry goes under `[Unreleased]` on the target branch. Before the merge
   into `main`, a maintainer freezes the release branch (nothing else merges into it), renames that
@@ -308,7 +308,7 @@ the checklist below.
    every open `release/*` branch (all of them can still take a number). Another open pull request
    may take the same number: whichever merges second renumbers its own **unmerged** files (and
    anything that names them) after syncing, keeping their order and numbering them after the
-   latest version on the target branch; `MigrationVersionsTest` fails the build on a duplicate.
+   latest version on the target branch; the `every_migration_has_a_unique_version` test fails the build on a duplicate.
    Never renumber or edit a migration that is already on `main` or a release branch
    ([why](docs/conventions/database.md#writing-a-new-migration)). Name the version in the pull
    request description. A local `picsou-db` that already applied the old number refuses the

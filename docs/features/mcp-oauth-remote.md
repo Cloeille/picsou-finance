@@ -93,7 +93,7 @@ Properties B (no `?memberId=` override) and C (scope-only authorities, never `RO
 - `controller/OAuthConsentController.java` — `GET /api/oauth2/consent-info`.
 - `controller/ConnectedAppsController.java` + `dto/ConnectedAppResponse.java` — list/revoke.
 - `mcp/tools/OAuth2Tools.java` — `get_oauth2_session_status` now handles MCP-JWT sessions (no `AccessKey` row; `source="oauth2"`).
-- `db/migration/V54__oauth2_authorization_server.sql` — AS JDBC schema (blob columns → `text`; see Gotchas).
+- `backend-rs/migrations/V54__oauth2_authorization_server.sql` — AS JDBC schema (blob columns → `text`; see Gotchas).
 
 **Frontend**
 - `pages/oauth/ConsentPage.tsx` (route `/consent`) + `features/oauthConsent/`.

@@ -47,8 +47,7 @@ RUN case "$TARGETARCH" in \
 
 WORKDIR /build/backend-rs
 
-# The migrations are embedded in the binary from their Java location (include_dir!).
-COPY backend/src/main/resources/db/migration /build/backend/src/main/resources/db/migration
+# The migrations (backend-rs/migrations) are embedded in the binary (include_dir!).
 COPY backend-rs/ .
 RUN triple=$(cat /target) && linker=$(cat /linker) \
     && env_triple=$(tr '[:lower:]-' '[:upper:]_' <<< "$triple") \

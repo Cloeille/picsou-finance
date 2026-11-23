@@ -62,7 +62,7 @@ Users often start a goal in Picsou after they've already been saving for it. The
 - `backend/src/main/java/com/picsou/service/GoalService.java` -- Business logic: CRUD, progress calculation, monthly tracking, overrides
 - `backend/src/main/java/com/picsou/controller/GoalController.java` -- REST endpoints under `/api/goals/`
 - `backend/src/main/java/com/picsou/model/Goal.java` -- JPA entity: name, targetAmount, deadline, M:N accounts, `historyStartMonth`
-- `backend/src/main/resources/db/migration/V32__goal_history_start.sql` -- adds the nullable `history_start_month` column
+- `backend-rs/migrations/V32__goal_history_start.sql` -- adds the nullable `history_start_month` column
 - `backend/src/main/java/com/picsou/model/GoalMonthOverride.java` -- Per-month objective override (goal_id, yearMonth, amount)
 - `backend/src/main/java/com/picsou/model/GoalManualContribution.java` -- Per-month actual override (goal_id, yearMonth, amount)
 - `backend/src/main/java/com/picsou/repository/GoalRepository.java` -- `findAllWithAccounts()` for eager fetching

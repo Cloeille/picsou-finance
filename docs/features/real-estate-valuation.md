@@ -56,7 +56,7 @@ Daily snapshot job (unchanged) picks up the new balance -> gain curve for free
 - `service/RealEstateSummaryService.java` — gross / net / debt roll-up
 - `controller/RealEstateController.java`, `controller/GeocodingController.java`
 - `model/PropertyValuation.java`, `model/ValuationStatus.java`
-- `resources/db/migration/V66__real_estate_valuation_and_ownership.sql`
+- `backend-rs/migrations/V66__real_estate_valuation_and_ownership.sql`
 
 **Frontend**
 - `lib/property-icons.ts` — `PROPERTY_KIND_ICONS`, one lucide glyph per `PropertyKind`,

@@ -53,7 +53,7 @@ Picsou stores sensitive credentials in PostgreSQL: crypto exchange API keys/secr
 - `backend/src/main/java/com/picsou/config/CryptoEncryption.java` -- AES-256-GCM encrypt/decrypt, key validation at startup
 - `backend/src/main/java/com/picsou/service/CryptoExchangeSyncService.java` encrypts the exchange API key, secret and passphrase on write and decrypts them on read.
 - `backend/src/main/java/com/picsou/service/TradeRepublicSyncService.java` -- Encrypts session/refresh tokens on store, decrypts on read
-- `backend/src/main/resources/db/migration/V15__widen_encrypted_columns.sql` -- Widens columns for encrypted values, truncates legacy plaintext
+- `backend-rs/migrations/V15__widen_encrypted_columns.sql` -- Widens columns for encrypted values, truncates legacy plaintext
 
 ### Flow
 

@@ -493,111 +493,17 @@ pub const NATIVE_SIDECAR_SERVICES: &[&str] = &[
     "sofidy-auth",
 ];
 
-/// Sidecar compose service name, its URL variable, the production default and the dev default.
-pub const SIDECARS: &[(&str, &str, &str, &str)] = &[
-    (
-        "tr-auth",
-        "TR_AUTH_URL",
-        "http://tr-auth:8001",
-        "http://127.0.0.1:8001",
-    ),
-    (
-        "bourso-auth",
-        "BOURSO_AUTH_URL",
-        "http://bourso-auth:8001",
-        "http://127.0.0.1:8004",
-    ),
-    (
-        "caisse-epargne-auth",
-        "CAISSE_EPARGNE_AUTH_URL",
-        "http://caisse-epargne-auth:8001",
-        "http://127.0.0.1:8008",
-    ),
-    (
-        "banque-populaire-auth",
-        "BANQUE_POPULAIRE_AUTH_URL",
-        "http://banque-populaire-auth:8001",
-        "http://127.0.0.1:8014",
-    ),
-    (
-        "lbp-auth",
-        "LBP_AUTH_URL",
-        "http://lbp-auth:8001",
-        "http://127.0.0.1:8015",
-    ),
-    (
-        "revolut-auth",
-        "REVOLUT_AUTH_URL",
-        "http://revolut-auth:8002",
-        "http://127.0.0.1:8010",
-    ),
-    (
-        "bourse-direct-auth",
-        "BOURSE_DIRECT_AUTH_URL",
-        "http://bourse-direct-auth:8001",
-        "http://127.0.0.1:8002",
-    ),
-    (
-        "degiro-auth",
-        "DEGIRO_AUTH_URL",
-        "http://degiro-auth:8001",
-        "http://127.0.0.1:8011",
-    ),
-    (
-        "amundi-auth",
-        "AMUNDI_AUTH_URL",
-        "http://amundi-auth:8001",
-        "http://127.0.0.1:8003",
-    ),
-    (
-        "cmes-auth",
-        "CMES_AUTH_URL",
-        "http://cmes-auth:8001",
-        "http://127.0.0.1:8009",
-    ),
-    (
-        "cic-auth",
-        "CIC_AUTH_URL",
-        "http://cic-auth:8001",
-        "http://127.0.0.1:8012",
-    ),
-    (
-        "natixis-auth",
-        "NATIXIS_AUTH_URL",
-        "http://natixis-auth:8001",
-        "http://127.0.0.1:8016",
-    ),
-    (
-        "bnp-auth",
-        "BNP_AUTH_URL",
-        "http://bnp-auth:8001",
-        "http://127.0.0.1:8017",
-    ),
-    (
-        "amex-auth",
-        "AMEX_AUTH_URL",
-        "http://amex-auth:8001",
-        "http://127.0.0.1:8013",
-    ),
-    (
-        "fortuneo-auth",
-        "FORTUNEO_AUTH_URL",
-        "http://fortuneo-auth:8001",
-        "http://127.0.0.1:8005",
-    ),
-    (
-        "corum-auth",
-        "CORUM_AUTH_URL",
-        "http://corum-auth:8001",
-        "http://127.0.0.1:8006",
-    ),
-    (
-        "sofidy-auth",
-        "SOFIDY_AUTH_URL",
-        "http://sofidy-auth:8001",
-        "http://127.0.0.1:8007",
-    ),
-];
+/// Sidecar compose service name, its URL variable, the production default and the dev default:
+/// the rows of sidecars.tsv, which the Helm chart check and the workflow tests read too.
+pub fn sidecars() -> impl Iterator<Item = [&'static str; 4]> {
+    include_str!("sidecars.tsv")
+        .lines()
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(|line| {
+            let mut columns = line.split('\t');
+            std::array::from_fn(|_| columns.next().expect("sidecars.tsv has four columns"))
+        })
+}
 
 /// Spring's relaxed boolean conversion: true/false, on/off, yes/no, 1/0.
 fn parse_bool(key: &str, value: &str) -> Result<bool, ConfigError> {
@@ -767,17 +673,16 @@ impl Config {
         };
 
         let native_sidecars = bool_or(env, "APP_NATIVE_SIDECARS", false)?;
-        let sidecars = SIDECARS
-            .iter()
-            .map(|(name, var, prod, dev_url)| {
+        let sidecars = sidecars()
+            .map(|[name, var, prod, dev_url]| {
                 let value = match env.get(var) {
                     Some(v) => v.to_owned(),
-                    None if native_sidecars && NATIVE_SIDECAR_SERVICES.contains(name) => {
+                    None if native_sidecars && NATIVE_SIDECAR_SERVICES.contains(&name) => {
                         format!("native://{name}")
                     }
-                    None => (if dev { *dev_url } else { *prod }).to_owned(),
+                    None => (if dev { dev_url } else { prod }).to_owned(),
                 };
-                (*name, value)
+                (name, value)
             })
             .collect();
 

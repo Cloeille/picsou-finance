@@ -50,8 +50,7 @@ jobs:
             release-deployment: [*workflows, 'backend/**', 'backend-rs/**', 'frontend/**', 'docker/**', '.dockerignore']
             docker-compose: [*workflows, 'docker/**']
             backend: [*workflows, 'backend/**', 'services/base/**', 'services/sofidy-auth/**']
-            # The Rust backend embeds the Java migrations at build time.
-            backend-rs: &backend-rs [*workflows, 'backend-rs/**', 'backend/src/main/resources/db/migration/**']
+            backend-rs: &backend-rs [*workflows, 'backend-rs/**']
             frontend: [*workflows, 'frontend/**']
             # The entrypoint tests read each Camoufox sidecar's runtime parameters.
             sidecar-base: [*workflows, 'services/base/**', 'services/*-auth/Dockerfile']
@@ -64,10 +63,10 @@ jobs:
             desktop: [*backend-rs, 'desktop/**']
             desktop-windows: [*backend-rs, 'desktop/**']
             desktop-macos: [*backend-rs, 'desktop/**']
-            workflow-inventory: [*workflows, 'services/**', 'backend/src/main/resources/application*.yml', '.env.example',
+            workflow-inventory: [*workflows, 'services/**', 'backend-rs/src/sidecars.tsv', '.env.example',
                                  'docker/.env.example', 'docker/docker-compose.yml', 'docker/Dockerfile',
                                  'backend/pom.xml', 'backend/src/test/**']
-            helm-chart: [*workflows, 'charts/**', 'backend/src/main/resources/application.yml', 'docker/docker-compose.yml']
+            helm-chart: [*workflows, 'charts/**', 'backend-rs/src/sidecars.tsv', 'docker/docker-compose.yml']
             e2e: [*workflows, 'frontend/**']
       - name: Select the jobs and the sidecar matrix
         id: sidecars

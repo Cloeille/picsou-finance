@@ -10,7 +10,7 @@ SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:5432/picsou JWT_SECRET=... CRY
   SPA_LOCATION=../frontend/dist ./target/release/picsou
 ```
 
-It reads the environment variables of `backend/src/main/resources/application.yml`, with the same defaults (`SPRING_PROFILES_ACTIVE=dev` gives the dev profile's). `PICSOU_SECRETS_DIR` generates and keeps `jwt_secret` and `crypto_key` as the Java `SecretBootstrap` does. At start it applies the pending migrations of `backend/src/main/resources/db/migration` (embedded at build time), seeds `APP_USERNAME`/`APP_PASSWORD_HASH` when set, then serves until SIGINT or SIGTERM. `LOGGING_FILE_NAME` or `LOGGING_FILE_PATH` adds a rolling log file (10 MB, seven kept); `RUST_LOG` sets levels.
+It reads the environment variables of `backend/src/main/resources/application.yml`, with the same defaults (`SPRING_PROFILES_ACTIVE=dev` gives the dev profile's). `PICSOU_SECRETS_DIR` generates and keeps `jwt_secret` and `crypto_key` as the Java `SecretBootstrap` does. At start it applies the pending migrations of `backend-rs/migrations` (embedded at build time), seeds `APP_USERNAME`/`APP_PASSWORD_HASH` when set, then serves until SIGINT or SIGTERM. `LOGGING_FILE_NAME` or `LOGGING_FILE_PATH` adds a rolling log file (10 MB, seven kept); `RUST_LOG` sets levels.
 
 ## Test
 

@@ -219,7 +219,7 @@ and while polling for approval; shared app initialization does not replace it.
   history account-id set (the latter fixes a double-count once real pocket balances flow).
 - `backend/.../service/FamilyViewService.java` (shared net worth) and `mcp/tools/InsightTools.java` (default
   account ids) — leave out a pocket whose parent wallet is in the same list; a pocket without it still counts.
-- `backend/.../model/RevolutSession.java`; `db/migration/V48__revolut_session.sql`, `V49__…credentials.sql`.
+- `backend/.../model/RevolutSession.java`; `backend-rs/migrations/V48__revolut_session.sql`, `V49__…credentials.sql`.
 - `frontend/src/pages/sync/RevolutTab.tsx` — auto-sync tab (live phase → auto-confirm all, no selection).
 - `frontend/src/components/sync/RevolutSelectionCard.tsx` — Add-account selection (only not-imported;
   child-check implies parent-check). `features/sync/revolut-phase.ts` — shared phase and error labels.

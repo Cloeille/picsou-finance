@@ -20,8 +20,7 @@ CI_WORKFLOW = ROOT / ".github/workflows/ci.yml"
 CODEQL_WORKFLOW = ROOT / ".github/workflows/codeql.yml"
 APP_DOCKERFILE = ROOT / "docker/Dockerfile"
 DOCKER_COMPOSE = ROOT / "docker/docker-compose.yml"
-APPLICATION_YML = ROOT / "backend/src/main/resources/application.yml"
-APPLICATION_DEV_YML = ROOT / "backend/src/main/resources/application-dev.yml"
+SIDECAR_URLS = ROOT / "backend-rs/src/sidecars.tsv"
 BASE_DOCKERFILE = "services/base/Dockerfile"
 
 
@@ -172,18 +171,21 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
             with self.subTest(service=name):
                 self.assertEqual(services[name]["environment"]["APP_SIDECAR_API_KEY"], "${APP_SIDECAR_API_KEY:-}")
 
-    def test_every_compose_sidecar_has_a_url_in_both_spring_profiles(self):
+    def test_every_compose_sidecar_has_a_url_in_both_profiles(self):
         sidecars = {name for name in _load(DOCKER_COMPOSE)["services"] if name.endswith("-auth")}
-        default = _load(APPLICATION_YML)["app"]["sidecars"]
-        dev = _load(APPLICATION_DEV_YML)["app"]["sidecars"]
+        rows = [line.split("\t") for line in SIDECAR_URLS.read_text(encoding="utf-8").splitlines()
+                if line and not line.startswith("#")]
+        self.assertEqual({len(row) for row in rows}, {4}, "service, variable, URL, dev URL")
+        urls = {name: (variable, default, dev) for name, variable, default, dev in rows}
+        self.assertEqual(len(urls), len(rows), "one row per sidecar")
         for name in sorted(sidecars):
             with self.subTest(sidecar=name):
-                self.assertIn(name, default, "missing from application.yml")
-                self.assertIn(name, dev, "missing from application-dev.yml")
-                variable = name.upper().replace("-", "_") + "_URL"
-                self.assertRegex(default[name]["url"], rf"^\$\{{{variable}:http://{name}:\d+\}}$")
-                self.assertRegex(dev[name]["url"], rf"^\$\{{{variable}:http://127\.0\.0\.1:\d+\}}$")
-        dev_ports = [dev[name]["url"].rsplit(":", 1)[1] for name in sidecars if name in dev]
+                self.assertIn(name, urls, "missing from sidecars.tsv")
+                variable, default, dev = urls[name]
+                self.assertEqual(variable, name.upper().replace("-", "_") + "_URL")
+                self.assertRegex(default, rf"^http://{name}:\d+$")
+                self.assertRegex(dev, r"^http://127\.0\.0\.1:\d+$")
+        dev_ports = [dev.rsplit(":", 1)[1] for _, _, dev in urls.values()]
         self.assertEqual(len(dev_ports), len(set(dev_ports)), "dev ports must not collide")
 
     def test_amex_sidecar_uses_an_init_process(self):
@@ -634,11 +636,9 @@ class CiJobSelectionTest(unittest.TestCase):
             ".env.example": {"workflow-inventory"},
             "docker/Dockerfile": {"docker-compose", "release-deployment", "workflow-inventory"},
             "docker/docker-compose.yml": {"docker-compose", "release-deployment", "helm-chart"} | services,
-            "backend/src/main/resources/application.yml": {
-                "backend", "helm-chart", "release-deployment", "workflow-inventory",
-            },
-            "backend/src/main/resources/application-dev.yml": {
-                "backend", "release-deployment", "workflow-inventory",
+            "backend-rs/src/sidecars.tsv": {
+                "backend-rs", "desktop", "desktop-windows", "desktop-macos", "helm-chart", "release-deployment",
+                "workflow-inventory",
             },
             "charts/picsou/values.yaml": {"helm-chart"},
             "desktop/src-tauri/src/supervisor.rs": {"desktop", "desktop-windows", "desktop-macos"},

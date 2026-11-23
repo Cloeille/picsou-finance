@@ -18,7 +18,7 @@ spring:
 
 ## Migrations
 
-Migration files live in `backend/src/main/resources/db/migration/`.
+Migration files live in `backend-rs/migrations/`.
 
 ### Naming
 
@@ -90,7 +90,7 @@ Note: V8 is absent by design (skipped — never rolled into another migration). 
    latest version on the target branch: a later migration may depend on an earlier one. A local database that
    already applied the old numbers has to be recreated, which deletes its data and encryption key
    ([how to do it safely](../../CONTRIBUTING.md#before-you-open-a-pull-request)).
-   `MigrationVersionsTest` fails on a duplicate version.
+   The `every_migration_has_a_unique_version` test fails on a duplicate version.
 2. Use plain SQL — no Hibernate-generated DDL.
 3. Include constraints, indexes, and foreign keys explicitly.
 4. For new enums, use `CREATE TYPE ... AS ENUM (...)` at the top of the file.

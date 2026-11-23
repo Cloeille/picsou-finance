@@ -459,7 +459,7 @@ disconnect removes saved credentials with the session.
 - `backend/.../controller/BoursoController.java` — `/api/bourso/*`
 - `backend/.../model/SidecarSession.java`, `SidecarSyncStatus.java` (shared, see the [ADR](../decisions/2026-11-02-one-sidecar-session-table.md))
 - `backend/.../config/SyncExecutorConfig.java`, `SidecarSyncRecovery.java`
-- `backend/src/main/resources/db/migration/V78__bourso_session.sql`
+- `backend-rs/migrations/V78__bourso_session.sql`
 - `frontend/src/components/sync/BoursoPanel.tsx` (serves the Sync tab and the
   Add-account modal), `frontend/src/pages/sync/BoursoTab.tsx`
 - `frontend/src/features/sync/{api,hooks}.ts` — `boursoApi`, the `bourso` entry of `providers.ts` (`useProvider*('bourso')`)

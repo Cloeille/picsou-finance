@@ -58,7 +58,7 @@ remaining capital from the formula. As a result, the historical balance chart sh
   - `signedLiveBalanceEur` — applies the liability sign (LOAN → negative) for net-worth sums
   - `getLoanSummary(id, memberId)` — loads the Debt, validates type, delegates to amortization service
 - `backend/src/main/java/com/picsou/controller/AccountController.java` — `GET /accounts/{id}/loan-summary`
-- `backend/src/main/resources/db/migration/V27__loan_extra_fields.sql` — adds `insurance_monthly`, `file_fees`
+- `backend-rs/migrations/V27__loan_extra_fields.sql` — adds `insurance_monthly`, `file_fees`
 - `frontend/src/components/loan/LoanDetailSection.tsx` — orchestrator
   (monthly breakdown, progress, cost summary, amortization chart)
 - `frontend/src/components/shared/AccountForm.tsx` — extended form for LOAN

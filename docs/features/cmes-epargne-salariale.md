@@ -154,7 +154,7 @@ modal lists no CMES row there.
   `services/base/euro_information/{client.py,forms.py}`.
 - `SidecarBank.CMES`, `adapter/CmesAdapter.java`,
   `service/CmesSyncService.java`, `controller/CmesController.java`, `model/SidecarSession.java`,
-  `db/migration/V117__cmes_session.sql`, `V120__cmes_session_invalid_otp.sql`.
+  `backend-rs/migrations/V117__cmes_session.sql`, `V120__cmes_session_invalid_otp.sql`.
 - `frontend/src/components/sync/CmesPanel.tsx`, `features/sync/{api,hooks}.ts`.
 - No proxy timeout applies since #342 (Tomcat has none): the confirmation of
   `/api/cmes/auth/complete` can take two minutes, and the backend bounds its own wait.

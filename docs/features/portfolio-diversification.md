@@ -166,7 +166,7 @@ and "deliberately unclassified" cannot diverge.
 - `backend/src/main/java/com/picsou/service/SecurityProfileService.java` — `load` (read) vs `refresh` (network)
 - `backend/src/main/java/com/picsou/service/PortfolioDiversificationService.java` — the roll-up
 - `backend/src/main/java/com/picsou/service/HoldingClassificationService.java` — the manual override
-- `backend/src/main/resources/db/migration/V84__security_profile.sql`
+- `backend-rs/migrations/V84__security_profile.sql`
 - `backend/src/main/java/com/picsou/service/SecurityProfileRefreshRunner.java` — the on-demand pass
 - `backend/src/main/java/com/picsou/service/SecurityIdentityService.java` — ticker → ISIN, recorded at sync
 - `backend/src/main/java/com/picsou/adapter/JustEtfProvider.java` — fees, policy, fallback breakdown

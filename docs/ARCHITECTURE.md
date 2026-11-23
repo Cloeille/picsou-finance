@@ -310,7 +310,7 @@ and the [ADR](./decisions/2026-11-04-sso-login-alongside-passwords.md).
 | Service | Usage | Config |
 |---------|-------|--------|
 | PostgreSQL 16 | Persistence | `SPRING_DATASOURCE_URL` |
-| Flyway | Schema migrations | `db/migration/` |
+| Flyway | Schema migrations | `backend-rs/migrations/` |
 | Enable Banking | PSD2 bank sync (optional) | `ENABLEBANKING_*` |
 | SimpleFIN | Bank balances and posted transactions from a setup token (optional, no app credentials) | User-supplied token |
 | Wise API | Wise jar balances from a personal API token (optional, no app credentials) | User-supplied token |

@@ -263,7 +263,7 @@ silently).
 - `dto/SavingsConfigDto.java` — config request/response record
 - `dto/SavingsSuggestionResponse.java` — suggestion list item
 - `dto/SavingsBookSuggestion.java` — internal suggestion from the detector
-- `db/migration/V44__savings_interest_config.sql` — schema migration
+- `backend-rs/migrations/V44__savings_interest_config.sql` — schema migration
 
 **Frontend:**
 - `frontend/src/features/savings/api.ts` — Axios wrappers
