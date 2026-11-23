@@ -859,6 +859,9 @@ class JobTimeoutTest(unittest.TestCase):
     FILE_CAP = {"ci.yml": 20, "codeql.yml": 60, "docker.yml": 30, "desktop-release.yml": 40}
     JOB_CAP = {
         ("ci.yml", "e2e"): 30,  # bimodal: most runs take 2 min, the slow tail 9-15 min
+        # Cold every run: clippy 5 min, the test build 9 min, then the suite on PostgreSQL and on SQLite.
+        ("ci.yml", "backend-rs"): 45,
+        ("ci.yml", "desktop"): 40,  # cold Rust build and tests: 19 min
         ("ci.yml", "desktop-windows"): 40,  # cold Rust and bun builds: 25-30 min
         ("ci.yml", "desktop-macos"): 40,  # same builds as Windows, on Apple Silicon
     }
