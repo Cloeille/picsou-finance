@@ -44,6 +44,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `APP_NATIVE_SIDECARS=true` (or Helm `nativeSidecars: true`). They remain deployed by default
   in Docker Compose and Helm during the transition period.
 
+### Fixed
+
+- **Enable Banking: bank cards are imported as cards.** A card the bank declares as such (Boursorama's
+  immediate- and deferred-debit cards, for instance) was imported as a current account named
+  `immediat_debit` or `delayed_debit`. It is now a card, immediate or deferred debit, named after the label
+  the bank shows (e.g. the card brand and holder), and its balance counts as a debt. Accounts
+  already imported this way are fixed on the next sync; a type other than current account, or a
+  name you typed, is kept. When a card's balance cannot be read as an amount owed (positive, or
+  only the credit left), the card still syncs with its transactions and its balance is left as it was.
+  Two gaps remain: immediate-debit purchases are still counted twice in the budget, and a
+  deferred-debit card has no due date yet (#667, #668). (#664)
+
 ## [1.2.2] — 2026-11-21
 
 ### Added

@@ -117,7 +117,7 @@ frontend/src/
 Client → SyncController → SyncService → BankConnectorPort → Enable Banking
 ```
 
-Enable Banking (PSD2) is the canonical `BankConnectorPort` in 1.0.0. The Powens adapter (`PowensBankConnector`) ships in the codebase behind `@ConditionalOnExpression` but is **experimental and untested** — `@Primary` was removed for 1.0.0 so Enable Banking remains injected even when `POWENS_CLIENT_ID` is set. `SyncService.detectType()` maps provider types to the `AccountType` enum.
+Enable Banking (PSD2) is the canonical `BankConnectorPort` in 1.0.0. The Powens adapter (`PowensBankConnector`) ships in the codebase behind `@ConditionalOnExpression` but is **experimental and untested** — `@Primary` was removed for 1.0.0 so Enable Banking remains injected even when `POWENS_CLIENT_ID` is set. The connector reports each account's type; Enable Banking maps only `cash_account_type = CARD` to `CREDIT_CARD`, everything else is `CHECKING` (see `docs/features/bank-sync.md`).
 
 ### 2. Price refresh
 
