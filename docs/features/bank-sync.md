@@ -367,6 +367,7 @@ Known gaps (#664 follow-ups):
 ### Key files
 
 - `backend-rs/src/sync/enable_banking/connector.rs` -- PSD2 adapter (RSA JWT, async account linking)
+- `backend-rs/src/admin/mod.rs` (`EnableBankingCallLog`) -- In-memory log of raw Enable Banking responses, read by the admin page (see [admin-page.md](./admin-page.md#enable-banking-call-log))
 - `PowensBankConnector.java` -- Scraping adapter (experimental, OAuth webview; `@Primary` removed in 1.0.0)
 - `backend-rs/src/sync/enable_banking/entries.rs` -- Port interface with `AccountData`, `InstitutionData` records, `DEFAULT_COUNTRY`, and the shared `parseInstitutionId()` static parser
 - `backend-rs/src/sync/enable_banking/` -- Orchestration: initiate, complete, retry, resync, type detection
