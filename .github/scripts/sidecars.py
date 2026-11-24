@@ -4,7 +4,7 @@ CI and publishing read the connector list from here, so adding a connector touch
 no workflow file.
 
   sidecars.py                  JSON list of {"service", "base"}, one per sidecar
-  sidecars.py --publish        docker.yml's build matrix: the app image, then every sidecar
+  sidecars.py --publish        docker.yml's build matrix: the app image, the demo frontend, then every sidecar
   sidecars.py --select         ci.yml: writes `jobs` (the path filters that matched, $CHANGES,
                                without `sidecar` when no sidecar leg is left, without
                                `native-sidecars` when no browserless one is) and `matrix`
@@ -38,7 +38,14 @@ def inventory():
 
 def publish_matrix(repository):
     app = {"name": "app", "image": repository, "context": ".", "dockerfile": "docker/Dockerfile", "versioned": True}
-    return [app] + [
+    demo = {
+        "name": "demo",
+        "image": f"{repository}/demo",
+        "context": ".",
+        "dockerfile": "docker/Dockerfile.demo",
+        "versioned": True,
+    }
+    return [app, demo] + [
         {
             "name": sidecar["service"],
             "image": f"{repository}/{sidecar['service']}",

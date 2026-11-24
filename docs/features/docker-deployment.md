@@ -574,9 +574,10 @@ docker load < picsou-release.tar.gz
 
 ### Pulling from GHCR
 
-The app and every sidecar image are published by `.github/workflows/docker.yml`
-(matrix build, one entry per image, the sidecars listed from `services/*-auth` by
-`.github/scripts/sidecars.py`) **only after CI is green**: backend tests, frontend
+The app, the demo frontend (`ghcr.io/cloeille/picsou-finance/demo`, see
+[demo mode](demo-mode.md#published-image)) and every sidecar image are published by
+`.github/workflows/docker.yml` (matrix build, one entry per image, the sidecars listed
+from `services/*-auth` by `.github/scripts/sidecars.py`) **only after CI is green**: backend tests, frontend
 lint/typecheck/unit, Playwright e2e, every sidecar's image tests, the Compose sidecar build
 and the workflow inventory, then the `ci-ok` gate. `ci.yml` calls that workflow on a successful `push` to `main` or a
 version tag — not on pull requests, so a failing test never produces `nightly` / `latest` /

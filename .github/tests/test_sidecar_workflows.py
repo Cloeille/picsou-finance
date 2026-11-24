@@ -214,6 +214,10 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
             "name": "app", "image": "Owner/repo", "context": ".",
             "dockerfile": "docker/Dockerfile", "versioned": True,
         })
+        self.assertEqual(matrix[1], {
+            "name": "demo", "image": "Owner/repo/demo", "context": ".",
+            "dockerfile": "docker/Dockerfile.demo", "versioned": True,
+        })
         for service in ("amex-auth", "degiro-auth"):
             with self.subTest(service=service):
                 entry = next(item for item in matrix if item.get("name") == service)
