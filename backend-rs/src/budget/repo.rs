@@ -94,6 +94,43 @@ pub async fn sum_by_categories_between<'e>(
     .await
 }
 
+/// Signed sum per category_id over categories within [from, to].
+pub async fn sums_by_categories_between<'e>(
+    db: impl DbExec<'e>,
+    category_ids: &[i64],
+    from: NaiveDate,
+    to: NaiveDate,
+) -> sqlx::Result<HashMap<i64, Decimal>> {
+    if category_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let sql = if db.is_sqlite() {
+        format!(
+            "SELECT t.category_id, dec_sum(t.amount) AS amount {} WHERE t.category_id = ANY($1) \
+             AND a.hidden = false AND t.budget_neutral = false AND t.date BETWEEN $2 AND $3 \
+             GROUP BY t.category_id",
+            member_join()
+        )
+    } else {
+        format!(
+            "SELECT t.category_id, COALESCE(SUM(t.amount), 0) {} WHERE t.category_id = ANY($1) \
+             AND a.hidden = false AND t.budget_neutral = false AND t.date BETWEEN $2 AND $3 \
+             GROUP BY t.category_id",
+            member_join()
+        )
+    };
+    let rows: Vec<(i64, Option<Decimal>)> = crate::db::query_as(&sql)
+        .bind(category_ids)
+        .bind(from)
+        .bind(to)
+        .fetch_all(db)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(id, sum)| sum.map(|s| (id, s)))
+        .collect())
+}
+
 /// findByMemberIdAndCategoryIdInAndDateBetween: newest first.
 pub async fn member_in_categories_between<'e>(
     db: impl DbExec<'e>,

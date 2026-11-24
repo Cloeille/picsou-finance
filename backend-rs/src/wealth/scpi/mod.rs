@@ -3,6 +3,8 @@
 
 pub mod reconciler;
 
+use std::collections::HashMap;
+
 use axum::extract::State;
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
@@ -23,7 +25,7 @@ pub fn register(routes: &mut Routes) {
 }
 
 /// ScpiProvider, stored and serialized by name.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Provider {
     Corum,
@@ -113,6 +115,15 @@ fn require_code(fund_code: &str) -> AppResult<String> {
     Ok(fund_code.trim().to_owned())
 }
 
+#[derive(DbFromRow)]
+struct LinkedPositionRow {
+    corum_fund_code: Option<String>,
+    sofidy_fund_code: Option<String>,
+    louve_fund_code: Option<String>,
+    account_id: Option<i64>,
+    account_name: Option<String>,
+}
+
 async fn list(
     State(state): State<AppState>,
     auth: Auth,
@@ -125,13 +136,41 @@ async fn list(
     .bind(auth.member_id)
     .fetch_all(&mut conn)
     .await?;
+    if rows.is_empty() {
+        return Ok(axum::Json(Vec::new()));
+    }
+    let linked_rows: Vec<LinkedPositionRow> = crate::db::query_as::<LinkedPositionRow>(
+        "SELECT p.corum_fund_code, p.sofidy_fund_code, p.louve_fund_code, \
+         a.id AS account_id, a.name AS account_name \
+         FROM scpi_position p LEFT JOIN account a ON a.id = p.account_id AND a.deleted_at IS NULL \
+         WHERE p.member_id = $1 \
+         AND (p.corum_fund_code IS NOT NULL OR p.sofidy_fund_code IS NOT NULL OR p.louve_fund_code IS NOT NULL) \
+         ORDER BY p.id",
+    )
+    .bind(auth.member_id)
+    .fetch_all(&mut conn)
+    .await?;
+    let mut links: HashMap<(Provider, String), (Option<i64>, Option<String>)> = HashMap::new();
+    for pos in linked_rows {
+        for (provider, code) in [
+            (Provider::Corum, pos.corum_fund_code),
+            (Provider::Sofidy, pos.sofidy_fund_code),
+            (Provider::Louve, pos.louve_fund_code),
+        ] {
+            if let Some(code) = code {
+                links
+                    .entry((provider, code))
+                    .or_insert_with(|| (pos.account_id, pos.account_name.clone()));
+            }
+        }
+    }
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
-        let link = match Provider::parse(&row.provider) {
-            Ok(provider) => linked(&mut conn, auth.member_id, provider, &row.fund_code).await?,
-            Err(_) => None,
-        };
-        let (account_id, account_name) = link.map(|(_, id, name)| (id, name)).unwrap_or_default();
+        let (account_id, account_name) = Provider::parse(&row.provider)
+            .ok()
+            .and_then(|provider| links.get(&(provider, row.fund_code.clone())))
+            .cloned()
+            .unwrap_or_default();
         out.push(ScpiFundResponse {
             provider: row.provider,
             fund_code: row.fund_code,

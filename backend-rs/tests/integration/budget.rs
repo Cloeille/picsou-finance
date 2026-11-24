@@ -1188,7 +1188,13 @@ async fn ai_job_does_not_copy_failed_leader_error_to_same_chunk_duplicates() {
         .tx(&checking, "2026-01-02", "-8.50", "Boulangerie Martin", None)
         .await;
     let tx2 = c
-        .tx(&checking, "2026-01-03", "-11.00", "Boulangerie Martin", None)
+        .tx(
+            &checking,
+            "2026-01-03",
+            "-11.00",
+            "Boulangerie Martin",
+            None,
+        )
         .await;
 
     struct FailFirst {
@@ -1275,4 +1281,59 @@ async fn ai_job_does_not_copy_failed_leader_error_to_same_chunk_duplicates() {
     assert_eq!(logs[1].1, "OK");
     assert!(logs[1].2.is_none());
     assert!(logs[1].3);
+}
+
+#[tokio::test]
+async fn envelopes_list_batches_multiple_rollups_leaves_and_empty_budgets() {
+    let c = ctx().await;
+    let checking = c.account("Courant", AccountType::Checking).await;
+    let food = c.category("Food", "EXPENSE", None).await;
+    let snacks = c.category("Snacks", "EXPENSE", Some(food)).await;
+    let transport = c.category("Transport", "EXPENSE", None).await;
+    let unused = c.category("Unused", "EXPENSE", None).await;
+
+    for (cat, limit) in [(food, 400.0), (transport, 100.0), (unused, 50.0)] {
+        let r = c
+            .client
+            .post("/api/budgets")
+            .json(&json!({"categoryId": cat, "monthlyLimit": limit}))
+            .send()
+            .await;
+        assert_eq!(r.status, 201);
+    }
+
+    c.tx(&checking, "2026-01-05", "-120.50", "Market", Some(food))
+        .await;
+    c.tx(&checking, "2026-01-06", "-30.00", "Chips", Some(snacks))
+        .await;
+    c.tx(&checking, "2026-01-07", "-25.00", "Metro", Some(transport))
+        .await;
+
+    let list = c.get("/api/budgets").await;
+    let arr = list.as_array().unwrap();
+    assert_eq!(arr.len(), 3);
+    assert_eq!(
+        (
+            arr[0]["categoryId"].as_i64(),
+            arr[0]["rollup"].as_bool(),
+            num(&arr[0]["spent"])
+        ),
+        (Some(food), Some(true), "150.50000000".into())
+    );
+    assert_eq!(
+        (
+            arr[1]["categoryId"].as_i64(),
+            arr[1]["rollup"].as_bool(),
+            num(&arr[1]["spent"])
+        ),
+        (Some(transport), Some(false), "25.00000000".into())
+    );
+    assert_eq!(
+        (
+            arr[2]["categoryId"].as_i64(),
+            arr[2]["rollup"].as_bool(),
+            num(&arr[2]["spent"])
+        ),
+        (Some(unused), Some(false), "0".into())
+    );
 }

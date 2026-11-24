@@ -383,5 +383,8 @@ async fn estimate_handles_non_ascii_insee_code_without_panicking() {
     .unwrap();
 
     let resp = estimate(&app.state, prop_id, member).await;
-    assert!(resp.is_ok(), "non-ASCII INSEE code must not panic: {resp:?}");
+    assert!(
+        resp.is_ok(),
+        "non-ASCII INSEE code must not panic: {resp:?}"
+    );
 }

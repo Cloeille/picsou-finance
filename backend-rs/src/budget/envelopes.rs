@@ -2,6 +2,8 @@
 //! payday cycle. Spent is derived on read (outflows are negative, so spent = -sum), and a parent
 //! envelope covers its whole subtree.
 
+use std::collections::HashMap;
+
 use axum::extract::State;
 use axum::http::StatusCode;
 use chrono::NaiveDate;
@@ -80,26 +82,21 @@ async fn current_cycle(state: &AppState, member_id: i64) -> AppResult<CycleRange
     Ok(cycle::cycle_for(state.clock.today(), day))
 }
 
-async fn response(
-    state: &AppState,
+fn build_response(
     id: i64,
     category: &Category,
     limit: Decimal,
-    member_id: i64,
+    rollup: bool,
+    signed: Decimal,
     cycle: CycleRange,
-) -> AppResult<BudgetResponse> {
-    let children = repo::children(&state.db, member_id, category.id).await?;
-    let rollup = !children.is_empty();
-    let mut ids = vec![category.id];
-    ids.extend(children.iter().map(|c| c.id));
-    let signed = repo::sum_by_categories_between(&state.db, &ids, cycle.start, cycle.end).await?;
+) -> BudgetResponse {
     let spent = jdec::negate(signed);
     let percent = if limit > Decimal::ZERO {
         jdec::multiply(divide(spent, limit, 4, HALF_UP), Decimal::ONE_HUNDRED)
     } else {
         Decimal::ZERO
     };
-    Ok(BudgetResponse {
+    BudgetResponse {
         id,
         category_id: category.id,
         category_name: category.name.clone(),
@@ -114,7 +111,23 @@ async fn response(
         rollup,
         cycle_start: cycle.start,
         cycle_end: cycle.end,
-    })
+    }
+}
+
+async fn response(
+    state: &AppState,
+    id: i64,
+    category: &Category,
+    limit: Decimal,
+    member_id: i64,
+    cycle: CycleRange,
+) -> AppResult<BudgetResponse> {
+    let children = repo::children(&state.db, member_id, category.id).await?;
+    let rollup = !children.is_empty();
+    let mut ids = vec![category.id];
+    ids.extend(children.iter().map(|c| c.id));
+    let signed = repo::sum_by_categories_between(&state.db, &ids, cycle.start, cycle.end).await?;
+    Ok(build_response(id, category, limit, rollup, signed, cycle))
 }
 
 pub async fn find_all(
@@ -128,23 +141,55 @@ pub async fn find_all(
     .bind(auth.member_id)
     .fetch_all(&state.db)
     .await?;
+    if rows.is_empty() {
+        return Ok(axum::Json(Vec::new()));
+    }
+    let category_ids: Vec<i64> = rows.iter().map(|r| r.category_id).collect();
+    let categories = repo::categories_by_ids(&state.db, &category_ids).await?;
+    let child_rows: Vec<(i64, i64)> = crate::db::query_as(
+        "SELECT parent_id, id FROM category WHERE member_id = $1 AND parent_id = ANY($2)",
+    )
+    .bind(auth.member_id)
+    .bind(&category_ids)
+    .fetch_all(&state.db)
+    .await?;
+    let mut children_by_parent: HashMap<i64, Vec<i64>> = HashMap::new();
+    for (parent_id, child_id) in child_rows {
+        children_by_parent
+            .entry(parent_id)
+            .or_default()
+            .push(child_id);
+    }
+    let mut all_ids = category_ids;
+    for children in children_by_parent.values() {
+        all_ids.extend(children.iter().copied());
+    }
+    let sums =
+        repo::sums_by_categories_between(&state.db, &all_ids, cycle.start, cycle.end).await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
-        let category = repo::categories_by_ids(&state.db, &[row.category_id])
-            .await?
-            .remove(&row.category_id)
+        let category = categories
+            .get(&row.category_id)
             .ok_or_else(category_not_found)?;
-        out.push(
-            response(
-                &state,
-                row.id,
-                &category,
-                repo::column_scale(row.monthly_limit, 2),
-                auth.member_id,
-                cycle,
-            )
-            .await?,
-        );
+        let children = children_by_parent
+            .get(&row.category_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let rollup = !children.is_empty();
+        let mut signed = Decimal::ZERO;
+        for id in std::iter::once(row.category_id).chain(children.iter().copied()) {
+            if let Some(amount) = sums.get(&id) {
+                signed += *amount;
+            }
+        }
+        out.push(build_response(
+            row.id,
+            category,
+            repo::column_scale(row.monthly_limit, 2),
+            rollup,
+            signed,
+            cycle,
+        ));
     }
     Ok(axum::Json(out))
 }

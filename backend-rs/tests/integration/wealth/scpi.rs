@@ -84,3 +84,91 @@ async fn ignoring_a_fund_unlinks_its_account_and_restore_lifts_the_tombstone() {
         .await;
     assert_eq!(response.json()["detail"], "Invalid fund code");
 }
+
+#[tokio::test]
+async fn listing_multiple_scpi_funds_resolves_links_across_providers_and_ignores_deleted_accounts()
+{
+    let app = TestApp::with_admin().await;
+    let admin = app.login_admin().await;
+    let member: i64 =
+        picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
+    let corum_acc = account(&app, NewAccount::new(member, "CORUM XL", AccountType::Scpi))
+        .await
+        .id;
+    let sofidy_acc = account(
+        &app,
+        NewAccount::new(member, "Immorente", AccountType::Scpi),
+    )
+    .await
+    .id;
+    let deleted_acc = account(
+        &app,
+        NewAccount::new(member, "Old Louve", AccountType::Scpi),
+    )
+    .await
+    .id;
+    picsou::db::query("UPDATE account SET deleted_at = $2 WHERE id = $1")
+        .bind(deleted_acc)
+        .bind(app.state.clock.now())
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+
+    picsou::db::query(
+        "INSERT INTO scpi_position (account_id, member_id, share_count, corum_fund_code) VALUES ($1, $2, 3, 'XL')",
+    )
+    .bind(corum_acc)
+    .bind(member)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+    picsou::db::query(
+        "INSERT INTO scpi_position (account_id, member_id, share_count, sofidy_fund_code) VALUES ($1, $2, 5, 'IMMO')",
+    )
+    .bind(sofidy_acc)
+    .bind(member)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+    picsou::db::query(
+        "INSERT INTO scpi_position (account_id, member_id, share_count, louve_fund_code) VALUES ($1, $2, 2, 'LV1')",
+    )
+    .bind(deleted_acc)
+    .bind(member)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+
+    for (provider, code, label) in [
+        ("CORUM", "XL", "CORUM XL"),
+        ("LOUVE", "LV1", "Louve Deleted"),
+        ("SOFIDY", "IMMO", "Immorente"),
+        ("SOFIDY", "UNLINKED", "Unlinked Fund"),
+    ] {
+        picsou::db::query(
+            "INSERT INTO scpi_provider_fund (member_id, provider, fund_code, label) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(member)
+        .bind(provider)
+        .bind(code)
+        .bind(label)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    }
+
+    let funds = admin.get("/api/scpi/funds").send().await.json();
+    let arr = funds.as_array().unwrap();
+    assert_eq!(arr.len(), 4);
+    // Ordered by provider, label: CORUM, LOUVE, SOFIDY (Immorente), SOFIDY (Unlinked Fund)
+    assert_eq!(arr[0]["accountId"], corum_acc);
+    assert_eq!(arr[0]["accountName"], "CORUM XL");
+    assert!(arr[1].get("accountId").is_none());
+    assert!(arr[1].get("accountName").is_none());
+    assert_eq!(arr[2]["accountId"], sofidy_acc);
+    assert_eq!(arr[2]["accountName"], "Immorente");
+    assert!(arr[3].get("accountId").is_none());
+}
