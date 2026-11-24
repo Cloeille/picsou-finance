@@ -136,6 +136,23 @@ async fn the_ios_app_signs_in_with_pkce_and_calls_the_api() {
 }
 
 #[tokio::test]
+async fn a_code_redeemed_twice_at_the_same_instant_yields_one_token() {
+    let app = TestApp::with_admin().await;
+    let admin = app.login_admin().await;
+    let granted = authorize(&admin, "picsou-ios", "picsou://callback", "read").await;
+    let code = query(&location(&granted))["code"].clone();
+
+    let (first, second) = tokio::join!(
+        exchange(&app, &code, "picsou-ios", "picsou://callback"),
+        exchange(&app, &code, "picsou-ios", "picsou://callback"),
+    );
+
+    let mut statuses = [first.status, second.status];
+    statuses.sort();
+    assert_eq!(statuses, [StatusCode::OK, StatusCode::BAD_REQUEST]);
+}
+
+#[tokio::test]
 async fn request_and_token_errors_follow_spring_authorization_server() {
     let app = TestApp::with_admin().await;
     let admin = app.login_admin().await;

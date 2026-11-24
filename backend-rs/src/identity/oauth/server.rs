@@ -754,10 +754,13 @@ pub async fn token(
     let expires = now + chrono::Duration::seconds(client.access_token_ttl);
     let claims = access_claims(&origin, &client, &snapshot, &scopes, now, expires);
     let access_token = sign(&state, &claims);
-    crate::db::query(
+    // Two requests redeeming the same code both read it as unused: only the one whose update
+    // still finds the metadata it read gets a token.
+    let redeemed = crate::db::query(
         "UPDATE oauth2_authorization SET authorization_code_metadata = $2, access_token_value = $3, \
          access_token_issued_at = $4, access_token_expires_at = $5, access_token_metadata = $6, \
-         access_token_type = 'Bearer', access_token_scopes = $7 WHERE id = $1",
+         access_token_type = 'Bearer', access_token_scopes = $7 \
+         WHERE id = $1 AND authorization_code_metadata IS NOT DISTINCT FROM $8",
     )
     .bind(&found.id)
     .bind(jackson::code_metadata(true))
@@ -766,8 +769,13 @@ pub async fn token(
     .bind(to_local(&state, expires))
     .bind(jackson::access_metadata(&claims, false))
     .bind((!scopes.is_empty()).then(|| scopes.join(",")))
+    .bind(&found.authorization_code_metadata)
     .execute(&state.db)
-    .await?;
+    .await?
+    .rows_affected();
+    if redeemed != 1 {
+        return Ok(invalid_grant());
+    }
     let mut body = Map::new();
     body.insert("access_token".into(), access_token.into());
     if !scopes.is_empty() {

@@ -129,12 +129,17 @@ pub async fn verify_totp(state: &AppState, user: &AppUser, code: &str) -> AppRes
     let Some(step) = match_step(state, &secret, code, mfa.last_used_step) else {
         return Ok(false);
     };
-    crate::db::query("UPDATE user_mfa SET last_used_step = $1, updated_at = now() WHERE id = $2")
-        .bind(step)
-        .bind(mfa.id)
-        .execute(&state.db)
-        .await?;
-    Ok(true)
+    // Two requests carrying the same code both read the old step: only one may take it.
+    let taken = crate::db::query(
+        "UPDATE user_mfa SET last_used_step = $1, updated_at = now() \
+         WHERE id = $2 AND (last_used_step IS NULL OR last_used_step < $1)",
+    )
+    .bind(step)
+    .bind(mfa.id)
+    .execute(&state.db)
+    .await?
+    .rows_affected();
+    Ok(taken == 1)
 }
 
 pub async fn verify_recovery_code(state: &AppState, user: &AppUser, code: &str) -> AppResult<bool> {
@@ -148,12 +153,15 @@ pub async fn verify_recovery_code(state: &AppState, user: &AppUser, code: &str) 
             .await?;
     for (id, hash) in codes {
         if password::matches(code, &hash).await {
-            crate::db::query("UPDATE user_mfa_recovery_code SET used_at = $1 WHERE id = $2")
-                .bind(state.clock.now())
-                .bind(id)
-                .execute(&state.db)
-                .await?;
-            return Ok(true);
+            let taken = crate::db::query(
+                "UPDATE user_mfa_recovery_code SET used_at = $1 WHERE id = $2 AND used_at IS NULL",
+            )
+            .bind(state.clock.now())
+            .bind(id)
+            .execute(&state.db)
+            .await?
+            .rows_affected();
+            return Ok(taken == 1);
         }
     }
     Ok(false)

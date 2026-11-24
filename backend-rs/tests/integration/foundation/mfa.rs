@@ -212,6 +212,37 @@ async fn login_challenge() {
 }
 
 #[tokio::test]
+async fn a_second_factor_presented_twice_at_the_same_instant_is_accepted_once() {
+    use picsou::setup_auth::mfa::{verify_recovery_code, verify_totp};
+
+    let app = TestApp::with_admin().await;
+    let (secret, codes) = enroll(&app, &app.login_admin().await).await;
+    app.clock.advance(Duration::from_secs(30));
+    let user = picsou::auth::users::find_primary_active(&app.state.db)
+        .await
+        .expect("read the admin")
+        .expect("the admin exists");
+    let accepted = |a: bool, b: bool| usize::from(a) + usize::from(b);
+
+    let totp = code(&app, &secret);
+    let (first, second) = tokio::join!(
+        verify_totp(&app.state, &user, &totp),
+        verify_totp(&app.state, &user, &totp),
+    );
+    assert_eq!(accepted(first.unwrap(), second.unwrap()), 1, "TOTP code");
+
+    let (first, second) = tokio::join!(
+        verify_recovery_code(&app.state, &user, &codes[0]),
+        verify_recovery_code(&app.state, &user, &codes[0]),
+    );
+    assert_eq!(
+        accepted(first.unwrap(), second.unwrap()),
+        1,
+        "recovery code"
+    );
+}
+
+#[tokio::test]
 async fn a_trusted_device_skips_the_challenge() {
     let app = TestApp::with_admin().await;
     let (secret, _) = enroll(&app, &app.login_admin().await).await;
