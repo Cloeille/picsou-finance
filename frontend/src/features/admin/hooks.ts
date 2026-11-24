@@ -63,9 +63,20 @@ export function useReloadCorsFromEnv() {
   })
 }
 
+async function scrubApiKey<T extends { apiKey?: string }, R>(
+  body: T,
+  fn: (payload: T) => Promise<R>,
+): Promise<R> {
+  try {
+    return await fn({ ...body })
+  } finally {
+    if (body.apiKey) body.apiKey = ''
+  }
+}
+
 export function useUpdateAi() {
   return useInvalidatingMutation({
-    mutationFn: (body: AdminAiRequest) => adminApi.updateAi(body),
+    mutationFn: (body: AdminAiRequest) => scrubApiKey(body, (p) => adminApi.updateAi(p)),
     invalidates: [adminKeys.settings()],
     awaitRefresh: true,
   })
@@ -81,11 +92,15 @@ export function useUpdateTelemetry() {
 }
 
 export function useTestAi() {
-  return useMutation({ mutationFn: (body: AdminAiRequest) => adminApi.testAi(body) })
+  return useMutation({
+    mutationFn: (body: AdminAiRequest) => scrubApiKey(body, (p) => adminApi.testAi(p)),
+  })
 }
 
 export function useListAiModels() {
-  return useMutation({ mutationFn: (body: AdminAiModelsRequest) => adminApi.listAiModels(body) })
+  return useMutation({
+    mutationFn: (body: AdminAiModelsRequest) => scrubApiKey(body, (p) => adminApi.listAiModels(p)),
+  })
 }
 
 export function useAiCalls(limit: number, offset: number) {

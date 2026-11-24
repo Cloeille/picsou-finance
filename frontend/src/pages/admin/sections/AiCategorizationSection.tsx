@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useForm, useWatch, Controller } from 'react-hook-form'
 import { NativeSelect } from '@/components/shared/NativeSelect'
@@ -122,6 +122,15 @@ function defaultBaseUrlFor(spec: ProviderSpec | undefined, desktopMode: boolean)
   return desktopMode && spec.desktopBaseUrl ? spec.desktopBaseUrl : spec.baseUrl
 }
 
+function urlOrigin(raw: string): string | null {
+  try {
+    const { origin } = new URL(raw.trim())
+    return origin === 'null' ? null : origin
+  } catch {
+    return null
+  }
+}
+
 function formValuesFromSettings(settings: AdminAiSettings, desktopMode: boolean): FormValues {
   const provider = settings.provider !== 'none' ? settings.provider : 'anthropic'
   const spec = getProviderSpec(provider)
@@ -145,7 +154,10 @@ export function AiCategorizationSection({ settings }: { settings: AdminAiSetting
   const [formOpen, setFormOpen] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [savedNotice, setSavedNotice] = useState(false)
-  const [lastFetchedModelsKey, setLastFetchedModelsKey] = useState<string | null>(null)
+  const lastFetchedModelsKeyRef = useRef<string | null>(null)
+  const setLastFetchedModelsKey = (key: string | null) => {
+    lastFetchedModelsKeyRef.current = key
+  }
 
   const {
     register,
@@ -164,9 +176,14 @@ export function AiCategorizationSection({ settings }: { settings: AdminAiSetting
 
   useEffect(() => {
     if (!formOpen) {
+      lastFetchedModelsKeyRef.current = null
       reset(formValuesFromSettings(settings, desktopMode))
     }
   }, [settings, desktopMode, formOpen, reset])
+
+  useEffect(() => () => {
+    lastFetchedModelsKeyRef.current = null
+  }, [])
 
   const provider = useWatch({ control, name: 'provider' })
   const currentSpec = getProviderSpec(provider)
@@ -188,7 +205,14 @@ export function AiCategorizationSection({ settings }: { settings: AdminAiSetting
     const spec = getProviderSpec(targetProvider)
     if (!spec) return false
     if (spec.apiKey === 'required') {
-      const kept = settings.apiKeyPresent && targetProvider === settings.provider
+      const savedOrigin = urlOrigin(
+        settings.baseUrl.trim() || defaultBaseUrlFor(getProviderSpec(settings.provider), desktopMode),
+      )
+      const kept =
+        settings.apiKeyPresent &&
+        targetProvider === settings.provider &&
+        savedOrigin !== null &&
+        savedOrigin === urlOrigin(targetBaseUrl.trim() || defaultBaseUrlFor(spec, desktopMode))
       return Boolean(targetApiKey.trim() || kept)
     }
     if (targetProvider === 'custom') {
@@ -210,8 +234,12 @@ export function AiCategorizationSection({ settings }: { settings: AdminAiSetting
       apiKey: targetProvider === 'ollama' ? '' : targetApiKey,
     }
     const requestKey = `${payload.provider}\0${payload.baseUrl}\0${payload.apiKey}`
-    // Skip duplicate fetches when tabbing past an already-loaded field without changes.
-    if (!force && lastFetchedModelsKey === requestKey && listModels.data?.ok) {
+    // Skip duplicate fetches while the same request is in flight or already loaded.
+    if (
+      !force &&
+      lastFetchedModelsKeyRef.current === requestKey &&
+      (listModels.isPending || listModels.data?.ok)
+    ) {
       return
     }
     setLastFetchedModelsKey(requestKey)
@@ -265,8 +293,10 @@ export function AiCategorizationSection({ settings }: { settings: AdminAiSetting
     onFieldChange(nextProvider)
     setValue('baseUrl', nextBaseUrl)
     setValue('model', nextSpec?.model ?? '')
+    setValue('apiKey', '')
     setValue('maxConcurrency', nextSpec?.maxConcurrency ?? 4)
-    clearErrors(['apiKey', 'baseUrl'])
+    clearErrors(['apiKey', 'baseUrl', 'model', 'maxConcurrency'])
+    testAi.reset?.()
     listModels.reset?.()
     setLastFetchedModelsKey(null)
 
@@ -289,28 +319,41 @@ export function AiCategorizationSection({ settings }: { settings: AdminAiSetting
       setError('baseUrl', { type: 'manual', message: t('admin.ai.baseUrlRequired') })
       return
     }
+    if (values.provider === 'custom' && !values.model.trim()) {
+      setError('model', { type: 'manual', message: t('admin.ai.modelRequired') })
+      return
+    }
     const needsKey = spec ? spec.apiKey === 'required' : values.provider !== 'none'
     if (needsKey && !keyKept && !values.apiKey.trim()) {
       setError('apiKey', { type: 'manual', message: t('admin.ai.apiKeyRequired') })
       return
     }
-    await update.mutateAsync({
-      provider: values.provider,
-      model: values.model,
-      baseUrl: values.baseUrl,
-      apiKey: values.apiKey,
-      maxConcurrency: values.maxConcurrency,
-    })
+    try {
+      await update.mutateAsync({
+        provider: values.provider,
+        model: values.model,
+        baseUrl: values.baseUrl,
+        apiKey: values.provider === 'ollama' ? '' : values.apiKey,
+        maxConcurrency: values.maxConcurrency,
+      })
+    } catch {
+      // Mutation state exposes update.error for the inline alert.
+      return
+    }
     testAi.reset?.()
     listModels.reset?.()
-    setLastFetchedModelsKey(null)
     setFormOpen(false)
     setSavedNotice(true)
   })
 
   const handleTestForm = () => {
     const { provider: formProvider, model, baseUrl, apiKey } = getValues()
-    testAi.mutate({ provider: formProvider, model, baseUrl, apiKey })
+    testAi.mutate({
+      provider: formProvider,
+      model,
+      baseUrl,
+      apiKey: formProvider === 'ollama' ? '' : apiKey,
+    })
   }
 
   const handleTestSaved = () => {
@@ -487,11 +530,11 @@ export function AiCategorizationSection({ settings }: { settings: AdminAiSetting
               <Label htmlFor="admin-ai-baseUrl">{t('admin.ai.baseUrl')}</Label>
               <Input
                 id="admin-ai-baseUrl"
+                onBlurCapture={handleBlurFetchModels}
                 {...register('baseUrl', {
                   onChange: () => {
                     if (formState.errors.baseUrl) clearErrors('baseUrl')
                   },
-                  onBlur: handleBlurFetchModels,
                 })}
               />
               {formState.errors.baseUrl && (
@@ -518,7 +561,12 @@ export function AiCategorizationSection({ settings }: { settings: AdminAiSetting
               <Input
                 id="admin-ai-model"
                 list={modelSuggestions.length > 0 ? 'admin-ai-model-suggestions' : undefined}
-                {...register('model')}
+                aria-describedby={modelsFailed ? 'admin-ai-models-error' : undefined}
+                {...register('model', {
+                  onChange: () => {
+                    if (formState.errors.model) clearErrors('model')
+                  },
+                })}
               />
               {modelSuggestions.length > 0 && (
                 <datalist id="admin-ai-model-suggestions">
@@ -528,8 +576,17 @@ export function AiCategorizationSection({ settings }: { settings: AdminAiSetting
                 </datalist>
               )}
               {modelsFailed && (
-                <p className="text-sm text-muted-foreground">
+                <p
+                  id="admin-ai-models-error"
+                  aria-live="polite"
+                  className="text-sm text-muted-foreground"
+                >
                   {t('admin.ai.modelsLoadFailed')}
+                </p>
+              )}
+              {formState.errors.model && (
+                <p role="alert" className="text-sm text-destructive">
+                  {formState.errors.model.message}
                 </p>
               )}
             </div>
@@ -545,6 +602,11 @@ export function AiCategorizationSection({ settings }: { settings: AdminAiSetting
                 {...register('maxConcurrency', { valueAsNumber: true })}
               />
               <p className="text-sm text-muted-foreground">{t('admin.ai.maxConcurrencyHint')}</p>
+              {formState.errors.maxConcurrency && (
+                <p role="alert" className="text-sm text-destructive">
+                  {t('admin.ai.maxConcurrencyRange')}
+                </p>
+              )}
             </div>
 
             {/* API Key — hidden for Ollama */}
@@ -566,11 +628,11 @@ export function AiCategorizationSection({ settings }: { settings: AdminAiSetting
                   id="admin-ai-apiKey"
                   type="password"
                   placeholder={keyKept ? t('admin.ai.apiKeyPlaceholderKeep') : undefined}
+                  onBlurCapture={handleBlurFetchModels}
                   {...register('apiKey', {
                     onChange: () => {
                       if (formState.errors.apiKey) clearErrors('apiKey')
                     },
-                    onBlur: handleBlurFetchModels,
                   })}
                 />
                 {keyKept && (

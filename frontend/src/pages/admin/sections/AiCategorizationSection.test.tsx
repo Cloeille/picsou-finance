@@ -3,7 +3,7 @@ import { useRef, useState } from 'react'
 import { chooseSelectOption, getSelectOptions } from '@/test/radix-select'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import type { AdminAiModelsRequest, AiModelsResult } from '@/features/admin/api'
+import type { AdminAiModelsRequest, AdminAiRequest, AiModelsResult } from '@/features/admin/api'
 import { useAppStore } from '@/stores/app-store'
 import { AiCategorizationSection } from './AiCategorizationSection'
 
@@ -33,14 +33,25 @@ vi.mock('@/features/admin/hooks', () => ({
     isSuccess: state.updateIsSuccess,
     error: state.updateError,
   }),
-  useTestAi: () => ({
-    mutate: state.testAiMutate,
-    reset: state.testAiReset,
-    isPending: false,
-    isError: state.testAiIsError,
-    data: state.testAiData,
-    error: state.testAiError,
-  }),
+  useTestAi: () => {
+    const [cleared, setCleared] = useState(false)
+    const mutate = (body: AdminAiRequest) => {
+      setCleared(false)
+      state.testAiMutate(body)
+    }
+    const reset = () => {
+      state.testAiReset()
+      setCleared(true)
+    }
+    return {
+      mutate,
+      reset,
+      isPending: false,
+      isError: cleared ? false : state.testAiIsError,
+      data: cleared ? undefined : state.testAiData,
+      error: cleared ? null : state.testAiError,
+    }
+  },
   useListAiModels: () => {
     const [result, setResult] = useState<{
       isPending: boolean
@@ -460,6 +471,9 @@ describe('AiCategorizationSection', () => {
     render(<AiCategorizationSection settings={DEFAULT_SETTINGS} />)
     fireEvent.click(screen.getByRole('button', { name: 'admin.ai.addProvider' }))
 
+    const modelInput = screen.getByLabelText('admin.ai.model')
+    expect(modelInput).not.toHaveAttribute('aria-describedby')
+
     const apiKeyInput = screen.getByLabelText('admin.ai.apiKey')
     fireEvent.change(apiKeyInput, { target: { value: 'sk-bad-key' } })
     fireEvent.blur(apiKeyInput)
@@ -467,9 +481,12 @@ describe('AiCategorizationSection', () => {
     await waitFor(() => {
       expect(screen.getByText('admin.ai.modelsLoadFailed')).toBeInTheDocument()
     })
+    const failedHint = screen.getByText('admin.ai.modelsLoadFailed')
+    expect(failedHint).toHaveAttribute('id', 'admin-ai-models-error')
+    expect(failedHint).toHaveAttribute('aria-live', 'polite')
+    expect(modelInput).toHaveAttribute('aria-describedby', 'admin-ai-models-error')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 
-    const modelInput = screen.getByLabelText('admin.ai.model')
     fireEvent.change(modelInput, { target: { value: 'my-manual-model' } })
     expect(modelInput).toHaveValue('my-manual-model')
 
@@ -574,6 +591,222 @@ describe('AiCategorizationSection', () => {
         baseUrl: '',
         apiKey: '',
         maxConcurrency: 4,
+      })
+    })
+  })
+
+  it('clears a typed API key when switching from Anthropic to custom or Ollama', async () => {
+    render(<AiCategorizationSection settings={DEFAULT_SETTINGS} />)
+    fireEvent.click(screen.getByRole('button', { name: 'admin.ai.addProvider' }))
+
+    fireEvent.change(screen.getByLabelText('admin.ai.apiKey'), { target: { value: 'sk-test-key' } })
+    chooseSelectOption(getProviderSelect(), 'custom')
+    expect(screen.getByLabelText('admin.ai.apiKey')).toHaveValue('')
+
+    fireEvent.change(screen.getByLabelText('admin.ai.baseUrl'), {
+      target: { value: 'https://vllm.example.com/v1' },
+    })
+    fireEvent.change(screen.getByLabelText('admin.ai.model'), {
+      target: { value: 'local-model-id' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'admin.ai.save' }))
+
+    await waitFor(() => {
+      expect(state.updateMutateAsync).toHaveBeenCalledWith({
+        provider: 'custom',
+        model: 'local-model-id',
+        baseUrl: 'https://vllm.example.com/v1',
+        apiKey: '',
+        maxConcurrency: 4,
+      })
+    })
+
+    // Reopen, type a key for Anthropic, switch to Ollama, test and save: both send blank apiKey
+    state.updateMutateAsync.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'admin.ai.addProvider' }))
+    fireEvent.change(screen.getByLabelText('admin.ai.apiKey'), { target: { value: 'sk-test-key' } })
+    chooseSelectOption(getProviderSelect(), 'ollama')
+
+    fireEvent.click(screen.getByRole('button', { name: 'admin.ai.test' }))
+    expect(state.testAiMutate).toHaveBeenCalledWith({
+      provider: 'ollama',
+      model: 'qwen3:0.6b',
+      baseUrl: 'http://ollama:11434',
+      apiKey: '',
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'admin.ai.save' }))
+    await waitFor(() => {
+      expect(state.updateMutateAsync).toHaveBeenCalledWith({
+        provider: 'ollama',
+        model: 'qwen3:0.6b',
+        baseUrl: 'http://ollama:11434',
+        apiKey: '',
+        maxConcurrency: 4,
+      })
+    })
+  })
+
+  it('requires a model for custom provider and keeps the form open without unhandled rejection when save fails', async () => {
+    render(<AiCategorizationSection settings={DEFAULT_SETTINGS} />)
+    fireEvent.click(screen.getByRole('button', { name: 'admin.ai.addProvider' }))
+
+    chooseSelectOption(getProviderSelect(), 'custom')
+    fireEvent.change(screen.getByLabelText('admin.ai.baseUrl'), {
+      target: { value: 'https://vllm.example.com/v1' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'admin.ai.save' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('admin.ai.modelRequired')
+    })
+    expect(state.updateMutateAsync).not.toHaveBeenCalled()
+
+    // Filling model clears the error; a failed save keeps the form open without throwing
+    state.updateMutateAsync.mockRejectedValueOnce(new Error('Server error'))
+    fireEvent.change(screen.getByLabelText('admin.ai.model'), { target: { value: 'local-model' } })
+    expect(screen.queryByText('admin.ai.modelRequired')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'admin.ai.save' }))
+    await waitFor(() => {
+      expect(state.updateMutateAsync).toHaveBeenCalledOnce()
+    })
+    expect(screen.getByLabelText('admin.ai.model')).toBeInTheDocument()
+  })
+
+  it('does not send a duplicate model-list request on blur while the same request is pending', () => {
+    state.listModelsFn = vi.fn().mockImplementation(() => new Promise<AiModelsResult>(() => {}))
+
+    render(<AiCategorizationSection settings={DEFAULT_SETTINGS} />)
+    fireEvent.click(screen.getByRole('button', { name: 'admin.ai.addProvider' }))
+
+    const apiKeyInput = screen.getByLabelText('admin.ai.apiKey')
+    const baseUrlInput = screen.getByLabelText('admin.ai.baseUrl')
+    fireEvent.change(apiKeyInput, { target: { value: 'sk-test-key' } })
+    fireEvent.blur(apiKeyInput)
+    fireEvent.blur(baseUrlInput)
+
+    expect(state.listModelsFn).toHaveBeenCalledTimes(1)
+  })
+
+  it('clears a shown connection test result after changing provider', () => {
+    render(<AiCategorizationSection settings={DEFAULT_SETTINGS} />)
+    fireEvent.click(screen.getByRole('button', { name: 'admin.ai.addProvider' }))
+
+    state.testAiData = { ok: true, message: 'Connected.' }
+    fireEvent.click(screen.getByRole('button', { name: 'admin.ai.test' }))
+    expect(screen.getByText('Connected.')).toBeInTheDocument()
+
+    chooseSelectOption(getProviderSelect(), 'openai')
+    expect(screen.queryByText('Connected.')).not.toBeInTheDocument()
+  })
+
+  it('shows a range error and blocks save when parallel requests is 0', async () => {
+    render(<AiCategorizationSection settings={DEFAULT_SETTINGS} />)
+    fireEvent.click(screen.getByRole('button', { name: 'admin.ai.addProvider' }))
+
+    fireEvent.change(screen.getByLabelText('admin.ai.apiKey'), { target: { value: 'sk-test-key' } })
+    fireEvent.change(screen.getByLabelText('admin.ai.maxConcurrency'), { target: { value: '0' } })
+    fireEvent.click(screen.getByRole('button', { name: 'admin.ai.save' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('admin.ai.maxConcurrencyRange')
+    })
+    expect(state.updateMutateAsync).not.toHaveBeenCalled()
+  })
+
+  it('fetches models with a kept key only when the base URL matches the saved origin', async () => {
+    render(
+      <AiCategorizationSection
+        settings={{
+          provider: 'anthropic',
+          model: 'claude-haiku-4-5',
+          baseUrl: '',
+          apiKeyPresent: true,
+          maxConcurrency: 8,
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'common.edit' }))
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    })
+    expect(state.listModelsFn).toHaveBeenCalledTimes(1)
+    expect(state.listModelsFn).toHaveBeenLastCalledWith({
+      provider: 'anthropic',
+      baseUrl: 'https://api.anthropic.com',
+      apiKey: '',
+    })
+
+    state.listModelsFn.mockClear()
+    const baseUrlInput = screen.getByLabelText('admin.ai.baseUrl')
+    fireEvent.change(baseUrlInput, { target: { value: 'https://other.example.com/v1' } })
+    fireEvent.blur(baseUrlInput)
+    expect(state.listModelsFn).not.toHaveBeenCalled()
+
+    // Same origin as the saved default allows using the kept key again
+    fireEvent.change(baseUrlInput, { target: { value: 'https://api.anthropic.com/v1' } })
+    fireEvent.blur(baseUrlInput)
+    await waitFor(() => {
+      expect(state.listModelsFn).toHaveBeenCalledTimes(1)
+    })
+    expect(state.listModelsFn).toHaveBeenCalledWith({
+      provider: 'anthropic',
+      baseUrl: 'https://api.anthropic.com/v1',
+      apiKey: '',
+    })
+
+    // A blank base URL means the default of the provider, as the backend reads it
+    state.listModelsFn.mockClear()
+    fireEvent.change(baseUrlInput, { target: { value: '   ' } })
+    fireEvent.blur(baseUrlInput)
+    await waitFor(() => {
+      expect(state.listModelsFn).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('sends maxConcurrency 8 for a new Anthropic provider and preserves the stored value when editing', async () => {
+    const { rerender } = render(<AiCategorizationSection settings={DEFAULT_SETTINGS} />)
+    fireEvent.click(screen.getByRole('button', { name: 'admin.ai.addProvider' }))
+    fireEvent.change(screen.getByLabelText('admin.ai.apiKey'), { target: { value: 'sk-test-key' } })
+    fireEvent.click(screen.getByRole('button', { name: 'admin.ai.save' }))
+
+    await waitFor(() => {
+      expect(state.updateMutateAsync).toHaveBeenCalledWith({
+        provider: 'anthropic',
+        model: 'claude-haiku-4-5',
+        baseUrl: 'https://api.anthropic.com',
+        apiKey: 'sk-test-key',
+        maxConcurrency: 8,
+      })
+    })
+
+    state.updateMutateAsync.mockClear()
+    rerender(
+      <AiCategorizationSection
+        settings={{
+          provider: 'anthropic',
+          model: 'claude-haiku-4-5',
+          baseUrl: '',
+          apiKeyPresent: true,
+          maxConcurrency: 12,
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'common.edit' }))
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'admin.ai.save' }))
+
+    await waitFor(() => {
+      expect(state.updateMutateAsync).toHaveBeenCalledWith({
+        provider: 'anthropic',
+        model: 'claude-haiku-4-5',
+        baseUrl: 'https://api.anthropic.com',
+        apiKey: '',
+        maxConcurrency: 12,
       })
     })
   })

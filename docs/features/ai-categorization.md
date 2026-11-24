@@ -54,11 +54,18 @@ selected (and keeps a user-edited base URL across provider switches):
 | `ollama` | Ollama | `http://ollama:11434` (`http://localhost:11434` in the desktop app) | `qwen3:0.6b` | not used | 4 |
 | `custom` | Other (OpenAI-compatible) | required (empty by default) | empty | optional | 4 |
 
+A base URL may end with the API suffix (`/v1`, or `/api` for Ollama): the backend does not add
+it twice, so `http://localhost:1234/v1` works for a local OpenAI-compatible server.
+
+The stored API key is bound to its provider and host. The connection test and the model list use
+the key of the request when it is not blank. With a blank key they use the stored key only when
+the provider is the saved one and the base URL has the same origin (scheme, host, port) as the
+saved one. A save that changes the provider without a new key clears the stored key.
+
 ### Model suggestions endpoint
 
 `POST /api/admin/settings/ai/models` accepts `{ provider, baseUrl, apiKey }` (the same shape as the
-connection test; a blank `apiKey` reuses the stored key when `provider` matches the saved one) and
-always responds HTTP 200 for a valid request:
+connection test) and always responds HTTP 200 for a valid request:
 
 - `{"ok": true, "models": ["id-a", "id-b"]}` on success
 - `{"ok": false, "message": "...", "models": []}` on failure
