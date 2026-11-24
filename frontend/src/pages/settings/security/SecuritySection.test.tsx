@@ -145,6 +145,28 @@ describe('SecuritySection', () => {
     expect(screen.queryByText(en.settings.sessions)).not.toBeInTheDocument()
   })
 
+  it('asks for the password after all when the unlocked desktop app refuses the account', async () => {
+    useAppStore.setState({ desktopMode: true, desktopLockEnabled: false })
+    api.download.mockRejectedValueOnce(apiError(401))
+    renderSection('/settings', WITH_PASSWORD, true)
+
+    fireEvent.click(await screen.findByRole('button', { name: en.settings.exportButton }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(await within(dialog).findByRole('button', { name: en.settings.exportDownload }))
+
+    const password = await within(dialog).findByLabelText(en.settings.currentPassword)
+    expect(within(dialog).queryByText(en.settings.exportInvalidCredentials)).not.toBeInTheDocument()
+    fireEvent.change(password, { target: { value: 'my-own-password' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: en.settings.exportDownload }))
+
+    await waitFor(() =>
+      expect(api.download).toHaveBeenLastCalledWith({
+        reAuth: { password: 'my-own-password' },
+        includeBalanceSnapshots: false,
+      }),
+    )
+  })
+
   it.each([
     ['hides', PASSWORDLESS, false],
     ['shows', WITH_PASSWORD, true],

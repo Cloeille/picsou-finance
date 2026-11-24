@@ -217,6 +217,76 @@ async fn the_unlocked_app_exports_without_a_password_and_the_locked_one_asks_for
     assert_eq!(proven.status, StatusCode::OK);
 }
 
+/// The window's word is good for the account it signs in itself and for no other. A member with
+/// a password of their own proves it, in the app's window as in a browser, and a browser on the
+/// same machine has no gate to show.
+#[tokio::test]
+async fn the_export_without_a_password_is_for_the_account_the_app_signs_in_and_no_other() {
+    const ALEX_PASSWORD: &str = "alex-password-1234";
+    let app = TestApp::builder()
+        .env("APP_DESKTOP_MODE", "true")
+        .spawn()
+        .await;
+    let started = app
+        .desktop_client()
+        .post("/api/setup/desktop-quick-start")
+        .json(&json!({"displayName": "Camille"}))
+        .send()
+        .await;
+    assert_eq!(started.status, StatusCode::OK);
+    app.create_member("alex", ALEX_PASSWORD).await;
+    let sign_in_as_alex = json!({"username": "alex", "password": ALEX_PASSWORD});
+    let proof = json!({"reAuth": {"password": ALEX_PASSWORD}});
+
+    let browser = app.client();
+    let window = app.desktop_client();
+    for (place, client) in [("a browser", &browser), ("the app's window", &window)] {
+        let signed_in = client
+            .post("/api/auth/login")
+            .json(&sign_in_as_alex)
+            .send()
+            .await;
+        assert_eq!(signed_in.status, StatusCode::OK, "{place}");
+
+        let refused = client.post("/api/me/export").json(&json!({})).send().await;
+        assert_eq!(refused.status, StatusCode::UNAUTHORIZED, "{place}");
+        assert_eq!(refused.json()["code"], "REAUTH_FAILED", "{place}");
+        let proven = client.post("/api/me/export").json(&proof).send().await;
+        assert_eq!(proven.status, StatusCode::OK, "{place}");
+    }
+}
+
+/// Once the app's window has traded its launch token for the gate cookie, the cookie is what
+/// lets it export.
+#[tokio::test]
+async fn the_gate_cookie_of_the_window_stands_for_the_password_too() {
+    let app = TestApp::builder()
+        .env("APP_DESKTOP_MODE", "true")
+        .spawn()
+        .await;
+    let window = app.client();
+    let token = app.desktop_token().expect("a launch token");
+    let bootstrapped = window
+        .get(&format!("/api/auth/desktop-bootstrap?token={token}"))
+        .send()
+        .await;
+    assert!(
+        bootstrapped.status.is_success() || bootstrapped.status.is_redirection(),
+        "{}",
+        bootstrapped.text()
+    );
+    let started = window
+        .post("/api/setup/desktop-quick-start")
+        .json(&json!({"displayName": "Camille"}))
+        .send()
+        .await;
+    assert_eq!(started.status, StatusCode::OK, "{}", started.text());
+
+    let exported = window.post("/api/me/export").json(&json!({})).send().await;
+
+    assert_eq!(exported.status, StatusCode::OK, "{}", exported.text());
+}
+
 #[tokio::test]
 async fn autologin_and_password_lock_lifecycle() {
     let app = TestApp::builder()

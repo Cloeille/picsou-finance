@@ -15,7 +15,8 @@ The export is **self-only**: a user exports their own data plus resources shared
 - Export is delivered as a single `picsou-export-<username>-YYYYMMDD-HHmmss.zip` (UTC timestamp; any username character outside `[A-Za-z0-9._-]` becomes `_` so the quoted header value stays valid) containing both a hierarchical `data.json` and a flat `csv/` directory (one file per entity).
 - Export contains every domain field tied to the user, with explicit exclusion of secrets (passwords, MFA secrets, recovery codes, encrypted bank-session credentials, persistent-session tokens, requisition tokens).
 - A toggle lets the user opt in to including their `BalanceSnapshot` history (off by default — keeps the ZIP small for the common case).
-- The action is gated by re-authentication (a valid `reauth_proof` cookie, else TOTP if 2FA is enabled, otherwise password) and rate-limited to 5 exports/hour per user.
+- The action is gated by re-authentication (a valid `reauth_proof` cookie, else TOTP if 2FA is enabled, otherwise password) and rate-limited to 5 exports/hour per user. One exception: the desktop app without its password lock, for the account it signs in itself. Quick start gave that account a random password nobody knows, so the gate of the app's own window stands for it; the dialog asks for nothing, and falls back to the password or code if the backend refuses (another member's session).
+- The archive is read from one snapshot of the database (`db.begin_read()`): a repeatable-read, read-only transaction on PostgreSQL, a WAL snapshot on a reader of its own on SQLite, which leaves the single writer free for as long as the download lasts.
 - Each export is logged server-side via SLF4J at `WARN` level (no dedicated audit table — same approach as MFA-sensitive ops).
 
 ## Non-goals (v1)

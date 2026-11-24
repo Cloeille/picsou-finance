@@ -10,7 +10,7 @@ use crate::auth::jwt::TokenType;
 use crate::auth::{AppUser, cookies, password};
 use crate::error::{AppError, AppResult, Problem};
 use crate::ledger::sync_values::java_is_blank;
-use crate::setup_auth::{desktop, mfa, settings};
+use crate::setup_auth::{desktop, mfa};
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,23 +47,20 @@ pub(crate) fn has_valid_proof(state: &AppState, user: &AppUser, headers: &Header
         && claims.tv == Some(user.token_version)
 }
 
-/// The desktop app without its password lock: quick start gave the account a random password
-/// nobody knows, and the gate cookie of the app's own window is what signed the member in. It is
-/// the only proof there is, so it stands for the password here too. With the lock on, the
-/// password is asked like anywhere else.
-async fn signed_in_by_the_desktop_app(state: &AppState, headers: &HeaderMap) -> AppResult<bool> {
-    Ok(state.config.desktop_mode
-        && desktop::has_valid_desktop_gate(headers, state)
-        && !settings::desktop_lock_enabled(state).await?)
-}
-
+/// `own_window` says the request came through the gate of the desktop app's own window
+/// (DesktopSessionGate). There, without the password lock, quick start gave the account a random
+/// password nobody knows and the window is what signed it in: the only proof there is, so it
+/// stands for the password here too. That holds for the account autologin gives and no other: a
+/// member who signed in with a password of their own, or with two-factor, is asked for it.
 pub(crate) async fn verify(
     state: &AppState,
     user: &AppUser,
     re_auth: Option<&ReAuth>,
     headers: &HeaderMap,
+    own_window: bool,
 ) -> AppResult<()> {
-    if has_valid_proof(state, user, headers) || signed_in_by_the_desktop_app(state, headers).await?
+    if has_valid_proof(state, user, headers)
+        || (own_window && desktop::autologin_admits(state, user).await?)
     {
         return Ok(());
     }

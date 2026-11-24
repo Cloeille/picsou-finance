@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
 
 use crate::AppState;
-use crate::auth::{Auth, Role, cookies, password, persistent, users};
+use crate::auth::{AppUser, Auth, Role, cookies, password, persistent, users};
 use crate::error::{AppError, AppResult};
 use crate::http::client_ip::{ClientIp, PeerIp};
 use crate::http::json::{Errors, Json, Lang, Validate};
@@ -85,6 +85,19 @@ pub(crate) fn has_valid_desktop_gate(headers: &HeaderMap, state: &AppState) -> b
         .get(DESKTOP_TOKEN_HEADER)
         .and_then(|v| v.to_str().ok())
         .is_some_and(|v| constant_time_str_eq(v, expected_token))
+}
+
+/// Whether autologin would sign `user` in with no password, the gate of the app's window
+/// granted: the password lock is off and `user` is the account autologin gives, the primary one
+/// without two-factor. Where that holds, a session of `user` proves no more than the window
+/// itself. Mirrors the checks of `autologin`.
+pub(crate) async fn autologin_admits(state: &AppState, user: &AppUser) -> AppResult<bool> {
+    if settings::desktop_lock_enabled(state).await? {
+        return Ok(false);
+    }
+    let primary = users::find_primary_active(&state.db).await?;
+    Ok(primary.is_some_and(|primary| primary.id == user.id)
+        && !mfa::is_enabled(&state.db, user.id).await?)
 }
 
 /// Fail-closed extractor for unauthenticated Desktop onboarding & auto-login endpoints.

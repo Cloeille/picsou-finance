@@ -16,11 +16,12 @@ use serde::Deserialize;
 
 use crate::AppState;
 use crate::auth::Auth;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::http::client_ip::ClientIp;
 use crate::http::json::{Errors, Json, Validate};
 use crate::http::rate_limit::policies;
 use crate::routes::Routes;
+use crate::setup_auth::desktop::DesktopSessionGate;
 
 use self::reauth::ReAuth;
 
@@ -53,6 +54,7 @@ async fn export(
     auth: Auth,
     ip: ClientIp,
     headers: HeaderMap,
+    own_window: Result<DesktopSessionGate, AppError>,
     Json(req): Json<ExportRequest>,
 ) -> AppResult<Response> {
     let user = &auth.user;
@@ -65,7 +67,14 @@ async fn export(
         return Ok(StatusCode::TOO_MANY_REQUESTS.into_response());
     }
 
-    reauth::verify(&state, user, req.re_auth.as_ref(), &headers).await?;
+    reauth::verify(
+        &state,
+        user,
+        req.re_auth.as_ref(),
+        &headers,
+        own_window.is_ok(),
+    )
+    .await?;
 
     tracing::warn!(
         user_id = user.id,

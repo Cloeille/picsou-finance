@@ -380,7 +380,7 @@ Errors redirect with `ssoError={CODE}` to the page the flow came from: `/login` 
 | `LAST_SIGN_IN_METHOD` | `code` | `DELETE /api/auth/identities/{id}` (409) |
 | `SELF_UNLINK_FORBIDDEN` | `code` | `DELETE /api/admin/members/{memberId}/identities` targeting the caller (403); hidden in the admin UI |
 | `PASSWORD_ALREADY_SET` | `code` | `PUT /api/auth/password` (409) |
-| `REAUTH_FAILED` | `code` | 401 from `POST /api/auth/reauth`, the proof-gated `/api/auth/password` and `/api/auth/identities/{id}` endpoints, and `POST /api/me/export`. The desktop app without its password lock has no password to ask for: there `POST /api/me/export` accepts the gate cookie of the app's own window in its place |
+| `REAUTH_FAILED` | `code` | 401 from `POST /api/auth/reauth`, the proof-gated `/api/auth/password` and `/api/auth/identities/{id}` endpoints, and `POST /api/me/export`. The desktop app without its password lock has no password to ask for the account it signs in itself (the primary one, without two-factor): for that account, `POST /api/me/export` accepts the gate of the app's own window in its place. Any other account is asked for its password or code there too |
 | `SSO_REVALIDATE` | `code` | `POST /api/auth/refresh` (401) once the SSO session is older than `SSO_SESSION_REVALIDATE_AFTER` |
 | `SSO_DISABLED` | `code` | `DELETE /api/auth/password` (409) while SSO is off |
 
