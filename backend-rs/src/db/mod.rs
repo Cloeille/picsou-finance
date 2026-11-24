@@ -322,13 +322,21 @@ pub fn is_foreign_key_violation(err: &sqlx::Error) -> bool {
 
 /// Connects to the PostgreSQL pool using the legacy `Datasource` configuration.
 pub fn connect_options(ds: &Datasource) -> PgConnectOptions {
-    PgConnectOptions::new()
+    let mut options = PgConnectOptions::new()
         .host(&ds.host)
         .port(ds.port)
         .database(&ds.database)
         .username(&ds.username)
         .password(&ds.password)
-        .application_name("picsou")
+        .application_name("picsou");
+    // Config::load only keeps a mode the driver knows.
+    if let Some(mode) = ds.ssl_mode.as_deref().and_then(|m| m.parse().ok()) {
+        options = options.ssl_mode(mode);
+    }
+    if let Some(ca) = &ds.ssl_root_cert {
+        options = options.ssl_root_cert(ca);
+    }
+    options
 }
 
 /// Connects to PostgreSQL directly, returning `PgPool`.
@@ -456,3 +464,26 @@ macro_rules! impl_db_string_enum {
 }
 
 pub use crate::impl_db_string_enum;
+
+#[cfg(test)]
+mod tests {
+    use sqlx::postgres::PgSslMode;
+
+    use super::*;
+
+    #[test]
+    fn the_connection_asks_for_the_tls_mode_of_the_url() {
+        let strict = Datasource {
+            ssl_mode: Some("verify-full".to_owned()),
+            ..Datasource::default()
+        };
+        assert!(matches!(
+            connect_options(&strict).get_ssl_mode(),
+            PgSslMode::VerifyFull
+        ));
+        assert!(matches!(
+            connect_options(&Datasource::default()).get_ssl_mode(),
+            PgSslMode::Prefer
+        ));
+    }
+}

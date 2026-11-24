@@ -121,6 +121,7 @@ impl DatabaseConfig {
                     .into_owned(),
                 None => password.to_owned(),
             };
+            let (ssl_mode, ssl_root_cert) = tls_parameters("DATABASE_URL", parsed.query())?;
             return Ok(Self::Postgres(Datasource {
                 host,
                 port,
@@ -129,6 +130,8 @@ impl DatabaseConfig {
                 password: effective_password,
                 max_connections: 10,
                 connect_timeout: Duration::from_millis(30_000),
+                ssl_mode,
+                ssl_root_cert,
             }));
         }
         Ok(Self::Postgres(Datasource::parse_jdbc(
@@ -214,6 +217,76 @@ pub struct Datasource {
     pub password: String,
     pub max_connections: u32,
     pub connect_timeout: Duration,
+    /// `sslmode` of the URL (disable, allow, prefer, require, verify-ca, verify-full). None
+    /// leaves the driver's default, prefer.
+    pub ssl_mode: Option<String>,
+    /// `sslrootcert` of the URL: the CA file the server certificate is checked against.
+    pub ssl_root_cert: Option<String>,
+}
+
+const SSL_MODES: &[&str] = &[
+    "disable",
+    "allow",
+    "prefer",
+    "require",
+    "verify-ca",
+    "verify-full",
+];
+
+/// The TLS settings of a PostgreSQL URL's query string. The JDBC driver read them from the URL;
+/// dropping them would connect without the encryption or the certificate check the operator
+/// asked for. Other parameters are driver tuning and stay ignored.
+fn tls_parameters(
+    variable: &str,
+    query: Option<&str>,
+) -> Result<(Option<String>, Option<String>), ConfigError> {
+    let (mut ssl_mode, mut ssl_root_cert) = (None, None);
+    for (key, value) in url::form_urlencoded::parse(query.unwrap_or_default().as_bytes()) {
+        match key.as_ref() {
+            "sslmode" => {
+                let mode = value.trim().to_ascii_lowercase();
+                if !SSL_MODES.contains(&mode.as_str()) {
+                    return Err(invalid(format!(
+                        "{variable} has an unknown sslmode (expected one of {})",
+                        SSL_MODES.join(", ")
+                    )));
+                }
+                ssl_mode = Some(mode);
+            }
+            "sslrootcert" if !value.trim().is_empty() => {
+                ssl_root_cert = Some(value.trim().to_owned());
+            }
+            _ => {}
+        }
+    }
+    Ok((ssl_mode, ssl_root_cert))
+}
+
+/// `host`, `host:port`, `[v6]` or `[v6]:port`.
+fn host_and_port(authority: &str) -> Result<(String, u16), ConfigError> {
+    let (host, port) = match authority.strip_prefix('[') {
+        Some(bracketed) => {
+            let (host, after) = bracketed
+                .split_once(']')
+                .ok_or_else(|| invalid("SPRING_DATASOURCE_URL has an unclosed IPv6 host"))?;
+            match after.strip_prefix(':') {
+                Some(port) => (host, Some(port)),
+                None if after.is_empty() => (host, None),
+                None => return Err(invalid("SPRING_DATASOURCE_URL has an invalid port")),
+            }
+        }
+        None => match authority.rsplit_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (authority, None),
+        },
+    };
+    let port = match port {
+        Some(port) => port
+            .parse::<u16>()
+            .map_err(|_| invalid("SPRING_DATASOURCE_URL has an invalid port"))?,
+        None => 5432,
+    };
+    Ok((host.to_owned(), port))
 }
 
 impl Default for Datasource {
@@ -226,6 +299,8 @@ impl Default for Datasource {
             password: String::new(),
             max_connections: 10,
             connect_timeout: Duration::from_millis(30_000),
+            ssl_mode: None,
+            ssl_root_cert: None,
         }
     }
 }
@@ -235,26 +310,15 @@ impl Datasource {
         let rest = url
             .strip_prefix("jdbc:postgresql://")
             .ok_or_else(|| invalid("SPRING_DATASOURCE_URL must start with jdbc:postgresql://"))?;
-        let rest = rest.split('?').next().unwrap_or_default();
+        let (rest, query) = match rest.split_once('?') {
+            Some((rest, query)) => (rest, Some(query)),
+            None => (rest, None),
+        };
+        let (ssl_mode, ssl_root_cert) = tls_parameters("SPRING_DATASOURCE_URL", query)?;
         let (authority, database) = rest
             .split_once('/')
             .ok_or_else(|| invalid("SPRING_DATASOURCE_URL must name a database"))?;
-        let (host, port) = match authority.rsplit_once(':') {
-            Some((host, port)) if !host.ends_with(']') || authority.starts_with('[') => (
-                host.trim_start_matches('[')
-                    .trim_end_matches(']')
-                    .to_owned(),
-                port.parse::<u16>()
-                    .map_err(|_| invalid("SPRING_DATASOURCE_URL has an invalid port"))?,
-            ),
-            _ => (
-                authority
-                    .trim_start_matches('[')
-                    .trim_end_matches(']')
-                    .to_owned(),
-                5432,
-            ),
-        };
+        let (host, port) = host_and_port(authority)?;
         if host.is_empty() || database.is_empty() {
             return Err(invalid(
                 "SPRING_DATASOURCE_URL must name a host and a database",
@@ -268,6 +332,8 @@ impl Datasource {
             password: password.to_owned(),
             max_connections: 10,
             connect_timeout: Duration::from_millis(30_000),
+            ssl_mode,
+            ssl_root_cert,
         })
     }
 }
@@ -1030,6 +1096,55 @@ mod tests {
         let mut env = base_env();
         env.set("DATABASE_URL", "sqlite:///");
         assert!(Config::load(&env).is_err());
+    }
+
+    #[test]
+    fn the_tls_settings_of_a_postgres_url_are_kept() {
+        let jdbc = Datasource::parse_jdbc(
+            "jdbc:postgresql://db.internal:5433/picsou?sslmode=verify-full&sslrootcert=%2Fcerts%2Fca.crt&ApplicationName=x",
+            "picsou",
+            "secret",
+        )
+        .unwrap();
+        assert_eq!((jdbc.host.as_str(), jdbc.port), ("db.internal", 5433));
+        assert_eq!(jdbc.database, "picsou");
+        assert_eq!(jdbc.ssl_mode.as_deref(), Some("verify-full"));
+        assert_eq!(jdbc.ssl_root_cert.as_deref(), Some("/certs/ca.crt"));
+
+        let DatabaseConfig::Postgres(uri) =
+            DatabaseConfig::parse("postgres://u:p@db/picsou?sslmode=REQUIRE", "", "").unwrap()
+        else {
+            panic!("a PostgreSQL URL");
+        };
+        assert_eq!(uri.ssl_mode.as_deref(), Some("require"));
+
+        let plain = Datasource::parse_jdbc("jdbc:postgresql://db/picsou", "u", "p").unwrap();
+        assert_eq!((plain.ssl_mode, plain.ssl_root_cert), (None, None));
+        assert!(
+            Datasource::parse_jdbc("jdbc:postgresql://db/picsou?sslmode=strict", "u", "p").is_err()
+        );
+    }
+
+    #[test]
+    fn a_bracketed_ipv6_host_needs_no_port() {
+        let host = |url: &str| {
+            let ds = Datasource::parse_jdbc(url, "u", "p").unwrap();
+            (ds.host, ds.port)
+        };
+        assert_eq!(
+            host("jdbc:postgresql://[::1]/picsou"),
+            ("::1".to_owned(), 5432)
+        );
+        assert_eq!(
+            host("jdbc:postgresql://[::1]:6543/picsou"),
+            ("::1".to_owned(), 6543)
+        );
+        assert_eq!(
+            host("jdbc:postgresql://db:6543/picsou"),
+            ("db".to_owned(), 6543)
+        );
+        assert!(Datasource::parse_jdbc("jdbc:postgresql://[::1/picsou", "u", "p").is_err());
+        assert!(Datasource::parse_jdbc("jdbc:postgresql://db:port/picsou", "u", "p").is_err());
     }
 
     #[test]
