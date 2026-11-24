@@ -811,7 +811,9 @@ async fn a_wallet_whose_account_was_deleted_is_never_resurrected() {
         response.json()["detail"],
         "This wallet's account was deleted. Remove the wallet from Sync -> Wallets to stop tracking it."
     );
-    let summary = wallets::resync_all(&h.app.state, h.member_id).await;
+    let summary = wallets::resync_all(&h.app.state, h.member_id)
+        .await
+        .unwrap();
     assert_eq!(
         (summary.total, summary.succeeded, summary.failed.len()),
         (1, 0, 0),
@@ -829,11 +831,15 @@ async fn resync_all_reports_the_failed_chain_and_syncs_the_others() {
     insert_wallet(&h, h.member_id, "EVM", EVM_ADDRESS).await;
     insert_wallet(&h, h.member_id, "BITCOIN", "xpub-not-a-real-key").await;
 
-    let summary = wallets::resync_all(&h.app.state, h.member_id).await;
+    let summary = wallets::resync_all(&h.app.state, h.member_id)
+        .await
+        .unwrap();
     assert_eq!(summary.total, 2);
     assert_eq!(summary.succeeded, 1);
     assert_eq!(summary.failed, vec![Chain::Bitcoin]);
-    let empty = wallets::resync_all(&h.app.state, h.member_id + 1000).await;
+    let empty = wallets::resync_all(&h.app.state, h.member_id + 1000)
+        .await
+        .unwrap();
     assert_eq!((empty.total, empty.succeeded), (0, 0));
 }
 

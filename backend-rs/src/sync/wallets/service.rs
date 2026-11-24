@@ -176,18 +176,8 @@ async fn sync_locked(
 
 /// MemberSyncService's "wallets" source: every wallet of the member, each in its own
 /// transaction, one failure never stopping the others.
-pub async fn resync_all(state: &AppState, member_id: i64) -> ResyncSummary {
-    let wallets = match repo::find_all_by_member(&state.db, member_id).await {
-        Ok(wallets) => wallets,
-        Err(e) => {
-            tracing::error!("Could not list the wallets of member {member_id}: {e}");
-            return ResyncSummary {
-                total: 0,
-                succeeded: 0,
-                failed: Vec::new(),
-            };
-        }
-    };
+pub async fn resync_all(state: &AppState, member_id: i64) -> AppResult<ResyncSummary> {
+    let wallets = repo::find_all_by_member(&state.db, member_id).await?;
     let mut summary = ResyncSummary {
         total: wallets.len(),
         succeeded: 0,
@@ -207,7 +197,7 @@ pub async fn resync_all(state: &AppState, member_id: i64) -> ResyncSummary {
             }
         }
     }
-    summary
+    Ok(summary)
 }
 
 async fn resync_one(state: &AppState, wallet_id: i64, member_id: i64) -> AppResult<bool> {

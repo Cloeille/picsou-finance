@@ -137,7 +137,13 @@ async fn run_source(state: &AppState, source: &'static str, member_id: i64) -> S
         simplefin::SOURCE => simplefin::resync_reporting(state, member_id).await,
         wise::SOURCE => wise::resync_reporting(state, member_id).await,
         "crypto-exchanges" => exchanges::resync_all_reporting(state, member_id).await,
-        "wallets" => wallets_result(&wallets::resync_all(state, member_id).await),
+        "wallets" => match wallets::resync_all(state, member_id).await {
+            Ok(summary) => wallets_result(&summary),
+            Err(e) => {
+                tracing::error!("Could not list the wallets of member {member_id}: {e}");
+                result("wallets", SyncStatus::Failed, "Unexpected sync error")
+            }
+        },
         "finary" => match finary::auto_sync(state, member_id).await {
             Ok(response) => finary_result(response.status),
             Err(e) => {

@@ -405,3 +405,20 @@ async fn louve_connection_lock_uses_member_row_lock() {
         .expect_err("unknown member must fail");
     assert!(matches!(err, picsou::error::AppError::NotFound(_)));
 }
+
+#[tokio::test]
+async fn wallets_database_error_reports_failed_instead_of_no_wallets() {
+    let app = TestApp::with_admin().await;
+    let mid = member_id(&app).await;
+    picsou::db::query("DROP TABLE wallet_address")
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+
+    let filter: HashSet<String> = ["wallets".to_owned()].into_iter().collect();
+    let results = member_sync::resync_for_user(&app.state, mid, Some(&filter)).await;
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].source, "wallets");
+    assert_eq!(results[0].status, SyncStatus::Failed);
+    assert_eq!(results[0].message, "Unexpected sync error");
+}
