@@ -11,6 +11,7 @@ use wiremock::{Mock, ResponseTemplate};
 use super::support::{
     account, bank, detail, empty_catalog, no_transactions, requisition, session, status_of,
 };
+use crate::writer_free::{Slow, stays_writable_while};
 
 type AccountRow = (
     i64,
@@ -306,4 +307,54 @@ async fn reconnect_refuses_a_live_connection_and_reinitiates_a_dead_one() {
         ("CREATED", "auth-2")
     );
     assert!(nonce.is_some());
+}
+
+#[tokio::test]
+async fn the_database_stays_writable_while_the_bank_lists_the_transactions() {
+    let b = bank().await;
+    requisition(
+        &b.app,
+        b.member_id,
+        "sess-1",
+        "Banque::FR::personal",
+        RequisitionStatus::Linked,
+        None,
+    )
+    .await;
+    session(
+        &b.server,
+        "sess-1",
+        "uid-1",
+        "FR7611111111111111111111111",
+        "77.70",
+    )
+    .await;
+    let (slow, asked) = Slow::answering(ResponseTemplate::new(200).set_body_json(json!({
+        "transactions": [{
+            "entry_reference": "E1", "transaction_amount": {"amount": "-12.34", "currency": "EUR"},
+            "credit_debit_indicator": "DBIT", "status": "BOOK", "booking_date": "2026-01-10",
+            "remittance_information": ["CARTE BOULANGERIE"]
+        }]
+    })));
+    Mock::given(method("GET"))
+        .and(path("/accounts/uid-1/transactions"))
+        .respond_with(slow)
+        .mount(&b.server)
+        .await;
+    empty_catalog(&b.server).await;
+
+    let result = stays_writable_while(
+        &b.app.state.db,
+        &asked,
+        resync_all_reporting(&b.app.state, b.member_id),
+    )
+    .await;
+
+    assert_eq!(result.status, SyncStatus::Synced, "{result:?}");
+    // What the bank listed before the transaction opened is what the transaction wrote.
+    let imported: i64 = picsou::db::query_scalar("SELECT count(*) FROM \"transaction\"")
+        .fetch_one(&b.app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(imported, 1);
 }

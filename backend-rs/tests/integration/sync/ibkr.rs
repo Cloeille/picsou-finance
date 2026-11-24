@@ -12,6 +12,8 @@ use serde_json::{Value, json};
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+use crate::writer_free::{Slow, stays_writable_while};
+
 const TOKEN: &str = "123456789012345678901234";
 const QUERY: &str = "987654";
 
@@ -28,12 +30,17 @@ struct Fixture {
 
 impl Fixture {
     async fn new() -> Self {
+        Self::with_openfigi(None).await
+    }
+
+    /// The ISIN resolver points at `openfigi` when given one; it is unreachable otherwise.
+    async fn with_openfigi(openfigi: Option<&MockServer>) -> Self {
         let server = MockServer::start().await;
-        let app = TestApp::builder()
-            .env("IBKR_FLEX_URL", server.uri())
-            .with_admin()
-            .spawn()
-            .await;
+        let mut builder = TestApp::builder().env("IBKR_FLEX_URL", server.uri());
+        if let Some(openfigi) = openfigi {
+            builder = builder.env("OPENFIGI_BASE_URL", openfigi.uri());
+        }
+        let app = builder.with_admin().spawn().await;
         let admin = app.login_admin().await;
         let member_id = picsou::auth::users::find_by_username(&app.state.db, ADMIN_USERNAME)
             .await
@@ -675,4 +682,32 @@ async fn resync_reporting_skips_without_connection_and_reports_success() {
     assert_eq!(synced.status, SyncStatus::Synced);
     assert_eq!(synced.message, "");
     assert_eq!(f.account_count().await, 1);
+}
+
+#[tokio::test]
+async fn the_database_stays_writable_while_the_tickers_are_resolved() {
+    let openfigi = MockServer::start().await;
+    let (slow, asked) = Slow::answering(ResponseTemplate::new(200).set_body_json(json!([
+        {"data": [{"ticker": "IWDA", "exchCode": "NA", "name": "ISHARES CORE MSCI WORLD"}]}
+    ])));
+    Mock::given(method("POST"))
+        .and(path("/v3/mapping"))
+        .respond_with(slow)
+        .mount(&openfigi)
+        .await;
+    let f = Fixture::with_openfigi(Some(&openfigi)).await;
+    f.connect().await;
+    f.flex(&[&statement(
+        "",
+        r#"<OpenPosition accountId="U1234567" currency="EUR" fxRateToBase="1" assetCategory="STK"
+            symbol="IWDA" description="ISHARES CORE MSCI WORLD" isin="IE00B4L5Y983" position="5"
+            markPrice="90.00" costBasisPrice="80.00" levelOfDetail="SUMMARY" />"#,
+    )])
+    .await;
+
+    let (status, body) = stays_writable_while(&f.app.state.db, &asked, f.sync()).await;
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let id = body[0]["id"].as_i64().expect("the synced account");
+    assert_eq!(f.holdings(id).await.len(), 1);
 }

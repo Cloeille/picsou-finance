@@ -31,6 +31,7 @@ use crate::http::rate_limit::policies;
 use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::holding_dedup::{HoldingAgg, vwap_merge};
 use crate::ledger::model::{AccountType, HoldingDraft};
+use crate::ledger::prices::PriceNeeds;
 use crate::ledger::sidecar::{SourceSyncResult, SyncStatus};
 use crate::ledger::valuation::{self, SnapshotContext};
 use crate::ledger::{holdings, members};
@@ -550,6 +551,23 @@ async fn resolve_portfolio(state: &AppState, data: &Portfolio) -> ResolvedPortfo
         .filter(|agg| !agg.quantity.is_zero())
         .map(|agg| agg.quantity * agg.current_price.unwrap_or(Decimal::ZERO))
         .sum();
+    // The snapshot written with this portfolio values its holdings through the price seam:
+    // asked here, outside any transaction, so the write finds the quotes in memory.
+    let mut needs = PriceNeeds::default();
+    needs.account(
+        AccountType::CompteTitres,
+        "EUR",
+        None,
+        deduped
+            .iter()
+            .filter(|(_, agg)| !agg.quantity.is_zero())
+            .map(|(ticker, _)| ticker.as_str()),
+    );
+    state
+        .ledger
+        .prices
+        .prefetch(&needs, state.clock.today())
+        .await;
     ResolvedPortfolio {
         cash_eur: data.cash_eur,
         total: data.cash_eur + positions_value,

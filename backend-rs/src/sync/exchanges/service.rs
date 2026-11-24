@@ -307,6 +307,9 @@ async fn run_sync(
     };
     let now = state.clock.now();
     let today = state.clock.today();
+    // Priced before the transaction opens: the snapshot it writes then finds the same quotes in
+    // memory, and no provider is awaited while the writer is held.
+    let valued = value(state, &positions, today).await;
     let mut tx = match state.db.begin().await {
         Ok(tx) => tx,
         Err(e) => return Err(fail(state, exchange, committed_id, e.into()).await),
@@ -323,7 +326,7 @@ async fn run_sync(
             state,
             exchange,
             member_id,
-            &positions,
+            &valued,
             now,
             today,
         )
@@ -346,17 +349,19 @@ async fn run_sync(
     }
 }
 
-/// Values the positions, writes the account, its holdings (summed per asset), the per-product
-/// breakdown and today's snapshot.
-async fn apply(
-    conn: &mut DbHandle<'_>,
+/// The positions, their sum per asset, and the EUR price of each asset that has one.
+struct Valued<'a> {
+    positions: &'a [ExchangePosition],
+    quantities: BTreeMap<String, Decimal>,
+    prices: HashMap<String, Decimal>,
+    total: Decimal,
+}
+
+async fn value<'a>(
     state: &AppState,
-    exchange: ExchangeType,
-    member_id: i64,
-    positions: &[ExchangePosition],
-    now: DateTime<Utc>,
+    positions: &'a [ExchangePosition],
     today: NaiveDate,
-) -> Result<Account, Failure> {
+) -> Valued<'a> {
     let mut quantities: BTreeMap<String, Decimal> = BTreeMap::new();
     for position in positions {
         *quantities
@@ -366,18 +371,44 @@ async fn apply(
     // Crypto-only: an unmapped coin must never be valued as the equity under the same symbol.
     let tickers: BTreeSet<String> = quantities.keys().cloned().collect();
     let quotes = state.ledger.prices.quotes(&tickers, true, today).await;
-    let prices: HashMap<&str, Decimal> = quantities
-        .keys()
-        .filter_map(|t| quotes.get(t).map(|q| (t.as_str(), q.price)))
+    let prices: HashMap<String, Decimal> = quotes
+        .into_iter()
+        .filter(|(ticker, _)| quantities.contains_key(ticker))
+        .map(|(ticker, quote)| (ticker, quote.price))
         .collect();
-
     let mut total = Decimal::ZERO;
     for (ticker, quantity) in &quantities {
-        match prices.get(ticker.as_str()) {
+        match prices.get(ticker) {
             Some(price) => total += set_scale(quantity * price, 2, HALF_UP),
             None => tracing::warn!("No EUR price for {ticker} -- skipping in total"),
         }
     }
+    Valued {
+        positions,
+        quantities,
+        prices,
+        total,
+    }
+}
+
+/// Writes the account, its holdings (summed per asset), the per-product breakdown and today's
+/// snapshot.
+async fn apply(
+    conn: &mut DbHandle<'_>,
+    state: &AppState,
+    exchange: ExchangeType,
+    member_id: i64,
+    valued: &Valued<'_>,
+    now: DateTime<Utc>,
+    today: NaiveDate,
+) -> Result<Account, Failure> {
+    let Valued {
+        positions,
+        quantities,
+        prices,
+        total,
+    } = valued;
+    let total = *total;
     let nothing_priced = !quantities.is_empty() && prices.is_empty();
     let external_id = exchange.external_id();
 
@@ -433,8 +464,8 @@ async fn apply(
     // The response reports the balance as computed, not at the column's scale.
     account.current_balance = total;
 
-    for (ticker, quantity) in &quantities {
-        if let Some(price) = prices.get(ticker.as_str()) {
+    for (ticker, quantity) in quantities {
+        if let Some(price) = prices.get(ticker) {
             holdings::upsert_holding(
                 &mut *conn,
                 account.id,

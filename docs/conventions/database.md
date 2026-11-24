@@ -172,13 +172,22 @@ once.
 `db.begin()` takes the only writer connection until the transaction commits or rolls back.
 Reads outside a transaction use the WAL reader pool and are not affected.
 
-- **Fetch first, then write.** Do the outbound calls (prices, FX rates, a bank or broker API)
-  before `db.begin()`. Inside a transaction they keep every other write of the instance waiting,
-  and a write that waits 30 s fails with `503 DB_BUSY`. Several services ported from
-  `@Transactional` Java methods still fetch inside their transaction (the account write
-  handlers, the Enable Banking, IBKR, Finary, exchange, SimpleFIN and Wise syncs, the dividend
-  history refresh, the data export stream): moving their calls out is tracked as follow-up work.
-  `sync/wallets` and `sync/louve` show the pattern.
+- **Fetch first, then write.** Do the outbound calls (a bank or broker API, an ISIN lookup,
+  prices, FX rates) before `db.begin()`. Inside a transaction they keep every other write of the
+  instance waiting, and a write that waits 30 s fails with `503 DB_BUSY`.
+  - A sync fetches everything it writes first, then opens its transaction: see
+    `sync/enable_banking/service.rs` (`ask_first`) and `sync/ibkr/service.rs`.
+  - **Prices are asked ahead too.** Valuing an account inside a transaction (the day's snapshot,
+    the response) reads quotes and rates through `PriceRead`. Collect what the write is about to
+    price in a `PriceNeeds` (the currencies it converts, the tickers its accounts will hold) and
+    call `state.ledger.prices.prefetch(&needs, today)` before `db.begin()`: the live price
+    service remembers each answer, a miss included, so the same lookups inside the transaction
+    are answered from memory. A connector built on `SyncTemplate` returns them from
+    `SyncStrategy::price_needs`; a handler on an existing account reads them with
+    `valuation::needs_of`.
+  - The test helper `tests/integration/writer_free.rs` proves a flow follows the rule: a stubbed
+    provider answers slowly, and a write made meanwhile has to go through
+    (`stays_writable_while`). Add a case with every flow that calls a provider and writes.
 - **A dropped request is safe.** When the future awaiting a statement is dropped (the client went
   away, a timeout fired), a statement that had not reached the connection is skipped and a
   `BEGIN` or `SAVEPOINT` that had is undone (`db/sqlite/mod.rs`, `run_on_writer` and

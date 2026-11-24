@@ -12,11 +12,13 @@ use super::wire::fingerprint;
 use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::ledger::accounts::{self, NewAccount};
-use crate::ledger::bank_import::{self, DEFAULT_INITIAL_HISTORY_DAYS};
+use crate::ledger::bank_import::{self, DEFAULT_INITIAL_HISTORY_DAYS, TransactionData};
 use crate::ledger::members;
 use crate::ledger::model::{Account, AccountType};
+use crate::ledger::prices::PriceNeeds;
 use crate::ledger::sidecar::{SourceSyncResult, SyncStatus};
 use crate::ledger::valuation::{self, SnapshotContext};
+use chrono::NaiveDate;
 use rust_decimal::Decimal;
 
 pub const SOURCE: &str = "enable-banking";
@@ -153,8 +155,9 @@ async fn link_session(
         );
         return Ok(Vec::new());
     }
+    let asked = ask_first(state, &data, requisition.member_id, session_id).await?;
     let mut tx = state.db.begin().await?;
-    let responses = upsert_all(state, &mut tx.as_handle(), &data, &requisition, session_id).await?;
+    let responses = upsert_all(state, &mut tx.as_handle(), &data, &requisition, &asked).await?;
     let now = state.clock.now();
     requisition.requisition_id = session_id.to_owned();
     requisition.oauth_state = None;
@@ -212,9 +215,9 @@ pub async fn retry_sync(
         }
         Err(other) => return Err(other),
     };
+    let asked = ask_first(state, &data, member_id, &req.requisition_id).await?;
     let mut tx = state.db.begin().await?;
-    let session_id = req.requisition_id.clone();
-    let responses = upsert_all(state, &mut tx.as_handle(), &data, &req, &session_id).await?;
+    let responses = upsert_all(state, &mut tx.as_handle(), &data, &req, &asked).await?;
     if mark_retryable_if_empty(&mut req, &data, "retry") {
         requisitions::save(&mut tx, &req, state.clock.now()).await?;
         tx.commit().await?;
@@ -365,14 +368,14 @@ pub async fn resync_all_reporting(state: &AppState, member_id: i64) -> SourceSyn
 async fn resync_one(state: &AppState, req: &mut Requisition) -> Result<(), EbError> {
     ensure_logo_url(state, req).await;
     let data = connector::fetch_balances(state, &req.requisition_id).await?;
+    let asked = ask_first(state, &data, req.member_id, &req.requisition_id).await?;
     let mut tx = state.db.begin().await?;
     if mark_retryable_if_empty(req, &data, "resync") {
         requisitions::save(&mut tx, req, state.clock.now()).await?;
         tx.commit().await?;
         return Ok(());
     }
-    let session_id = req.requisition_id.clone();
-    upsert_all(state, &mut tx.as_handle(), &data, req, &session_id).await?;
+    upsert_all(state, &mut tx.as_handle(), &data, req, &asked).await?;
     let now = state.clock.now();
     req.last_synced_at = Some(now);
     requisitions::save(&mut tx, req, now).await?;
@@ -447,14 +450,14 @@ async fn resync_latest(
     .ok_or_else(|| EbError::sync("No linked session found to refresh."))?;
     ensure_logo_url(state, &mut req).await;
     let data = connector::fetch_balances(state, &req.requisition_id).await?;
+    let asked = ask_first(state, &data, member_id, &req.requisition_id).await?;
     let mut tx = state.db.begin().await?;
     if mark_retryable_if_empty(&mut req, &data, "refresh") {
         requisitions::save(&mut tx, &req, state.clock.now()).await?;
         tx.commit().await?;
         return Ok(Vec::new());
     }
-    let session_id = req.requisition_id.clone();
-    let responses = upsert_all(state, &mut tx.as_handle(), &data, &req, &session_id).await?;
+    let responses = upsert_all(state, &mut tx.as_handle(), &data, &req, &asked).await?;
     let now = state.clock.now();
     req.last_synced_at = Some(now);
     requisitions::save(&mut tx, &req, now).await?;
@@ -595,37 +598,123 @@ fn find_institution<'a>(
         })
 }
 
+/// The transactions of one bank entry, asked of the bank before the write transaction opens.
+struct AskedTransactions {
+    /// The day they were asked from.
+    since: NaiveDate,
+    rows: Vec<TransactionData>,
+}
+
+/// Everything the write needs from outside, asked before its transaction opens: each entry's
+/// transactions (None where there is nothing to import: no session, an account deleted here,
+/// a bank that refused) and the rates its balances convert at. Inside the transaction these
+/// calls would keep SQLite's only writer for as long as the bank takes to answer.
+async fn ask_first(
+    state: &AppState,
+    data: &[AccountData],
+    member_id: i64,
+    session_id: &str,
+) -> Result<Vec<Option<AskedTransactions>>, EbError> {
+    let today = state.clock.today();
+    let mut conn = state.db.pool_handle();
+    let mut needs = PriceNeeds::default();
+    let mut asked = Vec::with_capacity(data.len());
+    for d in data {
+        let stored = match_account(&mut conn, d, member_id).await?;
+        needs.account(
+            d.account_type,
+            d.currency.as_deref().unwrap_or("EUR"),
+            None,
+            [""; 0],
+        );
+        let since = match &stored {
+            Stored::Deleted => {
+                asked.push(None);
+                continue;
+            }
+            Stored::Account(account) => {
+                // A balance the bank left out keeps the currency the account was stored in.
+                needs.account(
+                    account.account_type,
+                    &account.currency,
+                    account.ticker.as_deref(),
+                    [""; 0],
+                );
+                bank_import::window_start(
+                    &mut conn,
+                    account.id,
+                    today,
+                    DEFAULT_INITIAL_HISTORY_DAYS,
+                )
+                .await?
+            }
+            Stored::None => bank_import::shared_history_start(today, DEFAULT_INITIAL_HISTORY_DAYS),
+        };
+        asked.push(ask_transactions(state, d, session_id, since).await);
+    }
+    state.ledger.prices.prefetch(&needs, today).await;
+    Ok(asked)
+}
+
+/// BankTransactionImportService.importFor's fetch: a provider failure logs and imports nothing.
+async fn ask_transactions(
+    state: &AppState,
+    data: &AccountData,
+    session_id: &str,
+    since: NaiveDate,
+) -> Option<AskedTransactions> {
+    if session_id.is_empty() {
+        return None;
+    }
+    match connector::fetch_transactions(state, &data.external_id, Some(since)).await {
+        Ok(rows) => Some(AskedTransactions { since, rows }),
+        Err(e) => {
+            tracing::warn!(
+                "Could not fetch transactions for account externalId={} since {since}: {}",
+                fingerprint(Some(&data.external_id)),
+                e.message()
+            );
+            None
+        }
+    }
+}
+
 async fn upsert_all(
     state: &AppState,
     conn: &mut DbHandle<'_>,
     data: &[AccountData],
     req: &Requisition,
-    session_id: &str,
+    asked: &[Option<AskedTransactions>],
 ) -> Result<Vec<serde_json::Value>, EbError> {
     let mut responses = Vec::new();
-    for d in data {
-        if let Some(response) = upsert_account(state, conn, d, req, session_id).await? {
+    for (d, transactions) in data.iter().zip(asked) {
+        if let Some(response) = upsert_account(state, conn, d, req, transactions.as_ref()).await? {
             responses.push(response);
         }
     }
     Ok(responses)
 }
 
-/// None when the matching account was soft-deleted: a bank re-sending an id is no consent to
-/// resurrect it. Matches the external uid first, then (uid rotation) the IBAN and currency.
-async fn upsert_account(
-    state: &AppState,
+/// The stored account a bank entry writes into.
+enum Stored {
+    Account(Box<Account>),
+    None,
+    /// Soft-deleted here: a bank re-sending an id is no consent to resurrect it.
+    Deleted,
+}
+
+/// Matches the external uid first, then (uid rotation) the IBAN and currency.
+async fn match_account(
     conn: &mut DbHandle<'_>,
     data: &AccountData,
-    req: &Requisition,
-    session_id: &str,
-) -> Result<Option<serde_json::Value>, EbError> {
-    let member_id = req.member_id;
-    let currency = data.currency.clone().unwrap_or_else(|| "EUR".to_owned());
-    let is_card = data.account_type == AccountType::CreditCard;
-    // A card may carry the IBAN of the account it is debited from: never match or store it on the
-    // card.
-    let iban = data.iban.as_deref().filter(|_| !is_card);
+    member_id: i64,
+) -> sqlx::Result<Stored> {
+    let currency = data.currency.as_deref().unwrap_or("EUR");
+    // A card may carry the IBAN of the account it is debited from: never match it on the card.
+    let iban = data
+        .iban
+        .as_deref()
+        .filter(|_| data.account_type != AccountType::CreditCard);
     let mut existing =
         accounts::find_by_external_id_and_member(&mut *conn, &data.external_id, member_id).await?;
     if existing.is_none() {
@@ -635,7 +724,7 @@ async fn upsert_account(
                 .await?;
         if !deleted_uid && let Some(iban) = iban {
             existing =
-                accounts::find_by_iban_currency_and_member(&mut *conn, iban, &currency, member_id)
+                accounts::find_by_iban_currency_and_member(&mut *conn, iban, currency, member_id)
                     .await?;
         }
         let deleted_iban = match (&existing, iban) {
@@ -644,7 +733,7 @@ async fn upsert_account(
                     &mut *conn,
                     iban,
                     member_id,
-                    Some(&currency),
+                    Some(currency),
                     None,
                 )
                 .await?
@@ -652,6 +741,30 @@ async fn upsert_account(
             _ => false,
         };
         if deleted_uid || deleted_iban {
+            return Ok(Stored::Deleted);
+        }
+    }
+    Ok(match existing {
+        Some(account) => Stored::Account(Box::new(account)),
+        None => Stored::None,
+    })
+}
+
+/// None when the matching account was soft-deleted.
+async fn upsert_account(
+    state: &AppState,
+    conn: &mut DbHandle<'_>,
+    data: &AccountData,
+    req: &Requisition,
+    transactions: Option<&AskedTransactions>,
+) -> Result<Option<serde_json::Value>, EbError> {
+    let member_id = req.member_id;
+    let currency = data.currency.clone().unwrap_or_else(|| "EUR".to_owned());
+    let is_card = data.account_type == AccountType::CreditCard;
+    // A card may carry the IBAN of the account it is debited from: never store it on the card.
+    let iban = data.iban.as_deref().filter(|_| !is_card);
+    let existing = match match_account(conn, data, member_id).await? {
+        Stored::Deleted => {
             tracing::info!(
                 "Skipping resurrection of soft-deleted account externalId={} iban={} member={member_id}",
                 fingerprint(Some(&data.external_id)),
@@ -659,7 +772,9 @@ async fn upsert_account(
             );
             return Ok(None);
         }
-    }
+        Stored::Account(account) => Some(*account),
+        Stored::None => None,
+    };
     // A card never takes a positive balance: whatever the path, that figure is credit left, not
     // owed.
     let stored_card = existing
@@ -746,7 +861,9 @@ async fn upsert_account(
     }
     // Balances first, transactions after: the import is best-effort, so an ASPSP serving balances
     // but refusing /transactions still produces the sync the user asked for.
-    import_transactions(state, conn, &account, session_id).await?;
+    if let Some(asked) = transactions {
+        bank_import::import_fetched(conn, &account, asked.since, &asked.rows, now).await?;
+    }
     let response = state
         .sync
         .enable_banking
@@ -784,38 +901,4 @@ fn refresh_card_identity(account: &mut Account, data: &AccountData) {
     {
         account.name = name.clone();
     }
-}
-
-/// BankTransactionImportService.importFor: a provider failure logs and imports nothing.
-async fn import_transactions(
-    state: &AppState,
-    conn: &mut DbHandle<'_>,
-    account: &Account,
-    session_id: &str,
-) -> Result<usize, EbError> {
-    let Some(external_id) = account.external_account_id.as_deref() else {
-        return Ok(0);
-    };
-    if session_id.is_empty() {
-        return Ok(0);
-    }
-    let start = bank_import::window_start(
-        conn,
-        account.id,
-        state.clock.today(),
-        DEFAULT_INITIAL_HISTORY_DAYS,
-    )
-    .await?;
-    let fetched = match connector::fetch_transactions(state, external_id, Some(start)).await {
-        Ok(fetched) => fetched,
-        Err(e) => {
-            tracing::warn!(
-                "Could not fetch transactions for account {} since {start}: {}",
-                account.id,
-                e.message()
-            );
-            return Ok(0);
-        }
-    };
-    Ok(bank_import::import_fetched(conn, account, start, &fetched, state.clock.now()).await?)
 }

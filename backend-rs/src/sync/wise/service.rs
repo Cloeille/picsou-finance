@@ -18,6 +18,7 @@ use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::bank_import::{clip, fits_ledger_amount};
 use crate::ledger::members;
 use crate::ledger::model::AccountType;
+use crate::ledger::prices::PriceNeeds;
 use crate::ledger::sidecar::{SourceSyncResult, SyncStatus};
 use crate::ledger::sync_values::{java_is_blank, java_trim};
 use crate::ledger::valuation::{self, SnapshotContext};
@@ -51,6 +52,7 @@ pub(super) async fn connect(
     let jars = fetch_jars(state, token).await?;
     let encrypted = state.crypto.encrypt(token)?;
     let now = state.clock.now();
+    prefetch_rates(state, &jars).await;
     let mut tx = state.db.begin().await?;
     store::save_token(&mut tx, member.id, &encrypted, now).await?;
     tracing::info!("Wise token stored for member {member_id}");
@@ -190,6 +192,7 @@ async fn try_sync(
         )
     })?;
     let jars = fetch_jars(state, &token).await?;
+    prefetch_rates(state, &jars).await;
     let mut tx = state.db.begin().await?;
     let member = members::find_by_id(&mut tx, member_id)
         .await?
@@ -199,6 +202,20 @@ async fn try_sync(
     store::mark_synced(&mut tx, connection.id, now).await?;
     tx.commit().await?;
     Ok(responses)
+}
+
+/// The EUR rate of each jar's currency, asked before the write transaction opens: inside it,
+/// a rate provider that is slow to answer would keep SQLite's only writer.
+async fn prefetch_rates(state: &AppState, jars: &[WiseJar]) {
+    let mut needs = PriceNeeds::default();
+    for jar in jars {
+        needs.currency(&jar.currency);
+    }
+    state
+        .ledger
+        .prices
+        .prefetch(&needs, state.clock.today())
+        .await;
 }
 
 async fn fetch_jars(state: &AppState, token: &str) -> Result<Vec<WiseJar>, WiseError> {

@@ -4,6 +4,10 @@
 use picsou::testing::TestApp;
 use reqwest::StatusCode;
 use serde_json::json;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+use crate::writer_free::{Slow, stays_writable_while};
 
 use super::support::{PASSWORD, account, admin_member, exec, ids, num};
 
@@ -359,4 +363,47 @@ async fn ownership_split_rules_and_the_co_owner_view() {
     let cleared = put(flat, json!([])).send().await.json();
     assert_eq!(cleared["shares"][0]["isOwner"], true);
     assert_eq!(num(&cleared["shares"][0]["sharePercent"]), "100");
+}
+
+#[tokio::test]
+async fn the_database_stays_writable_while_a_typed_balance_is_converted() {
+    let yahoo = MockServer::start().await;
+    let (slow, asked) = Slow::answering(ResponseTemplate::new(200).set_body_json(json!({
+        "chart": {"result": [{
+            "meta": {"currency": "EUR", "regularMarketPrice": 0.9},
+            "timestamp": [1768471200],
+            "indicators": {"quote": [{"close": [0.9]}]}
+        }], "error": null}
+    })));
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/USDEUR=X"))
+        .respond_with(slow)
+        .mount(&yahoo)
+        .await;
+    let app = TestApp::builder()
+        .with_admin()
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .spawn()
+        .await;
+    let admin = app.login_admin().await;
+
+    let created = stays_writable_while(
+        &app.state.db,
+        &asked,
+        admin
+            .post("/api/accounts")
+            .json(&json!({"name": "Dollars", "type": "SAVINGS", "currency": "USD", "isManual": true, "currentBalance": 100}))
+            .send(),
+    )
+    .await;
+
+    assert_eq!(created.status, StatusCode::CREATED, "{}", created.text());
+    // The rate asked before the transaction opened is the one the first snapshot was written at.
+    let id = created.json()["id"].as_i64().unwrap();
+    let history = admin
+        .get(&format!("/api/accounts/{id}/history"))
+        .send()
+        .await
+        .json();
+    assert_eq!(num(&history[0]["balance"]), "90.00000000");
 }

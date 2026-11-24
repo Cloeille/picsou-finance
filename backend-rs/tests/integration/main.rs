@@ -20,3 +20,4 @@ mod sqlite_foundation;
 mod sync;
 mod transfer;
 mod wealth;
+mod writer_free;

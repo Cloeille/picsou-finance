@@ -31,6 +31,7 @@ use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::categorize::{self, CategorizationContext};
 use crate::ledger::decimal::{HALF_UP, divide};
 use crate::ledger::model::{Account, AccountType, HoldingDraft};
+use crate::ledger::prices::PriceNeeds;
 use crate::ledger::providers::{BNP as PROVIDER, HELLO_BANK as HELLO_BANK_PROVIDER};
 use crate::ledger::sidecar::{SidecarBank, SidecarErrorCode, SidecarTransaction, SourceSyncResult};
 use crate::ledger::sync_values::{self, clean, limit, money_close, sum_complete, weighted_average};
@@ -941,6 +942,19 @@ impl SyncStrategy for Strategy {
             .map()
             .insert(job.member_id, prepared.unsupported.clone());
         Ok(())
+    }
+
+    fn price_needs(&self, prepared: &Prepared) -> PriceNeeds {
+        let mut needs = PriceNeeds::default();
+        for account in &prepared.accounts {
+            needs.account(
+                account.account_type,
+                "EUR",
+                None,
+                account.positions.iter().map(|p| p.ticker.as_str()),
+            );
+        }
+        needs
     }
 
     fn describe(&self, prepared: &Prepared) -> String {

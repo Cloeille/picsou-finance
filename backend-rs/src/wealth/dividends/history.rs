@@ -36,13 +36,16 @@ enum NasdaqFetch {
     Rows(Vec<nasdaq::NasdaqDividend>),
 }
 
+/// What the providers said about one ticker, every one of them already asked: writing it takes
+/// no further request.
 enum Fetched {
     Failed(String),
     Ok {
         currency: Option<String>,
+        /// Whether Yahoo itself listed a dividend, before Nasdaq's declared ones were merged in.
+        had_history: bool,
         events: Vec<Event>,
-        rate: Option<Decimal>,
-        nasdaq: NasdaqFetch,
+        keep_future_declared: bool,
     },
 }
 
@@ -107,7 +110,7 @@ pub async fn refresh_stale(state: &AppState, tickers: &[String], limit: usize) -
         if attempt > 0 {
             tokio::time::sleep(PACING).await;
         }
-        let fetched = fetch(state, ticker).await;
+        let fetched = fetch(state, ticker, state.clock.today()).await;
         let mut tx = state.db.begin().await?;
         match persist(&mut tx.as_handle(), state, ticker, fetched).await {
             Ok(ok) => {
@@ -154,44 +157,54 @@ async fn fetch_nasdaq(state: &AppState, ticker: &str) -> NasdaqFetch {
     }
 }
 
-async fn fetch(state: &AppState, ticker: &str) -> Fetched {
+async fn fetch(state: &AppState, ticker: &str, today: NaiveDate) -> Fetched {
     let history = match state.market.yahoo().fetch_dividend_history(ticker).await {
         Ok(history) => history,
         Err(e) => return Fetched::Failed(e.to_string()),
     };
-    if history.events.is_empty() {
-        return Fetched::Ok {
-            currency: history.currency,
-            events: Vec::new(),
-            rate: None,
-            nasdaq: fetch_nasdaq(state, ticker).await,
+    let (currency, events, rate) = if history.events.is_empty() {
+        (history.currency, Vec::new(), None)
+    } else {
+        let Some(currency) = history.currency.clone().filter(|c| !c.trim().is_empty()) else {
+            return Fetched::Failed("dividend currency missing".to_owned());
         };
-    }
-    let Some(currency) = history.currency.clone().filter(|c| !c.trim().is_empty()) else {
-        return Fetched::Failed("dividend currency missing".to_owned());
+        let Some(rate) = state.market.yahoo().fx_rate_to_eur(Some(&currency)).await else {
+            return Fetched::Failed(format!("FX rate unavailable for {currency}"));
+        };
+        let mut by_date: BTreeMap<NaiveDate, Decimal> = BTreeMap::new();
+        for point in &history.events {
+            by_date.insert(point.ex_date, point.amount);
+        }
+        let events: Vec<Event> = by_date
+            .into_iter()
+            .map(|(ex_date, amount)| Event {
+                ex_date,
+                amount,
+                amount_eur: set_scale(amount * rate, MONEY_SCALE, HALF_UP),
+                payment_date: None,
+                declared: false,
+            })
+            .collect();
+        (Some(currency), events, Some(rate))
     };
-    let Some(rate) = state.market.yahoo().fx_rate_to_eur(Some(&currency)).await else {
-        return Fetched::Failed(format!("FX rate unavailable for {currency}"));
-    };
-    let mut by_date: BTreeMap<NaiveDate, Decimal> = BTreeMap::new();
-    for point in &history.events {
-        by_date.insert(point.ex_date, point.amount);
-    }
-    let events = by_date
-        .into_iter()
-        .map(|(ex_date, amount)| Event {
-            ex_date,
-            amount,
-            amount_eur: set_scale(amount * rate, MONEY_SCALE, HALF_UP),
-            payment_date: None,
-            declared: false,
-        })
-        .collect();
-    Fetched::Ok {
-        currency: Some(currency),
+    let had_history = !events.is_empty();
+    let nasdaq = fetch_nasdaq(state, ticker).await;
+    // Merged here, not while writing: a Nasdaq row in another currency asks for its rate.
+    let (events, keep_future_declared) = complement(
+        state,
+        ticker,
         events,
-        rate: Some(rate),
-        nasdaq: fetch_nasdaq(state, ticker).await,
+        rate,
+        currency.as_deref(),
+        nasdaq,
+        today,
+    )
+    .await;
+    Fetched::Ok {
+        currency,
+        had_history,
+        events,
+        keep_future_declared,
     }
 }
 
@@ -212,7 +225,7 @@ async fn persist(
     .bind(now)
     .fetch_one(&mut *conn)
     .await?;
-    let (currency, events, rate, nasdaq) = match fetched {
+    let (currency, had_history, incoming, keep_future_declared) = match fetched {
         Fetched::Failed(message) => {
             let message: String = message.chars().take(200).collect();
             tracing::warn!("Dividend history lookup failed for {ticker}: {message}");
@@ -226,22 +239,11 @@ async fn persist(
         }
         Fetched::Ok {
             currency,
+            had_history,
             events,
-            rate,
-            nasdaq,
-        } => (currency, events, rate, nasdaq),
+            keep_future_declared,
+        } => (currency, had_history, events, keep_future_declared),
     };
-    let had_history = !events.is_empty();
-    let (incoming, keep_future_declared) = complement(
-        state,
-        ticker,
-        events,
-        rate,
-        currency.as_deref(),
-        nasdaq,
-        today,
-    )
-    .await;
     write_events(conn, source_id, &incoming, keep_future_declared, today, now).await?;
     let count: i64 =
         crate::db::query_scalar::<i64>("SELECT count(*) FROM dividend_event WHERE source_id = $1")

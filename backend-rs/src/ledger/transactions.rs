@@ -122,6 +122,20 @@ pub async fn find_by_account_and_tx_types<'e>(
     .await
 }
 
+/// The currencies the account's rows were entered in.
+pub async fn native_currencies<'e>(
+    db: impl DbExec<'e>,
+    account_id: i64,
+) -> sqlx::Result<Vec<String>> {
+    crate::db::query_scalar(
+        "SELECT DISTINCT native_currency FROM \"transaction\" WHERE account_id = $1 \
+         AND native_currency IS NOT NULL",
+    )
+    .bind(account_id)
+    .fetch_all(db)
+    .await
+}
+
 /// The date of the newest synced row of the account.
 pub async fn latest_synced_date<'e>(
     db: impl DbExec<'e>,

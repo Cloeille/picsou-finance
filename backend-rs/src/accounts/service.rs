@@ -26,6 +26,7 @@ use crate::ledger::manual_transactions::{
 use crate::ledger::model::{
     Account, AccountDisplayPref, AccountType, BalanceSnapshot, SnapshotSource,
 };
+use crate::ledger::prices::PriceNeeds;
 use crate::ledger::snapshots::NewSnapshot;
 use crate::ledger::valuation::SnapshotContext;
 use crate::ledger::{
@@ -240,6 +241,18 @@ async fn bank_logo_url(
         .await
 }
 
+/// What a write on this account is about to price, as the database has it now. Asked of the
+/// providers before the write transaction opens (PriceRead::prefetch): inside it, a provider
+/// that is slow to answer would keep SQLite's only writer. Empty for an account the member
+/// cannot write, which the transaction then refuses.
+async fn price_needs(state: &AppState, account_id: i64, member_id: i64) -> AppResult<PriceNeeds> {
+    let mut conn = state.db.pool_handle();
+    match accounts::find_by_id_and_member(&mut conn, account_id, member_id).await? {
+        Some(account) => Ok(valuation::needs_of(&mut conn, &account).await?),
+        None => Ok(PriceNeeds::default()),
+    }
+}
+
 fn snapshot_ctx(state: &AppState) -> SnapshotContext<'_> {
     SnapshotContext {
         prices: &*state.ledger.prices,
@@ -345,17 +358,25 @@ pub async fn create(
     } else {
         None
     };
+    let currency = if scpi || peer_loan {
+        "EUR".to_owned()
+    } else {
+        req.currency.clone().unwrap_or_default()
+    };
+    let mut needs = PriceNeeds::default();
+    needs.account(kind, &currency, req.ticker.as_deref(), [""; 0]);
+    state
+        .ledger
+        .prices
+        .prefetch(&needs, state.clock.today())
+        .await;
     let mut tx = state.db.begin().await?;
     members::find_by_id(&mut tx, auth.member_id)
         .await?
         .ok_or_else(|| AppError::NotFound("Family member not found".to_owned()))?;
     let mut new = accounts::NewAccount::new(auth.member_id, req.name(), kind);
     new.provider = req.provider.clone();
-    new.currency = if scpi || peer_loan {
-        "EUR".to_owned()
-    } else {
-        req.currency.clone().unwrap_or_default()
-    };
+    new.currency = currency;
     new.current_balance = opening;
     new.is_manual = scpi || peer_loan || req.is_manual;
     new.color = req.color.clone().unwrap_or_else(|| "#6366f1".to_owned());
@@ -440,6 +461,19 @@ pub async fn update(
     } else {
         None
     };
+    // A typed balance is converted with the currency and ticker of the request.
+    let mut needs = price_needs(&state, id, auth.member_id).await?;
+    needs.account(
+        kind,
+        req.currency.as_deref().unwrap_or_default(),
+        req.ticker.as_deref(),
+        [""; 0],
+    );
+    state
+        .ledger
+        .prices
+        .prefetch(&needs, state.clock.today())
+        .await;
 
     let mut tx = state.db.begin().await?;
     let mut account =
@@ -719,6 +753,12 @@ pub async fn add_snapshot(
     let (Some(typed), Some(date)) = (req.balance, req.date) else {
         return Err(AppError::BadRequest("Failed to read request".to_owned()));
     };
+    let needs = price_needs(&state, id, auth.member_id).await?;
+    state
+        .ledger
+        .prices
+        .prefetch(&needs, state.clock.today())
+        .await;
     let mut tx = state.db.begin().await?;
     let mut account =
         super::scale::fixed(accounts::get_or_throw(&mut tx, id, auth.member_id).await?);
@@ -902,6 +942,33 @@ async fn pre_resolve_isin(
     Ok(Some(state.accounts.isin.resolve(raw).await))
 }
 
+/// The prices a manual entry reads, asked before its transaction opens: those of the account
+/// as it stands, the rate of the entry's currency and the quote of the ticker it trades.
+async fn prefetch_entry_prices(
+    state: &AppState,
+    account_id: i64,
+    member_id: i64,
+    req: &TransactionRequest,
+    resolved: Option<&crate::ledger::instrument::TickerResult>,
+) -> AppResult<()> {
+    let mut needs = price_needs(state, account_id, member_id).await?;
+    if let Some(currency) = req.currency.as_deref() {
+        needs.currency(currency);
+    }
+    if let Some(ticker) = resolved
+        .map(|r| r.ticker.as_str())
+        .or(req.ticker.as_deref())
+    {
+        needs.ticker(ticker);
+    }
+    state
+        .ledger
+        .prices
+        .prefetch(&needs, state.clock.today())
+        .await;
+    Ok(())
+}
+
 pub async fn add_transaction(
     State(state): State<AppState>,
     auth: Auth,
@@ -912,6 +979,7 @@ pub async fn add_transaction(
     let categorization =
         categorize::load_context(&state.db, kb, auth.member_id, state.clock.now()).await?;
     let preresolved = pre_resolve_isin(&state, id, auth.member_id, None, &req).await?;
+    prefetch_entry_prices(&state, id, auth.member_id, &req, preresolved.as_ref()).await?;
     let mut tx = state.db.begin().await?;
     let response = manual_transactions::add_transaction(
         &mut tx.as_handle(),
@@ -939,6 +1007,7 @@ pub async fn update_transaction(
     Json(req): Json<TransactionRequest>,
 ) -> AppResult<axum::Json<TransactionResponse>> {
     let preresolved = pre_resolve_isin(&state, id, auth.member_id, Some(tx_id), &req).await?;
+    prefetch_entry_prices(&state, id, auth.member_id, &req, preresolved.as_ref()).await?;
     let mut tx = state.db.begin().await?;
     let response = manual_transactions::update_transaction(
         &mut tx.as_handle(),
@@ -964,6 +1033,12 @@ pub async fn delete_transaction(
     auth: Auth,
     Path((id, tx_id)): Path<(i64, i64)>,
 ) -> AppResult<StatusCode> {
+    let needs = price_needs(&state, id, auth.member_id).await?;
+    state
+        .ledger
+        .prices
+        .prefetch(&needs, state.clock.today())
+        .await;
     let mut tx = state.db.begin().await?;
     manual_transactions::delete_transaction(
         &mut tx.as_handle(),

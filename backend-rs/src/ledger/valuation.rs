@@ -12,9 +12,9 @@ use rust_decimal::Decimal;
 
 use super::liabilities;
 use super::model::{Account, AccountHolding, AccountType, BalanceSnapshot, SnapshotSource};
-use super::prices::{PriceRead, Quote};
+use super::prices::{PriceNeeds, PriceRead, Quote};
 use super::sync_values::java_is_blank;
-use super::{holdings, loans, peer_loans, providers, snapshots};
+use super::{holdings, loans, peer_loans, providers, snapshots, transactions};
 
 /// What an account is worth and what it cost.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -312,6 +312,41 @@ pub async fn quotes_for(
     prices
         .quotes(&tickers, account.account_type == AccountType::Crypto, today)
         .await
+}
+
+/// What valuing the account and rebuilding its manual ledger read, as the database has them
+/// now: the rate of its currency and of each currency its rows were entered in, its own ticker
+/// and the quotes of its holdings. For PriceRead::prefetch, before a write on it opens.
+pub async fn needs_of(conn: &mut DbHandle<'_>, account: &Account) -> sqlx::Result<PriceNeeds> {
+    let holdings = holdings::find_by_account(&mut *conn, account.id).await?;
+    let mut needs = PriceNeeds::of(account, &holdings);
+    for currency in transactions::native_currencies(&mut *conn, account.id).await? {
+        needs.currency(&currency);
+    }
+    Ok(needs)
+}
+
+/// The rates rebuilding the manual ledgers of a member can read: the currencies of their
+/// accounts and of the rows entered on them. For PriceRead::prefetch, before an import that
+/// rebuilds whichever of them it writes into.
+pub async fn currency_needs_of_member(
+    conn: &mut DbHandle<'_>,
+    member_id: i64,
+) -> sqlx::Result<PriceNeeds> {
+    let currencies: Vec<String> = crate::db::query_scalar(
+        "SELECT DISTINCT a.currency FROM account a WHERE a.member_id = $1 \
+         UNION SELECT DISTINCT t.native_currency FROM \"transaction\" t \
+         JOIN account a ON a.id = t.account_id \
+         WHERE a.member_id = $1 AND t.native_currency IS NOT NULL",
+    )
+    .bind(member_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut needs = PriceNeeds::default();
+    for currency in &currencies {
+        needs.currency(currency);
+    }
+    Ok(needs)
 }
 
 /// AccountService.liveBalanceEur.

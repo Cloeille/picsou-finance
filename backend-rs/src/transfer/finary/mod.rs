@@ -29,6 +29,7 @@ use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::members;
 use crate::ledger::model::{Account, AccountType, CardNature, RecurringCadence};
 use crate::ledger::sync_values::java_is_blank;
+use crate::ledger::valuation;
 use crate::routes::Routes;
 use crate::transfer::preview_store::PreviewStore;
 use crate::transfer::upload::{MAX_UPLOAD_BYTES, MultipartForm};
@@ -504,6 +505,18 @@ async fn execute(
         transactions_imported: 0,
         imported_accounts: Vec::new(),
     };
+    // The manual ledgers this import rebuilds convert from these currencies: the rates are
+    // asked before the transaction opens, where a slow provider would keep SQLite's only writer.
+    let mut needs =
+        valuation::currency_needs_of_member(&mut state.db.pool_handle(), member_id).await?;
+    for account in by_key.values() {
+        needs.currency(&account.currency);
+    }
+    state
+        .ledger
+        .prices
+        .prefetch(&needs, state.clock.today())
+        .await;
     let mut tx = state.db.begin().await?;
     for mapping in mappings {
         let Some(finary) = by_key.get(&mapping.key()).copied() else {

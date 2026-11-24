@@ -17,6 +17,7 @@ use super::session::{self, NewSession, SidecarSession};
 use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::ledger::members;
+use crate::ledger::prices::PriceNeeds;
 use crate::ledger::sidecar::{SidecarBank, SidecarErrorCode, SourceSyncResult, SyncStatus};
 use crate::ledger::sync_values;
 
@@ -60,6 +61,13 @@ pub trait SyncStrategy: Send + Sync + 'static {
         prepared: &Self::Prepared,
         synced_at: DateTime<Utc>,
     ) -> JobResult<()>;
+
+    /// What the commit is about to price: the tickers its accounts will hold, the currencies it
+    /// converts. The template asks the providers for them before the commit's transaction
+    /// opens, so that pricing inside it awaits none while SQLite's only writer is held.
+    fn price_needs(&self, _prepared: &Self::Prepared) -> PriceNeeds {
+        PriceNeeds::default()
+    }
 
     /// Work after the commit that must not fail the import.
     async fn after_commit(&self, _state: &AppState, _job: &SyncJob, _prepared: &Self::Prepared) {}
@@ -551,6 +559,11 @@ impl<S: SyncStrategy> SyncTemplate<S> {
         prepared: &S::Prepared,
     ) -> JobResult<bool> {
         let label = self.bank.label();
+        state
+            .ledger
+            .prices
+            .prefetch(&self.strategy.price_needs(prepared), state.clock.today())
+            .await;
         let mut tx = state.db.begin().await?;
         self.lock_member_if_needed(&mut tx.as_handle(), job.member_id)
             .await?;

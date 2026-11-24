@@ -21,6 +21,7 @@ use crate::error::{AppError, AppResult};
 use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::manual_ledger;
 use crate::ledger::model::{Account, NewTransaction};
+use crate::ledger::prices::PriceNeeds;
 use crate::ledger::sync_values::java_is_blank;
 
 const ACCOUNT_CATEGORIES: [&str; 10] = [
@@ -456,10 +457,38 @@ pub async fn execute(
     token: Option<&str>,
     mappings: Option<&[AccountMapping]>,
 ) -> AppResult<ImportResultResponse> {
+    let previewed = token.and_then(|token| {
+        state
+            .sync
+            .finary
+            .previews
+            .get(token, member_id, state.clock.now())
+    });
+    if let Some(session) = previewed {
+        ask_first(state, &session.accounts).await;
+    }
     let mut tx = state.db.begin().await?;
     let result = execute_in(&mut tx.as_handle(), state, member_id, token, mappings).await?;
     tx.commit().await?;
     Ok(result)
+}
+
+/// What the import asks of outside services, asked before its transaction opens: the ticker of
+/// each security and the EUR rate of each account currency. Both are remembered, so the import
+/// finds them in memory and awaits no provider while it holds SQLite's only writer.
+async fn ask_first(state: &AppState, accounts: &[Categorized]) {
+    let mut needs = PriceNeeds::default();
+    for categorized in accounts {
+        holdings::resolve_first(&*state.sync.finary.isin, &categorized.account).await;
+        if let Some(currency) = categorized.account.currency_code() {
+            needs.currency(currency);
+        }
+    }
+    state
+        .ledger
+        .prices
+        .prefetch(&needs, state.clock.today())
+        .await;
 }
 
 fn account_key(category: Option<&str>, id: Option<&str>) -> String {
@@ -745,6 +774,7 @@ pub async fn auto_sync(state: &AppState, member_id: i64) -> AppResult<FinaryAuto
             return Err(failure.into());
         }
     };
+    ask_first(state, &fetched.accounts).await;
     // One transaction, as Java's @Transactional autoSync: a failed import leaves nothing behind.
     let mut tx = state.db.begin().await?;
     let preview = finish_preview(&mut tx.as_handle(), state, member_id, s.id, fetched).await?;

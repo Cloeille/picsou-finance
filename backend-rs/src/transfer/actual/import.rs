@@ -17,7 +17,7 @@ use crate::error::{AppError, AppResult};
 use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::model::{Account, AccountType, Category, CategoryKind, NewTransaction};
 use crate::ledger::sync_values::java_is_blank;
-use crate::ledger::{categorize, manual_ledger, transactions};
+use crate::ledger::{categorize, manual_ledger, transactions, valuation};
 use crate::transfer::preview_store::Entry;
 
 /// Keeps each ANY list well under what one statement should carry.
@@ -635,6 +635,16 @@ pub(super) async fn execute(
     let budget = &*entry.payload;
     let now = state.clock.now();
     let today = state.clock.today();
+    // The manual ledgers this import rebuilds convert from these currencies: the rates are
+    // asked before the transaction opens, where a slow provider would keep SQLite's only writer.
+    let mut needs =
+        valuation::currency_needs_of_member(&mut state.db.pool_handle(), member_id).await?;
+    needs.currency(request.currency());
+    state
+        .ledger
+        .prices
+        .prefetch(&needs, state.clock.today())
+        .await;
     let mut tx = state.db.begin().await?;
     let mut resolved = resolve(&mut tx.as_handle(), budget, request, member_id).await?;
     if resolved.plan.large_deletion && !request.acknowledge_large_deletion {

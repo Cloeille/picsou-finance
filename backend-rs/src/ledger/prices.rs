@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use chrono::{Days, NaiveDate};
 use rust_decimal::Decimal;
 
-use super::model::PriceSnapshot;
+use super::model::{Account, AccountHolding, AccountType, PriceSnapshot};
 use super::sync_values::java_is_blank;
 use crate::db::DbExec;
 
@@ -26,8 +26,89 @@ pub struct Quote {
     pub live: bool,
 }
 
+/// What a write is about to price, for PriceRead::prefetch.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct PriceNeeds {
+    currencies: BTreeSet<String>,
+    tickers: BTreeSet<String>,
+    crypto_tickers: BTreeSet<String>,
+}
+
+impl PriceNeeds {
+    /// What valuing one account reads: the rate of its currency, its own ticker, and the
+    /// quotes of the tickers it will hold once the write is done (crypto-only on a crypto
+    /// account, as its valuation asks them).
+    pub fn account<T: AsRef<str>>(
+        &mut self,
+        kind: AccountType,
+        currency: &str,
+        ticker: Option<&str>,
+        held: impl IntoIterator<Item = T>,
+    ) -> &mut Self {
+        self.currency(currency);
+        if let Some(ticker) = ticker.filter(|t| !java_is_blank(t)) {
+            self.tickers.insert(ticker.to_uppercase());
+        }
+        let into = if kind == AccountType::Crypto {
+            &mut self.crypto_tickers
+        } else {
+            &mut self.tickers
+        };
+        into.extend(
+            held.into_iter()
+                .filter(|t| !java_is_blank(t.as_ref()))
+                .map(|t| t.as_ref().to_uppercase()),
+        );
+        self
+    }
+
+    /// The EUR rate of a currency an amount is about to be converted from.
+    pub fn currency(&mut self, currency: &str) -> &mut Self {
+        if !java_is_blank(currency) && !currency.eq_ignore_ascii_case("EUR") {
+            self.currencies.insert(currency.to_owned());
+        }
+        self
+    }
+
+    /// The quote of a ticker an account is about to hold.
+    pub fn ticker(&mut self, ticker: &str) -> &mut Self {
+        if !java_is_blank(ticker) {
+            self.tickers.insert(ticker.to_uppercase());
+        }
+        self
+    }
+
+    /// The same, for an account as it stands and the holdings it has.
+    pub fn of(account: &Account, holdings: &[AccountHolding]) -> Self {
+        let mut needs = Self::default();
+        needs.account(
+            account.account_type,
+            &account.currency,
+            account.ticker.as_deref(),
+            holdings.iter().map(|h| h.ticker.as_str()),
+        );
+        needs
+    }
+}
+
 #[async_trait]
 pub trait PriceRead: Send + Sync {
+    /// Asks the providers, before a write transaction opens, for what it is about to price.
+    /// The live implementation remembers each answer, a miss included, so the same lookups
+    /// made inside the transaction are answered from memory: no provider is awaited while
+    /// SQLite's only writer is held (docs/conventions/database.md, "One writer on SQLite").
+    async fn prefetch(&self, needs: &PriceNeeds, today: NaiveDate) {
+        for currency in &needs.currencies {
+            self.fx_rate_eur(currency).await;
+        }
+        if !needs.tickers.is_empty() {
+            self.quotes(&needs.tickers, false, today).await;
+        }
+        if !needs.crypto_tickers.is_empty() {
+            self.quotes(&needs.crypto_tickers, true, today).await;
+        }
+    }
+
     /// getQuotes / getCryptoQuotes: keyed by upper-cased ticker; a ticker nothing can price is
     /// absent. crypto_only never falls through to an equity source.
     async fn quotes(

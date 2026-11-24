@@ -17,6 +17,7 @@ use crate::error::{AppError, AppResult};
 use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::decimal::{HALF_UP, set_scale};
 use crate::ledger::model::{Account, AccountType};
+use crate::ledger::prices::PriceNeeds;
 use crate::ledger::sync_values::{clean, java_trim};
 use crate::ledger::valuation::{self, SnapshotContext};
 use crate::ledger::{holdings, members};
@@ -352,6 +353,20 @@ async fn try_prepare(
             "No EUR price available for any asset held in this wallet -- refusing to record a zero balance for {chain}"
         )));
     }
+    // The snapshot written with these balances values the wallet's holdings through the price
+    // seam: asked here, so the write transaction finds the answers in memory and awaits no
+    // provider while it holds SQLite's only writer.
+    let mut needs = PriceNeeds::default();
+    needs.account(
+        AccountType::Crypto,
+        "EUR",
+        None,
+        priced
+            .iter()
+            .filter(|p| p.amount > Decimal::ZERO)
+            .map(|p| p.ticker.as_str()),
+    );
+    state.ledger.prices.prefetch(&needs, today).await;
     Ok(Prepared {
         native_symbol,
         priced,

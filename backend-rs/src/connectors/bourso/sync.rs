@@ -27,6 +27,7 @@ use crate::error::{AppError, AppResult};
 use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::categorize::{self, CategorizationContext};
 use crate::ledger::model::{Account, AccountType, HoldingDraft};
+use crate::ledger::prices::PriceNeeds;
 use crate::ledger::providers::BOURSO as PROVIDER;
 use crate::ledger::sidecar::{SidecarBank, SidecarErrorCode, SidecarTransaction, SourceSyncResult};
 use crate::ledger::sync_values::{
@@ -194,6 +195,19 @@ impl SyncStrategy for Strategy {
             upsert_account(state, conn, data, job.member_id, synced_at, &ctx).await?;
         }
         Ok(())
+    }
+
+    fn price_needs(&self, prepared: &Vec<PreparedAccount>) -> PriceNeeds {
+        let mut needs = PriceNeeds::default();
+        for account in prepared {
+            needs.account(
+                account.account_type,
+                "EUR",
+                None,
+                account.positions.iter().map(|p| p.ticker.as_str()),
+            );
+        }
+        needs
     }
 
     fn describe(&self, prepared: &Vec<PreparedAccount>) -> String {

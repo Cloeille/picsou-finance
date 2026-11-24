@@ -25,6 +25,7 @@ use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::categorize::{self, CategorizationContext};
 use crate::ledger::members;
 use crate::ledger::model::{Account, AccountType, CategoryKind};
+use crate::ledger::prices::PriceNeeds;
 use crate::ledger::sidecar::{SourceSyncResult, SyncStatus};
 use crate::ledger::sidecar_import;
 use crate::ledger::sync_values::clean;
@@ -412,6 +413,17 @@ pub async fn confirm_sync(
         selected_external_ids.iter().map(Option::as_deref).collect();
     let is_selected = |data: &RevolutAccountData| selected.contains(&data.external_id.as_deref());
     let categorization = load_categorization(state, member_id).await?;
+    // The balance of each account is converted from its own currency: the rates are asked
+    // before the transaction opens, where a slow provider would keep SQLite's only writer.
+    let mut needs = PriceNeeds::default();
+    for data in discovered.iter().filter(|d| is_selected(d)) {
+        needs.currency(&data.currency_code());
+    }
+    state
+        .ledger
+        .prices
+        .prefetch(&needs, state.clock.today())
+        .await;
     let mut tx = state.db.begin().await?;
     if voluntary {
         for data in discovered.iter().filter(|d| is_selected(d)) {

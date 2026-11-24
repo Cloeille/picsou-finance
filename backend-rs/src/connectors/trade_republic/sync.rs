@@ -25,6 +25,7 @@ use crate::ledger::decimal::{HALF_UP, set_scale};
 use crate::ledger::holding_dedup::{HoldingAgg, vwap_merge};
 use crate::ledger::instrument::TickerResult;
 use crate::ledger::model::{Account, AccountType, HoldingDraft};
+use crate::ledger::prices::PriceNeeds;
 use crate::ledger::sidecar::{SidecarBank, SidecarErrorCode, SourceSyncResult};
 use crate::ledger::sync_values::java_trim;
 use crate::ledger::valuation::{self, SnapshotContext};
@@ -216,6 +217,23 @@ impl SyncStrategy for Strategy {
                 kind(&e)
             ),
         }
+    }
+
+    fn price_needs(&self, prepared: &Prepared) -> PriceNeeds {
+        let mut needs = PriceNeeds::default();
+        for account in &prepared.accounts {
+            needs.account(
+                account.account_type,
+                "EUR",
+                None,
+                account
+                    .positions
+                    .iter()
+                    .filter_map(|position| prepared.tickers.get(&position.isin))
+                    .map(|resolved| resolved.ticker.as_str()),
+            );
+        }
+        needs
     }
 
     fn describe(&self, prepared: &Prepared) -> String {

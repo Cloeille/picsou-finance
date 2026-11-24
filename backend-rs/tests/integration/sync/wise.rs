@@ -10,6 +10,8 @@ use serde_json::{Value, json};
 use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+use crate::writer_free::{Slow, stays_writable_while};
+
 const TOKEN: &str = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0";
 const PASSWORD: &str = "password-1234";
 
@@ -732,4 +734,45 @@ async fn connect_and_sync_share_one_per_ip_budget_of_six_a_minute() {
         client.post("/api/wise/sync").send().await.status,
         StatusCode::UNPROCESSABLE_ENTITY
     );
+}
+
+#[tokio::test]
+async fn the_database_stays_writable_while_the_rate_of_a_jar_is_asked() {
+    let server = MockServer::start().await;
+    let yahoo = MockServer::start().await;
+    let (slow, asked) = Slow::answering(ResponseTemplate::new(200).set_body_json(json!({
+        "chart": {"result": [{
+            "meta": {"currency": "EUR", "regularMarketPrice": 0.9},
+            "timestamp": [1768471200],
+            "indicators": {"quote": [{"close": [0.9]}]}
+        }], "error": null}
+    })));
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/USDEUR=X"))
+        .respond_with(slow)
+        .mount(&yahoo)
+        .await;
+    let app = TestApp::builder()
+        .env("WISE_API_URL", server.uri())
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .with_admin()
+        .spawn()
+        .await;
+    let wise = Wise { app, server };
+    let (member_id, client) = wise.member("alice").await;
+    wise.jars(TOKEN, PERSONAL_JARS).await;
+
+    let response = stays_writable_while(&wise.app.state.db, &asked, connect(&client, TOKEN)).await;
+
+    assert!(response.status.is_success(), "{}", response.text());
+    // The rate asked before the transaction opened is the one the jar was converted at.
+    let usd_jar_eur: rust_decimal::Decimal = picsou::db::query_scalar(
+        "SELECT s.balance FROM balance_snapshot s JOIN account a ON a.id = s.account_id \
+         WHERE a.member_id = $1 AND a.currency = 'USD'",
+    )
+    .bind(member_id)
+    .fetch_one(&wise.app.state.db)
+    .await
+    .expect("the USD jar's snapshot");
+    assert_eq!(usd_jar_eur, "461.106".parse().unwrap());
 }

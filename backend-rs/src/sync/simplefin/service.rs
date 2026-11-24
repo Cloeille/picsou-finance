@@ -19,7 +19,7 @@ use crate::ledger::bank_import::{self, DEFAULT_INITIAL_HISTORY_DAYS, Transaction
 use crate::ledger::decimal::{HALF_UP, set_scale};
 use crate::ledger::holdings as holding_rows;
 use crate::ledger::model::{Account, AccountType, HoldingDraft};
-use crate::ledger::prices::PriceRead;
+use crate::ledger::prices::{PriceNeeds, PriceRead};
 use crate::ledger::sidecar::{SourceSyncResult, SyncStatus};
 use crate::ledger::sync_values::{java_is_blank, java_trim};
 use crate::ledger::valuation::{self, SnapshotContext};
@@ -237,6 +237,28 @@ async fn do_sync(
     if !member_exists(state, member_id).await? {
         return Err(Failure::Other("Family member not found".into()));
     }
+
+    // Asked before the transaction opens: the rate of every currency and the quote of every
+    // position the write below values. Inside it, a provider that is slow to answer would keep
+    // SQLite's only writer.
+    let mut needs = PriceNeeds::default();
+    for data in &set.accounts {
+        let currency = data.currency.as_deref().unwrap_or_default().to_uppercase();
+        let mapped = holdings::map(&data.holdings, &currency);
+        needs.account(
+            AccountType::Brokerage,
+            &currency,
+            None,
+            mapped.positions.iter().map(|p| p.ticker.as_str()),
+        );
+        for position in &mapped.positions {
+            needs.currency(&position.currency);
+        }
+        for (sweep_currency, _) in &mapped.sweep_by_currency {
+            needs.currency(sweep_currency);
+        }
+    }
+    state.ledger.prices.prefetch(&needs, today).await;
 
     let mut tx = state.db.begin().await?;
     let mut responses = Vec::new();

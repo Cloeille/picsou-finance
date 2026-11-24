@@ -22,6 +22,7 @@ use crate::ledger::model::{
 };
 use crate::ledger::sync_values::java_is_blank;
 use crate::ledger::transactions;
+use crate::ledger::valuation;
 use crate::transfer::preview_store::PreviewStore;
 
 const MAX_ACCOUNT_NAME: usize = 100;
@@ -1009,6 +1010,18 @@ pub async fn execute(
         .get(token, member_id)
         .ok_or_else(|| bad("Preview expired or invalid; please upload the file again"))?;
     let parsed = &*entry.payload;
+    // The manual ledgers this import rebuilds convert from these currencies: the rates are
+    // asked before the transaction opens, where a slow provider would keep SQLite's only writer.
+    let mut needs =
+        valuation::currency_needs_of_member(&mut state.db.pool_handle(), member_id).await?;
+    for account in &parsed.accounts {
+        needs.currency(&account.currency);
+    }
+    state
+        .ledger
+        .prices
+        .prefetch(&needs, state.clock.today())
+        .await;
     let mut tx = state.db.begin().await?;
     members::lock(&mut tx, member_id)
         .await?

@@ -17,6 +17,7 @@ use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::holding_dedup::{HoldingAgg, vwap_merge};
 use crate::ledger::instrument::{TickerResult, is_isin};
 use crate::ledger::model::{Account, AccountType, HoldingDraft};
+use crate::ledger::prices::PriceNeeds;
 use crate::ledger::sidecar::{SourceSyncResult, SyncStatus};
 use crate::ledger::sync_values::{java_is_blank, java_trim};
 use crate::ledger::valuation::{self, SnapshotContext};
@@ -193,11 +194,39 @@ async fn do_sync(
 
     let now = state.clock.now();
     let today = state.clock.today();
+    // Asked before the transaction opens: OpenFIGI for the ticker of each position, then the
+    // quotes of those tickers, which the valuation written below reads. Inside the transaction
+    // these calls would keep SQLite's only writer for as long as the providers take to answer.
+    let mut resolved = Vec::with_capacity(statement.len());
+    let mut needs = PriceNeeds::default();
+    for data in &statement {
+        let tickers = resolve_tickers(state, data).await;
+        needs.account(
+            AccountType::CompteTitres,
+            "EUR",
+            None,
+            tickers
+                .iter()
+                .flatten()
+                .filter_map(|position| position.ticker.as_deref()),
+        );
+        resolved.push(tickers);
+    }
+    state.ledger.prices.prefetch(&needs, today).await;
+
     let mut tx = state.db.begin().await?;
     let mut responses = Vec::with_capacity(statement.len());
-    for data in &statement {
-        if let Some(response) =
-            upsert_account(state, &mut tx.as_handle(), data, member_id, now, today).await?
+    for (data, tickers) in statement.iter().zip(resolved) {
+        if let Some(response) = upsert_account(
+            state,
+            &mut tx.as_handle(),
+            data,
+            tickers,
+            member_id,
+            now,
+            today,
+        )
+        .await?
         {
             responses.push(response);
         }
@@ -211,10 +240,12 @@ async fn do_sync(
     Ok(responses)
 }
 
+/// `tickers` is resolve_tickers' answer for `data`.
 async fn upsert_account(
     state: &AppState,
     conn: &mut DbHandle<'_>,
     data: &IbkrAccountData,
+    tickers: Vec<Option<Resolved>>,
     member_id: i64,
     now: DateTime<Utc>,
     today: NaiveDate,
@@ -263,11 +294,11 @@ async fn upsert_account(
 
     let mut merged: Vec<(String, HoldingAgg)> = Vec::new();
     let mut isin_by_ticker: Vec<(String, String)> = Vec::new();
-    for position in &data.positions {
-        if !is_reportable(position) {
+    for (position, resolved) in data.positions.iter().zip(tickers) {
+        // None for a position that is not reportable.
+        let Some(resolved) = resolved else {
             continue;
-        }
-        let resolved = resolve_ticker(state, position).await;
+        };
         let Some(ticker) = resolved.ticker.filter(|t| !java_is_blank(t)) else {
             continue;
         };
@@ -400,6 +431,19 @@ fn is_reportable(position: &IbkrPosition) -> bool {
 struct Resolved {
     ticker: Option<String>,
     name: Option<String>,
+}
+
+/// The ticker and name of each position of the account, None for one that is not reportable.
+async fn resolve_tickers(state: &AppState, data: &IbkrAccountData) -> Vec<Option<Resolved>> {
+    let mut resolved = Vec::with_capacity(data.positions.len());
+    for position in &data.positions {
+        resolved.push(if is_reportable(position) {
+            Some(resolve_ticker(state, position).await)
+        } else {
+            None
+        });
+    }
+    resolved
 }
 
 /// Prefers the ISIN (so the holding prices); falls back to the IBKR symbol and description when

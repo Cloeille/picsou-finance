@@ -165,6 +165,24 @@ async fn resolve(
     )
 }
 
+/// Asks for the ticker of every security of the account, before the write transaction opens.
+/// The resolver remembers each answer, so `import` then resolves from memory: asked inside the
+/// transaction, OpenFIGI would keep SQLite's only writer for as long as it takes to answer.
+pub async fn resolve_first(isin_lookup: &dyn IsinLookup, finary: &FinaryAccount) {
+    for position in positions(finary) {
+        let isin = position
+            .security
+            .as_ref()
+            .and_then(|security| security.isin.as_deref())
+            .filter(|isin| is_isin(isin));
+        if position.crypto.is_none()
+            && let Some(isin) = isin
+        {
+            isin_lookup.resolve(isin).await;
+        }
+    }
+}
+
 /// HoldingDedup reads an unknown average as zero; one unknown line leaves the merge unknown.
 fn merge_lines(a: &HoldingAgg, b: &HoldingAgg) -> HoldingAgg {
     let mut merged = vwap_merge(a, b);
