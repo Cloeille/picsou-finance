@@ -75,17 +75,28 @@ pub fn compare(recorded: Option<&str>, current: &str) -> Before {
 /// complete-looking copy of an empty file.
 fn copy_private_file(from: &Path, to: &Path) -> io::Result<()> {
     fs::copy(from, to)?;
+    // fs::copy carries the source's permissions: a read-only one (a key installed by hand)
+    // would refuse the write handle the flush below needs.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(to, fs::Permissions::from_mode(0o600))?;
+    }
+    #[cfg(windows)]
+    {
+        let mut permissions = fs::metadata(to)?.permissions();
+        if permissions.readonly() {
+            #[allow(clippy::permissions_set_readonly_false)]
+            permissions.set_readonly(false);
+            fs::set_permissions(to, permissions)?;
+        }
     }
     // Opened for writing: Windows' FlushFileBuffers refuses a read-only handle.
     fs::OpenOptions::new().write(true).open(to)?.sync_all()?;
     Ok(())
 }
 
-/// Copies a tree with the folders' permission bits (0700) and the files' (secrets stay 0600),
+/// Copies a tree with the folders' permission bits (0700), its files as private ones (0600),
 /// flushed so a power cut cannot leave a complete-looking copy of empty files.
 fn copy_dir(from: &Path, to: &Path) -> io::Result<()> {
     fs::create_dir_all(to)?;
@@ -97,12 +108,7 @@ fn copy_dir(from: &Path, to: &Path) -> io::Result<()> {
         if entry.file_type()?.is_dir() {
             copy_dir(&entry.path(), &target)?;
         } else {
-            fs::copy(entry.path(), &target)?;
-            // Opened for writing: Windows' FlushFileBuffers refuses a read-only handle.
-            fs::OpenOptions::new()
-                .write(true)
-                .open(&target)?
-                .sync_all()?;
+            copy_private_file(&entry.path(), &target)?;
         }
     }
     Ok(())
@@ -340,6 +346,25 @@ mod tests {
             }
         }
         dir
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_read_only_secret_does_not_stop_the_backup() {
+        use std::os::unix::fs::PermissionsExt;
+        let data = scratch("read-only-secret");
+        let key = data.join("secrets/enablebanking-private.pem");
+        fs::write(&key, "pem").unwrap();
+        fs::set_permissions(&key, fs::Permissions::from_mode(0o400)).unwrap();
+
+        let copy = backup(&data, "1.0.0", "1.1.0", 1).unwrap();
+
+        let copied = copy.join("secrets/enablebanking-private.pem");
+        assert_eq!(fs::read_to_string(&copied).unwrap(), "pem");
+        assert_eq!(
+            fs::metadata(&copied).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
 
     #[test]
