@@ -328,6 +328,59 @@ async fn an_invalid_date_pattern_fails_the_import_and_hands_the_preview_back() {
 }
 
 #[tokio::test]
+async fn date_patterns_with_time_tokens_import_their_calendar_dates() {
+    let app = TestApp::with_admin().await;
+    let client = app.login_admin().await;
+    let cto = account(
+        &app,
+        admin_member(&app).await,
+        AccountType::CompteTitres,
+        true,
+    )
+    .await;
+    let csv = "Date,Side,Ticker,Qty,Price,Fees\n\
+2024-01-15 14:30:00,BUY,AIR.PA,2,100,1\n\
+2024-02-20 09:05:12,BUY,AIR.PA,1,110,1\n\
+2024-03-10 25:00:00,BUY,AIR.PA,1,120,1\n";
+    let body = preview(&client, cto.id, csv).await.json();
+    let request = json!({
+        "fileToken": body["fileToken"],
+        "mapping": {"date": 0, "side": 1, "tickerOrIsin": 2, "quantity": 3, "unitPrice": 4, "fees": 5},
+        "dialect": {"delimiter": ",", "decimal": "DOT", "dateFormat": "yyyy-MM-dd HH:mm:ss"},
+        "hasHeaderRow": true,
+        "feesIncludedInAmount": false,
+    });
+    let r = client
+        .post(&format!("/api/accounts/{}/transactions/import", cto.id))
+        .json(&request)
+        .send()
+        .await;
+    assert_eq!(r.status, 201, "{}", r.text());
+    assert_eq!(
+        r.json(),
+        json!({
+            "imported": 2,
+            "skipped": 1,
+            "errors": [{"rowNumber": 4, "message": "Invalid date '2024-03-10 25:00:00'"}],
+        })
+    );
+    let dates: Vec<chrono::NaiveDate> = picsou::db::query_scalar(
+        "SELECT date FROM \"transaction\" WHERE account_id = $1 ORDER BY date",
+    )
+    .bind(cto.id)
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        dates,
+        vec![
+            chrono::NaiveDate::from_ymd_opt(2024, 1, 15).unwrap(),
+            chrono::NaiveDate::from_ymd_opt(2024, 2, 20).unwrap(),
+        ]
+    );
+}
+
+#[tokio::test]
 async fn side_values_map_case_insensitively_and_metals_take_catalogue_tickers() {
     let app = TestApp::with_admin().await;
     let client = app.login_admin().await;

@@ -250,6 +250,20 @@ enum Token {
     },
     Month(usize),
     Day(usize),
+    TimeNumber {
+        count: usize,
+        min_value: i64,
+        max_value: i64,
+    },
+    Fraction(usize),
+    AmPm,
+    Offset {
+        allow_z: bool,
+        colon: bool,
+        count: usize,
+        gmt_prefix: bool,
+    },
+    ZoneName,
     Literal(String),
     /// A valid java.time letter this parser does not read: the pattern compiles, no cell parses.
     Unsupported,
@@ -304,7 +318,59 @@ impl DatePattern {
                     'M' | 'L' if count <= 4 => Token::Month(count),
                     'M' | 'L' if count == 5 => Token::Unsupported,
                     'd' if count <= 2 => Token::Day(count),
-                    'M' | 'L' | 'd' => return None,
+                    'H' if count <= 2 => Token::TimeNumber {
+                        count,
+                        min_value: 0,
+                        max_value: 23,
+                    },
+                    'h' if count <= 2 => Token::TimeNumber {
+                        count,
+                        min_value: 1,
+                        max_value: 12,
+                    },
+                    'K' if count <= 2 => Token::TimeNumber {
+                        count,
+                        min_value: 0,
+                        max_value: 11,
+                    },
+                    'k' if count <= 2 => Token::TimeNumber {
+                        count,
+                        min_value: 1,
+                        max_value: 24,
+                    },
+                    'm' if count <= 2 => Token::TimeNumber {
+                        count,
+                        min_value: 0,
+                        max_value: 59,
+                    },
+                    's' if count <= 2 => Token::TimeNumber {
+                        count,
+                        min_value: 0,
+                        max_value: 59,
+                    },
+                    'S' if count <= 9 => Token::Fraction(count),
+                    'a' if count == 1 => Token::AmPm,
+                    'X' if count <= 5 => Token::Offset {
+                        allow_z: true,
+                        colon: count == 3 || count == 5,
+                        count,
+                        gmt_prefix: false,
+                    },
+                    'x' if count <= 5 => Token::Offset {
+                        allow_z: false,
+                        colon: count == 3 || count == 5,
+                        count,
+                        gmt_prefix: false,
+                    },
+                    'Z' if count <= 5 => Token::Offset {
+                        allow_z: count == 5,
+                        colon: count >= 4,
+                        count,
+                        gmt_prefix: count == 4,
+                    },
+                    'z' if count <= 4 => Token::ZoneName,
+                    'M' | 'L' | 'd' | 'H' | 'h' | 'K' | 'k' | 'm' | 's' | 'S' | 'a' | 'X' | 'x'
+                    | 'Z' | 'z' => return None,
                     _ => Token::Unsupported,
                 });
             } else if c == '\'' {
@@ -351,7 +417,13 @@ impl DatePattern {
         for (index, token) in self.tokens.iter().enumerate() {
             let next_is_number = matches!(
                 self.tokens.get(index + 1),
-                Some(Token::Year { .. } | Token::Day(_)) | Some(Token::Month(1 | 2))
+                Some(
+                    Token::Year { .. }
+                        | Token::Day(_)
+                        | Token::Month(1 | 2)
+                        | Token::TimeNumber { .. }
+                        | Token::Fraction(_)
+                )
             );
             match token {
                 Token::Literal(lit) => {
@@ -388,6 +460,37 @@ impl DatePattern {
                 Token::Day(count) => {
                     let (min, max) = if *count == 1 { (1, 19) } else { (2, 2) };
                     day = Some(digits(&chars, &mut pos, min, max, next_is_number)?);
+                }
+                Token::TimeNumber {
+                    count,
+                    min_value,
+                    max_value,
+                } => {
+                    let (min, max) = if *count == 1 { (1, 2) } else { (2, 2) };
+                    let value = digits(&chars, &mut pos, min, max, next_is_number)?;
+                    if !(*min_value..=*max_value).contains(&value) {
+                        return None;
+                    }
+                }
+                Token::Fraction(count) => {
+                    let _ = digits(&chars, &mut pos, *count, *count, next_is_number)?;
+                }
+                Token::AmPm => {
+                    if !matches!(chars.get(pos..pos + 2), Some(['A', 'M'] | ['P', 'M'])) {
+                        return None;
+                    }
+                    pos += 2;
+                }
+                Token::Offset {
+                    allow_z,
+                    colon,
+                    count,
+                    gmt_prefix,
+                } => {
+                    parse_offset(&chars, &mut pos, *allow_z, *colon, *count, *gmt_prefix)?;
+                }
+                Token::ZoneName => {
+                    parse_zone_name(&chars, &mut pos)?;
                 }
             }
         }
@@ -439,6 +542,121 @@ fn digits(
     let text: String = chars[*pos..*pos + take].iter().collect();
     *pos += take;
     text.parse().ok()
+}
+
+fn parse_offset(
+    chars: &[char],
+    pos: &mut usize,
+    allow_z: bool,
+    colon: bool,
+    count: usize,
+    gmt_prefix: bool,
+) -> Option<()> {
+    if gmt_prefix {
+        if chars.get(*pos..*pos + 3) != Some(&['G', 'M', 'T']) {
+            return None;
+        }
+        *pos += 3;
+        if !matches!(chars.get(*pos), Some('+' | '-')) {
+            return Some(());
+        }
+        *pos += 1;
+        let hour = digits(chars, pos, 1, 2, false)?;
+        let (minute, second) = if chars.get(*pos) == Some(&':') {
+            *pos += 1;
+            let m = digits(chars, pos, 2, 2, false)?;
+            let s = if chars.get(*pos) == Some(&':') {
+                *pos += 1;
+                digits(chars, pos, 2, 2, false)?
+            } else {
+                0
+            };
+            (m, s)
+        } else {
+            (0, 0)
+        };
+        return valid_offset(hour, minute, second);
+    }
+    if allow_z && chars.get(*pos) == Some(&'Z') {
+        *pos += 1;
+        return Some(());
+    }
+    if !matches!(chars.get(*pos), Some('+' | '-')) {
+        return None;
+    }
+    *pos += 1;
+    let hour = digits(chars, pos, 2, 2, false)?;
+    let minute = if count == 1 {
+        if chars
+            .get(*pos..*pos + 2)
+            .is_some_and(|s| s.iter().all(char::is_ascii_digit))
+        {
+            digits(chars, pos, 2, 2, false)?
+        } else {
+            0
+        }
+    } else {
+        if colon {
+            if chars.get(*pos) != Some(&':') {
+                return None;
+            }
+            *pos += 1;
+        }
+        digits(chars, pos, 2, 2, false)?
+    };
+    let second = if count >= 4 {
+        if colon {
+            if chars.get(*pos) == Some(&':') {
+                *pos += 1;
+                digits(chars, pos, 2, 2, false)?
+            } else {
+                0
+            }
+        } else if chars
+            .get(*pos..*pos + 2)
+            .is_some_and(|s| s.iter().all(char::is_ascii_digit))
+        {
+            digits(chars, pos, 2, 2, false)?
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+    valid_offset(hour, minute, second)
+}
+
+fn valid_offset(hour: i64, minute: i64, second: i64) -> Option<()> {
+    if !(0..=18).contains(&hour) || !(0..=59).contains(&minute) || !(0..=59).contains(&second) {
+        return None;
+    }
+    if hour == 18 && (minute != 0 || second != 0) {
+        return None;
+    }
+    Some(())
+}
+
+fn parse_zone_name(chars: &[char], pos: &mut usize) -> Option<()> {
+    let letters = chars[*pos..]
+        .iter()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .count();
+    if !(2..=5).contains(&letters) {
+        return None;
+    }
+    *pos += letters;
+    if matches!(chars.get(*pos), Some('+' | '-')) {
+        *pos += 1;
+        let hour = digits(chars, pos, 1, 2, false)?;
+        let minute = if chars.get(*pos) == Some(&':') {
+            *pos += 1;
+            digits(chars, pos, 2, 2, false)?
+        } else {
+            0
+        };
+        valid_offset(hour, minute, 0)?;
+    }
+    Some(())
 }
 
 /// A non-blank cell the date pattern does not read.
@@ -534,6 +752,46 @@ mod tests {
         assert!(DatePattern::compile("bb").is_none());
         assert!(DatePattern::compile("ddd").is_none());
         assert!(DatePattern::compile("'open").is_none());
+    }
+
+    #[test]
+    fn date_patterns_with_time_tokens_parse_calendar_dates_and_reject_invalid_times() {
+        let p = |pattern: &str, s: &str| DatePattern::compile(pattern).unwrap().parse(s);
+        let expected = NaiveDate::from_ymd_opt(2024, 1, 15);
+        assert_eq!(p("yyyy-MM-dd HH:mm:ss", "2024-01-15 14:30:00"), expected);
+        assert_eq!(p("yyyy-MM-dd'T'HH:mm:ss", "2024-01-15T09:05:12"), expected);
+        assert_eq!(p("dd/MM/yyyy HH:mm", "15/01/2024 08:45"), expected);
+        assert_eq!(p("dd/MM/yyyy H:m:s", "15/01/2024 8:5:9"), expected);
+        assert_eq!(
+            p("MM/dd/yyyy hh:mm:ss a", "01/15/2024 02:30:00 PM"),
+            expected
+        );
+        assert_eq!(p("yyyyMMddHHmmss", "20240115143000"), expected);
+        assert_eq!(
+            p(
+                "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+                "2024-01-15T14:30:00.123+02:00"
+            ),
+            expected
+        );
+        assert_eq!(
+            p("yyyy-MM-dd'T'HH:mm:ss.SSSX", "2024-01-15T14:30:00.123Z"),
+            expected
+        );
+        assert_eq!(
+            p("yyyy-MM-dd HH:mm:ss Z", "2024-01-15 14:30:00 +0100"),
+            expected
+        );
+        assert_eq!(
+            p("yyyy-MM-dd HH:mm:ss z", "2024-01-15 14:30:00 UTC"),
+            expected
+        );
+        assert_eq!(p("yyyy-MM-dd HH:mm:ss", "2024-01-15 24:00:00"), None);
+        assert_eq!(p("yyyy-MM-dd HH:mm:ss", "2024-01-15 14:60:00"), None);
+        assert_eq!(p("yyyy-MM-dd HH:mm:ss", "2024-01-15 14:30:60"), None);
+        assert_eq!(p("MM/dd/yyyy hh:mm a", "01/15/2024 00:30 AM"), None);
+        assert!(DatePattern::compile("yyyy-MM-dd HHH").is_none());
+        assert!(DatePattern::compile("yyyy-MM-dd aa").is_none());
     }
 
     #[test]
