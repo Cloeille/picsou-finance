@@ -191,10 +191,10 @@ async fn label(
                     .await?,
                     Err(_) => None,
                 };
-            match name {
-                Some(name) => name.unwrap_or_default(),
-                None => account.provider.clone().unwrap_or_default(),
-            }
+            name.flatten()
+                .filter(|n| !n.trim().is_empty())
+                .or_else(|| account.provider.clone())
+                .unwrap_or_default()
         }
     })
 }

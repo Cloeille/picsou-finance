@@ -344,3 +344,35 @@ async fn deleting_an_account_unlinks_loans_and_tombstones_its_scpi_funds() {
         .json();
     assert!(loan_view["debt"].get("linkedAccountId").is_none());
 }
+
+#[tokio::test]
+async fn deletion_impact_falls_back_to_provider_when_requisition_institution_name_is_null() {
+    let app = TestApp::with_admin().await;
+    let me = admin_member(&app).await;
+    let req: i64 = picsou::db::query_scalar(
+        "INSERT INTO requisition (requisition_id, institution_id, institution_name, status, member_id, created_at, updated_at) \
+         VALUES ('r-null', 'BANK::FR', NULL, 'LINKED', $1, now(), now()) RETURNING id",
+    )
+    .bind(me)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    let a = account(&app, me, "Courant", "CHECKING", "10").await;
+    exec(
+        &app,
+        &format!(
+            "UPDATE account SET requisition_id = {req}, provider = 'Acme Bank', is_manual = false WHERE id = {a}"
+        ),
+    )
+    .await;
+    let admin = app.login_admin().await;
+    let impact = admin
+        .get(&format!("/api/accounts/{a}/deletion-impact"))
+        .send()
+        .await
+        .json();
+    assert_eq!(
+        impact,
+        json!({"removesConnection": true, "connectionLabel": "Acme Bank"})
+    );
+}
