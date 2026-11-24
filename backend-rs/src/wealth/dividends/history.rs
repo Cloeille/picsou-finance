@@ -110,9 +110,11 @@ pub async fn refresh_stale(state: &AppState, tickers: &[String], limit: usize) -
         if attempt > 0 {
             tokio::time::sleep(PACING).await;
         }
-        let fetched = fetch(state, ticker, state.clock.today()).await;
+        // One date for what is merged and what is written, whatever the fetch takes.
+        let today = state.clock.today();
+        let fetched = fetch(state, ticker, today).await;
         let mut tx = state.db.begin().await?;
-        match persist(&mut tx.as_handle(), state, ticker, fetched).await {
+        match persist(&mut tx.as_handle(), state, ticker, fetched, today).await {
             Ok(ok) => {
                 tx.commit().await?;
                 if ok {
@@ -214,9 +216,9 @@ async fn persist(
     state: &AppState,
     ticker: &str,
     fetched: Fetched,
+    today: NaiveDate,
 ) -> AppResult<bool> {
     let now = state.clock.now();
-    let today = state.clock.today();
     let source_id: i64 = crate::db::query_scalar::<i64>(
         "INSERT INTO dividend_source (ticker, status, created_at, updated_at) VALUES ($1, 'NEVER_FETCHED', $2, $2) \
          ON CONFLICT (ticker) DO UPDATE SET updated_at = $2 RETURNING id",

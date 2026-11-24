@@ -310,6 +310,17 @@ async fn run_sync(
     // Priced before the transaction opens: the snapshot it writes then finds the same quotes in
     // memory, and no provider is awaited while the writer is held.
     let valued = value(state, &positions, today).await;
+    // The account is valued as stored too, with a ticker or a currency the member may have set.
+    let stored = valuation::needs_of_external(
+        &mut state.db.pool_handle(),
+        member_id,
+        &exchange.external_id(),
+    )
+    .await;
+    match stored {
+        Ok(needs) => state.ledger.prices.prefetch(&needs, today).await,
+        Err(e) => return Err(fail(state, exchange, committed_id, e.into()).await),
+    }
     let mut tx = match state.db.begin().await {
         Ok(tx) => tx,
         Err(e) => return Err(fail(state, exchange, committed_id, e.into()).await),

@@ -31,7 +31,6 @@ use crate::http::rate_limit::policies;
 use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::holding_dedup::{HoldingAgg, vwap_merge};
 use crate::ledger::model::{AccountType, HoldingDraft};
-use crate::ledger::prices::PriceNeeds;
 use crate::ledger::sidecar::{SourceSyncResult, SyncStatus};
 use crate::ledger::valuation::{self, SnapshotContext};
 use crate::ledger::{holdings, members};
@@ -331,7 +330,7 @@ async fn store_session_and_sync(
     // SQLite's writer_gate is never held across external HTTP calls.
     match fetch_portfolio(state, plain_blob).await {
         Ok(data) => {
-            let resolved = resolve_portfolio(state, &data).await;
+            let resolved = resolve_portfolio(state, &data, member_id).await?;
             let mut tx = state.db.begin().await?;
             if find_session(&mut tx, member_id).await?.is_some() {
                 upsert_account(state, &mut tx.as_handle(), &resolved, member_id).await?;
@@ -404,7 +403,7 @@ pub async fn sync(state: &AppState, member_id: i64) -> AppResult<Value> {
         }
         Err(e) => return Err(e.into()),
     };
-    let resolved = resolve_portfolio(state, &data).await;
+    let resolved = resolve_portfolio(state, &data, member_id).await?;
     let mut tx = state.db.begin().await?;
     let account = upsert_account(state, &mut tx.as_handle(), &resolved, member_id).await?;
     set_status(
@@ -524,7 +523,11 @@ struct ResolvedPortfolio {
     deduped: HashMap<String, HoldingAgg>,
 }
 
-async fn resolve_portfolio(state: &AppState, data: &Portfolio) -> ResolvedPortfolio {
+async fn resolve_portfolio(
+    state: &AppState,
+    data: &Portfolio,
+    member_id: i64,
+) -> sqlx::Result<ResolvedPortfolio> {
     let mut deduped: HashMap<String, HoldingAgg> = HashMap::new();
     for p in &data.positions {
         let (ticker, name) = state
@@ -552,8 +555,11 @@ async fn resolve_portfolio(state: &AppState, data: &Portfolio) -> ResolvedPortfo
         .map(|agg| agg.quantity * agg.current_price.unwrap_or(Decimal::ZERO))
         .sum();
     // The snapshot written with this portfolio values its holdings through the price seam:
-    // asked here, outside any transaction, so the write finds the quotes in memory.
-    let mut needs = PriceNeeds::default();
+    // asked here, outside any transaction, so the write finds the quotes in memory. The account
+    // as stored too, with a ticker or a currency the member may have set.
+    let mut needs =
+        valuation::needs_of_external(&mut state.db.pool_handle(), member_id, EXTERNAL_ACCOUNT_ID)
+            .await?;
     needs.account(
         AccountType::CompteTitres,
         "EUR",
@@ -568,11 +574,11 @@ async fn resolve_portfolio(state: &AppState, data: &Portfolio) -> ResolvedPortfo
         .prices
         .prefetch(&needs, state.clock.today())
         .await;
-    ResolvedPortfolio {
+    Ok(ResolvedPortfolio {
         cash_eur: data.cash_eur,
         total: data.cash_eur + positions_value,
         deduped,
-    }
+    })
 }
 
 async fn upsert_account(

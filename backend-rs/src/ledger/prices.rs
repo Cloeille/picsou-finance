@@ -78,6 +78,14 @@ impl PriceNeeds {
         self
     }
 
+    /// Adds what another write, or another account of the same write, is about to price.
+    pub fn merge(&mut self, other: Self) -> &mut Self {
+        self.currencies.extend(other.currencies);
+        self.tickers.extend(other.tickers);
+        self.crypto_tickers.extend(other.crypto_tickers);
+        self
+    }
+
     /// The same, for an account as it stands and the holdings it has.
     pub fn of(account: &Account, holdings: &[AccountHolding]) -> Self {
         let mut needs = Self::default();

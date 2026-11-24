@@ -242,7 +242,11 @@ async fn do_sync(
     // position the write below values. Inside it, a provider that is slow to answer would keep
     // SQLite's only writer.
     let mut needs = PriceNeeds::default();
+    let mut conn = state.db.pool_handle();
     for data in &set.accounts {
+        // The account as stored too: a list of positions that is not applied leaves its
+        // holdings as they were.
+        needs.merge(valuation::needs_of_external(&mut conn, member_id, &data.external_id).await?);
         let currency = data.currency.as_deref().unwrap_or_default().to_uppercase();
         let mapped = holdings::map(&data.holdings, &currency);
         needs.account(

@@ -52,7 +52,7 @@ pub(super) async fn connect(
     let jars = fetch_jars(state, token).await?;
     let encrypted = state.crypto.encrypt(token)?;
     let now = state.clock.now();
-    prefetch_rates(state, &jars).await;
+    prefetch_rates(state, &jars, member.id).await?;
     let mut tx = state.db.begin().await?;
     store::save_token(&mut tx, member.id, &encrypted, now).await?;
     tracing::info!("Wise token stored for member {member_id}");
@@ -192,7 +192,7 @@ async fn try_sync(
         )
     })?;
     let jars = fetch_jars(state, &token).await?;
-    prefetch_rates(state, &jars).await;
+    prefetch_rates(state, &jars, member_id).await?;
     let mut tx = state.db.begin().await?;
     let member = members::find_by_id(&mut tx, member_id)
         .await?
@@ -204,18 +204,23 @@ async fn try_sync(
     Ok(responses)
 }
 
-/// The EUR rate of each jar's currency, asked before the write transaction opens: inside it,
-/// a rate provider that is slow to answer would keep SQLite's only writer.
-async fn prefetch_rates(state: &AppState, jars: &[WiseJar]) {
+/// The EUR rate of each jar's currency and what its account reads as stored, asked before the
+/// write transaction opens: inside it, a rate provider that is slow to answer would keep
+/// SQLite's only writer.
+async fn prefetch_rates(state: &AppState, jars: &[WiseJar], member_id: i64) -> sqlx::Result<()> {
     let mut needs = PriceNeeds::default();
+    let mut conn = state.db.pool_handle();
     for jar in jars {
         needs.currency(&jar.currency);
+        let external_id = format!("{EXTERNAL_ID_PREFIX}{}", jar.balance_id);
+        needs.merge(valuation::needs_of_external(&mut conn, member_id, &external_id).await?);
     }
     state
         .ledger
         .prices
         .prefetch(&needs, state.clock.today())
         .await;
+    Ok(())
 }
 
 async fn fetch_jars(state: &AppState, token: &str) -> Result<Vec<WiseJar>, WiseError> {

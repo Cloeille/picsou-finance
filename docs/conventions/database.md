@@ -179,18 +179,25 @@ Reads outside a transaction use the WAL reader pool and are not affected.
     `sync/enable_banking/service.rs` (`ask_first`) and `sync/ibkr/service.rs`.
   - **Prices are asked ahead too.** Valuing an account inside a transaction (the day's snapshot,
     the response) reads quotes and rates through `PriceRead`. Collect what the write is about to
-    price in a `PriceNeeds` (the currencies it converts, the tickers its accounts will hold) and
-    call `state.ledger.prices.prefetch(&needs, today)` before `db.begin()`: the live price
-    service remembers each answer, a miss included, so the same lookups inside the transaction
-    are answered from memory. A connector built on `SyncTemplate` returns them from
+    price in a `PriceNeeds` and call `state.ledger.prices.prefetch(&needs, today)` before
+    `db.begin()`: the live price service remembers each answer, a miss included, so the same
+    lookups inside the transaction are answered from memory. A sync announces what its payload
+    brings (the currencies it converts, the tickers its accounts will hold) and the account as
+    stored (`valuation::needs_of_external`: a currency or a ticker the member edited, holdings
+    the sync leaves alone). A connector built on `SyncTemplate` returns its payload's from
     `SyncStrategy::price_needs`; a handler on an existing account reads them with
     `valuation::needs_of`.
-  - **A long read uses `db.begin_read()`**, not `db.begin()`: a read-only transaction that on
-    SQLite is a WAL snapshot on a reader. The data export streams from one, at the pace of its
-    download, without ever holding the writer.
+  - **A long read uses `db.begin_read()`**, not `db.begin()`: a read-only transaction that sees
+    the database as it was at its first read. On SQLite it is a WAL snapshot on a reader of its
+    own, with slots apart from the read pool; on PostgreSQL, a repeatable-read transaction. The
+    data export streams from one, at the pace of its download, without ever holding the writer.
   - The test helper `tests/integration/writer_free.rs` proves a flow follows the rule: a stubbed
-    provider answers slowly, and a write made meanwhile has to go through
-    (`stays_writable_while`). Add a case with every flow that calls a provider and writes.
+    provider answers slowly, and writes made from then until the flow is done have to go through
+    (`stays_writable_while`). It says something on SQLite only, so it counts in the
+    `PICSOU_TEST_DB=sqlite` run. Add a case with every flow that calls a provider and writes.
+  - What is left to the convention: a write that prices a ticker or a currency it did not
+    announce, or whose provider was so slow that a remembered miss (60 seconds) ran out before
+    the transaction opened, asks again inside it. The write is slower; its figures are the same.
 - **A dropped request is safe.** When the future awaiting a statement is dropped (the client went
   away, a timeout fired), a statement that had not reached the connection is skipped and a
   `BEGIN` or `SAVEPOINT` that had is undone (`db/sqlite/mod.rs`, `run_on_writer` and

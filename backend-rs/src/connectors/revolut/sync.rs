@@ -413,17 +413,12 @@ pub async fn confirm_sync(
         selected_external_ids.iter().map(Option::as_deref).collect();
     let is_selected = |data: &RevolutAccountData| selected.contains(&data.external_id.as_deref());
     let categorization = load_categorization(state, member_id).await?;
-    // The balance of each account is converted from its own currency: the rates are asked
-    // before the transaction opens, where a slow provider would keep SQLite's only writer.
-    let mut needs = PriceNeeds::default();
-    for data in discovered.iter().filter(|d| is_selected(d)) {
-        needs.currency(&data.currency_code());
-    }
-    state
-        .ledger
-        .prices
-        .prefetch(&needs, state.clock.today())
-        .await;
+    prefetch_rates(
+        state,
+        member_id,
+        discovered.iter().filter(|d| is_selected(d)),
+    )
+    .await?;
     let mut tx = state.db.begin().await?;
     if voluntary {
         for data in discovered.iter().filter(|d| is_selected(d)) {
@@ -458,6 +453,30 @@ pub async fn confirm_sync(
         state.clock.now(),
     )
     .await;
+    Ok(())
+}
+
+/// The balance of each account is converted from its own currency, and the account is valued
+/// as stored: the rates and quotes are asked before the write transaction opens, where a slow
+/// provider would keep SQLite's only writer.
+async fn prefetch_rates<'a>(
+    state: &AppState,
+    member_id: i64,
+    accounts: impl Iterator<Item = &'a RevolutAccountData>,
+) -> sqlx::Result<()> {
+    let mut needs = PriceNeeds::default();
+    let mut conn = state.db.pool_handle();
+    for data in accounts {
+        needs.currency(&data.currency_code());
+        if let Some(external_id) = data.external_id.as_deref() {
+            needs.merge(valuation::needs_of_external(&mut conn, member_id, external_id).await?);
+        }
+    }
+    state
+        .ledger
+        .prices
+        .prefetch(&needs, state.clock.today())
+        .await;
     Ok(())
 }
 
@@ -1121,6 +1140,7 @@ async fn unattended_sync(state: &AppState, member_id: i64) -> Result<(), JobErro
         Err(other) => return Err(other),
     };
     let categorization = load_categorization(state, member_id).await?;
+    prefetch_rates(state, member_id, harvested.iter()).await?;
     let mut tx = state.db.begin().await?;
     let all: Vec<&RevolutAccountData> = harvested.iter().collect();
     persist_selected(

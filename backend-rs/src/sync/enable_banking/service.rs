@@ -620,26 +620,15 @@ async fn ask_first(
     let mut needs = PriceNeeds::default();
     let mut asked = Vec::with_capacity(data.len());
     for d in data {
-        let stored = match_account(&mut conn, d, member_id).await?;
-        needs.account(
-            d.account_type,
-            d.currency.as_deref().unwrap_or("EUR"),
-            None,
-            [""; 0],
-        );
-        let since = match &stored {
+        let since = match match_account(&mut conn, d, member_id).await? {
             Stored::Deleted => {
                 asked.push(None);
                 continue;
             }
             Stored::Account(account) => {
-                // A balance the bank left out keeps the currency the account was stored in.
-                needs.account(
-                    account.account_type,
-                    &account.currency,
-                    account.ticker.as_deref(),
-                    [""; 0],
-                );
+                // The account is valued as stored: a balance the bank left out keeps its
+                // currency, and its ticker and holdings are the member's.
+                needs.merge(valuation::needs_of(&mut conn, &account).await?);
                 bank_import::window_start(
                     &mut conn,
                     account.id,
@@ -650,6 +639,7 @@ async fn ask_first(
             }
             Stored::None => bank_import::shared_history_start(today, DEFAULT_INITIAL_HISTORY_DAYS),
         };
+        needs.currency(d.currency.as_deref().unwrap_or("EUR"));
         asked.push(ask_transactions(state, d, session_id, since).await);
     }
     state.ledger.prices.prefetch(&needs, today).await;

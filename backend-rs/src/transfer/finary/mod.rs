@@ -512,6 +512,9 @@ async fn execute(
     for account in by_key.values() {
         needs.currency(&account.currency);
     }
+    for row in &parsed.transactions {
+        needs.currency(&row.currency);
+    }
     state
         .ledger
         .prices

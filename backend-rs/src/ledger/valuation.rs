@@ -14,7 +14,7 @@ use super::liabilities;
 use super::model::{Account, AccountHolding, AccountType, BalanceSnapshot, SnapshotSource};
 use super::prices::{PriceNeeds, PriceRead, Quote};
 use super::sync_values::java_is_blank;
-use super::{holdings, loans, peer_loans, providers, snapshots, transactions};
+use super::{accounts, holdings, loans, peer_loans, providers, snapshots, transactions};
 
 /// What an account is worth and what it cost.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -324,6 +324,21 @@ pub async fn needs_of(conn: &mut DbHandle<'_>, account: &Account) -> sqlx::Resul
         needs.currency(&currency);
     }
     Ok(needs)
+}
+
+/// needs_of for the member's account with this external id, nothing when there is none yet.
+/// A sync values the account as stored: with a currency or a ticker the member may have
+/// edited, and with holdings it may leave alone. It announces that together with what its
+/// payload brings.
+pub async fn needs_of_external(
+    conn: &mut DbHandle<'_>,
+    member_id: i64,
+    external_id: &str,
+) -> sqlx::Result<PriceNeeds> {
+    match accounts::find_by_external_id_and_member(&mut *conn, external_id, member_id).await? {
+        Some(account) => needs_of(conn, &account).await,
+        None => Ok(PriceNeeds::default()),
+    }
 }
 
 /// The rates rebuilding the manual ledgers of a member can read: the currencies of their

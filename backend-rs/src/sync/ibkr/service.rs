@@ -199,8 +199,15 @@ async fn do_sync(
     // these calls would keep SQLite's only writer for as long as the providers take to answer.
     let mut resolved = Vec::with_capacity(statement.len());
     let mut needs = PriceNeeds::default();
+    let mut conn = state.db.pool_handle();
     for data in &statement {
-        let tickers = resolve_tickers(state, data).await;
+        // An account in another base currency is refused below (or skipped, when deleted here):
+        // nothing is asked for it.
+        let tickers = if require_eur_base_currency(data).is_ok() {
+            resolve_tickers(state, data).await
+        } else {
+            Vec::new()
+        };
         needs.account(
             AccountType::CompteTitres,
             "EUR",
@@ -209,6 +216,14 @@ async fn do_sync(
                 .iter()
                 .flatten()
                 .filter_map(|position| position.ticker.as_deref()),
+        );
+        needs.merge(
+            valuation::needs_of_external(
+                &mut conn,
+                member_id,
+                &format!("ibkr_{}", data.account_id),
+            )
+            .await?,
         );
         resolved.push(tickers);
     }

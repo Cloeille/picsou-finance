@@ -4,6 +4,7 @@
 
 use std::future::Future;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use picsou::db::{self, Db};
@@ -42,17 +43,27 @@ impl Respond for Slow {
     }
 }
 
-/// Runs `work` and, as soon as the slow provider has been asked, writes to the database: the
-/// write has to go through while the provider is still answering.
+/// Runs `work` and, from the moment the slow provider has been asked until `work` is done, keeps
+/// writing to the database: each write has to go through, while the provider is answering and
+/// afterwards.
 pub async fn stays_writable_while<T>(db: &Db, asked: &Notify, work: impl Future<Output = T>) -> T {
+    let done = AtomicBool::new(false);
+    let work = async {
+        let out = work.await;
+        done.store(true, Ordering::Release);
+        out
+    };
     let write_meanwhile = async {
         tokio::time::timeout(Duration::from_secs(10), asked.notified())
             .await
             .expect("the slow provider was never asked");
-        tokio::time::timeout(WRITE_BUDGET, write(db))
-            .await
-            .expect("a write waited for the flow while its provider was answering")
-            .expect("the write made meanwhile");
+        while !done.load(Ordering::Acquire) {
+            tokio::time::timeout(WRITE_BUDGET, write(db))
+                .await
+                .expect("a write waited for the flow while its provider was answering")
+                .expect("the write made meanwhile");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
     };
     tokio::join!(work, write_meanwhile).0
 }

@@ -21,8 +21,8 @@ use crate::error::{AppError, AppResult};
 use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::manual_ledger;
 use crate::ledger::model::{Account, NewTransaction};
-use crate::ledger::prices::PriceNeeds;
 use crate::ledger::sync_values::java_is_blank;
+use crate::ledger::valuation;
 
 const ACCOUNT_CATEGORIES: [&str; 10] = [
     "checkings",
@@ -465,7 +465,7 @@ pub async fn execute(
             .get(token, member_id, state.clock.now())
     });
     if let Some(session) = previewed {
-        ask_first(state, &session.accounts).await;
+        ask_first(state, member_id, &session.accounts, &session.transactions).await?;
     }
     let mut tx = state.db.begin().await?;
     let result = execute_in(&mut tx.as_handle(), state, member_id, token, mappings).await?;
@@ -474,21 +474,37 @@ pub async fn execute(
 }
 
 /// What the import asks of outside services, asked before its transaction opens: the ticker of
-/// each security and the EUR rate of each account currency. Both are remembered, so the import
-/// finds them in memory and awaits no provider while it holds SQLite's only writer.
-async fn ask_first(state: &AppState, accounts: &[Categorized]) {
-    let mut needs = PriceNeeds::default();
+/// each security, and the EUR rate of every currency the ledgers it rebuilds convert from (the
+/// member's accounts and rows as stored, Finary's accounts and transactions). All are
+/// remembered, so the import finds them in memory and awaits no provider while it holds
+/// SQLite's only writer.
+async fn ask_first(
+    state: &AppState,
+    member_id: i64,
+    accounts: &[Categorized],
+    transactions: &HashMap<&'static str, Vec<Transaction>>,
+) -> sqlx::Result<()> {
+    let mut needs =
+        valuation::currency_needs_of_member(&mut state.db.pool_handle(), member_id).await?;
     for categorized in accounts {
         holdings::resolve_first(&*state.sync.finary.isin, &categorized.account).await;
         if let Some(currency) = categorized.account.currency_code() {
             needs.currency(currency);
         }
     }
+    let codes = transactions
+        .values()
+        .flatten()
+        .filter_map(|tx| tx.currency.as_ref()?.code.as_deref());
+    for currency in codes {
+        needs.currency(currency);
+    }
     state
         .ledger
         .prices
         .prefetch(&needs, state.clock.today())
         .await;
+    Ok(())
 }
 
 fn account_key(category: Option<&str>, id: Option<&str>) -> String {
@@ -774,7 +790,7 @@ pub async fn auto_sync(state: &AppState, member_id: i64) -> AppResult<FinaryAuto
             return Err(failure.into());
         }
     };
-    ask_first(state, &fetched.accounts).await;
+    ask_first(state, member_id, &fetched.accounts, &fetched.transactions).await?;
     // One transaction, as Java's @Transactional autoSync: a failed import leaves nothing behind.
     let mut tx = state.db.begin().await?;
     let preview = finish_preview(&mut tx.as_handle(), state, member_id, s.id, fetched).await?;
