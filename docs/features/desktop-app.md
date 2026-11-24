@@ -1,6 +1,6 @@
 # Feature: Desktop app
 
-> Last updated: 2026-11-22
+> Last updated: 2026-11-24
 
 ## Opening the unsigned desktop app (macOS Gatekeeper & Windows SmartScreen)
 
@@ -140,7 +140,9 @@ no external database process, and no bundled PostgreSQL server.
   Revolut, BNP Paribas / Hello bank!, and American Express): the shell opens a loopback HTTP
   bridge on an ephemeral `127.0.0.1` port authenticated by `X-Picsou-Sidecar-Key` (constant-time
   comparison) and launches an interactive Tauri WebView window constrained by per-bank
-  `on_navigation` host allowlists. No Camoufox or Firefox bundle is needed on Desktop.
+  `on_navigation` host allowlists. No Camoufox or Firefox bundle is needed on Desktop. A completed
+  BNP or Amex login hands its `session_state` once, to the first `GET /webview/status/{process_id}`
+  that reads it; an unclaimed one is dropped after `SNAPSHOT_CACHE_TTL`.
 - **Remaining Chromium sidecars** (amundi, banque-populaire, bourse-direct, caisse-epargne, corum,
   fortuneo, lbp, tr): `fetch_runtime.py` bundles `runtime/python/` (python-build-standalone,
   SHA-256 checked, Tk/IDLE/pip/headers trimmed, `bin/python3` flattened) and `runtime/sidecars/`
@@ -149,8 +151,11 @@ no external database process, and no bundled PostgreSQL server.
   own OS.
 - `sidecars.rs` opens one loopback port per listed Chromium sidecar and hands the backend
   `<SERVICE>_URL` plus `APP_SIDECAR_API_KEY` (generated once in `secrets/sidecar_api_key`).
-  Nothing runs at idle: the first connection starts `python -m uvicorn main:app` on a private
-  loopback port and pipes bytes to it. After 15 min without an open connection it is stopped
+  Nothing runs at idle: the first connection starts the sidecar's `main:app` under uvicorn and
+  pipes bytes to it. The Python child binds `127.0.0.1:0` itself (`SO_EXCLUSIVEADDRUSE` on
+  Windows), hands that bound socket to uvicorn and announces the port through a temporary file in
+  `<data>/run/` (`0700` on Unix), so no other local process can take the port between its choice
+  and its use. After 15 min without an open connection it is stopped
   (longer than the sidecars' 10 min pending-login TTL, so an SMS step survives). Quitting stops
   every sidecar.
 - Chromium sidecars ship with Playwright but without a browser. Once the backend is ready, the
@@ -202,7 +207,9 @@ install) at the release tag, each on its own OS, signs them with the updater key
 them, their `.sig` and one `latest.json` listing all three to the release. `latest.json` is
 written only once all are built, so no platform is offered a half release. An installed app reads
 `https://github.com/<repo>/releases/latest/download/latest.json` once the backend is ready, then
-every 6 h, and offers "Install Picsou x.y.z" in the tray.
+every 6 h, and offers "Install Picsou x.y.z" in the tray. The entry is disabled while the install
+runs, so a second click (or `--install-update`) is ignored; a failed install shows its reason in a
+banner of the main window and puts the entry back for a retry.
 
 - The version comes from the tag (`1.3.0` or `v1.3.0`): `desktop_release.py stamp` writes it to
   `Cargo.toml`, which the bundle, the updater and the backups (#588) all read.

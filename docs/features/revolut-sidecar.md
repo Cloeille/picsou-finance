@@ -1,6 +1,6 @@
 # Feature: Revolut Sidecar Connector
 
-> Last updated: 2026-10-31 (hCaptcha content-quad clipping; shared architecture-aware Camoufox base; legacy Enable Banking coexistence and IBAN log privacy)
+> Last updated: 2026-11-24 (Desktop WebView parser scales by ISO minor units; hCaptcha content-quad clipping; shared architecture-aware Camoufox base; legacy Enable Banking coexistence and IBAN log privacy)
 > Status: ⚠️ Code shipped + unit-tested; live end-to-end coverage still depends on a real Revolut
 > approval session.
 
@@ -282,7 +282,9 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   (tducret/revolut-python), not from a captured payload. A malformed `currency` fails closed
   with `502 INVALID_DATA` for the whole sync, like a malformed amount; an absent one means the
   pocket's (#251). Every fiat leg is read as cents, which is wrong for 0-decimal (JPY) and
-  3-decimal (KWD, BHD) currencies. It does not matter while only EUR legs are booked.
+  3-decimal (KWD, BHD) currencies. It does not matter while only EUR legs are booked. The
+  Desktop WebView parser (`desktop/src-tauri/src/webview_bank/revolut_parsers.rs`) scales each
+  fiat amount by its currency's ISO 4217 minor units instead (0, 2, 3 or 4 decimals).
 - **`/api/retail/wallets` is a dict keyed by account type** (`{PERSONAL:[...], PERSONAL_JOINT:[...],
   YOUTH:[], ...}`), NOT a list, and NOT under a `wallets` key. Each wallet has a `pockets` list.
 - **Money-box balance is nested**: `{"amount": <cents>, "currency": "EUR"}` (not a flat number).
