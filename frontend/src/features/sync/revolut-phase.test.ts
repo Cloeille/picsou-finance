@@ -22,6 +22,11 @@ describe('revolutErrorLabel', () => {
       .toBe('sync.revolut.errors.upstreamFormatChanged')
   })
 
+  it('translates an expired session instead of showing the backend sentence', () => {
+    expect(revolutErrorLabel(t, { ...failed, errorCode: 'SESSION_EXPIRED' }))
+      .toBe('sync.revolut.errors.sessionExpired')
+  })
+
   it('falls back to the backend sentence for a code it does not know or no code', () => {
     expect(revolutErrorLabel(t, { ...failed, errorCode: 'SOMETHING_NEW' })).toBe('English sentence')
     expect(revolutErrorLabel(t, failed)).toBe('English sentence')

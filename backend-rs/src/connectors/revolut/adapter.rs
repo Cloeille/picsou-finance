@@ -161,7 +161,7 @@ fn map_status(status: StatusCode, member_id: i64) -> JobError {
             tracing::warn!(
                 "revolut-auth sidecar reports session expired (401) for member {member_id}"
             );
-            sync_error("SESSION_EXPIRED")
+            coded("SESSION_EXPIRED")
         }
         408 => {
             tracing::warn!(

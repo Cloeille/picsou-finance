@@ -400,7 +400,7 @@ async fn sidecar_error_statuses_map_to_their_codes_and_friendly_messages() {
             Some("UPSTREAM_FORMAT_CHANGED"),
             "Check your phone number",
         ),
-        (401, None, "session has expired"),
+        (401, Some("SESSION_EXPIRED"), "session has expired"),
         (408, None, "mobile approval"),
         (409, None, "already running"),
         (503, None, "browser service"),

@@ -27,6 +27,7 @@ export function revolutPhaseLabel(t: TFunction, progress: SyncProgress | undefin
 const ERROR_KEYS: Record<string, string> = {
   HUMAN_VERIFICATION_REQUIRED: 'sync.revolut.errors.humanVerificationRequired',
   UPSTREAM_FORMAT_CHANGED: 'sync.revolut.errors.upstreamFormatChanged',
+  SESSION_EXPIRED: 'sync.revolut.errors.sessionExpired',
 }
 
 /**
