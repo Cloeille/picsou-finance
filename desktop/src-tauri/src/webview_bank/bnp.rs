@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use axum::http::StatusCode;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
-use chrono::{Local, TimeDelta};
+use chrono::{DateTime, Local, NaiveDateTime, TimeDelta, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -1198,20 +1198,72 @@ pub fn cookie_in_scope(cookie: &StoredCookie, brand: Brand) -> bool {
 }
 
 pub fn cookie_sent_to(cookie: &StoredCookie, host: &str) -> bool {
-    let raw = cookie.domain.as_deref().unwrap_or("").to_ascii_lowercase();
-    let domain = raw.trim_start_matches('.');
-    !domain.is_empty()
-        && (host == domain || (raw.starts_with('.') && host.ends_with(&format!(".{domain}"))))
+    let host_lower = host.to_ascii_lowercase();
+    let domain = cookie
+        .domain
+        .as_deref()
+        .unwrap_or("")
+        .trim_start_matches('.')
+        .to_ascii_lowercase();
+    !domain.is_empty() && is_domain_or_subdomain(&host_lower, &domain)
 }
 
 pub(crate) fn build_cookie_header(cookies: &[StoredCookie], host: &str) -> String {
     let host_lower = host.to_ascii_lowercase();
-    cookies
-        .iter()
-        .filter(|c| cookie_sent_to(c, &host_lower))
+    // Deduplicate by cookie name: when multiple scopes match `host`, keep the most specific
+    // (longest normalized domain, then longest path, then latest entry in the jar).
+    let mut chosen: Vec<&StoredCookie> = Vec::new();
+    let mut index_by_name: HashMap<&str, (usize, usize, usize)> = HashMap::new();
+    for c in cookies.iter().filter(|c| cookie_sent_to(c, &host_lower)) {
+        let dom_len = c
+            .domain
+            .as_deref()
+            .unwrap_or("")
+            .trim_start_matches('.')
+            .len();
+        let path_len = c.path.as_deref().unwrap_or("/").len();
+        if let Some(&(idx, prev_dom, prev_path)) = index_by_name.get(c.name.as_str()) {
+            if (dom_len, path_len) >= (prev_dom, prev_path) {
+                chosen[idx] = c;
+                index_by_name.insert(c.name.as_str(), (idx, dom_len, path_len));
+            }
+        } else {
+            let idx = chosen.len();
+            chosen.push(c);
+            index_by_name.insert(c.name.as_str(), (idx, dom_len, path_len));
+        }
+    }
+    chosen
+        .into_iter()
         .map(|c| format!("{}={}", c.name, c.value))
         .collect::<Vec<_>>()
         .join("; ")
+}
+
+fn parse_http_date(raw: &str) -> Option<i64> {
+    let trimmed = raw.trim();
+    if let Ok(dt) = DateTime::parse_from_rfc2822(trimmed) {
+        return Some(dt.timestamp());
+    }
+    let without_tz = trimmed
+        .strip_suffix(" GMT")
+        .or_else(|| trimmed.strip_suffix(" gmt"))
+        .or_else(|| trimmed.strip_suffix(" UTC"))
+        .or_else(|| trimmed.strip_suffix(" utc"))
+        .unwrap_or(trimmed)
+        .trim();
+    for fmt in [
+        "%a, %d %b %Y %H:%M:%S",
+        "%a, %d-%b-%Y %H:%M:%S",
+        "%A, %d-%b-%y %H:%M:%S",
+        "%a, %d-%b-%y %H:%M:%S",
+        "%a %b %e %H:%M:%S %Y",
+    ] {
+        if let Ok(ndt) = NaiveDateTime::parse_from_str(without_tz, fmt) {
+            return Some(ndt.and_utc().timestamp());
+        }
+    }
+    None
 }
 
 pub(crate) fn merge_set_cookies(
@@ -1219,6 +1271,16 @@ pub(crate) fn merge_set_cookies(
     headers: &[String],
     default_host: &str,
 ) {
+    merge_set_cookies_at(jar, headers, default_host, Utc::now().timestamp());
+}
+
+fn merge_set_cookies_at(
+    jar: &mut Vec<StoredCookie>,
+    headers: &[String],
+    default_host: &str,
+    now_unix: i64,
+) {
+    let default_host_lower = default_host.to_ascii_lowercase();
     for raw in headers {
         let mut parts = raw.split(';');
         let Some(first) = parts.next() else { continue };
@@ -1230,24 +1292,35 @@ pub(crate) fn merge_set_cookies(
         if name.is_empty() {
             continue;
         }
-        let mut domain = default_host.to_ascii_lowercase();
+        let mut domain = default_host_lower.clone();
         let mut path = Some("/".to_owned());
         let mut http_only = None;
         let mut secure = None;
-        let mut expired = false;
+        let mut max_age: Option<i64> = None;
+        let mut expires_ts: Option<i64> = None;
+        let mut rejected = false;
         for attr in parts {
             let trimmed = attr.trim();
             if let Some((k, v)) = trimmed.split_once('=') {
                 let k = k.trim();
                 let v = v.trim();
                 if k.eq_ignore_ascii_case("domain") && !v.is_empty() {
-                    domain = v.to_ascii_lowercase();
+                    let canon = v.trim_start_matches('.').to_ascii_lowercase();
+                    if canon.is_empty() || !is_domain_or_subdomain(&default_host_lower, &canon) {
+                        rejected = true;
+                        break;
+                    }
+                    domain = format!(".{canon}");
                 } else if k.eq_ignore_ascii_case("path") && !v.is_empty() {
                     path = Some(v.to_owned());
-                } else if k.eq_ignore_ascii_case("max-age")
-                    && v.parse::<i64>().is_ok_and(|secs| secs <= 0)
-                {
-                    expired = true;
+                } else if k.eq_ignore_ascii_case("max-age") {
+                    if let Ok(secs) = v.parse::<i64>() {
+                        max_age = Some(secs);
+                    }
+                } else if k.eq_ignore_ascii_case("expires") && !v.is_empty() {
+                    if let Some(ts) = parse_http_date(v) {
+                        expires_ts = Some(ts);
+                    }
                 }
             } else if trimmed.eq_ignore_ascii_case("httponly") {
                 http_only = Some(true);
@@ -1255,12 +1328,29 @@ pub(crate) fn merge_set_cookies(
                 secure = Some(true);
             }
         }
+        if rejected {
+            continue;
+        }
+        // RFC 6265 §5.3: Max-Age takes precedence over Expires.
+        let (expired, expires) = match max_age {
+            Some(secs) if secs <= 0 => (true, None),
+            Some(secs) => (false, Some(now_unix.saturating_add(secs))),
+            None => match expires_ts {
+                Some(ts) if ts <= now_unix => (true, None),
+                Some(ts) => (false, Some(ts)),
+                None => (false, None),
+            },
+        };
+        let canon_domain = domain.trim_start_matches('.');
+        let target_path = path.as_deref().unwrap_or("/");
         jar.retain(|c| {
             !(c.name == name
                 && c.domain
                     .as_deref()
                     .unwrap_or("")
-                    .eq_ignore_ascii_case(&domain))
+                    .trim_start_matches('.')
+                    .eq_ignore_ascii_case(canon_domain)
+                && c.path.as_deref().unwrap_or("/") == target_path)
         });
         if expired {
             continue;
@@ -1273,7 +1363,7 @@ pub(crate) fn merge_set_cookies(
             value: value.to_owned(),
             domain: Some(domain),
             path,
-            expires: None,
+            expires,
             http_only,
             secure,
             same_site: None,
@@ -1574,5 +1664,111 @@ mod tests {
             .collect();
         merge_set_cookies(&mut jar, &many, "mabanque.bnpparibas");
         assert_eq!(jar.len(), MAX_COOKIES);
+    }
+
+    #[test]
+    fn cookie_matching_and_merge_handle_undotted_domain_duplicates_and_expires() {
+        let now = 1_768_471_200; // 2026-01-15T10:00:00Z
+
+        // 1. Domain without leading dot (from Set-Cookie or wry/cookie crate stripping the dot)
+        //    must still be sent to subdomains, never to unrelated hosts.
+        let mut jar = Vec::new();
+        merge_set_cookies_at(
+            &mut jar,
+            &["SID=v1; Domain=hellobank.fr; Path=/".to_owned()],
+            "www.hellobank.fr",
+            now,
+        );
+        assert_eq!(build_cookie_header(&jar, "www.hellobank.fr"), "SID=v1");
+        assert_eq!(build_cookie_header(&jar, "evil-hellobank.fr"), "");
+
+        // Foreign Domain attribute is rejected.
+        merge_set_cookies_at(
+            &mut jar,
+            &["EVIL=1; Domain=evil.example; Path=/".to_owned()],
+            "www.hellobank.fr",
+            now,
+        );
+        assert_eq!(jar.len(), 1);
+
+        let captured = StoredCookie {
+            name: "amex_sess".to_owned(),
+            value: "tok".to_owned(),
+            domain: Some("americanexpress.com".to_owned()),
+            path: Some("/".to_owned()),
+            expires: None,
+            http_only: Some(true),
+            secure: Some(true),
+            same_site: None,
+        };
+        assert!(cookie_sent_to(&captured, "global.americanexpress.com"));
+        assert!(!cookie_sent_to(&captured, "evil-americanexpress.com"));
+
+        // 2. Rotating the same cookie with or without a leading dot replaces instead of duplicating.
+        merge_set_cookies_at(
+            &mut jar,
+            &["SID=v2; Domain=.hellobank.fr; Path=/".to_owned()],
+            "www.hellobank.fr",
+            now,
+        );
+        assert_eq!(jar.len(), 1);
+        assert_eq!(build_cookie_header(&jar, "www.hellobank.fr"), "SID=v2");
+
+        // Overlapping scopes in the jar emit only the most specific cookie per name.
+        merge_set_cookies_at(
+            &mut jar,
+            &["SID=host-specific; Path=/".to_owned()],
+            "www.hellobank.fr",
+            now,
+        );
+        assert_eq!(
+            build_cookie_header(&jar, "www.hellobank.fr"),
+            "SID=host-specific"
+        );
+        merge_set_cookies_at(
+            &mut jar,
+            &["SID=; Path=/; Max-Age=0".to_owned()],
+            "www.hellobank.fr",
+            now,
+        );
+
+        // 3. Deletion via Expires in the past removes the cookie instead of storing an empty value.
+        merge_set_cookies_at(
+            &mut jar,
+            &["SID=; Domain=hellobank.fr; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT".to_owned()],
+            "www.hellobank.fr",
+            now,
+        );
+        assert!(jar.is_empty(), "expected SID to be deleted, jar={jar:?}");
+
+        // Netscape hyphenated Expires date also deletes; Max-Age takes precedence over Expires.
+        merge_set_cookies_at(
+            &mut jar,
+            &[
+                "TOK=abc; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=3600".to_owned(),
+            ],
+            "www.hellobank.fr",
+            now,
+        );
+        assert_eq!(jar.len(), 1);
+        assert_eq!(jar[0].expires, Some(now + 3600));
+
+        merge_set_cookies_at(
+            &mut jar,
+            &["TOK=deleted; Path=/; Expires=Thu, 01-Jan-1970 00:00:00 GMT".to_owned()],
+            "www.hellobank.fr",
+            now,
+        );
+        assert!(jar.is_empty(), "expected TOK to be deleted, jar={jar:?}");
+
+        // Future Expires keeps the cookie and records its timestamp.
+        merge_set_cookies_at(
+            &mut jar,
+            &["KEEP=yes; Path=/; Expires=Thu, 15 Jan 2026 11:00:00 GMT".to_owned()],
+            "www.hellobank.fr",
+            now,
+        );
+        assert_eq!(jar.len(), 1);
+        assert_eq!(jar[0].expires, Some(now + 3600));
     }
 }
