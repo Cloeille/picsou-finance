@@ -16,6 +16,8 @@ export interface SetupStatus {
   sso?: SetupSsoInfo
   desktopMode?: boolean
   desktopLockEnabled?: boolean
+  /** The account the desktop password lock opens. Only the app's own window receives it. */
+  desktopUsername?: string
   legacyPostgresDetected?: boolean
 }
 

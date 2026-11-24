@@ -122,11 +122,32 @@ struct StatusResponse {
     sso: SsoInfo,
     desktop_mode: Option<bool>,
     desktop_lock_enabled: Option<bool>,
+    /// The account the desktop password lock opens, for the app's own window only.
+    desktop_username: Option<String>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     legacy_postgres_detected: bool,
 }
 
-pub async fn status(State(state): State<AppState>) -> AppResult<axum::Json<impl Serialize>> {
+/// The username the locked desktop app signs in with. Quick start derives it from the space
+/// name, so its owner never chose it and the login form has to name it. Only a request carrying
+/// the gate cookie of the app's window gets it: a browser on the same machine does not.
+async fn desktop_username(
+    state: &AppState,
+    headers: &HeaderMap,
+    lock_enabled: bool,
+) -> AppResult<Option<String>> {
+    if !lock_enabled || !super::desktop::has_valid_desktop_gate(headers, state) {
+        return Ok(None);
+    }
+    Ok(users::find_primary_active(&state.db)
+        .await?
+        .map(|user| user.username))
+}
+
+pub async fn status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> AppResult<axum::Json<impl Serialize>> {
     let current = current_state(&state).await?;
     let mut flags = Vec::new();
     for name in INTEGRATIONS {
@@ -136,13 +157,15 @@ pub async fn status(State(state): State<AppState>) -> AppResult<axum::Json<impl 
         flags.push((*name, on));
     }
     let sso = &state.config.sso;
-    let (desktop_mode, desktop_lock_enabled) = if state.config.desktop_mode {
+    let (desktop_mode, desktop_lock_enabled, desktop_username) = if state.config.desktop_mode {
+        let lock_enabled = settings::desktop_lock_enabled(&state).await?;
         (
             Some(true),
-            Some(settings::desktop_lock_enabled(&state).await?),
+            Some(lock_enabled),
+            desktop_username(&state, &headers, lock_enabled).await?,
         )
     } else {
-        (None, None)
+        (None, None, None)
     };
     let needs_setup = current != SetupState::Complete;
     let legacy_postgres_detected =
@@ -158,6 +181,7 @@ pub async fn status(State(state): State<AppState>) -> AppResult<axum::Json<impl 
         },
         desktop_mode,
         desktop_lock_enabled,
+        desktop_username,
         legacy_postgres_detected,
     }))
 }

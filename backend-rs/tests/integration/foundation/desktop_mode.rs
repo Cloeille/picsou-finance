@@ -18,7 +18,7 @@ async fn disabled_by_default_returns_404_and_keeps_setup_status_unchanged() {
     // Quick-start returns 404 when desktop mode is disabled (even without a JSON body).
     let qs = client
         .post("/api/setup/desktop-quick-start")
-        .json(&json!({"displayName": "Louis"}))
+        .json(&json!({"displayName": "Camille"}))
         .send()
         .await;
     assert_eq!(qs.status, StatusCode::NOT_FOUND);
@@ -72,7 +72,7 @@ async fn non_loopback_requests_are_rejected_even_when_desktop_mode_is_enabled() 
     let local_qs = app
         .desktop_client()
         .post("/api/setup/desktop-quick-start")
-        .json(&json!({"displayName": "Louis"}))
+        .json(&json!({"displayName": "Camille"}))
         .send()
         .await;
     assert_eq!(local_qs.status, StatusCode::OK);
@@ -190,7 +190,7 @@ async fn autologin_and_password_lock_lifecycle() {
     let qs = app
         .desktop_client()
         .post("/api/setup/desktop-quick-start")
-        .json(&json!({"displayName": "Louis"}))
+        .json(&json!({"displayName": "Camille"}))
         .send()
         .await;
     assert_eq!(qs.status, StatusCode::OK);
@@ -199,7 +199,7 @@ async fn autologin_and_password_lock_lifecycle() {
     let relaunched = app.desktop_client();
     let auto = relaunched.post("/api/auth/desktop-autologin").send().await;
     assert_eq!(auto.status, StatusCode::OK);
-    assert_eq!(auto.json()["username"], "louis");
+    assert_eq!(auto.json()["username"], "camille");
     assert_eq!(
         relaunched.get("/api/accounts").send().await.status,
         StatusCode::OK
@@ -237,6 +237,13 @@ async fn autologin_and_password_lock_lifecycle() {
         true
     );
 
+    // The app's own window is told which account the password belongs to, so the login form
+    // can name it: the member never chose that username. A browser on the same machine is not.
+    let from_the_app = app.desktop_client().get("/api/setup/status").send().await;
+    assert_eq!(from_the_app.json()["desktopUsername"], "camille");
+    let from_a_browser = app.client().get("/api/setup/status").send().await;
+    assert!(from_a_browser.json().get("desktopUsername").is_none());
+
     // 6. Auto-login is now refused with 403 DESKTOP_LOCK_ENABLED.
     let locked_auto = app
         .desktop_client()
@@ -247,7 +254,7 @@ async fn autologin_and_password_lock_lifecycle() {
     assert_eq!(locked_auto.json()["code"], "DESKTOP_LOCK_ENABLED");
 
     // 7. Standard password login works with the new password.
-    let logged_in = app.login("louis", "my-strong-password").await;
+    let logged_in = app.login("camille", "my-strong-password").await;
     assert_eq!(
         logged_in.get("/api/accounts").send().await.status,
         StatusCode::OK
@@ -281,7 +288,7 @@ async fn autologin_and_password_lock_lifecycle() {
         .send()
         .await;
     assert_eq!(auto_again.status, StatusCode::OK);
-    assert_eq!(auto_again.json()["username"], "louis");
+    assert_eq!(auto_again.json()["username"], "camille");
 }
 
 #[tokio::test]
@@ -294,7 +301,7 @@ async fn non_admin_member_is_forbidden_from_desktop_lock_and_lock_cannot_be_over
     let qs = app
         .desktop_client()
         .post("/api/setup/desktop-quick-start")
-        .json(&json!({"displayName": "Louis"}))
+        .json(&json!({"displayName": "Camille"}))
         .send()
         .await;
     assert_eq!(qs.status, StatusCode::OK);
@@ -360,12 +367,12 @@ async fn non_admin_member_is_forbidden_from_desktop_lock_and_lock_cannot_be_over
     let bad_login = app
         .client()
         .post("/api/auth/login")
-        .json(&json!({"username": "louis", "password": "overwritten-password"}))
+        .json(&json!({"username": "camille", "password": "overwritten-password"}))
         .send()
         .await;
     assert_eq!(bad_login.status, StatusCode::UNAUTHORIZED);
 
-    let good_login = app.login("louis", "original-admin-pw").await;
+    let good_login = app.login("camille", "original-admin-pw").await;
     assert_eq!(
         good_login.get("/api/desktop/lock").send().await.json()["enabled"],
         true
@@ -381,7 +388,7 @@ async fn desktop_lock_and_autologin_enforce_rate_limits() {
     let qs = app
         .desktop_client()
         .post("/api/setup/desktop-quick-start")
-        .json(&json!({"displayName": "Louis"}))
+        .json(&json!({"displayName": "Camille"}))
         .send()
         .await;
     assert_eq!(qs.status, StatusCode::OK);
@@ -563,7 +570,7 @@ async fn desktop_bootstrap_and_session_gate_enforce_single_use_token_and_fail_cl
     // 5. WebView (holding only the gate cookie, no header) completes quick-start and reloads into autologin.
     let qs = webview
         .post("/api/setup/desktop-quick-start")
-        .json(&json!({"displayName": "Louis"}))
+        .json(&json!({"displayName": "Camille"}))
         .send()
         .await;
     assert_eq!(qs.status, StatusCode::OK);
@@ -573,7 +580,7 @@ async fn desktop_bootstrap_and_session_gate_enforce_single_use_token_and_fail_cl
     webview.remove_cookie("refresh_token");
     let auto = webview.post("/api/auth/desktop-autologin").send().await;
     assert_eq!(auto.status, StatusCode::OK);
-    assert_eq!(auto.json()["username"], "louis");
+    assert_eq!(auto.json()["username"], "camille");
 
     // Raw X-Picsou-Desktop-Token header is also rejected on autologin after bootstrap consumption.
     assert_eq!(
@@ -615,7 +622,7 @@ async fn desktop_bootstrap_and_session_gate_enforce_single_use_token_and_fail_cl
         unconfigured
             .client()
             .post("/api/setup/desktop-quick-start")
-            .json(&json!({"displayName": "Louis"}))
+            .json(&json!({"displayName": "Camille"}))
             .send()
             .await
             .status,
@@ -716,7 +723,7 @@ async fn desktop_host_allowlist_blocks_dns_rebinding_and_cross_site_requests() {
         .desktop_client()
         .post("/api/setup/desktop-quick-start")
         .header("sec-fetch-site", "cross-site")
-        .json(&json!({"displayName": "Louis"}))
+        .json(&json!({"displayName": "Camille"}))
         .send()
         .await;
     assert_eq!(cross_qs.status, StatusCode::FORBIDDEN);
@@ -726,7 +733,7 @@ async fn desktop_host_allowlist_blocks_dns_rebinding_and_cross_site_requests() {
         .desktop_client()
         .post("/api/setup/desktop-quick-start")
         .header("origin", "http://evil.example")
-        .json(&json!({"displayName": "Louis"}))
+        .json(&json!({"displayName": "Camille"}))
         .send()
         .await;
     assert_eq!(origin_qs.status, StatusCode::FORBIDDEN);
@@ -736,7 +743,7 @@ async fn desktop_host_allowlist_blocks_dns_rebinding_and_cross_site_requests() {
     assert_eq!(
         app.desktop_client()
             .post("/api/setup/desktop-quick-start")
-            .json(&json!({"displayName": "Louis"}))
+            .json(&json!({"displayName": "Camille"}))
             .send()
             .await
             .status,
@@ -781,7 +788,7 @@ async fn mfa_enrollment_requires_desktop_lock_and_autologin_refuses_mfa_users() 
     assert_eq!(
         admin
             .post("/api/setup/desktop-quick-start")
-            .json(&json!({"displayName": "Louis"}))
+            .json(&json!({"displayName": "Camille"}))
             .send()
             .await
             .status,
@@ -1084,7 +1091,7 @@ async fn legacy_postgres_detected_flag_is_exposed_only_when_configured_in_deskto
         legacy_desktop
             .desktop_client()
             .post("/api/setup/desktop-quick-start")
-            .json(&json!({"displayName": "Louis"}))
+            .json(&json!({"displayName": "Camille"}))
             .send()
             .await
             .status,

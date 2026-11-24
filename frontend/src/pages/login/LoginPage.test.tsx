@@ -291,6 +291,44 @@ describe('LoginPage SSO', () => {
       expect(screen.queryByText(en.desktop.oauthLogin.title)).not.toBeInTheDocument()
     })
 
+    it('names the local account on a locked desktop, leaving the password to type', () => {
+      useSsoInfo.mockReturnValue(SSO_DISABLED)
+      useSetupStatus.mockReturnValue({
+        data: {
+          state: 'COMPLETE',
+          needsSetup: false,
+          integrations: {},
+          desktopMode: true,
+          desktopLockEnabled: true,
+          desktopUsername: 'my-space',
+        },
+      })
+
+      renderLogin('/login')
+
+      const username = screen.getByLabelText(en.auth.username)
+      expect(username).toHaveValue('my-space')
+      expect(username).not.toHaveAttribute('placeholder')
+      expect(screen.getByLabelText(en.auth.password)).toHaveFocus()
+    })
+
+    it('leaves the username empty when the desktop app does not name the account', () => {
+      useSsoInfo.mockReturnValue(SSO_DISABLED)
+      useSetupStatus.mockReturnValue({
+        data: {
+          state: 'COMPLETE',
+          needsSetup: false,
+          integrations: {},
+          desktopMode: true,
+          desktopLockEnabled: true,
+        },
+      })
+
+      renderLogin('/login')
+
+      expect(screen.getByLabelText(en.auth.username)).toHaveValue('')
+    })
+
     it('hides the Desktop notice outside Desktop Mode', () => {
       useSsoInfo.mockReturnValue(SSO_DISABLED)
       useSetupStatus.mockReturnValue({

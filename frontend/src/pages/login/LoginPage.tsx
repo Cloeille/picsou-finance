@@ -23,7 +23,8 @@ import { SsoProgressScreen } from './SsoProgressScreen'
 export function LoginPage() {
   const { t } = useTranslation()
   const [searchParams] = useSearchParams()
-  const [username, setUsername] = useState('')
+  // `null` until typed in: the locked desktop app then names its own account.
+  const [typedUsername, setUsername] = useState<string | null>(null)
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
   const [showPw, setShowPw] = useState(false)
@@ -49,6 +50,14 @@ export function LoginPage() {
   const insideDesktopShell = isInsideDesktopShell()
   const showDesktopLockNotice = desktopUnlocked && !insideDesktopShell
   const showDesktopRestartNotice = desktopUnlocked && insideDesktopShell
+  // Quick start derived the local username from the space name: its owner never chose it, so
+  // the form fills it in and only the password is left to type.
+  const desktopUsername = setupStatus.data?.desktopUsername
+  const username = typedUsername ?? desktopUsername ?? ''
+  const passwordInput = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (desktopUsername) passwordInput.current?.focus()
+  }, [desktopUsername])
   const navigate = useNavigate()
   const redirect = safeRedirect(searchParams.get('redirect'))
   const ssoInfo = useSsoInfo(!demoMode)
@@ -207,7 +216,7 @@ export function LoginPage() {
                   onChange={e => setUsername(e.target.value)}
                   autoComplete="username"
                   required
-                  placeholder="admin"
+                  placeholder={desktopMode ? undefined : 'admin'}
                   className="h-10 rounded-lg px-3.5 text-sm"
                 />
               </div>
@@ -224,6 +233,7 @@ export function LoginPage() {
                     onChange={e => setPassword(e.target.value)}
                     autoComplete="current-password"
                     required
+                    ref={passwordInput}
                     placeholder="••••••••"
                     className="h-10 rounded-lg px-3.5 pr-11 text-sm"
                   />
