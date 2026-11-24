@@ -32,8 +32,9 @@ fn cleanup_sqlite_path(path: &std::path::Path) {
 fn schema_parity_matches_postgresql_schema_tsv() {
     let db = SqliteDb::open_in_memory().expect("open in-memory SQLite");
 
-    // First migrate applies baseline; second migrate is a no-op (idempotent).
-    assert_eq!(db.migrate().expect("initial migrate"), 1);
+    // First migrate applies all embedded migrations; second migrate is a no-op (idempotent).
+    let expected_migrations = migrate::migrations().len();
+    assert_eq!(db.migrate().expect("initial migrate"), expected_migrations);
     assert_eq!(db.migrate().expect("idempotent migrate"), 0);
 
     let expected = expected_schema_from_tsv();
@@ -84,7 +85,7 @@ fn schema_parity_matches_postgresql_schema_tsv() {
     let report = db.verify_schema().expect("verify_schema");
     assert_eq!(report.tables_verified, expected.len());
     assert_eq!(report.columns_verified, total_columns);
-    assert_eq!(report.migrations_applied, 1);
+    assert_eq!(report.migrations_applied, expected_migrations);
 
     let integrity = db.check_integrity().expect("check_integrity");
     assert!(integrity.integrity_ok, "{:?}", integrity.integrity_messages);

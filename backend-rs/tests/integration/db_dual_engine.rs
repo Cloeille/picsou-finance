@@ -1462,3 +1462,59 @@ async fn release_cli_reads_same_database_config_as_server() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[tokio::test]
+async fn real_estate_energy_class_enforces_single_letter_a_to_g_on_both_engines() {
+    let pg = fresh_database().await;
+    let pg_pool = sqlx::PgPool::connect(&pg.url())
+        .await
+        .expect("connect test PostgreSQL");
+    let pg_db = Db::Postgres(pg_pool);
+
+    let sq_inner = SqliteDb::open_in_memory().expect("open in-memory SQLite");
+    sq_inner.migrate().expect("migrate SQLite");
+    let sq_db = Db::from(sq_inner);
+
+    for (label, db) in [("postgres", &pg_db), ("sqlite", &sq_db)] {
+        let member_id = insert_member(db, "Jane Doe", false)
+            .await
+            .expect("insert member");
+        let account_id: i64 = db::query_scalar(
+            "INSERT INTO account (name, type, currency, current_balance, is_manual, member_id) \
+             VALUES ('Home', 'REAL_ESTATE'::account_type, 'EUR', 250000, TRUE, $1) RETURNING id",
+        )
+        .bind(member_id)
+        .fetch_one(db)
+        .await
+        .expect("insert account");
+        db::query(
+            "INSERT INTO real_estate_metadata (account_id, member_id, purchase_price, energy_class) \
+             VALUES ($1, $2, 250000, 'A')",
+        )
+        .bind(account_id)
+        .bind(member_id)
+        .execute(db)
+        .await
+        .expect("insert valid energy_class A");
+
+        for invalid in ["AB", "A+", "H", "a", ""] {
+            let err = db::query(
+                "UPDATE real_estate_metadata SET energy_class = $1 WHERE account_id = $2",
+            )
+            .bind(invalid)
+            .bind(account_id)
+            .execute(db)
+            .await
+            .expect_err(&format!(
+                "{label}: energy_class={invalid:?} must be rejected"
+            ));
+            assert!(
+                err.as_database_error().is_some(),
+                "{label}: expected database error for {invalid:?}, got {err:?}"
+            );
+        }
+    }
+
+    pg_db.close().await;
+    sq_db.close().await;
+}

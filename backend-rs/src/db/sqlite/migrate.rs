@@ -13,6 +13,9 @@ use sha2::{Digest, Sha256};
 /// The consolidated SQLite baseline schema matching PostgreSQL Flyway `V1..V155`.
 pub const BASELINE_SCHEMA: &str = include_str!("schema.sql");
 
+const V2_REAL_ESTATE_ENERGY_CLASS_CHECK: &str =
+    include_str!("migrations/V2__real_estate_energy_class_check.sql");
+
 /// Metadata table tracking applied SQLite schema migrations.
 pub const HISTORY_TABLE: &str = "picsou_sqlite_migrations";
 
@@ -77,13 +80,22 @@ pub fn sha256_checksum(sql: &str) -> String {
 
 /// Returns all embedded SQLite migrations in application order.
 pub fn migrations() -> Vec<SqliteMigration> {
-    vec![SqliteMigration {
-        version: "1",
-        description: "baseline schema v155",
-        sql: BASELINE_SCHEMA,
-        checksum: sha256_checksum(BASELINE_SCHEMA),
-        mode: MigrationMode::Transactional,
-    }]
+    vec![
+        SqliteMigration {
+            version: "1",
+            description: "baseline schema v155",
+            sql: BASELINE_SCHEMA,
+            checksum: sha256_checksum(BASELINE_SCHEMA),
+            mode: MigrationMode::Transactional,
+        },
+        SqliteMigration {
+            version: "2",
+            description: "real estate energy_class 1-char check",
+            sql: V2_REAL_ESTATE_ENERGY_CLASS_CHECK,
+            checksum: sha256_checksum(V2_REAL_ESTATE_ENERGY_CLASS_CHECK),
+            mode: MigrationMode::TableRebuild,
+        },
+    ]
 }
 
 /// Applies all pending embedded SQLite migrations idempotently and returns the number of newly
@@ -434,10 +446,16 @@ mod tests {
 
     #[test]
     fn v1_to_v2_table_rebuild_migration_succeeds_and_checks_foreign_keys() {
-        // 1. Happy path: V1 -> synthetic V2 TableRebuild migration preserves data & FKs, records
-        //    V2 in picsou_sqlite_migrations, restores PRAGMA foreign_keys = ON, and is idempotent.
+        // 1. Happy path: built-in migrations -> synthetic TableRebuild migration preserves data &
+        //    FKs, records it in picsou_sqlite_migrations, restores PRAGMA foreign_keys = ON, and
+        //    is idempotent.
+        let builtin = migrations();
+        let builtin_versions: Vec<String> = builtin.iter().map(|m| m.version.to_owned()).collect();
         let db = SqliteDb::open_in_memory().expect("open in-memory SQLite");
-        assert_eq!(db.migrate().expect("apply V1"), 1);
+        assert_eq!(
+            db.migrate().expect("apply built-in migrations"),
+            builtin.len()
+        );
 
         db.with_conn(|conn| {
             conn.execute(
@@ -450,7 +468,7 @@ mod tests {
                 [],
             )?;
 
-            let v2_sql = "\
+            let rebuild_sql = "\
                 CREATE TABLE family_member_new (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     display_name TEXT NOT NULL,
@@ -469,10 +487,10 @@ mod tests {
 
             let mut plan = migrations();
             plan.push(SqliteMigration {
-                version: "2",
+                version: "99",
                 description: "rebuild family_member with notes column",
-                sql: v2_sql,
-                checksum: sha256_checksum(v2_sql),
+                sql: rebuild_sql,
+                checksum: sha256_checksum(rebuild_sql),
                 mode: MigrationMode::TableRebuild,
             });
 
@@ -484,12 +502,14 @@ mod tests {
             let fk_on: i64 = conn.pragma_query_value(None, "foreign_keys", |r| r.get(0))?;
             assert_eq!(fk_on, 1, "PRAGMA foreign_keys must be restored to ON");
 
-            // History table contains both V1 and V2.
+            // History table contains all built-in migrations plus synthetic 99.
             let versions: Vec<String> = conn
-                .prepare("SELECT version FROM picsou_sqlite_migrations ORDER BY version")?
+                .prepare("SELECT version FROM picsou_sqlite_migrations ORDER BY CAST(version AS INTEGER)")?
                 .query_map([], |r| r.get(0))?
                 .collect::<Result<_, _>>()?;
-            assert_eq!(versions, vec!["1".to_owned(), "2".to_owned()]);
+            let mut expected_versions = builtin_versions.clone();
+            expected_versions.push("99".to_owned());
+            assert_eq!(versions, expected_versions);
 
             // Existing data and foreign-key integrity are preserved.
             let (name, notes): (String, String) = conn.query_row(
@@ -505,10 +525,13 @@ mod tests {
         })
         .expect("happy-path table rebuild");
 
-        // 2. Failure path: a broken V2 TableRebuild that breaks a foreign key is rejected & rolled
-        //    back cleanly, leaving PRAGMA foreign_keys = ON and the database at V1.
+        // 2. Failure path: a broken TableRebuild that breaks a foreign key is rejected & rolled
+        //    back cleanly, leaving PRAGMA foreign_keys = ON and the database at built-in versions.
         let broken_db = SqliteDb::open_in_memory().expect("open second in-memory SQLite");
-        assert_eq!(broken_db.migrate().expect("apply V1"), 1);
+        assert_eq!(
+            broken_db.migrate().expect("apply built-in migrations"),
+            builtin.len()
+        );
 
         broken_db
             .with_conn(|conn| {
@@ -523,13 +546,13 @@ mod tests {
                 )?;
 
                 // Drops the parent row while foreign_keys = OFF, leaving account.member_id dangling.
-                let broken_v2_sql = "DELETE FROM family_member WHERE id = 1;";
+                let broken_sql = "DELETE FROM family_member WHERE id = 1;";
                 let mut broken_plan = migrations();
                 broken_plan.push(SqliteMigration {
-                    version: "2",
+                    version: "99",
                     description: "broken rebuild violating fk",
-                    sql: broken_v2_sql,
-                    checksum: sha256_checksum(broken_v2_sql),
+                    sql: broken_sql,
+                    checksum: sha256_checksum(broken_sql),
                     mode: MigrationMode::TableRebuild,
                 });
 
@@ -544,7 +567,7 @@ mod tests {
                 let fk_on: i64 = conn.pragma_query_value(None, "foreign_keys", |r| r.get(0))?;
                 assert_eq!(fk_on, 1, "PRAGMA foreign_keys must be restored to ON after failure");
 
-                // Transaction rolled back cleanly: Alice still exists, and only V1 is recorded.
+                // Transaction rolled back cleanly: Alice still exists, and only built-in versions are recorded.
                 let member_count: i64 =
                     conn.query_row("SELECT COUNT(*) FROM family_member WHERE id = 1", [], |r| {
                         r.get(0)
@@ -552,14 +575,79 @@ mod tests {
                 assert_eq!(member_count, 1, "failed migration must roll back parent deletion");
 
                 let versions: Vec<String> = conn
-                    .prepare("SELECT version FROM picsou_sqlite_migrations ORDER BY version")?
+                    .prepare("SELECT version FROM picsou_sqlite_migrations ORDER BY CAST(version AS INTEGER)")?
                     .query_map([], |r| r.get(0))?
                     .collect::<Result<_, _>>()?;
-                assert_eq!(versions, vec!["1".to_owned()]);
+                assert_eq!(versions, builtin_versions);
                 assert!(super::super::query_foreign_key_violations(conn)?.is_empty());
 
                 Ok(())
             })
             .expect("broken-fk rollback verification");
+    }
+
+    #[test]
+    fn real_estate_energy_class_rejects_multi_character_values() {
+        // Apply V1 only first, seed an existing real_estate_metadata row, then upgrade to V2
+        // to prove V2 preserves existing data & indexes while tightening the CHECK constraint.
+        let db = SqliteDb::open_in_memory().expect("open in-memory SQLite");
+        let all = migrations();
+        db.with_conn(|conn| {
+            assert_eq!(migrate_with(conn, &all[..1])?, 1);
+            conn.execute(
+                "INSERT INTO family_member (id, display_name, is_managed) VALUES (1, 'Jane Doe', 0)",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO account (id, name, type, currency, current_balance, is_manual, member_id) \
+                 VALUES (10, 'Home', 'REAL_ESTATE', 'EUR', '250000.00', 1, 1)",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO real_estate_metadata (account_id, member_id, purchase_price, insee_code, energy_class) \
+                 VALUES (10, 1, '250000.00', '75101', 'C')",
+                [],
+            )?;
+
+            assert_eq!(migrate_with(conn, &all)?, all.len() - 1);
+
+            let (insee, energy): (Option<String>, Option<String>) = conn.query_row(
+                "SELECT insee_code, energy_class FROM real_estate_metadata WHERE account_id = 10",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?;
+            assert_eq!(insee.as_deref(), Some("75101"));
+            assert_eq!(energy.as_deref(), Some("C"));
+
+            for valid in [Some("A"), Some("D"), Some("G"), None] {
+                conn.execute(
+                    "UPDATE real_estate_metadata SET energy_class = ?1 WHERE account_id = 10",
+                    params![valid],
+                )?;
+            }
+
+            for invalid in ["AB", "A+", "F9", "H", "a", ""] {
+                let err = conn
+                    .execute(
+                        "UPDATE real_estate_metadata SET energy_class = ?1 WHERE account_id = 10",
+                        params![invalid],
+                    )
+                    .expect_err(&format!(
+                        "energy_class={invalid:?} must be rejected by CHECK constraint"
+                    ));
+                assert!(
+                    err.to_string().contains("CHECK constraint failed"),
+                    "expected CHECK constraint violation for {invalid:?}, got: {err}"
+                );
+            }
+
+            Ok(())
+        })
+        .expect("energy_class check");
+
+        db.verify_schema().expect("schema parity after V2");
+        let integrity = db.check_integrity().expect("integrity check after V2");
+        assert!(integrity.integrity_ok, "{:?}", integrity.integrity_messages);
+        assert!(integrity.foreign_key_violations.is_empty());
     }
 }
