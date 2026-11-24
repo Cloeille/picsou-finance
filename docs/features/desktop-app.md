@@ -60,8 +60,11 @@ no external database process, and no bundled PostgreSQL server.
      UDFs over canonical `TEXT` columns (zero binary floats);
    - checks whether an older embedded-PostgreSQL folder (`postgres/`) exists alongside a fresh
      SQLite install: `postgres/` is preserved untouched and the backend flags
-     `legacyPostgresDetected` on `/api/setup/status` so the welcome screen informs the user how
-     to start fresh or migrate with `picsou export-sqlite`;
+     `legacyPostgresDetected` on `/api/setup/status`, so the welcome screen says the earlier
+     data was kept and that a new database starts. The app does not convert it. Only a build
+     from source ever stored data there: no desktop release shipped with PostgreSQL. To carry
+     that data over, start the old cluster with PostgreSQL 16 and run `picsou export-sqlite`
+     from the server binary against it;
    - binds `127.0.0.1` on the port of the last start when still free (`desktop-port`, so the
      window keeps its origin and local storage), builds the backend's `Config` from the process
      environment plus plain-HTTP cookies, `APP_DESKTOP_MODE=true`, `PICSOU_SECRETS_DIR`,

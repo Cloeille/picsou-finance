@@ -50,7 +50,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   their tests are gone, and the PostgreSQL migrations now live in `backend-rs/migrations/` (same
   files, same Flyway history). Nothing changes for an existing database. The backend reads
   environment variables only: `SPRING_APPLICATION_JSON`, `-D` properties and `--spring.*`
-  arguments, which the Java backend accepted, are ignored. The experimental Powens adapter,
+  arguments, which the Java backend accepted, are ignored. So are the alternative names Spring
+  derived from a property (`APP_SECURE_COOKIES` for `SECURE_COOKIES`, for instance): set the
+  documented name. The experimental Powens adapter,
   which existed only in Java and was never enabled, is gone with it.
 
 ### Fixed
