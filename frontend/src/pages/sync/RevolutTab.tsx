@@ -9,7 +9,7 @@ import {
   useForgetRevolut,
   useConfirmRevolutSync,
 } from '@/features/sync/hooks'
-import { revolutPhaseLabel } from '@/features/sync/revolut-phase'
+import { isRevolutReady, revolutPhaseLabel } from '@/features/sync/revolut-phase'
 import { useRevolutDiscovery, useRevolutWebview } from '@/features/sync/use-revolut-discovery'
 import { RevolutCredentialsForm, type RevolutCredentials } from '@/components/sync/RevolutCredentialsForm'
 import { formatApiError } from '@/lib/errors'
@@ -28,9 +28,8 @@ export function RevolutTab() {
   const confirmSync = useConfirmRevolutSync()
   const forgetMutation = useForgetRevolut()
 
-  const remembered = status?.remembered ?? false
-  const connected = status?.connected ?? false
   const webviewSupported = status?.webviewLoginSupported === true
+  const revolutReady = isRevolutReady(status)
 
   // This tab is pure auto-sync — no selection step — so a successful discovery immediately
   // persists everything found: refreshes accounts already imported and auto-adds any new
@@ -69,8 +68,6 @@ export function RevolutTab() {
   // Covers the brief round-trip before the 202 response flips isSyncing to true, plus
   // the auto-confirm that follows discovery.
   const busy = isSyncing || startPending || confirmSync.isPending || webviewStarting || webviewInProgress
-  const isConnectedDesktop = webviewSupported && connected
-  const showConnectedBadge = remembered || isConnectedDesktop
 
   function handleQuickSync() {
     startDiscovery({})
@@ -95,7 +92,7 @@ export function RevolutTab() {
       <Card size="sm">
         <CardContent>
           <div className="flex flex-wrap items-center gap-3">
-            {showConnectedBadge ? (
+            {revolutReady ? (
               <Badge className="bg-green-500/10 text-green-600 dark:text-green-400">
                 {t('sync.revolut.connected')}
               </Badge>
@@ -182,7 +179,7 @@ export function RevolutTab() {
       )}
 
       {webviewSupported && !webviewInProgress ? (
-        isConnectedDesktop ? (
+        revolutReady ? (
           <div className="flex flex-wrap gap-3">
             <Button onClick={handleQuickSync} disabled={busy}>
               {busy ? <CircleNotch className="animate-spin" /> : <ArrowsClockwise />}
@@ -211,7 +208,7 @@ export function RevolutTab() {
           </Card>
         )
       ) : !webviewSupported ? (
-        remembered ? (
+        revolutReady ? (
           <div className="flex flex-wrap gap-3">
             <Button onClick={handleQuickSync} disabled={busy}>
               {busy ? <CircleNotch className="animate-spin" /> : <ArrowsClockwise />}

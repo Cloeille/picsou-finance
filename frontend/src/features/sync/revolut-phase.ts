@@ -1,5 +1,14 @@
 import type { TFunction } from 'i18next'
-import type { SyncProgress } from '@/types/api'
+import type { RevolutSessionStatus, SyncProgress } from '@/types/api'
+
+/**
+ * Whether Revolut can quick-sync without another interactive login: either stored credentials
+ * (server mode) or an active desktop WebView session. Shared between `RevolutTab` and
+ * `SyncAllModal` so the two surfaces agree on readiness.
+ */
+export function isRevolutReady(status: RevolutSessionStatus | undefined): boolean {
+  return status?.remembered === true || (status?.webviewLoginSupported === true && status?.connected === true)
+}
 
 /**
  * Human-readable label for the current Revolut sync phase, shared between `RevolutTab`
