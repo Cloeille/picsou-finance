@@ -1220,6 +1220,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_begin_that_ran_before_its_caller_went_away_is_rolled_back() {
+        let db = SqliteDb::open_in_memory().expect("open in-memory SQLite");
+        let in_transaction = || {
+            !db.with_conn(|conn| Ok(conn.is_autocommit()))
+                .expect("read the connection state")
+        };
+        {
+            let begin = db.begin();
+            tokio::pin!(begin);
+            assert!(futures::poll!(begin.as_mut()).is_pending());
+            // BEGIN IMMEDIATE runs on the blocking pool; the future is not polled again, so
+            // nobody ever receives the transaction it opened.
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while !in_transaction() {
+                assert!(std::time::Instant::now() < deadline, "BEGIN never ran");
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        }
+
+        assert!(
+            !in_transaction(),
+            "the transaction nobody received stayed open"
+        );
+        db.begin()
+            .await
+            .expect("a later transaction opens")
+            .commit()
+            .await
+            .expect("and commits");
+    }
+
+    #[tokio::test]
+    async fn a_savepoint_nobody_received_is_released() {
+        let db = SqliteDb::open_in_memory().expect("open in-memory SQLite");
+        let mut tx = db.begin().await.expect("begin");
+        {
+            let nested = tx.begin();
+            tokio::pin!(nested);
+            assert!(futures::poll!(nested.as_mut()).is_pending());
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        let leftover = tx
+            .execute("RELEASE SAVEPOINT picsou_sp_1", Vec::new())
+            .await;
+        assert!(leftover.is_err(), "the abandoned savepoint is still open");
+        tx.commit().await.expect("the outer transaction commits");
+    }
+
+    #[tokio::test]
     async fn a_statement_whose_caller_went_away_never_runs_after_the_rollback() {
         let db = SqliteDb::open_in_memory().expect("open in-memory SQLite");
         db.execute_batch("CREATE TABLE cancelled (id INTEGER)")
