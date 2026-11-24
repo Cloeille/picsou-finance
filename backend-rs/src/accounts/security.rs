@@ -92,6 +92,7 @@ pub struct SecurityInsightResponse {
 }
 
 const CACHE_TTL_DAYS: i64 = 3;
+const MAX_CACHE_ENTRIES: usize = 1024;
 
 type Cached = (SecurityInsightResponse, DateTime<Utc>);
 
@@ -120,9 +121,7 @@ pub async fn get_insight<'e>(
         Some(isin) => format!("{upper}|{isin}"),
         None => upper.clone(),
     };
-    if let Some((cached, at)) = cache_get(&seams.insights, &key)
-        && now <= at + Duration::days(CACHE_TTL_DAYS)
-    {
+    if let Some(cached) = cache_get(&seams.insights, &key, now) {
         return Ok(cached);
     }
     let asset_type = classify(db, seams, &upper).await?;
@@ -148,9 +147,22 @@ pub async fn get_insight<'e>(
     Ok(response)
 }
 
-fn cache_get(cache: &InsightCache, key: &str) -> Option<Cached> {
-    let cache = cache.0.lock().unwrap_or_else(|e| e.into_inner());
-    cache.get(key).cloned()
+fn cache_get(
+    cache: &InsightCache,
+    key: &str,
+    now: DateTime<Utc>,
+) -> Option<SecurityInsightResponse> {
+    let mut cache = cache.0.lock().unwrap_or_else(|e| e.into_inner());
+    match cache.get(key) {
+        Some((response, at)) if now <= *at + Duration::days(CACHE_TTL_DAYS) => {
+            Some(response.clone())
+        }
+        Some(_) => {
+            cache.remove(key);
+            None
+        }
+        None => None,
+    }
 }
 
 fn cache_put(
@@ -160,6 +172,18 @@ fn cache_put(
     now: DateTime<Utc>,
 ) {
     let mut cache = cache.0.lock().unwrap_or_else(|e| e.into_inner());
+    if !cache.contains_key(&key) && cache.len() >= MAX_CACHE_ENTRIES {
+        let cutoff = now - Duration::days(CACHE_TTL_DAYS);
+        cache.retain(|_, (_, at)| *at >= cutoff);
+        if cache.len() >= MAX_CACHE_ENTRIES
+            && let Some(oldest) = cache
+                .iter()
+                .min_by_key(|(_, (_, at))| *at)
+                .map(|(k, _)| k.clone())
+        {
+            cache.remove(&oldest);
+        }
+    }
     cache.insert(key, (response, now));
 }
 
@@ -270,4 +294,118 @@ async fn insight(
         )
         .await?,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    use async_trait::async_trait;
+    use chrono::TimeZone;
+
+    use super::*;
+    use crate::accounts::analysis::seams::InstrumentTypeSource;
+    use crate::db::Db;
+    use crate::db::sqlite::{SqliteDb, migrate};
+
+    #[derive(Default)]
+    struct CountingTypes(Mutex<HashMap<String, usize>>);
+
+    impl CountingTypes {
+        fn calls(&self, ticker: &str) -> usize {
+            *self.0.lock().unwrap().get(ticker).unwrap_or(&0)
+        }
+    }
+
+    #[async_trait]
+    impl InstrumentTypeSource for CountingTypes {
+        async fn instrument_type(&self, upper_ticker: &str) -> Option<String> {
+            *self
+                .0
+                .lock()
+                .unwrap()
+                .entry(upper_ticker.to_owned())
+                .or_default() += 1;
+            Some("EQUITY".to_owned())
+        }
+    }
+
+    fn in_memory_db() -> Db {
+        let sq = SqliteDb::open_in_memory().unwrap();
+        sq.with_conn(|c| Ok(migrate::migrate(c).unwrap())).unwrap();
+        Db::from(sq)
+    }
+
+    #[tokio::test]
+    async fn insight_cache_evicts_oldest_entries_once_capacity_is_reached() {
+        let db = in_memory_db();
+        let types = Arc::new(CountingTypes::default());
+        let seams = AnalysisSeams {
+            instrument_types: types.clone(),
+            ..AnalysisSeams::default()
+        };
+        let t0 = Utc.with_ymd_and_hms(2026, 1, 15, 10, 0, 0).unwrap();
+
+        // Populate 1025 distinct tickers within the 3-day TTL window.
+        for i in 0..1025_i64 {
+            let ticker = format!("T{i}");
+            let resp = get_insight(&db, &seams, &ticker, None, None, t0 + Duration::seconds(i))
+                .await
+                .unwrap();
+            assert_eq!(resp.asset_type, "STOCK");
+        }
+        assert_eq!(types.calls("T0"), 1);
+        assert_eq!(types.calls("T1024"), 1);
+
+        // The most recent entry is still cached; the oldest entry was evicted.
+        get_insight(&db, &seams, "T1024", None, None, t0 + Duration::seconds(2000))
+            .await
+            .unwrap();
+        assert_eq!(types.calls("T1024"), 1);
+
+        get_insight(&db, &seams, "T0", None, None, t0 + Duration::seconds(2001))
+            .await
+            .unwrap();
+        assert_eq!(
+            types.calls("T0"),
+            2,
+            "oldest entry must have been evicted once cache reached its cap"
+        );
+    }
+
+    #[tokio::test]
+    async fn insight_cache_sweeps_expired_entries_before_evicting_live_ones() {
+        let db = in_memory_db();
+        let types = Arc::new(CountingTypes::default());
+        let seams = AnalysisSeams {
+            instrument_types: types.clone(),
+            ..AnalysisSeams::default()
+        };
+        let t0 = Utc.with_ymd_and_hms(2026, 1, 15, 10, 0, 0).unwrap();
+
+        // One entry written four days earlier is expired once we advance to t1.
+        get_insight(&db, &seams, "EXPIRED", None, None, t0)
+            .await
+            .unwrap();
+        let t1 = t0 + Duration::days(CACHE_TTL_DAYS + 1);
+        for i in 0..MAX_CACHE_ENTRIES as i64 {
+            let ticker = format!("LIVE{i}");
+            get_insight(&db, &seams, &ticker, None, None, t1 + Duration::seconds(i))
+                .await
+                .unwrap();
+        }
+        // LIVE0 is still live and must survive because EXPIRED was swept first.
+        get_insight(
+            &db,
+            &seams,
+            "LIVE0",
+            None,
+            None,
+            t1 + Duration::seconds(2000),
+        )
+        .await
+        .unwrap();
+        assert_eq!(types.calls("LIVE0"), 1);
+    }
 }
