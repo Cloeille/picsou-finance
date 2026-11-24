@@ -41,7 +41,7 @@ const MAX_NUMBER_TEXT: usize = 32;
 const MAX_VALUE_BYTES: i32 = 1024 * 1024;
 /// Stored rows per table, deleted ones included: an order of magnitude over a heavy
 /// decade-long budget, with room for tombstones and split parents above the live-row cap.
-const MAX_ROWS: [(&str, i64); 7] = [
+const MAX_ROWS: [(&str, i64); 8] = [
     ("accounts", 10_000),
     ("category_groups", 10_000),
     ("categories", 10_000),
@@ -49,6 +49,7 @@ const MAX_ROWS: [(&str, i64); 7] = [
     ("payees", 50_000),
     ("payee_mapping", 50_000),
     ("transactions", 300_000),
+    ("preferences", 10_000),
 ];
 const QUERY_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_AMOUNT_HUNDREDTHS: i64 = 99_999_999_999_999;
@@ -84,9 +85,10 @@ const REQUIRED_COLUMNS: [(&str, &[&str]); 5] = [
 ];
 
 /// Tables read only when present; their columns are then required like the others.
-const OPTIONAL_COLUMNS: [(&str, &[&str]); 2] = [
+const OPTIONAL_COLUMNS: [(&str, &[&str]); 3] = [
     ("category_mapping", &["id", "transferId"]),
     ("payee_mapping", &["id", "targetId"]),
+    ("preferences", &["id", "value"]),
 ];
 
 /// The importable content of an Actual Budget file. currency is the budget's default currency
@@ -1211,5 +1213,31 @@ mod tests {
         for name in ["db.sqlite", "dir/db.sqlite", "a..b"] {
             assert!(!is_unsafe(name), "{name:?}");
         }
+    }
+
+    #[test]
+    fn a_preferences_view_is_refused() {
+        let root = private_root();
+        let path = root.join("view.sqlite");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        conn.execute_batch(
+            "CREATE VIEW preferences AS SELECT 'defaultCurrencyCode' AS id, 'EUR' AS value;",
+        )
+        .unwrap();
+        drop(conn);
+        let bytes = std::fs::read(&path).unwrap();
+        let parser = FileParser::with_limits(
+            DEFAULT_MAX_ENTRIES,
+            DEFAULT_MAX_UNCOMPRESSED_BYTES,
+            root.clone(),
+        );
+        assert_eq!(
+            parser.parse(&bytes),
+            Err(bad(
+                "Unsupported Actual Budget database: 'preferences' is not a plain table"
+            ))
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

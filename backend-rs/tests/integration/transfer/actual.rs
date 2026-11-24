@@ -1452,3 +1452,38 @@ async fn a_failed_concurrent_import_does_not_restore_another_requests_consumed_t
         "Preview expired or invalid -- please upload the file again"
     );
 }
+
+#[tokio::test]
+async fn a_preferences_view_generated_column_or_oversized_table_is_refused() {
+    let ctx = setup().await;
+    let view = Fixture::empty()
+        .sql("DROP TABLE preferences")
+        .sql("CREATE VIEW preferences AS SELECT 'defaultCurrencyCode' AS id, 'EUR' AS value")
+        .sql("INSERT INTO accounts (id, name) VALUES ('a', 'Cash')")
+        .sqlite();
+    assert_eq!(
+        rejected(&ctx, &view).await,
+        "Unsupported Actual Budget database: 'preferences' is not a plain table"
+    );
+
+    let generated = Fixture::empty()
+        .sql("DROP TABLE preferences")
+        .sql("CREATE TABLE preferences (id TEXT PRIMARY KEY, value TEXT GENERATED ALWAYS AS ('EUR') VIRTUAL)")
+        .sql("INSERT INTO accounts (id, name) VALUES ('a', 'Cash')")
+        .sqlite();
+    assert_eq!(
+        rejected(&ctx, &generated).await,
+        "Unsupported Actual Budget database: column 'preferences.value' is generated"
+    );
+
+    let oversized = Fixture::household()
+        .sql(
+            "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i <= 10000) \
+             INSERT INTO preferences SELECT 'pref-' || i, 'x' FROM n",
+        )
+        .sqlite();
+    assert_eq!(
+        rejected(&ctx, &oversized).await,
+        "The Actual Budget file has more than 10000 rows in 'preferences'"
+    );
+}
