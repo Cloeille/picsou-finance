@@ -97,10 +97,10 @@ const { useAuthStore } = await import('@/stores/auth-store')
 const { useAppStore, selectIsAdvancedMode } = await import('@/stores/app-store')
 
 const LOCAL_ADMIN = {
-  username: 'louis',
+  username: 'camille',
   role: 'ADMIN' as const,
   memberId: 1,
-  displayName: 'Louis',
+  displayName: 'Camille',
 }
 
 function makeClient() {

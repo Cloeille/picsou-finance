@@ -97,10 +97,10 @@ describe('Desktop 1-step welcome onboarding', () => {
       desktopLockEnabled: false,
     })
     desktopQuickStart.mockResolvedValue({
-      username: 'louis',
+      username: 'camille',
       role: 'ADMIN',
       memberId: 1,
-      displayName: 'Louis',
+      displayName: 'Camille',
     })
 
     renderIntro()
@@ -108,13 +108,13 @@ describe('Desktop 1-step welcome onboarding', () => {
     expect(await screen.findByText('desktop.onboarding.title')).toBeInTheDocument()
     expect(screen.queryByText('desktop.onboarding.legacyPostgresTitle')).not.toBeInTheDocument()
     const input = screen.getByLabelText('desktop.onboarding.nameLabel')
-    fireEvent.change(input, { target: { value: '  Louis  ' } })
+    fireEvent.change(input, { target: { value: '  Camille  ' } })
     fireEvent.click(screen.getByRole('button', { name: 'desktop.onboarding.cta' }))
 
     await waitFor(() => expect(screen.getByText('dashboard-landed')).toBeInTheDocument())
-    expect(desktopQuickStart).toHaveBeenCalledWith({ displayName: 'Louis' })
+    expect(desktopQuickStart).toHaveBeenCalledWith({ displayName: 'Camille' })
     expect(useAuthStore.getState().isAuthenticated).toBe(true)
-    expect(useAuthStore.getState().user?.username).toBe('louis')
+    expect(useAuthStore.getState().user?.username).toBe('camille')
     expect(useAppStore.getState().desktopMode).toBe(true)
     expect(useAppStore.getState().desktopLockEnabled).toBe(false)
   })

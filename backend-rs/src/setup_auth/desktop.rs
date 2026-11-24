@@ -516,7 +516,7 @@ mod tests {
 
     #[test]
     fn derives_clean_usernames_with_local_fallback() {
-        assert_eq!(derive_username("Louis"), "louis");
+        assert_eq!(derive_username("Camille"), "camille");
         assert_eq!(derive_username("Éléonore Dupont"), "eleonore-dupont");
         assert_eq!(derive_username("Mon espace"), "mon-espace");
         assert_eq!(derive_username("Jo"), "local");
