@@ -77,7 +77,7 @@ impl LogoSource for DuckDuckGo {
             return None;
         }
         let segment = percent_encoding::utf8_percent_encode(&domain, PATH_SEGMENT).to_string();
-        let response = self
+        let mut response = self
             .client
             .get(format!("{}/ip3/{segment}.ico", self.base_url))
             .send()
@@ -97,12 +97,18 @@ impl LogoSource for DuckDuckGo {
         {
             return None;
         }
-        let bytes = response.bytes().await.ok()?;
-        if bytes.is_empty() || bytes.len() > MAX_BYTES {
+        let mut buf = Vec::new();
+        while let Some(chunk) = response.chunk().await.ok()? {
+            if buf.len().saturating_add(chunk.len()) > MAX_BYTES {
+                return None;
+            }
+            buf.extend_from_slice(&chunk);
+        }
+        if buf.is_empty() {
             return None;
         }
         Some(LogoImage {
-            bytes,
+            bytes: Bytes::from(buf),
             content_type,
         })
     }

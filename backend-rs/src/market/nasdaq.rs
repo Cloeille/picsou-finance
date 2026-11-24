@@ -41,7 +41,7 @@ pub async fn fetch_dividends(
         base_url.trim_end_matches('/'),
         percent_encoding::utf8_percent_encode(symbol, PATH_SEGMENT)
     );
-    let response = http
+    let mut response = http
         .get(url)
         .header("Accept", "application/json, text/plain, */*")
         .header("Origin", "https://www.nasdaq.com")
@@ -54,9 +54,18 @@ pub async fn fetch_dividends(
     if !response.status().is_success() {
         return Err(format!("nasdaq HTTP {}", response.status().as_u16()));
     }
-    let body = response.bytes().await.map_err(|e| transport_message(&e))?;
-    if body.len() > MAX_BODY_BYTES {
+    if response
+        .content_length()
+        .is_some_and(|l| l > MAX_BODY_BYTES as u64)
+    {
         return Err("nasdaq body too large".to_owned());
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|e| transport_message(&e))? {
+        if body.len().saturating_add(chunk.len()) > MAX_BODY_BYTES {
+            return Err("nasdaq body too large".to_owned());
+        }
+        body.extend_from_slice(&chunk);
     }
     parse(&String::from_utf8_lossy(&body))
 }

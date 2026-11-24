@@ -1136,3 +1136,44 @@ async fn refs_handles_soft_deleted_account_without_panicking() {
     assert!(refs.account(&rows[0]).is_none());
     assert!(refs.response(&rows[0]).is_none());
 }
+
+#[tokio::test]
+async fn logo_fetch_aborts_streaming_body_past_size_cap() {
+    use picsou::budget::logos::LogoSource;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut req = [0u8; 2048];
+        let _ = socket.read(&mut req).await;
+        let _ = socket
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Type: image/png\r\n\r\n",
+            )
+            .await;
+        let payload = vec![0xABu8; 64 * 1024];
+        let header = format!("{:x}\r\n", payload.len());
+        // Send 1152 KiB (> 1 MiB cap) and hold the stream open without a terminating 0 chunk.
+        for _ in 0..18 {
+            if socket.write_all(header.as_bytes()).await.is_err()
+                || socket.write_all(&payload).await.is_err()
+                || socket.write_all(b"\r\n").await.is_err()
+            {
+                return;
+            }
+        }
+        let _ = socket.flush().await;
+        tokio::time::sleep(Duration::from_secs(30)).await;
+    });
+
+    let ddg = DuckDuckGo::new(&format!("http://{addr}"));
+    let result = tokio::time::timeout(Duration::from_secs(2), ddg.fetch("example.com"))
+        .await
+        .expect("logo fetch must abort once the 1 MiB cap is exceeded instead of waiting for EOF");
+    assert!(result.is_none());
+    server.abort();
+}
