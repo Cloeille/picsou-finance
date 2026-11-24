@@ -144,6 +144,28 @@ async fn a_quote_page_that_does_not_exist_is_a_permanent_miss() {
 }
 
 #[tokio::test]
+async fn what_yahoo_cannot_be_asked_for_never_reaches_the_network() {
+    let yahoo = MockServer::start().await;
+    let app = app(&yahoo).await;
+    let logos = app.state.market.instrument_logos();
+
+    for ticker in [
+        "BTC",
+        "US0378331005",
+        "..",
+        " ",
+        "0xc579d4eb8179af7f322f028d12bddb845ca10a3b",
+    ] {
+        assert_eq!(
+            logos.lookup(ticker).await,
+            Err(Miss::Absent("not a quoted symbol")),
+            "{ticker}"
+        );
+    }
+    assert_eq!(requested(&yahoo).await, [""; 0]);
+}
+
+#[tokio::test]
 async fn a_page_that_does_not_show_the_symbols_quote_is_asked_again_later() {
     let msft = r#"{"symbol":"MSFT","logoUrl":"https://s.yimg.com/lg/m.png"}"#;
     let pages = [

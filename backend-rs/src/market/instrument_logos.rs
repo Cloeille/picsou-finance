@@ -177,8 +177,11 @@ impl InstrumentLogos {
         .await
     }
 
-    /// The mark Yahoo's quote page links for a ticker YahooFinance::supports.
+    /// The mark Yahoo's quote page links for the ticker.
     pub async fn lookup(&self, ticker: &str) -> Result<Mark, Miss> {
+        if !YahooFinance::supports(ticker) {
+            return Err(Miss::Absent("not a quoted symbol"));
+        }
         if self.cooldown.active() {
             return Err(Miss::RateLimited);
         }
