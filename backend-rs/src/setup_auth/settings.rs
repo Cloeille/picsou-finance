@@ -50,7 +50,11 @@ pub async fn secure_cookies(state: &AppState) -> bool {
 
 /// Whether Desktop Mode requires password authentication on launch (default false).
 pub async fn desktop_lock_enabled(state: &AppState) -> Result<bool, sqlx::Error> {
-    Ok(read(state, DESKTOP_LOCK_ENABLED)
+    desktop_lock_enabled_with(&state.db).await
+}
+
+pub async fn desktop_lock_enabled_with<'e>(db: impl DbExec<'e>) -> Result<bool, sqlx::Error> {
+    Ok(read_with(db, DESKTOP_LOCK_ENABLED)
         .await?
         .is_some_and(|v| parse_bool(&v)))
 }

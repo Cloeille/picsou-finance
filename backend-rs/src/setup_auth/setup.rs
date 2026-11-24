@@ -13,6 +13,7 @@ use serde_with::skip_serializing_none;
 
 use crate::AppState;
 use crate::auth::{password, users};
+use crate::db::AsDbHandle;
 use crate::error::{AppError, AppResult, Problem};
 use crate::http::client_ip::ClientIp;
 use crate::http::json::{Errors, Json, Path, Validate, null_as_false};
@@ -269,27 +270,21 @@ struct AdminResponse {
     display_name: String,
 }
 
-/// SetupService.seedAdmin: one SERIALIZABLE transaction claiming PENDING_ADMIN -> IN_PROGRESS.
-pub async fn seed_admin(
-    state: &AppState,
+/// SetupService.seedAdmin core: runs inside the caller's open SERIALIZABLE transaction.
+pub(crate) async fn seed_admin_on(
+    tx: &mut crate::db::DbHandle<'_>,
     username: &str,
     bcrypt_hash: &str,
     display_name: Option<&str>,
     avatar_color: Option<&str>,
 ) -> AppResult<users::AppUser> {
-    let mut tx = state.db.begin().await?;
-    if !crate::db::DbExec::is_sqlite(&&state.db) {
-        crate::db::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-            .execute(&mut tx)
-            .await?;
-    }
-    if users::exists_by_username(&mut tx, username).await? {
+    if users::exists_by_username(&mut *tx, username).await? {
         tracing::info!("Admin already exists, skipping seed");
-        let existing = users::find_by_username(&mut tx, username).await?;
-        tx.commit().await?;
-        return existing.ok_or_else(|| AppError::Internal("admin vanished".into()));
+        return users::find_by_username(&mut *tx, username)
+            .await?
+            .ok_or_else(|| AppError::Internal("admin vanished".into()));
     }
-    let current = match settings::read_with(&mut tx, settings::SETUP_STATE).await? {
+    let current = match settings::read_with(&mut *tx, settings::SETUP_STATE).await? {
         Some(raw) => SetupState::parse(&raw)?,
         None => SetupState::PendingAdmin,
     };
@@ -298,17 +293,19 @@ pub async fn seed_admin(
             "Setup is already complete; use the admin UI to manage users.".into(),
         ));
     }
-    if users::count(&mut tx).await? > 0 {
+    if users::count(&mut *tx).await? > 0 {
         return Err(AppError::Internal(
             "An account already exists; additional members are created from the Family admin UI."
                 .into(),
         ));
     }
-    let claimed = crate::db::query("UPDATE app_setting SET value = 'IN_PROGRESS' WHERE setting_key = $1 AND value = 'PENDING_ADMIN'")
-        .bind(settings::SETUP_STATE)
-        .execute(&mut tx)
-        .await?
-        .rows_affected();
+    let claimed = crate::db::query(
+        "UPDATE app_setting SET value = 'IN_PROGRESS' WHERE setting_key = $1 AND value = 'PENDING_ADMIN'",
+    )
+    .bind(settings::SETUP_STATE)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
     if claimed == 0 && current == SetupState::PendingAdmin {
         tracing::warn!(
             "Setup: concurrent admin-seeding attempt lost the setup-state CAS (state={current:?})"
@@ -327,7 +324,7 @@ pub async fn seed_admin(
     )
     .bind(display_name.unwrap_or(username))
     .bind(avatar_color.unwrap_or("#6366f1"))
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?;
     let user_id: i64 = crate::db::query_scalar(
         "INSERT INTO app_user (username, password_hash, member_id, role, is_activated, acknowledged_warning) \
@@ -336,19 +333,48 @@ pub async fn seed_admin(
     .bind(username)
     .bind(bcrypt_hash)
     .bind(member_id)
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?;
-    tx.commit().await?;
-    tracing::info!("setup.admin.created role=ADMIN");
-    users::find_by_id(&state.db, user_id)
+    users::find_by_id(&mut *tx, user_id)
         .await?
         .ok_or_else(|| AppError::Internal("admin vanished".into()))
 }
 
-pub async fn mark_complete(state: &AppState) -> AppResult<()> {
-    settings::upsert(&state.db, settings::SETUP_STATE, "COMPLETE").await?;
+/// SetupService.seedAdmin: one SERIALIZABLE transaction claiming PENDING_ADMIN -> IN_PROGRESS.
+pub async fn seed_admin(
+    state: &AppState,
+    username: &str,
+    bcrypt_hash: &str,
+    display_name: Option<&str>,
+    avatar_color: Option<&str>,
+) -> AppResult<users::AppUser> {
+    let mut tx = state.db.begin().await?;
+    if !crate::db::DbExec::is_sqlite(&&state.db) {
+        crate::db::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut tx)
+            .await?;
+    }
+    let user = seed_admin_on(
+        &mut tx.as_handle(),
+        username,
+        bcrypt_hash,
+        display_name,
+        avatar_color,
+    )
+    .await?;
+    tx.commit().await?;
+    tracing::info!("setup.admin.created role=ADMIN");
+    Ok(user)
+}
+
+pub(crate) fn mark_complete_cached(state: &AppState) {
     state.setup_complete.store(true, Ordering::Relaxed);
     tracing::info!("setup.completed");
+}
+
+pub async fn mark_complete(state: &AppState) -> AppResult<()> {
+    settings::upsert(&state.db, settings::SETUP_STATE, "COMPLETE").await?;
+    mark_complete_cached(state);
     Ok(())
 }
 

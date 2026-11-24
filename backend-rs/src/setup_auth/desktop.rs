@@ -15,7 +15,8 @@ use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
 
 use crate::AppState;
-use crate::auth::{AppUser, Auth, Role, cookies, password, persistent, users};
+use crate::auth::{AppUser, Auth, Role, cookies, password, users};
+use crate::db::AsDbHandle;
 use crate::error::{AppError, AppResult};
 use crate::http::client_ip::{ClientIp, PeerIp};
 use crate::http::json::{Errors, Json, Lang, Validate};
@@ -292,10 +293,26 @@ pub async fn quick_start(
     let random_secret = hex::encode(secret_bytes);
     let hash = password::hash(&random_secret).await?;
 
-    let user = setup::seed_admin(&state, &username, &hash, Some(&display_name), None).await?;
-    setup::mark_complete(&state).await?;
-    categorize::ensure_seeded(&state.db, user.member_id, state.clock.now()).await?;
-    settings::upsert(&state.db, settings::DESKTOP_LOCK_ENABLED, "false").await?;
+    let mut tx = state.db.begin().await?;
+    if !crate::db::DbExec::is_sqlite(&&state.db) {
+        crate::db::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut tx)
+            .await?;
+    }
+    let user = setup::seed_admin_on(
+        &mut tx.as_handle(),
+        &username,
+        &hash,
+        Some(&display_name),
+        None,
+    )
+    .await?;
+    settings::upsert(&mut tx, settings::SETUP_STATE, "COMPLETE").await?;
+    categorize::ensure_seeded_on(&mut tx.as_handle(), user.member_id, state.clock.now()).await?;
+    settings::upsert(&mut tx, settings::DESKTOP_LOCK_ENABLED, "false").await?;
+    tx.commit().await?;
+    tracing::info!("setup.admin.created role=ADMIN");
+    setup::mark_complete_cached(&state);
 
     audit::record(
         &state,
@@ -452,17 +469,31 @@ pub async fn update_lock(
             ));
         }
         let hash = password::hash(&req.new_password.unwrap_or_default()).await?;
-        user.token_version += 1;
-        crate::db::query(
-            "UPDATE app_user SET password_hash = $1, token_version = $2, updated_at = now() WHERE id = $3",
+        let mut tx = state.db.begin().await?;
+        if settings::desktop_lock_enabled_with(&mut tx).await? {
+            return Err(AppError::coded(
+                StatusCode::CONFLICT,
+                "DESKTOP_LOCK_ALREADY_ENABLED",
+                "Password lock is already enabled.",
+            ));
+        }
+        user.token_version = crate::db::query_scalar(
+            "UPDATE app_user SET password_hash = $1, token_version = token_version + 1, updated_at = now() \
+             WHERE id = $2 RETURNING token_version",
         )
         .bind(&hash)
-        .bind(user.token_version)
         .bind(user.id)
-        .execute(&state.db)
+        .fetch_one(&mut tx)
         .await?;
-        persistent::revoke_all_for_user(&state, user.id).await?;
-        settings::upsert(&state.db, settings::DESKTOP_LOCK_ENABLED, "true").await?;
+        crate::db::query(
+            "UPDATE persistent_session SET revoked_at = $1 WHERE user_id = $2 AND revoked_at IS NULL",
+        )
+        .bind(state.clock.now())
+        .bind(user.id)
+        .execute(&mut tx)
+        .await?;
+        settings::upsert(&mut tx, settings::DESKTOP_LOCK_ENABLED, "true").await?;
+        tx.commit().await?;
 
         audit::record(
             &state,
@@ -496,12 +527,13 @@ pub async fn update_lock(
             "Invalid current password.",
         ));
     }
-    let mut mfa_active = mfa::is_enabled(&state.db, user.id).await?;
+    let mut tx = state.db.begin().await?;
+    let mut mfa_active = mfa::is_enabled(&mut tx, user.id).await?;
     if !mfa_active
-        && let Some(primary) = users::find_primary_active(&state.db).await?
+        && let Some(primary) = users::find_primary_active(&mut tx).await?
         && primary.id != user.id
     {
-        mfa_active = mfa::is_enabled(&state.db, primary.id).await?;
+        mfa_active = mfa::is_enabled(&mut tx, primary.id).await?;
     }
     if mfa_active {
         return Err(AppError::coded(
@@ -510,7 +542,8 @@ pub async fn update_lock(
             "Disable two-factor authentication before turning off Desktop password lock.",
         ));
     }
-    settings::upsert(&state.db, settings::DESKTOP_LOCK_ENABLED, "false").await?;
+    settings::upsert(&mut tx, settings::DESKTOP_LOCK_ENABLED, "false").await?;
+    tx.commit().await?;
     audit::record(
         &state,
         "desktop.lock.disabled",

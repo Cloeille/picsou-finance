@@ -1224,5 +1224,146 @@ async fn legacy_postgres_detected_flag_is_exposed_only_when_configured_in_deskto
         .send()
         .await
         .json();
-    assert!(non_desktop_status.get("legacyPostgresDetected").is_none());
+    assert_eq!(non_desktop_status.get("legacyPostgresDetected"), None);
+}
+
+async fn install_abort_insert_trigger(db: &picsou::db::Db, table: &str, name: &str) {
+    match db {
+        picsou::db::Db::Postgres(pool) => {
+            let fn_name = format!("{name}_fn");
+            sqlx::raw_sql(&format!(
+                "CREATE OR REPLACE FUNCTION {fn_name}() RETURNS trigger AS $$ \
+                 BEGIN RAISE EXCEPTION 'injected failure'; END; \
+                 $$ LANGUAGE plpgsql; \
+                 CREATE TRIGGER {name} BEFORE INSERT ON {table} \
+                 FOR EACH ROW EXECUTE FUNCTION {fn_name}();"
+            ))
+            .execute(pool)
+            .await
+            .expect("install pg trigger");
+        }
+        picsou::db::Db::Sqlite(sq) => {
+            let sql = format!(
+                "CREATE TRIGGER {name} BEFORE INSERT ON {table} \
+                 BEGIN SELECT RAISE(ABORT, 'injected failure'); END;"
+            );
+            sq.with_conn(move |conn| {
+                conn.execute_batch(&sql)?;
+                Ok(())
+            })
+            .expect("install sqlite trigger");
+        }
+    }
+}
+
+async fn drop_trigger(db: &picsou::db::Db, table: &str, name: &str) {
+    match db {
+        picsou::db::Db::Postgres(pool) => {
+            let fn_name = format!("{name}_fn");
+            sqlx::raw_sql(&format!(
+                "DROP TRIGGER IF EXISTS {name} ON {table}; \
+                 DROP FUNCTION IF EXISTS {fn_name}();"
+            ))
+            .execute(pool)
+            .await
+            .expect("drop pg trigger");
+        }
+        picsou::db::Db::Sqlite(sq) => {
+            let sql = format!("DROP TRIGGER IF EXISTS {name};");
+            sq.with_conn(move |conn| {
+                conn.execute_batch(&sql)?;
+                Ok(())
+            })
+            .expect("drop sqlite trigger");
+        }
+    }
+}
+
+#[tokio::test]
+async fn quick_start_rolls_back_all_tables_when_seeding_categories_fails() {
+    let app = TestApp::builder()
+        .env("APP_DESKTOP_MODE", "true")
+        .spawn()
+        .await;
+
+    install_abort_insert_trigger(&app.state.db, "category", "abort_category_seed").await;
+
+    let failed = app
+        .desktop_client()
+        .post("/api/setup/desktop-quick-start")
+        .json(&json!({"displayName": "Camille"}))
+        .send()
+        .await;
+    assert_eq!(failed.status, StatusCode::INTERNAL_SERVER_ERROR);
+
+    drop_trigger(&app.state.db, "category", "abort_category_seed").await;
+
+    let status = app.client().get("/api/setup/status").send().await.json();
+    assert_eq!(
+        status["needsSetup"], true,
+        "setup must remain incomplete after a failed quick-start"
+    );
+    assert_eq!(status["state"], "PENDING_ADMIN");
+
+    let retried = app
+        .desktop_client()
+        .post("/api/setup/desktop-quick-start")
+        .json(&json!({"displayName": "Camille"}))
+        .send()
+        .await;
+    assert_eq!(retried.status, StatusCode::OK, "{}", retried.text());
+}
+
+#[tokio::test]
+async fn update_lock_rolls_back_password_and_sessions_when_setting_write_fails() {
+    let app = TestApp::builder()
+        .env("APP_DESKTOP_MODE", "true")
+        .spawn()
+        .await;
+
+    let admin = app.desktop_client();
+    let qs = admin
+        .post("/api/setup/desktop-quick-start")
+        .json(&json!({"displayName": "Camille"}))
+        .send()
+        .await;
+    assert_eq!(qs.status, StatusCode::OK);
+
+    install_abort_insert_trigger(&app.state.db, "app_setting", "abort_lock_setting").await;
+
+    let failed = admin
+        .put("/api/desktop/lock")
+        .json(&json!({"enabled": true, "newPassword": "rolled-back-password"}))
+        .send()
+        .await;
+    assert_eq!(failed.status, StatusCode::INTERNAL_SERVER_ERROR);
+
+    drop_trigger(&app.state.db, "app_setting", "abort_lock_setting").await;
+
+    // Session token_version must not have been bumped and lock must still be off.
+    let status = admin.get("/api/desktop/lock").send().await;
+    assert_eq!(
+        status.status,
+        StatusCode::OK,
+        "existing session must remain valid after a rolled-back lock update"
+    );
+    assert_eq!(status.json()["enabled"], false);
+
+    // The rolled-back password must not have been stored.
+    let bad_login = app
+        .client()
+        .post("/api/auth/login")
+        .json(&json!({"username": "camille", "password": "rolled-back-password"}))
+        .send()
+        .await;
+    assert_eq!(bad_login.status, StatusCode::UNAUTHORIZED);
+
+    // Retrying with a new password succeeds.
+    let ok = admin
+        .put("/api/desktop/lock")
+        .json(&json!({"enabled": true, "newPassword": "final-strong-password"}))
+        .send()
+        .await;
+    assert_eq!(ok.status, StatusCode::OK);
+    assert_eq!(ok.json()["enabled"], true);
 }
