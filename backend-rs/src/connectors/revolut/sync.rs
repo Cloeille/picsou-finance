@@ -1162,12 +1162,9 @@ async fn unattended_sync(state: &AppState, member_id: i64) -> Result<(), JobErro
     {
         Ok(harvested) => harvested,
         Err(JobError::Sync(error)) => {
-            let code = error.code.clone().or_else(|| {
-                (error.message == "SESSION_EXPIRED").then(|| "SESSION_EXPIRED".to_owned())
-            });
             return Err(JobError::Sync(SyncError {
                 message: friendly(&error.message).to_owned(),
-                code,
+                code: error.code,
             }));
         }
         Err(other) => return Err(other),

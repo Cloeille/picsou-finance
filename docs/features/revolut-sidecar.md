@@ -374,13 +374,19 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   its blocking `webRequest` listener intermittently stalls http(s) requests, sometimes for the
   browser's remaining life, which made `Page.set_content` time out waiting for the iframe's load event.
   Human challenge completion and the proposed Camofox runtime evaluation remain follow-up work.
-- **Backend and UI carry the code, not the sentence.** `RevolutAdapter` maps `403`/`424` to
-  `SyncException` with the code as both message and `getCode()`; `RevolutSyncService.friendly()` turns
+- **Backend and UI carry the code, not the sentence.** `RevolutAdapter` maps `401`/`403`/`424` to
+  `SyncException` with the code as both message and `getCode()` (`SESSION_EXPIRED`,
+  `HUMAN_VERIFICATION_REQUIRED`, `UPSTREAM_FORMAT_CHANGED`); `RevolutSyncService.friendly()` turns
   them into English sentences, and `discover` passes the code to `SyncProgressService.error`, which
   exposes it as `SyncProgress.errorCode`. The three Revolut surfaces (Sync tab, Add-account wizard,
   Sync-all row) render `revolutErrorLabel` (`features/sync/revolut-phase.ts`), which translates the code
   (`sync.revolut.errors.*`) and falls back to the English sentence for any other failure. The
   unattended scheduler path keeps its generic `FAILED` result.
+- **On Picsou Desktop, `connected` means a session row exists.** `GET /api/revolut/status` counts
+  already imported wallets as connected in server mode only. On Desktop (`webviewLoginSupported`)
+  the WebView login is the only way in, so after **Forget** the tab must return to the connect
+  card even though the wallets stay; an expired WebView session after a restart reports
+  `SESSION_EXPIRED` and the tab asks to reconnect in the user's language.
 - **6-digit passcode auto-submits** — do not click "Continuer" after typing it (that hung `auto_login`).
 - **One Firefox per profile — serialize per member.** A persistent Camoufox profile can be opened by
   only ONE Firefox process at a time. Two `/sync` calls for the same member (double-click, or the
