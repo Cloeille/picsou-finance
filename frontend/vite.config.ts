@@ -117,6 +117,9 @@ export default defineConfig(({ command }) => {
     build: {
       outDir: 'dist',
       sourcemap: false,
+      // A small font subset inlined as a data: URI is refused by the backend's
+      // Content-Security-Policy (font-src 'self') and logs an error on every page.
+      assetsInlineLimit: (filePath) => (/\.woff2?$/.test(filePath) ? false : undefined),
     },
   }
 })
