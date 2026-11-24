@@ -165,7 +165,13 @@ once.
 - **PostgreSQL 16**: an sqlx pool, from `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`
   and `SPRING_DATASOURCE_PASSWORD` (the names the Java backend read).
 - **SQLite**: `DATABASE_URL=sqlite:///path/picsou.db`. One file in WAL mode with foreign keys on;
-  writes go through one writer at a time.
+  writes go through one writer at a time. Opening fails (`SqliteError::WalNotEnabled`) when the
+  file cannot switch to WAL; `busy_timeout` is set first.
+- `picsou migrate`, `picsou verify` and `picsou export-sqlite` read the same configuration as the
+  server: `DATABASE_URL` or `SPRING_DATASOURCE_URL`, the user (default `picsou`) and the password
+  in the server's order (`SPRING_DATASOURCE_PASSWORD`, `POSTGRES_PASSWORD`,
+  `PICSOU_SECRETS_DIR/postgres_password`, then `picsou`), without generating a secret. `migrate`
+  and `verify` also take a SQLite file; `export-sqlite` reads PostgreSQL only.
 
 ### One writer on SQLite
 

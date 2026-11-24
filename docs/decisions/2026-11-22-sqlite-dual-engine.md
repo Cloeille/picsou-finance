@@ -83,6 +83,15 @@ Instead:
 1. **Consolidated SQLite baseline (`V1`, `backend-rs/src/db/sqlite/schema.sql`)**: a clean, hand-verified SQLite DDL covering **all 67 application tables and 739 columns** from `backend-rs/src/db/schema.tsv`, plus all 66 primary keys, 80 foreign keys (with `ON DELETE` actions), 40 `UNIQUE` constraints, 79 `CHECK` constraints (using SQLite `GLOB` for regex checks and `dec_cmp`/`dec_add` for exact numeric checks), 8 enum `CHECK` constraints, and all partial/expression indexes.
 2. **Idempotent SQLite migrator (`db::sqlite::migrate`)**: tracks applied scripts in `picsou_sqlite_migrations` with normalized SHA-256 checksums, validates checksums on startup, and exposes `verify()` to enforce 100% table/column parity against `schema.tsv` and zero `REAL` columns.
 3. **Forward migrations (`V156+`)**: once SQLite serves live traffic, every new schema migration ships a paired PostgreSQL Flyway file (`backend/src/main/resources/db/migration/V<n>__*.sql`) and SQLite migration (`backend-rs/src/db/sqlite/migrations/V<n>__*.sql`). Both CI gates — `foundation::migrations::the_expected_schema_is_the_one_the_migrations_build` and `sqlite_foundation::schema_parity_matches_postgresql_schema_tsv` — enforce 100% parity on every PR.
+   - SQLite-only fixes to the unreleased baseline go in their own numbered script instead of
+     editing `V1`, whose checksum installs already recorded: `V2__real_estate_energy_class_check`
+     rebuilds `real_estate_metadata` so `energy_class` is one letter, as PostgreSQL's `VARCHAR(1)`
+     makes it.
+   - SQLite's built-in `lower()` and `upper()` fold ASCII only. Every connection replaces them with
+     Unicode-aware functions (deterministic, innocuous), so the expression unique indexes
+     (`uk_peer_counterparty_member_name`, `idx_recurring_member_label`) and case-insensitive
+     queries treat `É` and `é` as PostgreSQL does. A file written by an earlier build with an
+     upper-case accented name in those columns needs `REINDEX` once.
 4. **Reference seed separation**: the 4 reference tables seeded by Flyway (`app_setting`, `crypto_asset`, `merchant_brand`, `merchant_alias`) remain separate from `schema.sql` DDL so `export-sqlite` mirrors any PostgreSQL database 1:1 without seed collisions, while fresh SQLite bootstrap (Phase 2) loads the shared seed catalog idempotently.
 
 ### 4. Lossless PostgreSQL → SQLite Exporter (`picsou export-sqlite <output.db>`)
