@@ -142,7 +142,11 @@ no external database process, and no bundled PostgreSQL server.
   comparison) and launches an interactive Tauri WebView window constrained by per-bank
   `on_navigation` host allowlists. No Camoufox or Firefox bundle is needed on Desktop. A completed
   BNP or Amex login hands its `session_state` once, to the first `GET /webview/status/{process_id}`
-  that reads it; an unclaimed one is dropped after `SNAPSHOT_CACHE_TTL`.
+  that reads it; an unclaimed one is dropped after `SNAPSHOT_CACHE_TTL`. Forgetting a bank while
+  one of its login windows is open closes that window (`POST /webview/cancel/{process_id}` on the
+  bridge), including when the disconnect lands while the window is still opening; a status poll
+  that arrives after the disconnect answers `AUTH_ATTEMPT_EXPIRED` and starts no sync. A WebView
+  `processId` is refused by `POST /api/bnp/auth/complete` and stays usable by its own window.
 - **Remaining Chromium sidecars** (amundi, banque-populaire, bourse-direct, caisse-epargne, corum,
   fortuneo, lbp, tr): `fetch_runtime.py` bundles `runtime/python/` (python-build-standalone,
   SHA-256 checked, Tk/IDLE/pip/headers trimmed, `bin/python3` flattened) and `runtime/sidecars/`
