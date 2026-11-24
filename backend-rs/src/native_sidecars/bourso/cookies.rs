@@ -170,9 +170,9 @@ impl CookieStore for SessionCookieJar {
 }
 
 impl SessionCookieJar {
-    fn set_cookies_at<'a>(
+    fn set_cookies_at(
         &self,
-        cookie_headers: &mut dyn Iterator<Item = &'a HeaderValue>,
+        cookie_headers: &mut dyn Iterator<Item = &HeaderValue>,
         url: &Url,
         now: DateTime<Utc>,
     ) {
