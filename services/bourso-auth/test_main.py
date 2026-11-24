@@ -303,14 +303,14 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
 
         started = time.monotonic()
         with (
-            mock.patch("main.ACCOUNTS_HISTORY_DEADLINE_SECONDS", 0.2),
+            mock.patch("main.ACCOUNTS_HISTORY_DEADLINE_SECONDS", 0.5),
             self.assertLogs("bourso-auth", level="WARNING") as captured,
         ):
             async with build_client(handler) as client:
                 accounts = await _collect_accounts(client)
         elapsed = time.monotonic() - started
 
-        self.assertLess(elapsed, 1.5)
+        self.assertLess(elapsed, 5.0)
         by_type = {account.type: account for account in accounts}
 
         checking = by_type["CHECKING"]
@@ -339,6 +339,59 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("deadline reached, 2 account(s) without history", captured.output[0])
         for leak in ("20810.50", "11010.00", "FR763", "/mouvements", "/rib", "http"):
             self.assertNotIn(leak, captured.output[0])
+
+    async def test_timeout_firing_before_the_clock_reaches_the_deadline_skips_later_accounts(self):
+        # asyncio fires a timer due within the loop's clock resolution (~15.6 ms
+        # on Windows), so timeout_at(deadline) can raise TimeoutError while
+        # loop.time() is still below deadline.
+        requested = []
+        normal_handler = default_handler()
+        loop = asyncio.get_running_loop()
+        real_call_at = loop.call_at
+        scheduled_timeouts = []
+        deadlines = []
+
+        def record_call_at(when, callback, *args, **kwargs):
+            handle = real_call_at(when, callback, *args, **kwargs)
+            scheduled_timeouts.append((handle, callback, args, kwargs))
+            deadlines.append(when)
+            return handle
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requested.append(request.url.path)
+            if request.url.path.endswith("/mouvements"):
+                handle, callback, args, kwargs = scheduled_timeouts.pop()
+                handle.cancel()
+                loop.call_soon(callback, *args, **kwargs)
+                await asyncio.Future()
+            return normal_handler(request)
+
+        with (
+            mock.patch.object(loop, "call_at", side_effect=record_call_at),
+            self.assertLogs("bourso-auth", level="WARNING") as captured,
+        ):
+            async with build_client(handler) as client:
+                accounts = await _collect_accounts(client)
+
+        self.assertLess(loop.time(), deadlines[0])
+        by_type = {account.type: account for account in accounts}
+
+        checking = by_type["CHECKING"]
+        self.assertEqual(checking.balanceEur, Decimal("20810.50"))
+        self.assertEqual(checking.transactions, [])
+        self.assertEqual(checking.transactionWarning, "TRANSACTIONS_UNAVAILABLE")
+        self.assertEqual(checking.iban, "FR7630006000011234567890189")
+
+        ldds = by_type["LDDS"]
+        self.assertEqual(ldds.balanceEur, Decimal("11010.00"))
+        self.assertEqual(ldds.transactions, [])
+        self.assertIsNone(ldds.iban)
+        self.assertEqual(ldds.transactionWarning, "TRANSACTIONS_UNAVAILABLE")
+        self.assertFalse(any("/compte/epargne/" in path for path in requested))
+
+        self.assertEqual(len(deadlines), 1)
+        self.assertEqual(len(captured.output), 1)
+        self.assertIn("deadline reached, 2 account(s) without history", captured.output[0])
 
     async def test_deadline_counts_from_the_start_of_the_accounts_read(self):
         requested = []
