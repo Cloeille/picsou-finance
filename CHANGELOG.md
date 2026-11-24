@@ -73,6 +73,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stylesheet, which the Content-Security-Policy refuses; the browser logged an error on every page.
 - **A one-time code is accepted once.** A two-factor code, a recovery code or an OAuth
   authorization code sent twice at the same instant could be accepted by both requests.
+- **A co-owner can open the wealth pyramid and the diversification, and export a shared account
+  to Excel.** All three failed for a member who co-owns an account without owning it: the two
+  analysis pages answered "account not found" as soon as the shared account held securities or
+  crypto, and the export ended in an error. The analysis counts the shared holdings at the
+  member's share; the workbook shows the whole account with the ownership share beside it.
+- **A second Finary import no longer fails on history older than 2000.** Rebuilding the balance
+  history only read back the snapshots from 2000 on, so importing a file with an older transaction
+  a second time failed, and a balance typed by hand before 2000 was ignored.
+- **A Solana wallet holding one token in several accounts shows the whole amount.** A wallet can
+  keep a token (USDC, for instance) in more than one token account; only the last one was kept as
+  the holding, so the wallet was undervalued.
+- **A CORUM or Sofidy sync interrupted by a restart no longer stays "in progress".** It could not
+  be started again until the bank was disconnected and reconnected. It is now marked as failed at
+  startup, like the other banks, and can be retried.
+- **The Excel export accepts an account name ending with an apostrophe and dates before 1900.** A
+  sheet name left with a leading or trailing apostrophe made the export fail, and a date before
+  1900 (an old purchase date) came out as an unreadable cell; it is now written as text.
+- **A custom classification is found again when its ticker was typed with spaces around it.** The
+  ticker was stored without them but looked up as typed, so the classification could not be read
+  back or changed.
 
 ## [1.2.2] — 2026-11-21
 
