@@ -1338,3 +1338,127 @@ async fn sqlite_writer_gate_stays_free_during_external_http_calls() {
     state.db.close().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[tokio::test]
+async fn release_cli_reads_same_database_config_as_server() {
+    use picsou::db::release_cli;
+    use picsou::testing::{DB_HOST, DB_PORT, DB_USER};
+
+    let pg = fresh_database().await;
+    let dir = std::env::temp_dir().join(format!("picsou_release_cli_db4_{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+
+    // 1. Default docker-compose.yml env: SPRING_DATASOURCE_URL + SPRING_DATASOURCE_USERNAME +
+    //    POSTGRES_PASSWORD (without SPRING_DATASOURCE_PASSWORD).
+    let compose_env = Env::from_map([
+        (
+            "SPRING_DATASOURCE_URL",
+            format!("jdbc:postgresql://{DB_HOST}:{DB_PORT}/{}", pg.name()),
+        ),
+        ("SPRING_DATASOURCE_USERNAME", DB_USER.to_owned()),
+        ("POSTGRES_PASSWORD", "trust-ignores-it".to_owned()),
+    ]);
+    assert_eq!(
+        release_cli::run("verify", &compose_env).await,
+        0,
+        "verify must work with POSTGRES_PASSWORD (default compose env)"
+    );
+
+    // 2. Standard DATABASE_URL=postgres://... without any SPRING_DATASOURCE_* variables.
+    let db_url_env = Env::from_map([(
+        "DATABASE_URL",
+        format!("postgres://{DB_USER}@{DB_HOST}:{DB_PORT}/{}", pg.name()),
+    )]);
+    assert_eq!(
+        release_cli::run("verify", &db_url_env).await,
+        0,
+        "verify must work with DATABASE_URL"
+    );
+    let exported = dir.join("from_database_url.db");
+    assert_eq!(
+        release_cli::run_with_args(
+            "export-sqlite",
+            &[exported.to_string_lossy().into_owned()],
+            &db_url_env,
+        )
+        .await,
+        0,
+        "export-sqlite must work with DATABASE_URL"
+    );
+    assert!(exported.exists(), "exported sqlite file should exist");
+
+    // 3. PICSOU_SECRETS_DIR with postgres_password file (no password env vars); CLI must not
+    //    generate jwt_secret or crypto_key in that directory.
+    let secrets_dir = dir.join("secrets");
+    std::fs::create_dir_all(&secrets_dir).expect("create secrets dir");
+    std::fs::write(secrets_dir.join("postgres_password"), "from-file\n")
+        .expect("write postgres_password");
+    let secrets_env = Env::from_map([
+        (
+            "SPRING_DATASOURCE_URL",
+            format!("jdbc:postgresql://{DB_HOST}:{DB_PORT}/{}", pg.name()),
+        ),
+        (
+            "PICSOU_SECRETS_DIR",
+            secrets_dir.to_string_lossy().into_owned(),
+        ),
+    ]);
+    assert_eq!(
+        release_cli::run("verify", &secrets_env).await,
+        0,
+        "verify must read postgres_password from PICSOU_SECRETS_DIR and default username"
+    );
+    assert!(
+        !secrets_dir.join("jwt_secret").exists() && !secrets_dir.join("crypto_key").exists(),
+        "release CLI must not generate server secrets"
+    );
+
+    // 4. DATABASE_URL=sqlite:///... works for migrate & verify, and fails cleanly for export-sqlite
+    //    and for verifying a missing file (without creating it).
+    let missing_sqlite = dir.join("missing.db");
+    let missing_sqlite_env = Env::from_map([(
+        "DATABASE_URL",
+        format!("sqlite:///{}", missing_sqlite.display()),
+    )]);
+    assert_eq!(
+        release_cli::run("verify", &missing_sqlite_env).await,
+        1,
+        "verify on missing sqlite file must fail"
+    );
+    assert!(
+        !missing_sqlite.exists(),
+        "verify must not create a missing sqlite file"
+    );
+
+    let sqlite_file = dir.join("cli_target.db");
+    let sqlite_env = Env::from_map([(
+        "DATABASE_URL",
+        format!("sqlite:///{}", sqlite_file.display()),
+    )]);
+    assert_eq!(
+        release_cli::run("migrate", &sqlite_env).await,
+        0,
+        "migrate must work on sqlite DATABASE_URL"
+    );
+    assert_eq!(
+        release_cli::run("verify", &sqlite_env).await,
+        0,
+        "verify must work on sqlite DATABASE_URL"
+    );
+    let sqlite_export_out = dir.join("should_not_exist.db");
+    assert_eq!(
+        release_cli::run_with_args(
+            "export-sqlite",
+            &[sqlite_export_out.to_string_lossy().into_owned()],
+            &sqlite_env,
+        )
+        .await,
+        1,
+        "export-sqlite must reject a SQLite source URL"
+    );
+
+    // 5. Missing URL fails with exit code 1.
+    assert_eq!(release_cli::run("verify", &Env::default()).await, 1);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
