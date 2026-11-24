@@ -5,7 +5,7 @@ import { revolutApi } from '@/features/sync/api'
 import { useStartRevolutSync, useSyncProgress } from '@/features/sync/hooks'
 import { syncKeys } from '@/features/sync/keys'
 import { revolutErrorLabel } from '@/features/sync/revolut-phase'
-import { formatApiError } from '@/lib/errors'
+import { formatApiError, getErrorCode } from '@/lib/errors'
 import type { SyncProgress } from '@/types/api'
 
 const WEBVIEW_POLL_MS = 1_500
@@ -92,7 +92,7 @@ interface RevolutWebviewOptions {
   onError: (message: string) => void
 }
 
-function webviewErrorMessage(t: (key: string) => string, errorCode?: string): string {
+function webviewErrorForCode(t: (key: string) => string, errorCode?: string): string | null {
   switch (errorCode) {
     case 'AUTH_ATTEMPT_EXPIRED':
       return t('sync.revolut.errors.authAttemptExpired')
@@ -103,8 +103,16 @@ function webviewErrorMessage(t: (key: string) => string, errorCode?: string): st
     case 'HUMAN_VERIFICATION_REQUIRED':
       return t('sync.revolut.errors.humanVerificationRequired')
     default:
-      return t('sync.revolut.errors.serverError')
+      return null
   }
+}
+
+function webviewErrorMessage(t: (key: string) => string, errorCode?: string): string {
+  return webviewErrorForCode(t, errorCode) ?? t('sync.revolut.errors.serverError')
+}
+
+function formatWebviewError(t: (key: string) => string, err: unknown): string {
+  return webviewErrorForCode(t, getErrorCode(err)) ?? formatApiError(err, t)
 }
 
 /**
@@ -152,6 +160,7 @@ export function useRevolutWebview({ onStart, onSyncing, onError }: RevolutWebvie
             clearInterval(timer)
             setProcessId(null)
             setWebviewState('IDLE')
+            void queryClient.invalidateQueries({ queryKey: syncKeys.revolut() })
             onError(webviewErrorMessage(t, res.errorCode))
           }
         })
@@ -161,7 +170,8 @@ export function useRevolutWebview({ onStart, onSyncing, onError }: RevolutWebvie
           clearInterval(timer)
           setProcessId(null)
           setWebviewState('IDLE')
-          onError(formatApiError(err, t))
+          void queryClient.invalidateQueries({ queryKey: syncKeys.revolut() })
+          onError(formatWebviewError(t, err))
         })
         .finally(() => {
           inFlight = false
@@ -184,6 +194,7 @@ export function useRevolutWebview({ onStart, onSyncing, onError }: RevolutWebvie
       const result = await revolutApi.startWebview()
       if (!result.processId) {
         setWebviewState('IDLE')
+        void queryClient.invalidateQueries({ queryKey: syncKeys.revolut() })
         onError(t('sync.revolut.errors.serverError'))
         return
       }
@@ -191,7 +202,8 @@ export function useRevolutWebview({ onStart, onSyncing, onError }: RevolutWebvie
       setWebviewState('WAITING')
     } catch (err) {
       setWebviewState('IDLE')
-      onError(formatApiError(err, t))
+      void queryClient.invalidateQueries({ queryKey: syncKeys.revolut() })
+      onError(formatWebviewError(t, err))
     } finally {
       startingRef.current = false
     }

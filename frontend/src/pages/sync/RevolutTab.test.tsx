@@ -183,4 +183,124 @@ describe('RevolutTab', () => {
     expect(screen.queryByRole('button', { name: 'sync.revolut.webview.reconnect' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'sync.revolut.forget' })).toBeNull()
   })
+
+  it('translates coded WebView poll errors and refreshes Revolut status after a failed reconnect', async () => {
+    let connected = true
+    apiGet.mockImplementation((url: string) => {
+      if (url === '/revolut/status') {
+        return Promise.resolve({
+          data: connected
+            ? { connected: true, remembered: false, lastSyncedAt: '2026-11-21T12:00:00Z', webviewLoginSupported: true }
+            : { connected: false, remembered: false, lastSyncedAt: null, webviewLoginSupported: true },
+        })
+      }
+      if (url === '/revolut/webview/status/wv-revo-exp') {
+        connected = false
+        return Promise.reject({
+          response: {
+            status: 422,
+            data: { code: 'AUTH_ATTEMPT_EXPIRED', detail: 'Revolut sign-in attempt expired' },
+          },
+        })
+      }
+      return Promise.reject(new Error(`unexpected ${url}`))
+    })
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/revolut/webview/start') {
+        return Promise.resolve({ data: { processId: 'wv-revo-exp', status: 'WAITING_LOGIN' } })
+      }
+      return Promise.reject(new Error(`unexpected ${url}`))
+    })
+
+    renderTab()
+    fireEvent.click(await screen.findByRole('button', { name: 'sync.revolut.webview.reconnect' }))
+    expect(await screen.findByText('sync.revolut.webview.waiting')).toBeInTheDocument()
+
+    expect(
+      await screen.findByText('sync.revolut.errors.authAttemptExpired', {}, { timeout: 5000 }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Revolut sign-in attempt expired')).toBeNull()
+    expect(await screen.findByText('sync.revolut.notConnected')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'sync.revolut.webview.connect' })).toBeInTheDocument()
+  })
+
+  it('translates coded startWebview errors, keeps formatApiError for uncoded ones, and refreshes status', async () => {
+    let connected = true
+    apiGet.mockImplementation((url: string) => {
+      if (url === '/revolut/status') {
+        return Promise.resolve({
+          data: connected
+            ? { connected: true, remembered: false, lastSyncedAt: '2026-11-21T12:00:00Z', webviewLoginSupported: true }
+            : { connected: false, remembered: false, lastSyncedAt: null, webviewLoginSupported: true },
+        })
+      }
+      return Promise.reject(new Error(`unexpected ${url}`))
+    })
+    apiPost
+      .mockImplementationOnce((url: string) => {
+        if (url === '/revolut/webview/start') {
+          connected = false
+          return Promise.reject({
+            response: {
+              status: 422,
+              data: { code: 'AUTH_ATTEMPT_EXPIRED', detail: 'Revolut sign-in attempt expired' },
+            },
+          })
+        }
+        return Promise.reject(new Error(`unexpected ${url}`))
+      })
+      .mockImplementationOnce((url: string) => {
+        if (url === '/revolut/webview/start') {
+          return Promise.reject({
+            response: {
+              status: 422,
+              data: { detail: 'WebView bridge unavailable' },
+            },
+          })
+        }
+        return Promise.reject(new Error(`unexpected ${url}`))
+      })
+
+    renderTab()
+    fireEvent.click(await screen.findByRole('button', { name: 'sync.revolut.webview.reconnect' }))
+
+    expect(await screen.findByText('sync.revolut.errors.authAttemptExpired')).toBeInTheDocument()
+    expect(screen.queryByText('Revolut sign-in attempt expired')).toBeNull()
+    expect(await screen.findByText('sync.revolut.notConnected')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'sync.revolut.webview.connect' }))
+    expect(await screen.findByText('WebView bridge unavailable')).toBeInTheDocument()
+  })
+
+  it('refreshes Revolut status when WebView polling ends with FAILED', async () => {
+    let connected = true
+    apiGet.mockImplementation((url: string) => {
+      if (url === '/revolut/status') {
+        return Promise.resolve({
+          data: connected
+            ? { connected: true, remembered: false, lastSyncedAt: '2026-11-21T12:00:00Z', webviewLoginSupported: true }
+            : { connected: false, remembered: false, lastSyncedAt: null, webviewLoginSupported: true },
+        })
+      }
+      if (url === '/revolut/webview/status/wv-revo-fail') {
+        connected = false
+        return Promise.resolve({ data: { status: 'FAILED', errorCode: 'SESSION_EXPIRED' } })
+      }
+      return Promise.reject(new Error(`unexpected ${url}`))
+    })
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/revolut/webview/start') {
+        return Promise.resolve({ data: { processId: 'wv-revo-fail', status: 'WAITING_LOGIN' } })
+      }
+      return Promise.reject(new Error(`unexpected ${url}`))
+    })
+
+    renderTab()
+    fireEvent.click(await screen.findByRole('button', { name: 'sync.revolut.webview.reconnect' }))
+
+    expect(
+      await screen.findByText('sync.revolut.errors.sessionExpired', {}, { timeout: 5000 }),
+    ).toBeInTheDocument()
+    expect(await screen.findByText('sync.revolut.notConnected')).toBeInTheDocument()
+  })
 })
