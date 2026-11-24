@@ -138,15 +138,15 @@ describe('CategorizeTab — AI suggestions', () => {
 
   it('cleans raw English Trade Republic titles and strips UUIDs/IBANs in French', () => {
     state.txs = [
-      tx({ id: 1, merchantLabel: 'Incoming Transfer From De Bailliencourt (fr76300040251000000055610334)', amount: 200 }),
-      tx({ id: 2, merchantLabel: 'Outgoing Transfer For Louis De Bailliencourt', amount: -28.67 }),
-      tx({ id: 3, merchantLabel: 'Interest Payment For Payout Collection 01a194ae-aa5e-7a34-8fcb-d5d7b6c1a451', amount: 0.2 }),
-      tx({ id: 4, merchantLabel: '48106c6e-61f3-4db5-8f10-960369d6f5fa', amount: -222.25 }),
+      tx({ id: 1, merchantLabel: 'Incoming Transfer From De Montclair (fr76000000000000000000000000)', amount: 200 }),
+      tx({ id: 2, merchantLabel: 'Outgoing Transfer For Camille De Montclair', amount: -28.67 }),
+      tx({ id: 3, merchantLabel: 'Interest Payment For Payout Collection 00000000-0000-7000-8000-000000000001', amount: 0.2 }),
+      tx({ id: 4, merchantLabel: '00000000-0000-4000-8000-000000000002', amount: -222.25 }),
     ]
     renderTab()
 
-    expect(screen.getByText('Virement entrant de De Bailliencourt')).toBeInTheDocument()
-    expect(screen.getByText('Virement sortant vers Louis De Bailliencourt')).toBeInTheDocument()
+    expect(screen.getByText('Virement entrant de De Montclair')).toBeInTheDocument()
+    expect(screen.getByText('Virement sortant vers Camille De Montclair')).toBeInTheDocument()
     expect(screen.getByText("Versement d'intérêts")).toBeInTheDocument()
     expect(screen.getByText('Opération sans libellé')).toBeInTheDocument()
   })

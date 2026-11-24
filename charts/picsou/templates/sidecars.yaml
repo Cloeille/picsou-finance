@@ -1,6 +1,6 @@
 {{- $d := .Values.sidecarDefaults }}
 {{- range $name, $sc := .Values.sidecars }}
-{{- if $sc.enabled }}
+{{- if and $sc.enabled (not (include "picsou.sidecar.isNative" (dict "ctx" $ "name" $name))) }}
 {{- $fullName := include "picsou.sidecarName" (dict "ctx" $ "name" $name) }}
 {{- /* Resources and security contexts are merged over sidecarDefaults; probes and scheduling replace them. */}}
 {{- $resources := mergeOverwrite (deepCopy ($d.resources | default dict)) ($sc.resources | default dict) }}

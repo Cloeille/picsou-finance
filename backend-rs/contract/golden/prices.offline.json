@@ -1,0 +1,214 @@
+{
+  "description": "Price endpoints with every provider refused: EUR, recorded history, metals catalogue, errors",
+  "scenario": "prices.offline",
+  "steps": [
+    {
+      "body": [
+        {
+          "name": "Gold (fine gram)",
+          "ticker": "GOLD:GRAM",
+          "unit": "GRAM"
+        },
+        {
+          "name": "Napoléon 20 F",
+          "ticker": "GOLD:NAPOLEON-20F",
+          "unit": "COIN"
+        },
+        {
+          "name": "Napoléon 10 F",
+          "ticker": "GOLD:NAPOLEON-10F",
+          "unit": "COIN"
+        },
+        {
+          "name": "20 Francs Suisse",
+          "ticker": "GOLD:SWISS-20F",
+          "unit": "COIN"
+        },
+        {
+          "name": "Union latine 20 F",
+          "ticker": "GOLD:LATIN-UNION-20F",
+          "unit": "COIN"
+        },
+        {
+          "name": "20 Francs Tunisie",
+          "ticker": "GOLD:TUNISIA-20F",
+          "unit": "COIN"
+        },
+        {
+          "name": "Souverain",
+          "ticker": "GOLD:SOVEREIGN",
+          "unit": "COIN"
+        },
+        {
+          "name": "Souverain Elizabeth II",
+          "ticker": "GOLD:SOVEREIGN-EII",
+          "unit": "COIN"
+        },
+        {
+          "name": "Demi-souverain",
+          "ticker": "GOLD:HALF-SOVEREIGN",
+          "unit": "COIN"
+        },
+        {
+          "name": "Krugerrand",
+          "ticker": "GOLD:KRUGERRAND",
+          "unit": "COIN"
+        },
+        {
+          "name": "20 Dollars US",
+          "ticker": "GOLD:USD-20",
+          "unit": "COIN"
+        },
+        {
+          "name": "10 Dollars US",
+          "ticker": "GOLD:USD-10",
+          "unit": "COIN"
+        },
+        {
+          "name": "5 Dollars US",
+          "ticker": "GOLD:USD-5",
+          "unit": "COIN"
+        },
+        {
+          "name": "50 Pesos",
+          "ticker": "GOLD:PESO-50",
+          "unit": "COIN"
+        },
+        {
+          "name": "10 Florins",
+          "ticker": "GOLD:FLORIN-10",
+          "unit": "COIN"
+        },
+        {
+          "name": "20 Reichsmark",
+          "ticker": "GOLD:REICHSMARK-20",
+          "unit": "COIN"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "04 GET /api/prices/precious-metals as admin"
+    },
+    {
+      "body": {
+        "EUR": 1
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "05 GET /api/prices?tickers=EUR as admin"
+    },
+    {
+      "body": {
+        "detail": "Required parameter 'tickers' is not present.",
+        "instance": "/api/prices",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "06 GET /api/prices as admin"
+    },
+    {
+      "body": [
+        {
+          "date": "2020-01-02",
+          "priceEur": 400.50000000
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "08 GET /api/prices/cw8/history?months=120 as admin"
+    },
+    {
+      "body": [],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "09 GET /api/prices/CW8/history as admin"
+    },
+    {
+      "body": {
+        "detail": "Failed to convert 'months' with value: 'x'",
+        "instance": "/api/prices/CW8/history",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "10 GET /api/prices/CW8/history?months=x as admin"
+    }
+  ]
+}

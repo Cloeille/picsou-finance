@@ -1,6 +1,6 @@
 # Feature: Optional AI transaction categorization
 
-> Last updated: 2026-11-01
+> Last updated: 2026-11-24
 
 ## Context
 
@@ -49,27 +49,27 @@ inbox can render "AI: Transport · 92%" and pre-select that category — accepti
 
 ### Key files
 
-- `backend/.../port/TransactionCategorizerPort.java` — the provider-agnostic port; `categorize()` returns `CategorizationResult` (slug + confidence + prompt + token usage)
-- `backend/.../adapter/SpringAiCategorizer.java` — Spring AI `ChatClient` implementation; parses the first non-thinking generation with text using a `BeanOutputConverter` and reads `ChatResponse` usage
-- `backend/.../adapter/NoopCategorizer.java` — default when no provider is configured
-- `backend/.../adapter/DynamicTransactionCategorizer.java` — `TransactionCategorizerPort` bean; delegates to cached categorizer from `AiConfigProvider`
-- `backend/.../config/AiCategorizationConfig.java` — wires the `TransactionCategorizerPort` as a `DynamicTransactionCategorizer` (resolves the provider at call time via `AiConfigProvider`)
-- `backend/.../config/AiChatModelFactory.java` — builds a `ChatModel` at runtime from DB config (OpenAI/OpenRouter/Anthropic/Ollama)
-- `backend/.../config/AiConfigProvider.java` — resolves + caches the active categorizer; rebuilt on save (no restart)
-- `backend/.../config/AiExecutorConfig.java` — dedicated `ThreadPoolTaskExecutor` (`inferenceExecutor`) for concurrent AI calls
-- `backend/.../config/AiProviderConfig.java` — plain Java `record` for provider config
-- `backend/.../model/AiProvider.java` — enum: `OPENAI`, `OPENROUTER`, `ANTHROPIC`, `OLLAMA`
-- `backend/.../model/AiCallLog.java` — JPA entity: per-call audit record (prompt, response, tokens, latency, status, provider/model, chosen category, applied flag)
-- `backend/.../repository/AiCallLogRepository.java` — JPA repository for `AiCallLog`
-- `backend/.../service/AiCallLogService.java` — `saveAll(List)` persists a batch of call rows, `prune()` enforces the 2000-row retention cap
-- `backend/.../service/budget/AiCategorizationJobService.java` — background job: snapshot → chunked concurrent categorize → per-chunk commit → progress tracking; one-per-member guard (`ConcurrentHashMap.compute`)
-- `backend/.../service/budget/CategorizationService.java` — `loadAiContext`, `uncategorizedIds`, `inputsFor`, `applyAiResults` are the real entry points consumed by the job service (`aiCategorizeUncategorized` was removed)
-- `backend/.../dto/AiJobStatus.java` — poll response: `{ running, total, processed, applied, suggested, done, error }`
-- `backend/.../controller/TransactionCategorizationController.java` — `POST /api/transactions/categorize-ai` (202) + `GET /api/transactions/categorize-ai/status`
-- `backend/.../mcp/tools/AiCategorizationTools.java` — the same job over MCP; the status is aggregate counters, without the error text
-- `backend/.../controller/AdminController.java` — `PUT /api/admin/settings/ai` + `POST /api/admin/settings/ai/test` + `GET /api/admin/ai-calls`
-- `backend/.../resources/db/migration/V41__ai_categorization.sql` — settings + suggestion columns
-- `backend/.../resources/db/migration/V42__ai_call_log.sql` — `ai_call_log` table
+- `TransactionCategorizerPort.java` — the provider-agnostic port; `categorize()` returns `CategorizationResult` (slug + confidence + prompt + token usage)
+- `backend-rs/src/ai/` — Spring AI `ChatClient` implementation; parses the first non-thinking generation with text using a `BeanOutputConverter` and reads `ChatResponse` usage
+- `NoopCategorizer.java` — default when no provider is configured
+- `backend-rs/src/ai/mod.rs` — `TransactionCategorizerPort` bean; delegates to cached categorizer from `AiConfigProvider`
+- `AiCategorizationConfig.java` — wires the `TransactionCategorizerPort` as a `DynamicTransactionCategorizer` (resolves the provider at call time via `AiConfigProvider`)
+- `backend-rs/src/ai/mod.rs` — builds a `ChatModel` at runtime from DB config (OpenAI/OpenRouter/Anthropic/Ollama)
+- `AiConfigProvider.java` — resolves + caches the active categorizer; rebuilt on save (no restart)
+- `AiExecutorConfig.java` — dedicated `ThreadPoolTaskExecutor` (`inferenceExecutor`) for concurrent AI calls
+- `AiProviderConfig.java` — plain Java `record` for provider config
+- `backend-rs/src/admin/settings.rs` — enum: `OPENAI`, `OPENROUTER`, `ANTHROPIC`, `OLLAMA`
+- `AiCallLog.java` — JPA entity: per-call audit record (prompt, response, tokens, latency, status, provider/model, chosen category, applied flag)
+- `AiCallLogRepository.java` — JPA repository for `AiCallLog`
+- `backend-rs/src/admin/ai.rs` — `saveAll(List)` persists a batch of call rows, `prune()` enforces the 2000-row retention cap
+- `backend-rs/src/budget/ai_job.rs` — background job: snapshot → chunked concurrent categorize → per-chunk commit → progress tracking; one-per-member guard (`ConcurrentHashMap.compute`)
+- `CategorizationService.java` — `loadAiContext`, `uncategorizedIds`, `inputsFor`, `applyAiResults` are the real entry points consumed by the job service (`aiCategorizeUncategorized` was removed)
+- `backend-rs/src/budget/ai_job.rs` — poll response: `{ running, total, processed, applied, suggested, done, error }`
+- `backend-rs/src/budget/categorization.rs` — `POST /api/transactions/categorize-ai` (202) + `GET /api/transactions/categorize-ai/status`
+- `backend-rs/src/mcp/tools/ai.rs` — the same job over MCP; the status is aggregate counters, without the error text
+- `backend-rs/src/admin/settings.rs` — `PUT /api/admin/settings/ai` + `POST /api/admin/settings/ai/test` + `GET /api/admin/ai-calls`
+- `backend-rs/migrations/V41__ai_categorization.sql` — settings + suggestion columns
+- `backend-rs/migrations/V42__ai_call_log.sql` — `ai_call_log` table
 - `frontend/.../pages/budget/ManageTab.tsx` — `AiCategorizationCard` (toggle + mode + sensitivity)
 - `frontend/.../pages/budget/CategorizeTab.tsx` — suggestion chip + "Categorize with AI" button + live job progress poll
 - `frontend/.../pages/admin/sections/AiCategorizationSection.tsx` — admin UI: provider, API key, model, base URL, parallel requests, test button
@@ -127,6 +127,10 @@ served by `GET /api/admin/ai-calls` (admin-only).
 | Suggestion stored on the transaction | Inbox renders without re-running inference each load | Recompute on every inbox load |
 
 ## Gotchas / Pitfalls
+
+- **Provider calls never follow a redirect.** The HTTP client of the AI providers has redirects
+  off, so a `3xx` to another host cannot carry `x-api-key` or `Authorization` there; it fails the
+  call instead.
 
 - **Never inline in sync.** `autoCategorize` runs per-transaction during import and must stay
   offline/fast — the LLM only runs in the separate background job.

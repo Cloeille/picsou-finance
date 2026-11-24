@@ -1518,6 +1518,18 @@ handlers.set(key('POST', '/bnp/auth/complete'), () => {
   demoBnpAuthenticated = true
   return demoBnpStatus()
 })
+handlers.set(key('POST', '/bnp/webview/start'), () => ({
+  processId: 'demo',
+  status: 'WAITING_LOGIN',
+}))
+handlers.set(key('GET', '/bnp/webview/status/:processId'), () => {
+  demoBnpAuthenticated = true
+  demoBnpSynced = true
+  return { status: 'SYNCING', session: demoBnpStatus() }
+})
+handlers.set(key('POST', '/bnp/webview/cancel/:processId'), () => ({
+  cancelled: true,
+}))
 handlers.set(key('POST', '/bnp/sync'), () => {
   demoBnpAuthenticated = true
   demoBnpSynced = true
@@ -1638,6 +1650,17 @@ const demoIdleSidecar = {
 }
 handlers.set(key('GET', '/bourse-direct/status'), () => ({ ...demoIdleSidecar, expiresAt: null }))
 handlers.set(key('GET', '/amex/status'), () => demoIdleSidecar)
+handlers.set(key('POST', '/amex/webview/start'), () => ({
+  processId: 'demo',
+  status: 'WAITING_LOGIN',
+}))
+handlers.set(key('GET', '/amex/webview/status/:processId'), () => ({
+  status: 'SYNCING',
+  session: { ...demoIdleSidecar, isActive: true, syncStatus: 'SUCCESS' },
+}))
+handlers.set(key('POST', '/amex/webview/cancel/:processId'), () => ({
+  cancelled: true,
+}))
 handlers.set(key('GET', '/corum/status'), () => demoIdleSidecar)
 handlers.set(key('GET', '/sofidy/status'), () => demoIdleSidecar)
 handlers.set(key('GET', '/louve/status'), () => ({ connected: false, status: null, lastSyncedAt: null }))
@@ -1660,6 +1683,17 @@ const demoIdleSyncProgress = {
 }
 handlers.set(key('GET', '/revolut/status'), () => ({ connected: false, remembered: false, lastSyncedAt: null }))
 handlers.set(key('GET', '/revolut/sync/progress'), () => demoIdleSyncProgress)
+handlers.set(key('POST', '/revolut/webview/start'), () => ({
+  processId: 'demo',
+  status: 'WAITING_LOGIN',
+}))
+handlers.set(key('GET', '/revolut/webview/status/:processId'), () => ({
+  status: 'SYNCING',
+  session: { connected: true, remembered: false, lastSyncedAt: null },
+}))
+handlers.set(key('POST', '/revolut/webview/cancel/:processId'), () => ({
+  cancelled: true,
+}))
 
 // Trade Republic - session status
 const demoTrStatus = {
@@ -1799,6 +1833,10 @@ handlers.set(key('GET', '/admin/instance-status'), () => ({
 // The demo never reaches Enable Banking, so there is no call to log.
 handlers.set(key('GET', '/admin/enablebanking/call-log'), () => [])
 handlers.set(key('DELETE', '/admin/enablebanking/call-log'), () => null)
+
+// Desktop Mode lock (not active in web demo)
+handlers.set(key('GET', '/desktop/lock'), () => ({ enabled: false }))
+handlers.set(key('PUT', '/desktop/lock'), () => ({ enabled: false }))
 
 // Finary - configured
 // Settings — security (2FA off in demo, one active session)

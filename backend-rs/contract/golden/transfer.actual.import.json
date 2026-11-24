@@ -1,0 +1,511 @@
+{
+  "description": "Actual Budget preview, dry run, import, then a re-import that reports what it kept",
+  "scenario": "transfer.actual.import",
+  "steps": [
+    {
+      "body": {
+        "accounts": [
+          {
+            "balance": 2957.66,
+            "closed": false,
+            "name": "Everyday",
+            "offBudget": false,
+            "sourceId": "acc-checking",
+            "suggestedType": "CHECKING",
+            "transactionCount": 6
+          },
+          {
+            "balance": 500.00,
+            "closed": false,
+            "name": "Rainy day",
+            "offBudget": true,
+            "sourceId": "acc-savings",
+            "suggestedType": "OTHER",
+            "transactionCount": 1
+          }
+        ],
+        "actualAccountIds": [],
+        "categories": [
+          {
+            "groupName": "Food",
+            "income": false,
+            "name": "Groceries",
+            "sourceId": "cat-groceries",
+            "transactionCount": 2
+          },
+          {
+            "groupName": "Food",
+            "income": false,
+            "name": "Restaurants",
+            "sourceId": "cat-restaurants",
+            "transactionCount": 1
+          },
+          {
+            "groupName": "Income",
+            "income": true,
+            "name": "Salary",
+            "sourceId": "cat-salary",
+            "transactionCount": 1
+          }
+        ],
+        "currency": "EUR",
+        "existingAccounts": [
+          {
+            "color": "#6366f1",
+            "createdAt": "<instant>",
+            "currency": "EUR",
+            "currentBalance": 12.00000000,
+            "currentBalanceEur": 12.00000000,
+            "hidden": false,
+            "id": "<id:1>",
+            "isManual": true,
+            "listCollapsed": false,
+            "name": "Courant",
+            "type": "CHECKING"
+          }
+        ],
+        "existingCategories": [],
+        "fileToken": "<secret:1>",
+        "sampleTransactions": [
+          {
+            "accountSourceId": "acc-checking",
+            "amount": 2500.00,
+            "categorySourceId": "cat-salary",
+            "date": "<month-34:last>",
+            "kind": "REGULAR",
+            "notes": "January pay",
+            "payee": "Employer",
+            "sourceId": "t-salary"
+          },
+          {
+            "accountSourceId": "acc-checking",
+            "amount": -10.00,
+            "categorySourceId": "cat-restaurants",
+            "date": "2024-01-20",
+            "kind": "REGULAR",
+            "notes": "Lunch",
+            "payee": "Market",
+            "sourceId": "t-split/2"
+          },
+          {
+            "accountSourceId": "acc-checking",
+            "amount": -20.00,
+            "categorySourceId": "cat-groceries",
+            "date": "2024-01-20",
+            "kind": "REGULAR",
+            "notes": "Weekly shop",
+            "payee": "Market",
+            "sourceId": "t-split/1"
+          },
+          {
+            "accountSourceId": "acc-savings",
+            "amount": 500.00,
+            "date": "2024-01-15",
+            "kind": "TRANSFER",
+            "payee": "Everyday",
+            "sourceId": "t-in"
+          },
+          {
+            "accountSourceId": "acc-checking",
+            "amount": -500.00,
+            "date": "2024-01-15",
+            "kind": "TRANSFER",
+            "payee": "Rainy day",
+            "sourceId": "t-out"
+          },
+          {
+            "accountSourceId": "acc-checking",
+            "amount": -12.34,
+            "categorySourceId": "cat-groceries",
+            "date": "2024-01-02",
+            "kind": "REGULAR",
+            "payee": "Market",
+            "sourceId": "t-groceries"
+          },
+          {
+            "accountSourceId": "acc-checking",
+            "amount": 1000.00,
+            "date": "<month-34:first>",
+            "kind": "STARTING_BALANCE",
+            "sourceId": "t-start"
+          }
+        ],
+        "totalTransactions": 7,
+        "transferTransactions": 3
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "05 POST /api/actual/import/preview as admin"
+    },
+    {
+      "body": {
+        "largeDeletion": false,
+        "transactionsToAdd": 7,
+        "transactionsToDelete": 0,
+        "transactionsToMove": 0,
+        "warnings": []
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "06 POST /api/actual/import/plan as admin"
+    },
+    {
+      "body": {
+        "accountsCreated": 1,
+        "accountsMapped": 1,
+        "accountsSkipped": 0,
+        "categoriesCreated": 5,
+        "transactionsDeleted": 0,
+        "transactionsImported": 7,
+        "transactionsMoved": 0,
+        "transactionsSkipped": 0,
+        "warnings": []
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "07 POST /api/actual/import as admin"
+    },
+    {
+      "body": {
+        "detail": "Preview expired or invalid -- please upload the file again",
+        "instance": "/api/actual/import",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "08 POST /api/actual/import as admin"
+    },
+    {
+      "body": {
+        "accounts": [
+          {
+            "balance": 470.00,
+            "closed": false,
+            "name": "Everyday",
+            "offBudget": false,
+            "sourceId": "acc-checking",
+            "suggestedType": "CHECKING",
+            "transactionCount": 4
+          },
+          {
+            "balance": 3000.00,
+            "closed": false,
+            "importedAccountId": "<id:2>",
+            "name": "Rainy day",
+            "offBudget": true,
+            "sourceId": "acc-savings",
+            "suggestedType": "OTHER",
+            "transactionCount": 2
+          }
+        ],
+        "actualAccountIds": [
+          "<id:2>"
+        ],
+        "categories": [
+          {
+            "groupName": "Food",
+            "income": false,
+            "name": "Groceries",
+            "sourceId": "cat-groceries",
+            "transactionCount": 1
+          },
+          {
+            "groupName": "Food",
+            "income": false,
+            "name": "Restaurants",
+            "sourceId": "cat-restaurants",
+            "transactionCount": 1
+          },
+          {
+            "groupName": "Income",
+            "income": true,
+            "name": "Salary",
+            "sourceId": "cat-salary",
+            "transactionCount": 1
+          }
+        ],
+        "currency": "EUR",
+        "existingAccounts": [
+          {
+            "color": "#6366f1",
+            "createdAt": "<instant>",
+            "currency": "EUR",
+            "currentBalance": 12.00000000,
+            "currentBalanceEur": 12.00000000,
+            "hidden": false,
+            "id": "<id:1>",
+            "isManual": true,
+            "listCollapsed": false,
+            "name": "Courant",
+            "type": "CHECKING"
+          },
+          {
+            "color": "#6366f1",
+            "createdAt": "<instant>",
+            "currency": "EUR",
+            "currentBalance": 500.00000000,
+            "currentBalanceEur": 500.00000000,
+            "hidden": false,
+            "id": "<id:2>",
+            "isManual": true,
+            "listCollapsed": false,
+            "name": "Rainy day",
+            "type": "OTHER"
+          }
+        ],
+        "existingCategories": [
+          {
+            "archived": false,
+            "color": "#6366f1",
+            "id": "<id:2>",
+            "isDefault": false,
+            "kind": "EXPENSE",
+            "name": "Food",
+            "sortOrder": 0
+          },
+          {
+            "archived": false,
+            "color": "#6366f1",
+            "id": "<id:3>",
+            "isDefault": false,
+            "kind": "EXPENSE",
+            "name": "Groceries",
+            "parentId": "<id:2>",
+            "sortOrder": 0
+          },
+          {
+            "archived": false,
+            "color": "#6366f1",
+            "id": "<id:4>",
+            "isDefault": false,
+            "kind": "EXPENSE",
+            "name": "Restaurants",
+            "parentId": "<id:2>",
+            "sortOrder": 0
+          },
+          {
+            "archived": false,
+            "color": "#6366f1",
+            "id": "<id:5>",
+            "isDefault": false,
+            "kind": "INCOME",
+            "name": "Income",
+            "sortOrder": 0
+          },
+          {
+            "archived": false,
+            "color": "#6366f1",
+            "id": "<id:6>",
+            "isDefault": false,
+            "kind": "INCOME",
+            "name": "Salary",
+            "parentId": "<id:5>",
+            "sortOrder": 0
+          },
+          {
+            "archived": false,
+            "color": "#64748b",
+            "id": "<id:7>",
+            "isDefault": false,
+            "kind": "TRANSFER",
+            "name": "Actual Budget transfer",
+            "sortOrder": 0
+          }
+        ],
+        "fileToken": "<secret:2>",
+        "sampleTransactions": [
+          {
+            "accountSourceId": "acc-savings",
+            "amount": 2500.00,
+            "categorySourceId": "cat-salary",
+            "date": "<month-34:last>",
+            "kind": "REGULAR",
+            "notes": "January pay",
+            "payee": "Employer",
+            "sourceId": "t-salary"
+          },
+          {
+            "accountSourceId": "acc-checking",
+            "amount": -10.00,
+            "categorySourceId": "cat-restaurants",
+            "date": "2024-01-20",
+            "kind": "REGULAR",
+            "notes": "Lunch",
+            "payee": "Market",
+            "sourceId": "t-split/2"
+          },
+          {
+            "accountSourceId": "acc-checking",
+            "amount": -20.00,
+            "categorySourceId": "cat-groceries",
+            "date": "2024-01-20",
+            "kind": "REGULAR",
+            "notes": "Weekly shop",
+            "payee": "Market",
+            "sourceId": "t-split/1"
+          },
+          {
+            "accountSourceId": "acc-savings",
+            "amount": 500.00,
+            "date": "2024-01-15",
+            "kind": "TRANSFER",
+            "payee": "Everyday",
+            "sourceId": "t-in"
+          },
+          {
+            "accountSourceId": "acc-checking",
+            "amount": -500.00,
+            "date": "2024-01-15",
+            "kind": "TRANSFER",
+            "payee": "Rainy day",
+            "sourceId": "t-out"
+          },
+          {
+            "accountSourceId": "acc-checking",
+            "amount": 1000.00,
+            "date": "<month-34:first>",
+            "kind": "STARTING_BALANCE",
+            "sourceId": "t-start"
+          }
+        ],
+        "totalTransactions": 6,
+        "transferTransactions": 3
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "09 POST /api/actual/import/preview as admin"
+    },
+    {
+      "body": {
+        "largeDeletion": false,
+        "transactionsToAdd": 0,
+        "transactionsToDelete": 0,
+        "transactionsToMove": 0,
+        "warnings": [
+          {
+            "count": 1,
+            "reason": "KEPT_MISSING"
+          },
+          {
+            "count": 1,
+            "reason": "KEPT_MOVED"
+          }
+        ]
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "10 POST /api/actual/import/plan as admin"
+    },
+    {
+      "body": {
+        "accountsCreated": 0,
+        "accountsMapped": 2,
+        "accountsSkipped": 0,
+        "categoriesCreated": 0,
+        "transactionsDeleted": 0,
+        "transactionsImported": 0,
+        "transactionsMoved": 0,
+        "transactionsSkipped": 6,
+        "warnings": [
+          {
+            "count": 1,
+            "reason": "KEPT_MISSING"
+          },
+          {
+            "count": 1,
+            "reason": "KEPT_MOVED"
+          }
+        ]
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "11 POST /api/actual/import as admin"
+    }
+  ]
+}

@@ -71,11 +71,11 @@ function groupByYear(months: GoalMonthEntry[]): { year: number; entries: GoalMon
 
 const COLORS = {
   success: 'oklch(from var(--primary) calc(l + 0.2) c h)',
-  warning: '#f59e0b',
+  warning: 'var(--muted-foreground)',
   destructive: 'oklch(from var(--destructive) calc(l + 0.15) c h)',
   muted: 'var(--muted)',
   mutedFg: 'var(--muted-foreground)',
-  overshoot: '#818cf8',
+  overshoot: 'var(--chart-2)',
 } as const
 
 function ProgressRing({ pct, color, size = 80, stroke = 9 }: {

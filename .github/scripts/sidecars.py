@@ -85,7 +85,6 @@ def _pin(path, pattern):
 def desktop_manifest():
     """What the desktop build bundles, so it follows the Docker release without a copy."""
     return {
-        "java": _pin("backend/pom.xml", r"<java\.version>(\d+)</java\.version>"),
         "postgres": _pin("docker/docker-compose.yml", r"(?m)^    image: postgres:(\d+)\b"),
         "python": _pin("services/base/Dockerfile", r"(?m)^FROM python:(\d+\.\d+)-\S+ AS python$"),
         "playwright": _pin("services/base/requirements-chromium.txt", r"(?m)^playwright==(\S+)$"),

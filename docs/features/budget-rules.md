@@ -17,7 +17,7 @@ Picsou already has a categorization rules engine, but the only way to "teach" it
 
 ### Existing engine (recap — unchanged foundations)
 
-- `CategorizationRule` (`model/CategorizationRule.java`, table from `V33__budget_foundation.sql`): `member_id`, `match_type`, `pattern`, `category_id`, `priority`, `source` (USER/AUTO), `created_at`.
+- `CategorizationRule` (`backend-rs/src/ledger/model.rs`, table from `V33__budget_foundation.sql`): `member_id`, `match_type`, `pattern`, `category_id`, `priority`, `source` (USER/AUTO), `created_at`.
 - `RuleMatchType`: `COUNTERPARTY` (exact, case-insensitive on `counterparty`) and `KEYWORD` (case-insensitive substring on `counterparty` **or** `description`).
 - Precedence (`CategorizationService`): (1) `categoryRef != null` guard — never overrides an existing category; (2) USER/AUTO rules, `priority DESC, id ASC`, first match wins; (3) brand KB fallback; (4) uncategorized.
 - Today's learn flow: `PUT /transactions/{id}/category { categoryId, createRule }` → `learnRule()` creates an **AUTO COUNTERPARTY** rule on the whole counterparty, idempotently.

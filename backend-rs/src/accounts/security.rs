@@ -1,0 +1,418 @@
+//! SecurityController and SecurityInsightService: a security's asset type and, for a fund, its
+//! composition. Reference data, not member-scoped. The market sources are track T4's (seams).
+
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+use axum::extract::{Query, State};
+use chrono::{DateTime, Duration, NaiveDate, Utc};
+use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
+
+use crate::AppState;
+use crate::accounts::analysis::seams::AnalysisSeams;
+use crate::auth::Auth;
+use crate::db::{self, DbExec};
+use crate::error::AppResult;
+use crate::http::json::Path;
+use crate::ledger::sync_values::java_is_blank;
+use crate::routes::Routes;
+
+pub fn register(routes: &mut Routes) {
+    routes.get("/api/securities/{ticker}/insight", insight);
+}
+
+/// How a security is identified when asking a provider (SecurityRef).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecurityRef {
+    pub ticker: String,
+    pub name: Option<String>,
+    pub isin: Option<String>,
+}
+
+/// WeightedSlice: a company, country or sector and its weight in percent.
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeightedSlice {
+    pub label: Option<String>,
+    #[serde(with = "crate::accounts::jdecimal::option")]
+    pub percent: Option<Decimal>,
+}
+
+/// FundFacts: what a fund costs and how it behaves.
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FundFacts {
+    #[serde(with = "crate::accounts::jdecimal::option")]
+    pub ter_percent: Option<Decimal>,
+    pub distribution_policy: Option<String>,
+    pub replication: Option<String>,
+    pub domicile_country_key: Option<String>,
+    pub source: Option<String>,
+}
+
+impl FundFacts {
+    fn is_empty(&self) -> bool {
+        self.ter_percent.is_none()
+            && self.distribution_policy.is_none()
+            && self.replication.is_none()
+            && self.domicile_country_key.is_none()
+    }
+}
+
+/// EtfComposition.
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EtfComposition {
+    pub companies: Vec<WeightedSlice>,
+    pub countries: Vec<WeightedSlice>,
+    pub sectors: Vec<WeightedSlice>,
+    pub source: Option<String>,
+    pub as_of: Option<NaiveDate>,
+    pub facts: Option<FundFacts>,
+}
+
+impl EtfComposition {
+    fn has_any_data(&self) -> bool {
+        !self.companies.is_empty() || !self.countries.is_empty() || !self.sectors.is_empty()
+    }
+}
+
+/// SecurityInsightResponse.
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecurityInsightResponse {
+    pub ticker: Option<String>,
+    pub asset_type: String,
+    pub composition: Option<EtfComposition>,
+}
+
+const CACHE_TTL_DAYS: i64 = 3;
+const MAX_CACHE_ENTRIES: usize = 1024;
+
+type Cached = (SecurityInsightResponse, DateTime<Utc>);
+
+/// SecurityInsightService's in-memory cache, one per process (state.accounts.analysis).
+#[derive(Default)]
+pub struct InsightCache(Mutex<HashMap<String, Cached>>);
+
+/// getInsight, cached for three days per ticker (and ISIN when one is given).
+pub async fn get_insight<'e>(
+    db: impl DbExec<'e>,
+    seams: &AnalysisSeams,
+    ticker: &str,
+    name: Option<&str>,
+    isin: Option<&str>,
+    now: DateTime<Utc>,
+) -> sqlx::Result<SecurityInsightResponse> {
+    if java_is_blank(ticker) {
+        return Ok(SecurityInsightResponse {
+            ticker: Some(ticker.to_owned()),
+            asset_type: "UNKNOWN".to_owned(),
+            composition: None,
+        });
+    }
+    let upper = ticker.to_uppercase();
+    let key = match isin.filter(|i| !java_is_blank(i)) {
+        Some(isin) => format!("{upper}|{isin}"),
+        None => upper.clone(),
+    };
+    if let Some(cached) = cache_get(&seams.insights, &key, now) {
+        return Ok(cached);
+    }
+    let asset_type = classify(db, seams, &upper).await?;
+    let composition = if asset_type == "ETF" {
+        resolve_composition(
+            seams,
+            &SecurityRef {
+                ticker: ticker.to_owned(),
+                name: name.map(str::to_owned),
+                isin: isin.map(str::to_owned),
+            },
+        )
+        .await
+    } else {
+        None
+    };
+    let response = SecurityInsightResponse {
+        ticker: Some(upper),
+        asset_type: asset_type.to_owned(),
+        composition,
+    };
+    cache_put(&seams.insights, key, response.clone(), now);
+    Ok(response)
+}
+
+fn cache_get(
+    cache: &InsightCache,
+    key: &str,
+    now: DateTime<Utc>,
+) -> Option<SecurityInsightResponse> {
+    let mut cache = cache.0.lock().unwrap_or_else(|e| e.into_inner());
+    match cache.get(key) {
+        Some((response, at)) if now <= *at + Duration::days(CACHE_TTL_DAYS) => {
+            Some(response.clone())
+        }
+        Some(_) => {
+            cache.remove(key);
+            None
+        }
+        None => None,
+    }
+}
+
+fn cache_put(
+    cache: &InsightCache,
+    key: String,
+    response: SecurityInsightResponse,
+    now: DateTime<Utc>,
+) {
+    let mut cache = cache.0.lock().unwrap_or_else(|e| e.into_inner());
+    if !cache.contains_key(&key) && cache.len() >= MAX_CACHE_ENTRIES {
+        let cutoff = now - Duration::days(CACHE_TTL_DAYS);
+        cache.retain(|_, (_, at)| *at >= cutoff);
+        if cache.len() >= MAX_CACHE_ENTRIES
+            && let Some(oldest) = cache
+                .iter()
+                .min_by_key(|(_, (_, at))| *at)
+                .map(|(k, _)| k.clone())
+        {
+            cache.remove(&oldest);
+        }
+    }
+    cache.insert(key, (response, now));
+}
+
+/// A coin the crypto registry knows, else the instrument type the quote source reports.
+async fn classify<'e>(
+    db: impl DbExec<'e>,
+    seams: &AnalysisSeams,
+    upper: &str,
+) -> sqlx::Result<&'static str> {
+    let coin: bool =
+        db::query_scalar("SELECT EXISTS(SELECT 1 FROM crypto_asset WHERE upper(ticker) = $1)")
+            .bind(upper)
+            .fetch_one(db)
+            .await?;
+    if coin {
+        return Ok("CRYPTO");
+    }
+    let Some(kind) = seams.instrument_types.instrument_type(upper).await else {
+        return Ok("UNKNOWN");
+    };
+    Ok(match kind.to_uppercase().as_str() {
+        "ETF" | "MUTUALFUND" => "ETF",
+        "EQUITY" => "STOCK",
+        "CRYPTOCURRENCY" => "CRYPTO",
+        _ => "UNKNOWN",
+    })
+}
+
+/// The breakdown whole from the first provider that has one; the facts from whichever has them.
+async fn resolve_composition(
+    seams: &AnalysisSeams,
+    security: &SecurityRef,
+) -> Option<EtfComposition> {
+    let mut slices: Option<EtfComposition> = None;
+    let mut facts: Option<FundFacts> = None;
+    let mut sources: Vec<String> = Vec::new();
+    for provider in &seams.etf_compositions {
+        if !provider.supports(security) {
+            continue;
+        }
+        if slices.is_some() && facts.is_some() {
+            break;
+        }
+        let Some(answer) = provider.fetch(security).await else {
+            continue;
+        };
+        let answer_facts = answer.facts.clone();
+        if slices.is_none() && answer.has_any_data() {
+            if let Some(source) = &answer.source {
+                sources.push(source.clone());
+            }
+            slices = Some(answer);
+        }
+        if facts.is_none()
+            && let Some(f) = answer_facts.filter(|f| !f.is_empty())
+        {
+            if let Some(source) = &f.source
+                && !sources.contains(source)
+            {
+                sources.push(source.clone());
+            }
+            facts = Some(f);
+        }
+    }
+    if slices.is_none() && facts.is_none() {
+        return None;
+    }
+    let source = Some(sources.join(" · "));
+    Some(match slices {
+        None => EtfComposition {
+            companies: Vec::new(),
+            countries: Vec::new(),
+            sectors: Vec::new(),
+            source,
+            as_of: None,
+            facts,
+        },
+        Some(s) => EtfComposition {
+            companies: s.companies,
+            countries: s.countries,
+            sectors: s.sectors,
+            source,
+            as_of: s.as_of,
+            facts,
+        },
+    })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct InsightQuery {
+    name: Option<String>,
+}
+
+async fn insight(
+    State(state): State<AppState>,
+    _auth: Auth,
+    Path(ticker): Path<String>,
+    Query(query): Query<InsightQuery>,
+) -> AppResult<axum::Json<SecurityInsightResponse>> {
+    Ok(axum::Json(
+        get_insight(
+            &state.db,
+            &state.accounts.analysis,
+            &ticker,
+            query.name.as_deref(),
+            None,
+            state.clock.now(),
+        )
+        .await?,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    use async_trait::async_trait;
+    use chrono::TimeZone;
+
+    use super::*;
+    use crate::accounts::analysis::seams::InstrumentTypeSource;
+    use crate::db::Db;
+    use crate::db::sqlite::{SqliteDb, migrate};
+
+    #[derive(Default)]
+    struct CountingTypes(Mutex<HashMap<String, usize>>);
+
+    impl CountingTypes {
+        fn calls(&self, ticker: &str) -> usize {
+            *self.0.lock().unwrap().get(ticker).unwrap_or(&0)
+        }
+    }
+
+    #[async_trait]
+    impl InstrumentTypeSource for CountingTypes {
+        async fn instrument_type(&self, upper_ticker: &str) -> Option<String> {
+            *self
+                .0
+                .lock()
+                .unwrap()
+                .entry(upper_ticker.to_owned())
+                .or_default() += 1;
+            Some("EQUITY".to_owned())
+        }
+    }
+
+    fn in_memory_db() -> Db {
+        let sq = SqliteDb::open_in_memory().unwrap();
+        sq.with_conn(|c| Ok(migrate::migrate(c).unwrap())).unwrap();
+        Db::from(sq)
+    }
+
+    #[tokio::test]
+    async fn insight_cache_evicts_oldest_entries_once_capacity_is_reached() {
+        let db = in_memory_db();
+        let types = Arc::new(CountingTypes::default());
+        let seams = AnalysisSeams {
+            instrument_types: types.clone(),
+            ..AnalysisSeams::default()
+        };
+        let t0 = Utc.with_ymd_and_hms(2026, 1, 15, 10, 0, 0).unwrap();
+
+        // Populate 1025 distinct tickers within the 3-day TTL window.
+        for i in 0..1025_i64 {
+            let ticker = format!("T{i}");
+            let resp = get_insight(&db, &seams, &ticker, None, None, t0 + Duration::seconds(i))
+                .await
+                .unwrap();
+            assert_eq!(resp.asset_type, "STOCK");
+        }
+        assert_eq!(types.calls("T0"), 1);
+        assert_eq!(types.calls("T1024"), 1);
+
+        // The most recent entry is still cached; the oldest entry was evicted.
+        get_insight(
+            &db,
+            &seams,
+            "T1024",
+            None,
+            None,
+            t0 + Duration::seconds(2000),
+        )
+        .await
+        .unwrap();
+        assert_eq!(types.calls("T1024"), 1);
+
+        get_insight(&db, &seams, "T0", None, None, t0 + Duration::seconds(2001))
+            .await
+            .unwrap();
+        assert_eq!(
+            types.calls("T0"),
+            2,
+            "oldest entry must have been evicted once cache reached its cap"
+        );
+    }
+
+    #[tokio::test]
+    async fn insight_cache_sweeps_expired_entries_before_evicting_live_ones() {
+        let db = in_memory_db();
+        let types = Arc::new(CountingTypes::default());
+        let seams = AnalysisSeams {
+            instrument_types: types.clone(),
+            ..AnalysisSeams::default()
+        };
+        let t0 = Utc.with_ymd_and_hms(2026, 1, 15, 10, 0, 0).unwrap();
+
+        // One entry written four days earlier is expired once we advance to t1.
+        get_insight(&db, &seams, "EXPIRED", None, None, t0)
+            .await
+            .unwrap();
+        let t1 = t0 + Duration::days(CACHE_TTL_DAYS + 1);
+        for i in 0..MAX_CACHE_ENTRIES as i64 {
+            let ticker = format!("LIVE{i}");
+            get_insight(&db, &seams, &ticker, None, None, t1 + Duration::seconds(i))
+                .await
+                .unwrap();
+        }
+        // LIVE0 is still live and must survive because EXPIRED was swept first.
+        get_insight(
+            &db,
+            &seams,
+            "LIVE0",
+            None,
+            None,
+            t1 + Duration::seconds(2000),
+        )
+        .await
+        .unwrap();
+        assert_eq!(types.calls("LIVE0"), 1);
+    }
+}

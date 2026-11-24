@@ -235,7 +235,7 @@ It also injects each account's current balance at today's date if no snapshot ex
 
 - `frontend/src/components/shared/AccountForm.tsx` — `OPENING_DATE_TYPES` and the date field
 - `frontend/src/components/accounts/LifeContractSection.tsx` — an assurance-vie's contract figures on the detail page
-- `backend/src/main/resources/db/migration/V91__account_opened_at.sql`
+- `backend-rs/migrations/V91__account_opened_at.sql`
 - `frontend/src/pages/accounts/AccountsPage.tsx` — page with summary card, PnL chart, and grid
 - `frontend/src/components/shared/AccountCard.tsx` — one card; `AccountAvatar` / `PropertyAvatar`
 - `frontend/src/lib/property-icons.ts` — `PROPERTY_KIND_ICONS`, shared with `AddPropertyModal`

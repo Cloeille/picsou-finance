@@ -28,6 +28,7 @@ import {
   useProviderSync,
 } from "@/features/sync/hooks"
 import { getErrorCode, getErrorDetail, getErrorStatus } from "@/lib/errors"
+import { useAppStore } from "@/stores/app-store"
 
 /**
  * `KEYPAD` is a pop-up showing the bank's virtual keypad: the user reads the
@@ -138,6 +139,7 @@ interface LbpPanelProps {
 
 export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
   const { t } = useTranslation()
+  const desktopMode = useAppStore((s) => s.desktopMode)
   const [authState, setAuthState] = useState<AuthState>("IDLE")
   // `null` means untouched: fall back to the remembered identifier, if any.
   const [customerId, setCustomerId] = useState<string | null>(null)
@@ -655,7 +657,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
                     {t("sync.lbp.rememberIdentifier")}
                   </Label>
                   <p className="text-sm text-muted-foreground">
-                    {t("sync.lbp.rememberIdentifierHint")}
+                    {desktopMode ? t("sync.lbp.rememberIdentifierHintDesktop") : t("sync.lbp.rememberIdentifierHint")}
                   </p>
                 </div>
               </div>

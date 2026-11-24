@@ -2,26 +2,134 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="color-scheme" content="light dark" />
     <title>Picsou</title>
     <style>
-      body { margin: 0; height: 100vh; display: grid; place-items: center; font: 15px system-ui, sans-serif; background: #0f1115; color: #e6e6e6; }
-      main { max-width: 32rem; text-align: center; }
-      #error { display: none; color: #ff8a80; white-space: pre-wrap; }
+      /* DESIGN.md: Vault Light canvas, Ledger Ink, Quiet Slate, Coffre Blue on the one control. */
+      :root {
+        --canvas: oklch(1 0 0);
+        --ink: oklch(0.145 0 0);
+        --slate: oklch(0.45 0 0);
+        --ring: oklch(0.145 0 0 / 10%);
+        --track: oklch(0.97 0 0);
+        --primary: oklch(0.488 0.243 264.376);
+        --primary-ink: oklch(0.97 0.014 254.604);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --canvas: oklch(0.145 0 0);
+          --ink: oklch(0.985 0 0);
+          --slate: oklch(0.708 0 0);
+          --ring: oklch(1 0 0 / 10%);
+          --track: oklch(0.269 0 0);
+          --primary: oklch(0.707 0.165 254.624);
+          --primary-ink: oklch(0.19 0.06 267.935);
+        }
+      }
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: grid; place-items: center; background: var(--canvas); color: var(--ink);
+        font: 0.875rem/1.5 "Geist Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+        -webkit-font-smoothing: antialiased; cursor: default; user-select: none;
+      }
+      main { width: min(24rem, calc(100% - 3rem)); text-align: center; }
+      h1 { margin: 0 0 0.25rem; font-size: 1rem; font-weight: 700; letter-spacing: -0.01em; }
+      p { margin: 0; color: var(--slate); }
+      /* Shown only when the start takes long enough to notice: a fast start never flashes it. */
+      .progress {
+        width: 8rem; height: 2px; margin: 1.25rem auto 0; overflow: hidden; border-radius: 1px;
+        background: var(--track); opacity: 0; animation: appear 0.2s ease-out 0.8s forwards;
+      }
+      .progress::after {
+        content: ""; display: block; width: 40%; height: 100%; border-radius: 1px;
+        background: var(--primary); animation: slide 1.4s ease-in-out infinite;
+      }
+      @keyframes appear { to { opacity: 1; } }
+      @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+      @media (prefers-reduced-motion: reduce) {
+        .progress { animation: none; opacity: 1; }
+        .progress::after { animation: none; width: 100%; opacity: 0.35; }
+      }
+      #error {
+        display: none; margin-top: 1rem; padding: 1rem; border-radius: 0.5rem; text-align: left;
+        color: var(--ink); white-space: pre-wrap; user-select: text; box-shadow: 0 0 0 1px var(--ring);
+      }
       body.failed #error { display: block; }
-      body.failed #waiting { display: none; }
+      body.failed #waiting, body.failed .progress { display: none; }
+      button {
+        display: none; margin: 1rem auto 0; height: 2.25rem; padding: 0 1rem; border: 0;
+        border-radius: 0.5rem; background: var(--primary); color: var(--primary-ink);
+        font: inherit; font-weight: 500; cursor: pointer; transition: transform 0.1s ease-out;
+      }
+      button:active { transform: scale(0.98); }
+      button:disabled { opacity: 0.5; cursor: default; }
+      button:focus-visible { outline: 2px solid var(--slate); outline-offset: 2px; }
+      body.restorable button { display: block; }
     </style>
   </head>
   <body>
     <main>
       <h1>Picsou</h1>
-      <p id="waiting">Starting Picsou. The first start prepares the database and takes up to a minute.</p>
-      <p id="error"></p>
+      <p id="waiting">Opening your data</p>
+      <div class="progress" aria-hidden="true"></div>
+      <p id="error" role="alert"></p>
+      <button id="restore" type="button">Restore my data from before the update</button>
     </main>
     <script>
-      window.picsouFailed = (message) => {
-        document.getElementById("error").textContent = "Picsou could not start.\n" + message;
-        document.body.classList.add("failed");
+      // The shell's four languages, as in the app; the markup above is the English fallback.
+      const TEXTS = {
+        en: {
+          waiting: "Opening your data",
+          failed: "Picsou could not start.",
+          restore: "Restore my data from before the update",
+          restoring: "Restoring your data. This can take a minute; keep Picsou open.",
+          restoreFailed: "The restore did not complete: ",
+        },
+        fr: {
+          waiting: "Ouverture de vos données",
+          failed: "Picsou n'a pas pu démarrer.",
+          restore: "Restaurer mes données d'avant la mise à jour",
+          restoring: "Restauration de vos données. Cela peut prendre une minute, gardez Picsou ouvert.",
+          restoreFailed: "La restauration n'a pas abouti : ",
+        },
+        es: {
+          waiting: "Abriendo tus datos",
+          failed: "Picsou no ha podido iniciarse.",
+          restore: "Restaurar mis datos anteriores a la actualización",
+          restoring: "Restaurando tus datos. Puede tardar un minuto; mantén Picsou abierto.",
+          restoreFailed: "La restauración no se ha completado: ",
+        },
+        de: {
+          waiting: "Deine Daten werden geöffnet",
+          failed: "Picsou konnte nicht gestartet werden.",
+          restore: "Meine Daten von vor dem Update wiederherstellen",
+          restoring: "Deine Daten werden wiederhergestellt. Das kann eine Minute dauern. Lass Picsou geöffnet.",
+          restoreFailed: "Die Wiederherstellung wurde nicht abgeschlossen: ",
+        },
       };
+      const lang = (navigator.language || "en").slice(0, 2).toLowerCase();
+      const text = TEXTS[lang] || TEXTS.en;
+      document.documentElement.lang = TEXTS[lang] ? lang : "en";
+      document.getElementById("waiting").textContent = text.waiting;
+      const error = document.getElementById("error");
+      const restore = document.getElementById("restore");
+      restore.textContent = text.restore;
+      window.picsouFailed = (message, canRestore) => {
+        error.textContent = text.failed + "\n" + message;
+        document.body.classList.add("failed");
+        document.body.classList.toggle("restorable", Boolean(canRestore));
+      };
+      restore.addEventListener("click", async () => {
+        restore.disabled = true;
+        error.textContent = text.restoring;
+        try {
+          error.textContent = await window.__TAURI__.core.invoke("restore_backup");
+          document.body.classList.remove("restorable");
+        } catch (failure) {
+          error.textContent = text.restoreFailed + failure;
+          restore.disabled = false;
+        }
+      });
     </script>
   </body>
 </html>

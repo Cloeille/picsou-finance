@@ -1,6 +1,6 @@
 # Feature: Actual Budget import
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-24
 
 ## Context
 
@@ -125,14 +125,14 @@ A budget is single-currency. When the file records no currency, the wizard asks 
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/imports/actual/ActualBudgetFileParser.java` — signature
+- `backend-rs/src/transfer/actual/parser.rs` — signature
   check, bounded zip extraction, private temp directory and its cleanup.
-- `backend/src/main/java/com/picsou/imports/actual/ActualBudgetDatabaseReader.java` — read-only
+- `backend-rs/src/transfer/actual/parser.rs` — read-only
   SQLite access and Actual's visibility rules (tombstones, splits, transfers, merges).
-- `backend/src/main/java/com/picsou/imports/actual/ParsedActualBudget.java` — the parsed shape.
-- `backend/src/main/java/com/picsou/service/ActualBudgetImportService.java` — preview cache,
+- `ParsedActualBudget.java` — the parsed shape.
+- `backend-rs/src/transfer/actual/` — preview cache,
   mapping validation, dedup, persistence.
-- `backend/src/main/java/com/picsou/controller/ActualBudgetImportController.java` — endpoints,
+- `backend-rs/src/transfer/actual/mod.rs` — endpoints,
   member scope, `syncBuckets` throttle.
 - `frontend/src/features/actual/{api,hooks,types}.ts` and
   `frontend/src/pages/sync/ActualBudgetTab.tsx` — the wizard on the sync page.
@@ -194,7 +194,8 @@ execute ─► validate mappings + sync plan ─► consume token ─► @Transa
     file never held.
   - Rows are counted before a table is read. Stored rows (deleted ones included): 10 000
     accounts, category groups and categories; 50 000 payees, `payee_mapping` and
-    `category_mapping` rows; 300 000 transactions. A heavy decade-long budget holds tens of
+    `category_mapping` rows; 300 000 transactions; 10 000 `preferences` rows (read for the
+    budget's currency, plain table and stored columns like the others). A heavy decade-long budget holds tens of
     thousands of transactions, a few thousand payees and some hundred categories, so the caps
     leave an order of magnitude of headroom; the transaction cap leaves room for tombstones and
     split parents above the 200 000 live rows imported.

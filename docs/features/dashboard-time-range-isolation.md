@@ -15,7 +15,7 @@ The dashboard fetches all data once via `useDashboard()` (no range parameter). T
 - `frontend/src/pages/dashboard/DashboardPage.tsx` — Page layout, owns `range` state, calculates trend over selected period, passes `range`/`onRangeChange` to chart
 - `frontend/src/components/shared/NetWorthChart.tsx` — Chart with `range`/`onRangeChange` props, `filterByRange()` client-side filter
 - `frontend/src/components/shared/TimeRangeSelector.tsx` — Time range button controls (1D, 7D, 1M, 3M, YTD, 1Y, ALL)
-- `backend/src/main/java/com/picsou/service/DashboardService.java` — `buildNetWorthHistory()` always fetches last 12 months
+- `backend-rs/src/accounts/dashboard.rs` — `buildNetWorthHistory()` always fetches last 12 months
 
 ### Flow
 

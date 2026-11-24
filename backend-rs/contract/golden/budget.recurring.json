@@ -1,0 +1,829 @@
+{
+  "description": "Manual series, detection with silent auto-confirm, activity feed and undo, triage, calendar with a card payment, errors",
+  "scenario": "budget.recurring",
+  "steps": [
+    {
+      "body": {
+        "archived": false,
+        "color": "#6366f1",
+        "id": "<id:1>",
+        "isDefault": false,
+        "kind": "EXPENSE",
+        "name": "Sport",
+        "sortOrder": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "06 POST /api/categories as admin"
+    },
+    {
+      "body": {
+        "autoConfirmed": false,
+        "cadence": "WEEKLY",
+        "categoryColor": "#6366f1",
+        "categoryId": "<id:1>",
+        "categoryName": "Sport",
+        "counterparty": "GYM",
+        "expectedAmount": -29.999,
+        "id": "<id:1>",
+        "label": "Salle de sport",
+        "nextDueDate": "<today+3>",
+        "runtimeStatus": "SCHEDULED",
+        "status": "CONFIRMED",
+        "variable": false
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "07 POST /api/recurring as admin"
+    },
+    {
+      "body": {
+        "errors": {
+          "cadence": "must not be null",
+          "expectedAmount": "must not be null",
+          "label": "must not be blank"
+        },
+        "instance": "/api/recurring",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "08 POST /api/recurring as admin"
+    },
+    {
+      "body": {
+        "detail": "Category not found",
+        "instance": "/api/recurring",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "09 POST /api/recurring as admin"
+    },
+    {
+      "body": [
+        {
+          "autoConfirmed": false,
+          "cadence": "WEEKLY",
+          "categoryColor": "#6366f1",
+          "categoryId": "<id:1>",
+          "categoryName": "Sport",
+          "counterparty": "GYM",
+          "expectedAmount": -30.00,
+          "id": "<id:1>",
+          "label": "Salle de sport",
+          "nextDueDate": "<today+3>",
+          "runtimeStatus": "DUE_SOON",
+          "status": "CONFIRMED",
+          "variable": false
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "10 GET /api/recurring as admin"
+    },
+    {
+      "body": [
+        {
+          "categoryColor": "#6366f1",
+          "categoryId": "<id:1>",
+          "categoryName": "Sport",
+          "counterparty": "GYM",
+          "creditCardPayment": false,
+          "dueDate": "<today+3>",
+          "expectedAmount": -30.00,
+          "label": "Salle de sport",
+          "seriesId": "<id:1>"
+        },
+        {
+          "categoryColor": "#6366f1",
+          "categoryId": "<id:1>",
+          "categoryName": "Sport",
+          "counterparty": "GYM",
+          "creditCardPayment": false,
+          "dueDate": "<today+10>",
+          "expectedAmount": -30.00,
+          "label": "Salle de sport",
+          "seriesId": "<id:1>"
+        },
+        {
+          "counterparty": "Amex",
+          "creditCardPayment": true,
+          "dueDate": "<today+10>",
+          "expectedAmount": -120.50000000,
+          "label": "Amex",
+          "seriesId": "<id:2>"
+        },
+        {
+          "categoryColor": "#6366f1",
+          "categoryId": "<id:1>",
+          "categoryName": "Sport",
+          "counterparty": "GYM",
+          "creditCardPayment": false,
+          "dueDate": "<today+17>",
+          "expectedAmount": -30.00,
+          "label": "Salle de sport",
+          "seriesId": "<id:1>"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "11 GET /api/recurring/calendar?horizonDays=20 as admin"
+    },
+    {
+      "body": {
+        "detected": 2
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "20 POST /api/recurring/detect as admin"
+    },
+    {
+      "body": [
+        {
+          "amountMax": -30.00,
+          "amountMin": -40.00,
+          "autoConfirmed": false,
+          "cadence": "WEEKLY",
+          "confidence": 0.734,
+          "counterparty": "EDF",
+          "expectedAmount": -36.00,
+          "id": "<id:3>",
+          "label": "EDF",
+          "lastSeenDate": "<today-7>",
+          "nextDueDate": "<today>",
+          "runtimeStatus": "DUE_SOON",
+          "status": "SUGGESTED",
+          "variable": true
+        },
+        {
+          "autoConfirmed": false,
+          "cadence": "WEEKLY",
+          "categoryColor": "#6366f1",
+          "categoryId": "<id:1>",
+          "categoryName": "Sport",
+          "counterparty": "GYM",
+          "expectedAmount": -30.00,
+          "id": "<id:1>",
+          "label": "Salle de sport",
+          "nextDueDate": "<today+3>",
+          "runtimeStatus": "DUE_SOON",
+          "status": "CONFIRMED",
+          "variable": false
+        },
+        {
+          "amountMax": -4.99,
+          "amountMin": -4.99,
+          "autoConfirmed": true,
+          "cadence": "WEEKLY",
+          "confidence": 0.920,
+          "counterparty": "SPOTIFY",
+          "expectedAmount": -4.99,
+          "id": "<id:4>",
+          "label": "SPOTIFY",
+          "lastSeenDate": "<today>",
+          "nextDueDate": "<today+7>",
+          "runtimeStatus": "DUE_SOON",
+          "status": "CONFIRMED",
+          "variable": false
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "21 GET /api/recurring as admin"
+    },
+    {
+      "body": [
+        {
+          "amountMax": -30.00,
+          "amountMin": -40.00,
+          "autoConfirmed": false,
+          "cadence": "WEEKLY",
+          "confidence": 0.734,
+          "counterparty": "EDF",
+          "expectedAmount": -36.00,
+          "id": "<id:3>",
+          "label": "EDF",
+          "lastSeenDate": "<today-7>",
+          "nextDueDate": "<today>",
+          "runtimeStatus": "DUE_SOON",
+          "status": "SUGGESTED",
+          "variable": true
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "22 GET /api/recurring?status=SUGGESTED as admin"
+    },
+    {
+      "body": {
+        "detail": "Failed to convert 'status' with value: 'NOPE'",
+        "instance": "/api/recurring",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "23 GET /api/recurring?status=NOPE as admin"
+    },
+    {
+      "body": [
+        {
+          "cadence": "WEEKLY",
+          "expectedAmount": -4.99,
+          "label": "SPOTIFY",
+          "occurredOn": "<today>",
+          "seriesId": "<id:4>",
+          "type": "AUTO_CONFIRMED"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "24 GET /api/recurring/activity as admin"
+    },
+    {
+      "body": {
+        "amountMax": -4.99,
+        "amountMin": -4.99,
+        "autoConfirmed": false,
+        "cadence": "WEEKLY",
+        "confidence": 0.920,
+        "counterparty": "SPOTIFY",
+        "expectedAmount": -4.99,
+        "id": "<id:4>",
+        "label": "SPOTIFY",
+        "lastSeenDate": "<today>",
+        "nextDueDate": "<today+7>",
+        "runtimeStatus": "DUE_SOON",
+        "status": "IGNORED",
+        "variable": false
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "25 POST /api/recurring/{spotify}/undo as admin"
+    },
+    {
+      "body": {
+        "detected": 1
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "26 POST /api/recurring/detect as admin"
+    },
+    {
+      "body": {
+        "amountMax": -30.00,
+        "amountMin": -40.00,
+        "autoConfirmed": false,
+        "cadence": "WEEKLY",
+        "confidence": 0.734,
+        "counterparty": "EDF",
+        "expectedAmount": -36.00,
+        "id": "<id:3>",
+        "label": "EDF",
+        "lastSeenDate": "<today-7>",
+        "nextDueDate": "<today>",
+        "runtimeStatus": "SCHEDULED",
+        "status": "CONFIRMED",
+        "variable": true
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "27 POST /api/recurring/{edf}/confirm as admin"
+    },
+    {
+      "body": {
+        "amountMax": -30.00,
+        "amountMin": -40.00,
+        "autoConfirmed": false,
+        "cadence": "WEEKLY",
+        "confidence": 0.734,
+        "expectedAmount": -36.5,
+        "id": "<id:3>",
+        "label": "EDF Énergie",
+        "lastSeenDate": "<today-7>",
+        "nextDueDate": "<today+5>",
+        "runtimeStatus": "SCHEDULED",
+        "status": "CONFIRMED",
+        "variable": true
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "28 PUT /api/recurring/{edf} as admin"
+    },
+    {
+      "body": [
+        {
+          "categoryColor": "#6366f1",
+          "categoryId": "<id:1>",
+          "categoryName": "Sport",
+          "counterparty": "GYM",
+          "creditCardPayment": false,
+          "dueDate": "<today+3>",
+          "expectedAmount": -30.00,
+          "label": "Salle de sport",
+          "seriesId": "<id:1>"
+        },
+        {
+          "creditCardPayment": false,
+          "dueDate": "<today+5>",
+          "expectedAmount": -36.50,
+          "label": "EDF Énergie",
+          "seriesId": "<id:3>"
+        },
+        {
+          "categoryColor": "#6366f1",
+          "categoryId": "<id:1>",
+          "categoryName": "Sport",
+          "counterparty": "GYM",
+          "creditCardPayment": false,
+          "dueDate": "<today+10>",
+          "expectedAmount": -30.00,
+          "label": "Salle de sport",
+          "seriesId": "<id:1>"
+        },
+        {
+          "counterparty": "Amex",
+          "creditCardPayment": true,
+          "dueDate": "<today+10>",
+          "expectedAmount": -120.50000000,
+          "label": "Amex",
+          "seriesId": "<id:2>"
+        },
+        {
+          "creditCardPayment": false,
+          "dueDate": "<today+12>",
+          "expectedAmount": -36.50,
+          "label": "EDF Énergie",
+          "seriesId": "<id:3>"
+        },
+        {
+          "categoryColor": "#6366f1",
+          "categoryId": "<id:1>",
+          "categoryName": "Sport",
+          "counterparty": "GYM",
+          "creditCardPayment": false,
+          "dueDate": "<today+17>",
+          "expectedAmount": -30.00,
+          "label": "Salle de sport",
+          "seriesId": "<id:1>"
+        },
+        {
+          "creditCardPayment": false,
+          "dueDate": "<today+19>",
+          "expectedAmount": -36.50,
+          "label": "EDF Énergie",
+          "seriesId": "<id:3>"
+        },
+        {
+          "categoryColor": "#6366f1",
+          "categoryId": "<id:1>",
+          "categoryName": "Sport",
+          "counterparty": "GYM",
+          "creditCardPayment": false,
+          "dueDate": "<today+24>",
+          "expectedAmount": -30.00,
+          "label": "Salle de sport",
+          "seriesId": "<id:1>"
+        },
+        {
+          "creditCardPayment": false,
+          "dueDate": "<today+26>",
+          "expectedAmount": -36.50,
+          "label": "EDF Énergie",
+          "seriesId": "<id:3>"
+        },
+        {
+          "categoryColor": "#6366f1",
+          "categoryId": "<id:1>",
+          "categoryName": "Sport",
+          "counterparty": "GYM",
+          "creditCardPayment": false,
+          "dueDate": "<today+31>",
+          "expectedAmount": -30.00,
+          "label": "Salle de sport",
+          "seriesId": "<id:1>"
+        },
+        {
+          "creditCardPayment": false,
+          "dueDate": "<today+33>",
+          "expectedAmount": -36.50,
+          "label": "EDF Énergie",
+          "seriesId": "<id:3>"
+        },
+        {
+          "categoryColor": "#6366f1",
+          "categoryId": "<id:1>",
+          "categoryName": "Sport",
+          "counterparty": "GYM",
+          "creditCardPayment": false,
+          "dueDate": "<today+38>",
+          "expectedAmount": -30.00,
+          "label": "Salle de sport",
+          "seriesId": "<id:1>"
+        },
+        {
+          "creditCardPayment": false,
+          "dueDate": "<month+1:last>",
+          "expectedAmount": -36.50,
+          "label": "EDF Énergie",
+          "seriesId": "<id:3>"
+        },
+        {
+          "categoryColor": "#6366f1",
+          "categoryId": "<id:1>",
+          "categoryName": "Sport",
+          "counterparty": "GYM",
+          "creditCardPayment": false,
+          "dueDate": "<today+45>",
+          "expectedAmount": -30.00,
+          "label": "Salle de sport",
+          "seriesId": "<id:1>"
+        },
+        {
+          "creditCardPayment": false,
+          "dueDate": "<today+47>",
+          "expectedAmount": -36.50,
+          "label": "EDF Énergie",
+          "seriesId": "<id:3>"
+        },
+        {
+          "categoryColor": "#6366f1",
+          "categoryId": "<id:1>",
+          "categoryName": "Sport",
+          "counterparty": "GYM",
+          "creditCardPayment": false,
+          "dueDate": "<today+52>",
+          "expectedAmount": -30.00,
+          "label": "Salle de sport",
+          "seriesId": "<id:1>"
+        },
+        {
+          "creditCardPayment": false,
+          "dueDate": "<today+54>",
+          "expectedAmount": -36.50,
+          "label": "EDF Énergie",
+          "seriesId": "<id:3>"
+        },
+        {
+          "categoryColor": "#6366f1",
+          "categoryId": "<id:1>",
+          "categoryName": "Sport",
+          "counterparty": "GYM",
+          "creditCardPayment": false,
+          "dueDate": "<today+59>",
+          "expectedAmount": -30.00,
+          "label": "Salle de sport",
+          "seriesId": "<id:1>"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "29 GET /api/recurring/calendar as admin"
+    },
+    {
+      "body": {
+        "detail": "Failed to convert 'horizonDays' with value: 'abc'",
+        "instance": "/api/recurring/calendar",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "30 GET /api/recurring/calendar?horizonDays=abc as admin"
+    },
+    {
+      "body": {
+        "autoConfirmed": false,
+        "cadence": "WEEKLY",
+        "categoryColor": "#6366f1",
+        "categoryId": "<id:1>",
+        "categoryName": "Sport",
+        "counterparty": "GYM",
+        "expectedAmount": -30.00,
+        "id": "<id:1>",
+        "label": "Salle de sport",
+        "nextDueDate": "<today+3>",
+        "runtimeStatus": "SCHEDULED",
+        "status": "IGNORED",
+        "variable": false
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "31 POST /api/recurring/{gym}/ignore as admin"
+    },
+    {
+      "body": null,
+      "bodyKind": "empty",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 204,
+      "step": "32 DELETE /api/recurring/{gym} as admin"
+    },
+    {
+      "body": {
+        "detail": "Recurring series not found",
+        "instance": "/api/recurring/<id:1>/confirm",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "33 POST /api/recurring/{gym}/confirm as admin"
+    },
+    {
+      "body": [
+        {
+          "amountMax": -30.00,
+          "amountMin": -40.00,
+          "autoConfirmed": false,
+          "cadence": "WEEKLY",
+          "confidence": 0.734,
+          "expectedAmount": -36.50,
+          "id": "<id:3>",
+          "label": "EDF Énergie",
+          "lastSeenDate": "<today-7>",
+          "nextDueDate": "<today+5>",
+          "runtimeStatus": "DUE_SOON",
+          "status": "CONFIRMED",
+          "variable": true
+        },
+        {
+          "amountMax": -4.99,
+          "amountMin": -4.99,
+          "autoConfirmed": false,
+          "cadence": "WEEKLY",
+          "confidence": 0.920,
+          "counterparty": "SPOTIFY",
+          "expectedAmount": -4.99,
+          "id": "<id:4>",
+          "label": "SPOTIFY",
+          "lastSeenDate": "<today>",
+          "nextDueDate": "<today+7>",
+          "runtimeStatus": "DUE_SOON",
+          "status": "IGNORED",
+          "variable": false
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "34 GET /api/recurring as admin"
+    }
+  ]
+}

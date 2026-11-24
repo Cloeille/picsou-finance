@@ -1,0 +1,407 @@
+{
+  "description": "A SCPI position values its account from the withdrawal price; incomplete prices leave the balance",
+  "scenario": "accounts.scpi",
+  "steps": [
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 0,
+        "currentBalanceEur": 0,
+        "hidden": false,
+        "id": "<id:1>",
+        "isManual": true,
+        "listCollapsed": false,
+        "name": "Ma SCPI",
+        "type": "SCPI"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "04 POST /api/accounts as admin"
+    },
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 10,
+        "currentBalanceEur": 10,
+        "hidden": false,
+        "id": "<id:2>",
+        "isManual": true,
+        "listCollapsed": false,
+        "name": "Courant",
+        "type": "CHECKING"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "05 POST /api/accounts as admin"
+    },
+    {
+      "body": {
+        "detail": "Account is not a SCPI account",
+        "instance": "/api/accounts/<id:2>/scpi",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "06 PUT /api/accounts/{checking}/scpi as admin"
+    },
+    {
+      "body": {
+        "errors": {
+          "shareCount": "must be greater than or equal to 0"
+        },
+        "instance": "/api/accounts/<id:1>/scpi",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "07 PUT /api/accounts/{scpi}/scpi as admin"
+    },
+    {
+      "body": {
+        "dividendPolicy": "CASH",
+        "isin": "FR0000000001",
+        "shareCount": 12.5,
+        "subscriptionPriceEur": 250,
+        "valuationStatus": "PRICE_INCOMPLETE"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "08 PUT /api/accounts/{scpi}/scpi as admin"
+    },
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 0E-8,
+        "currentBalanceEur": 0E-8,
+        "hidden": false,
+        "id": "<id:1>",
+        "isManual": true,
+        "isOwner": true,
+        "listCollapsed": false,
+        "name": "Ma SCPI",
+        "scpi": {
+          "dividendPolicy": "CASH",
+          "isin": "FR0000000001",
+          "shareCount": 12.50000000,
+          "subscriptionPriceEur": 250.00000000,
+          "valuationStatus": "PRICE_INCOMPLETE"
+        },
+        "type": "SCPI"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "09 GET /api/accounts/{scpi} as admin"
+    },
+    {
+      "body": {
+        "annualDistributionPerShareEur": 11.5,
+        "corumFundCode": "CXS",
+        "distributionFrequency": "QUARTERLY",
+        "dividendPolicy": "REINVEST",
+        "jouissanceDate": "<month-32:first>",
+        "managementCompany": "Gestion",
+        "shareCount": 12.5,
+        "subscriptionPriceEur": 250,
+        "valuationStatus": "OK",
+        "withdrawalPriceEur": 227.33,
+        "withdrawalValueEur": 2841.62500000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "10 PUT /api/accounts/{scpi}/scpi as admin"
+    },
+    {
+      "body": {
+        "cashBalance": 0E-8,
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 2841.62500000,
+        "currentBalanceEur": 2841.62500000,
+        "hidden": false,
+        "id": "<id:1>",
+        "isManual": true,
+        "isOwner": true,
+        "listCollapsed": false,
+        "name": "Ma SCPI",
+        "scpi": {
+          "annualDistributionPerShareEur": 11.50000000,
+          "corumFundCode": "CXS",
+          "distributionFrequency": "QUARTERLY",
+          "dividendPolicy": "REINVEST",
+          "jouissanceDate": "<month-32:first>",
+          "managementCompany": "Gestion",
+          "shareCount": 12.50000000,
+          "subscriptionPriceEur": 250.00000000,
+          "valuationStatus": "OK",
+          "withdrawalPriceEur": 227.33000000,
+          "withdrawalValueEur": 2841.62500000
+        },
+        "type": "SCPI"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "11 GET /api/accounts/{scpi} as admin"
+    },
+    {
+      "body": {
+        "annualDistributionPerShareEur": 11.50000000,
+        "corumFundCode": "CXS",
+        "distributionFrequency": "QUARTERLY",
+        "dividendPolicy": "CASH",
+        "shareCount": 0,
+        "valuationStatus": "OK",
+        "withdrawalValueEur": 0E-8
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "12 PUT /api/accounts/{scpi}/scpi as admin"
+    },
+    {
+      "body": [
+        {
+          "cashBalance": 0E-8,
+          "color": "#6366f1",
+          "createdAt": "<instant>",
+          "currency": "EUR",
+          "currentBalance": 0E-8,
+          "currentBalanceEur": 0E-8,
+          "hidden": false,
+          "id": "<id:1>",
+          "isManual": true,
+          "isOwner": true,
+          "listCollapsed": false,
+          "name": "Ma SCPI",
+          "scpi": {
+            "annualDistributionPerShareEur": 11.50000000,
+            "corumFundCode": "CXS",
+            "distributionFrequency": "QUARTERLY",
+            "dividendPolicy": "CASH",
+            "shareCount": 0E-8,
+            "valuationStatus": "OK",
+            "withdrawalValueEur": 0E-8
+          },
+          "type": "SCPI"
+        },
+        {
+          "color": "#6366f1",
+          "createdAt": "<instant>",
+          "currency": "EUR",
+          "currentBalance": 10.00000000,
+          "currentBalanceEur": 10.00000000,
+          "hidden": false,
+          "id": "<id:2>",
+          "isManual": true,
+          "isOwner": true,
+          "listCollapsed": false,
+          "name": "Courant",
+          "type": "CHECKING"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "13 GET /api/accounts as admin"
+    },
+    {
+      "body": {
+        "connectionLabel": "CORUM",
+        "removesConnection": true
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "14 GET /api/accounts/{scpi}/deletion-impact as admin"
+    },
+    {
+      "body": null,
+      "bodyKind": "empty",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 204,
+      "step": "15 DELETE /api/accounts/{scpi} as admin"
+    },
+    {
+      "body": [
+        {
+          "color": "#6366f1",
+          "createdAt": "<instant>",
+          "currency": "EUR",
+          "currentBalance": 10.00000000,
+          "currentBalanceEur": 10.00000000,
+          "hidden": false,
+          "id": "<id:2>",
+          "isManual": true,
+          "isOwner": true,
+          "listCollapsed": false,
+          "name": "Courant",
+          "type": "CHECKING"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "16 GET /api/accounts as admin"
+    }
+  ]
+}

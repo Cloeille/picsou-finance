@@ -1,0 +1,599 @@
+{
+  "description": "Dashboard, net-worth history, P&L and intraday over manual accounts with snapshots",
+  "scenario": "reads.dashboard-history",
+  "steps": [
+    {
+      "body": {
+        "assets": [],
+        "distribution": [],
+        "goalSummaries": [],
+        "liabilities": [],
+        "netWorthHistory": [],
+        "totalLiabilities": 0,
+        "totalNetWorth": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "04 GET /api/dashboard as admin"
+    },
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 1500.75,
+        "currentBalanceEur": 1500.75,
+        "hidden": false,
+        "id": "<id:1>",
+        "isManual": true,
+        "listCollapsed": false,
+        "name": "Courant",
+        "type": "CHECKING"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "05 POST /api/accounts as admin"
+    },
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 8000,
+        "currentBalanceEur": 8000,
+        "hidden": false,
+        "id": "<id:2>",
+        "isManual": true,
+        "listCollapsed": false,
+        "name": "Livret A",
+        "type": "LIVRET_A"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "06 POST /api/accounts as admin"
+    },
+    {
+      "body": {
+        "balance": 7800,
+        "createdAt": "<instant>",
+        "date": "<today-3>",
+        "id": "<id:3>",
+        "investedAmount": 8000.00000000,
+        "nativeBalance": 7800,
+        "source": "MANUAL",
+        "statementEnteredAt": "<instant>"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "07 POST /api/accounts/{livret}/history as admin"
+    },
+    {
+      "body": {
+        "balance": 1400.5,
+        "createdAt": "<instant>",
+        "date": "<today-2>",
+        "id": "<id:4>",
+        "investedAmount": 1500.75000000,
+        "nativeBalance": 1400.5,
+        "source": "MANUAL",
+        "statementEnteredAt": "<instant>"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "08 POST /api/accounts/{checking}/history as admin"
+    },
+    {
+      "body": {
+        "assets": [
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 1400.50000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Courant",
+            "percentage": 15.22
+          },
+          {
+            "accountId": "<id:2>",
+            "accountType": "LIVRET_A",
+            "balanceEur": 7800.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Livret A",
+            "percentage": 84.78
+          }
+        ],
+        "distribution": [
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 1400.50000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Courant",
+            "percentage": 15.22
+          },
+          {
+            "accountId": "<id:2>",
+            "accountType": "LIVRET_A",
+            "balanceEur": 7800.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Livret A",
+            "percentage": 84.78
+          }
+        ],
+        "goalSummaries": [],
+        "liabilities": [],
+        "netWorthHistory": [
+          {
+            "date": "<today-3>",
+            "invested": 8000.00000000,
+            "pnl": -200.00000000,
+            "total": 7800.00000000
+          },
+          {
+            "date": "<today-2>",
+            "invested": 9500.75000000,
+            "pnl": -300.25000000,
+            "total": 9200.50000000
+          },
+          {
+            "date": "<today>",
+            "invested": 9200.50000000,
+            "pnl": 0E-8,
+            "total": 9200.50000000
+          }
+        ],
+        "totalLiabilities": 0,
+        "totalNetWorth": 9200.50000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "09 GET /api/dashboard as admin"
+    },
+    {
+      "body": {
+        "assets": [
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 1400.50000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Courant",
+            "percentage": 15.22
+          },
+          {
+            "accountId": "<id:2>",
+            "accountType": "LIVRET_A",
+            "balanceEur": 7800.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Livret A",
+            "percentage": 84.78
+          }
+        ],
+        "distribution": [
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 1400.50000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Courant",
+            "percentage": 15.22
+          },
+          {
+            "accountId": "<id:2>",
+            "accountType": "LIVRET_A",
+            "balanceEur": 7800.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Livret A",
+            "percentage": 84.78
+          }
+        ],
+        "goalSummaries": [],
+        "liabilities": [],
+        "netWorthHistory": [
+          {
+            "date": "<today-3>",
+            "invested": 8000.00000000,
+            "pnl": -200.00000000,
+            "total": 7800.00000000
+          },
+          {
+            "date": "<today-2>",
+            "invested": 9500.75000000,
+            "pnl": -300.25000000,
+            "total": 9200.50000000
+          },
+          {
+            "date": "<today>",
+            "invested": 9200.50000000,
+            "pnl": 0E-8,
+            "total": 9200.50000000
+          }
+        ],
+        "totalLiabilities": 0,
+        "totalNetWorth": 9200.50000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "10 GET /api/dashboard?range=1M as admin"
+    },
+    {
+      "body": {
+        "assets": [
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 1400.50000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Courant",
+            "percentage": 15.22
+          },
+          {
+            "accountId": "<id:2>",
+            "accountType": "LIVRET_A",
+            "balanceEur": 7800.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Livret A",
+            "percentage": 84.78
+          }
+        ],
+        "distribution": [
+          {
+            "accountId": "<id:1>",
+            "accountType": "CHECKING",
+            "balanceEur": 1400.50000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Courant",
+            "percentage": 15.22
+          },
+          {
+            "accountId": "<id:2>",
+            "accountType": "LIVRET_A",
+            "balanceEur": 7800.00000000,
+            "color": "#6366f1",
+            "hasHoldings": false,
+            "name": "Livret A",
+            "percentage": 84.78
+          }
+        ],
+        "goalSummaries": [],
+        "liabilities": [],
+        "netWorthHistory": [
+          {
+            "date": "<today-3>",
+            "invested": 8000.00000000,
+            "pnl": -200.00000000,
+            "total": 7800.00000000
+          },
+          {
+            "date": "<today-2>",
+            "invested": 9500.75000000,
+            "pnl": -300.25000000,
+            "total": 9200.50000000
+          },
+          {
+            "date": "<today>",
+            "invested": 9200.50000000,
+            "pnl": 0E-8,
+            "total": 9200.50000000
+          }
+        ],
+        "totalLiabilities": 0,
+        "totalNetWorth": 9200.50000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "11 GET /api/dashboard?range=ALL as admin"
+    },
+    {
+      "body": [
+        {
+          "date": "<today-3>",
+          "invested": 8000.00000000,
+          "pnl": -200.00000000,
+          "total": 7800.00000000
+        },
+        {
+          "date": "<today-2>",
+          "invested": 9500.75000000,
+          "pnl": -300.25000000,
+          "total": 9200.50000000
+        },
+        {
+          "date": "<today>",
+          "invested": 9200.50000000,
+          "pnl": 0E-8,
+          "total": 9200.50000000
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "12 GET /api/history?accountIds={checking},{livret}&months=1&split=false as admin"
+    },
+    {
+      "body": [
+        {
+          "accounts": {
+            "<id:1>": {
+              "invested": 0,
+              "pnl": 0,
+              "total": 0
+            },
+            "<id:2>": {
+              "invested": 8000.00000000,
+              "pnl": -200.00000000,
+              "total": 7800.00000000
+            }
+          },
+          "date": "<today-3>",
+          "invested": 8000.00000000,
+          "pnl": -200.00000000,
+          "total": 7800.00000000
+        },
+        {
+          "accounts": {
+            "<id:1>": {
+              "invested": 1500.75000000,
+              "pnl": -100.25000000,
+              "total": 1400.50000000
+            },
+            "<id:2>": {
+              "invested": 8000.00000000,
+              "pnl": -200.00000000,
+              "total": 7800.00000000
+            }
+          },
+          "date": "<today-2>",
+          "invested": 9500.75000000,
+          "pnl": -300.25000000,
+          "total": 9200.50000000
+        },
+        {
+          "accounts": {
+            "<id:1>": {
+              "invested": 1400.50000000,
+              "pnl": 0E-8,
+              "total": 1400.50000000
+            },
+            "<id:2>": {
+              "invested": 7800.00000000,
+              "pnl": 0E-8,
+              "total": 7800.00000000
+            }
+          },
+          "date": "<today>",
+          "invested": 9200.50000000,
+          "pnl": 0E-8,
+          "total": 9200.50000000
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "13 GET /api/history?accountIds={checking},{livret}&months=1&split=true as admin"
+    },
+    {
+      "body": {
+        "invested": 9200.50000000,
+        "pnl": 0E-8,
+        "pnlPercent": 0.0,
+        "total": 9200.50000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "14 GET /api/history/pnl?accountIds={checking},{livret} as admin"
+    },
+    {
+      "body": {
+        "invested": 1400.50000000,
+        "pnl": 0E-8,
+        "pnlPercent": 0.0,
+        "total": 1400.50000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "15 GET /api/history/pnl?accountIds={checking}&from=<today-3> as admin"
+    },
+    {
+      "body": [
+        {
+          "invested": 9200.50000000,
+          "timestamp": "<local-datetime>",
+          "total": 9200.50000000
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "16 GET /api/history/net-worth/intraday?accountIds={checking},{livret} as admin"
+    },
+    {
+      "body": {
+        "detail": "Required parameter 'accountIds' is not present.",
+        "instance": "/api/history",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "17 GET /api/history?months=1 as admin"
+    }
+  ]
+}

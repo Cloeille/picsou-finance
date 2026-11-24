@@ -46,12 +46,12 @@ PUT /accounts/{id}/ownership
 
 ### Key files
 
-- `service/AccountAccessResolver.java` — visibility, shares, read/write guards, `weigh()`
-- `service/AccountOwnershipService.java` — validation and replace-the-whole-split writes
-- `model/AccountOwnership.java`, `repository/AccountOwnershipRepository.java`
-- `dto/OwnershipRequest.java`, `dto/OwnershipResponse.java`
-- Weighted consumers: `service/DashboardService.java`, `service/HistoryService.java`,
-  `service/FamilyViewService.java`, `service/GoalService.java`
+- `backend-rs/src/ledger/access.rs` — visibility, shares, read/write guards, `weigh()`
+- `backend-rs/src/accounts/ownership.rs` — validation and replace-the-whole-split writes
+- `backend-rs/src/ledger/model.rs`, `backend-rs/src/ledger/access.rs`
+- `backend-rs/src/accounts/ownership.rs`, `backend-rs/src/accounts/ownership.rs`
+- Weighted consumers: `backend-rs/src/accounts/dashboard.rs`, `HistoryService.java`,
+  `FamilyViewService.java`, `backend-rs/src/wealth/goals/`
 - `components/property/OwnershipEditor.tsx`
 - `pages/accounts/AccountDetailPage.tsx` — the loan account sheet carries the same editor next to the loan section (not inside it), so a mortgage split stays editable without debt details, for owners and co-owners (issues #354, #550)
 

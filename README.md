@@ -64,8 +64,8 @@ Track bank accounts, brokerage, crypto, and net worth — all in one place.
 
 ```
 ┌──────────────────┐     ┌───────────────────────┐     ┌────────────┐
-│  React Frontend  │────▶│  Spring Boot Backend   │────▶│ PostgreSQL │
-│   (Vite/Bun)     │◀────│     (Tomcat :8080)     │     │  (:5432)   │
+│  React Frontend  │────▶│     Rust Backend       │────▶│ PostgreSQL │
+│   (Vite/Bun)     │◀────│      (Axum :8080)      │     │ or SQLite  │
 └──────────────────┘     └───────────┬────────────┘     └────────────┘
                                      │
                       ┌──────────────┼──────────────┬──────────────┐
@@ -80,12 +80,14 @@ Modules, data flows and key constraints: [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Java 21, Spring Boot 3.5, Maven |
+| Backend | Rust (Axum, Tokio, sqlx) |
 | Frontend | React 19, TypeScript 5.9, Vite 8, Tailwind v4, Bun |
-| Database | PostgreSQL 16, Flyway |
-| Runtime | Docker (one non-root Spring Boot process) |
+| Database | PostgreSQL 16, or embedded SQLite (desktop app, single-container Docker) |
+| Runtime | Docker (one non-root process), or the desktop app (Tauri) |
 
 ## Getting started
+
+> **Prefer a one-click desktop app instead of Docker?** Download the macOS (Apple Silicon), Windows, or Linux installer from [GitHub Releases](https://github.com/Cloeille/picsou-finance/releases). Releases are unsigned, so macOS Gatekeeper / Windows SmartScreen will ask you to approve the first launch — see the [step-by-step opening guide](docs/features/desktop-app.md#opening-the-unsigned-desktop-app-macos-gatekeeper--windows-smartscreen).
 
 ### Prerequisites
 
@@ -168,6 +170,48 @@ Use the [migration-safe deployment workflow](docs/features/docker-deployment.md#
 to rehearse migrations on a restored backup, migrate the live database, and verify the API
 before declaring the release ready. Keep Flyway enabled; a historical
 `SPRING_FLYWAY_ENABLED=false` workaround is not a migration strategy.
+
+### 2b. Single-Container SQLite Mode (optional, no PostgreSQL)
+
+Want the lightest possible self-hosted setup with a single container and a single `/data` volume? Picsou can run directly on an embedded SQLite database (`DATABASE_URL=sqlite:///data/picsou.db`) instead of PostgreSQL, with the 6 pure-HTTP bank connectors compiled natively in-process (`APP_NATIVE_SIDECARS=true`):
+
+```bash
+docker compose -f docker/compose.sqlite.yml pull
+docker compose -f docker/compose.sqlite.yml up -d
+```
+
+Or without Compose, as a single `docker run`:
+
+```bash
+docker run -d --name picsou --restart unless-stopped \
+  -p 8080:8080 \
+  -e DATABASE_URL=sqlite:///data/picsou.db \
+  -e APP_NATIVE_SIDECARS=true \
+  -v picsou_data:/data \
+  ghcr.io/cloeille/picsou-finance:latest
+```
+
+Everything persists under `/data` (`picsou.db`, `.secrets/`, and `keys/`). PostgreSQL (`docker/docker-compose.yml` and the Helm chart) remains the default for multi-container deployments and browser-based bank sidecars.
+
+> [!TIP]
+> **Opting into native connectors on PostgreSQL / Helm:** The 6 pure-HTTP Python sidecars (`bourso-auth`, `cic-auth`, `cmes-auth`, `degiro-auth`, `natixis-auth`, `sofidy-auth`) are deprecated and scheduled for removal in the next release. Docker Compose users can opt into the in-process Rust implementations today by setting `APP_NATIVE_SIDECARS=true` in `docker/.env`; Helm users can set `nativeSidecars: true` in `charts/picsou/values.yaml`. Explicit `<BANK>_AUTH_URL` variables continue to take precedence when set.
+
+#### Backing up SQLite
+
+SQLite runs in WAL mode (`picsou.db`, `picsou.db-wal`, `picsou.db-shm`). **Never hot-copy `/data/picsou.db` with `cp` or `tar` while the container is running**: copying a live WAL database mid-write can produce an inconsistent or corrupt backup.
+
+Choose one of two safe methods (and always back up `/data/.secrets/` alongside the database so stored bank sessions and API keys remain decryptable):
+
+1. **Online backup (no downtime)** using SQLite's backup API:
+   ```bash
+   sqlite3 /path/to/data/picsou.db ".backup '/path/to/backups/picsou.db'"
+   ```
+2. **Cold backup (brief stop)** for named Docker volumes:
+   ```bash
+   docker compose -f docker/compose.sqlite.yml stop app
+   # Copy /data/picsou.db (plus -wal / -shm if present) and /data/.secrets/
+   docker compose -f docker/compose.sqlite.yml start app
+   ```
 
 ### 3. HTTPS (decide before the first launch)
 
@@ -300,7 +344,7 @@ curl -sI https://picsou.example.com/ | grep -i strict-transport
 
 Exactly one `Strict-Transport-Security` line when enabled, none when disabled.
 
-In this image Spring Boot is the only emitter, gated by `HSTS_ENABLED`, and it sends the header
+In this image the backend is the only emitter, gated by `HSTS_ENABLED`, and it sends the header
 once on every response over HTTPS. To check the backend without the proxy in front, ask it
 directly from inside the container (`curl` is in the base image). The backend applies
 `X-Forwarded-Proto` from any peer, so the loopback request below counts as HTTPS; it prints one
@@ -392,7 +436,9 @@ cp docker/.env.example docker/.env
 
 | Variable | When to set | Description |
 |----------|-------------|-------------|
+| `DATABASE_URL` | Embedded SQLite or custom DB URI | `sqlite:///data/picsou.db` for single-container embedded SQLite mode, or a `postgres://` / `postgresql://` URL. Takes precedence over `SPRING_DATASOURCE_URL` |
 | `COMPOSE_PROFILES` | To enable connectors or TLS | Comma-separated connector profiles (`bourso,revolut`), optionally including `tls`, or `all-connectors`. Empty: app and database only |
+| `APP_NATIVE_SIDECARS` | Skip Python containers for 6 banks | `true` runs BoursoBank, CIC, CMES, DEGIRO, Natixis and Sofidy natively in-process in Rust without starting their Python sidecars (defaults to `false`) |
 | `APP_SIDECAR_API_KEY` | When a connector is enabled | `openssl rand -base64 32`. Shared by the app and every enabled `*-auth` sidecar; recreate them together after a rotation |
 | `POSTGRES_PASSWORD` | Before the first start | Strong random password, shared by the app and PostgreSQL (default `picsou`) |
 | `JWT_SECRET` | Override auto-gen | `openssl rand -base64 48` |

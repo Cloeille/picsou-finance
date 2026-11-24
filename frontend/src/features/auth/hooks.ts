@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { authApi } from './api'
+import { useAppStore } from '@/stores/app-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { resetClientState } from '@/lib/reset-client-state'
 import { SESSION_PROBE_GC_TIME } from '@/lib/constants'
@@ -66,11 +67,18 @@ export function useLogout() {
 export function useSessionProbe(enabled: boolean) {
   return useQuery({
     queryKey: authKeys.sessionProbe,
-    queryFn: () =>
-      authApi.refresh().catch((err: unknown) => {
+    queryFn: async () => {
+      try {
+        return await authApi.refresh()
+      } catch (err: unknown) {
         if (getErrorCode(err) === 'SSO_REVALIDATE') markSsoRevalidate()
+        const { desktopMode, desktopLockEnabled } = useAppStore.getState()
+        if (desktopMode && !desktopLockEnabled) {
+          return await authApi.desktopAutologin()
+        }
         throw err
-      }),
+      }
+    },
     enabled,
     retry: false,
     staleTime: Infinity,

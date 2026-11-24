@@ -1,6 +1,8 @@
+import { useMemo } from "react"
 import { CreditCard } from '@phosphor-icons/react'
 import { useTranslation } from "react-i18next"
 import { SidecarSessionPanel } from "@/components/sync/SidecarSessionPanel"
+import { amexApi } from "@/features/sync/api"
 import { useRecoverAmexHistory } from "@/features/sync/hooks"
 
 interface AmexPanelProps {
@@ -10,12 +12,21 @@ interface AmexPanelProps {
 export function AmexPanel({ onConnected }: AmexPanelProps = {}) {
   const { t } = useTranslation()
   const recovery = useRecoverAmexHistory()
+  const webview = useMemo(
+    () => ({
+      start: () => amexApi.startWebview(),
+      getStatus: (processId: string) => amexApi.getWebviewStatus(processId),
+      cancel: (processId: string) => amexApi.cancelWebview(processId),
+    }),
+    [],
+  )
   return (
     <SidecarSessionPanel
       provider="amex"
       translationPrefix="sync.amex"
       fieldIdPrefix="amex"
       loginIcon={CreditCard}
+      webview={webview}
       extraField={{
         id: "method",
         label: t("sync.amex.otpMethod"),

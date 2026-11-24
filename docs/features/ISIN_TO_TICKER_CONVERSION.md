@@ -14,15 +14,15 @@ The converter is shared by several callers: the **Trade Republic sync** (its ori
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/adapter/OpenFigiIsinConverter.java` — ISIN→ticker+name conversion via OpenFIGI `/v3/mapping` API; also exposes `public static boolean isIsin(String)`, the 12-char ISIN detector reused by callers to decide whether to resolve
-- `backend/src/main/java/com/picsou/service/TradeRepublicSyncService.java` — calls `resolve()` during sync, stores ticker and name
-- `backend/src/main/java/com/picsou/service/ManualTransactionService.java` — calls `isIsin()` + `resolve()` when a user enters an instrument by ISIN in the *Add transaction* form (`applyInstrumentFields`)
-- `backend/src/main/java/com/picsou/service/DegiroSyncService.java` — calls `resolve()` for each DEGIRO position's ISIN during sync
-- `backend/src/main/java/com/picsou/port/SymbolCatalogPort.java` — "do you carry this symbol, and what do you know for this identifier", the contract the resolved ticker is verified against
-- `backend/src/main/java/com/picsou/adapter/YahooFinancePriceProvider.java` — rejects unconvertible ISINs via regex in `supports()`; implements `SymbolCatalogPort` (`hasQuote()` probes a candidate symbol, `searchSymbols()` asks Yahoo what *it* knows for an ISIN)
-- `backend/src/main/java/com/picsou/config/IsinTickerRepairRunner.java` — startup pass that re-resolves manual transactions still carrying a raw ISIN as their ticker
-- `backend/src/main/java/com/picsou/service/DegiroSyncService.java` and `BoursoSyncService.java` — call `resolveIsinOrSymbol(isin, symbol, providerName)` for each position: brokers ship positions with or without an ISIN, so the shared helper prefers the ISIN (it prices through Yahoo), falls back to the broker's own symbol, and keeps the broker label unless OpenFIGI knows a better name
-- `backend/src/main/java/com/picsou/adapter/YahooFinancePriceProvider.java` — rejects unconvertible ISINs via regex in `supports()`
+- `backend-rs/src/market/openfigi.rs` — ISIN→ticker+name conversion via OpenFIGI `/v3/mapping` API; also exposes `public static boolean isIsin(String)`, the 12-char ISIN detector reused by callers to decide whether to resolve
+- `backend-rs/src/connectors/trade_republic/sync.rs` — calls `resolve()` during sync, stores ticker and name
+- `backend-rs/src/ledger/manual_transactions.rs` — calls `isIsin()` + `resolve()` when a user enters an instrument by ISIN in the *Add transaction* form (`applyInstrumentFields`)
+- `backend-rs/src/connectors/degiro/mod.rs` — calls `resolve()` for each DEGIRO position's ISIN during sync
+- `backend-rs/src/market/yahoo.rs` — "do you carry this symbol, and what do you know for this identifier", the contract the resolved ticker is verified against
+- `backend-rs/src/market/yahoo.rs` — rejects unconvertible ISINs via regex in `supports()`; implements `SymbolCatalogPort` (`hasQuote()` probes a candidate symbol, `searchSymbols()` asks Yahoo what *it* knows for an ISIN)
+- `IsinTickerRepairRunner.java` — startup pass that re-resolves manual transactions still carrying a raw ISIN as their ticker
+- `backend-rs/src/connectors/degiro/mod.rs` and `backend-rs/src/connectors/bourso/sync.rs` — call `resolveIsinOrSymbol(isin, symbol, providerName)` for each position: brokers ship positions with or without an ISIN, so the shared helper prefers the ISIN (it prices through Yahoo), falls back to the broker's own symbol, and keeps the broker label unless OpenFIGI knows a better name
+- `backend-rs/src/market/yahoo.rs` — rejects unconvertible ISINs via regex in `supports()`
 - `frontend/src/components/shared/HoldingsCard.tsx` — displays name in title, ticker in square badge
 
 ### Flow
