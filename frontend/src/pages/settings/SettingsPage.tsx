@@ -137,9 +137,9 @@ export function SettingsPage() {
   const setUsername = useAuthStore((s) => s.setUsername)
   const {
     demoMode,
-    desktopMode = false,
-    desktopLockEnabled = false,
-    advancedMode = false,
+    desktopMode,
+    desktopLockEnabled,
+    advancedMode,
     setAdvancedMode,
     dateFormat,
     setDateFormat,
@@ -394,7 +394,7 @@ export function SettingsPage() {
                 <Switch
                   id="desktop-advanced-mode"
                   checked={advancedMode}
-                  onCheckedChange={(checked) => setAdvancedMode?.(checked)}
+                  onCheckedChange={setAdvancedMode}
                 />
               </CardContent>
             </Card>

@@ -73,7 +73,7 @@ export function useSessionProbe(enabled: boolean) {
       } catch (err: unknown) {
         if (getErrorCode(err) === 'SSO_REVALIDATE') markSsoRevalidate()
         const { desktopMode, desktopLockEnabled } = useAppStore.getState()
-        if (desktopMode && !desktopLockEnabled && typeof authApi.desktopAutologin === 'function') {
+        if (desktopMode && !desktopLockEnabled) {
           return await authApi.desktopAutologin()
         }
         throw err
