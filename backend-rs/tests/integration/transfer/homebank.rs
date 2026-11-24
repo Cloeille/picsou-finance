@@ -565,3 +565,74 @@ async fn upload_and_request_errors() {
         "Preview expired or invalid; please upload the file again"
     );
 }
+
+#[tokio::test]
+async fn replay_uses_the_preloaded_existing_set_instead_of_per_row_exists_queries() {
+    let app = TestApp::with_admin().await;
+    let client = app.login_admin().await;
+
+    let txs: Vec<String> = (1..=60)
+        .map(|i| {
+            format!(
+                r#"{{"id":"d12b3c4d-1111-4111-8111-{i:012}","accountID":"{CHECKING}","amount":{{"amount":-10.00,"currencyCode":"EUR"}},"date":{{"year":2024,"month":1,"day":{}}},"isForecast":false}}"#,
+                ((i - 1) % 28) + 1
+            )
+        })
+        .collect();
+    let payload = format!(
+        r#"{{"data":{{"accounts":[{{"id":"{CHECKING}","name":"Checking","type":"bank","currency":{{"code":"EUR"}},"initialAmount":{{"amount":1000,"currencyCode":"EUR"}},"isClosed":false}}],"categories":[],"payees":[],"transactions":[{}]}},"manifest":{{"schemaVersion":3,"platform":"iOS"}}}}"#,
+        txs.join(",")
+    );
+    let request = |token: &Value| {
+        json!({
+            "fileToken": token,
+            "accountMappings": [create(CHECKING, "Checking", "CHECKING")],
+            "categoryMappings": [],
+        })
+    };
+
+    let first_preview = preview_hbk(&client, &payload).await;
+    let first = execute(&client, &request(&first_preview["fileToken"])).await;
+    assert_eq!(first.status, 201, "{}", first.text());
+    assert_eq!(first.json()["transactionsImported"], 60);
+
+    let replay_preview = preview_hbk(&client, &payload).await;
+    let scans = || async {
+        // Force PostgreSQL 16 stats visibility for the current database.
+        let _ = picsou::db::query("SELECT pg_stat_force_next_flush()")
+            .execute(&app.state.db)
+            .await;
+        let _ = picsou::db::query("SELECT pg_stat_clear_snapshot()")
+            .execute(&app.state.db)
+            .await;
+        picsou::db::query_scalar::<i64>(
+            "SELECT COALESCE(seq_scan, 0) + COALESCE(idx_scan, 0) FROM pg_stat_user_tables WHERE relname = 'transaction'",
+        )
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap()
+    };
+    let before = if app.state.db.is_sqlite() {
+        0
+    } else {
+        scans().await
+    };
+
+    let replay = execute(&client, &request(&replay_preview["fileToken"])).await;
+    assert_eq!(replay.status, 201, "{}", replay.text());
+    assert_eq!(replay.json()["transactionsImported"], 0);
+    assert_eq!(replay.json()["transactionsSkipped"], 60);
+    assert_eq!(
+        count(&app, "SELECT count(*) FROM \"transaction\"").await,
+        61
+    );
+
+    if !app.state.db.is_sqlite() {
+        let after = scans().await;
+        let delta = after - before;
+        assert!(
+            delta < 10,
+            "replaying 60 rows scanned the transaction table {delta} times (expected a single batch lookup, not per-row EXISTS)"
+        );
+    }
+}

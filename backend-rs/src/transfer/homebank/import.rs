@@ -885,13 +885,15 @@ fn validate_transactions(
     balances.into_values().try_for_each(validate_ledger_amount)
 }
 
+const LOOKUP_BATCH: usize = 1_000;
+
 async fn validate_existing_transaction_ownership(
-    exec: impl crate::db::DbExec<'_>,
+    conn: &mut DbHandle<'_>,
     parsed: &ParsedHomeBankData,
     mappings: &HashMap<&str, &AccountMapping>,
     targets: &HashMap<String, Account>,
     member_id: i64,
-) -> AppResult<()> {
+) -> AppResult<HashSet<(i64, String)>> {
     let mut external_ids: Vec<String> = parsed
         .transactions
         .iter()
@@ -909,16 +911,8 @@ async fn validate_existing_transaction_ownership(
             .map(|a| opening_id(&a.id)),
     );
     if external_ids.is_empty() {
-        return Ok(());
+        return Ok(HashSet::new());
     }
-    let existing: Vec<(String, i64)> = crate::db::query_as(
-        "SELECT t.external_id, t.account_id FROM \"transaction\" t JOIN account a ON a.id = t.account_id \
-         WHERE a.member_id = $1 AND a.deleted_at IS NULL AND t.external_id = ANY($2)",
-    )
-    .bind(member_id)
-    .bind(&external_ids)
-    .fetch_all(exec)
-    .await?;
     let mut source_account_by_external_id: HashMap<String, &str> = HashMap::new();
     for t in parsed.transactions.iter().filter(|t| !t.forecast) {
         source_account_by_external_id
@@ -928,17 +922,29 @@ async fn validate_existing_transaction_ownership(
     for a in &parsed.accounts {
         source_account_by_external_id.insert(opening_id(&a.id), &a.id);
     }
-    for (external_id, account_id) in existing {
-        let expected = source_account_by_external_id
-            .get(&external_id)
-            .and_then(|source| targets.get(*source));
-        if expected.is_none_or(|target| target.id != account_id) {
-            return Err(bad(
-                "HomeBank transaction was previously imported into a different account",
-            ));
+    let mut existing_rows = HashSet::new();
+    for batch in external_ids.chunks(LOOKUP_BATCH) {
+        let existing: Vec<(String, i64)> = crate::db::query_as(
+            "SELECT t.external_id, t.account_id FROM \"transaction\" t JOIN account a ON a.id = t.account_id \
+             WHERE a.member_id = $1 AND a.deleted_at IS NULL AND t.external_id = ANY($2)",
+        )
+        .bind(member_id)
+        .bind(batch)
+        .fetch_all(&mut *conn)
+        .await?;
+        for (external_id, account_id) in existing {
+            let expected = source_account_by_external_id
+                .get(&external_id)
+                .and_then(|source| targets.get(*source));
+            if expected.is_none_or(|target| target.id != account_id) {
+                return Err(bad(
+                    "HomeBank transaction was previously imported into a different account",
+                ));
+            }
+            existing_rows.insert((account_id, external_id));
         }
     }
-    Ok(())
+    Ok(existing_rows)
 }
 
 fn validate_unique_account_targets(
@@ -1042,8 +1048,8 @@ pub async fn execute(
         validate_categories(&mut tx.as_handle(), parsed, &category_mappings, member_id).await?;
     let reusable_transfer = find_reusable_transfer_category(&mut tx.as_handle(), member_id).await?;
     validate_transactions(parsed, &account_mappings, &category_mappings, &targets)?;
-    validate_existing_transaction_ownership(
-        &mut tx,
+    let mut existing_transactions = validate_existing_transaction_ownership(
+        &mut tx.as_handle(),
         parsed,
         &account_mappings,
         &targets,
@@ -1065,6 +1071,7 @@ pub async fn execute(
             &mut targets,
             &mut categories,
             reusable_transfer,
+            &mut existing_transactions,
             member_id,
         )
         .await?;
@@ -1094,6 +1101,7 @@ async fn write_import(
     targets: &mut HashMap<String, Account>,
     categories: &mut HashMap<String, Category>,
     reusable_transfer: Option<Category>,
+    existing_transactions: &mut HashSet<(i64, String)>,
     member_id: i64,
 ) -> AppResult<ImportResult> {
     let now = state.clock.now();
@@ -1215,9 +1223,7 @@ async fn write_import(
             continue;
         }
         let external_id = opening_id(&source.id);
-        if transactions::exists_by_account_and_external_id(&mut *conn, target.id, &external_id)
-            .await?
-        {
+        if !existing_transactions.insert((target.id, external_id.clone())) {
             continue;
         }
         let first = parsed
@@ -1259,9 +1265,7 @@ async fn write_import(
             continue;
         };
         let external_id = homebank_id(&t.id);
-        if transactions::exists_by_account_and_external_id(&mut *conn, account.id, &external_id)
-            .await?
-        {
+        if !existing_transactions.insert((account.id, external_id.clone())) {
             counts.transactions_skipped += 1;
             continue;
         }
