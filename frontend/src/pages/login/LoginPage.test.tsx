@@ -312,6 +312,22 @@ describe('LoginPage SSO', () => {
       expect(screen.getByLabelText(en.auth.password)).toHaveFocus()
     })
 
+    it('keeps the cursor where the member is typing when the account name arrives late', () => {
+      useSsoInfo.mockReturnValue(SSO_DISABLED)
+      const status = { state: 'COMPLETE', needsSetup: false, integrations: {}, desktopMode: true, desktopLockEnabled: true }
+      useSetupStatus.mockReturnValue({ data: undefined })
+      const { rerenderSame } = renderLogin('/login')
+      const username = screen.getByLabelText(en.auth.username)
+      username.focus()
+      fireEvent.change(username, { target: { value: 'other' } })
+
+      useSetupStatus.mockReturnValue({ data: { ...status, desktopUsername: 'my-space' } })
+      rerenderSame()
+
+      expect(username).toHaveValue('other')
+      expect(username).toHaveFocus()
+    })
+
     it('leaves the username empty when the desktop app does not name the account', () => {
       useSsoInfo.mockReturnValue(SSO_DISABLED)
       useSetupStatus.mockReturnValue({

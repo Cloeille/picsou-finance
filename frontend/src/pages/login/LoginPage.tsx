@@ -55,9 +55,11 @@ export function LoginPage() {
   const desktopUsername = setupStatus.data?.desktopUsername
   const username = typedUsername ?? desktopUsername ?? ''
   const passwordInput = useRef<HTMLInputElement>(null)
+  // The name can arrive after someone started typing one: their field keeps the cursor.
+  const usernameUntouched = typedUsername === null
   useEffect(() => {
-    if (desktopUsername) passwordInput.current?.focus()
-  }, [desktopUsername])
+    if (desktopUsername && usernameUntouched) passwordInput.current?.focus()
+  }, [desktopUsername, usernameUntouched])
   const navigate = useNavigate()
   const redirect = safeRedirect(searchParams.get('redirect'))
   const ssoInfo = useSsoInfo(!demoMode)
