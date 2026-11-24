@@ -160,7 +160,9 @@ enum ProcessStatus {
         completed_at: Instant,
     },
     Cancelled,
-    Failed { error_code: &'static str },
+    Failed {
+        error_code: &'static str,
+    },
 }
 
 struct ProcessEntry {
@@ -443,10 +445,7 @@ impl BnpWebviewManager {
     pub fn close_all(&self, app: &AppHandle) {
         let labels: Vec<String> = {
             let mut procs = self.processes.lock().unwrap_or_else(|e| e.into_inner());
-            procs
-                .drain()
-                .map(|(_, entry)| entry.window_label)
-                .collect()
+            procs.drain().map(|(_, entry)| entry.window_label).collect()
         };
         for label in labels {
             if let Some(win) = app.get_webview_window(&label) {
@@ -564,12 +563,7 @@ impl BnpWebviewManager {
         }
     }
 
-    async fn watch_login(
-        self: Arc<Self>,
-        process_id: String,
-        brand: Brand,
-        window: WebviewWindow,
-    ) {
+    async fn watch_login(self: Arc<Self>, process_id: String, brand: Brand, window: WebviewWindow) {
         let deadline = Instant::now() + LOGIN_TTL;
         loop {
             if !self.is_waiting(&process_id) {
@@ -1505,7 +1499,9 @@ mod tests {
         assert!(!manager.processes.lock().unwrap().contains_key("p"));
 
         // An unclaimed Done entry past SNAPSHOT_CACHE_TTL is evicted without returning cookies.
-        if let Some(expired_at) = Instant::now().checked_sub(SNAPSHOT_CACHE_TTL + Duration::from_secs(1)) {
+        if let Some(expired_at) =
+            Instant::now().checked_sub(SNAPSHOT_CACHE_TTL + Duration::from_secs(1))
+        {
             manager.processes.lock().unwrap().insert(
                 "stale".to_owned(),
                 ProcessEntry {
@@ -1735,7 +1731,10 @@ mod tests {
         // 3. Deletion via Expires in the past removes the cookie instead of storing an empty value.
         merge_set_cookies_at(
             &mut jar,
-            &["SID=; Domain=hellobank.fr; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT".to_owned()],
+            &[
+                "SID=; Domain=hellobank.fr; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT"
+                    .to_owned(),
+            ],
             "www.hellobank.fr",
             now,
         );
@@ -1744,9 +1743,7 @@ mod tests {
         // Netscape hyphenated Expires date also deletes; Max-Age takes precedence over Expires.
         merge_set_cookies_at(
             &mut jar,
-            &[
-                "TOK=abc; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=3600".to_owned(),
-            ],
+            &["TOK=abc; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=3600".to_owned()],
             "www.hellobank.fr",
             now,
         );

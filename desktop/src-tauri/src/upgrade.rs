@@ -570,7 +570,10 @@ mod tests {
         .unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
 
-        assert_eq!(fs::read_to_string(data.join("picsou.db")).unwrap(), "live-db");
+        assert_eq!(
+            fs::read_to_string(data.join("picsou.db")).unwrap(),
+            "live-db"
+        );
         assert_eq!(
             fs::read_to_string(data.join("picsou.db-wal")).unwrap(),
             "live-wal"

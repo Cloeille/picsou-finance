@@ -1470,13 +1470,25 @@ mod tests {
                 let path = path.to_owned();
                 async move {
                     if path == MONEY_BOXES_PATH {
-                        FetchResponse { status: 200, data: Some(json!([])) }
+                        FetchResponse {
+                            status: 200,
+                            data: Some(json!([])),
+                        }
                     } else if path == CURRENCIES_PATH {
-                        FetchResponse { status: 200, data: Some(json!([{"code": "EUR"}])) }
+                        FetchResponse {
+                            status: 200,
+                            data: Some(json!([{"code": "EUR"}])),
+                        }
                     } else if path == WALLETS_PATH || path == SINGLE_WALLET_PATH {
-                        FetchResponse { status: 503, data: None }
+                        FetchResponse {
+                            status: 503,
+                            data: None,
+                        }
                     } else {
-                        FetchResponse { status: 200, data: Some(json!([])) }
+                        FetchResponse {
+                            status: 200,
+                            data: Some(json!([])),
+                        }
                     }
                 }
             },
@@ -1493,9 +1505,15 @@ mod tests {
                 let path = path.to_owned();
                 async move {
                     if path == WALLETS_PATH || path == SINGLE_WALLET_PATH {
-                        FetchResponse { status: 401, data: None }
+                        FetchResponse {
+                            status: 401,
+                            data: None,
+                        }
                     } else {
-                        FetchResponse { status: 200, data: Some(json!([])) }
+                        FetchResponse {
+                            status: 200,
+                            data: Some(json!([])),
+                        }
                     }
                 }
             },

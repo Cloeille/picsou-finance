@@ -67,7 +67,9 @@ enum ProcessStatus {
         completed_at: Instant,
     },
     Cancelled,
-    Failed { error_code: &'static str },
+    Failed {
+        error_code: &'static str,
+    },
 }
 
 struct ProcessEntry {
@@ -332,10 +334,7 @@ impl AmexWebviewManager {
     pub fn close_all(&self, app: &AppHandle) {
         let labels: Vec<String> = {
             let mut procs = self.processes.lock().unwrap_or_else(|e| e.into_inner());
-            procs
-                .drain()
-                .map(|(_, entry)| entry.window_label)
-                .collect()
+            procs.drain().map(|(_, entry)| entry.window_label).collect()
         };
         for label in labels {
             if let Some(win) = app.get_webview_window(&label) {
@@ -1088,7 +1087,9 @@ mod tests {
         assert!(!manager.processes.lock().unwrap().contains_key("p"));
 
         // An unclaimed Done entry past SNAPSHOT_CACHE_TTL is evicted without returning cookies.
-        if let Some(expired_at) = Instant::now().checked_sub(SNAPSHOT_CACHE_TTL + Duration::from_secs(1)) {
+        if let Some(expired_at) =
+            Instant::now().checked_sub(SNAPSHOT_CACHE_TTL + Duration::from_secs(1))
+        {
             manager.processes.lock().unwrap().insert(
                 "stale".to_owned(),
                 ProcessEntry {

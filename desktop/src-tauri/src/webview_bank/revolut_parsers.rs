@@ -388,7 +388,12 @@ where
                 external_id: tid,
                 date,
                 description,
-                amount: transaction_major(raw_amount, currency.as_deref(), Some(pocket_currency), fiat),
+                amount: transaction_major(
+                    raw_amount,
+                    currency.as_deref(),
+                    Some(pocket_currency),
+                    fiat,
+                ),
                 currency,
                 counterparty: merchant_name,
                 kind: None,

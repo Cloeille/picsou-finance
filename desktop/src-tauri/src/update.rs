@@ -386,7 +386,10 @@ mod tests {
         let second = begin_install(&gate, || {
             starts.fetch_add(1, Ordering::SeqCst);
         });
-        assert!(second.is_none(), "second concurrent install must be ignored");
+        assert!(
+            second.is_none(),
+            "second concurrent install must be ignored"
+        );
         assert_eq!(starts.load(Ordering::SeqCst), 1);
 
         release.notify_one();
