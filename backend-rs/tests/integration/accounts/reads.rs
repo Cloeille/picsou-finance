@@ -398,7 +398,9 @@ async fn loan_summary_returns_400_on_overflowing_negative_amortisation_or_excess
         .await;
     assert_eq!(resp.status, StatusCode::BAD_REQUEST, "{}", resp.text());
     assert!(
-        resp.json()["detail"].as_str().is_some_and(|s| !s.is_empty()),
+        resp.json()["detail"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty()),
         "400 response must carry an explanatory message"
     );
 
@@ -442,4 +444,116 @@ async fn loan_summary_returns_400_on_overflowing_negative_amortisation_or_excess
         "{}",
         put_too_long.text()
     );
+}
+
+#[tokio::test]
+async fn dashboard_and_account_list_batch_per_account_queries_without_changing_figures() {
+    let app = TestApp::with_admin().await;
+    let me = admin_member(&app).await;
+
+    // 10 accounts across types: 4 PEA with holdings, 2 checking, 2 real estate, 2 linked loans.
+    let mut pea_ids = Vec::new();
+    for i in 0..4 {
+        let pea = account(&app, me, &format!("PEA {i}"), "PEA", "0").await;
+        exec(
+            &app,
+            &format!(
+                "INSERT INTO account_holding (account_id, ticker, quantity, average_buy_in, created_at, updated_at) \
+                 VALUES ({pea}, 'PSBATCH{i}', 2, 100, now(), now()); \
+                 INSERT INTO price_snapshot (ticker, date, price_eur) \
+                 VALUES ('PSBATCH{i}', '2026-01-14', 150)"
+            ),
+        )
+        .await;
+        pea_ids.push(pea);
+    }
+    for i in 0..2 {
+        account(&app, me, &format!("Cash {i}"), "CHECKING", "1000").await;
+    }
+    for i in 0..2 {
+        let house = account(&app, me, &format!("House {i}"), "REAL_ESTATE", "200000").await;
+        let loan = account(&app, me, &format!("Loan {i}"), "LOAN", "100000").await;
+        exec(
+            &app,
+            &format!(
+                "INSERT INTO real_estate_metadata (account_id, member_id, purchase_price, valuation_mode) \
+                 VALUES ({house}, {me}, 180000, 'ESTIMATED'); \
+                 INSERT INTO debt (account_id, member_id, linked_account_id, borrowed_amount, monthly_payment) \
+                 VALUES ({loan}, {me}, {house}, 150000, 800)"
+            ),
+        )
+        .await;
+    }
+
+    let admin = app.login_admin().await;
+
+    let pg_scans = |tables: &'static [&'static str]| {
+        let db = app.state.db.clone();
+        async move {
+            picsou::db::query("SELECT pg_stat_force_next_flush()")
+                .execute(&db)
+                .await
+                .unwrap();
+            let names: Vec<String> = tables.iter().map(|s| (*s).to_owned()).collect();
+            let total: i64 = picsou::db::query_scalar(
+                "SELECT COALESCE(SUM(seq_scan + idx_scan), 0)::bigint \
+                 FROM pg_stat_user_tables WHERE relname = ANY($1)",
+            )
+            .bind(&names)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+            total
+        }
+    };
+
+    let dash_before = if app.state.db.is_postgres() {
+        pg_scans(&["account_holding", "debt"]).await
+    } else {
+        0
+    };
+    let dashboard = admin.get("/api/dashboard").send().await.json();
+    // 4 PEA (4 * 2 * 150 = 1200) + 2 checking (2000) + 2 houses (400000) - 2 loans (200000) = 203200.
+    assert_eq!(num(&dashboard["totalNetWorth"]), "203200.0000000000000000");
+    assert_eq!(num(&dashboard["totalLiabilities"]), "200000.00000000");
+    assert_eq!(num(&dashboard["totalMonthlyPayment"]), "1600.00");
+    let history = dashboard["netWorthHistory"].as_array().unwrap();
+    assert_eq!(
+        num(&history.last().unwrap()["total"]),
+        "203200.0000000000000000"
+    );
+    if app.state.db.is_postgres() {
+        let dash_scans = pg_scans(&["account_holding", "debt"]).await - dash_before;
+        assert!(
+            dash_scans <= 4,
+            "dashboard should batch holdings and debt loads (got {dash_scans} table scans for 10 accounts)"
+        );
+    }
+
+    let list_tables: &[&str] = &[
+        "account_holding",
+        "debt",
+        "savings_interest_config",
+        "real_estate_metadata",
+        "scpi_position",
+    ];
+    let list_before = if app.state.db.is_postgres() {
+        pg_scans(list_tables).await
+    } else {
+        0
+    };
+    let accounts_list = admin.get("/api/accounts").send().await.json();
+    let arr = accounts_list.as_array().unwrap();
+    assert_eq!(arr.len(), 10);
+    for pea in &pea_ids {
+        let row = arr.iter().find(|a| a["id"].as_i64() == Some(*pea)).unwrap();
+        assert_eq!(num(&row["currentBalanceEur"]), "300.0000000000000000");
+    }
+    if app.state.db.is_postgres() {
+        let list_scans = pg_scans(list_tables).await - list_before;
+        assert!(
+            list_scans <= 6,
+            "accounts list should batch per-account queries (got {list_scans} table scans for 10 accounts)"
+        );
+    }
 }

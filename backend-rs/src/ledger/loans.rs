@@ -113,7 +113,10 @@ pub struct LoanScheduleResponse {
 
 /// The full schedule from the start date, and the summary as of today, rejecting terms above
 /// [`MAX_INSTALLMENTS`] or schedules that overflow `Decimal` arithmetic.
-pub fn try_compute(debt: &Debt, today: NaiveDate) -> Result<LoanScheduleResponse, LoanScheduleError> {
+pub fn try_compute(
+    debt: &Debt,
+    today: NaiveDate,
+) -> Result<LoanScheduleResponse, LoanScheduleError> {
     let principal = debt.borrowed_amount;
     let insurance = debt.insurance_monthly.unwrap_or_default();
     let file_fees = debt.file_fees.unwrap_or_default();
@@ -461,7 +464,8 @@ fn checked_installment_date(
             start.day()
         };
     let months = i64::from(start.year()) * 12 + i64::from(start.month0()) + i64::from(i);
-    let year = i32::try_from(months.div_euclid(12)).map_err(|_| LoanScheduleError::DateOutOfRange)?;
+    let year =
+        i32::try_from(months.div_euclid(12)).map_err(|_| LoanScheduleError::DateOutOfRange)?;
     let month =
         u32::try_from(months.rem_euclid(12)).map_err(|_| LoanScheduleError::DateOutOfRange)? + 1;
     let day = due_day.min(days_in_month(year, month));

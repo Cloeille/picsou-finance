@@ -197,17 +197,58 @@ pub async fn build_history(
     let shares = assert_readable(&mut *conn, &list, member_id).await?;
     let today = state.clock.today();
     let prices = &*state.ledger.prices;
+    let batch = valuation::ValuationBatch::load(&mut *conn, &list).await?;
+    let mut valuations = HashMap::with_capacity(list.len());
+    for account in &list {
+        valuations.insert(
+            account.id,
+            valuation::valuation_from_batch(prices, account, &batch, today).await,
+        );
+    }
+    build_history_preloaded(
+        state,
+        conn,
+        &list,
+        &shares,
+        months,
+        split,
+        &batch,
+        &valuations,
+    )
+    .await
+}
+
+/// buildHistory over accounts, shares, holdings/debts, and live valuations already loaded by the caller.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn build_history_preloaded(
+    state: &AppState,
+    conn: &mut DbHandle<'_>,
+    list: &[Account],
+    shares: &Shares,
+    months: i32,
+    split: bool,
+    batch: &valuation::ValuationBatch,
+    valuations: &HashMap<i64, valuation::Valuation>,
+) -> AppResult<Vec<NetWorthPoint>> {
+    if list.is_empty() {
+        return Ok(Vec::new());
+    }
+    let today = state.clock.today();
     let from = minus_months(today, months);
-    let fill = forward_fill(&mut *conn, from, &list).await?;
+    let fill = forward_fill(&mut *conn, from, list).await?;
     let per_ids: HashSet<i64> = list
         .iter()
-        .filter(|a| providers::is_insurer_contract(a) && share_of(&shares, a.id) > Decimal::ZERO)
+        .filter(|a| providers::is_insurer_contract(a) && share_of(shares, a.id) > Decimal::ZERO)
         .map(|a| a.id)
         .collect();
     let mut unknown_basis: HashSet<i64> = HashSet::new();
     for account in list.iter().filter(|a| per_ids.contains(&a.id)) {
-        let lines = holdings::find_by_account(&mut *conn, account.id).await?;
-        if !has_complete_cost_basis(account, &lines) {
+        let lines = batch
+            .holdings
+            .get(&account.id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        if !has_complete_cost_basis(account, lines) {
             unknown_basis.insert(account.id);
         }
     }
@@ -219,7 +260,7 @@ pub async fn build_history(
         let mut agg_pnl = Decimal::ZERO;
         let mut unknown = false;
         let mut points = split.then(HashMap::new);
-        for account in &list {
+        for account in list {
             let id = account.id;
             let is_loan = account.account_type == AccountType::Loan;
             let flat = account.account_type.is_liability()
@@ -230,7 +271,7 @@ pub async fn build_history(
                 unknown = true;
                 continue;
             }
-            let raw = weigh(bal.unwrap_or(Decimal::ZERO), &shares, id);
+            let raw = weigh(bal.unwrap_or(Decimal::ZERO), shares, id);
             let total = if is_loan { -raw } else { raw };
             agg_total = add(agg_total, total);
             let unknown_account =
@@ -240,7 +281,7 @@ pub async fn build_history(
             } else if unknown_account {
                 None
             } else {
-                Some(inv.map_or(raw, |v| weigh(v, &shares, id)))
+                Some(inv.map_or(raw, |v| weigh(v, shares, id)))
             };
             match invested {
                 None => unknown = true,
@@ -279,11 +320,11 @@ pub async fn build_history(
     let mut live_pnl = Decimal::ZERO;
     let mut unknown_live = false;
     let mut live_points = split.then(HashMap::new);
-    for account in &list {
+    for account in list {
         let id = account.id;
-        let v = valuation::valuation(&mut *conn, prices, account, today).await?;
-        let live = weigh(v.live_eur, &shares, id);
-        let invested = (!unknown_basis.contains(&id)).then(|| weigh(v.invested_eur, &shares, id));
+        let v = valuations[&id];
+        let live = weigh(v.live_eur, shares, id);
+        let invested = (!unknown_basis.contains(&id)).then(|| weigh(v.invested_eur, shares, id));
         let flat =
             account.account_type.is_liability() || account.account_type == AccountType::PeerLoan;
         let total = if account.account_type == AccountType::Loan {

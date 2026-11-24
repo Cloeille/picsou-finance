@@ -359,9 +359,16 @@ mod tests {
         assert_eq!(types.calls("T1024"), 1);
 
         // The most recent entry is still cached; the oldest entry was evicted.
-        get_insight(&db, &seams, "T1024", None, None, t0 + Duration::seconds(2000))
-            .await
-            .unwrap();
+        get_insight(
+            &db,
+            &seams,
+            "T1024",
+            None,
+            None,
+            t0 + Duration::seconds(2000),
+        )
+        .await
+        .unwrap();
         assert_eq!(types.calls("T1024"), 1);
 
         get_insight(&db, &seams, "T0", None, None, t0 + Duration::seconds(2001))

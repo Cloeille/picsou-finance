@@ -431,6 +431,14 @@ pub const SCPI_COLUMNS: &str = "id, account_id, member_id, isin, management_comp
     subscription_price_eur, withdrawal_price_eur, dividend_policy, jouissance_date, valuation_status, \
     corum_fund_code, sofidy_fund_code, louve_fund_code, annual_distribution_per_share_eur, distribution_frequency";
 
+fn fix_scpi(mut p: ScpiPosition) -> ScpiPosition {
+    p.share_count = column(p.share_count, 8);
+    p.subscription_price_eur = column_opt(p.subscription_price_eur, 8);
+    p.withdrawal_price_eur = column_opt(p.withdrawal_price_eur, 8);
+    p.annual_distribution_per_share_eur = column_opt(p.annual_distribution_per_share_eur, 8);
+    p
+}
+
 pub async fn scpi_position_of(
     db: impl DbExec<'_>,
     account_id: i64,
@@ -443,16 +451,27 @@ pub async fn scpi_position_of(
     .bind(member_id)
     .fetch_optional(db)
     .await
-    .map(|row| {
-        row.map(|mut p: ScpiPosition| {
-            p.share_count = column(p.share_count, 8);
-            p.subscription_price_eur = column_opt(p.subscription_price_eur, 8);
-            p.withdrawal_price_eur = column_opt(p.withdrawal_price_eur, 8);
-            p.annual_distribution_per_share_eur =
-                column_opt(p.annual_distribution_per_share_eur, 8);
-            p
-        })
-    })
+    .map(|row| row.map(fix_scpi))
+}
+
+async fn scpi_positions_of(
+    db: impl DbExec<'_>,
+    account_ids: &[i64],
+) -> sqlx::Result<HashMap<(i64, i64), ScpiPosition>> {
+    if account_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<ScpiPosition> = db::query_as(&format!(
+        "SELECT {SCPI_COLUMNS} FROM scpi_position WHERE account_id = ANY($1)"
+    ))
+    .bind(account_ids)
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(fix_scpi)
+        .map(|p| ((p.account_id, p.member_id), p))
+        .collect())
 }
 
 /// ScpiPositionService.withdrawalValue: shares × withdrawal price at 8 places, half up; no
@@ -519,6 +538,20 @@ impl ScpiPositionResponse {
     }
 }
 
+fn fix_real_estate(mut m: RealEstateMetadata) -> RealEstateMetadata {
+    m.purchase_price = column(m.purchase_price, 8);
+    m.agency_fees = column_opt(m.agency_fees, 8);
+    m.notary_fees = column_opt(m.notary_fees, 8);
+    m.works_cost = column_opt(m.works_cost, 8);
+    m.rental_income = column_opt(m.rental_income, 8);
+    m.surface_area = column_opt(m.surface_area, 2);
+    m.land_area = column_opt(m.land_area, 2);
+    m.latitude = column_opt(m.latitude, 6);
+    m.longitude = column_opt(m.longitude, 6);
+    m.geocode_score = column_opt(m.geocode_score, 3);
+    m
+}
+
 pub async fn real_estate_of(
     db: impl DbExec<'_>,
     account_id: i64,
@@ -529,21 +562,27 @@ pub async fn real_estate_of(
     .bind(account_id)
     .fetch_optional(db)
     .await
-    .map(|row| {
-        row.map(|mut m: RealEstateMetadata| {
-            m.purchase_price = column(m.purchase_price, 8);
-            m.agency_fees = column_opt(m.agency_fees, 8);
-            m.notary_fees = column_opt(m.notary_fees, 8);
-            m.works_cost = column_opt(m.works_cost, 8);
-            m.rental_income = column_opt(m.rental_income, 8);
-            m.surface_area = column_opt(m.surface_area, 2);
-            m.land_area = column_opt(m.land_area, 2);
-            m.latitude = column_opt(m.latitude, 6);
-            m.longitude = column_opt(m.longitude, 6);
-            m.geocode_score = column_opt(m.geocode_score, 3);
-            m
-        })
-    })
+    .map(|row| row.map(fix_real_estate))
+}
+
+async fn real_estate_of_accounts(
+    db: impl DbExec<'_>,
+    account_ids: &[i64],
+) -> sqlx::Result<HashMap<i64, RealEstateMetadata>> {
+    if account_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<RealEstateMetadata> = db::query_as(&format!(
+        "SELECT {REAL_ESTATE_COLUMNS} FROM real_estate_metadata WHERE account_id = ANY($1)"
+    ))
+    .bind(account_ids)
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(fix_real_estate)
+        .map(|m| (m.account_id, m))
+        .collect())
 }
 
 /// When the property was last valued (property_valuation), or None.
@@ -557,6 +596,36 @@ pub async fn last_valued_at(
     .bind(account_id)
     .fetch_optional(db)
     .await
+}
+
+async fn last_valued_at_of_accounts(
+    db: impl DbExec<'_>,
+    account_ids: &[i64],
+) -> sqlx::Result<HashMap<i64, NaiveDate>> {
+    if account_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<(i64, Option<NaiveDate>)> = db::query_as(
+        "SELECT account_id, MAX(valued_at) FROM property_valuation \
+         WHERE account_id = ANY($1) GROUP BY account_id",
+    )
+    .bind(account_ids)
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(id, date)| date.map(|d| (id, d)))
+        .collect())
+}
+
+#[derive(DbFromRow)]
+struct SavingsConfigRow {
+    account_id: i64,
+    product: String,
+    annual_rate: Decimal,
+    rate_basis: String,
+    tax_rate_pct: Option<Decimal>,
+    ceiling: Option<Decimal>,
 }
 
 async fn savings_config_of(
@@ -578,6 +647,37 @@ async fn savings_config_of(
             s
         })
     })
+}
+
+async fn savings_configs_of_accounts(
+    db: impl DbExec<'_>,
+    account_ids: &[i64],
+) -> sqlx::Result<HashMap<i64, SavingsConfigDto>> {
+    if account_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<SavingsConfigRow> = db::query_as(
+        "SELECT account_id, product::text AS product, annual_rate, rate_basis::text AS rate_basis, \
+         tax_rate_pct, ceiling FROM savings_interest_config WHERE account_id = ANY($1)",
+    )
+    .bind(account_ids)
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| {
+            (
+                r.account_id,
+                SavingsConfigDto {
+                    product: r.product,
+                    annual_rate: column(r.annual_rate, 4),
+                    rate_basis: r.rate_basis,
+                    tax_rate_pct: column_opt(r.tax_rate_pct, 2),
+                    ceiling: column_opt(r.ceiling, 2),
+                },
+            )
+        })
+        .collect())
 }
 
 /// AccountService.toResponse(account, sharePercent, viewerId).
@@ -633,17 +733,82 @@ pub async fn responses_for_viewer(
     viewer_id: i64,
     today: NaiveDate,
 ) -> AppResult<Vec<AccountResponse>> {
+    if accounts.is_empty() {
+        return Ok(Vec::new());
+    }
+    let all_ids: Vec<i64> = accounts.iter().map(|a| a.id).collect();
+    let real_estate_ids: Vec<i64> = accounts
+        .iter()
+        .filter(|a| a.account_type == AccountType::RealEstate)
+        .map(|a| a.id)
+        .collect();
+    let scpi_ids: Vec<i64> = accounts
+        .iter()
+        .filter(|a| a.account_type == AccountType::Scpi)
+        .map(|a| a.id)
+        .collect();
+
+    let batch = valuation::ValuationBatch::load(&mut *conn, accounts).await?;
+    let real_estate = real_estate_of_accounts(&mut *conn, &real_estate_ids).await?;
+    let valued_ids: Vec<i64> = real_estate.keys().copied().collect();
+    let last_valued = last_valued_at_of_accounts(&mut *conn, &valued_ids).await?;
+    let scpi = scpi_positions_of(&mut *conn, &scpi_ids).await?;
+    let linked_ids: Vec<i64> = batch
+        .debts
+        .values()
+        .filter_map(|d| d.linked_account_id)
+        .collect();
+    let linked_accounts: HashMap<i64, Account> = if linked_ids.is_empty() {
+        HashMap::new()
+    } else {
+        accounts::find_by_ids(&mut *conn, &linked_ids)
+            .await?
+            .into_iter()
+            .map(|a| (a.id, a))
+            .collect()
+    };
+    let mut savings_configs = savings_configs_of_accounts(&mut *conn, &all_ids).await?;
+
     let mut out = Vec::with_capacity(accounts.len());
     for account in accounts {
-        let response = to_response(
-            &mut *conn,
-            prices,
-            account,
-            shares.get(&account.id).copied(),
-            Some(viewer_id),
-            today,
-        )
-        .await?;
+        let balance_eur = valuation::valuation_from_batch(prices, account, &batch, today)
+            .await
+            .live_eur;
+        let mut response = AccountResponse::from_account(account, balance_eur);
+        response.share_percent = shares
+            .get(&account.id)
+            .copied()
+            .filter(|s| *s != FULL_SHARE);
+        response.is_owner = Some(viewer_id == account.member_id);
+        if response.is_owner == Some(false)
+            && let Some(institution) = response.institution.as_mut()
+        {
+            institution.has_logo = false;
+        }
+        match account.account_type {
+            AccountType::RealEstate => {
+                if let Some(meta) = real_estate.get(&account.id) {
+                    let valued = last_valued.get(&account.id).copied();
+                    response.real_estate = Some(RealEstateMetadataResponse::from_row(meta, valued));
+                }
+            }
+            AccountType::Scpi => {
+                if let Some(p) = scpi.get(&(account.id, account.member_id)) {
+                    let value = withdrawal_value(Some(p.share_count), p.withdrawal_price_eur);
+                    response.scpi = Some(ScpiPositionResponse::from_position(p, value));
+                }
+            }
+            AccountType::Loan => {
+                if let Some(debt) = batch.debts.get(&account.id) {
+                    let linked = debt
+                        .linked_account_id
+                        .and_then(|id| linked_accounts.get(&id));
+                    response.debt = Some(DebtResponse::from_row(debt, linked));
+                }
+            }
+            _ => {}
+        }
+        response.savings_config = savings_configs.remove(&account.id);
         out.push(response.with_display_prefs(prefs.get(&account.id)));
     }
     Ok(out)

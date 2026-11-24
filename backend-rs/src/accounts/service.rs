@@ -704,22 +704,19 @@ pub async fn set_display_order(
     tx.commit().await?;
 
     let mut conn = state.db.pool_handle();
-    let mut out = Vec::with_capacity(readable.len());
-    for (position, account) in readable.iter().enumerate() {
-        let collapsed = prefs.get(&account.id).is_some_and(|p| p.list_collapsed);
-        let position = i32::try_from(position).map_err(AppError::internal)?;
-        let mut response = to_response(
-            &mut conn,
-            &*state.ledger.prices,
-            account,
-            shares.get(&account.id).copied(),
-            Some(auth.member_id),
-            state.clock.today(),
-        )
-        .await?;
-        response.list_position = Some(position);
-        response.list_collapsed = collapsed;
-        out.push(response);
+    let mut out = responses_for_viewer(
+        &mut conn,
+        &*state.ledger.prices,
+        &readable,
+        &shares,
+        &prefs,
+        auth.member_id,
+        state.clock.today(),
+    )
+    .await?;
+    for (position, response) in out.iter_mut().enumerate() {
+        response.list_position = Some(i32::try_from(position).map_err(AppError::internal)?);
+        response.list_collapsed = prefs.get(&response.id).is_some_and(|p| p.list_collapsed);
     }
     Ok(axum::Json(out))
 }

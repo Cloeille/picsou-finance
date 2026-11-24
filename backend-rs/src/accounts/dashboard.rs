@@ -8,7 +8,7 @@ use chrono::{Datelike, NaiveDate};
 use rust_decimal::{Decimal, RoundingStrategy};
 use serde::Serialize;
 
-use super::history::{NetWorthPoint, build_history};
+use super::history::{NetWorthPoint, build_history_preloaded};
 use super::jdecimal;
 use super::query::Params;
 use super::scale::{add, sub};
@@ -17,7 +17,7 @@ use crate::auth::Auth;
 use crate::error::AppResult;
 use crate::ledger::decimal::divide;
 use crate::ledger::model::{Account, AccountType};
-use crate::ledger::{access, holdings, liabilities, loans, valuation};
+use crate::ledger::{access, loans, valuation};
 
 const HUNDRED: Decimal = Decimal::from_parts(100, 0, 0, false, 0);
 
@@ -140,22 +140,31 @@ pub async fn get_dashboard(
     super::scale::fix_accounts(&mut visible);
     visible.retain(|a| !a.hidden);
     let shares = access::shares_for(&mut conn, &visible, member_id).await?;
-    let mut holding_counts = HashMap::new();
-    for a in &visible {
-        holding_counts.insert(
-            a.id,
-            holdings::find_by_account(&mut conn, a.id).await?.len(),
-        );
-    }
+    let batch = valuation::ValuationBatch::load(&mut conn, &visible).await?;
+    let holding_counts: HashMap<i64, usize> = visible
+        .iter()
+        .map(|a| (a.id, batch.holdings.get(&a.id).map_or(0, Vec::len)))
+        .collect();
 
     let mut total_assets = Decimal::ZERO;
     let mut total_liabilities = Decimal::ZERO;
     let mut values: HashMap<i64, Decimal> = HashMap::new();
     let mut unweighted_liabilities: HashMap<i64, Decimal> = HashMap::new();
     // Child accounts (pockets) are already inside their parent's balance.
-    for a in visible.iter().filter(|a| a.parent_account_id.is_none()) {
+    let top_level_accounts: Vec<Account> = visible
+        .iter()
+        .filter(|a| a.parent_account_id.is_none())
+        .cloned()
+        .collect();
+    let mut valuations: HashMap<i64, valuation::Valuation> =
+        HashMap::with_capacity(top_level_accounts.len());
+    for a in &top_level_accounts {
+        let val = valuation::valuation_from_batch(prices, a, &batch, today).await;
+        valuations.insert(a.id, val);
+        let has_holdings = holding_counts[&a.id] > 0;
         let value = match a.account_type {
-            AccountType::Loan => valuation::live_balance_eur(&mut conn, prices, a, today).await?,
+            AccountType::Loan => val.live_eur,
+            AccountType::CreditCard if !has_holdings => -val.live_eur,
             AccountType::CreditCard => {
                 -prices
                     .to_eur(
@@ -166,7 +175,7 @@ pub async fn get_dashboard(
                     )
                     .await
             }
-            _ if holding_counts[&a.id] == 0 => {
+            AccountType::PeerLoan if !has_holdings && batch.peer_terms.contains_key(&a.id) => {
                 prices
                     .to_eur(
                         Some(a.current_balance),
@@ -176,11 +185,21 @@ pub async fn get_dashboard(
                     )
                     .await
             }
-            _ => {
-                valuation::valuation(&mut conn, prices, a, today)
-                    .await?
-                    .live_eur
+            _ if !has_holdings
+                && a.is_synced_corum_life()
+                && a.provider_invested_eur.is_some()
+                && !a.currency.eq_ignore_ascii_case("EUR") =>
+            {
+                prices
+                    .to_eur(
+                        Some(a.current_balance),
+                        &a.currency,
+                        a.ticker.as_deref(),
+                        today,
+                    )
+                    .await
             }
+            _ => val.live_eur,
         };
         if a.account_type.is_liability() {
             unweighted_liabilities.insert(a.id, value);
@@ -196,13 +215,18 @@ pub async fn get_dashboard(
     }
     let total_net_worth = sub(total_assets, total_liabilities);
 
-    let top_level: Vec<i64> = visible
-        .iter()
-        .filter(|a| a.parent_account_id.is_none())
-        .map(|a| a.id)
-        .collect();
     let months = range_months(range.as_deref(), today);
-    let history = build_history(&state, &mut conn, &top_level, months, false, member_id).await?;
+    let history = build_history_preloaded(
+        &state,
+        &mut conn,
+        &top_level_accounts,
+        &shares,
+        months,
+        false,
+        &batch,
+        &valuations,
+    )
+    .await?;
 
     let all: Vec<&Account> = visible.iter().collect();
     let distributable: Vec<&Account> = visible
@@ -223,12 +247,7 @@ pub async fn get_dashboard(
     let assets = distribution(&all, total_assets, &holding_counts, &values, false);
     let raw_liabilities = distribution(&all, total_liabilities, &holding_counts, &values, true);
 
-    let ids: Vec<i64> = raw_liabilities.iter().map(|i| i.account_id).collect();
-    let debts: HashMap<i64, _> = liabilities::debts_of_accounts(&mut conn, &ids)
-        .await?
-        .into_iter()
-        .map(|d| (d.account_id, d))
-        .collect();
+    let debts = &batch.debts;
     let by_id: HashMap<i64, &Account> = visible.iter().map(|a| (a.id, a)).collect();
     let mut total_monthly: Option<Decimal> = None;
     let mut entries = Vec::with_capacity(raw_liabilities.len());

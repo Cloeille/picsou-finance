@@ -27,6 +27,9 @@ pub async fn debts_of_accounts<'e>(
     db: impl DbExec<'e>,
     account_ids: &[i64],
 ) -> sqlx::Result<Vec<Debt>> {
+    if account_ids.is_empty() {
+        return Ok(Vec::new());
+    }
     crate::db::query_as(&format!(
         "SELECT {DEBT_COLUMNS} FROM debt WHERE account_id = ANY($1) ORDER BY id"
     ))
@@ -93,10 +96,28 @@ pub async fn peer_loan_repayments_of_account<'e>(
     .await
 }
 
+pub async fn peer_loan_terms_of_accounts<'e>(
+    db: impl DbExec<'e>,
+    account_ids: &[i64],
+) -> sqlx::Result<Vec<PeerLoanTerms>> {
+    if account_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    crate::db::query_as(&format!(
+        "SELECT {TERMS_COLUMNS} FROM peer_loan_terms t WHERE t.account_id = ANY($1) ORDER BY t.id"
+    ))
+    .bind(account_ids)
+    .fetch_all(db)
+    .await
+}
+
 pub async fn peer_loan_repayments_of_accounts<'e>(
     db: impl DbExec<'e>,
     account_ids: &[i64],
 ) -> sqlx::Result<Vec<PeerLoanRepayment>> {
+    if account_ids.is_empty() {
+        return Ok(Vec::new());
+    }
     crate::db::query_as(&format!(
         "SELECT {REPAYMENT_COLUMNS} FROM peer_loan_repayment r WHERE r.account_id = ANY($1) ORDER BY r.paid_on, r.id"
     ))

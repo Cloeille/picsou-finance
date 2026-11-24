@@ -4,14 +4,17 @@
 //! Value and cost basis are computed together from one set of prices, so whatever is excluded
 //! from one side is excluded from the other: an asset that cannot be priced leaves both.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use crate::db::DbHandle;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 
 use super::liabilities;
-use super::model::{Account, AccountHolding, AccountType, BalanceSnapshot, SnapshotSource};
+use super::model::{
+    Account, AccountHolding, AccountType, BalanceSnapshot, Debt, PeerLoanRepayment, PeerLoanTerms,
+    SnapshotSource,
+};
 use super::prices::{PriceNeeds, PriceRead, Quote};
 use super::sync_values::java_is_blank;
 use super::{accounts, holdings, loans, peer_loans, providers, snapshots, transactions};
@@ -42,6 +45,110 @@ impl Valuation {
             any_stale: false,
         }
     }
+}
+
+/// Batched database inputs for valuing a set of accounts without per-account queries.
+#[derive(Default)]
+pub struct ValuationBatch {
+    pub holdings: HashMap<i64, Vec<AccountHolding>>,
+    pub debts: HashMap<i64, Debt>,
+    pub peer_terms: HashMap<i64, PeerLoanTerms>,
+    pub peer_repayments: HashMap<i64, Vec<PeerLoanRepayment>>,
+}
+
+impl ValuationBatch {
+    pub async fn load(conn: &mut DbHandle<'_>, accounts: &[Account]) -> sqlx::Result<Self> {
+        if accounts.is_empty() {
+            return Ok(Self::default());
+        }
+        let mut all_ids = Vec::with_capacity(accounts.len());
+        let mut loan_ids = Vec::new();
+        let mut peer_loan_ids = Vec::new();
+        for a in accounts {
+            all_ids.push(a.id);
+            match a.account_type {
+                AccountType::Loan => loan_ids.push(a.id),
+                AccountType::PeerLoan => peer_loan_ids.push(a.id),
+                _ => {}
+            }
+        }
+        let holdings = holdings::find_by_accounts(&mut *conn, &all_ids).await?;
+        let debts = liabilities::debts_of_accounts(&mut *conn, &loan_ids)
+            .await?
+            .into_iter()
+            .map(|d| (d.account_id, d))
+            .collect();
+        let peer_terms = liabilities::peer_loan_terms_of_accounts(&mut *conn, &peer_loan_ids)
+            .await?
+            .into_iter()
+            .map(|t| (t.account_id, t))
+            .collect();
+        let mut peer_repayments: HashMap<i64, Vec<PeerLoanRepayment>> = HashMap::new();
+        for r in liabilities::peer_loan_repayments_of_accounts(&mut *conn, &peer_loan_ids).await? {
+            peer_repayments.entry(r.account_id).or_default().push(r);
+        }
+        Ok(Self {
+            holdings,
+            debts,
+            peer_terms,
+            peer_repayments,
+        })
+    }
+}
+
+/// Values one account from preloaded [`ValuationBatch`] data without touching the database.
+pub async fn valuation_from_batch(
+    prices: &dyn PriceRead,
+    account: &Account,
+    batch: &ValuationBatch,
+    today: NaiveDate,
+) -> Valuation {
+    let currency = account.currency.as_str();
+    let ticker = account.ticker.as_deref();
+    match account.account_type {
+        AccountType::Loan => {
+            let outstanding = match batch
+                .debts
+                .get(&account.id)
+                .filter(|d| loans::has_schedule(d))
+            {
+                Some(debt) => loans::compute_remaining_balance(debt, today),
+                None => {
+                    prices
+                        .to_eur(Some(account.current_balance), currency, ticker, today)
+                        .await
+                }
+            };
+            return Valuation::plain(outstanding, account.current_balance);
+        }
+        AccountType::PeerLoan => {
+            let remaining = batch.peer_terms.get(&account.id).map(|terms| {
+                let repayments = batch
+                    .peer_repayments
+                    .get(&account.id)
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[]);
+                peer_loans::principal_remaining(terms, repayments)
+            });
+            let value = match remaining {
+                Some(remaining) => remaining,
+                None => {
+                    prices
+                        .to_eur(Some(account.current_balance), currency, ticker, today)
+                        .await
+                }
+            };
+            return Valuation::plain(value, value);
+        }
+        _ => {}
+    }
+
+    let lines = batch
+        .holdings
+        .get(&account.id)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    valuation_with_holdings(prices, account, lines, today).await
 }
 
 /// AccountService.valuation.
@@ -96,23 +203,34 @@ pub async fn valuation(
     }
 
     let holdings = holdings::find_by_account(&mut *conn, account.id).await?;
+    Ok(valuation_with_holdings(prices, account, &holdings, today).await)
+}
+
+async fn valuation_with_holdings(
+    prices: &dyn PriceRead,
+    account: &Account,
+    holdings: &[AccountHolding],
+    today: NaiveDate,
+) -> Valuation {
+    let currency = account.currency.as_str();
+    let ticker = account.ticker.as_deref();
     if holdings.is_empty() {
         // A CORUM Life contract keeps its own cost basis without lines too; both figures are
         // the EUR amounts CORUM reported, so an edited account currency must not convert one.
         if let Some(invested) = account.provider_invested_eur
             && account.is_synced_corum_life()
         {
-            return Ok(Valuation::plain(account.current_balance, invested));
+            return Valuation::plain(account.current_balance, invested);
         }
         let cash = prices
             .to_eur(Some(account.current_balance), currency, ticker, today)
             .await;
         // Cash costs what it is worth, in the same currency on both sides.
-        return Ok(Valuation::plain(cash, cash));
+        return Valuation::plain(cash, cash);
     }
 
-    let quotes = quotes_for(prices, account, &holdings, today).await;
-    let mut value = value_holdings(account, &holdings, &quotes);
+    let quotes = quotes_for(prices, account, holdings, today).await;
+    let mut value = value_holdings(account, holdings, &quotes);
     if value.any_cost_basis_unknown {
         // The PER purchase basis is not reported: pair its current valuation with itself.
         let insurer = providers::is_insurer_contract(account);
@@ -131,7 +249,7 @@ pub async fn valuation(
         }
         value.valuation.invested_eur = baseline;
     }
-    Ok(value.valuation)
+    value.valuation
 }
 
 struct HoldingsValue {

@@ -1,6 +1,7 @@
 //! AccountHoldingRepository and AccountService.upsertHolding / pruneHoldings.
 
 use std::cmp::Ordering;
+use std::collections::HashMap;
 
 use crate::db::DbHandle;
 use chrono::{DateTime, Utc};
@@ -24,6 +25,28 @@ pub async fn find_by_account<'e>(
         .bind(account_id)
         .fetch_all(db)
         .await
+}
+
+/// Holdings for a batch of accounts in one query, grouped by account id in id order.
+pub async fn find_by_accounts<'e>(
+    db: impl DbExec<'e>,
+    account_ids: &[i64],
+) -> sqlx::Result<HashMap<i64, Vec<AccountHolding>>> {
+    if account_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<AccountHolding> = crate::db::query_as(&format!(
+        "{} ORDER BY h.account_id, h.id",
+        select("h.account_id = ANY($1)")
+    ))
+    .bind(account_ids)
+    .fetch_all(db)
+    .await?;
+    let mut by_account: HashMap<i64, Vec<AccountHolding>> = HashMap::new();
+    for row in rows {
+        by_account.entry(row.account_id).or_default().push(row);
+    }
+    Ok(by_account)
 }
 
 /// Sorts holdings by `current_price DESC NULLS FIRST, id ASC` using exact `Decimal` order
