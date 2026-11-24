@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-11-24
+
 ### Added
 
 - **Native Rust backend (`backend-rs/`).** Rewrote the Picsou backend in Rust with full API, MCP,
