@@ -1728,18 +1728,101 @@
     },
     {
       "body": {
-        "detail": "Account not found",
-        "instance": "/api/analysis/pyramid",
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
+        "alerts": [
+          {
+            "code": "SINGLE_ASSET_CONCENTRATION",
+            "label": "Appartement",
+            "percent": 237.87,
+            "valueEur": 125000.00
+          },
+          {
+            "code": "EMPTY_TIER",
+            "label": "CRYPTO",
+            "percent": 0,
+            "valueEur": 0
+          },
+          {
+            "code": "EMPTY_TIER",
+            "label": "ALTERNATIVE",
+            "percent": 0,
+            "valueEur": 0
+          }
+        ],
+        "allocatableEur": 51800.00,
+        "safetyNet": {
+          "dailyCashEur": 750.00,
+          "excessEur": 0.00,
+          "known": false,
+          "valueEur": 0.00
+        },
+        "score": {
+          "allocation": 33,
+          "cryptoPenalty": 0.00,
+          "global": 38,
+          "leverageBonus": 5.00,
+          "loanToValue": 60.00,
+          "misplacedPercent": 66.53
+        },
+        "tiers": [
+          {
+            "accounts": [
+              {
+                "accountId": "<id:1>",
+                "color": "#555555",
+                "name": "Appartement",
+                "valueEur": 125000.00000000
+              }
+            ],
+            "actualPercent": 96.53,
+            "gapPercent": 66.53,
+            "targetEur": 15540.00,
+            "targetPercent": 30.00,
+            "tier": "REAL_ESTATE",
+            "valueEur": 50000.00000000
+          },
+          {
+            "accounts": [
+              {
+                "accountId": "<id:2>",
+                "color": "#333333",
+                "name": "PEA",
+                "valueEur": 1800.00000000
+              }
+            ],
+            "actualPercent": 3.47,
+            "gapPercent": -46.53,
+            "targetEur": 25900.00,
+            "targetPercent": 50.00,
+            "tier": "EQUITY",
+            "valueEur": 1800.00000000
+          },
+          {
+            "accounts": [],
+            "actualPercent": 0.00,
+            "gapPercent": -10.00,
+            "targetEur": 5180.00,
+            "targetPercent": 10.00,
+            "tier": "CRYPTO",
+            "valueEur": 0
+          },
+          {
+            "accounts": [],
+            "actualPercent": 0.00,
+            "gapPercent": -10.00,
+            "targetEur": 5180.00,
+            "targetPercent": 10.00,
+            "tier": "ALTERNATIVE",
+            "valueEur": 0
+          }
+        ],
+        "totalAssetsEur": 52550.00
       },
       "bodyKind": "json",
       "cookies": [],
       "headers": {
         "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
         "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
-        "content-type": "application/problem+json",
+        "content-type": "application/json",
         "expires": "0",
         "permissions-policy": "camera=(), microphone=(), geolocation=()",
         "pragma": "no-cache",
@@ -1747,23 +1830,155 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "DENY"
       },
-      "status": 404,
+      "status": 200,
       "step": "30 GET /api/analysis/pyramid as camille"
     },
     {
       "body": {
-        "detail": "Account not found",
-        "instance": "/api/analysis/diversification",
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
+        "classifiedValueEur": 1242.00,
+        "countries": {
+          "basis": "MIXED",
+          "classifiedValueEur": 1242.00,
+          "coveragePercent": 71.38,
+          "effectiveCount": 1.31,
+          "score": 44,
+          "slices": [
+            {
+              "contributorCount": 2,
+              "contributors": [
+                {
+                  "sharePercent": 75.00,
+                  "ticker": "PSWORLD",
+                  "valueEur": 810.00
+                },
+                {
+                  "sharePercent": 25.00,
+                  "ticker": "PSAPPLE",
+                  "valueEur": 270.00
+                }
+              ],
+              "label": "US",
+              "percent": 86.96,
+              "valueEur": 1080.00
+            },
+            {
+              "contributorCount": 1,
+              "contributors": [
+                {
+                  "sharePercent": 100.00,
+                  "ticker": "PSWORLD",
+                  "valueEur": 81.00
+                }
+              ],
+              "label": "JP",
+              "percent": 6.52,
+              "valueEur": 81.00
+            },
+            {
+              "contributorCount": 1,
+              "contributors": [
+                {
+                  "sharePercent": 100.00,
+                  "ticker": "PSWORLD",
+                  "valueEur": 81.00
+                }
+              ],
+              "label": "GB",
+              "percent": 6.52,
+              "valueEur": 81.00
+            }
+          ],
+          "targetCount": 3
+        },
+        "coveragePercent": 71.38,
+        "sectors": {
+          "basis": "MIXED",
+          "classifiedValueEur": 1012.50,
+          "coveragePercent": 58.19,
+          "effectiveCount": 2.27,
+          "score": 38,
+          "slices": [
+            {
+              "contributorCount": 2,
+              "contributors": [
+                {
+                  "sharePercent": 55.56,
+                  "ticker": "PSWORLD",
+                  "valueEur": 337.50
+                },
+                {
+                  "sharePercent": 44.44,
+                  "ticker": "PSAPPLE",
+                  "valueEur": 270.00
+                }
+              ],
+              "label": "technology",
+              "percent": 60.00,
+              "valueEur": 607.50
+            },
+            {
+              "contributorCount": 1,
+              "contributors": [
+                {
+                  "sharePercent": 100.00,
+                  "ticker": "PSWORLD",
+                  "valueEur": 202.50
+                }
+              ],
+              "label": "financial_services",
+              "percent": 20.00,
+              "valueEur": 202.50
+            },
+            {
+              "contributorCount": 1,
+              "contributors": [
+                {
+                  "sharePercent": 100.00,
+                  "ticker": "PSWORLD",
+                  "valueEur": 202.50
+                }
+              ],
+              "label": "healthcare",
+              "percent": 20.00,
+              "valueEur": 202.50
+            }
+          ],
+          "targetCount": 6
+        },
+        "securities": [
+          {
+            "accountId": "<id:2>",
+            "name": "Amundi MSCI World",
+            "ticker": "PSWORLD",
+            "valueEur": 1350.00
+          },
+          {
+            "accountId": "<id:2>",
+            "name": "Apple",
+            "ticker": "PSAPPLE",
+            "valueEur": 270.00
+          }
+        ],
+        "totalValueEur": 1740.00,
+        "unclassified": [
+          {
+            "accountId": "<id:2>",
+            "countryMissing": true,
+            "name": "Gold ETC",
+            "profileLooked": false,
+            "sectorMissing": true,
+            "ticker": "PSGOLD",
+            "valueEur": 120.00
+          }
+        ],
+        "unclassifiedValueEur": 498.00
       },
       "bodyKind": "json",
       "cookies": [],
       "headers": {
         "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
         "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
-        "content-type": "application/problem+json",
+        "content-type": "application/json",
         "expires": "0",
         "permissions-policy": "camera=(), microphone=(), geolocation=()",
         "pragma": "no-cache",
@@ -1771,7 +1986,7 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "DENY"
       },
-      "status": 404,
+      "status": 200,
       "step": "31 GET /api/analysis/diversification as camille"
     },
     {
