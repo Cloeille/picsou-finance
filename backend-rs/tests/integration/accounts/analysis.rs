@@ -307,27 +307,35 @@ async fn a_stated_cushion_is_scored_and_an_idle_surplus_is_called_out() {
 }
 
 #[tokio::test]
-async fn a_co_owner_of_an_account_with_holdings_gets_java_s_404() {
+async fn a_co_owner_of_an_account_with_holdings_sees_their_share_in_pyramid_and_diversification() {
     let app = TestApp::with_admin().await;
     let (alice, _) = signed_in(&app, "alice").await;
     let (bob, bob_client) = signed_in(&app, "bob").await;
+    let (_, carol_client) = signed_in(&app, "carol").await;
     let pea = simple(&app, alice, "PEA", "0").await;
     holding(&app, pea, "PSX", "1", None).await;
+    price(&app, "PSX", "1000").await;
     share(&app, pea, alice, "50").await;
     share(&app, pea, bob, "50").await;
-    // Java reads the lines through the owner-only getHoldings; kept as the specification says.
-    assert_eq!(
-        bob_client.get("/api/analysis/pyramid").send().await.status,
-        404
-    );
-    assert_eq!(
-        bob_client
-            .get("/api/analysis/diversification")
-            .send()
-            .await
-            .status,
-        404
-    );
+
+    let pyramid_resp = bob_client.get("/api/analysis/pyramid").send().await;
+    assert_eq!(pyramid_resp.status, 200, "{}", pyramid_resp.text());
+    let pyramid = pyramid_resp.json();
+    assert_eq!(num(&pyramid["totalAssetsEur"]), "500.00");
+    assert_eq!(dec(&tier(&pyramid, "EQUITY")["valueEur"]), d("500.00"));
+
+    let div_resp = bob_client.get("/api/analysis/diversification").send().await;
+    assert_eq!(div_resp.status, 200, "{}", div_resp.text());
+    let div = div_resp.json();
+    assert_eq!(num(&div["totalValueEur"]), "500.00");
+    assert_eq!(div["unclassified"][0]["ticker"], "PSX");
+    assert_eq!(num(&div["unclassified"][0]["valueEur"]), "500.00");
+
+    // A member without a share still sees none of the shared account.
+    let carol_pyramid = get_json(&carol_client, "/api/analysis/pyramid").await;
+    assert_eq!(num(&carol_pyramid["totalAssetsEur"]), "0.00");
+    let carol_div = get_json(&carol_client, "/api/analysis/diversification").await;
+    assert_eq!(num(&carol_div["totalValueEur"]), "0.00");
 }
 
 #[tokio::test]

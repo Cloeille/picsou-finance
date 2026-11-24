@@ -79,6 +79,23 @@ impl Validate for HoldingRequest {
     }
 }
 
+/// The valued lines of an account the caller has already authorised for reading.
+pub async fn holdings_of(
+    conn: &mut DbHandle<'_>,
+    prices: &dyn PriceRead,
+    crypto_logos: &dyn crate::accounts::positions::CryptoLogoRead,
+    account: &Account,
+    today: NaiveDate,
+) -> sqlx::Result<Vec<HoldingResponse>> {
+    let lines = by_price_desc(&mut *conn, account.id).await?;
+    let quotes = valuation::quotes_for(prices, account, &lines, today).await;
+    let logos = logos_for(&mut *conn, crypto_logos, account, &lines).await?;
+    Ok(lines
+        .iter()
+        .map(|h| to_response(account, h, &quotes, &logos))
+        .collect())
+}
+
 /// getHoldings: the lines of an account the member owns (a co-owner gets the 404, as in Java).
 pub async fn owned_holdings(
     conn: &mut DbHandle<'_>,
@@ -89,13 +106,7 @@ pub async fn owned_holdings(
     today: NaiveDate,
 ) -> AppResult<Vec<HoldingResponse>> {
     let account = accounts::get_or_throw(&mut *conn, account_id, member_id).await?;
-    let lines = by_price_desc(&mut *conn, account.id).await?;
-    let quotes = valuation::quotes_for(prices, &account, &lines, today).await;
-    let logos = logos_for(&mut *conn, crypto_logos, &account, &lines).await?;
-    Ok(lines
-        .iter()
-        .map(|h| to_response(&account, h, &quotes, &logos))
-        .collect())
+    Ok(holdings_of(conn, prices, crypto_logos, &account, today).await?)
 }
 
 /// findByAccountIdOrderByCurrentPriceDesc as PostgreSQL answers it for Java:

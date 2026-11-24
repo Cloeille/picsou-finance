@@ -12,7 +12,7 @@ use super::java_hash::hash_order;
 use super::math::{jmin, percent_of, rounded_int, scale2};
 use super::profiles::{self, ProfileSlice};
 use crate::accounts::classification::{HoldingClassification, overrides_of};
-use crate::accounts::holdings::owned_holdings;
+use crate::accounts::holdings::holdings_of;
 use crate::db::AsDbHandle;
 use crate::error::AppResult;
 use crate::ledger::access::{self, weigh};
@@ -167,7 +167,7 @@ pub async fn diversification(
             continue;
         }
         let share = shares.get(&account.id).copied().unwrap_or_default();
-        for line in owned_holdings(&mut *conn, prices, logos, account.id, member_id, today).await? {
+        for line in holdings_of(&mut *conn, prices, logos, account, today).await? {
             let Some(current) = line.current_value_eur else {
                 continue;
             };

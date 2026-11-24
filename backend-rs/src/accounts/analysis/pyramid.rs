@@ -13,7 +13,7 @@ use super::math::{jmax, jmin, percent_of, rounded_int, scale2};
 use super::property::visible_property_debt;
 use super::targets::{AllocationProfile, profile_for};
 use crate::accounts::classification::overrides_of;
-use crate::accounts::holdings::owned_holdings;
+use crate::accounts::holdings::holdings_of;
 use crate::error::AppResult;
 use crate::ledger::access::{self, weigh};
 use crate::ledger::decimal::{HALF_UP, divide, set_scale};
@@ -206,7 +206,7 @@ pub async fn pyramid(
         }
 
         // The wrapper does not determine the asset: split line by line, then reconcile.
-        let lines = owned_holdings(&mut *conn, prices, logos, account.id, member_id, today).await?;
+        let lines = holdings_of(&mut *conn, prices, logos, account, today).await?;
         let line_tickers: BTreeSet<String> = lines
             .iter()
             .filter(|l| !java_is_blank(&l.ticker))
