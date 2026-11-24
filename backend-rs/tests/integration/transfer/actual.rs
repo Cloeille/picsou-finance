@@ -1408,3 +1408,47 @@ async fn request_validation_answers_422_before_the_service() {
     let unknown = execute(&ctx, &json!({"fileToken": "t", "currency": "EUR", "accountMappings": [{"sourceId": "a", "action": "NOPE"}], "categoryMappings": []})).await;
     assert_eq!(unknown.status, 400);
 }
+
+#[tokio::test]
+async fn a_failed_concurrent_import_does_not_restore_another_requests_consumed_token() {
+    let ctx = setup().await;
+    let p = preview(&ctx, &with_bulk(Fixture::household(), 0..200)).await;
+    let valid = create_everything(&p);
+    let mut wrong_currency = valid.clone();
+    wrong_currency["currency"] = json!("USD");
+
+    let send = |body: Value| {
+        let client = ctx.client.clone();
+        async move { client.post("/api/actual/import").json(&body).send().await }
+    };
+    let (r1, r2, r3, r4) = tokio::join!(
+        send(valid.clone()),
+        send(wrong_currency.clone()),
+        send(wrong_currency.clone()),
+        send(valid.clone()),
+    );
+    let responses = [r1, r2, r3, r4];
+    let statuses: Vec<u16> = responses.iter().map(|r| r.status.as_u16()).collect();
+    assert_eq!(
+        statuses.iter().filter(|&&s| s == 201).count(),
+        1,
+        "exactly one concurrent import must succeed: {statuses:?}"
+    );
+    assert!(
+        statuses.iter().all(|&s| s == 201 || s == 400),
+        "losing concurrent imports must answer 400, not collide on a restored token: {statuses:?}"
+    );
+
+    // Once the winning import completed, the preview token must stay spent.
+    let after = plan(&ctx, &valid).await;
+    assert_eq!(
+        after.status,
+        400,
+        "consumed token was restored by a failed concurrent request: {}",
+        after.text()
+    );
+    assert_eq!(
+        after.json()["detail"],
+        "Preview expired or invalid -- please upload the file again"
+    );
+}

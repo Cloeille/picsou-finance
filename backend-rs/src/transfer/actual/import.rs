@@ -653,166 +653,176 @@ pub(super) async fn execute(
             resolved.plan.to_delete.len()
         )));
     }
+    let store = &state.transfer.actual.previews;
+    let token = request.token();
     // Consumed before writing: of two executes racing on one preview, exactly one passes.
-    if !state
-        .transfer
-        .actual
-        .previews
-        .consume(request.token(), entry)
-    {
+    if !store.consume(token, entry) {
         return Err(bad(PREVIEW_EXPIRED));
     }
-    let member_exists: bool =
-        crate::db::query_scalar("SELECT EXISTS(SELECT 1 FROM family_member WHERE id = $1)")
-            .bind(member_id)
-            .fetch_one(&mut tx)
+    let outcome = async {
+        let member_exists: bool =
+            crate::db::query_scalar("SELECT EXISTS(SELECT 1 FROM family_member WHERE id = $1)")
+                .bind(member_id)
+                .fetch_one(&mut tx)
+                .await?;
+        if !member_exists {
+            return Err(bad("Family member not found"));
+        }
+        let currency = request.currency();
+        let mut counts = Counts::default();
+        create_accounts(
+            &mut tx.as_handle(),
+            budget,
+            &mut resolved,
+            member_id,
+            currency,
+            now,
+            &mut counts,
+        )
+        .await?;
+        create_categories(
+            &mut tx.as_handle(),
+            budget,
+            &mut resolved,
+            member_id,
+            now,
+            &mut counts,
+        )
+        .await?;
+        let transfer_category = if !resolved.plan.needs_transfer(budget) {
+            None
+        } else if let Some(existing) = resolved.existing_transfer.clone() {
+            Some(existing)
+        } else {
+            Some(
+                insert_category(
+                    &mut tx,
+                    member_id,
+                    "Actual Budget transfer",
+                    ACTUAL_TRANSFER_SLUG,
+                    CategoryKind::Transfer,
+                    "#64748b",
+                    None,
+                    now,
+                )
+                .await?,
+            )
+        };
+
+        let plan = &resolved.plan;
+        if !plan.to_delete.is_empty() {
+            crate::db::query("DELETE FROM \"transaction\" WHERE id = ANY($1)")
+                .bind(&plan.to_delete)
+                .execute(&mut tx)
+                .await?;
+        }
+        let mut moved = 0;
+        for (row_id, source) in &plan.to_move {
+            let target = &resolved.targets[source];
+            moved += crate::db::query("UPDATE \"transaction\" SET account_id = $2 WHERE id = $1")
+                .bind(row_id)
+                .bind(target.id)
+                .execute(&mut tx)
+                .await?
+                .rows_affected() as usize;
+        }
+
+        let source_categories: HashMap<&str, &SourceCategory> = budget
+            .categories
+            .iter()
+            .map(|c| (c.id.as_str(), c))
+            .collect();
+        for &i in &plan.to_add {
+            let source = &budget.transactions[i];
+            let row = to_transaction(
+                source,
+                &resolved.targets[&source.account_id],
+                currency,
+                source
+                    .category_id
+                    .as_deref()
+                    .and_then(|c| source_categories.get(c).copied()),
+                &resolved.target_categories,
+                transfer_category.as_ref(),
+            );
+            transactions::insert(&mut tx, &row, now).await?;
+        }
+
+        // Accounts an Actual import created follow their ledger, whichever mapping a re-import
+        // uses; accounts the user created keep the balance they set.
+        let mut ledger: Vec<Account> = Vec::new();
+        for source in &budget.accounts {
+            if let Some(account) = resolved.targets.get(&source.id)
+                && import_created(account)
+                && !ledger.iter().any(|a| a.id == account.id)
+            {
+                ledger.push(account.clone());
+            }
+        }
+        for id in &plan.move_sources {
+            if !ledger.iter().any(|a| a.id == *id)
+                && let Some(account) = resolved.member_accounts.get(id)
+            {
+                ledger.push(account.clone());
+            }
+        }
+        let prices = &*state.ledger.prices;
+        for mut account in ledger {
+            let balance = manual_ledger::compute_manual_ledger_balance(
+                &mut tx.as_handle(),
+                &account,
+                prices,
+                today,
+            )
             .await?;
-    if !member_exists {
-        return Err(bad("Family member not found"));
-    }
-    let currency = request.currency();
-    let mut counts = Counts::default();
-    create_accounts(
-        &mut tx.as_handle(),
-        budget,
-        &mut resolved,
-        member_id,
-        currency,
-        now,
-        &mut counts,
-    )
-    .await?;
-    create_categories(
-        &mut tx.as_handle(),
-        budget,
-        &mut resolved,
-        member_id,
-        now,
-        &mut counts,
-    )
-    .await?;
-    let transfer_category = if !resolved.plan.needs_transfer(budget) {
-        None
-    } else if let Some(existing) = resolved.existing_transfer.clone() {
-        Some(existing)
-    } else {
-        Some(
-            insert_category(
-                &mut tx,
-                member_id,
-                "Actual Budget transfer",
-                ACTUAL_TRANSFER_SLUG,
-                CategoryKind::Transfer,
-                "#64748b",
-                None,
+            accounts::set_balance(&mut tx, account.id, balance, None, now).await?;
+            account.current_balance = balance;
+            manual_ledger::reconstruct_snapshots_from_db(
+                &mut tx.as_handle(),
+                &account,
+                prices,
+                today,
                 now,
             )
-            .await?,
-        )
-    };
-
-    let plan = &resolved.plan;
-    if !plan.to_delete.is_empty() {
-        crate::db::query("DELETE FROM \"transaction\" WHERE id = ANY($1)")
-            .bind(&plan.to_delete)
-            .execute(&mut tx)
             .await?;
-    }
-    let mut moved = 0;
-    for (row_id, source) in &plan.to_move {
-        let target = &resolved.targets[source];
-        moved += crate::db::query("UPDATE \"transaction\" SET account_id = $2 WHERE id = $1")
-            .bind(row_id)
-            .bind(target.id)
-            .execute(&mut tx)
-            .await?
-            .rows_affected() as usize;
-    }
+        }
+        tx.commit().await?;
 
-    let source_categories: HashMap<&str, &SourceCategory> = budget
-        .categories
-        .iter()
-        .map(|c| (c.id.as_str(), c))
-        .collect();
-    for &i in &plan.to_add {
-        let source = &budget.transactions[i];
-        let row = to_transaction(
-            source,
-            &resolved.targets[&source.account_id],
-            currency,
-            source
-                .category_id
-                .as_deref()
-                .and_then(|c| source_categories.get(c).copied()),
-            &resolved.target_categories,
-            transfer_category.as_ref(),
+        let not_importable = budget
+            .transactions
+            .iter()
+            .filter(|t| {
+                resolved.account_mappings[t.account_id.as_str()].action == Some(AccountAction::Skip)
+            })
+            .count();
+        tracing::info!(
+            "Actual Budget import for member {member_id}: {} rows imported, {} deleted, {moved} moved",
+            plan.to_add.len(),
+            plan.to_delete.len()
         );
-        transactions::insert(&mut tx, &row, now).await?;
-    }
-
-    // Accounts an Actual import created follow their ledger, whichever mapping a re-import
-    // uses; accounts the user created keep the balance they set.
-    let mut ledger: Vec<Account> = Vec::new();
-    for source in &budget.accounts {
-        if let Some(account) = resolved.targets.get(&source.id)
-            && import_created(account)
-            && !ledger.iter().any(|a| a.id == account.id)
-        {
-            ledger.push(account.clone());
-        }
-    }
-    for id in &plan.move_sources {
-        if !ledger.iter().any(|a| a.id == *id)
-            && let Some(account) = resolved.member_accounts.get(id)
-        {
-            ledger.push(account.clone());
-        }
-    }
-    let prices = &*state.ledger.prices;
-    for mut account in ledger {
-        let balance = manual_ledger::compute_manual_ledger_balance(
-            &mut tx.as_handle(),
-            &account,
-            prices,
-            today,
-        )
-        .await?;
-        accounts::set_balance(&mut tx, account.id, balance, None, now).await?;
-        account.current_balance = balance;
-        manual_ledger::reconstruct_snapshots_from_db(
-            &mut tx.as_handle(),
-            &account,
-            prices,
-            today,
-            now,
-        )
-        .await?;
-    }
-    tx.commit().await?;
-
-    let not_importable = budget
-        .transactions
-        .iter()
-        .filter(|t| {
-            resolved.account_mappings[t.account_id.as_str()].action == Some(AccountAction::Skip)
+        Ok::<_, AppError>(ResultResponse {
+            accounts_created: counts.accounts_created,
+            accounts_mapped: counts.accounts_mapped,
+            accounts_skipped: counts.accounts_skipped,
+            categories_created: counts.categories_created,
+            transactions_imported: plan.to_add.len(),
+            transactions_skipped: not_importable + plan.unchanged + plan.kept_moved,
+            transactions_deleted: plan.to_delete.len(),
+            transactions_moved: moved,
+            warnings: plan.warnings(),
         })
-        .count();
-    tracing::info!(
-        "Actual Budget import for member {member_id}: {} rows imported, {} deleted, {moved} moved",
-        plan.to_add.len(),
-        plan.to_delete.len()
-    );
-    Ok(ResultResponse {
-        accounts_created: counts.accounts_created,
-        accounts_mapped: counts.accounts_mapped,
-        accounts_skipped: counts.accounts_skipped,
-        categories_created: counts.categories_created,
-        transactions_imported: plan.to_add.len(),
-        transactions_skipped: not_importable + plan.unchanged + plan.kept_moved,
-        transactions_deleted: plan.to_delete.len(),
-        transactions_moved: moved,
-        warnings: plan.warnings(),
-    })
+    }
+    .await;
+    match outcome {
+        Ok(result) => {
+            store.complete(token, entry);
+            Ok(result)
+        }
+        Err(e) => {
+            store.restore(token, entry);
+            Err(e)
+        }
+    }
 }
 
 async fn create_accounts(

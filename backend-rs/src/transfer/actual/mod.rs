@@ -592,16 +592,8 @@ async fn execute(
     let entry = store
         .get(&token, auth.member_id)
         .ok_or_else(|| AppError::BadRequest(PREVIEW_EXPIRED.into()))?;
-    match import::execute(&state, &entry, &req, auth.member_id).await {
-        Ok(result) => {
-            store.complete(&token, &entry);
-            Ok((StatusCode::CREATED, axum::Json(result)).into_response())
-        }
-        Err(e) => {
-            store.restore(&token, &entry);
-            Err(e)
-        }
-    }
+    let result = import::execute(&state, &entry, &req, auth.member_id).await?;
+    Ok((StatusCode::CREATED, axum::Json(result)).into_response())
 }
 
 /// Java's String.strip(): Character.isWhitespace from both ends.
