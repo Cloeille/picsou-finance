@@ -56,7 +56,7 @@ ALTER TABLE transaction
 `TransactionType` enum: `DEPOSIT`, `WITHDRAWAL`, `BUY`, `SELL`, `DIVIDEND`, `FEE`.
 
 - Cash accounts (CHECKING, SAVINGS, LEP, OTHER): use DEPOSIT / WITHDRAWAL. The `amount` field is signed (positive = deposit, negative = withdrawal).
-- Investment accounts (PEA, COMPTE_TITRES, CRYPTO): use BUY / SELL. The `amount` is signed (negative for BUY, positive for SELL, reflecting cash flow).
+- Investment accounts (PEA, COMPTE_TITRES, CRYPTO, ASSURANCE_VIE, PER, PRECIOUS_METALS, BROKERAGE): use BUY / SELL. The `amount` is signed (negative for BUY, positive for SELL, reflecting cash flow).
 
 ### Entering a position by ISIN
 
@@ -95,7 +95,7 @@ inherits the rule.
 
 ### Holdings derivation (investment accounts)
 
-`HoldingComputeService.recomputeHoldings(account)` is called after every manual transaction add, edit, or delete on a **manual** PEA, COMPTE_TITRES, or CRYPTO account. Synced investment accounts preserve provider-owned positions when manual transaction annotations change:
+`HoldingComputeService.recomputeHoldings(account)` is called after every manual transaction add, edit, or delete on a **manual** investment account (PEA, COMPTE_TITRES, CRYPTO, ASSURANCE_VIE, PER, PRECIOUS_METALS, or BROKERAGE). Synced investment accounts preserve provider-owned positions when manual transaction annotations change:
 
 1. Fetches all BUY/SELL transactions for the account, ordered by date ASC.
 2. Groups by ticker: `net quantity = Σ(BUY qty) − Σ(SELL qty)`.
@@ -139,7 +139,7 @@ Bank-synced transactions (`isManual = false`) are read-only for amount, date, an
 **Cash accounts (CHECKING, SAVINGS, LEP, OTHER):**
 - Date, DEPOSIT/WITHDRAWAL toggle, Description, Amount (always positive — toggle sets sign), Category (optional dropdown — pre-filled from existing category when editing)
 
-**Investment accounts (PEA, COMPTE_TITRES, CRYPTO):**
+**Investment accounts (PEA, COMPTE_TITRES, CRYPTO, ASSURANCE_VIE, PER, PRECIOUS_METALS, BROKERAGE):**
 - Date, BUY/SELL toggle, **Ticker ou ISIN** (a ticker like `IWDA.AS` or a 12-char ISIN like `IE00B4L5Y983`), Name (auto-filled from existing holdings when the ticker matches; otherwise resolved from the ISIN backend-side), Quantity, Price per unit, **Fees (optional, folded into the PMP)**, Total (read-only)
 
 The Transactions list groups rows by booking date. Headings stay compact for a single-year list;

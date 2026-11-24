@@ -2027,19 +2027,42 @@ for (const c of mockCategories) {
 }
 
 // Categorization rules
-handlers.set(key('GET', '/categorization-rules'), () => mockRules)
+let _demoRules = mockRules.map((r) => ({ ...r }))
+handlers.set(key('GET', '/categorization-rules'), () => _demoRules)
 handlers.set(key('POST', '/categorization-rules'), (config) => {
   const body = JSON.parse(config.data || '{}')
   const cat = mockCategories.find((c) => c.id === body.categoryId)
-  return {
+  const created = {
     id: Date.now(), matchType: body.matchType ?? 'COUNTERPARTY', pattern: body.pattern ?? '',
     categoryId: body.categoryId ?? 0, categoryName: cat?.name ?? '', priority: body.priority ?? 0,
-    source: 'USER',
+    source: 'USER' as const,
   }
+  _demoRules = [..._demoRules, created]
+  return created
 })
-for (const r of mockRules) {
-  handlers.set(key('DELETE', `/categorization-rules/${r.id}`), () => ({}))
-}
+handlers.set(key('PUT', '/categorization-rules/:id'), (config, { id }) => {
+  const body = JSON.parse(config.data || '{}')
+  const numId = Number(id)
+  const existing = _demoRules.find((r) => r.id === numId)
+  if (!existing) return {}
+  const categoryId = body.categoryId ?? existing.categoryId
+  const cat = mockCategories.find((c) => c.id === categoryId)
+  const updated = {
+    ...existing,
+    matchType: body.matchType ?? existing.matchType,
+    pattern: typeof body.pattern === 'string' ? body.pattern.trim() : existing.pattern,
+    categoryId,
+    categoryName: cat?.name ?? existing.categoryName,
+    priority: body.priority ?? existing.priority,
+  }
+  _demoRules = _demoRules.map((r) => (r.id === numId ? updated : r))
+  return updated
+})
+handlers.set(key('DELETE', '/categorization-rules/:id'), (_config, { id }) => {
+  const numId = Number(id)
+  _demoRules = _demoRules.filter((r) => r.id !== numId)
+  return {}
+})
 handlers.set(key('POST', '/categorization-rules/recategorize'), () => ({ categorized: 4 }))
 
 // To-categorize inbox

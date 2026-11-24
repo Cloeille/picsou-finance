@@ -110,4 +110,18 @@ jobs:
           ls
           python3 ../.github/scripts/desktop_release.py manifest "$TAG" "$GITHUB_REPOSITORY" "${pairs[@]}" > latest.json
           cat latest.json
+          shopt -s nullglob
+          copy_stable() {
+            local dest="$1" pattern="$2"
+            shift 2
+            if [ "$#" -ne 1 ]; then
+              echo "::error::Expected 1 file matching '$pattern' for '$dest', found $#${*:+: $*}"
+              exit 1
+            fi
+            cp -- "$1" "$dest"
+          }
+          copy_stable 'Picsou-macOS-arm64.dmg' 'Picsou_*_aarch64.dmg' Picsou_*_aarch64.dmg
+          copy_stable 'Picsou-Windows-x64.exe' 'Picsou_*_x64-setup.exe' Picsou_*_x64-setup.exe
+          copy_stable 'Picsou-Linux-x64.AppImage' 'Picsou_*_amd64.AppImage' Picsou_*_amd64.AppImage
+          shopt -u nullglob
           gh release upload "$TAG" *.exe *.AppImage *.app.tar.gz *.dmg *.sig latest.json --clobber -R "$GITHUB_REPOSITORY"

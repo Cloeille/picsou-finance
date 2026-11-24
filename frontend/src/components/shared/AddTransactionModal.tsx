@@ -15,13 +15,11 @@ import { CircleNotch } from '@phosphor-icons/react'
 import type { AccountType, TransactionRequest } from '@/types/api'
 import { accountsApi } from '@/features/accounts/api'
 import { budgetApi } from '@/features/budget/api'
-import { QUERY_STALE_TIMES } from '@/lib/constants'
+import { INVESTMENT_ACCOUNT_TYPES, QUERY_STALE_TIMES } from '@/lib/constants'
 import { usePreciousMetals } from '@/features/accounts/hooks'
 
 const SELECT_CLS =
   'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus:border-ring'
-
-const INVESTMENT_TYPES: AccountType[] = ['PEA', 'COMPTE_TITRES', 'CRYPTO', 'PRECIOUS_METALS', 'BROKERAGE']
 
 type InitialValues = TransactionRequest & { id?: number }
 
@@ -74,9 +72,11 @@ interface TransactionFormProps {
 function TransactionForm({ onOpenChange, accountId, accountType, onSubmit, isLoading, initialValues }: TransactionFormProps) {
   const { t, i18n } = useTranslation()
   const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
-  const isInvestment = INVESTMENT_TYPES.includes(accountType)
-  const isPreciousMetals = accountType === 'PRECIOUS_METALS'
   const isInvestmentTx = initialValues?.txType === 'BUY' || initialValues?.txType === 'SELL'
+  // A line that is not a trade (deposit, withdrawal, dividend, fee) keeps the cash form when
+  // edited on an investment account: the buy/sell form would save it as a trade.
+  const isInvestment = INVESTMENT_ACCOUNT_TYPES.includes(accountType) && (!initialValues || isInvestmentTx)
+  const isPreciousMetals = accountType === 'PRECIOUS_METALS'
 
   const { data: holdings } = useQuery({
     queryKey: ['accounts', accountId, 'holdings'],

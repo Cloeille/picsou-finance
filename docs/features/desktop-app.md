@@ -23,14 +23,14 @@ Picsou is a free, open-source, self-hosted project and does not yet pay for an A
 
 ### Windows (64-bit)
 
-1. Double-click the downloaded installer (`Picsou_<version>_x64-setup.exe`).
+1. Double-click the downloaded installer (`Picsou-Windows-x64.exe` from the README button, or `Picsou_<version>_x64-setup.exe` from the Releases page).
 2. When Microsoft Defender SmartScreen displays **"Windows protected your PC"** (*Windows a protégé votre ordinateur*), click **More info** (*Informations complémentaires*).
 3. Click **Run anyway** (*Exécuter quand même*).
 4. Picsou installs into your user folder (`%LOCALAPPDATA%\Picsou`) without asking for administrator rights.
 
 ### Linux
 
-- **AppImage**: make the file executable (`chmod +x Picsou_*.AppImage`) and run it.
+- **AppImage**: make the file executable (`chmod +x Picsou*.AppImage`) and run it.
 - **Debian / Ubuntu (`.deb`)**: install with `sudo apt install ./Picsou_*.deb`.
 
 ## Context
@@ -218,6 +218,11 @@ banner of the main window and puts the entry back for a retry.
 - The version comes from the tag (`1.3.0` or `v1.3.0`): `desktop_release.py stamp` writes it to
   `Cargo.toml`, which the bundle, the updater and the backups (#588) all read.
   `tauri.conf.json` carries no version on purpose.
+- Before uploading, the `publish` job copies each installer to a version-less name
+  (`Picsou-macOS-arm64.dmg`, `Picsou-Windows-x64.exe`, `Picsou-Linux-x64.AppImage`, with no `.sig`
+  file) while leaving the versioned files and `latest.json` untouched. The direct download links in
+  `README.md` point to `/releases/latest/download/<name>` for these three files and are verified
+  against the workflow by `.github/tests/test_desktop_release.py`.
 - Only the release build gets the updater config (`desktop_release.py config`, passed to
   `tauri build --config`). PR and dev builds have no public key, so they never check.
 - The plugin checks the download against the public key before anything stops.

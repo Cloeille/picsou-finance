@@ -1,15 +1,91 @@
-"""The desktop release helpers: version stamp, updater config, latest.json."""
+"""The desktop release helpers and README stable download links."""
 
 from datetime import datetime, timezone
+from fnmatch import fnmatch
 from pathlib import Path
+import re
+import shlex
+import subprocess
 import sys
 import tempfile
 import unittest
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".github/scripts"))
 
 import desktop_release  # noqa: E402
+
+WORKFLOW_PATH = ROOT / ".github/workflows/desktop-release.yml"
+README_PATH = ROOT / "README.md"
+LATEST_DOWNLOAD_RE = re.compile(r"releases/latest/download/([^\s)\"'<>]+)")
+SAMPLE_RELEASE_ASSETS = (
+    "Picsou_1.3.0_aarch64.dmg",
+    "Picsou_1.3.0_amd64.AppImage",
+    "Picsou_1.3.0_amd64.AppImage.sig",
+    "Picsou_1.3.0_x64-setup.exe",
+    "Picsou_1.3.0_x64-setup.exe.sig",
+    "Picsou.app.tar.gz",
+    "Picsou.app.tar.gz.sig",
+    "latest.json",
+)
+
+
+def _publish_run_script():
+    workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    for step in workflow["jobs"]["publish"]["steps"]:
+        run = step.get("run", "")
+        if "gh release upload" in run:
+            return run
+    raise AssertionError("publish job has no 'gh release upload' step")
+
+
+def _extract_copy_block(run_script):
+    match = re.search(r"(?ms)^shopt -s nullglob\n.*?^shopt -u nullglob$", run_script)
+    if not match:
+        raise AssertionError("publish step has no nullglob copy block")
+    return match.group(0)
+
+
+def _extract_upload_globs(run_script):
+    for line in run_script.splitlines():
+        tokens = shlex.split(line, comments=True)
+        if tokens[:3] == ["gh", "release", "upload"]:
+            globs = []
+            skip_next = False
+            for token in tokens[4:]:
+                if skip_next:
+                    skip_next = False
+                    continue
+                if token in ("-R", "--repo"):
+                    skip_next = True
+                    continue
+                if token.startswith("-"):
+                    continue
+                globs.append(token)
+            return globs
+    raise AssertionError("publish step has no 'gh release upload' command")
+
+
+def _run_copy_block(copy_block, asset_names):
+    with tempfile.TemporaryDirectory() as tmp:
+        dist = Path(tmp)
+        for name in asset_names:
+            (dist / name).write_bytes(b"")
+        result = subprocess.run(
+            ["bash", "-e", "-c", copy_block],
+            cwd=dist,
+            capture_output=True,
+            text=True,
+        )
+        created = {path.name for path in dist.iterdir()} - set(asset_names)
+        all_files = {path.name for path in dist.iterdir()}
+        return result, created, all_files
+
+
+def _readme_download_names(readme_text):
+    return set(LATEST_DOWNLOAD_RE.findall(readme_text))
 
 
 class DesktopReleaseTest(unittest.TestCase):
@@ -92,6 +168,56 @@ class DesktopReleaseTest(unittest.TestCase):
             Path(f"{exe}.sig").write_text("\n", encoding="utf-8")
             with self.assertRaises(SystemExit):
                 desktop_release.manifest("v1.3.0", "o/r", installers, now)
+
+
+class DesktopDownloadLinksTest(unittest.TestCase):
+    def test_readme_download_links_match_workflow_outputs(self):
+        run_script = _publish_run_script()
+        copy_block = _extract_copy_block(run_script)
+        upload_globs = _extract_upload_globs(run_script)
+
+        # Copy block must run after latest.json is generated and before gh release upload.
+        self.assertLess(run_script.index("latest.json"), run_script.index(copy_block))
+        self.assertLess(run_script.index(copy_block), run_script.index("gh release upload"))
+
+        result, created, all_files = _run_copy_block(copy_block, SAMPLE_RELEASE_ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(created)
+        self.assertTrue(set(SAMPLE_RELEASE_ASSETS).issubset(all_files))
+        self.assertFalse(any(name.endswith(".sig") for name in created))
+
+        uploaded_copies = {
+            name for name in created if any(fnmatch(name, pattern) for pattern in upload_globs)
+        }
+        self.assertEqual(uploaded_copies, created)
+
+        readme_links = _readme_download_names(README_PATH.read_text(encoding="utf-8"))
+        self.assertTrue(readme_links, "README.md must link to at least one stable installer")
+        self.assertEqual(readme_links, uploaded_copies)
+
+    def test_mismatched_readme_link_is_detected(self):
+        copy_block = _extract_copy_block(_publish_run_script())
+        result, created, _ = _run_copy_block(copy_block, SAMPLE_RELEASE_ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        stale = _readme_download_names(
+            "https://github.com/Cloeille/picsou-finance/releases/latest/download/Picsou-macOS-universal.dmg"
+        )
+        self.assertFalse(stale.issubset(created))
+
+    def test_copy_block_fails_on_missing_or_duplicate_installer(self):
+        copy_block = _extract_copy_block(_publish_run_script())
+
+        missing = tuple(name for name in SAMPLE_RELEASE_ASSETS if not name.endswith(".dmg"))
+        result, _, _ = _run_copy_block(copy_block, missing)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("::error::", result.stdout)
+
+        duplicate = SAMPLE_RELEASE_ASSETS + ("Picsou_1.3.1_aarch64.dmg",)
+        result, _, _ = _run_copy_block(copy_block, duplicate)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("::error::", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
