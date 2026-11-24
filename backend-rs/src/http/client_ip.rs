@@ -176,6 +176,25 @@ fn split_host(host: &str) -> (String, Option<&str>) {
     }
 }
 
+/// A host a URL can carry: a DNS name, an IPv4 address or a bracketed IPv6 one.
+fn is_host_name(name: &str) -> bool {
+    match name.strip_prefix('[').and_then(|n| n.strip_suffix(']')) {
+        Some(v6) => {
+            !v6.is_empty()
+                && v6
+                    .bytes()
+                    .all(|b| b.is_ascii_hexdigit() || b == b':' || b == b'.')
+        }
+        None => {
+            !name.is_empty()
+                && name.len() <= 253
+                && name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_'))
+        }
+    }
+}
+
 fn resolve_origin(headers: &HeaderMap) -> RequestOrigin {
     let proto = header(headers, "x-forwarded-proto");
     let forwarded_host = header(headers, "x-forwarded-host");
@@ -196,12 +215,21 @@ fn resolve_origin(headers: &HeaderMap) -> RequestOrigin {
             .map(str::trim)
             .all(|v| v.eq_ignore_ascii_case("https"))
     });
-    let (host, mut port) = match forwarded_host.or(host_header) {
-        Some(h) => {
+    let forwarded = forwarded_host
+        .map(split_host)
+        .filter(|(name, _)| is_host_name(name));
+    let (host, mut port) = match (forwarded, host_header) {
+        (Some((name, port)), _) => (name, port.and_then(valid_port)),
+        // Tomcat's Host.parse refused a forwarded host no URL can carry (a list appended by a
+        // chain of proxies, a path, a quote) and the request kept the name of its Host header.
+        // Taken as it came, it failed every same-origin check and reached the issuer, the
+        // redirects and WWW-Authenticate.
+        (None, Some(h)) => {
             let (name, port) = split_host(h);
+            let port = port.filter(|_| forwarded_host.is_none());
             (name, port.and_then(valid_port))
         }
-        None => ("localhost".into(), None),
+        (None, None) => ("localhost".into(), None),
     };
     if port.is_none() {
         port = forwarded_port.and_then(valid_port);
@@ -267,6 +295,33 @@ mod tests {
         assert_eq!(
             resolve_origin(&headers).base_url(),
             "https://picsou.example"
+        );
+    }
+
+    #[test]
+    fn a_forwarded_host_no_url_can_carry_leaves_the_host_header_in_charge() {
+        for forged in [
+            "picsou.example, proxy.internal",
+            "evil.example/path",
+            "evil.example\", error=\"x",
+            "evil.example evil",
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert("host", "nas:8080".parse().unwrap());
+            headers.insert("x-forwarded-proto", "https".parse().unwrap());
+            headers.insert("x-forwarded-host", forged.parse().unwrap());
+            assert_eq!(
+                resolve_origin(&headers).base_url(),
+                "https://nas",
+                "{forged}"
+            );
+        }
+        let mut headers = HeaderMap::new();
+        headers.insert("host", "nas:8080".parse().unwrap());
+        headers.insert("x-forwarded-host", "[2001:db8::1]:8443".parse().unwrap());
+        assert_eq!(
+            resolve_origin(&headers).base_url(),
+            "http://[2001:db8::1]:8443"
         );
     }
 }

@@ -485,9 +485,13 @@ async fn cross_site_guard(State(state): State<AppState>, request: Request, next:
             false
         } else {
             match header_str(request.headers(), header::ORIGIN) {
-                Some(origin) if request.uri().path().starts_with("/api/") => cors_origins(&state)
-                    .await
-                    .is_some_and(|list| origin_allowed(&list, origin)),
+                // /oauth2 as well: a frontend served from an allow-listed origin posts its SSO
+                // start, its SSO callback and the consent form there.
+                Some(origin) if path.starts_with("/api/") || path.starts_with("/oauth2/") => {
+                    cors_origins(&state)
+                        .await
+                        .is_some_and(|list| origin_allowed(&list, origin))
+                }
                 _ => false,
             }
         };

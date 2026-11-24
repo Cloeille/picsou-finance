@@ -121,6 +121,34 @@ async fn cross_site_cookie_requests_are_refused() {
 }
 
 #[tokio::test]
+async fn an_allow_listed_origin_may_post_to_the_sso_and_oauth_endpoints() {
+    const REJECTED: &str =
+        "{\"status\":403,\"title\":\"Forbidden\",\"detail\":\"Cross-site request rejected\"}\n";
+    let app = TestApp::builder()
+        .with_admin()
+        .env("ALLOWED_ORIGINS", "https://app.example")
+        .spawn()
+        .await;
+    let client = app.login_admin().await;
+
+    for path in ["/oauth2/sso/authorization/oidc", "/oauth2/authorize"] {
+        let listed = client
+            .post(path)
+            .header("origin", "https://app.example")
+            .send()
+            .await;
+        assert_ne!(listed.text(), REJECTED, "{path} from the listed origin");
+        let foreign = client
+            .post(path)
+            .header("origin", "https://evil.example")
+            .send()
+            .await;
+        assert_eq!(foreign.status, StatusCode::FORBIDDEN, "{path}");
+        assert_eq!(foreign.text(), REJECTED, "{path} from another origin");
+    }
+}
+
+#[tokio::test]
 async fn cors_follows_the_allow_list() {
     let app = TestApp::builder()
         .with_admin()
