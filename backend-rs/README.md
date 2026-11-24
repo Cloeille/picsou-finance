@@ -17,7 +17,6 @@ It reads the environment variables the Java backend read, with the same defaults
 ```sh
 cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 PICSOU_TEST_DB=sqlite cargo test --test integration   # the same integration tests on embedded SQLite
-PICSOU_REQUIRE_FULL_COVERAGE=1 cargo test routes      # fails when an endpoint of scripts/java_endpoints.tsv is not served
 bun run contract/run.ts check --all                   # the HTTP contract against its goldens (contract/README.md)
 ```
 

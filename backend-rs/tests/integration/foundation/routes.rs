@@ -97,9 +97,7 @@ fn every_rust_route_is_a_java_endpoint() {
         java_keys.len() - missing.len(),
         java_keys.len()
     );
-    if std::env::var("PICSOU_REQUIRE_FULL_COVERAGE").is_ok_and(|v| v == "1") {
-        assert!(missing.is_empty(), "Java endpoints not served: {missing:?}");
-    }
+    assert!(missing.is_empty(), "Java endpoints not served: {missing:?}");
 }
 
 #[test]
