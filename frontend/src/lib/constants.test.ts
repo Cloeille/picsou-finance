@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ACCOUNT_TYPES, HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES, NON_LEDGER_ACCOUNT_TYPES, accountTypeLabelKey } from './constants'
+import { ACCOUNT_TYPES, HOLDING_ACCOUNT_TYPES, INVESTMENT_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES, NON_LEDGER_ACCOUNT_TYPES, accountTypeLabelKey } from './constants'
 import type { AccountType } from '@/types/api'
 import fr from '@/i18n/locales/fr.json'
 import en from '@/i18n/locales/en.json'
@@ -70,5 +70,14 @@ describe('PRECIOUS_METALS account type', () => {
 
   it('has its own label rather than falling back to Other', () => {
     expect(accountTypeLabelKey('PRECIOUS_METALS')).toBe('accountTypes.preciousMetals')
+  })
+})
+
+describe('INVESTMENT_ACCOUNT_TYPES', () => {
+  it('includes PER and ASSURANCE_VIE, and excludes EMPLOYEE_SAVINGS and SCPI', () => {
+    expect(INVESTMENT_ACCOUNT_TYPES).toContain('PER')
+    expect(INVESTMENT_ACCOUNT_TYPES).toContain('ASSURANCE_VIE')
+    expect(INVESTMENT_ACCOUNT_TYPES).not.toContain('EMPLOYEE_SAVINGS')
+    expect(INVESTMENT_ACCOUNT_TYPES).not.toContain('SCPI')
   })
 })
