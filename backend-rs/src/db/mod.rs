@@ -84,14 +84,15 @@ impl Db {
         }
     }
 
-    /// Starts a read-only transaction: one consistent view for a read that lasts (the data
-    /// export). On SQLite it is a WAL snapshot on a reader, which leaves the writer to everyone
-    /// else for as long as it stays open.
+    /// Starts a read-only transaction that sees the database as it was at its first read, for a
+    /// read that lasts (the data export). On SQLite it is a WAL snapshot on a reader, which
+    /// leaves the writer to everyone else for as long as it stays open; on PostgreSQL, a
+    /// repeatable-read transaction.
     pub async fn begin_read(&self) -> Result<DbTx<'_>, sqlx::Error> {
         match self {
             Self::Postgres(pool) => {
                 let mut tx = pool.begin().await?;
-                sqlx::query("SET TRANSACTION READ ONLY")
+                sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
                     .execute(&mut *tx)
                     .await?;
                 Ok(DbTx::Postgres(tx))

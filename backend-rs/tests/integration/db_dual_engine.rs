@@ -831,18 +831,16 @@ async fn sqlite_wal_pool_handle_reads_do_not_block_behind_active_write_tx() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// On the engine the suite runs on: PostgreSQL, or SQLite with `PICSOU_TEST_DB=sqlite`.
 #[tokio::test]
-async fn a_sqlite_read_snapshot_leaves_the_writer_free_and_keeps_its_view() {
+async fn a_read_snapshot_keeps_its_view_takes_no_writer_and_refuses_to_write() {
     use std::time::Duration;
 
-    let dir = std::env::temp_dir().join(format!("picsou-sqlite-read-snapshot-{}", Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).expect("mkdir");
-    let sq = SqliteDb::open(&dir.join("picsou.db")).expect("open file-backed WAL SQLite");
-    sq.migrate().expect("migrate SQLite");
-    let db = Db::Sqlite(sq);
+    let app = picsou::testing::TestApp::spawn().await;
+    let db = &app.state.db;
     let members = "SELECT COUNT(*) FROM family_member";
     db::query("INSERT INTO family_member (display_name, is_managed) VALUES ('Alice', false)")
-        .execute(&db)
+        .execute(db)
         .await
         .expect("seed member");
 
@@ -872,19 +870,14 @@ async fn a_sqlite_read_snapshot_leaves_the_writer_free_and_keeps_its_view() {
         .expect("second read");
     assert_eq!(again, 1);
     let outside: i64 = db::query_scalar(members)
-        .fetch_one(&db)
+        .fetch_one(db)
         .await
         .expect("read outside");
     assert_eq!(outside, 2);
-    // And it refuses to write.
     let written = db::query("DELETE FROM family_member")
         .execute(&mut snapshot)
         .await;
     assert!(written.is_err(), "a read snapshot is read-only");
-
-    snapshot.commit().await.expect("end the snapshot");
-    db.close().await;
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[tokio::test]

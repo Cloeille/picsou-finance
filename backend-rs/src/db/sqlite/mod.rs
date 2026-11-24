@@ -42,6 +42,9 @@ pub const WRITER_GATE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Maximum number of concurrent read-only WAL connections for file-backed SQLite databases.
 const MAX_READ_CONNECTIONS: usize = 4;
+/// Read snapshots open at once (Db::begin_read). They last as long as their reader takes, so
+/// they have slots of their own: a slow one never takes a connection from the read pool.
+const MAX_READ_SNAPSHOTS: usize = 4;
 
 /// Errors produced by the embedded SQLite engine wrapper.
 #[derive(Debug, thiserror::Error)]
@@ -131,6 +134,7 @@ impl SqliteRow {
 struct SqliteReadPool {
     path: PathBuf,
     semaphore: Arc<Semaphore>,
+    snapshots: Arc<Semaphore>,
     idle: Mutex<Vec<Connection>>,
 }
 
@@ -139,6 +143,7 @@ impl SqliteReadPool {
         Self {
             path,
             semaphore: Arc::new(Semaphore::new(MAX_READ_CONNECTIONS)),
+            snapshots: Arc::new(Semaphore::new(MAX_READ_SNAPSHOTS)),
             idle: Mutex::new(Vec::with_capacity(MAX_READ_CONNECTIONS)),
         }
     }
@@ -195,7 +200,9 @@ impl SqliteReadPool {
             .semaphore
             .acquire_many(MAX_READ_CONNECTIONS as u32)
             .await;
+        let _snapshots = self.snapshots.acquire_many(MAX_READ_SNAPSHOTS as u32).await;
         self.semaphore.close();
+        self.snapshots.close();
         if let Ok(mut idle) = self.idle.lock() {
             idle.clear();
         }
@@ -364,7 +371,7 @@ impl SqliteDb {
         let Some(pool) = &self.read_pool else {
             return self.begin().await;
         };
-        let permit = Arc::clone(&pool.semaphore)
+        let permit = Arc::clone(&pool.snapshots)
             .acquire_owned()
             .await
             .map_err(|_| sqlx::Error::PoolClosed)?;
@@ -701,8 +708,8 @@ enum SqliteTxKind<'a> {
     BorrowedRoot {
         _parent: PhantomData<&'a mut ()>,
     },
-    /// A read-only transaction on its own reader, which counts as one of the pool's so a
-    /// shutdown waits for it before it checkpoints.
+    /// A read-only transaction on its own reader. It holds one of the snapshot slots, which a
+    /// shutdown waits for before it checkpoints.
     Snapshot {
         _reader: OwnedSemaphorePermit,
         _marker: PhantomData<&'a ()>,
