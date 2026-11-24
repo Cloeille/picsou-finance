@@ -193,7 +193,20 @@ async fn handle_tools_call(
             );
         }
     };
-    match tools::call(state, auth, name, arguments).await {
+    let timeout = state.mcp.tool_call_timeout();
+    let outcome =
+        match tokio::time::timeout(timeout, tools::call(state, auth, name, arguments)).await {
+            Ok(res) => res,
+            Err(_) => {
+                tracing::warn!(
+                    tool = name,
+                    timeout_ms = u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+                    "MCP tool call timed out"
+                );
+                Err(ToolError::Execution(format!("Tool '{name}' timed out")))
+            }
+        };
+    match outcome {
         Ok(text) => JsonRpcResponse::ok(
             id,
             json!({

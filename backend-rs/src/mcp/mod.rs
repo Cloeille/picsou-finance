@@ -24,6 +24,8 @@ const MAX_STREAMABLE_PER_USER: usize = 64;
 pub const MAX_SSE_PER_USER: usize = 16;
 /// Bounded per-session SSE outbound message buffer.
 pub const SSE_CHANNEL_CAPACITY: usize = 64;
+/// Default wall-clock limit for a single MCP `tools/call` invocation (matches Java's 30 s).
+pub const DEFAULT_TOOL_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub fn register(routes: &mut Routes) {
     routes
@@ -50,11 +52,24 @@ impl ProtocolMode {
 }
 
 /// Active MCP transport sessions held on AppState.
-#[derive(Default)]
 pub struct Runtime {
     sse: Mutex<HashMap<String, SseSession>>,
     streamable: Mutex<HashMap<String, StreamableSession>>,
     next_sse_id: AtomicU64,
+    tool_call_timeout_ms: AtomicU64,
+}
+
+impl Default for Runtime {
+    fn default() -> Self {
+        Self {
+            sse: Mutex::new(HashMap::new()),
+            streamable: Mutex::new(HashMap::new()),
+            next_sse_id: AtomicU64::new(0),
+            tool_call_timeout_ms: AtomicU64::new(
+                u64::try_from(DEFAULT_TOOL_CALL_TIMEOUT.as_millis()).unwrap_or(u64::MAX),
+            ),
+        }
+    }
 }
 
 struct SseSession {
@@ -78,6 +93,17 @@ impl StreamableSession {
 }
 
 impl Runtime {
+    pub fn tool_call_timeout(&self) -> Duration {
+        Duration::from_millis(self.tool_call_timeout_ms.load(Ordering::Relaxed))
+    }
+
+    pub fn set_tool_call_timeout(&self, timeout: Duration) {
+        self.tool_call_timeout_ms.store(
+            u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+            Ordering::Relaxed,
+        );
+    }
+
     pub(crate) fn insert_sse(&self, session_id: String, user_id: i64, tx: mpsc::Sender<String>) {
         let mut guard = self.sse.lock().unwrap_or_else(|e| e.into_inner());
         guard.retain(|_, s| !s.tx.is_closed());

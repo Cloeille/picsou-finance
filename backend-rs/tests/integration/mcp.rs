@@ -2175,3 +2175,52 @@ async fn sse_sessions_are_capped_per_user_and_evict_oldest() {
         .unwrap();
     assert_eq!(bob_ping.status(), StatusCode::OK);
 }
+
+#[tokio::test]
+async fn tools_call_enforces_timeout() {
+    let yahoo = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::any())
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_delay(Duration::from_millis(600))
+                .set_body_json(json!({
+                    "chart": {
+                        "result": [{
+                            "meta": {
+                                "regularMarketPrice": 123.45,
+                                "currency": "EUR"
+                            }
+                        }]
+                    }
+                })),
+        )
+        .mount(&yahoo)
+        .await;
+
+    let app = TestApp::builder()
+        .with_admin()
+        .env("MCP_PROTOCOL", "STREAMABLE")
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .spawn()
+        .await;
+    assert_eq!(
+        app.state.mcp.tool_call_timeout(),
+        Duration::from_secs(30),
+        "default MCP tools/call timeout must match Java's 30s"
+    );
+    app.state
+        .mcp
+        .set_tool_call_timeout(Duration::from_millis(150));
+
+    let (uid, _) = admin_ids(&app).await;
+    let key = app.create_access_key(uid, &["prices:read"]).await;
+    let (client, _) = StreamableClient::connect(&app, &key, "2025-11-25").await;
+
+    let (is_err, text) = client
+        .call_tool(1, "get_price", json!({ "ticker": "SLOW" }))
+        .await;
+    assert!(
+        is_err && text.to_ascii_lowercase().contains("timed out"),
+        "expected timed-out tool error, got is_err={is_err}, text={text:?}"
+    );
+}
