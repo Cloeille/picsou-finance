@@ -163,8 +163,7 @@ pub async fn reconstruct_snapshots_from_db(
 ) -> AppResult<usize> {
     let ledger = transactions::find_by_account_newest_first(&mut *conn, account.id).await?;
     let current = to_eur_or_fail(prices, account.current_balance, &account.currency).await?;
-    let stored =
-        snapshots::find_recent_by_account(&mut *conn, account.id, java_epoch_floor()).await?;
+    let stored = snapshots::find_by_account(&mut *conn, account.id).await?;
     let mut ledger_eur = Vec::with_capacity(ledger.len());
     for tx in &ledger {
         ledger_eur.push((
@@ -186,9 +185,4 @@ pub async fn reconstruct_snapshots_from_db(
         .await?;
     }
     Ok(plan.inserts.len())
-}
-
-/// The LocalDate.of(2000, 1, 1) lower bound of the Java history read.
-fn java_epoch_floor() -> NaiveDate {
-    NaiveDate::from_ymd_opt(2000, 1, 1).unwrap_or(NaiveDate::MIN)
 }

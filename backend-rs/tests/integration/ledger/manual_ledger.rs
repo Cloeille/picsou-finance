@@ -484,3 +484,62 @@ async fn reconstruct_snapshots_from_db_replaces_derived_rows_and_keeps_statement
         ]
     );
 }
+
+#[tokio::test]
+async fn reconstruct_snapshots_from_db_handles_transactions_dated_before_2000() {
+    let app = TestApp::with_admin().await;
+    let mut account = ledger_account(&app, "EUR", "500").await;
+    let pre_2000 = NaiveDate::from_ymd_opt(1999, 6, 15).unwrap();
+    let pre_2000_manual = NaiveDate::from_ymd_opt(1999, 1, 10).unwrap();
+    statement(
+        &app,
+        account.id,
+        pre_2000_manual,
+        "100",
+        Some("100"),
+        now(),
+        None,
+    )
+    .await;
+    book(&app, account.id, pre_2000, "400", "EUR", now()).await;
+
+    {
+        let mut conn = app.state.db.acquire().await.unwrap();
+        reconstruct_snapshots_from_db(
+            &mut conn.as_handle(),
+            &account,
+            &FakePrices::default(),
+            today(),
+            now(),
+        )
+        .await
+        .unwrap();
+    }
+
+    // A later edit on the account rebuilds the history again; the pre-2000 derived row must be
+    // replaced rather than re-inserted over itself, and the pre-2000 statement must stay intact.
+    book(&app, account.id, days_ago(2), "100", "EUR", now()).await;
+    account.current_balance = d("600");
+    {
+        let mut conn = app.state.db.acquire().await.unwrap();
+        reconstruct_snapshots_from_db(
+            &mut conn.as_handle(),
+            &account,
+            &FakePrices::default(),
+            today(),
+            now(),
+        )
+        .await
+        .unwrap();
+    }
+
+    assert_eq!(
+        history(&app, account.id).await,
+        [
+            (pre_2000_manual, d("100"), SnapshotSource::Manual),
+            (pre_2000, d("500"), SnapshotSource::Derived),
+            (days_ago(2), d("600"), SnapshotSource::Derived),
+            (today(), d("600"), SnapshotSource::Derived),
+        ]
+    );
+}
