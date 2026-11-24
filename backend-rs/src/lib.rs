@@ -24,6 +24,7 @@ pub mod mcp;
 pub mod native_sidecars;
 pub mod routes;
 pub mod setup_auth;
+pub mod single_flight;
 pub mod sync;
 #[cfg(feature = "testing")]
 pub mod testing;

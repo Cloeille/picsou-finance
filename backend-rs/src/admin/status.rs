@@ -3,7 +3,6 @@
 //! probe); a failed probe is data, never an error response.
 
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use axum::extract::State;
@@ -14,6 +13,7 @@ use serde_json::Value;
 use crate::AppState;
 use crate::error::AppResult;
 use crate::setup_auth::settings;
+use crate::single_flight::SingleFlight;
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 const OVERALL_DEADLINE: Duration = Duration::from_secs(3);
@@ -83,7 +83,7 @@ struct Release {
 #[derive(Default)]
 pub struct Cache {
     release: Mutex<Option<(DateTime<Utc>, Option<Release>)>>,
-    counting: AtomicBool,
+    counting: SingleFlight,
 }
 
 #[derive(Serialize)]
@@ -324,17 +324,17 @@ async fn probe(
 
 async fn probe_in_use(state: &AppState) -> Vec<SidecarIssue> {
     let cache = &state.admin.status;
-    if cache.counting.swap(true, Ordering::AcqRel) {
+    let Some(counting) = cache.counting.try_enter() else {
         tracing::info!("instance-status.counts.busy");
         return Vec::new();
-    }
+    };
     let mut in_use = Vec::new();
     for (name, base, sessions) in SIDECARS {
         if session_count(state, *sessions).await > 0 {
             in_use.push((*name, *base));
         }
     }
-    cache.counting.store(false, Ordering::Release);
+    drop(counting);
     let probes = in_use
         .into_iter()
         .map(|(name, base)| probe(state, name, base));
@@ -366,9 +366,6 @@ pub async fn instance_status(
         tokio::time::timeout(OVERALL_DEADLINE, release_update(&state, &current)),
         tokio::time::timeout(OVERALL_DEADLINE, probe_in_use(&state)),
     );
-    if issues.is_err() {
-        state.admin.status.counting.store(false, Ordering::Release);
-    }
     Ok(axum::Json(InstanceStatusResponse {
         current_version: current,
         update: update.ok().flatten(),

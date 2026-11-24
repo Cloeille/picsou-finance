@@ -38,6 +38,39 @@ fn query(location: &str) -> HashMap<String, String> {
         .collect()
 }
 
+/// A request dropped while it discovers the IdP (the browser went away) must not leave every
+/// later sign-in answering "IdP unavailable".
+#[tokio::test]
+async fn a_discovery_dropped_mid_flight_lets_the_next_one_run() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind the silent IdP");
+    let issuer = format!("http://{}", listener.local_addr().expect("its address"));
+    tokio::spawn(async move {
+        let mut open = Vec::new();
+        while let Ok((socket, _)) = listener.accept().await {
+            open.push(socket);
+        }
+    });
+    let app = TestApp::builder()
+        .env("SSO_ISSUER_URI", issuer)
+        .env("SSO_CLIENT_ID", "picsou-test")
+        .spawn()
+        .await;
+    {
+        let discovery = picsou::identity::sso::provider(&app.state);
+        tokio::pin!(discovery);
+        assert!(futures::poll!(discovery.as_mut()).is_pending());
+    }
+
+    let next = picsou::identity::sso::provider(&app.state);
+    tokio::pin!(next);
+    assert!(
+        futures::poll!(next.as_mut()).is_pending(),
+        "the dropped discovery still counts as running"
+    );
+}
+
 impl Sso {
     /// SSO on, the admin group set, setup still pending.
     async fn pending() -> Self {

@@ -6,7 +6,6 @@
 pub mod account;
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -33,6 +32,7 @@ use crate::http::client_ip::{ClientIp, RequestOrigin};
 use crate::http::rate_limit::policies;
 use crate::identity::common::{has_valid_proof, java_url_encode, log_safe, redirect};
 use crate::setup_auth::setup::{self, SetupState};
+use crate::single_flight::SingleFlight;
 
 pub const REGISTRATION_ID: &str = "oidc";
 const START_PATH: &str = "/oauth2/sso/authorization/oidc";
@@ -57,17 +57,8 @@ impl<'a> Settings<'a> {
         }
     }
 
-    /// The issuer must be an absolute http(s) URI with a host, the client id set and the
-    /// revalidation window positive; anything else leaves SSO off.
     pub fn enabled(&self) -> bool {
-        let issuer = self.cfg.issuer_uri.trim();
-        if issuer.is_empty() || self.cfg.client_id.trim().is_empty() {
-            return false;
-        }
-        let absolute = url::Url::parse(issuer).is_ok_and(|u| {
-            matches!(u.scheme(), "http" | "https") && u.host_str().is_some_and(|h| !h.is_empty())
-        });
-        absolute && !self.cfg.session_revalidate_after.is_zero()
+        self.cfg.enabled()
     }
 
     pub fn issuer_uri(&self) -> String {
@@ -148,7 +139,7 @@ struct DiscoveryDocument {
 pub struct Discovery {
     provider: Mutex<Option<Arc<Provider>>>,
     last_failure: Mutex<Option<DateTime<Utc>>>,
-    discovering: AtomicBool,
+    discovering: SingleFlight,
 }
 
 /// One pending authorization request per browser session, as the HTTP session holds it.
@@ -325,12 +316,8 @@ pub async fn provider(state: &AppState) -> Option<Arc<Provider>> {
     {
         return Some(p);
     }
-    if discovery.discovering.swap(true, Ordering::AcqRel) {
-        return None;
-    }
-    let found = discovery.discover_unless_backing_off(state).await;
-    discovery.discovering.store(false, Ordering::Release);
-    found
+    let _discovering = discovery.discovering.try_enter()?;
+    discovery.discover_unless_backing_off(state).await
 }
 
 /// The end_session_endpoint for RP-initiated logout, resolved lazily like the registration.
