@@ -64,7 +64,7 @@ On Kubernetes, the Helm chart in `charts/picsou` deploys the same images; the `c
 ### Main image — `docker/Dockerfile` (3-stage build, context: project root)
 
 1. **`frontend-build`** — `oven/bun:alpine`. `bun install --frozen-lockfile`, `bun run build`. Output: `dist/`.
-2. **`backend-build`** — `rust:1.96-bookworm`. Copies `backend-rs/` and the migrations it embeds (`backend-rs/migrations`), then `cargo build --release --locked --bin picsou` for the target's triple. Output: one binary linked against glibc, `picsou` (the backend, ADR [rust-backend](../decisions/2026-11-21-rust-backend.md)).
+2. **`backend-build`** — `rust:1.96-bookworm`. Compiles the dependencies in their own layer, from `Cargo.toml`, `Cargo.lock`, the `macros` crate and empty stand-ins for the sources, so a source change rebuilds only the `picsou` crate. Then copies `backend-rs/` and the migrations it embeds (`backend-rs/migrations`) and runs `cargo build --release --locked --bin picsou` for the target's triple; the build products leave the layer, which keeps the cache export small. Output: one binary linked against glibc, `picsou` (the backend, ADR [rust-backend](../decisions/2026-11-21-rust-backend.md)).
 3. **Runtime** — `debian:bookworm-slim` (the build stage's Debian release, so glibc matches), no extra package: TLS is rustls with built-in roots. Creates user and group `picsou` (uid/gid 1000, no login shell, home `/app`) and `/data` owned by it, copies `dist/` to `/app/spa` (served by the backend, `SPA_LOCATION=/app/spa`) and the binary to `/usr/local/bin/picsou`, sets `APP_STARTUP_SYNC_ENABLED=false`, then runs as `USER 1000:1000` with an exec-form `ENTRYPOINT ["picsou"]`. A shell and coreutils stay: Compose's `data-permissions` service runs `chown` in this image and the Helm migration job runs `picsou migrate` through `sh`. `picsou migrate` and `picsou verify` are the release migration check (below).
 
 The backend serves the SPA, the API and every response header on port 8080, and resolves the client address and the public scheme/host/port itself. See [the SPA ADR](../decisions/2026-11-03-spring-serves-the-spa.md) and [the one-process ADR](../decisions/2026-11-03-one-non-root-process.md).
@@ -828,7 +828,7 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
   the packaged binary, the normal application entrypoint, and its API route. The build goes
   through Buildx with the GitHub Actions layer cache (its own `release-smoke` scope, plus the
   release build's `app` scope from `docker.yml`), so crates.io and the npm registry are only
-  contacted when `backend-rs/Cargo.lock`, `frontend/package.json` or `frontend/bun.lock` changes, or
+  contacted when the backend's manifests or `macros` crate, `frontend/package.json` or `frontend/bun.lock` change, or
   when the cached layers are missing (evicted or cache unavailable). Cold builds from shared runners
   were rejected by Maven Central with `429 Too Many Requests`.
 - Build validation: `docker build -f docker/Dockerfile .`.

@@ -42,18 +42,35 @@ RUN case "$TARGETARCH" in \
       && rm -rf /var/lib/apt/lists/*; \
     fi \
     && rustup target add "$triple" \
-    && printf '%s\n' "$triple" > /target \
-    && printf '%s-gcc\n' "$gnu" > /linker
+    && printf 'export CARGO_BUILD_TARGET=%s CARGO_TARGET_%s_LINKER=%s-gcc CC_%s=%s-gcc\n' \
+      "$triple" "$(tr '[:lower:]-' '[:upper:]_' <<< "$triple")" "$gnu" "${triple//-/_}" "$gnu" > /cross.env
 
 WORKDIR /build/backend-rs
 
+# The dependencies compile in their own layer, from the manifests and empty stand-ins for the
+# sources: a source change then rebuilds the picsou crate alone. `cargo clean` drops what the
+# stand-ins built: cargo keeps it when the real sources are older, and ships an empty binary.
+# It needs --target (it ignores CARGO_BUILD_TARGET), and the layer fails if the binary survives.
+COPY backend-rs/Cargo.toml backend-rs/Cargo.lock ./
+COPY backend-rs/macros/ macros/
+# hadolint ignore=SC1091
+RUN mkdir -p src tests/integration \
+    && echo 'fn main() {}' > src/main.rs \
+    && touch src/lib.rs tests/integration/main.rs \
+    && . /cross.env \
+    && cargo build --release --locked --bin picsou \
+    && cargo clean --release --package picsou --target "$CARGO_BUILD_TARGET" \
+    && [ ! -e "target/$CARGO_BUILD_TARGET/release/picsou" ] \
+    && rm -r src tests
+
 # The migrations (backend-rs/migrations) are embedded in the binary (include_dir!).
+# Only the binary stays in the layer: a build that exports its cache uploads it each time.
 COPY backend-rs/ .
-RUN triple=$(cat /target) && linker=$(cat /linker) \
-    && env_triple=$(tr '[:lower:]-' '[:upper:]_' <<< "$triple") \
-    && export "CARGO_TARGET_${env_triple}_LINKER=$linker" "CC_${triple//-/_}=$linker" \
-    && cargo build --release --locked --bin picsou --target "$triple" \
-    && cp "target/$triple/release/picsou" /picsou
+# hadolint ignore=SC1091
+RUN . /cross.env \
+    && cargo build --release --locked --bin picsou \
+    && cp "target/$CARGO_BUILD_TARGET/release/picsou" /picsou \
+    && rm -r target
 
 # ---------- Stage 3: Runtime ----------
 # One non-root process: the Rust backend serves the SPA and the API on 8080 and is PID 1.

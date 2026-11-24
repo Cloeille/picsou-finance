@@ -894,6 +894,22 @@ class AppImageBuildTest(unittest.TestCase):
                 self.assertTrue(stage[0].startswith("FROM --platform=$BUILDPLATFORM "))
         self.assertNotIn("--platform", runtime[0])
 
+    def test_a_backend_source_change_keeps_the_compiled_dependencies(self):
+        _, backend, _ = _dockerfile_stages(APP_DOCKERFILE)
+        builds = [index for index, line in enumerate(backend) if "cargo build" in line]
+        manifests, sources = (next(index for index, line in enumerate(backend) if line.startswith(copy))
+                              for copy in ("COPY backend-rs/Cargo.toml backend-rs/Cargo.lock ", "COPY backend-rs/ "))
+
+        # The dependencies build from the manifests, before the sources arrive.
+        self.assertEqual(len(builds), 2)
+        self.assertLess(manifests, builds[0])
+        self.assertLess(builds[0], sources)
+        self.assertLess(sources, builds[1])
+        # What the stand-in sources built must not pass for the real crate.
+        between = "\n".join(backend[builds[0]:sources])
+        self.assertIn('cargo clean --release --package picsou --target "$CARGO_BUILD_TARGET"', between)
+        self.assertIn('[ ! -e "target/$CARGO_BUILD_TARGET/release/picsou" ]', between)
+
     def test_a_version_bump_keeps_the_dependency_layers(self):
         install = re.compile(r"^RUN .*(bun install|dependency:go-offline|apt-get install)")
         version = re.compile(r"^ARG (APP_VERSION|VITE_)")
