@@ -535,3 +535,121 @@ async fn rejects_unreadable_uploads_and_expired_previews() {
         "Preview expired or invalid -- please re-upload the file"
     );
 }
+
+#[tokio::test]
+async fn reimporting_finary_handles_transactions_and_statements_dated_before_2000() {
+    let app = TestApp::with_admin().await;
+    let client = app.login_admin().await;
+    let member = admin_member(&app).await;
+    let checking = manual_account(&app, member, "Compte courant", AccountType::Checking).await;
+    let today = app.state.clock.today();
+    let recent = day(&app, -2);
+    let pre_2000_manual = NaiveDate::from_ymd_opt(1999, 1, 10).unwrap();
+    let pre_2000_after = NaiveDate::from_ymd_opt(1999, 6, 15).unwrap();
+    let pre_2000_before = NaiveDate::from_ymd_opt(1998, 12, 1).unwrap();
+
+    picsou::db::query(
+        "INSERT INTO balance_snapshot (account_id, date, balance, invested_amount, source, native_balance) \
+         VALUES ($1, $2, 100, 100, 'MANUAL', 100)",
+    )
+    .bind(checking)
+    .bind(pre_2000_manual)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+
+    let first_bytes = xlsx(&[
+        (
+            "Checkings",
+            vec![header(), account_row("Compte courant", 500.0, "EUR")],
+        ),
+        (
+            "Transactions",
+            vec![
+                vec![C::S("Category")],
+                tx_row(
+                    pre_2000_after.to_string(),
+                    "Post-statement deposit",
+                    400.0,
+                    "Compte courant",
+                ),
+                tx_row(
+                    pre_2000_before.to_string(),
+                    "Pre-statement deposit",
+                    50.0,
+                    "Compte courant",
+                ),
+            ],
+        ),
+    ]);
+    let first_preview = preview(&client, &first_bytes).await.json();
+    let first_import = import(
+        &client,
+        json!({
+            "fileToken": first_preview["fileToken"],
+            "mappings": [first_preview["suggestedMappings"][0]]
+        }),
+    )
+    .await;
+    assert_eq!(first_import.status, 200, "{}", first_import.text());
+    assert_eq!(
+        snapshots(&app, checking).await,
+        vec![
+            (today, Decimal::from(500), "DERIVED".to_owned()),
+            (pre_2000_after, Decimal::from(500), "DERIVED".to_owned()),
+            (pre_2000_manual, Decimal::from(100), "MANUAL".to_owned()),
+        ]
+    );
+
+    // Re-importing onto the same account must replace the pre-2000 derived snapshot rather than
+    // failing on UNIQUE(account_id, date), and keep the pre-2000 manual statement intact.
+    let second_bytes = xlsx(&[
+        (
+            "Checkings",
+            vec![header(), account_row("Compte courant", 600.0, "EUR")],
+        ),
+        (
+            "Transactions",
+            vec![
+                vec![C::S("Category")],
+                tx_row(
+                    recent.to_string(),
+                    "Recent deposit",
+                    100.0,
+                    "Compte courant",
+                ),
+                tx_row(
+                    pre_2000_after.to_string(),
+                    "Post-statement deposit",
+                    400.0,
+                    "Compte courant",
+                ),
+                tx_row(
+                    pre_2000_before.to_string(),
+                    "Pre-statement deposit",
+                    50.0,
+                    "Compte courant",
+                ),
+            ],
+        ),
+    ]);
+    let second_preview = preview(&client, &second_bytes).await.json();
+    let second_import = import(
+        &client,
+        json!({
+            "fileToken": second_preview["fileToken"],
+            "mappings": [second_preview["suggestedMappings"][0]]
+        }),
+    )
+    .await;
+    assert_eq!(second_import.status, 200, "{}", second_import.text());
+    assert_eq!(
+        snapshots(&app, checking).await,
+        vec![
+            (today, Decimal::from(600), "DERIVED".to_owned()),
+            (recent, Decimal::from(600), "DERIVED".to_owned()),
+            (pre_2000_after, Decimal::from(500), "DERIVED".to_owned()),
+            (pre_2000_manual, Decimal::from(100), "MANUAL".to_owned()),
+        ]
+    );
+}

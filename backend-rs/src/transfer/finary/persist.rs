@@ -25,10 +25,6 @@ fn of_account<'a>(
         .filter(move |tx| java_equals_ignore_case(&tx.account_name, &account.name))
 }
 
-fn history_floor() -> NaiveDate {
-    NaiveDate::from_ymd_opt(2000, 1, 1).unwrap_or(NaiveDate::MIN)
-}
-
 /// reconstructSnapshots: walks back from the file balance (in EUR) through the account's
 /// transactions. Hand-entered statements are kept, their dates skipped, and nothing is derived
 /// before the oldest one reached. Every amount is converted before the history is touched.
@@ -44,7 +40,7 @@ pub async fn reconstruct_snapshots(
     let mut account_tx: Vec<&ParsedTransaction> = of_account(finary, all).collect();
     account_tx.sort_by_key(|tx| std::cmp::Reverse(tx.date));
     let anchor = to_eur_or_fail(prices, finary.balance.value, &finary.currency).await?;
-    let stored = snapshots::find_recent_by_account(&mut *conn, account_id, history_floor()).await?;
+    let stored = snapshots::find_by_account(&mut *conn, account_id).await?;
 
     if account_tx.is_empty() {
         if stored
