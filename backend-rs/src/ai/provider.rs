@@ -17,6 +17,17 @@ pub(crate) const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const MAX_RATE_LIMIT_RETRIES: usize = 2;
 const MAX_RETRY_AFTER_SECS: u64 = 10;
 
+/// Builds a dedicated HTTP client for AI provider calls that never follows redirects so
+/// `x-api-key` and `Authorization` headers cannot be forwarded to another host.
+pub(crate) fn build_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .user_agent(concat!("picsou/", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("AI provider HTTP client builds")
+}
+
 fn is_retryable_status(status: reqwest::StatusCode) -> bool {
     status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.as_u16() == 529
 }

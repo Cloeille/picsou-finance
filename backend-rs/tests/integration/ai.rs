@@ -852,3 +852,61 @@ async fn edge_cases_empty_categories_unreadable_body_kept_key_and_concurrency_cl
         assert_eq!(ai.max_concurrency().await, expected);
     }
 }
+
+#[tokio::test]
+async fn anthropic_does_not_follow_cross_host_redirect_or_leak_api_key() {
+    let c = setup().await;
+    let primary = MockServer::start().await;
+    let foreign = MockServer::start().await;
+    let foreign_url = format!("http://localhost:{}/steal", foreign.address().port());
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(307).insert_header("location", foreign_url.as_str()))
+        .expect(1)
+        .mount(&primary)
+        .await;
+
+    Mock::given(path("/steal"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "content": [{"type": "text", "text": "{\"categorySlug\": \"courses\", \"confidence\": 0.9}"}]
+        })))
+        .mount(&foreign)
+        .await;
+
+    c.configure_ai(json!({
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5",
+        "baseUrl": primary.uri(),
+        "apiKey": "sk-ant-redirect-secret",
+    }))
+    .await;
+    c.enable_budget_ai("AUTO_ALL", 50).await;
+
+    let checking = c.account("Courant").await;
+    let _tx = c
+        .tx(
+            &checking,
+            "2026-01-05",
+            "-18.00",
+            "Redirect Test Shop",
+            None,
+        )
+        .await;
+
+    let status = c.run_ai_job().await;
+    assert_eq!(status["done"], true);
+    assert_eq!(status["applied"], 0);
+
+    let foreign_reqs = foreign.received_requests().await.unwrap();
+    assert!(
+        foreign_reqs.is_empty(),
+        "AI provider client must not follow redirects to another host (received {} request(s), headers={:?})",
+        foreign_reqs.len(),
+        foreign_reqs.first().map(|r| &r.headers)
+    );
+
+    let log = &c.ai_calls().await["items"][0];
+    assert_eq!(log["status"], "ERROR");
+    assert_eq!(log["error"], "The provider answered HTTP 307");
+}

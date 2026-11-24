@@ -39,11 +39,12 @@ pub struct DynamicCategorizer {
 }
 
 impl DynamicCategorizer {
-    pub fn new(db: Db, crypto: CryptoEncryption, http: reqwest::Client) -> Self {
+    pub fn new(db: Db, crypto: CryptoEncryption, _http: reqwest::Client) -> Self {
         Self {
             db,
             crypto,
-            http,
+            // Dedicated client with redirects disabled so x-api-key never leaks cross-host.
+            http: provider::build_http_client(),
             timeout: provider::DEFAULT_TIMEOUT,
         }
     }
