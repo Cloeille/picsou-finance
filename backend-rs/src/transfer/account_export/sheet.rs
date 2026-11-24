@@ -90,20 +90,19 @@ impl From<Option<DateTime<Utc>>> for Value {
     }
 }
 
-fn excel_date(d: NaiveDate) -> Result<ExcelDateTime, XlsxError> {
-    ExcelDateTime::from_ymd(
-        u16::try_from(d.year()).unwrap_or(1900),
-        u8::try_from(d.month()).unwrap_or(1),
-        u8::try_from(d.day()).unwrap_or(1),
-    )
+fn excel_date(d: NaiveDate) -> Option<ExcelDateTime> {
+    let year = u16::try_from(d.year())
+        .ok()
+        .filter(|y| (1900..=9999).contains(y))?;
+    let month = u8::try_from(d.month()).ok()?;
+    let day = u8::try_from(d.day()).ok()?;
+    ExcelDateTime::from_ymd(year, month, day).ok()
 }
 
-fn excel_date_time(t: NaiveDateTime) -> Result<ExcelDateTime, XlsxError> {
-    excel_date(t.date())?.and_hms(
-        u16::try_from(t.hour()).unwrap_or(0),
-        u8::try_from(t.minute()).unwrap_or(0),
-        t.second(),
-    )
+fn excel_date_time(t: NaiveDateTime) -> Option<ExcelDateTime> {
+    let hour = u16::try_from(t.hour()).ok()?;
+    let minute = u8::try_from(t.minute()).ok()?;
+    excel_date(t.date())?.and_hms(hour, minute, t.second()).ok()
 }
 
 pub struct Cursor<'a> {
@@ -272,12 +271,19 @@ impl Row<'_, '_> {
         let column = self.next();
         let format = &self.cursor.styles.date;
         match value {
-            Some(d) => self.cursor.sheet.write_datetime_with_format(
-                self.row,
-                column,
-                excel_date(d)?,
-                format,
-            )?,
+            Some(d) => match excel_date(d) {
+                Some(excel) => self
+                    .cursor
+                    .sheet
+                    .write_datetime_with_format(self.row, column, excel, format)?,
+                // Excel serial dates start at 1900-01-01; write out-of-range dates as ISO text.
+                None => self.cursor.sheet.write_string_with_format(
+                    self.row,
+                    column,
+                    d.format("%Y-%m-%d").to_string(),
+                    &self.cursor.styles.text,
+                )?,
+            },
             None => self.cursor.sheet.write_blank(self.row, column, format)?,
         };
         Ok(())
@@ -287,14 +293,41 @@ impl Row<'_, '_> {
         let column = self.next();
         let format = &self.cursor.styles.date_time;
         match value {
-            Some(t) => self.cursor.sheet.write_datetime_with_format(
-                self.row,
-                column,
-                excel_date_time(t.with_timezone(&self.cursor.zone).naive_local())?,
-                format,
-            )?,
+            Some(t) => {
+                let local = t.with_timezone(&self.cursor.zone).naive_local();
+                match excel_date_time(local) {
+                    Some(excel) => self
+                        .cursor
+                        .sheet
+                        .write_datetime_with_format(self.row, column, excel, format)?,
+                    None => self.cursor.sheet.write_string_with_format(
+                        self.row,
+                        column,
+                        local.format("%Y-%m-%d %H:%M").to_string(),
+                        &self.cursor.styles.text,
+                    )?,
+                }
+            }
             None => self.cursor.sheet.write_blank(self.row, column, format)?,
         };
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_xlsxwriter::Workbook;
+
+    #[test]
+    fn a_date_before_1900_is_written_without_error() {
+        let styles = Styles::new();
+        let mut workbook = Workbook::new();
+        let sheet = workbook.add_worksheet();
+        let mut cursor = Cursor::new(sheet, &styles, chrono_tz::UTC);
+        let pre_1900 = NaiveDate::from_ymd_opt(1895, 6, 15).unwrap();
+        cursor.field("Opened", Some(pre_1900)).unwrap();
+        let bytes = workbook.save_to_buffer().unwrap();
+        assert!(!bytes.is_empty());
     }
 }

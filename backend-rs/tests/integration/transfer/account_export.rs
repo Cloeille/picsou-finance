@@ -275,3 +275,38 @@ async fn sheet_names_with_apostrophes_and_duplicate_labels_export_without_error(
         ]
     );
 }
+
+#[tokio::test]
+async fn a_date_before_1900_exports_without_error() {
+    let app = TestApp::with_admin().await;
+    let client = app.login_admin().await;
+    let member = admin_member(&app).await;
+    let house = account(&app, member, AccountType::RealEstate, true).await;
+    let pre_1900 = chrono::NaiveDate::from_ymd_opt(1895, 6, 15).unwrap();
+    picsou::db::query(
+        "INSERT INTO real_estate_metadata (account_id, member_id, purchase_price, purchase_date) \
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(house.id)
+    .bind(member)
+    .bind(rust_decimal::Decimal::from(100_000))
+    .bind(pre_1900)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+
+    let r = export(&client, json!({"accountIds": [house.id]})).await;
+    assert_eq!(r.status, 200, "export must not 500 on a date before 1900");
+    let book = cells(&r.body);
+    let purchase_row = book[2]
+        .1
+        .iter()
+        .find(|row| row.first().is_some_and(|c| c.contains("Purchase date")))
+        .expect("purchase_date row");
+    assert!(
+        purchase_row
+            .get(1)
+            .is_some_and(|c| c.contains("1895-06-15")),
+        "expected formatted pre-1900 date, got {purchase_row:?}"
+    );
+}
