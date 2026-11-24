@@ -167,6 +167,23 @@ once.
 - **SQLite**: `DATABASE_URL=sqlite:///path/picsou.db`. One file in WAL mode with foreign keys on;
   writes go through one writer at a time.
 
+### One writer on SQLite
+
+`db.begin()` takes the only writer connection until the transaction commits or rolls back.
+Reads outside a transaction use the WAL reader pool and are not affected.
+
+- **Fetch first, then write.** Do the outbound calls (prices, FX rates, a bank or broker API)
+  before `db.begin()`. Inside a transaction they keep every other write of the instance waiting,
+  and a write that waits 30 s fails with `503 DB_BUSY`. Several services ported from
+  `@Transactional` Java methods still fetch inside their transaction (the account write
+  handlers, the Enable Banking, IBKR, Finary, exchange, SimpleFIN and Wise syncs, the dividend
+  history refresh, the data export stream): moving their calls out is tracked as follow-up work.
+  `sync/wallets` and `sync/louve` show the pattern.
+- **A dropped request is safe.** When the future awaiting a statement is dropped (the client went
+  away, a timeout fired), a statement that had not reached the connection is skipped and a
+  `BEGIN` or `SAVEPOINT` that had is undone (`db/sqlite/mod.rs`, `run_on_writer` and
+  `open_transaction`).
+
 ## JSON serialization
 
 Response types carry `#[serde_with::skip_serializing_none]` (a `null` field is omitted) and

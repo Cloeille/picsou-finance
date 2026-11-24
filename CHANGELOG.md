@@ -64,6 +64,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only the credit left), the card still syncs with its transactions and its balance is left as it was.
   Two gaps remain: immediate-debit purchases are still counted twice in the budget, and a
   deferred-debit card has no due date yet (#667, #668). (#664)
+- **Words in buttons and fields are spaced like the rest of the page.** The wider word spacing
+  of the theme never reached button labels, tabs and fields, whose words sat half as far apart
+  as the text around them ("Ajouter un compte" read almost as two words).
+- **No more font error in the browser console.** A small part of the font was embedded in the
+  stylesheet, which the Content-Security-Policy refuses; the browser logged an error on every page.
+- **A one-time code is accepted once.** A two-factor code, a recovery code or an OAuth
+  authorization code sent twice at the same instant could be accepted by both requests.
 
 ## [1.2.2] — 2026-11-21
 

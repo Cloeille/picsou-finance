@@ -2544,6 +2544,8 @@ Public. Only the two endpoints that single sign-on changes are listed here.
 ```
 `sso.enabled` and `sso.providerName` match `GET /api/auth/sso`. `sso.adminBootstrap` is `true` whenever `SSO_ADMIN_GROUP` is set, even if the rest of the SSO configuration is invalid: the first admin must then come from that group (SSO `intent=setup`).
 
+In the desktop app (`APP_DESKTOP_MODE=true`) the response also carries `desktopMode: true`, `desktopLockEnabled` and, before setup, `legacyPostgresDetected`. When the password lock is on and the request holds the gate cookie of the app's own window, it adds `desktopUsername`, the account the lock opens: quick start derived that username from the space name, so the login form fills it in. A browser on the same machine does not receive it.
+
 #### `POST /api/setup/admin`
 
 Creates the first admin with a password.
