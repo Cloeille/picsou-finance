@@ -353,3 +353,168 @@ async fn regenerate_and_disable() {
         false
     );
 }
+
+async fn install_abort_trigger(db: &picsou::db::Db, event: &str, table: &str, name: &str) {
+    match db {
+        picsou::db::Db::Postgres(pool) => {
+            let fn_name = format!("{name}_fn");
+            sqlx::raw_sql(&format!(
+                "CREATE OR REPLACE FUNCTION {fn_name}() RETURNS trigger AS $$ \
+                 BEGIN RAISE EXCEPTION 'injected failure'; END; \
+                 $$ LANGUAGE plpgsql; \
+                 CREATE TRIGGER {name} BEFORE {event} ON {table} \
+                 FOR EACH ROW EXECUTE FUNCTION {fn_name}();"
+            ))
+            .execute(pool)
+            .await
+            .expect("install pg trigger");
+        }
+        picsou::db::Db::Sqlite(sq) => {
+            let sql = format!(
+                "CREATE TRIGGER {name} BEFORE {event} ON {table} \
+                 BEGIN SELECT RAISE(ABORT, 'injected failure'); END;"
+            );
+            sq.with_conn(move |conn| {
+                conn.execute_batch(&sql)?;
+                Ok(())
+            })
+            .expect("install sqlite trigger");
+        }
+    }
+}
+
+async fn drop_trigger(db: &picsou::db::Db, table: &str, name: &str) {
+    match db {
+        picsou::db::Db::Postgres(pool) => {
+            let fn_name = format!("{name}_fn");
+            sqlx::raw_sql(&format!(
+                "DROP TRIGGER IF EXISTS {name} ON {table}; \
+                 DROP FUNCTION IF EXISTS {fn_name}();"
+            ))
+            .execute(pool)
+            .await
+            .expect("drop pg trigger");
+        }
+        picsou::db::Db::Sqlite(sq) => {
+            let sql = format!("DROP TRIGGER IF EXISTS {name};");
+            sq.with_conn(move |conn| {
+                conn.execute_batch(&sql)?;
+                Ok(())
+            })
+            .expect("drop sqlite trigger");
+        }
+    }
+}
+
+#[tokio::test]
+async fn enroll_verify_rolls_back_when_storing_recovery_codes_fails() {
+    let app = TestApp::with_admin().await;
+    let client = app.login_admin().await;
+    let init = client
+        .post("/api/auth/mfa/enroll/init")
+        .json(&json!({"currentPassword": ADMIN_PASSWORD}))
+        .send()
+        .await;
+    assert_eq!(init.status, StatusCode::OK);
+    let secret = init.json()["secret"].as_str().unwrap().to_owned();
+
+    install_abort_trigger(
+        &app.state.db,
+        "INSERT",
+        "user_mfa_recovery_code",
+        "abort_rc_insert",
+    )
+    .await;
+
+    let failed = client
+        .post("/api/auth/mfa/enroll/verify")
+        .json(&json!({"code": code(&app, &secret)}))
+        .send()
+        .await;
+    assert_eq!(failed.status, StatusCode::INTERNAL_SERVER_ERROR);
+
+    drop_trigger(&app.state.db, "user_mfa_recovery_code", "abort_rc_insert").await;
+
+    let status = client.get("/api/auth/mfa/status").send().await.json();
+    assert_eq!(
+        status["enabled"], false,
+        "2FA must not stay enabled with zero recovery codes"
+    );
+    assert_eq!(status["remainingRecoveryCodes"], 0);
+
+    let retried = client
+        .post("/api/auth/mfa/enroll/verify")
+        .json(&json!({"code": code(&app, &secret)}))
+        .send()
+        .await;
+    assert_eq!(retried.status, StatusCode::OK);
+    assert_eq!(
+        retried.json()["recoveryCodes"].as_array().unwrap().len(),
+        10
+    );
+}
+
+#[tokio::test]
+async fn regenerate_rolls_back_when_inserting_new_recovery_codes_fails() {
+    let app = TestApp::with_admin().await;
+    let client = app.login_admin().await;
+    let (secret, original_codes) = enroll(&app, &client).await;
+    app.clock.advance(Duration::from_secs(30));
+
+    install_abort_trigger(
+        &app.state.db,
+        "INSERT",
+        "user_mfa_recovery_code",
+        "abort_rc_regen",
+    )
+    .await;
+
+    let failed = client
+        .post("/api/auth/mfa/recovery-codes/regenerate")
+        .json(&json!({"currentPassword": ADMIN_PASSWORD, "code": code(&app, &secret)}))
+        .send()
+        .await;
+    assert_eq!(failed.status, StatusCode::INTERNAL_SERVER_ERROR);
+
+    drop_trigger(&app.state.db, "user_mfa_recovery_code", "abort_rc_regen").await;
+
+    let status = client.get("/api/auth/mfa/status").send().await.json();
+    assert_eq!(status["enabled"], true);
+    assert_eq!(
+        status["remainingRecoveryCodes"], 10,
+        "existing recovery codes must survive a failed regenerate"
+    );
+
+    let disabled = client
+        .post("/api/auth/mfa/disable")
+        .json(&json!({"currentPassword": ADMIN_PASSWORD, "code": original_codes[0], "isRecoveryCode": true}))
+        .send()
+        .await;
+    assert_eq!(disabled.status, StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn disable_rolls_back_when_deleting_mfa_fails() {
+    let app = TestApp::with_admin().await;
+    let client = app.login_admin().await;
+    let (secret, _) = enroll(&app, &client).await;
+    app.clock.advance(Duration::from_secs(30));
+
+    install_abort_trigger(&app.state.db, "DELETE", "user_mfa", "abort_mfa_delete").await;
+
+    let failed = client
+        .post("/api/auth/mfa/disable")
+        .json(&json!({"currentPassword": ADMIN_PASSWORD, "code": code(&app, &secret)}))
+        .send()
+        .await;
+    assert_eq!(failed.status, StatusCode::INTERNAL_SERVER_ERROR);
+
+    drop_trigger(&app.state.db, "user_mfa", "abort_mfa_delete").await;
+
+    let status = client.get("/api/auth/mfa/status").send().await.json();
+    assert_eq!(status["enabled"], true);
+    assert_eq!(
+        status["remainingRecoveryCodes"], 10,
+        "recovery codes must not be deleted when disabling 2FA rolls back"
+    );
+}

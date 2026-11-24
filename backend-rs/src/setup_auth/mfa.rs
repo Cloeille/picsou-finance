@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::io::Cursor;
 use std::sync::LazyLock;
 
-use crate::db::Db;
+use crate::db::AsDbHandle;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -19,7 +19,7 @@ use serde_with::skip_serializing_none;
 use totp_rs::{Builder, Secret};
 
 use crate::AppState;
-use crate::auth::{AppUser, Auth, password, persistent};
+use crate::auth::{AppUser, Auth, password};
 use crate::error::{AppError, AppResult};
 use crate::http::client_ip::ClientIp;
 use crate::http::json::{Errors, Json, Validate};
@@ -65,7 +65,10 @@ async fn find<'e>(
         .await
 }
 
-pub async fn is_enabled(db: &Db, user_id: i64) -> Result<bool, sqlx::Error> {
+pub async fn is_enabled<'e>(
+    db: impl crate::db::DbExec<'e>,
+    user_id: i64,
+) -> Result<bool, sqlx::Error> {
     crate::db::query_scalar("SELECT EXISTS (SELECT 1 FROM user_mfa WHERE user_id = $1 AND enabled)")
         .bind(user_id)
         .fetch_one(db)
@@ -180,7 +183,9 @@ pub async fn verify_totp_or_recovery(
     }
 }
 
-async fn generate_recovery_codes(state: &AppState, mfa_id: i64) -> AppResult<Vec<String>> {
+/// Generates 10 unique recovery codes and hashes them with bcrypt. Call before `db.begin()` so
+/// CPU-heavy hashing never holds SQLite's single-writer transaction open.
+async fn prepare_recovery_codes() -> AppResult<(Vec<String>, Vec<String>)> {
     let mut plain = HashSet::new();
     let mut ordered = Vec::new();
     while ordered.len() < RECOVERY_CODE_COUNT {
@@ -190,16 +195,24 @@ async fn generate_recovery_codes(state: &AppState, mfa_id: i64) -> AppResult<Vec
         }
     }
     let hashes = futures::future::try_join_all(ordered.iter().map(|c| password::hash(c))).await?;
+    Ok((ordered, hashes))
+}
+
+async fn insert_recovery_codes(
+    tx: &mut crate::db::DbHandle<'_>,
+    mfa_id: i64,
+    hashes: &[String],
+) -> Result<(), sqlx::Error> {
     for hash in hashes {
         crate::db::query(
             "INSERT INTO user_mfa_recovery_code (user_mfa_id, code_hash) VALUES ($1, $2)",
         )
         .bind(mfa_id)
         .bind(hash)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?;
     }
-    Ok(ordered)
+    Ok(())
 }
 
 /// samstevens QrData.getUri with URLEncoder semantics (+ written as %20).
@@ -355,15 +368,32 @@ pub async fn enroll_verify(
     let secret = state.crypto.decrypt(&mfa.totp_secret_enc)?;
     let step = match_step(&state, &secret, &req.code.unwrap_or_default(), None)
         .ok_or_else(|| mfa_error("Invalid verification code"))?;
-    crate::db::query("UPDATE user_mfa SET enabled = true, enrolled_at = $1, last_used_step = $2, updated_at = now() WHERE id = $3")
-        .bind(state.clock.now())
-        .bind(step)
-        .bind(mfa.id)
-        .execute(&state.db)
-        .await?;
-    let codes = generate_recovery_codes(&state, mfa.id).await?;
+    let (codes, hashes) = prepare_recovery_codes().await?;
+    let now = state.clock.now();
+    let mut tx = state.db.begin().await?;
+    let updated = crate::db::query(
+        "UPDATE user_mfa SET enabled = true, enrolled_at = $1, last_used_step = $2, updated_at = now() \
+         WHERE id = $3 AND enabled = false",
+    )
+    .bind(now)
+    .bind(step)
+    .bind(mfa.id)
+    .execute(&mut tx)
+    .await?
+    .rows_affected();
+    if updated == 0 {
+        return Err(mfa_error("MFA is already enabled"));
+    }
+    insert_recovery_codes(&mut tx.as_handle(), mfa.id, &hashes).await?;
     // Remembered devices predate the second factor and no longer satisfy the policy.
-    persistent::revoke_all_for_user(&state, auth.user.id).await?;
+    crate::db::query(
+        "UPDATE persistent_session SET revoked_at = $1 WHERE user_id = $2 AND revoked_at IS NULL",
+    )
+    .bind(now)
+    .bind(auth.user.id)
+    .execute(&mut tx)
+    .await?;
+    tx.commit().await?;
     Ok(axum::Json(RecoveryCodesResponse {
         recovery_codes: codes,
     })
@@ -399,17 +429,25 @@ pub async fn disable(
     {
         return Err(mfa_error("Invalid verification code"));
     }
-    if let Some(mfa) = find(&state.db, auth.user.id).await? {
+    let mut tx = state.db.begin().await?;
+    if let Some(mfa) = find(&mut tx, auth.user.id).await? {
         crate::db::query("DELETE FROM user_mfa_recovery_code WHERE user_mfa_id = $1")
             .bind(mfa.id)
-            .execute(&state.db)
+            .execute(&mut tx)
             .await?;
         crate::db::query("DELETE FROM user_mfa WHERE id = $1")
             .bind(mfa.id)
-            .execute(&state.db)
+            .execute(&mut tx)
             .await?;
     }
-    persistent::revoke_all_for_user(&state, auth.user.id).await?;
+    crate::db::query(
+        "UPDATE persistent_session SET revoked_at = $1 WHERE user_id = $2 AND revoked_at IS NULL",
+    )
+    .bind(state.clock.now())
+    .bind(auth.user.id)
+    .execute(&mut tx)
+    .await?;
+    tx.commit().await?;
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
@@ -441,15 +479,24 @@ pub async fn regenerate(
     if !verify_totp(&state, &auth.user, &req.code.unwrap_or_default()).await? {
         return Err(mfa_error("Invalid verification code"));
     }
-    let mfa = find(&state.db, auth.user.id)
+    if find(&state.db, auth.user.id)
+        .await?
+        .is_none_or(|m| !m.enabled)
+    {
+        return Err(mfa_error("MFA is not enabled"));
+    }
+    let (codes, hashes) = prepare_recovery_codes().await?;
+    let mut tx = state.db.begin().await?;
+    let mfa = find(&mut tx, auth.user.id)
         .await?
         .filter(|m| m.enabled)
         .ok_or_else(|| mfa_error("MFA is not enabled"))?;
     crate::db::query("DELETE FROM user_mfa_recovery_code WHERE user_mfa_id = $1")
         .bind(mfa.id)
-        .execute(&state.db)
+        .execute(&mut tx)
         .await?;
-    let codes = generate_recovery_codes(&state, mfa.id).await?;
+    insert_recovery_codes(&mut tx.as_handle(), mfa.id, &hashes).await?;
+    tx.commit().await?;
     Ok(axum::Json(RecoveryCodesResponse {
         recovery_codes: codes,
     })
