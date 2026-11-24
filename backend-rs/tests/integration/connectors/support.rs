@@ -122,3 +122,19 @@ pub async fn count(app: &TestApp, sql: &str) -> i64 {
         .await
         .expect("count")
 }
+
+/// Wiremock responder that signals when a request arrives and answers after `delay`.
+pub struct DelayedNotify {
+    pub in_flight: std::sync::Arc<tokio::sync::Notify>,
+    pub delay: std::time::Duration,
+    pub body: serde_json::Value,
+}
+
+impl wiremock::Respond for DelayedNotify {
+    fn respond(&self, _request: &wiremock::Request) -> wiremock::ResponseTemplate {
+        self.in_flight.notify_one();
+        wiremock::ResponseTemplate::new(200)
+            .set_delay(self.delay)
+            .set_body_json(self.body.clone())
+    }
+}

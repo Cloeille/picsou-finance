@@ -779,6 +779,7 @@ pub async fn poll_webview_status(
             let template = template();
             let job = {
                 let _write = logins.write.lock().await;
+                logins.require_generation(member_id, current.generation)?;
                 // Ensure only one concurrent poll persists the session & starts the sync.
                 let still_pending = logins.maps().pending.remove(process_id);
                 if still_pending.is_none() {
@@ -789,7 +790,6 @@ pub async fn poll_webview_status(
                         session: Some(session),
                     });
                 }
-                logins.require_generation(member_id, current.generation)?;
                 let mut tx = state.db.begin().await?;
                 let job = template
                     .insert_queued(

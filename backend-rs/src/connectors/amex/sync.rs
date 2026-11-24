@@ -508,6 +508,7 @@ pub async fn poll_webview_status(
             let tpl = template();
             let job = {
                 let _write = logins.write.lock().await;
+                logins.require_generation(member_id, current.generation)?;
                 let still_pending = logins.maps().pending.remove(process_id);
                 if still_pending.is_none() {
                     let session = get_status(state, member_id).await?;
@@ -517,7 +518,6 @@ pub async fn poll_webview_status(
                         session: Some(session),
                     });
                 }
-                logins.require_generation(member_id, current.generation)?;
                 let mut tx = state.db.begin().await?;
                 let job = tpl
                     .insert_queued(

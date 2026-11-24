@@ -838,3 +838,53 @@ async fn webview_endpoints_are_desktop_only_and_drive_full_sync_on_desktop() {
         "AUTH_ATTEMPT_EXPIRED"
     );
 }
+
+#[tokio::test]
+async fn webview_status_poll_racing_a_disconnect_returns_expired_not_syncing() {
+    let sidecar = MockServer::start().await;
+    answer(
+        &sidecar,
+        "/webview/start",
+        json!({ "processId": "wv-amex-disconnect", "status": "WAITING_LOGIN" }),
+    )
+    .await;
+    let in_flight = std::sync::Arc::new(tokio::sync::Notify::new());
+    Mock::given(method("GET"))
+        .and(path("/webview/status/wv-amex-disconnect"))
+        .respond_with(super::support::DelayedNotify {
+            in_flight: in_flight.clone(),
+            delay: std::time::Duration::from_millis(300),
+            body: json!({ "status": "DONE", "sessionState": "amex-jar-race" }),
+        })
+        .mount(&sidecar)
+        .await;
+    let app = picsou::testing::TestApp::builder()
+        .with_admin()
+        .env(URL, sidecar.uri())
+        .env("PICSOU_DESKTOP", "true")
+        .spawn()
+        .await;
+    let (client, member_id) = admin(&app).await;
+
+    assert_eq!(
+        client.post("/api/amex/webview/start").send().await.status,
+        200
+    );
+
+    let (polled, disconnected) = tokio::join!(
+        client
+            .get("/api/amex/webview/status/wv-amex-disconnect")
+            .send(),
+        async {
+            tokio::time::timeout(std::time::Duration::from_secs(5), in_flight.notified())
+                .await
+                .expect("status poll reached bridge");
+            client.delete("/api/amex/session").send().await
+        }
+    );
+
+    assert_eq!(disconnected.status, 204, "{}", disconnected.text());
+    assert_eq!(polled.status, 422, "{}", polled.text());
+    assert_eq!(polled.json()["code"], "AUTH_ATTEMPT_EXPIRED");
+    assert!(session_of(&app, BANK, member_id).await.is_none());
+}

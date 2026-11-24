@@ -969,11 +969,11 @@ pub async fn poll_webview_status(
         "DONE" => {
             let should_trigger = {
                 let _write = logins.write.lock().await;
+                logins.require_generation(member_id, current.generation)?;
                 let still_pending = logins.maps().pending.remove(process_id);
                 if still_pending.is_none() {
                     false
                 } else {
-                    logins.require_generation(member_id, current.generation)?;
                     let mut tx = state.db.begin().await?;
                     ensure_session_row(state, &mut tx.as_handle(), member_id).await?;
                     tx.commit().await?;

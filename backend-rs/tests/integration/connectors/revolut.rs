@@ -733,3 +733,60 @@ async fn webview_endpoints_are_desktop_only_and_drive_full_sync_on_desktop() {
     assert_eq!(disconnected.status, 204, "{}", disconnected.text());
     sidecar.verify().await;
 }
+
+#[tokio::test]
+async fn webview_status_poll_racing_a_disconnect_returns_expired_not_syncing() {
+    let sidecar = MockServer::start().await;
+    answer(
+        &sidecar,
+        "/webview/start",
+        json!({ "processId": "wv-revo-disconnect", "status": "WAITING_LOGIN" }),
+    )
+    .await;
+    let in_flight = std::sync::Arc::new(tokio::sync::Notify::new());
+    Mock::given(method("GET"))
+        .and(path("/webview/status/wv-revo-disconnect"))
+        .respond_with(super::support::DelayedNotify {
+            in_flight: in_flight.clone(),
+            delay: std::time::Duration::from_millis(300),
+            body: json!({ "status": "DONE" }),
+        })
+        .mount(&sidecar)
+        .await;
+    let app = picsou::testing::TestApp::builder()
+        .with_admin()
+        .env(URL, sidecar.uri())
+        .env("PICSOU_DESKTOP", "true")
+        .spawn()
+        .await;
+    let (client, _) = admin(&app).await;
+
+    assert_eq!(
+        client
+            .post("/api/revolut/webview/start")
+            .send()
+            .await
+            .status,
+        200
+    );
+
+    let (polled, disconnected) = tokio::join!(
+        client
+            .get("/api/revolut/webview/status/wv-revo-disconnect")
+            .send(),
+        async {
+            tokio::time::timeout(std::time::Duration::from_secs(5), in_flight.notified())
+                .await
+                .expect("status poll reached bridge");
+            client.delete("/api/revolut/session").send().await
+        }
+    );
+
+    assert_eq!(disconnected.status, 204, "{}", disconnected.text());
+    assert_eq!(polled.status, 422, "{}", polled.text());
+    assert_eq!(polled.json()["code"], "AUTH_ATTEMPT_EXPIRED");
+    assert_eq!(
+        client.get("/api/revolut/status").send().await.json()["connected"],
+        false
+    );
+}

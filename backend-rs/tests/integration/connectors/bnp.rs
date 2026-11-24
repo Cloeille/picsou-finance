@@ -704,3 +704,56 @@ async fn complete_auth_rejects_a_webview_attempt_without_deleting_it() {
     assert_eq!(polled.status, 200, "{}", polled.text());
     assert_eq!(polled.json()["status"], "WAITING_LOGIN");
 }
+
+#[tokio::test]
+async fn webview_status_poll_racing_a_disconnect_returns_expired_not_syncing() {
+    let sidecar = MockServer::start().await;
+    answer(
+        &sidecar,
+        "/webview/start",
+        json!({ "processId": "wv-disconnect", "status": "WAITING_LOGIN" }),
+    )
+    .await;
+    let in_flight = std::sync::Arc::new(tokio::sync::Notify::new());
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/webview/status/wv-disconnect"))
+        .respond_with(super::support::DelayedNotify {
+            in_flight: in_flight.clone(),
+            delay: Duration::from_millis(300),
+            body: json!({ "status": "DONE", "sessionState": "desktop-jar-race" }),
+        })
+        .mount(&sidecar)
+        .await;
+    let app = picsou::testing::TestApp::builder()
+        .with_admin()
+        .env(URL, sidecar.uri())
+        .env("PICSOU_DESKTOP", "true")
+        .spawn()
+        .await;
+    let (client, member_id) = admin(&app).await;
+
+    assert_eq!(
+        client
+            .post("/api/bnp/webview/start")
+            .json(&json!({ "brand": "bnp" }))
+            .send()
+            .await
+            .status,
+        200
+    );
+
+    let (polled, disconnected) = tokio::join!(
+        client.get("/api/bnp/webview/status/wv-disconnect").send(),
+        async {
+            tokio::time::timeout(Duration::from_secs(5), in_flight.notified())
+                .await
+                .expect("status poll reached bridge");
+            client.delete("/api/bnp/session").send().await
+        }
+    );
+
+    assert_eq!(disconnected.status, 200, "{}", disconnected.text());
+    assert_eq!(polled.status, 422, "{}", polled.text());
+    assert_eq!(polled.json()["code"], "AUTH_ATTEMPT_EXPIRED");
+    assert!(session_of(&app, BANK, member_id).await.is_none());
+}
