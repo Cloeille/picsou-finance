@@ -127,7 +127,7 @@ async fn view(
 ) -> AppResult<axum::Json<HoldingClassificationView>> {
     let mut conn = state.db.pool_handle();
     access::require_readable(&mut conn, id, auth.member_id).await?;
-    let upper = ticker.to_uppercase();
+    let upper = java_trim(&ticker).to_uppercase();
     let found = find(&mut conn, auth.member_id, &upper).await?;
     let profile = profiles::load(&mut conn, [upper.as_str()])
         .await?
@@ -154,7 +154,7 @@ async fn classify(
 ) -> AppResult<axum::Json<HoldingClassificationResponse>> {
     let mut tx = state.db.begin().await?;
     access::require_owner(&mut tx.as_handle(), id, auth.member_id).await?;
-    let upper = ticker.to_uppercase();
+    let upper = java_trim(&ticker).to_uppercase();
     let existing = find(&mut tx, auth.member_id, &upper).await?;
     if request.wealth_tier.is_none()
         && request.sector_key.is_none()
@@ -176,15 +176,13 @@ async fn classify(
         }));
     }
     let now = state.clock.now();
-    // The entity trims and upper-cases on persist: the database constraint is case-sensitive.
-    let stored_ticker = java_trim(&upper).to_uppercase();
     let saved: HoldingClassification = match existing {
         Some(row) => db::query_as(&format!(
             "UPDATE holding_classification SET ticker = $2, wealth_tier = $3, sector_key = $4, \
              country_key = $5, updated_at = $6 WHERE id = $1 RETURNING {COLUMNS}"
         ))
         .bind(row.id)
-        .bind(&stored_ticker)
+        .bind(&upper)
         .bind(request.wealth_tier)
         .bind(&request.sector_key)
         .bind(&request.country_key)
@@ -196,7 +194,7 @@ async fn classify(
              created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING {COLUMNS}"
         ))
         .bind(auth.member_id)
-        .bind(&stored_ticker)
+        .bind(&upper)
         .bind(request.wealth_tier)
         .bind(&request.sector_key)
         .bind(&request.country_key)

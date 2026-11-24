@@ -409,3 +409,47 @@ async fn a_malformed_override_is_rejected() {
         .await;
     assert_eq!(bogus.status, 400);
 }
+
+#[tokio::test]
+async fn an_override_with_surrounding_spaces_updates_reads_and_clears_without_duplicating() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let pea = simple(&app, alice, "PEA", "0").await;
+    let path = format!("/api/accounts/{pea}/holdings/%20gold%20/classification");
+
+    let first = client
+        .put(&path)
+        .json(&json!({"wealthTier": "ALTERNATIVE"}))
+        .send()
+        .await;
+    assert_eq!(first.status, 200, "{}", first.text());
+    assert_eq!(
+        first.json(),
+        json!({"ticker": "GOLD", "wealthTier": "ALTERNATIVE"})
+    );
+
+    let second = client
+        .put(&path)
+        .json(&json!({"wealthTier": "EQUITY"}))
+        .send()
+        .await;
+    assert_eq!(second.status, 200, "{}", second.text());
+    assert_eq!(
+        second.json(),
+        json!({"ticker": "GOLD", "wealthTier": "EQUITY"})
+    );
+
+    let view = get_json(&client, &path).await;
+    assert_eq!(
+        view,
+        json!({"ticker": "GOLD", "wealthTier": "EQUITY", "profileLooked": false})
+    );
+
+    let cleared = client.put(&path).json(&json!({})).send().await;
+    assert_eq!(cleared.status, 200, "{}", cleared.text());
+    let rows: i64 = picsou::db::query_scalar("SELECT count(*) FROM holding_classification")
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(rows, 0);
+}
