@@ -290,8 +290,13 @@ impl SqliteDb {
             )
         })?;
         let conn = Arc::clone(&self.conn);
+        let caller = CallerPresence::default();
+        let gone = caller.flag();
         tokio::task::spawn_blocking(move || {
             let mut guard = conn.lock().map_err(|_| SqliteError::MutexPoisoned)?;
+            if gone.load(Ordering::SeqCst) {
+                return Err(SqliteError::Join(ABANDONED.into()));
+            }
             f(&mut guard)
         })
         .await
@@ -340,11 +345,7 @@ impl SqliteDb {
     pub async fn begin(&self) -> Result<SqliteTx<'_>, sqlx::Error> {
         let gate = self.acquire_writer_gate().await?;
         let conn = Arc::clone(&self.conn);
-        run_on_writer(Arc::clone(&conn), |c| {
-            c.execute_batch("BEGIN IMMEDIATE")
-                .map_err(error::rusqlite_to_sqlx)
-        })
-        .await?;
+        open_transaction(&conn, BEGIN.into(), ROLLBACK.into()).await?;
         Ok(SqliteTx {
             conn,
             depth: 0,
@@ -353,7 +354,6 @@ impl SqliteDb {
                 _marker: PhantomData,
             }),
             finished: false,
-            pending_finish: None,
         })
     }
 
@@ -551,11 +551,7 @@ impl SqliteConn {
     /// Starts a `BEGIN IMMEDIATE` transaction on this acquired connection.
     pub async fn begin(&mut self) -> Result<SqliteTx<'_>, sqlx::Error> {
         let conn = Arc::clone(&self.conn);
-        run_on_writer(Arc::clone(&conn), |c| {
-            c.execute_batch("BEGIN IMMEDIATE")
-                .map_err(error::rusqlite_to_sqlx)
-        })
-        .await?;
+        open_transaction(&conn, BEGIN.into(), ROLLBACK.into()).await?;
         Ok(SqliteTx {
             conn,
             depth: 0,
@@ -563,7 +559,6 @@ impl SqliteConn {
                 _parent: PhantomData,
             }),
             finished: false,
-            pending_finish: None,
         })
     }
 
@@ -641,11 +636,7 @@ impl<'a> SqliteHandle<'a> {
         let conn = Arc::clone(self.conn);
         match self.tx_depth {
             None => {
-                run_on_writer(Arc::clone(&conn), |c| {
-                    c.execute_batch("BEGIN IMMEDIATE")
-                        .map_err(error::rusqlite_to_sqlx)
-                })
-                .await?;
+                open_transaction(&conn, BEGIN.into(), ROLLBACK.into()).await?;
                 Ok(SqliteTx {
                     conn,
                     depth: 0,
@@ -653,17 +644,12 @@ impl<'a> SqliteHandle<'a> {
                         _parent: PhantomData,
                     }),
                     finished: false,
-                    pending_finish: None,
                 })
             }
             Some(depth) => {
                 let next_depth = depth + 1;
                 let name = format!("picsou_sp_{next_depth}");
-                let sp_sql = format!("SAVEPOINT {name}");
-                run_on_writer(Arc::clone(&conn), move |c| {
-                    c.execute_batch(&sp_sql).map_err(error::rusqlite_to_sqlx)
-                })
-                .await?;
+                open_transaction(&conn, format!("SAVEPOINT {name}"), undo_savepoint(&name)).await?;
                 Ok(SqliteTx {
                     conn,
                     depth: next_depth,
@@ -672,7 +658,6 @@ impl<'a> SqliteHandle<'a> {
                         _parent: PhantomData,
                     }),
                     finished: false,
-                    pending_finish: None,
                 })
             }
         }
@@ -701,10 +686,6 @@ pub struct SqliteTx<'a> {
     depth: usize,
     kind: Option<SqliteTxKind<'a>>,
     finished: bool,
-    /// Shared cancellation flag for an in-flight `commit()`/`rollback()` blocking task so that if
-    /// the future is cancelled before `spawn_blocking` acquires `conn`, `Drop` rolls back
-    /// synchronously and disarms the orphaned blocking task before releasing `_gate`.
-    pending_finish: Option<Arc<AtomicBool>>,
 }
 
 impl<'a> SqliteTx<'a> {
@@ -719,12 +700,8 @@ impl<'a> SqliteTx<'a> {
     pub async fn begin(&mut self) -> Result<SqliteTx<'_>, sqlx::Error> {
         let next_depth = self.depth + 1;
         let name = format!("picsou_sp_{next_depth}");
-        let sp_sql = format!("SAVEPOINT {name}");
         let conn = Arc::clone(&self.conn);
-        run_on_writer(Arc::clone(&conn), move |c| {
-            c.execute_batch(&sp_sql).map_err(error::rusqlite_to_sqlx)
-        })
-        .await?;
+        open_transaction(&conn, format!("SAVEPOINT {name}"), undo_savepoint(&name)).await?;
         Ok(SqliteTx {
             conn,
             depth: next_depth,
@@ -733,7 +710,6 @@ impl<'a> SqliteTx<'a> {
                 _parent: PhantomData,
             }),
             finished: false,
-            pending_finish: None,
         })
     }
 
@@ -743,17 +719,10 @@ impl<'a> SqliteTx<'a> {
             Some(SqliteTxKind::Savepoint { name, .. }) => format!("RELEASE SAVEPOINT {name}"),
             _ => "COMMIT".to_owned(),
         };
-        let conn = Arc::clone(&self.conn);
-        let aborted = Arc::new(AtomicBool::new(false));
-        self.pending_finish = Some(Arc::clone(&aborted));
-        let res = run_on_writer(conn, move |c| {
-            if aborted.load(Ordering::SeqCst) {
-                return Ok(());
-            }
+        let res = run_on_writer(Arc::clone(&self.conn), move |c| {
             c.execute_batch(&sql).map_err(error::rusqlite_to_sqlx)
         })
         .await;
-        self.pending_finish = None;
         if res.is_ok() {
             self.finished = true;
         }
@@ -763,22 +732,13 @@ impl<'a> SqliteTx<'a> {
     /// Explicitly rolls back the transaction (or rolls back and releases the nested savepoint).
     pub async fn rollback(mut self) -> Result<(), sqlx::Error> {
         let sql = match self.kind.as_ref() {
-            Some(SqliteTxKind::Savepoint { name, .. }) => {
-                format!("ROLLBACK TO SAVEPOINT {name}; RELEASE SAVEPOINT {name};")
-            }
-            _ => "ROLLBACK".to_owned(),
+            Some(SqliteTxKind::Savepoint { name, .. }) => undo_savepoint(name),
+            _ => ROLLBACK.to_owned(),
         };
-        let conn = Arc::clone(&self.conn);
-        let aborted = Arc::new(AtomicBool::new(false));
-        self.pending_finish = Some(Arc::clone(&aborted));
-        let res = run_on_writer(conn, move |c| {
-            if aborted.load(Ordering::SeqCst) {
-                return Ok(());
-            }
+        let res = run_on_writer(Arc::clone(&self.conn), move |c| {
             c.execute_batch(&sql).map_err(error::rusqlite_to_sqlx)
         })
         .await;
-        self.pending_finish = None;
         self.finished = true;
         res
     }
@@ -837,37 +797,112 @@ impl Drop for SqliteTx<'_> {
             return;
         }
         let sql = match self.kind.as_ref() {
-            Some(SqliteTxKind::Savepoint { name, .. }) => {
-                format!("ROLLBACK TO SAVEPOINT {name}; RELEASE SAVEPOINT {name};")
-            }
-            _ => "ROLLBACK".to_owned(),
+            Some(SqliteTxKind::Savepoint { name, .. }) => undo_savepoint(name),
+            _ => ROLLBACK.to_owned(),
         };
         // `self` holds exclusive ownership of the writer gate (or an exclusive borrow of the
         // parent transaction holding it), so locking `self.conn` here cannot deadlock and ensures
         // rollback completes strictly BEFORE the writer gate is released when `self.kind` drops.
         if let Ok(conn) = self.conn.lock() {
-            if let Some(aborted) = &self.pending_finish {
-                aborted.store(true, Ordering::SeqCst);
-            }
             let _ = conn.execute_batch(&sql);
         }
         self.finished = true;
     }
 }
 
+const BEGIN: &str = "BEGIN IMMEDIATE";
+const ROLLBACK: &str = "ROLLBACK";
+const ABANDONED: &str = "SQLite statement abandoned: its caller went away before it ran";
+
+fn undo_savepoint(name: &str) -> String {
+    format!("ROLLBACK TO SAVEPOINT {name}; RELEASE SAVEPOINT {name};")
+}
+
+/// Tells a statement queued on the blocking pool that the future awaiting it was dropped (a
+/// client that disconnected, a timeout, a shutdown).
+#[derive(Default)]
+struct CallerPresence(Arc<AtomicBool>);
+
+impl CallerPresence {
+    fn flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.0)
+    }
+}
+
+impl Drop for CallerPresence {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+/// Runs `f` on the blocking pool with the writer connection. A statement whose caller went away
+/// before it reached the connection is skipped: run later, it would land after the rollback of
+/// its transaction, or inside the transaction of whoever took the writer gate next.
 async fn run_on_writer<F, T>(conn: Arc<Mutex<Connection>>, f: F) -> Result<T, sqlx::Error>
 where
     F: FnOnce(&mut Connection) -> Result<T, sqlx::Error> + Send + 'static,
     T: Send + 'static,
 {
+    let caller = CallerPresence::default();
+    let gone = caller.flag();
     tokio::task::spawn_blocking(move || {
         let mut guard = conn
             .lock()
             .map_err(|_| sqlx::Error::Protocol("SQLite connection mutex poisoned".into()))?;
+        if gone.load(Ordering::SeqCst) {
+            return Err(sqlx::Error::Protocol(ABANDONED.into()));
+        }
         f(&mut guard)
     })
     .await
     .map_err(|e| sqlx::Error::Protocol(format!("blocking SQLite task failed: {e}")))?
+}
+
+/// Undoes a `BEGIN` or a `SAVEPOINT` whose caller went away before it received its
+/// [`SqliteTx`]. Left open on the one writer connection, it would refuse every later
+/// transaction and keep every later write uncommitted.
+struct UndoUnlessHandedOver {
+    conn: Arc<Mutex<Connection>>,
+    opened: Arc<AtomicBool>,
+    undo: String,
+    handed_over: bool,
+}
+
+impl Drop for UndoUnlessHandedOver {
+    fn drop(&mut self) {
+        if self.handed_over {
+            return;
+        }
+        // The statement sets `opened` while it holds the connection, so once the lock is ours
+        // the flag says whether there is something to undo.
+        if let Ok(conn) = self.conn.lock()
+            && self.opened.load(Ordering::SeqCst)
+        {
+            let _ = conn.execute_batch(&self.undo);
+        }
+    }
+}
+
+async fn open_transaction(
+    conn: &Arc<Mutex<Connection>>,
+    open: String,
+    undo: String,
+) -> Result<(), sqlx::Error> {
+    let opened = Arc::new(AtomicBool::new(false));
+    let mut guard = UndoUnlessHandedOver {
+        conn: Arc::clone(conn),
+        opened: Arc::clone(&opened),
+        undo,
+        handed_over: false,
+    };
+    let result = run_on_writer(Arc::clone(conn), move |c| {
+        c.execute_batch(&open).map_err(error::rusqlite_to_sqlx)?;
+        opened.store(true, Ordering::SeqCst);
+        Ok(())
+    })
+    .await;
+    guard.handed_over = true;
+    result
 }
 
 fn query_rows(
@@ -1126,5 +1161,90 @@ mod tests {
             .acquire_writer_gate_with_timeout(Duration::from_millis(50))
             .await
             .expect("writer gate must be acquirable after tx finishes");
+    }
+
+    /// Keeps the writer connection busy from another thread, so the next statement stays queued
+    /// behind it. The connection is let go a moment after `release` gets a message.
+    fn hold_connection(
+        db: &SqliteDb,
+    ) -> (std::sync::mpsc::Sender<()>, std::thread::JoinHandle<()>) {
+        let conn = Arc::clone(&db.conn);
+        let (held, is_held) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let holder = std::thread::spawn(move || {
+            let _guard = conn.lock().expect("lock the connection");
+            held.send(()).expect("report the lock");
+            let _ = released.recv();
+            std::thread::sleep(Duration::from_millis(50));
+        });
+        is_held.recv().expect("the connection is held");
+        (release, holder)
+    }
+
+    /// Every queued statement keeps a handle on the connection until it has run or been skipped.
+    async fn queued_statements_have_run(db: &SqliteDb) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while Arc::strong_count(&db.conn) > 1 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "a queued statement never ran"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn a_begin_whose_caller_went_away_leaves_no_transaction_open() {
+        let db = SqliteDb::open_in_memory().expect("open in-memory SQLite");
+        let (release, holder) = hold_connection(&db);
+        {
+            let begin = db.begin();
+            tokio::pin!(begin);
+            assert!(futures::poll!(begin.as_mut()).is_pending());
+            release.send(()).expect("release the connection");
+        }
+        holder.join().expect("join the holder");
+        queued_statements_have_run(&db).await;
+
+        assert!(
+            db.with_conn(|conn| Ok(conn.is_autocommit()))
+                .expect("read the connection state"),
+            "the abandoned BEGIN left the writer connection inside a transaction"
+        );
+        db.begin()
+            .await
+            .expect("a later transaction opens")
+            .commit()
+            .await
+            .expect("and commits");
+    }
+
+    #[tokio::test]
+    async fn a_statement_whose_caller_went_away_never_runs_after_the_rollback() {
+        let db = SqliteDb::open_in_memory().expect("open in-memory SQLite");
+        db.execute_batch("CREATE TABLE cancelled (id INTEGER)")
+            .await
+            .expect("create the table");
+        let mut tx = db.begin().await.expect("begin");
+        let (release, holder) = hold_connection(&db);
+        {
+            let insert = tx.execute("INSERT INTO cancelled (id) VALUES (1)", Vec::new());
+            tokio::pin!(insert);
+            assert!(futures::poll!(insert.as_mut()).is_pending());
+        }
+        release.send(()).expect("release the connection");
+        drop(tx);
+        holder.join().expect("join the holder");
+        queued_statements_have_run(&db).await;
+
+        let rows: i64 = db
+            .with_conn(|conn| {
+                Ok(conn.query_row("SELECT count(*) FROM cancelled", [], |r| r.get(0))?)
+            })
+            .expect("count the rows");
+        assert_eq!(
+            rows, 0,
+            "the abandoned INSERT was written outside its transaction"
+        );
     }
 }
