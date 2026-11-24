@@ -240,10 +240,10 @@ fn tls_parameters(
     variable: &str,
     query: Option<&str>,
 ) -> Result<(Option<String>, Option<String>), ConfigError> {
-    let (mut ssl_mode, mut ssl_root_cert) = (None, None);
+    let (mut ssl_mode, mut ssl_root_cert, mut ssl) = (None, None, false);
     for (key, value) in url::form_urlencoded::parse(query.unwrap_or_default().as_bytes()) {
         match key.as_ref() {
-            "sslmode" => {
+            "sslmode" if !value.trim().is_empty() => {
                 let mode = value.trim().to_ascii_lowercase();
                 if !SSL_MODES.contains(&mode.as_str()) {
                     return Err(invalid(format!(
@@ -256,8 +256,13 @@ fn tls_parameters(
             "sslrootcert" if !value.trim().is_empty() => {
                 ssl_root_cert = Some(value.trim().to_owned());
             }
+            "ssl" => ssl = value.trim().eq_ignore_ascii_case("true"),
             _ => {}
         }
+    }
+    // The JDBC driver reads ssl=true alone as sslmode=verify-full.
+    if ssl_mode.is_none() && ssl {
+        ssl_mode = Some("verify-full".to_owned());
     }
     Ok((ssl_mode, ssl_root_cert))
 }
@@ -1120,6 +1125,15 @@ mod tests {
 
         let plain = Datasource::parse_jdbc("jdbc:postgresql://db/picsou", "u", "p").unwrap();
         assert_eq!((plain.ssl_mode, plain.ssl_root_cert), (None, None));
+        let mode = |query: &str| {
+            Datasource::parse_jdbc(&format!("jdbc:postgresql://db/picsou?{query}"), "u", "p")
+                .unwrap()
+                .ssl_mode
+        };
+        assert_eq!(mode("sslmode="), None);
+        assert_eq!(mode("ssl=true").as_deref(), Some("verify-full"));
+        assert_eq!(mode("ssl=true&sslmode=require").as_deref(), Some("require"));
+        assert_eq!(mode("ssl=false"), None);
         assert!(
             Datasource::parse_jdbc("jdbc:postgresql://db/picsou?sslmode=strict", "u", "p").is_err()
         );
