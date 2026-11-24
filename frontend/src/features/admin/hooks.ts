@@ -2,7 +2,12 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { useInvalidatingMutation } from '@/hooks/use-invalidating-mutation'
 import { adminApi } from './api'
 import { telemetryKeys } from '@/features/telemetry/hooks'
-import type { AdminSecuritySettings, AdminEnableBankingCredentials, AdminAiRequest } from './api'
+import type {
+  AdminSecuritySettings,
+  AdminEnableBankingCredentials,
+  AdminAiRequest,
+  AdminAiModelsRequest,
+} from './api'
 
 export const adminKeys = {
   all: ['admin'] as const,
@@ -77,6 +82,10 @@ export function useUpdateTelemetry() {
 
 export function useTestAi() {
   return useMutation({ mutationFn: (body: AdminAiRequest) => adminApi.testAi(body) })
+}
+
+export function useListAiModels() {
+  return useMutation({ mutationFn: (body: AdminAiModelsRequest) => adminApi.listAiModels(body) })
 }
 
 export function useAiCalls(limit: number, offset: number) {
