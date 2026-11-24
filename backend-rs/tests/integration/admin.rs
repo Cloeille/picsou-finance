@@ -5,7 +5,7 @@ use std::time::Duration;
 use picsou::testing::{ADMIN_PASSWORD, TestApp};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
-use wiremock::matchers::{header, method, path};
+use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
@@ -193,6 +193,493 @@ async fn the_ai_test_calls_the_provider_without_saving() {
             .await
             .unwrap();
     assert_eq!(stored, 0);
+}
+
+#[tokio::test]
+async fn ai_models_endpoint_needs_the_admin_role() {
+    let app = TestApp::with_admin().await;
+    app.create_member("bob", "bob-password-1").await;
+    let bob = app.login("bob", "bob-password-1").await;
+    assert_eq!(
+        bob.post("/api/admin/settings/ai/models")
+            .json(&json!({"provider": "none"}))
+            .send()
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        app.client()
+            .post("/api/admin/settings/ai/models")
+            .json(&json!({"provider": "none"}))
+            .send()
+            .await
+            .status,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn ai_models_lists_sorted_deduplicated_ids_for_openai_anthropic_and_ollama() {
+    let openai = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .and(header("authorization", "Bearer sk-mistral-test"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": [
+                {"id": "mistral-small-latest"},
+                {"id": "Codestral-latest"},
+                {"id": "mistral-small-latest"},
+                {"id": "ministral-8b-latest"}
+            ]
+        })))
+        .expect(1)
+        .mount(&openai)
+        .await;
+
+    let anthropic = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .and(query_param("limit", "1000"))
+        .and(header("x-api-key", "sk-ant-test"))
+        .and(header("anthropic-version", "2023-06-01"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": [
+                {"id": "claude-sonnet-4-5"},
+                {"id": "Claude-Haiku-4-5"},
+                {"id": "claude-sonnet-4-5"}
+            ]
+        })))
+        .expect(1)
+        .mount(&anthropic)
+        .await;
+
+    let ollama = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/tags"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "models": [
+                {"name": "qwen3:0.6b"},
+                {"name": "Llama3.2:latest"},
+                {"name": "qwen3:0.6b"}
+            ]
+        })))
+        .expect(1)
+        .mount(&ollama)
+        .await;
+
+    let app = TestApp::with_admin().await;
+    let admin = app.login_admin().await;
+
+    let mistral_res = admin
+        .post("/api/admin/settings/ai/models")
+        .json(&json!({
+            "provider": "mistral",
+            "baseUrl": openai.uri(),
+            "apiKey": "sk-mistral-test"
+        }))
+        .send()
+        .await;
+    assert_eq!(mistral_res.status, StatusCode::OK);
+    assert_eq!(
+        mistral_res.json(),
+        json!({
+            "ok": true,
+            "models": ["Codestral-latest", "ministral-8b-latest", "mistral-small-latest"]
+        })
+    );
+
+    let anthropic_res = admin
+        .post("/api/admin/settings/ai/models")
+        .json(&json!({
+            "provider": "anthropic",
+            "baseUrl": anthropic.uri(),
+            "apiKey": "sk-ant-test"
+        }))
+        .send()
+        .await;
+    assert_eq!(anthropic_res.status, StatusCode::OK);
+    assert_eq!(
+        anthropic_res.json(),
+        json!({
+            "ok": true,
+            "models": ["Claude-Haiku-4-5", "claude-sonnet-4-5"]
+        })
+    );
+
+    let ollama_res = admin
+        .post("/api/admin/settings/ai/models")
+        .json(&json!({
+            "provider": "ollama",
+            "baseUrl": ollama.uri()
+        }))
+        .send()
+        .await;
+    assert_eq!(ollama_res.status, StatusCode::OK);
+    assert_eq!(
+        ollama_res.json(),
+        json!({
+            "ok": true,
+            "models": ["Llama3.2:latest", "qwen3:0.6b"]
+        })
+    );
+    let ollama_req = &ollama.received_requests().await.unwrap()[0];
+    assert!(ollama_req.headers.get("authorization").is_none());
+}
+
+#[tokio::test]
+async fn ai_models_handles_upstream_errors_redirects_and_unknown_providers() {
+    let upstream = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .and(header("authorization", "Bearer sk-err-key"))
+        .respond_with(
+            ResponseTemplate::new(500).set_body_string("secret upstream stacktrace sk-err-key"),
+        )
+        .mount(&upstream)
+        .await;
+
+    let redirect_target = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .and(header("authorization", "Bearer sk-redir-key"))
+        .respond_with(
+            ResponseTemplate::new(302)
+                .insert_header("location", format!("{}/leak", redirect_target.uri())),
+        )
+        .mount(&upstream)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .and(header("authorization", "Bearer sk-bad-body"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("<html>not json</html>"))
+        .mount(&upstream)
+        .await;
+
+    let app = TestApp::with_admin().await;
+    let admin = app.login_admin().await;
+
+    let err = admin
+        .post("/api/admin/settings/ai/models")
+        .json(&json!({
+            "provider": "openai",
+            "baseUrl": upstream.uri(),
+            "apiKey": "sk-err-key"
+        }))
+        .send()
+        .await;
+    assert_eq!(err.status, StatusCode::OK);
+    let err_body = err.json();
+    assert_eq!(err_body["ok"], false);
+    assert_eq!(err_body["models"], json!([]));
+    let msg = err_body["message"].as_str().unwrap();
+    assert_eq!(msg, "The provider answered HTTP 500");
+    assert!(
+        !msg.contains("stacktrace")
+            && !msg.contains("sk-err-key")
+            && !msg.contains(&upstream.uri())
+    );
+
+    let bad_body = admin
+        .post("/api/admin/settings/ai/models")
+        .json(&json!({
+            "provider": "openai",
+            "baseUrl": upstream.uri(),
+            "apiKey": "sk-bad-body"
+        }))
+        .send()
+        .await;
+    assert_eq!(bad_body.status, StatusCode::OK);
+    assert_eq!(
+        bad_body.json(),
+        json!({
+            "ok": false,
+            "message": "The provider returned an unreadable answer",
+            "models": []
+        })
+    );
+
+    let redir = admin
+        .post("/api/admin/settings/ai/models")
+        .json(&json!({
+            "provider": "openai",
+            "baseUrl": upstream.uri(),
+            "apiKey": "sk-redir-key"
+        }))
+        .send()
+        .await;
+    assert_eq!(redir.status, StatusCode::OK);
+    assert_eq!(redir.json()["ok"], false);
+    assert_eq!(redir.json()["models"], json!([]));
+    assert!(
+        redirect_target
+            .received_requests()
+            .await
+            .unwrap()
+            .is_empty(),
+        "redirects must not be followed"
+    );
+
+    for provider in ["none", "does-not-exist"] {
+        let res = admin
+            .post("/api/admin/settings/ai/models")
+            .json(&json!({"provider": provider}))
+            .send()
+            .await;
+        assert_eq!(res.status, StatusCode::OK);
+        assert_eq!(
+            res.json(),
+            json!({"ok": false, "message": "No provider selected.", "models": []})
+        );
+    }
+}
+
+#[tokio::test]
+async fn stored_ai_key_is_only_reused_when_requested_provider_matches_saved_provider() {
+    let mock = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(header("authorization", "Bearer sk-saved-openai"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"choices": [{"message": {"content": "OK"}}]})),
+        )
+        .expect(1)
+        .mount(&mock)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .and(header("authorization", "Bearer sk-saved-openai"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": [{"id": "gpt-4o-mini"}]
+        })))
+        .expect(1)
+        .mount(&mock)
+        .await;
+
+    let app = TestApp::with_admin().await;
+    let admin = app.login_admin().await;
+    let saved = admin
+        .put("/api/admin/settings/ai")
+        .json(&json!({
+            "provider": "openai",
+            "baseUrl": mock.uri(),
+            "apiKey": "sk-saved-openai"
+        }))
+        .send()
+        .await;
+    assert_eq!(saved.status, StatusCode::NO_CONTENT);
+
+    // Different provider with blank key: stored OpenAI key must NOT be sent.
+    let diff_test = admin
+        .post("/api/admin/settings/ai/test")
+        .json(&json!({"provider": "mistral", "baseUrl": mock.uri()}))
+        .send()
+        .await;
+    assert_eq!(diff_test.status, StatusCode::OK);
+    assert_eq!(
+        diff_test.json(),
+        json!({"ok": false, "message": "An API key is required for MISTRAL."})
+    );
+
+    let diff_models = admin
+        .post("/api/admin/settings/ai/models")
+        .json(&json!({"provider": "mistral", "baseUrl": mock.uri()}))
+        .send()
+        .await;
+    assert_eq!(diff_models.status, StatusCode::OK);
+    assert_eq!(
+        diff_models.json(),
+        json!({"ok": false, "message": "An API key is required for MISTRAL.", "models": []})
+    );
+    assert!(
+        mock.received_requests().await.unwrap().is_empty(),
+        "no upstream call may be made when key is missing for another provider"
+    );
+
+    // Same provider with blank key: stored OpenAI key IS reused.
+    let same_test = admin
+        .post("/api/admin/settings/ai/test")
+        .json(&json!({"provider": "openai", "baseUrl": mock.uri()}))
+        .send()
+        .await
+        .json();
+    assert_eq!(
+        same_test,
+        json!({"ok": true, "message": "Connected. Model replied: OK"})
+    );
+
+    let same_models = admin
+        .post("/api/admin/settings/ai/models")
+        .json(&json!({"provider": "openai", "baseUrl": mock.uri()}))
+        .send()
+        .await
+        .json();
+    assert_eq!(same_models, json!({"ok": true, "models": ["gpt-4o-mini"]}));
+
+    // Optional-key provider (custom) must NOT receive another saved provider's key.
+    let custom_mock = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": [{"id": "local-only"}]
+        })))
+        .expect(1)
+        .mount(&custom_mock)
+        .await;
+    let custom_models = admin
+        .post("/api/admin/settings/ai/models")
+        .json(&json!({"provider": "custom", "baseUrl": custom_mock.uri()}))
+        .send()
+        .await
+        .json();
+    assert_eq!(custom_models, json!({"ok": true, "models": ["local-only"]}));
+    let custom_req = &custom_mock.received_requests().await.unwrap()[0];
+    assert!(
+        custom_req.headers.get("authorization").is_none(),
+        "stored OpenAI key must not be sent to custom provider"
+    );
+}
+
+#[tokio::test]
+async fn custom_provider_validates_save_and_omits_authorization_with_blank_key() {
+    let mock = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"choices": [{"message": {"content": "OK"}}]})),
+        )
+        .expect(1)
+        .mount(&mock)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": [{"id": "local-llm"}]
+        })))
+        .expect(1)
+        .mount(&mock)
+        .await;
+
+    let app = TestApp::with_admin().await;
+    let admin = app.login_admin().await;
+
+    let missing_both = admin
+        .put("/api/admin/settings/ai")
+        .json(&json!({"provider": "custom"}))
+        .send()
+        .await;
+    assert_eq!(missing_both.status, StatusCode::UNPROCESSABLE_ENTITY);
+    let errs = &missing_both.json()["errors"];
+    assert_eq!(errs["baseUrl"], "must not be blank");
+    assert_eq!(errs["model"], "must not be blank");
+
+    let saved = admin
+        .put("/api/admin/settings/ai")
+        .json(&json!({
+            "provider": "custom",
+            "baseUrl": mock.uri(),
+            "model": "local-llm"
+        }))
+        .send()
+        .await;
+    assert_eq!(saved.status, StatusCode::NO_CONTENT);
+
+    let test_res = admin
+        .post("/api/admin/settings/ai/test")
+        .json(&json!({
+            "provider": "custom",
+            "baseUrl": mock.uri(),
+            "model": "local-llm",
+            "apiKey": ""
+        }))
+        .send()
+        .await
+        .json();
+    assert_eq!(
+        test_res,
+        json!({"ok": true, "message": "Connected. Model replied: OK"})
+    );
+
+    let models_res = admin
+        .post("/api/admin/settings/ai/models")
+        .json(&json!({
+            "provider": "custom",
+            "baseUrl": mock.uri(),
+            "apiKey": ""
+        }))
+        .send()
+        .await
+        .json();
+    assert_eq!(models_res, json!({"ok": true, "models": ["local-llm"]}));
+
+    let received = mock.received_requests().await.unwrap();
+    assert_eq!(received.len(), 2);
+    for req in received {
+        assert!(
+            req.headers.get("authorization").is_none(),
+            "custom with blank key must not send Authorization header"
+        );
+    }
+}
+
+#[tokio::test]
+async fn gemini_calls_chat_and_models_without_v1_prefix() {
+    let mock = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .and(header("authorization", "Bearer sk-gemini-test"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"choices": [{"message": {"content": "OK"}}]})),
+        )
+        .expect(1)
+        .mount(&mock)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/models"))
+        .and(header("authorization", "Bearer sk-gemini-test"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": [{"id": "gemini-flash-latest"}]
+        })))
+        .expect(1)
+        .mount(&mock)
+        .await;
+
+    let app = TestApp::with_admin().await;
+    let admin = app.login_admin().await;
+
+    let test_res = admin
+        .post("/api/admin/settings/ai/test")
+        .json(&json!({
+            "provider": "gemini",
+            "baseUrl": mock.uri(),
+            "apiKey": "sk-gemini-test"
+        }))
+        .send()
+        .await
+        .json();
+    assert_eq!(
+        test_res,
+        json!({"ok": true, "message": "Connected. Model replied: OK"})
+    );
+
+    let models_res = admin
+        .post("/api/admin/settings/ai/models")
+        .json(&json!({
+            "provider": "gemini",
+            "baseUrl": mock.uri(),
+            "apiKey": "sk-gemini-test"
+        }))
+        .send()
+        .await
+        .json();
+    assert_eq!(
+        models_res,
+        json!({"ok": true, "models": ["gemini-flash-latest"]})
+    );
 }
 
 #[tokio::test]

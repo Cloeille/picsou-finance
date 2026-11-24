@@ -1,16 +1,17 @@
-//! Provider-specific HTTP transport for OpenAI, OpenRouter, Anthropic, and Ollama over reqwest.
+//! Provider-specific HTTP transport for AI chat and model listing over reqwest.
 
 use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::admin::settings::{AiConfig, AiProvider};
+use crate::admin::settings::{AiConfig, AiProtocol, AiProvider};
 
 /// Caps thinking + answer for Anthropic Messages API (which requires max_tokens).
 /// Matches Java's AiChatModelFactory.ANTHROPIC_MAX_TOKENS.
 pub(crate) const ANTHROPIC_MAX_TOKENS: u32 = 4096;
 pub(crate) const ANTHROPIC_VERSION: &str = "2023-06-01";
 pub(crate) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
+pub(crate) const MODELS_TIMEOUT: Duration = Duration::from_secs(15);
 /// Hard cap on upstream AI provider JSON response bodies (1 MiB) before parsing.
 pub(crate) const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 /// Bounded retries for transient upstream rate-limit / overload responses (HTTP 429 & 529).
@@ -78,26 +79,33 @@ pub(crate) async fn call_provider(
     user_prompt: &str,
     timeout: Duration,
 ) -> Result<ProviderResponse, String> {
-    let base = cfg.effective_base_url();
-    let base = base.trim_end_matches('/');
+    let root = cfg.api_root();
     let model = cfg.effective_model();
-    let key = cfg.api_key.as_deref().unwrap_or("");
+    let key = cfg
+        .api_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|k| !k.is_empty());
 
     for attempt in 0..=MAX_RATE_LIMIT_RETRIES {
-        let request = match cfg.provider {
-            AiProvider::OpenAi | AiProvider::OpenRouter => http
-                .post(format!("{base}/v1/chat/completions"))
-                .bearer_auth(key)
-                .json(&json!({
+        let request = match cfg.provider.protocol() {
+            AiProtocol::OpenAiChat => {
+                let req = http.post(format!("{root}/chat/completions"));
+                let req = match key {
+                    Some(k) => req.bearer_auth(k),
+                    None => req,
+                };
+                req.json(&json!({
                     "model": model,
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": user_prompt},
                     ],
-                })),
-            AiProvider::Anthropic => http
-                .post(format!("{base}/v1/messages"))
-                .header("x-api-key", key)
+                }))
+            }
+            AiProtocol::AnthropicMessages => http
+                .post(format!("{root}/messages"))
+                .header("x-api-key", key.unwrap_or(""))
                 .header("anthropic-version", ANTHROPIC_VERSION)
                 .json(&json!({
                     "model": model,
@@ -107,7 +115,7 @@ pub(crate) async fn call_provider(
                         {"role": "user", "content": user_prompt},
                     ],
                 })),
-            AiProvider::Ollama => http.post(format!("{base}/api/chat")).json(&json!({
+            AiProtocol::Ollama => http.post(format!("{root}/chat")).json(&json!({
                 "model": model,
                 "messages": [
                     {"role": "system", "content": system},
@@ -144,9 +152,82 @@ pub(crate) async fn call_provider(
     Err("The provider answered HTTP 429".to_owned())
 }
 
+/// Fetches and normalizes the list of model identifiers offered by the configured provider.
+/// Upstream error bodies, URLs, and credentials are never returned in error messages.
+pub(crate) async fn list_models(
+    http: &reqwest::Client,
+    cfg: &AiConfig,
+    timeout: Duration,
+) -> Result<Vec<String>, String> {
+    let root = cfg.api_root();
+    let key = cfg
+        .api_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|k| !k.is_empty());
+
+    let request = match cfg.provider.protocol() {
+        AiProtocol::OpenAiChat => {
+            let req = http.get(format!("{root}/models"));
+            match key {
+                Some(k) => req.bearer_auth(k),
+                None => req,
+            }
+        }
+        AiProtocol::AnthropicMessages => http
+            .get(format!("{root}/models?limit=1000"))
+            .header("x-api-key", key.unwrap_or(""))
+            .header("anthropic-version", ANTHROPIC_VERSION),
+        AiProtocol::Ollama => http.get(format!("{root}/tags")),
+    };
+
+    let response = request
+        .timeout(timeout)
+        .send()
+        .await
+        .map_err(|e| format!("Connection failed: {}", e.without_url()))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("The provider answered HTTP {}", status.as_u16()));
+    }
+
+    let body = read_json_capped(response).await?;
+    extract_models(cfg.provider.protocol(), &body)
+}
+
+pub(crate) fn extract_models(protocol: AiProtocol, body: &Value) -> Result<Vec<String>, String> {
+    let unreadable = || "The provider returned an unreadable answer".to_owned();
+    let (list_key, id_key) = match protocol {
+        AiProtocol::OpenAiChat | AiProtocol::AnthropicMessages => ("data", "id"),
+        AiProtocol::Ollama => ("models", "name"),
+    };
+    let items = body
+        .get(list_key)
+        .and_then(Value::as_array)
+        .ok_or_else(unreadable)?;
+    let mut models: Vec<String> = items
+        .iter()
+        .filter_map(|item| {
+            item.get(id_key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+        })
+        .collect();
+    models.sort_by(|a, b| {
+        a.to_ascii_lowercase()
+            .cmp(&b.to_ascii_lowercase())
+            .then_with(|| a.cmp(b))
+    });
+    models.dedup();
+    Ok(models)
+}
+
 pub(crate) fn extract_response(provider: AiProvider, body: &Value) -> ProviderResponse {
-    match provider {
-        AiProvider::OpenAi | AiProvider::OpenRouter => {
+    match provider.protocol() {
+        AiProtocol::OpenAiChat => {
             let text = body
                 .get("choices")
                 .and_then(Value::as_array)
@@ -174,7 +255,7 @@ pub(crate) fn extract_response(provider: AiProvider, body: &Value) -> ProviderRe
                 total_tokens: tt,
             }
         }
-        AiProvider::Anthropic => {
+        AiProtocol::AnthropicMessages => {
             // Skip thinking / redacted_thinking blocks: take the first text block with non-blank text.
             let text = body
                 .get("content")
@@ -204,7 +285,7 @@ pub(crate) fn extract_response(provider: AiProvider, body: &Value) -> ProviderRe
                 total_tokens: tt,
             }
         }
-        AiProvider::Ollama => {
+        AiProtocol::Ollama => {
             let text = body
                 .pointer("/message/content")
                 .and_then(Value::as_str)
@@ -327,5 +408,50 @@ mod tests {
         assert_eq!(retry_delay(0, Some("3")), Duration::from_secs(3));
         assert_eq!(retry_delay(0, Some("120")), Duration::from_secs(10));
         assert_eq!(retry_delay(0, Some("0")), Duration::from_secs(1));
+    }
+
+    #[test]
+    fn extracts_deduplicates_and_sorts_models_case_insensitively() {
+        let openai = json!({
+            "data": [
+                {"id": "gpt-4o"},
+                {"id": "Ada"},
+                {"id": "gpt-4o"},
+                {"id": "   "},
+                {"id": "claude-3"},
+                {"id": "b-model"}
+            ]
+        });
+        assert_eq!(
+            extract_models(AiProtocol::OpenAiChat, &openai).unwrap(),
+            vec!["Ada", "b-model", "claude-3", "gpt-4o"]
+        );
+
+        let anthropic = json!({
+            "data": [
+                {"id": "claude-sonnet-4-5"},
+                {"id": "claude-haiku-4-5"},
+                {"id": "claude-haiku-4-5"}
+            ]
+        });
+        assert_eq!(
+            extract_models(AiProtocol::AnthropicMessages, &anthropic).unwrap(),
+            vec!["claude-haiku-4-5", "claude-sonnet-4-5"]
+        );
+
+        let ollama = json!({
+            "models": [
+                {"name": "Qwen3:0.6b"},
+                {"name": "llama3.2:latest"},
+                {"name": "Qwen3:0.6b"}
+            ]
+        });
+        assert_eq!(
+            extract_models(AiProtocol::Ollama, &ollama).unwrap(),
+            vec!["llama3.2:latest", "Qwen3:0.6b"]
+        );
+
+        assert!(extract_models(AiProtocol::OpenAiChat, &json!({})).is_err());
+        assert!(extract_models(AiProtocol::Ollama, &json!({"data": []})).is_err());
     }
 }

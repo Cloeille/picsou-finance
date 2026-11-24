@@ -6,22 +6,30 @@ use std::time::Duration;
 use axum::extract::{Query, State};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::json;
 use serde_with::skip_serializing_none;
 
-use super::settings::{AiConfig, AiProvider, AiRequest, ai_config};
+use super::settings::{AiConfig, AiProtocol, AiProvider, AiRequest, ai_config};
 use crate::AppState;
+use crate::ai::provider::{ANTHROPIC_MAX_TOKENS, ANTHROPIC_VERSION, MODELS_TIMEOUT};
 use crate::error::{AppError, AppResult};
 use crate::http::json::Json;
 
 const TEST_PROMPT: &str = "Reply with the single word: OK";
-const ANTHROPIC_MAX_TOKENS: u32 = 4096;
 const TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Serialize)]
 pub struct AiTestResponse {
     ok: bool,
     message: String,
+}
+
+#[skip_serializing_none]
+#[derive(Serialize)]
+pub struct AiModelsResponse {
+    ok: bool,
+    message: Option<String>,
+    models: Vec<String>,
 }
 
 fn result(ok: bool, message: impl Into<String>) -> axum::Json<AiTestResponse> {
@@ -31,30 +39,71 @@ fn result(ok: bool, message: impl Into<String>) -> axum::Json<AiTestResponse> {
     })
 }
 
+fn models_ok(models: Vec<String>) -> axum::Json<AiModelsResponse> {
+    axum::Json(AiModelsResponse {
+        ok: true,
+        message: None,
+        models,
+    })
+}
+
+fn models_err(message: impl Into<String>) -> axum::Json<AiModelsResponse> {
+    axum::Json(AiModelsResponse {
+        ok: false,
+        message: Some(message.into()),
+        models: Vec::new(),
+    })
+}
+
+/// Resolves the API key to send for an admin probe (/ai/test or /ai/models):
+/// the submitted key if non-blank, else the stored key only when the provider matches.
+async fn resolve_api_key(
+    state: &AppState,
+    provider: AiProvider,
+    submitted: Option<&str>,
+) -> AppResult<Option<String>> {
+    if let Some(key) = submitted.map(str::trim).filter(|k| !k.is_empty()) {
+        return Ok(Some(key.to_owned()));
+    }
+    let stored = ai_config(state)
+        .await?
+        .filter(|cfg| cfg.provider == provider)
+        .and_then(|cfg| cfg.api_key)
+        .map(|k| k.trim().to_owned())
+        .filter(|k| !k.is_empty());
+    Ok(stored)
+}
+
 /// The text answer of one chat call, or the reason it failed. Provider bodies are never shown.
 async fn chat(state: &AppState, cfg: &AiConfig) -> Result<Option<String>, String> {
-    let base = cfg.effective_base_url();
-    let base = base.trim_end_matches('/');
+    let root = cfg.api_root();
     let model = cfg.effective_model();
-    let key = cfg.api_key.clone().unwrap_or_default();
+    let key = cfg
+        .api_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|k| !k.is_empty());
     let messages = json!([{"role": "user", "content": TEST_PROMPT}]);
-    let request = match cfg.provider {
-        AiProvider::OpenAi | AiProvider::OpenRouter => state
+    let request = match cfg.provider.protocol() {
+        AiProtocol::OpenAiChat => {
+            let req = state.http.post(format!("{root}/chat/completions"));
+            let req = match key {
+                Some(k) => req.bearer_auth(k),
+                None => req,
+            };
+            req.json(&json!({"model": model, "messages": messages}))
+        }
+        AiProtocol::AnthropicMessages => state
             .http
-            .post(format!("{base}/v1/chat/completions"))
-            .bearer_auth(&key)
-            .json(&json!({"model": model, "messages": messages})),
-        AiProvider::Anthropic => state
-            .http
-            .post(format!("{base}/v1/messages"))
-            .header("x-api-key", &key)
-            .header("anthropic-version", "2023-06-01")
+            .post(format!("{root}/messages"))
+            .header("x-api-key", key.unwrap_or(""))
+            .header("anthropic-version", ANTHROPIC_VERSION)
             .json(
                 &json!({"model": model, "max_tokens": ANTHROPIC_MAX_TOKENS, "messages": messages}),
             ),
-        AiProvider::Ollama => state
+        AiProtocol::Ollama => state
             .http
-            .post(format!("{base}/api/chat"))
+            .post(format!("{root}/chat"))
             .json(&json!({"model": model, "messages": messages, "stream": false})),
     };
     let response = request
@@ -67,31 +116,10 @@ async fn chat(state: &AppState, cfg: &AiConfig) -> Result<Option<String>, String
         return Err(format!("The provider answered HTTP {}", status.as_u16()));
     }
     let body = crate::ai::provider::read_json_capped(response).await?;
-    let text = match cfg.provider {
-        AiProvider::OpenAi | AiProvider::OpenRouter => body
-            .pointer("/choices/0/message/content")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        // A thinking model puts its thinking first: the answer is the first text block.
-        AiProvider::Anthropic => body
-            .get("content")
-            .and_then(Value::as_array)
-            .and_then(|blocks| {
-                blocks
-                    .iter()
-                    .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
-                    .find_map(|b| b.get("text").and_then(Value::as_str))
-            })
-            .map(str::to_owned),
-        AiProvider::Ollama => body
-            .pointer("/message/content")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-    };
-    Ok(text.filter(|t| !t.trim().is_empty()))
+    Ok(crate::ai::provider::extract_response(cfg.provider, &body).text)
 }
 
-/// Tests the submitted settings without saving them; a blank key reuses the stored one.
+/// Tests the submitted settings without saving them; a blank key reuses the stored one only for the same provider.
 pub async fn test(
     State(state): State<AppState>,
     Json(req): Json<AiRequest>,
@@ -99,11 +127,8 @@ pub async fn test(
     let Some(provider) = AiProvider::from_key(req.provider.as_deref()) else {
         return Ok(result(false, "No provider selected."));
     };
-    let key = match req.api_key.filter(|k| !k.trim().is_empty()) {
-        Some(k) => Some(k),
-        None => ai_config(&state).await?.and_then(|c| c.api_key),
-    };
-    if provider.key_required() && key.as_deref().is_none_or(|k| k.trim().is_empty()) {
+    let key = resolve_api_key(&state, provider, req.api_key.as_deref()).await?;
+    if provider.key_required() && key.is_none() {
         return Ok(result(
             false,
             format!("An API key is required for {}.", provider.name()),
@@ -115,11 +140,58 @@ pub async fn test(
         model: req.model.unwrap_or_default(),
         base_url: req.base_url.unwrap_or_default(),
     };
+    if cfg.effective_base_url().is_empty() {
+        return Ok(result(
+            false,
+            format!("A base URL is required for {}.", provider.name()),
+        ));
+    }
+    if cfg.effective_model().is_empty() {
+        return Ok(result(
+            false,
+            format!("A model is required for {}.", provider.name()),
+        ));
+    }
     Ok(match chat(&state, &cfg).await {
         Ok(Some(reply)) => result(true, format!("Connected. Model replied: {}", reply.trim())),
         Ok(None) => result(false, "Connected, but the model returned no text answer."),
         Err(message) => result(false, message),
     })
+}
+
+/// Lists the models offered by the submitted provider without saving settings.
+pub async fn models(
+    State(state): State<AppState>,
+    Json(req): Json<AiRequest>,
+) -> AppResult<axum::Json<AiModelsResponse>> {
+    let Some(provider) = AiProvider::from_key(req.provider.as_deref()) else {
+        return Ok(models_err("No provider selected."));
+    };
+    let key = resolve_api_key(&state, provider, req.api_key.as_deref()).await?;
+    if provider.key_required() && key.is_none() {
+        return Ok(models_err(format!(
+            "An API key is required for {}.",
+            provider.name()
+        )));
+    }
+    let cfg = AiConfig {
+        provider,
+        api_key: key,
+        model: String::new(),
+        base_url: req.base_url.unwrap_or_default(),
+    };
+    if cfg.effective_base_url().is_empty() {
+        return Ok(models_err(format!(
+            "A base URL is required for {}.",
+            provider.name()
+        )));
+    }
+    Ok(
+        match crate::ai::provider::list_models(&state.admin.ai_http, &cfg, MODELS_TIMEOUT).await {
+            Ok(list) => models_ok(list),
+            Err(message) => models_err(message),
+        },
+    )
 }
 
 #[skip_serializing_none]
