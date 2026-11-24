@@ -7,12 +7,14 @@
 //! NoopCategorizer does, so a job still runs, logs its calls and applies nothing.
 
 use std::collections::HashMap;
+use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use futures::FutureExt;
 use rust_decimal::Decimal;
 use serde::Serialize;
 
@@ -265,8 +267,15 @@ pub async fn start(state: &AppState, member_id: i64) -> AppResult<AiJobStatus> {
     let status = fresh.status();
     let job_state = state.clone();
     tokio::spawn(async move {
-        if let Err(e) = run_job(&job_state, member_id, &ids, &ctx, &fresh).await {
-            *fresh.error.lock().unwrap_or_else(|e| e.into_inner()) = Some(e.to_string());
+        // A panic must end the job like an error: left running, it blocks every later run.
+        let failure = AssertUnwindSafe(run_job(&job_state, member_id, &ids, &ctx, &fresh))
+            .catch_unwind()
+            .await
+            .map_err(|_| "the categorisation job panicked".to_owned())
+            .and_then(|run| run.map_err(|e| e.to_string()))
+            .err();
+        if let Some(message) = failure {
+            *fresh.error.lock().unwrap_or_else(|e| e.into_inner()) = Some(message);
             fresh.done.store(true, Ordering::SeqCst);
         }
         fresh.running.store(false, Ordering::SeqCst);

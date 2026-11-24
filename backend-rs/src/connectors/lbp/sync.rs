@@ -646,11 +646,11 @@ async fn execute(state: &AppState, job: SyncJob) {
             return;
         }
     }
-    let outcome = async {
+    let outcome = JobError::caught(async {
         let fetched = fetch_accounts(state, &job.plain_state).await?;
         let prepared = prepare(fetched)?;
         commit(state, &job, &prepared).await
-    }
+    })
     .await;
     match outcome {
         Ok(Some(accounts)) => tracing::info!(

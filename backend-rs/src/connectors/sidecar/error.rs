@@ -1,5 +1,9 @@
 //! SyncException and the failures a sync job can end with.
 
+use std::future::Future;
+use std::panic::AssertUnwindSafe;
+
+use futures::FutureExt;
 use http::StatusCode;
 
 use crate::error::AppError;
@@ -68,6 +72,18 @@ pub enum JobError {
     App(#[from] AppError),
 }
 
+impl JobError {
+    /// Runs the body of a background job. A panic becomes the job's error, as an uncaught
+    /// exception did in Java: the caller then records the terminal state, where an unwound
+    /// task would leave the session RUNNING until the next restart.
+    pub async fn caught<T>(body: impl Future<Output = Result<T, JobError>>) -> Result<T, JobError> {
+        AssertUnwindSafe(body)
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|_| Err(AppError::Internal("the job panicked".into()).into()))
+    }
+}
+
 impl From<crate::crypto::CryptoError> for JobError {
     fn from(error: crate::crypto::CryptoError) -> Self {
         JobError::App(error.into())
@@ -85,3 +101,25 @@ impl From<JobError> for AppError {
 }
 
 pub type JobResult<T> = Result<T, JobError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_job_that_panics_ends_with_an_error() {
+        let outcome = JobError::caught(async {
+            if true {
+                panic!("overflow");
+            }
+            Ok(())
+        })
+        .await;
+        assert!(matches!(outcome, Err(JobError::App(AppError::Internal(_)))));
+        assert!(
+            JobError::caught(async { Ok(7) })
+                .await
+                .is_ok_and(|n| n == 7)
+        );
+    }
+}

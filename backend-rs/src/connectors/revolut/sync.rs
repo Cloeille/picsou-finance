@@ -304,7 +304,7 @@ pub async fn discover(
     passcode: Option<String>,
 ) {
     let progress = &state.connectors.seams.revolut_progress;
-    let outcome = async {
+    let outcome = JobError::caught(async {
         let credentials = resolve_credentials(
             state,
             member_id,
@@ -322,7 +322,7 @@ pub async fn discover(
         .await?;
         let preview = build_preview(state, &harvested, member_id).await?;
         Ok::<_, JobError>((harvested, preview, credentials))
-    }
+    })
     .await;
     match outcome {
         Ok((harvested, preview, credentials)) => {
@@ -759,7 +759,7 @@ fn verified_transfer_legs(accounts: &[RevolutAccountData]) -> HashSet<TransferKe
 /// snapshot from the WebView bridge without prompting for credentials.
 pub async fn discover_webview(state: &AppState, member_id: i64) {
     let progress = &state.connectors.seams.revolut_progress;
-    let outcome = async {
+    let outcome = JobError::caught(async {
         let harvested = adapter::sync(state, "", "", member_id, false).await?;
         let preview = build_preview(state, &harvested, member_id).await?;
         Ok::<_, JobError>((
@@ -770,7 +770,7 @@ pub async fn discover_webview(state: &AppState, member_id: i64) {
                 passcode: String::new(),
             },
         ))
-    }
+    })
     .await;
     match outcome {
         Ok((harvested, preview, credentials)) => {

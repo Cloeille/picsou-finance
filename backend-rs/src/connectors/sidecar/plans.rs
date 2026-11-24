@@ -130,7 +130,7 @@ impl PlanRules {
     }
 
     pub fn prepare(&self, fetched: Vec<Option<PlanData>>) -> Result<Vec<PreparedPlan>, SyncError> {
-        if fetched.is_empty() {
+        if fetched.is_empty() && !self.allows_no_plan {
             return Err(error(
                 SidecarErrorCode::PortfolioIncomplete,
                 self.no_plan_message(),
@@ -324,4 +324,33 @@ fn slug(value: Option<&str>) -> Option<String> {
         return None;
     }
     Some(slug.chars().take(MAX_TICKER_LENGTH).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rules(allows_no_plan: bool) -> PlanRules {
+        PlanRules {
+            label: "Bank",
+            plan_word: "plan",
+            external_id_prefix: "BANK-",
+            default_name: "Plan",
+            fund_code_prefix: None,
+            drops_empty_merged_lines: false,
+            allows_no_plan,
+            hashes_label_fallback: false,
+        }
+    }
+
+    #[test]
+    fn an_empty_plan_list_is_an_answer_only_where_the_bank_allows_it() {
+        assert!(
+            rules(true)
+                .prepare(Vec::new())
+                .is_ok_and(|plans| plans.is_empty())
+        );
+        let refused = rules(false).prepare(Vec::new()).err().expect("refused");
+        assert_eq!(refused.message, "Bank returned no complete plan");
+    }
 }

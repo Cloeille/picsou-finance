@@ -85,7 +85,9 @@ pub fn validate(sidecar_name: &str, url: &str) -> Result<String, String> {
             ),
         ));
     }
-    Ok(trimmed.to_owned())
+    // Paths start with a slash: a base ending with one would call //route, which the sidecars
+    // answer 404. Spring's URI builder collapsed the two.
+    Ok(trimmed.trim_end_matches('/').to_owned())
 }
 
 fn is_co_located(host: &str) -> bool {
@@ -129,6 +131,18 @@ mod tests {
         ] {
             assert!(validate("x", url).is_ok(), "{url}");
         }
+    }
+
+    #[test]
+    fn a_trailing_slash_is_dropped_so_routes_keep_a_single_one() {
+        assert_eq!(
+            validate("x", "http://tr-auth:8001/").as_deref(),
+            Ok("http://tr-auth:8001")
+        );
+        assert_eq!(
+            validate("x", "https://bank.example.com/base//").as_deref(),
+            Ok("https://bank.example.com/base")
+        );
     }
 
     #[test]

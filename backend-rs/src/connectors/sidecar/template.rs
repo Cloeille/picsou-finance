@@ -459,7 +459,7 @@ impl<S: SyncStrategy> SyncTemplate<S> {
                 return;
             }
         }
-        let outcome = async {
+        let outcome = JobError::caught(async {
             let prepared = self.strategy.fetch(state, &job).await?;
             if self.commit(state, &job, &prepared).await? {
                 tracing::info!(
@@ -483,7 +483,7 @@ impl<S: SyncStrategy> SyncTemplate<S> {
                 );
             }
             Ok::<_, JobError>(())
-        }
+        })
         .await;
         match outcome {
             Ok(()) => {}
