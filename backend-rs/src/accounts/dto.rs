@@ -753,10 +753,10 @@ pub async fn responses_for_viewer(
     let valued_ids: Vec<i64> = real_estate.keys().copied().collect();
     let last_valued = last_valued_at_of_accounts(&mut *conn, &valued_ids).await?;
     let scpi = scpi_positions_of(&mut *conn, &scpi_ids).await?;
-    let linked_ids: Vec<i64> = batch
-        .debts
-        .values()
-        .filter_map(|d| d.linked_account_id)
+    let linked_ids: Vec<i64> = accounts
+        .iter()
+        .filter(|a| a.account_type == AccountType::Loan)
+        .filter_map(|a| batch.debts.get(&a.id).and_then(|d| d.linked_account_id))
         .collect();
     let linked_accounts: HashMap<i64, Account> = if linked_ids.is_empty() {
         HashMap::new()

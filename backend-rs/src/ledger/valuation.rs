@@ -62,18 +62,18 @@ impl ValuationBatch {
             return Ok(Self::default());
         }
         let mut all_ids = Vec::with_capacity(accounts.len());
-        let mut loan_ids = Vec::new();
+        let mut liability_ids = Vec::new();
         let mut peer_loan_ids = Vec::new();
         for a in accounts {
             all_ids.push(a.id);
-            match a.account_type {
-                AccountType::Loan => loan_ids.push(a.id),
-                AccountType::PeerLoan => peer_loan_ids.push(a.id),
-                _ => {}
+            if a.account_type.is_liability() {
+                liability_ids.push(a.id);
+            } else if a.account_type == AccountType::PeerLoan {
+                peer_loan_ids.push(a.id);
             }
         }
         let holdings = holdings::find_by_accounts(&mut *conn, &all_ids).await?;
-        let debts = liabilities::debts_of_accounts(&mut *conn, &loan_ids)
+        let debts = liabilities::debts_of_accounts(&mut *conn, &liability_ids)
             .await?
             .into_iter()
             .map(|d| (d.account_id, d))

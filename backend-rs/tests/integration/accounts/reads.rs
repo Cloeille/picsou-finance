@@ -557,3 +557,42 @@ async fn dashboard_and_account_list_batch_per_account_queries_without_changing_f
         );
     }
 }
+
+#[tokio::test]
+async fn dashboard_includes_debt_payment_and_progress_for_credit_card_liability() {
+    let app = TestApp::with_admin().await;
+    let me = admin_member(&app).await;
+    let card = account(&app, me, "Credit Card", "CREDIT_CARD", "-600").await;
+    let admin = app.login_admin().await;
+
+    let put = admin
+        .put(&format!("/api/accounts/{card}/debt"))
+        .json(&json!({
+            "borrowedAmount": 1000,
+            "interestRate": 0,
+            "monthlyPayment": 120,
+            "startDate": "2025-01-01",
+            "endDate": "2027-01-01"
+        }))
+        .send()
+        .await;
+    assert_eq!(put.status, StatusCode::OK, "{}", put.text());
+
+    let dashboard = admin.get("/api/dashboard").send().await.json();
+    let entry = by_account(&dashboard["liabilities"], card);
+    assert_eq!(num(&entry["balanceEur"]), "600.00000000");
+    assert_eq!(num(&entry["monthlyPayment"]), "120.00");
+    assert_eq!(num(&entry["percentPaid"]), "40.0");
+    assert_eq!(num(&dashboard["totalMonthlyPayment"]), "120.00");
+
+    // Valuation of the card itself must still ignore the debt schedule (LOAN only).
+    let list = admin.get("/api/accounts").send().await.json();
+    let row = list
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["id"].as_i64() == Some(card))
+        .unwrap();
+    assert_eq!(num(&row["currentBalanceEur"]), "-600.00000000");
+    assert!(row.get("debt").is_none());
+}
