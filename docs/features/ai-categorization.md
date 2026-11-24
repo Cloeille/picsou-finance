@@ -12,7 +12,10 @@ autonomy. It is **off by default** and never overrides a rule or manual choice.
 
 The AI provider (provider type, API key, model, base URL) is configured at runtime through
 **Admin → Settings → AI categorization** and stored encrypted in the database — no env vars,
-no restart required.
+no restart required. In the desktop app, where advanced mode is off by default and hides
+administration screens, an admin whose AI categorization is not yet set up sees an **Enable
+advanced mode** entry in the Budget "To categorize" **Automate** menu; selecting it enables
+advanced mode and opens `/admin?tab=ai` directly.
 
 ## How it works
 

@@ -118,7 +118,7 @@ GoalService.setMonthOverride(goalId, yearMonth, amount)
 | `null` for no history | Distinguishes "no data yet" from "zero contribution"; `isOnTrack` treats null as "benefit of the doubt" | Return zero (would mark new goals as "not on track") |
 | `liveBalanceEur()` for currentTotal | Holding accounts show real portfolio value with PnL, not stale sync-time balance | `AccountResponse.currentBalanceEur` (does not reflect live prices) |
 | `<Badge variant="secondary">` for account chips | Uses theme semantic tokens (luma preset); consistent with rest of the UI | Per-account pastel `<span>` with `style={{ background: a.color }}` |
-| No on-track / behind tag on goal cards or the goal detail (removed 2026-11-21) | The cards already show the required monthly pace next to the average contribution; the tag duplicated that comparison and read as alarming or reassuring on short histories | A coloured pill (`default` / `destructive` / `secondary`), which also put Coffre Blue on a static element |
+| No on-track / behind tag on goal cards or the goal detail (removed 2026-11-21) | The goal detail dialog already shows the required monthly pace next to the average contribution; the tag duplicated that comparison and read as alarming or reassuring on short histories | A coloured pill (`default` / `destructive` / `secondary`), which also put Coffre Blue on a static element |
 
 ## Gotchas / Pitfalls
 
@@ -138,7 +138,7 @@ GoalService.setMonthOverride(goalId, yearMonth, amount)
 ## Frontend notes
 
 - **Account chips** use `<Badge variant="secondary">` — theme-aware, no per-account color. The `ACCOUNT_COLORS` palette is still used elsewhere (ColorPicker, DistributionPie, AccountCard, FinaryTab) but not in goal cards.
-- **No pace tag**: `isOnTrack` is still computed and returned by the API and the MCP `GoalTools`, but no web screen shows it; the card shows the figures (required monthly pace, average contribution) instead.
+- **No pace tag**: `isOnTrack` is still computed and returned by the API and the MCP `GoalTools`, but no web screen shows it; the goal detail dialog shows the pacing figures (months left, required monthly pace, average contribution) instead, while the cards on `GoalsPage` stay focused on current amount, progress bar, percentage reached, and target amount.
 - **Calendar badges**: "manu." uses `variant="secondary"`, "modif." uses `variant="outline"` — no raw Tailwind color overrides.
 - **Icons**: `TrendUp`/`TrendDown` come from `@phosphor-icons/react` in the goals pages.
 - **Goal detail chart**: `GoalDetailModal` reuses the shared `NetWorthChart` with the optional `target`, `projection`, and `todayMs` props. The chart draws:

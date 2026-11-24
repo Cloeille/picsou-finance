@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Direct desktop downloads.** Each release now also publishes the desktop installers under
+  version-less names (`Picsou-macOS-arm64.dmg`, `Picsou-Windows-x64.exe`,
+  `Picsou-Linux-x64.AppImage`). The README opens with a desktop app section and one download
+  button per platform that always serves the latest version.
+- **Edit a categorization rule.** Each rule in Budget → Manage has an edit button, and the Automate
+  menu of the "To categorize" tab has a "Manage rules" entry that opens the rules (#692).
+
+### Changed
+
+- **Goal cards.** A goal card on the Goals page shows the amount and the progress only. Months
+  left, the amount needed per month and the average contribution are in the detail dialog of the
+  goal. The dashboard no longer shows a sentence under its goals card.
+- **AI setup from the desktop app.** When no AI provider is set up and advanced mode is off, the
+  Automate menu of the "To categorize" tab offers to turn advanced mode on and opens the AI
+  settings.
+
+### Fixed
+
+- **Manual PER and life insurance accounts.** A manual PER or life insurance account now offers the
+  buy and sell form, so a fund position can be entered without a detour through a securities
+  account.
+- **Merchant logos on the account page.** The transactions of an account show merchant logos, as
+  the budget pages do (#697).
+
 ## [1.3.0] — 2026-11-24
 
 ### Added

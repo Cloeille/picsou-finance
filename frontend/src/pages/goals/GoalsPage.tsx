@@ -649,30 +649,6 @@ function GoalCard({ goal, onOpenDetail }: GoalCardProps) {
             className="text-sm font-medium tabular-nums"
           />
         </div>
-
-        {/* Secondary stats */}
-        <div className="grid grid-cols-3 gap-3 mt-3 pt-3 border-t">
-          <div>
-            <p className="text-xs text-muted-foreground mb-0.5">{t('goals.monthsLeft')}</p>
-            <p className="text-sm font-semibold">{goal.monthsLeft}</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground mb-0.5">{t('goals.monthlyNeeded')}</p>
-            <p className="text-sm font-semibold">
-              <CurrencyDisplay value={goal.monthlyNeeded ?? 0} />
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground mb-0.5">{t('goals.avgContribution')}</p>
-            <p className="text-sm font-semibold">
-              {goal.avgMonthlyContribution != null ? (
-                <CurrencyDisplay value={goal.avgMonthlyContribution} />
-              ) : (
-                '\u2013'
-              )}
-            </p>
-          </div>
-        </div>
       </CardContent>
     </Card>
   )
