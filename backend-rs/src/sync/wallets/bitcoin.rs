@@ -42,7 +42,9 @@ pub async fn fetch_balances(
         for (chain, name) in [(0, "external"), (1, "change")] {
             let chain_key =
                 bitcoin_keys::derive_child(&root, chain).map_err(WalletError::unexpected)?;
-            total += scan_chain(state, &chain_key, name).await?;
+            total = total
+                .checked_add(scan_chain(state, &chain_key, name).await?)
+                .ok_or_else(balance_out_of_range)?;
         }
         tracing::info!("Bitcoin HD wallet balance: {total} sats");
         total
@@ -53,6 +55,10 @@ pub async fn fetch_balances(
         "BTC",
         Decimal::from_i128_with_scale(i128::from(sats), SATS_SCALE),
     )])
+}
+
+fn balance_out_of_range() -> WalletError {
+    WalletError::rpc("Bitcoin balance out of range")
 }
 
 async fn scan_chain(state: &AppState, chain_key: &Xpub, name: &str) -> Result<i64, WalletError> {
@@ -66,7 +72,9 @@ async fn scan_chain(state: &AppState, chain_key: &Xpub, name: &str) -> Result<i6
         let stats = fetch_address_stats(state, &address).await?;
         if stats.tx_count > 0 {
             consecutive_unused = 0;
-            total += stats.balance_sats;
+            total = total
+                .checked_add(stats.balance_sats)
+                .ok_or_else(balance_out_of_range)?;
         } else {
             consecutive_unused += 1;
         }
@@ -103,7 +111,9 @@ async fn fetch_address_stats(state: &AppState, address: &str) -> Result<AddressS
     let stats = response.get("chain_stats");
     let field = |name: &str| as_long(stats.and_then(|s| s.get(name)));
     Ok(AddressStats {
-        balance_sats: field("funded_txo_sum").wrapping_sub(field("spent_txo_sum")),
+        balance_sats: field("funded_txo_sum")
+            .checked_sub(field("spent_txo_sum"))
+            .ok_or_else(balance_out_of_range)?,
         tx_count: field("tx_count"),
     })
 }

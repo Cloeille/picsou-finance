@@ -644,6 +644,35 @@ async fn an_explorer_outage_is_a_failed_sync_not_a_zero_balance() {
 }
 
 #[tokio::test]
+async fn an_overflowing_bitcoin_satoshi_sum_fails_the_sync_instead_of_panicking() {
+    let h = Harness::new().await;
+    Mock::given(method("GET"))
+        .and(path(format!("/api/address/{BIP84_RECEIVE_0}")))
+        .respond_with(esplora(i64::MAX, 0, 1))
+        .with_priority(1)
+        .mount(&h.chain)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/api/address/{BIP84_CHANGE_0}")))
+        .respond_with(esplora(1, 0, 1))
+        .with_priority(1)
+        .mount(&h.chain)
+        .await;
+    Mock::given(method("GET"))
+        .and(path_regex("^/api/address/"))
+        .respond_with(esplora(0, 0, 0))
+        .with_priority(5)
+        .mount(&h.chain)
+        .await;
+    h.prices(&[("BTC", "60000")]);
+
+    let response = h.add("BITCOIN", BIP84_ZPUB, None).await;
+    assert_eq!(response.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(response.json()["detail"], sync_failed("BITCOIN"));
+    assert_eq!(h.wallets().await, json!([]));
+}
+
+#[tokio::test]
 async fn input_is_checked_before_anything_is_stored_or_called() {
     let h = Harness::new().await;
     Mock::given(method("POST"))

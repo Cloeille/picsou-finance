@@ -260,16 +260,17 @@ fn parse_big_decimal(raw: &str) -> Option<Decimal> {
                 return None;
             }
             let shift = i64::from_str(exponent.strip_prefix('+').unwrap_or(exponent)).ok()?;
-            let scale = i64::from(value.scale()) - shift;
+            let scale = i64::from(value.scale()).checked_sub(shift)?;
             if scale >= 0 {
                 let mut shifted = value;
                 shifted.set_scale(u32::try_from(scale).ok()?).ok()?;
                 Some(shifted)
             } else {
-                let factor = Decimal::from_i128_with_scale(
-                    10_i128.checked_pow(u32::try_from(-scale).ok()?)?,
+                let factor = Decimal::try_from_i128_with_scale(
+                    10_i128.checked_pow(u32::try_from(scale.checked_neg()?).ok()?)?,
                     0,
-                );
+                )
+                .ok()?;
                 let mut unscaled = value;
                 unscaled.set_scale(0).ok()?;
                 unscaled.checked_mul(factor)
@@ -485,6 +486,28 @@ mod tests {
         for bad in ["", ".", "abc", "1,5", "1e", "--1", " 1"] {
             assert_eq!(parse_big_decimal(bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn overflowing_exponents_return_none_instead_of_panicking() {
+        for extreme in [
+            "1e-9223372036854775808",
+            "1.5e-9223372036854775807",
+            "1e9223372036854775807",
+            "1e29",
+            "1e35",
+        ] {
+            assert_eq!(parse_big_decimal(extreme), None, "{extreme}");
+        }
+        let xml = r#"<FlexQueryResponse><FlexStatements count="1"><FlexStatement accountId="U1">
+            <OpenPositions>
+              <OpenPosition accountId="U1" currency="USD" assetCategory="STK"
+                  symbol="AAPL" position="10" markPrice="1.5e-9223372036854775808"
+                  costBasisPrice="1e29" levelOfDetail="SUMMARY" />
+            </OpenPositions></FlexStatement></FlexStatements></FlexQueryResponse>"#;
+        let accounts = parse_open_positions(xml).expect("parsed without panic");
+        assert_eq!(accounts[0].positions[0].mark_price, None);
+        assert_eq!(accounts[0].positions[0].cost_basis_price, None);
     }
 
     #[test]
