@@ -376,3 +376,70 @@ async fn deletion_impact_falls_back_to_provider_when_requisition_institution_nam
         json!({"removesConnection": true, "connectionLabel": "Acme Bank"})
     );
 }
+
+#[tokio::test]
+async fn loan_summary_returns_400_on_overflowing_negative_amortisation_or_excessive_term() {
+    let app = TestApp::with_admin().await;
+    let me = admin_member(&app).await;
+    let loan = account(&app, me, "Prêt", "LOAN", "100000").await;
+    exec(
+        &app,
+        &format!(
+            "INSERT INTO debt (account_id, member_id, borrowed_amount, interest_rate, monthly_payment, start_date, end_date) \
+             VALUES ({loan}, {me}, 100000, 1.0, 0, '2025-01-01', '2105-01-01')"
+        ),
+    )
+    .await;
+
+    let admin = app.login_admin().await;
+    let resp = admin
+        .get(&format!("/api/accounts/{loan}/loan-summary"))
+        .send()
+        .await;
+    assert_eq!(resp.status, StatusCode::BAD_REQUEST, "{}", resp.text());
+    assert!(
+        resp.json()["detail"].as_str().is_some_and(|s| !s.is_empty()),
+        "400 response must carry an explanatory message"
+    );
+
+    // Reading the account itself must not fail even if a stored debt overflows.
+    let acct_resp = admin.get(&format!("/api/accounts/{loan}")).send().await;
+    assert_eq!(acct_resp.status, StatusCode::OK, "{}", acct_resp.text());
+
+    // Saving an overflowing or overly long loan via PUT /debt is also rejected with 400.
+    let put_overflow = admin
+        .put(&format!("/api/accounts/{loan}/debt"))
+        .json(&json!({
+            "borrowedAmount": 100000,
+            "interestRate": 1.0,
+            "monthlyPayment": 0,
+            "startDate": "2025-01-01",
+            "endDate": "2105-01-01"
+        }))
+        .send()
+        .await;
+    assert_eq!(
+        put_overflow.status,
+        StatusCode::BAD_REQUEST,
+        "{}",
+        put_overflow.text()
+    );
+
+    let put_too_long = admin
+        .put(&format!("/api/accounts/{loan}/debt"))
+        .json(&json!({
+            "borrowedAmount": 10000,
+            "interestRate": 0,
+            "monthlyPayment": 1,
+            "startDate": "1000-01-01",
+            "endDate": "5000-01-01"
+        }))
+        .send()
+        .await;
+    assert_eq!(
+        put_too_long.status,
+        StatusCode::BAD_REQUEST,
+        "{}",
+        put_too_long.text()
+    );
+}

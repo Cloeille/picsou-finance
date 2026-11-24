@@ -421,3 +421,24 @@ fn schedule_serializes_with_the_java_component_names() {
     assert_eq!(json["schedule"][0]["totalPayment"].to_string(), "100.00");
     assert_eq!(json["schedule"][0]["date"], "2024-02-01");
 }
+
+#[test]
+fn negative_amortisation_overflow_does_not_panic() {
+    let d = debt("100000", Some("1.0"), Some("0"), "2025-01-01", "2105-01-01");
+
+    let out = loans::compute(&d, day("2026-01-01"));
+
+    assert!(out.schedule.is_empty());
+    assert_eq!(out.summary.total_installments, 0);
+    assert_eq!(out.summary.remaining_balance, dec("100000"));
+}
+
+#[test]
+fn term_above_cap_does_not_build_an_unbounded_schedule() {
+    let d = debt("10000", Some("0"), Some("1"), "1000-01-01", "5000-01-01");
+
+    let out = loans::compute(&d, day("2026-01-01"));
+
+    assert!(out.schedule.is_empty());
+    assert_eq!(out.summary.total_installments, 0);
+}

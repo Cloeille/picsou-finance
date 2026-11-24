@@ -360,6 +360,8 @@ pub async fn update_debt(
         insurance_monthly: req.insurance_monthly,
         file_fees: req.file_fees,
     };
+    loans::try_compute(&debt, state.clock.today())
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
     db::query(
         "INSERT INTO debt (account_id, member_id, linked_account_id, borrowed_amount, interest_rate, \
          monthly_payment, lender_name, start_date, end_date, insurance_monthly, file_fees, created_at, updated_at) \
@@ -402,7 +404,9 @@ pub async fn loan_summary(
     let debt = liabilities::debt_of_account(&mut conn, id)
         .await?
         .ok_or_else(|| AppError::NotFound("Debt details not set for account".to_owned()))?;
-    Ok(axum::Json(loans::compute(&debt, state.clock.today())))
+    let schedule = loans::try_compute(&debt, state.clock.today())
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    Ok(axum::Json(schedule))
 }
 
 /// ScpiPositionRequest, read as its custom Jackson deserializer reads it: blank strings are null
