@@ -53,6 +53,8 @@ pub enum SqliteError {
     Rusqlite(#[from] rusqlite::Error),
     #[error("SQLite foreign_keys pragma did not activate")]
     ForeignKeysNotEnabled,
+    #[error("SQLite WAL journal_mode did not activate (got {0})")]
+    WalNotEnabled(String),
     #[error("SQLite connection mutex poisoned")]
     MutexPoisoned,
     #[error("SQLite writer gate timed out after {0} ms")]
@@ -1103,11 +1105,15 @@ pub fn configure_connection(
     busy_timeout_ms: u32,
     enable_wal: bool,
 ) -> Result<(), SqliteError> {
+    conn.pragma_update(None, "busy_timeout", busy_timeout_ms)?;
     if enable_wal {
-        let _: String = conn.pragma_update_and_check(None, "journal_mode", "WAL", |r| r.get(0))?;
+        let mode: String =
+            conn.pragma_update_and_check(None, "journal_mode", "WAL", |r| r.get(0))?;
+        if !mode.eq_ignore_ascii_case("wal") {
+            return Err(SqliteError::WalNotEnabled(mode));
+        }
     }
     conn.pragma_update(None, "foreign_keys", "ON")?;
-    conn.pragma_update(None, "busy_timeout", busy_timeout_ms)?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "temp_store", "MEMORY")?;
 
@@ -1341,6 +1347,63 @@ mod tests {
         assert_eq!(
             rows, 0,
             "the abandoned INSERT was written outside its transaction"
+        );
+    }
+
+    #[test]
+    fn configure_connection_rejects_when_wal_mode_does_not_activate() {
+        let conn = Connection::open_in_memory().expect("open in-memory SQLite");
+        let err = configure_connection(&conn, 100, true)
+            .expect_err("in-memory connection cannot switch to WAL and must fail");
+        let msg = err.to_string().to_ascii_lowercase();
+        assert!(
+            msg.contains("wal") && msg.contains("memory"),
+            "expected WAL activation error mentioning actual mode, got: {err}"
+        );
+    }
+
+    #[test]
+    fn configure_connection_sets_busy_timeout_before_enabling_wal() {
+        let path = std::env::temp_dir().join(format!(
+            "picsou_sqlite_wal_busy_{}_{}.db",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        {
+            let setup = Connection::open(&path).expect("create temp SQLite file");
+            setup
+                .execute_batch("PRAGMA journal_mode = DELETE; CREATE TABLE t (id INTEGER);")
+                .expect("init DELETE mode");
+        }
+
+        let locker = Connection::open(&path).expect("open locker connection");
+        locker
+            .execute_batch("BEGIN EXCLUSIVE; INSERT INTO t VALUES (1);")
+            .expect("acquire exclusive lock");
+
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            locker.execute_batch("COMMIT;").expect("release lock");
+        });
+
+        let opener = Connection::open(&path).expect("open second connection");
+        opener
+            .busy_timeout(Duration::ZERO)
+            .expect("clear rusqlite default busy_timeout");
+        let res = configure_connection(&opener, 2_000, true);
+        let mode = opener
+            .pragma_query_value(None, "journal_mode", |r| r.get::<_, String>(0))
+            .ok();
+        releaser.join().expect("join releaser");
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+        let _ = std::fs::remove_file(format!("{}-shm", path.display()));
+
+        res.expect("busy_timeout must be set before switching journal_mode to WAL");
+        assert_eq!(
+            mode.as_deref().map(str::to_ascii_lowercase).as_deref(),
+            Some("wal")
         );
     }
 }
