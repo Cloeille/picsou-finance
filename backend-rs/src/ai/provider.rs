@@ -12,8 +12,10 @@ pub(crate) const ANTHROPIC_MAX_TOKENS: u32 = 4096;
 pub(crate) const ANTHROPIC_VERSION: &str = "2023-06-01";
 pub(crate) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 pub(crate) const MODELS_TIMEOUT: Duration = Duration::from_secs(15);
-/// Hard cap on upstream AI provider JSON response bodies (1 MiB) before parsing.
+/// Hard cap on upstream AI provider chat JSON response bodies (1 MiB) before parsing.
 pub(crate) const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
+/// Higher cap for model-catalog responses (OpenRouter's catalog is already ~0.9 MiB).
+pub(crate) const MAX_MODELS_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 /// Bounded retries for transient upstream rate-limit / overload responses (HTTP 429 & 529).
 const MAX_RATE_LIMIT_RETRIES: usize = 2;
 const MAX_RETRY_AFTER_SECS: u64 = 10;
@@ -43,23 +45,30 @@ fn retry_delay(attempt: usize, retry_after_header: Option<&str>) -> Duration {
     }
 }
 
-/// Reads an upstream AI HTTP response body up to `MAX_RESPONSE_BYTES` and parses it as JSON.
-pub(crate) async fn read_json_capped(mut response: reqwest::Response) -> Result<Value, String> {
+async fn read_json_with_cap(
+    mut response: reqwest::Response,
+    max_bytes: usize,
+) -> Result<Value, String> {
     let unreadable = || "The provider returned an unreadable answer".to_owned();
     if response
         .content_length()
-        .is_some_and(|len| len > MAX_RESPONSE_BYTES as u64)
+        .is_some_and(|len| len > max_bytes as u64)
     {
         return Err(unreadable());
     }
     let mut buf = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(|_| unreadable())? {
-        if buf.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+        if buf.len().saturating_add(chunk.len()) > max_bytes {
             return Err(unreadable());
         }
         buf.extend_from_slice(&chunk);
     }
     serde_json::from_slice(&buf).map_err(|_| unreadable())
+}
+
+/// Reads an upstream AI HTTP response body up to `MAX_RESPONSE_BYTES` and parses it as JSON.
+pub(crate) async fn read_json_capped(response: reqwest::Response) -> Result<Value, String> {
+    read_json_with_cap(response, MAX_RESPONSE_BYTES).await
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -192,7 +201,7 @@ pub(crate) async fn list_models(
         return Err(format!("The provider answered HTTP {}", status.as_u16()));
     }
 
-    let body = read_json_capped(response).await?;
+    let body = read_json_with_cap(response, MAX_MODELS_RESPONSE_BYTES).await?;
     extract_models(cfg.provider.protocol(), &body)
 }
 
@@ -216,12 +225,11 @@ pub(crate) fn extract_models(protocol: AiProtocol, body: &Value) -> Result<Vec<S
                 .map(str::to_owned)
         })
         .collect();
-    models.sort_by(|a, b| {
-        a.to_ascii_lowercase()
-            .cmp(&b.to_ascii_lowercase())
-            .then_with(|| a.cmp(b))
-    });
+    // Exact sort + dedup first, then stable case-insensitive sort preserves exact tie-breaking
+    // without allocating per comparison.
+    models.sort();
     models.dedup();
+    models.sort_by_cached_key(|m| m.to_ascii_lowercase());
     Ok(models)
 }
 
@@ -415,16 +423,19 @@ mod tests {
         let openai = json!({
             "data": [
                 {"id": "gpt-4o"},
+                {"id": "ada"},
                 {"id": "Ada"},
+                {"id": "ada"},
                 {"id": "gpt-4o"},
                 {"id": "   "},
                 {"id": "claude-3"},
-                {"id": "b-model"}
+                {"id": "b-model"},
+                {"id": "B-model"}
             ]
         });
         assert_eq!(
             extract_models(AiProtocol::OpenAiChat, &openai).unwrap(),
-            vec!["Ada", "b-model", "claude-3", "gpt-4o"]
+            vec!["Ada", "ada", "B-model", "b-model", "claude-3", "gpt-4o"]
         );
 
         let anthropic = json!({

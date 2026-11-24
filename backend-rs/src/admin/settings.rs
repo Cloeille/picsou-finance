@@ -164,7 +164,12 @@ impl AiProvider {
 
     pub fn api_root(self, base_url: &str) -> String {
         let base = base_url.trim().trim_end_matches('/');
-        format!("{base}{}", self.spec().api_root_suffix)
+        let suffix = self.spec().api_root_suffix;
+        if suffix.is_empty() || base.ends_with(suffix) {
+            base.to_owned()
+        } else {
+            format!("{base}{suffix}")
+        }
     }
 }
 
@@ -708,7 +713,8 @@ fn encrypt(crypto: &CryptoEncryption, raw: &str) -> AppResult<String> {
     Ok(crypto.encrypt(raw)?)
 }
 
-/// AiConfigProvider.save: a blank key keeps the stored one; turning AI off clears it.
+/// AiConfigProvider.save: a blank key keeps the stored one only for the same provider;
+/// turning AI off or switching providers clears it.
 pub async fn update_ai(
     State(state): State<AppState>,
     body: crate::identity::common::JsonBody<AiRequest>,
@@ -727,12 +733,15 @@ pub async fn update_ai(
     errors.into_result()?;
 
     let provider = req.provider.unwrap_or_default();
-    let disabling = AiProvider::from_key(Some(&provider)).is_none();
-    let key = if disabling {
+    let next_provider = AiProvider::from_key(Some(&provider));
+    let saved_provider =
+        AiProvider::from_key(settings::read(&state, AI_PROVIDER).await?.as_deref());
+    let key = if next_provider.is_none() {
         Some(String::new())
     } else {
         match req.api_key.as_deref().filter(|k| !k.trim().is_empty()) {
             Some(raw) => Some(encrypt(&state.crypto, raw)?),
+            None if saved_provider != next_provider => Some(String::new()),
             None => None,
         }
     };
@@ -915,6 +924,46 @@ mod tests {
         assert_eq!(
             AiProvider::Gemini.api_root("https://generativelanguage.googleapis.com/v1beta/openai/"),
             "https://generativelanguage.googleapis.com/v1beta/openai"
+        );
+    }
+
+    #[test]
+    fn api_root_does_not_duplicate_existing_suffix() {
+        assert_eq!(
+            AiProvider::OpenAi.api_root("http://localhost:1234/v1"),
+            "http://localhost:1234/v1"
+        );
+        assert_eq!(
+            AiProvider::OpenAi.api_root("http://localhost:1234/v1/"),
+            "http://localhost:1234/v1"
+        );
+        assert_eq!(
+            AiProvider::OpenAi.api_root("http://localhost:1234"),
+            "http://localhost:1234/v1"
+        );
+        assert_eq!(
+            AiProvider::Custom.api_root("http://localhost:1234/v1/"),
+            "http://localhost:1234/v1"
+        );
+        assert_eq!(
+            AiProvider::Gemini.api_root("https://generativelanguage.googleapis.com/v1beta/openai"),
+            "https://generativelanguage.googleapis.com/v1beta/openai"
+        );
+        assert_eq!(
+            AiProvider::Gemini.api_root("https://generativelanguage.googleapis.com/v1beta/openai/"),
+            "https://generativelanguage.googleapis.com/v1beta/openai"
+        );
+        assert_eq!(
+            AiProvider::Ollama.api_root("http://ollama:11434/api"),
+            "http://ollama:11434/api"
+        );
+        assert_eq!(
+            AiProvider::Ollama.api_root("http://ollama:11434/api/"),
+            "http://ollama:11434/api"
+        );
+        assert_eq!(
+            AiProvider::Ollama.api_root("http://ollama:11434"),
+            "http://ollama:11434/api"
         );
     }
 }

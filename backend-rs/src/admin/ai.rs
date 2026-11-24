@@ -55,23 +55,50 @@ fn models_err(message: impl Into<String>) -> axum::Json<AiModelsResponse> {
     })
 }
 
+fn same_origin(a: &str, b: &str) -> bool {
+    matches!(
+        (reqwest::Url::parse(a), reqwest::Url::parse(b)),
+        (Ok(a), Ok(b)) if a.origin() == b.origin()
+    )
+}
+
+fn select_api_key(
+    stored: Option<&AiConfig>,
+    provider: AiProvider,
+    base_url: Option<&str>,
+    submitted: Option<&str>,
+) -> Option<String> {
+    if let Some(key) = submitted.map(str::trim).filter(|k| !k.is_empty()) {
+        return Some(key.to_owned());
+    }
+    let effective_base = base_url
+        .map(str::trim)
+        .filter(|u| !u.is_empty())
+        .or_else(|| provider.default_base_url())
+        .unwrap_or_default();
+    stored
+        .filter(|cfg| {
+            cfg.provider == provider && same_origin(&cfg.effective_base_url(), effective_base)
+        })
+        .and_then(|cfg| cfg.api_key.as_deref())
+        .map(str::trim)
+        .filter(|k| !k.is_empty())
+        .map(str::to_owned)
+}
+
 /// Resolves the API key to send for an admin probe (/ai/test or /ai/models):
-/// the submitted key if non-blank, else the stored key only when the provider matches.
+/// the submitted key if non-blank, else the stored key only when provider and base URL origin match.
 async fn resolve_api_key(
     state: &AppState,
     provider: AiProvider,
+    base_url: Option<&str>,
     submitted: Option<&str>,
 ) -> AppResult<Option<String>> {
     if let Some(key) = submitted.map(str::trim).filter(|k| !k.is_empty()) {
         return Ok(Some(key.to_owned()));
     }
-    let stored = ai_config(state)
-        .await?
-        .filter(|cfg| cfg.provider == provider)
-        .and_then(|cfg| cfg.api_key)
-        .map(|k| k.trim().to_owned())
-        .filter(|k| !k.is_empty());
-    Ok(stored)
+    let stored = ai_config(state).await?;
+    Ok(select_api_key(stored.as_ref(), provider, base_url, None))
 }
 
 /// The text answer of one chat call, or the reason it failed. Provider bodies are never shown.
@@ -119,7 +146,7 @@ async fn chat(state: &AppState, cfg: &AiConfig) -> Result<Option<String>, String
     Ok(crate::ai::provider::extract_response(cfg.provider, &body).text)
 }
 
-/// Tests the submitted settings without saving them; a blank key reuses the stored one only for the same provider.
+/// Tests the submitted settings without saving them; a blank key reuses the stored one only for the same provider and origin.
 pub async fn test(
     State(state): State<AppState>,
     Json(req): Json<AiRequest>,
@@ -127,7 +154,13 @@ pub async fn test(
     let Some(provider) = AiProvider::from_key(req.provider.as_deref()) else {
         return Ok(result(false, "No provider selected."));
     };
-    let key = resolve_api_key(&state, provider, req.api_key.as_deref()).await?;
+    let key = resolve_api_key(
+        &state,
+        provider,
+        req.base_url.as_deref(),
+        req.api_key.as_deref(),
+    )
+    .await?;
     if provider.key_required() && key.is_none() {
         return Ok(result(
             false,
@@ -167,7 +200,13 @@ pub async fn models(
     let Some(provider) = AiProvider::from_key(req.provider.as_deref()) else {
         return Ok(models_err("No provider selected."));
     };
-    let key = resolve_api_key(&state, provider, req.api_key.as_deref()).await?;
+    let key = resolve_api_key(
+        &state,
+        provider,
+        req.base_url.as_deref(),
+        req.api_key.as_deref(),
+    )
+    .await?;
     if provider.key_required() && key.is_none() {
         return Ok(models_err(format!(
             "An API key is required for {}.",
@@ -262,4 +301,102 @@ pub async fn calls(
         total,
         total_tokens,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stored_cfg(provider: AiProvider, base_url: &str, api_key: Option<&str>) -> AiConfig {
+        AiConfig {
+            provider,
+            api_key: api_key.map(str::to_owned),
+            model: String::new(),
+            base_url: base_url.to_owned(),
+        }
+    }
+
+    #[test]
+    fn select_api_key_matches_blank_base_url_with_blank_saved_base_url() {
+        let saved = stored_cfg(AiProvider::OpenAi, "", Some("sk-saved-default"));
+
+        assert_eq!(
+            select_api_key(Some(&saved), AiProvider::OpenAi, None, None),
+            Some("sk-saved-default".to_owned())
+        );
+        assert_eq!(
+            select_api_key(Some(&saved), AiProvider::OpenAi, Some("  "), Some("")),
+            Some("sk-saved-default".to_owned())
+        );
+        assert_eq!(
+            select_api_key(
+                Some(&saved),
+                AiProvider::OpenAi,
+                Some("https://api.openai.com/v1"),
+                Some("  "),
+            ),
+            Some("sk-saved-default".to_owned())
+        );
+    }
+
+    #[test]
+    fn select_api_key_rejects_other_origins_and_unparseable_urls() {
+        let saved = stored_cfg(
+            AiProvider::OpenAi,
+            "http://127.0.0.1:8080",
+            Some("sk-saved"),
+        );
+
+        assert_eq!(
+            select_api_key(
+                Some(&saved),
+                AiProvider::OpenAi,
+                Some("http://127.0.0.1:8081"),
+                None
+            ),
+            None
+        );
+        assert_eq!(
+            select_api_key(
+                Some(&saved),
+                AiProvider::OpenAi,
+                Some("https://127.0.0.1:8080"),
+                None
+            ),
+            None
+        );
+        assert_eq!(
+            select_api_key(
+                Some(&saved),
+                AiProvider::OpenAi,
+                Some("https://other.example"),
+                None
+            ),
+            None
+        );
+        assert_eq!(
+            select_api_key(Some(&saved), AiProvider::OpenAi, Some("not-a-url"), None),
+            None
+        );
+
+        let bad_saved = stored_cfg(AiProvider::Custom, "not-a-url", Some("sk-saved"));
+        assert_eq!(
+            select_api_key(
+                Some(&bad_saved),
+                AiProvider::Custom,
+                Some("not-a-url"),
+                None
+            ),
+            None
+        );
+        assert_eq!(
+            select_api_key(
+                Some(&saved),
+                AiProvider::OpenAi,
+                Some("https://other.example"),
+                Some("sk-override"),
+            ),
+            Some("sk-override".to_owned())
+        );
+    }
 }
