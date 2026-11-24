@@ -21,7 +21,32 @@ use std::sync::Arc;
 use std::thread::{self, sleep};
 use std::time::{Duration, Instant};
 
-use crate::supervisor::{child, end, free_port, Layout, Shared, Signal, LOOPBACK};
+use crate::supervisor::{child, end, Layout, Shared, Signal, LOOPBACK};
+
+/// Binds an ephemeral loopback socket inside the sidecar process itself (so the port is never
+/// released between allocation and bind), writes the chosen port atomically to
+/// `PICSOU_SIDECAR_PORT_FILE`, and hands the already-bound socket directly to uvicorn.
+const SIDECAR_BOOT: &str = r#"import os, socket, uvicorn
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    target = os.environ["PICSOU_SIDECAR_PORT_FILE"]
+    tmp = target + ".tmp"
+    with open(tmp, "w", encoding="ascii") as handle:
+        handle.write(str(port))
+    os.replace(tmp, target)
+    uvicorn.Server(
+        uvicorn.Config(
+            "main:app",
+            host="127.0.0.1",
+            port=port,
+            access_log=False,
+            timeout_keep_alive=65,
+        )
+    ).run(sockets=[sock])
+"#;
 
 pub const IDLE: Duration = Duration::from_secs(15 * 60);
 const START_TIMEOUT: Duration = Duration::from_secs(60);
@@ -359,6 +384,42 @@ fn forget(stack: &Shared, service: &str) {
     }
 }
 
+struct PortFile {
+    path: PathBuf,
+    tmp: PathBuf,
+}
+
+impl PortFile {
+    fn new(layout: &Layout, service: &str) -> io::Result<Self> {
+        let dir = layout.data.join("run");
+        std::fs::create_dir_all(&dir)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
+        }
+        let stem = format!("{service}-{}", uuid::Uuid::new_v4().simple());
+        Ok(Self {
+            path: dir.join(format!("{stem}.port")),
+            tmp: dir.join(format!("{stem}.port.tmp")),
+        })
+    }
+
+    fn read(&self) -> Option<u16> {
+        std::fs::read_to_string(&self.path)
+            .ok()
+            .and_then(|s| s.trim().parse::<u16>().ok())
+            .filter(|&p| p != 0)
+    }
+}
+
+impl Drop for PortFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+        let _ = std::fs::remove_file(&self.tmp);
+    }
+}
+
 fn launch(
     service: &str,
     base: &str,
@@ -366,7 +427,7 @@ fn launch(
     stack: &Shared,
     key: &str,
 ) -> Result<u16, String> {
-    let port = free_port().map_err(|e| format!("no free port: {e}"))?;
+    let port_file = PortFile::new(layout, service).map_err(|e| format!("port file: {e}"))?;
     let root = layout.runtime.join("sidecars");
     let path =
         std::env::join_paths([root.join("lib"), root.join("site")]).map_err(|e| e.to_string())?;
@@ -376,18 +437,7 @@ fn launch(
             .map_err(|e| e.to_string())
     };
     let sidecar = child(python(&layout.runtime), Signal::Terminate)
-        .args([
-            "-m",
-            "uvicorn",
-            "main:app",
-            "--host",
-            LOOPBACK,
-            "--port",
-            &port.to_string(),
-            "--no-access-log",
-        ])
-        // Longer than the backend's pooled-connection idle time, so a reused one is not reset.
-        .args(["--timeout-keep-alive", "65"])
+        .args(["-c", SIDECAR_BOOT])
         .current_dir(root.join(service))
         .env("PYTHONPATH", path)
         // The runtime is read-only once installed: use the bytecode compiled at build time.
@@ -395,6 +445,7 @@ fn launch(
         .env("PYTHONNOUSERSITE", "1")
         .env("PYTHONUTF8", "1")
         .env("PICSOU_SIDECAR_BASE", format!("sidecar-{base}"))
+        .env("PICSOU_SIDECAR_PORT_FILE", &port_file.path)
         .env("PLAYWRIGHT_BROWSERS_PATH", browsers(layout))
         .env("APP_SIDECAR_API_KEY", key)
         .stdin(Stdio::null())
@@ -412,10 +463,16 @@ fn launch(
         s.sidecars.insert(service.to_owned(), sidecar);
     }
     let deadline = Instant::now() + START_TIMEOUT;
+    let mut port: Option<u16> = None;
     while Instant::now() < deadline {
+        if port.is_none() {
+            port = port_file.read();
+        }
         // Alive after the probe too: the port answering must be this sidecar's.
-        if TcpStream::connect((LOOPBACK, port)).is_ok() && running(stack, service) {
-            return Ok(port);
+        if let Some(p) = port {
+            if TcpStream::connect((LOOPBACK, p)).is_ok() && running(stack, service) {
+                return Ok(p);
+            }
         }
         if !running(stack, service) {
             return Err("it exited; see its log in the logs folder".to_owned());
@@ -532,16 +589,27 @@ mod tests {
         .unwrap();
         std::fs::write(
             runtime.join("sidecars/lib/uvicorn.py"),
-            r#"import http.server, os, signal, sys
-if os.path.exists("stubborn"):
-    signal.signal(signal.SIGTERM, signal.SIG_IGN)
-port = int(sys.argv[sys.argv.index("--port") + 1])
+            r#"import http.server, os, signal
 class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         body = (os.environ["APP_SIDECAR_API_KEY"] + " " + os.environ["PICSOU_SIDECAR_BASE"]).encode()
         self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
     def log_message(self, *a): pass
-http.server.HTTPServer(("127.0.0.1", port), H).serve_forever()
+class Config:
+    def __init__(self, app, **kw):
+        self.app = app
+        self.kw = kw
+class Server:
+    def __init__(self, config):
+        self.config = config
+    def run(self, sockets=None):
+        if os.path.exists("stubborn"):
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        sock = sockets[0]
+        srv = http.server.HTTPServer(sock.getsockname(), H, bind_and_activate=False)
+        srv.socket = sock
+        srv.server_activate()
+        srv.serve_forever()
 "#,
         )
         .unwrap();
@@ -682,5 +750,83 @@ http.server.HTTPServer(("127.0.0.1", port), H).serve_forever()
             asked.elapsed()
         );
         crate::supervisor::stop(&stack);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_squatter_cannot_steal_the_sidecars_port_during_startup() {
+        let _ports = crate::supervisor::TEST_PORTS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let layout = fake_runtime("squatter");
+        // Simulates a local process trying to grab the sidecar's port during the startup window
+        // before uvicorn finishes importing the app and starts serving.
+        std::fs::write(
+            layout.runtime.join("sidecars/lib/uvicorn.py"),
+            r#"import http.server, os, socket, sys, threading, time
+class Squatter(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = b"SQUATTER"
+        self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+    def log_message(self, *a): pass
+class Real(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = (os.environ["APP_SIDECAR_API_KEY"] + " " + os.environ["PICSOU_SIDECAR_BASE"]).encode()
+        self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+    def log_message(self, *a): pass
+def try_squat(port):
+    try:
+        srv = http.server.HTTPServer(("127.0.0.1", port), Squatter)
+    except OSError:
+        return
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+class Config:
+    def __init__(self, app, **kw):
+        self.app = app
+        self.kw = kw
+class Server:
+    def __init__(self, config):
+        self.config = config
+    def run(self, sockets=None):
+        sock = sockets[0]
+        port = sock.getsockname()[1]
+        try_squat(port)
+        time.sleep(0.4)
+        srv = http.server.HTTPServer(("127.0.0.1", port), Real, bind_and_activate=False)
+        srv.socket = sock
+        srv.server_activate()
+        srv.serve_forever()
+if __name__ == "__main__":
+    port = int(sys.argv[sys.argv.index("--port") + 1])
+    try_squat(port)
+    time.sleep(0.4)
+    http.server.HTTPServer(("127.0.0.1", port), Real).serve_forever()
+"#,
+        )
+        .unwrap();
+        let stack = Shared::default();
+        let env = serve(&layout, &stack, "k3y", Duration::from_secs(60)).unwrap();
+        let url = env
+            .iter()
+            .find(|(k, _)| k == "CIC_AUTH_URL")
+            .map(|(_, v)| v.clone())
+            .unwrap();
+
+        let answer = get(&url);
+        crate::supervisor::stop(&stack);
+        assert!(
+            answer.ends_with("k3y sidecar-python"),
+            "request reached squatter instead of sidecar: {answer}"
+        );
+        use std::os::unix::fs::PermissionsExt;
+        let run_dir = layout.data.join("run");
+        assert_eq!(
+            std::fs::metadata(&run_dir).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert!(
+            std::fs::read_dir(&run_dir).unwrap().next().is_none(),
+            "temporary port file must be cleaned up after launch"
+        );
     }
 }

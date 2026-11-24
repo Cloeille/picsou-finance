@@ -582,10 +582,6 @@ fn private_dir(path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-pub fn free_port() -> std::io::Result<u16> {
-    Ok(TcpListener::bind((LOOPBACK, 0))?.local_addr()?.port())
-}
-
 /// A listener on the port of the last start when it is still free, so the window keeps its
 /// origin (and its local storage) across launches; on a new free port otherwise.
 pub fn preferred_listener(file: &Path) -> std::io::Result<TcpListener> {
