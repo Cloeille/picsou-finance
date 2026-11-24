@@ -6,12 +6,13 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 
 use crate::AppState;
-use crate::auth::{Auth, persistent, users};
+use crate::auth::{Auth, users};
+use crate::db::AsDbHandle;
 use crate::error::{AppError, AppResult};
 use crate::http::client_ip::ClientIp;
 use crate::http::json::Path;
 use crate::identity::common::audit;
-use crate::identity::sso::account::disable_mfa;
+use crate::identity::sso::account::delete_mfa_on;
 
 pub async fn force_disable_mfa(
     State(state): State<AppState>,
@@ -24,9 +25,17 @@ pub async fn force_disable_mfa(
     if target.id == auth.user.id {
         return Ok(StatusCode::FORBIDDEN.into_response());
     }
-    disable_mfa(&state, target.id).await?;
+    let mut tx = state.db.begin().await?;
+    delete_mfa_on(&mut tx.as_handle(), target.id).await?;
     // Trusted devices were issued under the revoked MFA policy, so they go too.
-    persistent::revoke_all_for_user(&state, target.id).await?;
+    crate::db::query(
+        "UPDATE persistent_session SET revoked_at = $1 WHERE user_id = $2 AND revoked_at IS NULL",
+    )
+    .bind(state.clock.now())
+    .bind(target.id)
+    .execute(&mut tx)
+    .await?;
+    tx.commit().await?;
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 

@@ -598,7 +598,10 @@ async fn activate(
     Ok(complete_target(&intent.redirect))
 }
 
-async fn delete_mfa_on(tx: &mut crate::db::DbHandle<'_>, user_id: i64) -> Result<(), sqlx::Error> {
+pub async fn delete_mfa_on(
+    tx: &mut crate::db::DbHandle<'_>,
+    user_id: i64,
+) -> Result<(), sqlx::Error> {
     crate::db::query(
         "DELETE FROM user_mfa_recovery_code WHERE user_mfa_id IN (SELECT id FROM user_mfa WHERE user_id = $1)",
     )
@@ -610,12 +613,6 @@ async fn delete_mfa_on(tx: &mut crate::db::DbHandle<'_>, user_id: i64) -> Result
         .execute(&mut *tx)
         .await?;
     Ok(())
-}
-
-pub async fn disable_mfa(state: &AppState, user_id: i64) -> Result<(), sqlx::Error> {
-    let mut tx = state.db.begin().await?;
-    delete_mfa_on(&mut tx.as_handle(), user_id).await?;
-    tx.commit().await
 }
 
 /// SetupService.seedSsoAdmin: the same claim on PENDING_ADMIN as the password seed.

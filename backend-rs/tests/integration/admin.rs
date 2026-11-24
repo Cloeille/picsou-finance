@@ -353,6 +353,152 @@ async fn resets_another_members_mfa_but_never_their_own() {
     assert_eq!(self_unlink.json()["code"], "SELF_UNLINK_FORBIDDEN");
 }
 
+async fn install_abort_trigger(db: &picsou::db::Db, event: &str, table: &str, name: &str) {
+    match db {
+        picsou::db::Db::Postgres(pool) => {
+            let fn_name = format!("{name}_fn");
+            sqlx::raw_sql(&format!(
+                "CREATE OR REPLACE FUNCTION {fn_name}() RETURNS trigger AS $$ \
+                 BEGIN RAISE EXCEPTION 'injected failure'; END; \
+                 $$ LANGUAGE plpgsql; \
+                 CREATE TRIGGER {name} BEFORE {event} ON {table} \
+                 FOR EACH ROW EXECUTE FUNCTION {fn_name}();"
+            ))
+            .execute(pool)
+            .await
+            .expect("install pg trigger");
+        }
+        picsou::db::Db::Sqlite(sq) => {
+            let sql = format!(
+                "CREATE TRIGGER {name} BEFORE {event} ON {table} \
+                 BEGIN SELECT RAISE(ABORT, 'injected failure'); END;"
+            );
+            sq.with_conn(move |conn| {
+                conn.execute_batch(&sql)?;
+                Ok(())
+            })
+            .expect("install sqlite trigger");
+        }
+    }
+}
+
+async fn drop_trigger(db: &picsou::db::Db, table: &str, name: &str) {
+    match db {
+        picsou::db::Db::Postgres(pool) => {
+            let fn_name = format!("{name}_fn");
+            sqlx::raw_sql(&format!(
+                "DROP TRIGGER IF EXISTS {name} ON {table}; \
+                 DROP FUNCTION IF EXISTS {fn_name}();"
+            ))
+            .execute(pool)
+            .await
+            .expect("drop pg trigger");
+        }
+        picsou::db::Db::Sqlite(sq) => {
+            let sql = format!("DROP TRIGGER IF EXISTS {name};");
+            sq.with_conn(move |conn| {
+                conn.execute_batch(&sql)?;
+                Ok(())
+            })
+            .expect("drop sqlite trigger");
+        }
+    }
+}
+
+#[tokio::test]
+async fn admin_mfa_reset_rolls_back_when_revoking_sessions_fails() {
+    let app = TestApp::with_admin().await;
+    let (_bob_user, bob_member) = app.create_member("bob", "bob-password-1").await;
+    let bob = app.login("bob", "bob-password-1").await;
+
+    let init = bob
+        .post("/api/auth/mfa/enroll/init")
+        .json(&json!({"currentPassword": "bob-password-1"}))
+        .send()
+        .await;
+    assert_eq!(init.status, StatusCode::OK);
+    let secret = init.json()["secret"].as_str().unwrap().to_owned();
+    let code = picsou::setup_auth::mfa::current_code(&app.state, &secret).unwrap();
+    assert_eq!(
+        bob.post("/api/auth/mfa/enroll/verify")
+            .json(&json!({"code": code}))
+            .send()
+            .await
+            .status,
+        StatusCode::OK
+    );
+
+    app.clock.advance(Duration::from_secs(30));
+    let trusted = app.client();
+    assert_eq!(
+        trusted
+            .post("/api/auth/login")
+            .json(&json!({"username": "bob", "password": "bob-password-1", "rememberMe": true}))
+            .send()
+            .await
+            .status,
+        StatusCode::OK
+    );
+    let verify_code = picsou::setup_auth::mfa::current_code(&app.state, &secret).unwrap();
+    assert_eq!(
+        trusted
+            .post("/api/auth/mfa/verify")
+            .json(&json!({"code": verify_code, "trustDevice": true}))
+            .send()
+            .await
+            .status,
+        StatusCode::OK
+    );
+    let persistent_cookie = trusted.cookie("persistent_token").unwrap();
+
+    let admin = app.login_admin().await;
+    install_abort_trigger(
+        &app.state.db,
+        "UPDATE",
+        "persistent_session",
+        "abort_ps_revoke_on_admin_mfa_reset",
+    )
+    .await;
+
+    let failed = admin
+        .delete(&format!("/api/admin/members/{bob_member}/mfa"))
+        .send()
+        .await;
+    assert_eq!(failed.status, StatusCode::INTERNAL_SERVER_ERROR);
+
+    drop_trigger(
+        &app.state.db,
+        "persistent_session",
+        "abort_ps_revoke_on_admin_mfa_reset",
+    )
+    .await;
+
+    let status = bob.get("/api/auth/mfa/status").send().await.json();
+    assert_eq!(
+        status["enabled"], true,
+        "2FA must not be removed when revoking persistent sessions fails"
+    );
+    assert_eq!(status["remainingRecoveryCodes"], 10);
+
+    // Once the fault is cleared, admin MFA reset disables 2FA and revokes the trusted device.
+    let reset = admin
+        .delete(&format!("/api/admin/members/{bob_member}/mfa"))
+        .send()
+        .await;
+    assert_eq!(reset.status, StatusCode::NO_CONTENT);
+    assert_eq!(
+        bob.get("/api/auth/mfa/status").send().await.json()["enabled"],
+        false
+    );
+    let stale_device = app.client();
+    stale_device.set_cookie("persistent_token", &persistent_cookie);
+    assert_eq!(
+        stale_device.get("/api/auth/sessions").send().await.status,
+        StatusCode::UNAUTHORIZED,
+        "trusted device must be revoked after admin MFA reset succeeds"
+    );
+}
+
 #[tokio::test]
 async fn telemetry_needs_a_dsn_and_consent() {
     let app = TestApp::with_admin().await;
