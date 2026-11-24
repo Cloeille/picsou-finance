@@ -147,10 +147,9 @@ impl<T: Send + 'static> PendingStore<T> {
             .entries
             .get(&process_id)
             .map_or(now, |existing| existing.created_at);
-        guard.entries.insert(
-            process_id,
-            PendingEntry { value, created_at },
-        );
+        guard
+            .entries
+            .insert(process_id, PendingEntry { value, created_at });
         self.spawn_sweeper_if_needed(&mut guard);
         true
     }

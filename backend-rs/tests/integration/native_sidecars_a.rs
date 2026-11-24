@@ -1999,12 +1999,8 @@ fn cmes_and_sofidy_parsers_report_errors_instead_of_panicking_on_decimal_overflo
     assert_eq!(err.code, cmes::FORMAT_CHANGED);
 
     // CMES fund savings: quantity * unit_value overflows Decimal.
-    let savings_page = cmes_fund_savings(
-        "1 000,00",
-        "0,00",
-        "1000000000000000",
-        "1000000000000000",
-    );
+    let savings_page =
+        cmes_fund_savings("1 000,00", "0,00", "1000000000000000", "1000000000000000");
     let err = cmes::parse_my_savings(&savings_page).unwrap_err();
     assert_eq!(err.code, cmes::FORMAT_CHANGED);
 

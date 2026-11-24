@@ -2058,8 +2058,13 @@ fn natixis_savings_parser_reports_format_changed_instead_of_panicking_on_decimal
             ]
         }]
     });
-    let err = parse_plans(&merged_overflow, &products_one, EMPLOYEE_ID, &HashMap::new())
-        .unwrap_err();
+    let err = parse_plans(
+        &merged_overflow,
+        &products_one,
+        EMPLOYEE_ID,
+        &HashMap::new(),
+    )
+    .unwrap_err();
     assert_eq!(err.code, FORMAT_CHANGED);
 
     // Two distinct funds in one plan whose amounts sum past Decimal::MAX.

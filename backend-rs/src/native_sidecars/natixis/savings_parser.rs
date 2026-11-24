@@ -350,18 +350,18 @@ fn parse_positions(
 
         if let Some(&idx) = index_by_key.get(&key) {
             let line = &mut merged[idx];
-            line.quantity = line
-                .quantity
-                .checked_add(quantity)
-                .ok_or_else(|| SavingsFormatError::new(FORMAT_CHANGED, "Fund units out of range"))?;
-            line.value_eur = line
-                .value_eur
-                .checked_add(value)
-                .ok_or_else(|| SavingsFormatError::new(FORMAT_CHANGED, "Fund amount out of range"))?;
+            line.quantity = line.quantity.checked_add(quantity).ok_or_else(|| {
+                SavingsFormatError::new(FORMAT_CHANGED, "Fund units out of range")
+            })?;
+            line.value_eur = line.value_eur.checked_add(value).ok_or_else(|| {
+                SavingsFormatError::new(FORMAT_CHANGED, "Fund amount out of range")
+            })?;
             line.pnl_eur = match (line.pnl_eur, pnl) {
-                (Some(existing), Some(added)) => Some(existing.checked_add(added).ok_or_else(
-                    || SavingsFormatError::new(FORMAT_CHANGED, "Fund gains out of range"),
-                )?),
+                (Some(existing), Some(added)) => {
+                    Some(existing.checked_add(added).ok_or_else(|| {
+                        SavingsFormatError::new(FORMAT_CHANGED, "Fund gains out of range")
+                    })?)
+                }
                 _ => None,
             };
         } else {

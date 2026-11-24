@@ -745,9 +745,9 @@ pub fn parse_my_savings(page: &str) -> Result<FundSavingsDetails, SituationForma
     let value_eur = parse_money(&amount)?;
     let quantity = parse_units(&units)?;
     let unit_value = parse_money(&price)?;
-    let computed = quantity
-        .checked_mul(unit_value)
-        .ok_or_else(|| SituationFormatError::new(FORMAT_CHANGED, "Units times unit value overflow"))?;
+    let computed = quantity.checked_mul(unit_value).ok_or_else(|| {
+        SituationFormatError::new(FORMAT_CHANGED, "Units times unit value overflow")
+    })?;
     if !money_close(computed, value_eur) {
         return Err(SituationFormatError::new(
             FORMAT_CHANGED,
