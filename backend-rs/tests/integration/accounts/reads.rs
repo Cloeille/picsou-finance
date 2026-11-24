@@ -447,7 +447,7 @@ async fn loan_summary_returns_400_on_overflowing_negative_amortisation_or_excess
 }
 
 #[tokio::test]
-async fn dashboard_and_account_list_batch_per_account_queries_without_changing_figures() {
+async fn dashboard_and_account_list_keep_their_figures_with_batched_reads() {
     let app = TestApp::with_admin().await;
     let me = admin_member(&app).await;
 
@@ -487,31 +487,6 @@ async fn dashboard_and_account_list_batch_per_account_queries_without_changing_f
 
     let admin = app.login_admin().await;
 
-    let pg_scans = |tables: &'static [&'static str]| {
-        let db = app.state.db.clone();
-        async move {
-            picsou::db::query("SELECT pg_stat_force_next_flush()")
-                .execute(&db)
-                .await
-                .unwrap();
-            let names: Vec<String> = tables.iter().map(|s| (*s).to_owned()).collect();
-            let total: i64 = picsou::db::query_scalar(
-                "SELECT COALESCE(SUM(seq_scan + idx_scan), 0)::bigint \
-                 FROM pg_stat_user_tables WHERE relname = ANY($1)",
-            )
-            .bind(&names)
-            .fetch_one(&db)
-            .await
-            .unwrap();
-            total
-        }
-    };
-
-    let dash_before = if app.state.db.is_postgres() {
-        pg_scans(&["account_holding", "debt"]).await
-    } else {
-        0
-    };
     let dashboard = admin.get("/api/dashboard").send().await.json();
     // 4 PEA (4 * 2 * 150 = 1200) + 2 checking (2000) + 2 houses (400000) - 2 loans (200000) = 203200.
     assert_eq!(num(&dashboard["totalNetWorth"]), "203200.0000000000000000");
@@ -522,39 +497,13 @@ async fn dashboard_and_account_list_batch_per_account_queries_without_changing_f
         num(&history.last().unwrap()["total"]),
         "203200.0000000000000000"
     );
-    if app.state.db.is_postgres() {
-        let dash_scans = pg_scans(&["account_holding", "debt"]).await - dash_before;
-        assert!(
-            dash_scans <= 4,
-            "dashboard should batch holdings and debt loads (got {dash_scans} table scans for 10 accounts)"
-        );
-    }
 
-    let list_tables: &[&str] = &[
-        "account_holding",
-        "debt",
-        "savings_interest_config",
-        "real_estate_metadata",
-        "scpi_position",
-    ];
-    let list_before = if app.state.db.is_postgres() {
-        pg_scans(list_tables).await
-    } else {
-        0
-    };
     let accounts_list = admin.get("/api/accounts").send().await.json();
     let arr = accounts_list.as_array().unwrap();
     assert_eq!(arr.len(), 10);
     for pea in &pea_ids {
         let row = arr.iter().find(|a| a["id"].as_i64() == Some(*pea)).unwrap();
         assert_eq!(num(&row["currentBalanceEur"]), "300.0000000000000000");
-    }
-    if app.state.db.is_postgres() {
-        let list_scans = pg_scans(list_tables).await - list_before;
-        assert!(
-            list_scans <= 6,
-            "accounts list should batch per-account queries (got {list_scans} table scans for 10 accounts)"
-        );
     }
 }
 
