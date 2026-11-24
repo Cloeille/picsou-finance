@@ -3505,6 +3505,8 @@
       "editRule": "Edit rule",
       "configureAi": "KI konfigurieren",
       "aiSettings": "KI-Einstellungen",
+      "enableAdvancedMode": "Erweiterten Modus aktivieren",
+      "enableAdvancedModeHint": "Erforderlich, um die KI-Kategorisierung einzurichten",
       "searchPlaceholder": "Transaktionen suchen...",
       "incoming": "Eingang",
       "outgoing": "Ausgang",

@@ -1,9 +1,10 @@
 import '@testing-library/jest-dom'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { CategorizeTab } from './CategorizeTab'
 import { useAuthStore } from '@/stores/auth-store'
+import { useAppStore } from '@/stores/app-store'
 import type { AiJobStatus } from '@/types/api'
 
 const mocks = vi.hoisted(() => ({
@@ -81,6 +82,11 @@ function openAutomateMenu() {
   })
 }
 
+function LocationProbe() {
+  const { pathname, search } = useLocation()
+  return <div data-testid="location">{`${pathname}${search}`}</div>
+}
+
 function renderTab() {
   return render(
     <MemoryRouter>
@@ -89,9 +95,21 @@ function renderTab() {
   )
 }
 
+function renderTabWithRoutes() {
+  return render(
+    <MemoryRouter initialEntries={['/budget/review']}>
+      <Routes>
+        <Route path="/budget/review" element={<CategorizeTab />} />
+        <Route path="/admin" element={<LocationProbe />} />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
 describe('CategorizeTab — AI suggestions', () => {
   beforeEach(() => {
     useAuthStore.setState({ user: { username: 'alice', role: 'ADMIN', memberId: 1, displayName: 'Alice' }, isAuthenticated: true })
+    useAppStore.setState({ desktopMode: false, advancedMode: false })
     state.settings = { aiCategorizationEnabled: false }
     state.adminSettings = { ai: { provider: 'openai' } }
     state.txs = []
@@ -155,6 +173,7 @@ describe('CategorizeTab — AI suggestions', () => {
 describe('CategorizeTab — AI progress + resume', () => {
   beforeEach(() => {
     useAuthStore.setState({ user: { username: 'alice', role: 'ADMIN', memberId: 1, displayName: 'Alice' }, isAuthenticated: true })
+    useAppStore.setState({ desktopMode: false, advancedMode: false })
     state.settings = { aiCategorizationEnabled: true }
     state.adminSettings = { ai: { provider: 'openai' } }
     state.txs = []
@@ -193,5 +212,65 @@ describe('CategorizeTab — AI progress + resume', () => {
       expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['dashboard'] })
     })
     expect(screen.queryByText('budget.categorize.aiDone')).not.toBeInTheDocument()
+  })
+})
+
+describe('CategorizeTab — Desktop advanced mode prompt', () => {
+  beforeEach(() => {
+    useAuthStore.setState({
+      user: { username: 'camille', role: 'ADMIN', memberId: 1, displayName: 'Camille' },
+      isAuthenticated: true,
+    })
+    useAppStore.setState({ desktopMode: true, advancedMode: false })
+    state.settings = { aiCategorizationEnabled: false }
+    state.adminSettings = { ai: { provider: 'none' } }
+    state.txs = [tx()]
+    state.categories = [TRANSPORT]
+    state.aiData = null
+  })
+
+  it('offers to enable advanced mode on Desktop when admin AI is not set up, then enables it and navigates to /admin?tab=ai', async () => {
+    renderTabWithRoutes()
+    openAutomateMenu()
+
+    const item = await screen.findByRole('menuitem', { name: /budget\.categorize\.enableAdvancedMode/ })
+    expect(item).toBeInTheDocument()
+    expect(item).toHaveTextContent('budget.categorize.enableAdvancedModeHint')
+    expect(screen.queryByRole('menuitem', { name: 'budget.categorize.configureAi' })).not.toBeInTheDocument()
+
+    fireEvent.click(item)
+
+    expect(useAppStore.getState().advancedMode).toBe(true)
+    expect(await screen.findByTestId('location')).toHaveTextContent('/admin?tab=ai')
+  })
+
+  it('hides the advanced mode prompt when a provider is set up and only the member switch is off', async () => {
+    state.adminSettings = { ai: { provider: 'openai' } }
+    renderTab()
+    openAutomateMenu()
+
+    expect(await screen.findByRole('menuitem', { name: 'budget.categorize.recategorize' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /budget\.categorize\.enableAdvancedMode/ })).not.toBeInTheDocument()
+  })
+
+  it('shows Configure AI instead of the advanced mode prompt when advanced mode is on', async () => {
+    useAppStore.setState({ desktopMode: true, advancedMode: true })
+    renderTab()
+    openAutomateMenu()
+
+    expect(await screen.findByRole('menuitem', { name: 'budget.categorize.configureAi' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /budget\.categorize\.enableAdvancedMode/ })).not.toBeInTheDocument()
+  })
+
+  it('hides the advanced mode prompt for non-admin members', async () => {
+    useAuthStore.setState({
+      user: { username: 'sam', role: 'MEMBER', memberId: 2, displayName: 'Sam' },
+      isAuthenticated: true,
+    })
+    renderTab()
+    openAutomateMenu()
+
+    expect(await screen.findByRole('menuitem', { name: 'budget.categorize.recategorize' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /budget\.categorize\.enableAdvancedMode/ })).not.toBeInTheDocument()
   })
 })

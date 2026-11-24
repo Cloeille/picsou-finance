@@ -1173,6 +1173,8 @@
       "editRule": "Modifier la règle",
       "configureAi": "Configurer l'intelligence artificielle",
       "aiSettings": "Paramétrer l'intelligence artificielle",
+      "enableAdvancedMode": "Activer le mode avancé",
+      "enableAdvancedModeHint": "Nécessaire pour configurer la catégorisation par intelligence artificielle",
       "searchPlaceholder": "Rechercher une opération...",
       "incoming": "Entrée",
       "outgoing": "Sortie",

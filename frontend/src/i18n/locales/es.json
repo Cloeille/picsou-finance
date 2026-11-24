@@ -3505,6 +3505,8 @@
       "editRule": "Edit rule",
       "configureAi": "Configurar IA",
       "aiSettings": "Ajustes de IA",
+      "enableAdvancedMode": "Activar el modo avanzado",
+      "enableAdvancedModeHint": "Necesario para configurar la categorización con IA",
       "searchPlaceholder": "Buscar operaciones...",
       "incoming": "Entrada",
       "outgoing": "Salida",

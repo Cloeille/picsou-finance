@@ -1173,6 +1173,8 @@
       "editRule": "Edit rule",
       "configureAi": "Configure AI",
       "aiSettings": "AI settings",
+      "enableAdvancedMode": "Enable advanced mode",
+      "enableAdvancedModeHint": "Required to set up AI categorization",
       "searchPlaceholder": "Search transactions...",
       "incoming": "Incoming",
       "outgoing": "Outgoing",
