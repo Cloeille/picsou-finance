@@ -308,6 +308,19 @@ async fn credentials_are_encrypted_masked_and_scoped_to_the_member() {
 }
 
 #[tokio::test]
+async fn login_for_an_unknown_member_returns_404() {
+    let f = Finary::start().await;
+    let r = f
+        .admin
+        .post("/api/finary/login?memberId=999999")
+        .json(&json!({"email": "user@example.com", "password": "synthetic pass&1"}))
+        .send()
+        .await;
+    assert_eq!(r.status, 404, "{}", r.text());
+    assert_eq!(r.json()["detail"], "Family member not found");
+}
+
+#[tokio::test]
 async fn check_totp_reads_the_second_factor_from_the_clerk_sign_in() {
     let f = Finary::start().await;
     f.connect().await;

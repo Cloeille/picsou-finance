@@ -19,7 +19,7 @@ use super::{holdings, matcher, persistence, session};
 use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::ledger::accounts::{self, NewAccount};
-use crate::ledger::manual_ledger;
+use crate::ledger::{manual_ledger, members};
 use crate::ledger::model::{Account, NewTransaction};
 use crate::ledger::sync_values::java_is_blank;
 use crate::ledger::valuation;
@@ -127,6 +127,9 @@ pub async fn login(
     };
     let email = state.crypto.encrypt(email)?;
     let password = state.crypto.encrypt(password)?;
+    members::find_by_id(&state.db, member_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Family member not found".to_owned()))?;
     let now = state.clock.now();
     match session::find_by_member(&state.db, member_id).await? {
         Some(existing) => {
