@@ -166,7 +166,7 @@ pub async fn exists_by_account_and_external_id<'e>(
 /// The sum of every row of the account (zero without any).
 pub async fn sum_amount<'e>(db: impl DbExec<'e>, account_id: i64) -> sqlx::Result<Decimal> {
     let sum = if db.is_sqlite() {
-        "COALESCE(dec_sum(amount), '0')"
+        "COALESCE(dec_sum(amount), '0') AS amount"
     } else {
         "COALESCE(SUM(amount), 0)"
     };
@@ -187,7 +187,7 @@ pub async fn sum_amount_after_statement<'e>(
     entered_at: DateTime<Utc>,
 ) -> sqlx::Result<Decimal> {
     let sum = if db.is_sqlite() {
-        "COALESCE(dec_sum(amount), '0')"
+        "COALESCE(dec_sum(amount), '0') AS amount"
     } else {
         "COALESCE(SUM(amount), 0)"
     };
@@ -209,7 +209,7 @@ pub async fn sum_amount_after<'e>(
     date: NaiveDate,
 ) -> sqlx::Result<Decimal> {
     let sum = if db.is_sqlite() {
-        "COALESCE(dec_sum(amount), '0')"
+        "COALESCE(dec_sum(amount), '0') AS amount"
     } else {
         "COALESCE(SUM(amount), 0)"
     };

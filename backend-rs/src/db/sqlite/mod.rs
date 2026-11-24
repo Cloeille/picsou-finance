@@ -313,7 +313,11 @@ impl SqliteDb {
     /// Applies all pending SQLite schema migrations idempotently and ensures owner-only file
     /// permissions (`0o600`) on file-backed databases and their WAL/SHM sidecars.
     pub fn migrate(&self) -> Result<usize, SqliteError> {
-        let applied = self.with_conn(|conn| Ok(migrate::migrate(conn)?))?;
+        let applied = self.with_conn(|conn| {
+            let applied = migrate::migrate(conn)?;
+            decimal::install_write_rounding(conn)?;
+            Ok(applied)
+        })?;
         #[cfg(unix)]
         if let Some(path) = &self.file_path {
             restrict_sqlite_permissions(path)?;

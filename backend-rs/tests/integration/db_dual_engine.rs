@@ -831,6 +831,51 @@ async fn sqlite_wal_pool_handle_reads_do_not_block_behind_active_write_tx() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// PostgreSQL rounds a value to its column's scale when it stores it. SQLite does the same, so a
+/// sum adds the rounded values on both engines.
+#[tokio::test]
+async fn a_value_with_more_decimals_than_its_column_is_rounded_when_stored() {
+    use picsou::ledger::accounts::NewAccount;
+    use picsou::ledger::model::AccountType;
+
+    let app = picsou::testing::TestApp::spawn().await;
+    let db = &app.state.db;
+    let now = app.state.clock.now();
+    let member: i64 = db::query_scalar(
+        "INSERT INTO family_member (display_name, is_managed) VALUES ('Alice', false) RETURNING id",
+    )
+    .fetch_one(db)
+    .await
+    .expect("member");
+    let account = picsou::ledger::accounts::insert(
+        db,
+        &NewAccount::new(member, "Ledger", AccountType::Checking),
+        now,
+    )
+    .await
+    .expect("account");
+    // Each rounds to 0.00000001 at eight decimals; unrounded, the three add up to 0.000000042.
+    let amount: Decimal = "0.000000014".parse().unwrap();
+    for day in ["2026-01-10", "2026-01-11", "2026-01-12"] {
+        db::query(&format!(
+            "INSERT INTO \"transaction\" (account_id, date, amount, tx_type, is_manual, created_at) \
+             VALUES ($1, '{day}', $2, 'OTHER', true, $3)"
+        ))
+        .bind(account.id)
+        .bind(amount)
+        .bind(now)
+        .execute(db)
+        .await
+        .expect("transaction");
+    }
+
+    let sum = picsou::ledger::transactions::sum_amount(db, account.id)
+        .await
+        .expect("sum");
+
+    assert_eq!(sum.to_string(), "0.00000003");
+}
+
 /// On the engine the suite runs on: PostgreSQL, or SQLite with `PICSOU_TEST_DB=sqlite`.
 #[tokio::test]
 async fn a_read_snapshot_keeps_its_view_takes_no_writer_and_refuses_to_write() {

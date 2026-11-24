@@ -235,6 +235,83 @@ pub fn register_decimal_functions(conn: &Connection) -> rusqlite::Result<()> {
 
     conn.create_aggregate_function("dec_sum", 1, flags, DecSum)?;
 
+    // dec_round(x, s): x rounded HALF_UP to s decimals, as PostgreSQL stores a value in a
+    // NUMERIC(p, s) column. A value that already fits comes back as the same text, so a trigger
+    // can tell with IS NOT whether there is anything to rewrite.
+    // A value that is not a decimal (PostgreSQL's 'NaN', a REAL written by hand) comes back
+    // untouched: rounding never makes a write fail that SQLite accepted before.
+    conn.create_scalar_function("dec_round", 2, flags, |ctx| {
+        let raw = ctx.get_raw(0);
+        let (Ok(Some(value)), Some(scale)) = (from_sqlite_value(raw), arg_scale(ctx, 1)?) else {
+            return Ok(rusqlite::types::Value::from(raw));
+        };
+        Ok(rusqlite::types::Value::Text(to_sqlite_text(
+            if value.scale() > scale {
+                value.round_dp_with_strategy(scale, RoundingStrategy::MidpointAwayFromZero)
+            } else {
+                value
+            },
+        )))
+    })?;
+
+    Ok(())
+}
+
+/// Every NUMERIC column of the schema with the scale PostgreSQL gives it: (table, column, scale).
+pub fn numeric_columns() -> Vec<(&'static str, &'static str, u32)> {
+    crate::db::schema::EXPECTED
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split('\t');
+            match (fields.next(), fields.next(), fields.next(), fields.next()) {
+                (Some("column"), Some(table), Some(column), Some("numeric")) => {
+                    pg_numeric_column_scale(&format!("FROM {table}"), column)
+                        .map(|scale| (table, column, scale))
+                }
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+/// Makes this connection round what it writes into a NUMERIC column to the column's scale, as
+/// PostgreSQL does on write. Without it SQLite keeps every decimal it is given: a read rounds
+/// the value, but a sum adds the unrounded ones and can differ from PostgreSQL's by a step.
+///
+/// The triggers are TEMP: they belong to the connection, not to the file, so the schema stays
+/// the one the migrations describe. Only the writer connection needs them.
+pub fn install_write_rounding(conn: &Connection) -> rusqlite::Result<()> {
+    let mut by_table: std::collections::BTreeMap<&str, Vec<(&str, u32)>> = Default::default();
+    for (table, column, scale) in numeric_columns() {
+        by_table.entry(table).or_default().push((column, scale));
+    }
+    for (table, columns) in by_table {
+        let needs_rounding = columns
+            .iter()
+            .map(|(c, s)| format!("NEW.\"{c}\" IS NOT dec_round(NEW.\"{c}\", {s})"))
+            .collect::<Vec<_>>()
+            .join(" OR ");
+        let round = columns
+            .iter()
+            .map(|(c, s)| format!("\"{c}\" = dec_round(\"{c}\", {s})"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let updated = columns
+            .iter()
+            .map(|(c, _)| format!("\"{c}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        for (event, name) in [
+            ("INSERT".to_owned(), "ins"),
+            (format!("UPDATE OF {updated}"), "upd"),
+        ] {
+            conn.execute_batch(&format!(
+                "CREATE TEMP TRIGGER IF NOT EXISTS \"picsou_round_{name}_{table}\" \
+                 AFTER {event} ON main.\"{table}\" WHEN {needs_rounding} \
+                 BEGIN UPDATE \"{table}\" SET {round} WHERE rowid = NEW.rowid; END;"
+            ))?;
+        }
+    }
     Ok(())
 }
 
@@ -445,6 +522,27 @@ mod tests {
         // Division by zero must error.
         let div0 = conn.query_row("SELECT dec_div('1', '0', 2)", [], |r| r.get::<_, String>(0));
         assert!(div0.is_err());
+    }
+
+    #[test]
+    fn every_numeric_column_of_the_schema_has_its_postgresql_scale() {
+        // A column missing from pg_numeric_column_scale is neither formatted on read nor rounded
+        // on write.
+        let without_scale: Vec<String> = crate::db::schema::EXPECTED
+            .lines()
+            .filter_map(|line| {
+                let fields: Vec<&str> = line.split('\t').collect();
+                match fields.as_slice() {
+                    ["column", table, column, "numeric"] => {
+                        pg_numeric_column_scale(&format!("FROM {table}"), column)
+                            .is_none()
+                            .then(|| format!("{table}.{column}"))
+                    }
+                    _ => None,
+                }
+            })
+            .collect();
+        assert_eq!(without_scale, Vec::<String>::new());
     }
 
     #[test]

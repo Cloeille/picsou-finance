@@ -59,6 +59,11 @@ Therefore, in SQLite:
 2. **Exact `rust_decimal::Decimal` UDFs are registered on every connection** with `SQLITE_UTF8 | SQLITE_DETERMINISTIC | SQLITE_INNOCUOUS` flags so they are valid in queries, views, and `CHECK` constraints:
    - Scalars: `dec_add(a, b)`, `dec_sub(a, b)`, `dec_mul(a, b)`, `dec_div(a, b, scale)` (plus 2-arg exact `dec_div(a, b)`), `dec_cmp(a, b)`, `dec_abs(a)`, `dec_neg(a)`
    - Aggregate: `dec_sum(x)` (matching PostgreSQL `SUM(numeric)` NULL semantics)
+   - Write rounding: PostgreSQL rounds a value to its `NUMERIC(p, s)` scale when it stores it. The
+     writer connection gets one `TEMP` trigger per table (`decimal::install_write_rounding`, run by
+     `SqliteDb::migrate`) that rewrites a value with more decimals through `dec_round(x, s)`, half
+     up, so sums and checks add the same rounded values on both engines. A value that is not a
+     decimal is left as it is. The triggers belong to the connection, not to the file.
 3. **Physical type mapping** across all 739 columns:
    - `int8`, `int4`, `int2` → `INTEGER` (`INTEGER PRIMARY KEY AUTOINCREMENT` for `BIGSERIAL` / `IDENTITY` PKs)
    - `bool` → `INTEGER` with `CHECK (col IN (0, 1))`
