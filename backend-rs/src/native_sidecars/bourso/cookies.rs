@@ -2,8 +2,10 @@
 //! `clients.boursobank.com` and `api.boursobank.com`, wire-compatible with
 //! `services/bourso-auth`'s `{"cookies":[...]}` sessionState JSON.
 
+use std::net::IpAddr;
 use std::sync::RwLock;
 
+use chrono::{DateTime, NaiveDateTime, Utc};
 use http::{HeaderValue, StatusCode};
 use reqwest::cookie::CookieStore;
 use serde::{Deserialize, Serialize};
@@ -145,58 +147,7 @@ fn json_field_as_string(value: Option<&Value>, default: &str) -> String {
 
 impl CookieStore for SessionCookieJar {
     fn set_cookies(&self, cookie_headers: &mut dyn Iterator<Item = &HeaderValue>, url: &Url) {
-        let default_host = url.host_str().unwrap_or("").to_ascii_lowercase();
-        for header in cookie_headers {
-            let Ok(raw) = header.to_str() else {
-                continue;
-            };
-            let mut parts = raw.split(';');
-            let Some(name_value) = parts.next() else {
-                continue;
-            };
-            let Some((raw_name, raw_value)) = name_value.split_once('=') else {
-                continue;
-            };
-            let name = raw_name.trim();
-            if name.is_empty() {
-                continue;
-            }
-            let value = raw_value.trim();
-            let mut domain: Option<String> = None;
-            let mut path = "/".to_owned();
-            let mut expired = false;
-
-            for attr in parts {
-                let attr = attr.trim();
-                if attr.is_empty() {
-                    continue;
-                }
-                if let Some((k, v)) = attr.split_once('=') {
-                    let key = k.trim();
-                    let val = v.trim();
-                    if key.eq_ignore_ascii_case("domain") && !val.is_empty() {
-                        let stripped = val.trim_start_matches('.').to_ascii_lowercase();
-                        if !stripped.is_empty() {
-                            domain = Some(format!(".{stripped}"));
-                        }
-                    } else if key.eq_ignore_ascii_case("path") && !val.is_empty() {
-                        path = val.to_owned();
-                    } else if key.eq_ignore_ascii_case("max-age")
-                        && let Ok(secs) = val.parse::<i64>()
-                        && secs <= 0
-                    {
-                        expired = true;
-                    }
-                }
-            }
-
-            let target_domain = domain.unwrap_or_else(|| default_host.clone());
-            if expired {
-                self.remove(name, &target_domain, &path);
-            } else {
-                self.set(name, value, &target_domain, &path);
-            }
-        }
+        self.set_cookies_at(cookie_headers, url, Utc::now());
     }
 
     fn cookies(&self, url: &Url) -> Option<HeaderValue> {
@@ -216,6 +167,110 @@ impl CookieStore for SessionCookieJar {
         }
         HeaderValue::from_str(&pairs.join("; ")).ok()
     }
+}
+
+impl SessionCookieJar {
+    fn set_cookies_at<'a>(
+        &self,
+        cookie_headers: &mut dyn Iterator<Item = &'a HeaderValue>,
+        url: &Url,
+        now: DateTime<Utc>,
+    ) {
+        let default_host = url.host_str().unwrap_or("").to_ascii_lowercase();
+        for header in cookie_headers {
+            let Ok(raw) = header.to_str() else {
+                continue;
+            };
+            let mut parts = raw.split(';');
+            let Some(name_value) = parts.next() else {
+                continue;
+            };
+            let Some((raw_name, raw_value)) = name_value.split_once('=') else {
+                continue;
+            };
+            let name = raw_name.trim();
+            if name.is_empty() {
+                continue;
+            }
+            let value = raw_value.trim();
+            let mut domain: Option<String> = None;
+            let mut rejected_domain = false;
+            let mut path = "/".to_owned();
+            let mut max_age_expired: Option<bool> = None;
+            let mut expires_expired: Option<bool> = None;
+
+            for attr in parts {
+                let attr = attr.trim();
+                if attr.is_empty() {
+                    continue;
+                }
+                if let Some((k, v)) = attr.split_once('=') {
+                    let key = k.trim();
+                    let val = v.trim();
+                    if key.eq_ignore_ascii_case("domain") && !val.is_empty() {
+                        let stripped = val.trim_start_matches('.').to_ascii_lowercase();
+                        if !stripped.is_empty() && domain_allowed_for_host(&stripped, &default_host)
+                        {
+                            domain = Some(format!(".{stripped}"));
+                        } else {
+                            rejected_domain = true;
+                        }
+                    } else if key.eq_ignore_ascii_case("path") && !val.is_empty() {
+                        path = val.to_owned();
+                    } else if key.eq_ignore_ascii_case("max-age")
+                        && let Ok(secs) = val.parse::<i64>()
+                    {
+                        max_age_expired = Some(secs <= 0);
+                    } else if key.eq_ignore_ascii_case("expires")
+                        && let Some(parsed) = parse_expires(val)
+                    {
+                        expires_expired = Some(parsed <= now);
+                    }
+                }
+            }
+
+            if rejected_domain {
+                continue;
+            }
+            let expired = max_age_expired.or(expires_expired).unwrap_or(false);
+            let target_domain = domain.unwrap_or_else(|| default_host.clone());
+            if expired {
+                self.remove(name, &target_domain, &path);
+            } else {
+                self.set(name, value, &target_domain, &path);
+            }
+        }
+    }
+}
+
+fn domain_allowed_for_host(cookie_domain: &str, request_host: &str) -> bool {
+    if request_host.is_empty() {
+        return false;
+    }
+    if request_host == cookie_domain {
+        return true;
+    }
+    if request_host.parse::<IpAddr>().is_ok() || !cookie_domain.contains('.') {
+        return false;
+    }
+    request_host.ends_with(&format!(".{cookie_domain}"))
+}
+
+fn parse_expires(raw: &str) -> Option<DateTime<Utc>> {
+    if let Ok(st) = httpdate::parse_http_date(raw) {
+        return Some(DateTime::<Utc>::from(st));
+    }
+    // Netscape / PHP Set-Cookie format uses dashes in the date (e.g. "Thu, 01-Jan-1970 00:00:00 GMT").
+    for fmt in [
+        "%a, %d-%b-%Y %H:%M:%S GMT",
+        "%a, %d-%b-%Y %H:%M:%S UTC",
+        "%A, %d-%b-%Y %H:%M:%S GMT",
+    ] {
+        if let Ok(naive) = NaiveDateTime::parse_from_str(raw, fmt) {
+            return Some(naive.and_utc());
+        }
+    }
+    None
 }
 
 fn domain_matches(cookie_domain: &str, request_host: &str) -> bool {
@@ -240,4 +295,72 @@ fn path_matches(cookie_path: &str, request_path: &str) -> bool {
         || request_path
             .strip_prefix(trimmed)
             .is_some_and(|rest| rest.starts_with('/'))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expires_deletes_cookie_and_foreign_or_public_suffix_domain_is_rejected() {
+        let jar = SessionCookieJar::new();
+        let clients = Url::parse("https://clients.boursobank.com/connexion/").unwrap();
+        let api = Url::parse("https://api.boursobank.com/v1/accounts").unwrap();
+        let evil = Url::parse("https://evil.example/").unwrap();
+        let now = DateTime::parse_from_rfc3339("2026-01-15T10:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        // Store a valid parent-domain cookie with future Expires first.
+        let valid = [HeaderValue::from_static(
+            "sid=live; Domain=.boursobank.com; Path=/; Expires=Fri, 16 Jan 2026 10:00:00 GMT",
+        )];
+        jar.set_cookies_at(&mut valid.iter(), &clients, now);
+        assert_eq!(jar.get("sid").as_deref(), Some("live"));
+        assert!(jar.cookies(&api).is_some());
+
+        // Past Expires (both IMF-fixdate and dash-separated Netscape format) must remove the cookie.
+        let expire_imf = [HeaderValue::from_static(
+            "sid=deleted; Domain=.boursobank.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+        )];
+        jar.set_cookies_at(&mut expire_imf.iter(), &clients, now);
+        assert_eq!(
+            jar.get("sid"),
+            None,
+            "cookie with past Expires must be removed"
+        );
+
+        let valid2 = [HeaderValue::from_static(
+            "sid2=live2; Domain=.boursobank.com; Path=/",
+        )];
+        jar.set_cookies_at(&mut valid2.iter(), &clients, now);
+        let expire_dash = [HeaderValue::from_static(
+            "sid2=deleted; Domain=.boursobank.com; Path=/; Expires=Thu, 01-Jan-1970 00:00:00 GMT",
+        )];
+        jar.set_cookies_at(&mut expire_dash.iter(), &clients, now);
+        assert_eq!(
+            jar.get("sid2"),
+            None,
+            "cookie with past dash-formatted Expires must be removed"
+        );
+
+        // Max-Age takes precedence over Expires per RFC 6265.
+        let max_age_wins = [HeaderValue::from_static(
+            "sid3=fresh; Domain=.boursobank.com; Path=/; Max-Age=60; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+        )];
+        jar.set_cookies_at(&mut max_age_wins.iter(), &clients, now);
+        assert_eq!(jar.get("sid3").as_deref(), Some("fresh"));
+
+        // Foreign, sibling, and single-label TLD domains must be rejected outright.
+        let rejected = [
+            HeaderValue::from_static("a=1; Domain=evil.example; Path=/"),
+            HeaderValue::from_static("b=2; Domain=.api.boursobank.com; Path=/"),
+            HeaderValue::from_static("c=3; Domain=com; Path=/"),
+        ];
+        jar.set_cookies_at(&mut rejected.iter(), &clients, now);
+        assert_eq!(jar.get("a"), None, "foreign Domain must be rejected");
+        assert_eq!(jar.get("b"), None, "sibling Domain must be rejected");
+        assert_eq!(jar.get("c"), None, "TLD Domain must be rejected");
+        assert!(jar.cookies(&evil).is_none());
+    }
 }
