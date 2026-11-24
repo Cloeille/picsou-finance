@@ -155,7 +155,10 @@ pub struct AccountsResponse {
 enum ProcessStatus {
     WaitingLogin,
     Fetching,
-    Done { session_state: String },
+    Done {
+        session_state: String,
+        completed_at: Instant,
+    },
     Cancelled,
     Failed { error_code: &'static str },
 }
@@ -355,6 +358,28 @@ impl BnpWebviewManager {
 
     pub fn get_status(&self, process_id: &str) -> Result<WebviewStatusResponse, ApiError> {
         let mut procs = self.processes.lock().unwrap_or_else(|e| e.into_inner());
+        procs.retain(|_, p| {
+            !matches!(
+                p.status,
+                ProcessStatus::Done { completed_at, .. } if completed_at.elapsed() >= SNAPSHOT_CACHE_TTL
+            )
+        });
+        if matches!(
+            procs.get(process_id).map(|e| &e.status),
+            Some(ProcessStatus::Done { .. })
+        ) {
+            if let Some(ProcessEntry {
+                status: ProcessStatus::Done { session_state, .. },
+                ..
+            }) = procs.remove(process_id)
+            {
+                return Ok(WebviewStatusResponse {
+                    status: "DONE",
+                    session_state: Some(session_state),
+                    error_code: None,
+                });
+            }
+        }
         let Some(entry) = procs.get_mut(process_id) else {
             return Err(ApiError::new(StatusCode::GONE, "AUTH_ATTEMPT_EXPIRED"));
         };
@@ -376,11 +401,7 @@ impl BnpWebviewManager {
                 session_state: None,
                 error_code: None,
             },
-            ProcessStatus::Done { session_state } => WebviewStatusResponse {
-                status: "DONE",
-                session_state: Some(session_state.clone()),
-                error_code: None,
-            },
+            ProcessStatus::Done { .. } => unreachable!("handled above"),
             ProcessStatus::Cancelled => WebviewStatusResponse {
                 status: "CANCELLED",
                 session_state: None,
@@ -400,13 +421,18 @@ impl BnpWebviewManager {
             let Some(entry) = procs.get_mut(process_id) else {
                 return false;
             };
-            if matches!(
-                entry.status,
-                ProcessStatus::WaitingLogin | ProcessStatus::Fetching
-            ) {
-                entry.status = ProcessStatus::Cancelled;
+            if matches!(entry.status, ProcessStatus::Done { .. }) {
+                let removed = procs.remove(process_id).expect("entry just checked");
+                removed.window_label
+            } else {
+                if matches!(
+                    entry.status,
+                    ProcessStatus::WaitingLogin | ProcessStatus::Fetching
+                ) {
+                    entry.status = ProcessStatus::Cancelled;
+                }
+                entry.window_label.clone()
             }
-            entry.window_label.clone()
         };
         if let Some(win) = app.get_webview_window(&label) {
             let _ = win.destroy();
@@ -418,16 +444,8 @@ impl BnpWebviewManager {
         let labels: Vec<String> = {
             let mut procs = self.processes.lock().unwrap_or_else(|e| e.into_inner());
             procs
-                .values_mut()
-                .map(|entry| {
-                    if matches!(
-                        entry.status,
-                        ProcessStatus::WaitingLogin | ProcessStatus::Fetching
-                    ) {
-                        entry.status = ProcessStatus::Cancelled;
-                    }
-                    entry.window_label.clone()
-                })
+                .drain()
+                .map(|(_, entry)| entry.window_label)
                 .collect()
         };
         for label in labels {
@@ -466,15 +484,20 @@ impl BnpWebviewManager {
         }
     }
 
-    fn mark_done(&self, process_id: &str, session_state: String) {
+    fn mark_done(&self, process_id: &str, session_state: String) -> bool {
         let mut procs = self.processes.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(entry) = procs.get_mut(process_id) {
             // Only an attempt still being read may complete: one that failed or was cancelled
             // meanwhile stays so, whatever the snapshot it had started returns.
             if matches!(entry.status, ProcessStatus::Fetching) {
-                entry.status = ProcessStatus::Done { session_state };
+                entry.status = ProcessStatus::Done {
+                    session_state,
+                    completed_at: Instant::now(),
+                };
+                return true;
             }
         }
+        false
     }
 
     fn mark_failed(&self, process_id: &str, error_code: &'static str) {
@@ -541,7 +564,12 @@ impl BnpWebviewManager {
         }
     }
 
-    async fn watch_login(&self, process_id: String, brand: Brand, window: WebviewWindow) {
+    async fn watch_login(
+        self: Arc<Self>,
+        process_id: String,
+        brand: Brand,
+        window: WebviewWindow,
+    ) {
         let deadline = Instant::now() + LOGIN_TTL;
         loop {
             if !self.is_waiting(&process_id) {
@@ -608,7 +636,23 @@ impl BnpWebviewManager {
                             match self.finish_webview_snapshot(&window, brand, landing).await {
                                 Ok((session_state, accounts, unsupported)) => {
                                     self.remember_snapshot(&session_state, accounts, unsupported);
-                                    self.mark_done(&process_id, session_state);
+                                    if self.mark_done(&process_id, session_state) {
+                                        let mgr = Arc::clone(&self);
+                                        let pid = process_id.clone();
+                                        tokio::spawn(async move {
+                                            tokio::time::sleep(SNAPSHOT_CACHE_TTL).await;
+                                            let mut procs = mgr
+                                                .processes
+                                                .lock()
+                                                .unwrap_or_else(|e| e.into_inner());
+                                            if matches!(
+                                                procs.get(&pid).map(|e| &e.status),
+                                                Some(ProcessStatus::Done { .. })
+                                            ) {
+                                                procs.remove(&pid);
+                                            }
+                                        });
+                                    }
                                     tracing::info!(
                                         "BNP WebView snapshot ready, closing login window (brand={})",
                                         brand.name
@@ -1342,6 +1386,52 @@ mod tests {
             manager.processes.lock().unwrap()["p"].status,
             ProcessStatus::Failed { .. }
         ));
+    }
+
+    #[test]
+    fn done_session_state_is_delivered_once_and_cleared_from_memory() {
+        let manager = BnpWebviewManager::new();
+        manager.processes.lock().unwrap().insert(
+            "p".to_owned(),
+            ProcessEntry {
+                brand: BNP_BRAND,
+                status: ProcessStatus::Fetching,
+                window_label: "w".to_owned(),
+                created_at: Instant::now(),
+            },
+        );
+        manager.mark_done("p", "synthetic-session-state".to_owned());
+
+        let first = manager.get_status("p").unwrap();
+        assert_eq!(first.status, "DONE");
+        assert_eq!(
+            first.session_state.as_deref(),
+            Some("synthetic-session-state")
+        );
+
+        let second = manager.get_status("p").unwrap_err();
+        assert_eq!(second.status, StatusCode::GONE);
+        assert_eq!(second.detail, "AUTH_ATTEMPT_EXPIRED");
+        assert!(!manager.processes.lock().unwrap().contains_key("p"));
+
+        // An unclaimed Done entry past SNAPSHOT_CACHE_TTL is evicted without returning cookies.
+        if let Some(expired_at) = Instant::now().checked_sub(SNAPSHOT_CACHE_TTL + Duration::from_secs(1)) {
+            manager.processes.lock().unwrap().insert(
+                "stale".to_owned(),
+                ProcessEntry {
+                    brand: BNP_BRAND,
+                    status: ProcessStatus::Done {
+                        session_state: "stale-cookie-state".to_owned(),
+                        completed_at: expired_at,
+                    },
+                    window_label: "w2".to_owned(),
+                    created_at: expired_at,
+                },
+            );
+            let stale = manager.get_status("stale").unwrap_err();
+            assert_eq!(stale.status, StatusCode::GONE);
+            assert!(!manager.processes.lock().unwrap().contains_key("stale"));
+        }
     }
 
     #[test]
