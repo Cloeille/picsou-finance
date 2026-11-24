@@ -14,7 +14,7 @@ use crate::error::{AppError, AppResult};
 use crate::http::client_ip::ClientIp;
 use crate::identity::common::{audit, has_valid_proof, java_url_encode, log_safe, user_agent};
 use crate::setup_auth::audit::AuditContext;
-use crate::setup_auth::auth::{Invitation, RequestInfo, complete_invitation, issue_session};
+use crate::setup_auth::auth::{RequestInfo, complete_invitation_on, issue_session};
 use crate::setup_auth::settings;
 
 const COMPLETE_TARGET: &str = "/login/sso-complete?redirect=";
@@ -153,14 +153,14 @@ impl From<sqlx::Error> for LoginError {
     }
 }
 
-async fn linked_user_id(
-    state: &AppState,
+async fn linked_user_id<'e>(
+    db: impl DbExec<'e>,
     identity: &SsoIdentity,
 ) -> Result<Option<i64>, sqlx::Error> {
     crate::db::query_scalar("SELECT user_id FROM user_identity WHERE issuer = $1 AND subject = $2")
         .bind(&identity.issuer)
         .bind(&identity.subject)
-        .fetch_optional(&state.db)
+        .fetch_optional(db)
         .await
 }
 
@@ -175,7 +175,7 @@ async fn resolve_login(
     identity: &SsoIdentity,
     request: Request<'_>,
 ) -> Result<(AppUser, bool), LoginError> {
-    if let Some(user_id) = linked_user_id(state, identity).await? {
+    if let Some(user_id) = linked_user_id(&state.db, identity).await? {
         let user = users::find_by_id(&state.db, user_id)
             .await?
             .ok_or_else(|| LoginError::Internal("linked user vanished".into()))?;
@@ -333,19 +333,27 @@ async fn provision(
         .ok_or_else(|| LoginError::Internal("provisioned user vanished".into()))
 }
 
-async fn touch_login(state: &AppState, identity: &SsoIdentity) -> Result<(), sqlx::Error> {
+async fn touch_login_on<'e>(
+    db: impl DbExec<'e>,
+    identity: &SsoIdentity,
+    now: DateTime<Utc>,
+) -> Result<(), sqlx::Error> {
     crate::db::query(
         "UPDATE user_identity SET last_login_at = $3, email = $4, display_name = $5, updated_at = $3 \
          WHERE issuer = $1 AND subject = $2",
     )
     .bind(&identity.issuer)
     .bind(&identity.subject)
-    .bind(state.clock.now())
+    .bind(now)
     .bind(truncate(identity.email.as_deref(), MAX_EMAIL))
     .bind(truncate(identity.display_name.as_deref(), MAX_IDENTITY_NAME))
-    .execute(&state.db)
+    .execute(db)
     .await?;
     Ok(())
+}
+
+async fn touch_login(state: &AppState, identity: &SsoIdentity) -> Result<(), sqlx::Error> {
+    touch_login_on(&state.db, identity, state.clock.now()).await
 }
 
 /// SsoRoleSyncService.sync: the admin group decides the role; the last admin is never demoted.
@@ -444,7 +452,9 @@ async fn signed_in(
     if Some(user.id) != intent.user_id {
         return Err(Refused("REAUTH_WRONG_ACCOUNT"));
     }
-    let linked = linked_user_id(state, identity).await.map_err(internal)?;
+    let linked = linked_user_id(&state.db, identity)
+        .await
+        .map_err(internal)?;
     match intent.kind {
         Kind::Reauth => {
             if linked != Some(user.id) {
@@ -522,39 +532,60 @@ async fn activate(
     jar: &mut Cookies,
 ) -> Result<String, Refused> {
     let token = intent.activation_token.clone().unwrap_or_default();
-    let invited = users::find_by_activation_token(&state.db, &token, false)
+    let now = state.clock.now();
+    let mut tx = state.db.begin().await.map_err(internal)?;
+    let invited = users::find_by_activation_token(&mut tx, &token, true)
         .await
         .map_err(internal)?
         .filter(|u| !u.activated)
-        .filter(|u| {
-            u.activation_token_expires
-                .is_none_or(|e| e >= state.clock.now())
-        })
+        .filter(|u| u.activation_token_expires.is_none_or(|e| e >= now))
         .ok_or(Refused("ACTIVATION_INVALID"))?;
-    let linked = linked_user_id(state, identity).await.map_err(internal)?;
+    let linked = linked_user_id(&mut tx, identity).await.map_err(internal)?;
     if linked.is_some_and(|owner| owner != invited.id) {
         return Err(Refused("IDENTITY_IN_USE"));
     }
-    let ip = request.ip.as_java_string();
-    let ctx = AuditContext {
-        ip: &ip,
-        user_agent: user_agent(request.headers),
-    };
-    match complete_invitation(state, &token, "", &ctx)
+    complete_invitation_on(&mut tx.as_handle(), invited.id, "", now)
         .await
-        .map_err(internal)?
-    {
-        Invitation::Activated => {}
-        Invitation::Unknown | Invitation::Expired => return Err(Refused("ACTIVATION_INVALID")),
-    }
+        .map_err(internal)?;
     // Picsou's TOTP only protects a password, and an SSO-activated account has none.
-    disable_mfa(state, invited.id).await.map_err(internal)?;
-    link(state, invited.id, identity, linked).await?;
-    touch_login(state, identity).await.map_err(internal)?;
-    let mut user = users::find_by_id(&state.db, invited.id)
+    delete_mfa_on(&mut tx.as_handle(), invited.id)
+        .await
+        .map_err(internal)?;
+    match linked {
+        Some(_) => {
+            touch_login_on(&mut tx, identity, now)
+                .await
+                .map_err(internal)?;
+        }
+        None => {
+            if let Err(err) = insert_identity(&mut tx, invited.id, identity, Some(now)).await {
+                if crate::db::is_unique_violation(&err) {
+                    return Err(Refused("IDENTITY_IN_USE"));
+                }
+                return Err(internal(err));
+            }
+        }
+    }
+    let mut user = users::find_by_id(&mut tx, invited.id)
         .await
         .map_err(internal)?
         .ok_or(Refused("ACTIVATION_INVALID"))?;
+    tx.commit().await.map_err(internal)?;
+    if user.role == Role::Admin {
+        let ip = request.ip.as_java_string();
+        let ctx = AuditContext {
+            ip: &ip,
+            user_agent: user_agent(request.headers),
+        };
+        crate::setup_auth::audit::record(
+            state,
+            "admin.recovery.completed",
+            Some(&user.username),
+            &ctx,
+            None,
+        )
+        .await;
+    }
     sync_role(state, &mut user, identity.groups.as_deref(), request)
         .await
         .map_err(internal)?;
@@ -567,18 +598,23 @@ async fn activate(
     Ok(complete_target(&intent.redirect))
 }
 
-pub async fn disable_mfa(state: &AppState, user_id: i64) -> Result<(), sqlx::Error> {
-    let mut tx = state.db.begin().await?;
+async fn delete_mfa_on(tx: &mut crate::db::DbHandle<'_>, user_id: i64) -> Result<(), sqlx::Error> {
     crate::db::query(
         "DELETE FROM user_mfa_recovery_code WHERE user_mfa_id IN (SELECT id FROM user_mfa WHERE user_id = $1)",
     )
     .bind(user_id)
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     crate::db::query("DELETE FROM user_mfa WHERE user_id = $1")
         .bind(user_id)
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
+    Ok(())
+}
+
+pub async fn disable_mfa(state: &AppState, user_id: i64) -> Result<(), sqlx::Error> {
+    let mut tx = state.db.begin().await?;
+    delete_mfa_on(&mut tx.as_handle(), user_id).await?;
     tx.commit().await
 }
 

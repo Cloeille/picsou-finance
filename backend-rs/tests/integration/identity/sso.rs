@@ -621,6 +621,109 @@ async fn activation_binds_the_invitation_and_leaves_no_password() {
     assert_eq!(owner, invited);
 }
 
+async fn install_abort_insert_trigger(db: &picsou::db::Db, table: &str, name: &str) {
+    match db {
+        picsou::db::Db::Postgres(pool) => {
+            let fn_name = format!("{name}_fn");
+            sqlx::raw_sql(&format!(
+                "CREATE OR REPLACE FUNCTION {fn_name}() RETURNS trigger AS $$ \
+                 BEGIN RAISE EXCEPTION 'injected failure'; END; \
+                 $$ LANGUAGE plpgsql; \
+                 CREATE TRIGGER {name} BEFORE INSERT ON {table} \
+                 FOR EACH ROW EXECUTE FUNCTION {fn_name}();"
+            ))
+            .execute(pool)
+            .await
+            .expect("install pg trigger");
+        }
+        picsou::db::Db::Sqlite(sq) => {
+            let sql = format!(
+                "CREATE TRIGGER {name} BEFORE INSERT ON {table} \
+                 BEGIN SELECT RAISE(ABORT, 'injected failure'); END;"
+            );
+            sq.with_conn(move |conn| {
+                conn.execute_batch(&sql)?;
+                Ok(())
+            })
+            .expect("install sqlite trigger");
+        }
+    }
+}
+
+async fn drop_trigger(db: &picsou::db::Db, table: &str, name: &str) {
+    match db {
+        picsou::db::Db::Postgres(pool) => {
+            let fn_name = format!("{name}_fn");
+            sqlx::raw_sql(&format!(
+                "DROP TRIGGER IF EXISTS {name} ON {table}; \
+                 DROP FUNCTION IF EXISTS {fn_name}();"
+            ))
+            .execute(pool)
+            .await
+            .expect("drop pg trigger");
+        }
+        picsou::db::Db::Sqlite(sq) => {
+            let sql = format!("DROP TRIGGER IF EXISTS {name};");
+            sq.with_conn(move |conn| {
+                conn.execute_batch(&sql)?;
+                Ok(())
+            })
+            .expect("drop sqlite trigger");
+        }
+    }
+}
+
+#[tokio::test]
+async fn activation_rolls_back_the_invitation_when_linking_the_identity_fails() {
+    let sso = Sso::ready().await;
+    let invited = sso.local_user("invited-atomic").await;
+    picsou::db::query(
+        "UPDATE app_user SET is_activated = false, activation_token = 'atomic-invite-token', \
+         activation_token_expires = $2 WHERE id = $1",
+    )
+    .bind(invited)
+    .bind(sso.app.clock.now_utc() + Duration::minutes(5))
+    .execute(&sso.app.state.db)
+    .await
+    .unwrap();
+
+    install_abort_insert_trigger(&sso.app.state.db, "user_identity", "abort_identity_insert").await;
+
+    let failed = sso
+        .login(
+            &sso.app.client(),
+            "activate",
+            &[("token", "atomic-invite-token"), ("ack", "1")],
+            "atomic-sub",
+            false,
+        )
+        .await;
+    assert_eq!(
+        sso.path(&failed),
+        "/activate/atomic-invite-token?ssoError=IDP_ERROR"
+    );
+
+    drop_trigger(&sso.app.state.db, "user_identity", "abort_identity_insert").await;
+
+    // Because linking failed, the invitation must still be unconsumed and usable on retry.
+    let retry_browser = sso.app.client();
+    let retried = sso
+        .login(
+            &retry_browser,
+            "activate",
+            &[("token", "atomic-invite-token"), ("ack", "1")],
+            "atomic-sub",
+            false,
+        )
+        .await;
+    assert!(
+        sso.path(&retried).starts_with("/login/sso-complete?"),
+        "expected retry to succeed, got {}",
+        sso.path(&retried)
+    );
+    assert_eq!(sso.identities(invited).await, 1);
+}
+
 #[tokio::test]
 async fn the_handshake_is_post_only_single_use_and_same_site() {
     let sso = Sso::ready().await;

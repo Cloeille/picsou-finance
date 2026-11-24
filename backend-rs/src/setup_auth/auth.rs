@@ -15,6 +15,7 @@ use crate::AppState;
 use crate::auth::cookies::{self, Cookies};
 use crate::auth::jwt::{Claims, TokenType};
 use crate::auth::{AppUser, Auth, Role, SsoRevalidate, password, persistent, users};
+use crate::db::AsDbHandle;
 use crate::error::{AppError, AppResult, Problem};
 use crate::http::client_ip::{ClientIp, RequestOrigin};
 use crate::http::json::{Errors, Json, Path, Validate, null_as_false};
@@ -731,6 +732,32 @@ pub enum Invitation {
     Expired,
 }
 
+/// Applies the invitation activation writes on an open transaction so callers that bundle
+/// additional mutations (such as SSO identity binding) commit or roll back atomically.
+pub async fn complete_invitation_on(
+    tx: &mut crate::db::DbHandle<'_>,
+    user_id: i64,
+    hash: &str,
+    now: DateTime<Utc>,
+) -> Result<(), sqlx::Error> {
+    crate::db::query(
+        "UPDATE app_user SET password_hash = $1, activation_token = NULL, activation_token_expires = NULL, \
+         is_activated = true, acknowledged_warning = true, token_version = token_version + 1, updated_at = now() WHERE id = $2",
+    )
+    .bind(hash)
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await?;
+    crate::db::query(
+        "UPDATE persistent_session SET revoked_at = $1 WHERE user_id = $2 AND revoked_at IS NULL",
+    )
+    .bind(now)
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
 /// ActivationService.completeInvitation: checks the token again on the locked row.
 pub async fn complete_invitation(
     state: &AppState,
@@ -748,21 +775,7 @@ pub async fn complete_invitation(
     {
         return Ok(Invitation::Expired);
     }
-    crate::db::query(
-        "UPDATE app_user SET password_hash = $1, activation_token = NULL, activation_token_expires = NULL, \
-         is_activated = true, acknowledged_warning = true, token_version = token_version + 1, updated_at = now() WHERE id = $2",
-    )
-    .bind(hash)
-    .bind(user.id)
-    .execute(&mut tx)
-    .await?;
-    crate::db::query(
-        "UPDATE persistent_session SET revoked_at = $1 WHERE user_id = $2 AND revoked_at IS NULL",
-    )
-    .bind(state.clock.now())
-    .bind(user.id)
-    .execute(&mut tx)
-    .await?;
+    complete_invitation_on(&mut tx.as_handle(), user.id, hash, state.clock.now()).await?;
     tx.commit().await?;
     if user.role == Role::Admin {
         audit::record(
