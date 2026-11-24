@@ -498,6 +498,35 @@ async fn solana_keeps_known_tokens_and_skips_unknown_mints_and_corrupt_amounts()
 }
 
 #[tokio::test]
+async fn solana_aggregates_multiple_token_accounts_for_the_same_mint() {
+    let h = Harness::new().await;
+    solana(
+        &h,
+        json!([
+            spl("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", json!("100")),
+            spl("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", json!("25")),
+            spl("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", json!("50")),
+        ]),
+    )
+    .await;
+    h.prices(&[("SOL", "100"), ("USDC", "0.9"), ("USDT", "1")]);
+
+    let response = h.add("SOLANA", SOL_ADDRESS, None).await;
+    assert_eq!(response.status, StatusCode::OK, "{}", response.text());
+    let account = response.json();
+    assert_eq!(account["currentBalance"], num("260.00"));
+    let id = account["id"].as_i64().unwrap();
+    assert_eq!(
+        h.holdings(id).await,
+        vec![
+            ("SOL".into(), d("1")),
+            ("USDC".into(), d("150")),
+            ("USDT".into(), d("25")),
+        ]
+    );
+}
+
+#[tokio::test]
 async fn a_solana_token_rpc_error_fails_the_whole_sync() {
     let h = Harness::new().await;
     Mock::given(method("POST"))

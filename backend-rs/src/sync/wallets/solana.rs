@@ -55,8 +55,9 @@ async fn fetch_sol(state: &AppState, address: &str) -> Result<WalletBalance, Wal
     ))
 }
 
-/// One balance per non-zero, recognised SPL token account. A corrupt amount skips that token
-/// rather than hiding SOL and every other token.
+/// One balance per non-zero, recognised SPL token symbol (multiple token accounts of the same
+/// mint are summed). A corrupt amount skips that token account rather than hiding SOL and every
+/// other token.
 async fn fetch_spl_tokens(
     state: &AppState,
     address: &str,
@@ -81,7 +82,7 @@ async fn fetch_spl_tokens(
         tracing::warn!("Solana getTokenAccountsByOwner returned a non-array 'value'");
         return Ok(Vec::new());
     };
-    let mut tokens = Vec::new();
+    let mut tokens: Vec<WalletBalance> = Vec::new();
     for account in accounts {
         let info = account
             .get("account")
@@ -104,7 +105,10 @@ async fn fetch_spl_tokens(
         if amount <= Decimal::ZERO {
             continue;
         }
-        tokens.push(WalletBalance::new(symbol, amount));
+        match tokens.iter_mut().find(|t| t.symbol == symbol) {
+            Some(existing) => existing.amount += amount,
+            None => tokens.push(WalletBalance::new(symbol, amount)),
+        }
     }
     Ok(tokens)
 }
