@@ -222,3 +222,56 @@ async fn sheet_names_are_deduplicated_and_an_empty_member_still_gets_both_fixed_
             .any(|row| row.first().is_some_and(|c| c.contains("No debt recorded")))
     );
 }
+
+#[tokio::test]
+async fn sheet_names_with_apostrophes_and_duplicate_labels_export_without_error() {
+    use picsou::ledger::accounts::{self, NewAccount};
+
+    let app = TestApp::with_admin().await;
+    let client = app.login_admin().await;
+    let member = admin_member(&app).await;
+    let now = super::support::now();
+
+    let mut ids = Vec::new();
+    for name in [
+        "Caisse d'Epargne''",
+        ":'Livret':",
+        "'''",
+        "Caisse d'Epargne''",
+    ] {
+        let mut draft = NewAccount::new(member, name, AccountType::Checking);
+        draft.is_manual = true;
+        ids.push(
+            accounts::insert(&app.state.db, &draft, now)
+                .await
+                .unwrap()
+                .id,
+        );
+    }
+
+    let r = export(
+        &client,
+        json!({
+            "accountIds": ids,
+            "labels": {"summarySheet": "Bilan", "debtSheet": "Bilan"},
+        }),
+    )
+    .await;
+    assert_eq!(
+        r.status, 200,
+        "export must not 500 on apostrophes or duplicate fixed labels"
+    );
+    let book = cells(&r.body);
+    let names: Vec<&str> = book.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(
+        names,
+        vec![
+            "Bilan",
+            "Bilan (2)",
+            "Caisse d'Epargne",
+            "Livret",
+            &format!("Account {}", ids[2]),
+            "Caisse d'Epargne (2)",
+        ]
+    );
+}

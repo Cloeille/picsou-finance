@@ -510,13 +510,27 @@ fn holding_row(
     }
 }
 
-/// WorkbookUtil.createSafeSheetName: at most 31 characters, the forbidden ones replaced by a
-/// space, an apostrophe at either end too.
+fn truncate_utf16(s: &str, max_units: usize) -> String {
+    let mut units = 0;
+    s.chars()
+        .take_while(|c| {
+            units += c.len_utf16();
+            units <= max_units
+        })
+        .collect()
+}
+
+/// WorkbookUtil.createSafeSheetName: at most 31 UTF-16 code units, the forbidden ones replaced by
+/// a space, an apostrophe at either end too.
 fn create_safe_sheet_name(name: &str) -> String {
     if name.is_empty() {
         return "empty".into();
     }
-    let chars: Vec<char> = name.chars().take(MAX_SHEET_NAME).collect();
+    let truncated = truncate_utf16(name, MAX_SHEET_NAME);
+    let chars: Vec<char> = truncated.chars().collect();
+    if chars.is_empty() {
+        return "empty".into();
+    }
     let last = chars.len() - 1;
     chars
         .iter()
@@ -529,17 +543,35 @@ fn create_safe_sheet_name(name: &str) -> String {
         .collect()
 }
 
+fn strip_sheet_edges(s: &str) -> &str {
+    s.trim_matches(|c: char| c <= ' ' || c == '\'')
+}
+
 fn safe_name(raw: Option<&str>, fallback: &str) -> String {
-    let mut candidate = java_trim(raw.unwrap_or_default()).to_owned();
-    if candidate.is_empty() {
-        candidate = fallback.to_owned();
+    for input in [raw.unwrap_or_default(), fallback, "Sheet"] {
+        let trimmed = java_trim(input);
+        if trimmed.is_empty() {
+            continue;
+        }
+        let candidate = create_safe_sheet_name(trimmed);
+        let safe = strip_sheet_edges(&candidate);
+        if !safe.is_empty() {
+            return safe.to_owned();
+        }
     }
-    let safe = java_trim(&create_safe_sheet_name(&candidate)).to_owned();
-    if safe.is_empty() {
-        create_safe_sheet_name(fallback)
-    } else {
-        safe
+    "Sheet".to_owned()
+}
+
+fn dedupe_sheet_name(base: &str, used: &mut HashSet<String>) -> String {
+    let mut candidate = base.to_owned();
+    let mut suffix = 2usize;
+    while !used.insert(candidate.to_lowercase()) {
+        let tail = format!(" ({suffix})");
+        suffix += 1;
+        let keep = MAX_SHEET_NAME.saturating_sub(tail.encode_utf16().count());
+        candidate = truncate_utf16(base, keep) + &tail;
     }
+    candidate
 }
 
 fn unique_sheet_name(
@@ -549,18 +581,7 @@ fn unique_sheet_name(
 ) -> String {
     let fallback = format!("{} {}", labels.get(L::AccountFallbackName), account.id);
     let base = safe_name(Some(&account.name), &fallback);
-    let mut candidate = base.clone();
-    let mut suffix = 2;
-    while !used.insert(candidate.to_lowercase()) {
-        let tail = format!(" ({suffix})");
-        suffix += 1;
-        let keep = base
-            .chars()
-            .count()
-            .min(MAX_SHEET_NAME - tail.chars().count());
-        candidate = base.chars().take(keep).collect::<String>() + &tail;
-    }
-    candidate
+    dedupe_sheet_name(&base, used)
 }
 
 /// POI's setColumnWidth(first * 256) on column 0 and (18 * 256) on columns 1..=rest.
@@ -600,8 +621,15 @@ fn write(
     let zone = state.clock.zone();
     let mut workbook = Workbook::new();
 
-    let summary_name = safe_name(Some(labels.get(L::SummarySheet)), "Summary");
-    let debt_name = safe_name(Some(labels.get(L::DebtSheet)), "Debts");
+    let mut used = HashSet::new();
+    let summary_name = dedupe_sheet_name(
+        &safe_name(Some(labels.get(L::SummarySheet)), "Summary"),
+        &mut used,
+    );
+    let debt_name = dedupe_sheet_name(
+        &safe_name(Some(labels.get(L::DebtSheet)), "Debts"),
+        &mut used,
+    );
     {
         let sheet = workbook.add_worksheet();
         sheet.set_name(&summary_name)?;
@@ -641,7 +669,6 @@ fn write(
         set_widths(sheet, 30, 14)?;
         write_debt_sheet(&mut Cursor::new(sheet, &styles, zone), labels, debts)?;
     }
-    let mut used: HashSet<String> = [summary_name.to_lowercase(), debt_name.to_lowercase()].into();
     for d in data {
         let name = unique_sheet_name(&d.account, labels, &mut used);
         let sheet = workbook.add_worksheet();
@@ -1182,5 +1209,17 @@ mod tests {
         assert_eq!(create_safe_sheet_name("'quoted' inside"), " quoted' inside");
         assert_eq!(safe_name(Some("  "), "Account 7"), "Account 7");
         assert_eq!(create_safe_sheet_name(&"x".repeat(40)).len(), 31);
+        assert_eq!(
+            safe_name(Some("Caisse d'Epargne''"), "Account 1"),
+            "Caisse d'Epargne"
+        );
+        assert_eq!(safe_name(Some(":'Livret':"), "Account 1"), "Livret");
+        assert_eq!(safe_name(Some("'''"), "Account 1"), "Account 1");
+        assert_eq!(
+            safe_name(Some(&"🏦".repeat(20)), "Account 1")
+                .encode_utf16()
+                .count(),
+            30
+        );
     }
 }
