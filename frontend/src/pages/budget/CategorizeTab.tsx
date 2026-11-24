@@ -468,6 +468,11 @@ export function CategorizeTab() {
                   <span>{t('budget.categorize.recategorize')}</span>
                 </DropdownMenuItem>
 
+                <DropdownMenuItem onSelect={() => navigate('/budget/settings#rules')}>
+                  <SlidersHorizontal className="size-4" aria-hidden="true" />
+                  <span>{t('budget.categorize.manageRules')}</span>
+                </DropdownMenuItem>
+
                 {isAdmin && isAdvancedMode && (
                   <>
                     <DropdownMenuSeparator />

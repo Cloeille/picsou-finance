@@ -83,8 +83,8 @@ function openAutomateMenu() {
 }
 
 function LocationProbe() {
-  const { pathname, search } = useLocation()
-  return <div data-testid="location">{`${pathname}${search}`}</div>
+  const { pathname, search, hash } = useLocation()
+  return <div data-testid="location">{`${pathname}${search}${hash}`}</div>
 }
 
 function renderTab() {
@@ -100,6 +100,7 @@ function renderTabWithRoutes() {
     <MemoryRouter initialEntries={['/budget/review']}>
       <Routes>
         <Route path="/budget/review" element={<CategorizeTab />} />
+        <Route path="/budget/settings" element={<LocationProbe />} />
         <Route path="/admin" element={<LocationProbe />} />
       </Routes>
     </MemoryRouter>,
@@ -272,5 +273,35 @@ describe('CategorizeTab — Desktop advanced mode prompt', () => {
 
     expect(await screen.findByRole('menuitem', { name: 'budget.categorize.recategorize' })).toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: /budget\.categorize\.enableAdvancedMode/ })).not.toBeInTheDocument()
+  })
+})
+
+describe('CategorizeTab — Manage rules shortcut', () => {
+  beforeEach(() => {
+    useAuthStore.setState({
+      user: { username: 'sam', role: 'MEMBER', memberId: 2, displayName: 'Sam' },
+      isAuthenticated: true,
+    })
+    useAppStore.setState({ desktopMode: false, advancedMode: false })
+    state.settings = { aiCategorizationEnabled: false }
+    state.adminSettings = { ai: { provider: 'none' } }
+    state.txs = [tx()]
+    state.categories = [TRANSPORT]
+    state.aiData = null
+  })
+
+  it('places Manage rules right after Recategorize for every member and navigates to /budget/settings#rules', async () => {
+    renderTabWithRoutes()
+    openAutomateMenu()
+
+    const items = await screen.findAllByRole('menuitem')
+    expect(items.map((el) => el.textContent)).toEqual([
+      'budget.categorize.recategorize',
+      'budget.categorize.manageRules',
+    ])
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'budget.categorize.manageRules' }))
+
+    expect(await screen.findByTestId('location')).toHaveTextContent('/budget/settings#rules')
   })
 })
