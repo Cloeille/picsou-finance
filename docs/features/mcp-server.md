@@ -1,6 +1,6 @@
 # Feature: Embedded MCP server + scoped access-keys
 
-> Last updated: 2026-11-01
+> Last updated: 2026-11-24
 
 ## Context
 
@@ -227,6 +227,11 @@ sessions/credentials as the documented side effect of deleting a connection's la
 | Per-key + per-member **in-memory Bucket4j** throttles | Single-instance self-host; matches the existing `RateLimitConfig` pattern | Distributed rate store (unwarranted for a self-hosted single instance) |
 
 ## Gotchas / Pitfalls
+
+- **Limits of the Rust server.** One user keeps at most 16 legacy SSE sessions: a 17th evicts
+  the oldest. Each session buffers at most 64 outbound messages; a client that stops reading is
+  evicted and its next message answers `503`. Each `tools/call` has 30 s, as the Java request
+  timeout gave it; past that the call returns a tool result with `isError: true`.
 
 - **Streamable responses need authentication on async dispatch.** `AccessKeyAuthFilter` saves
   the access-key or MCP-JWT principal in `RequestAttributeSecurityContextRepository`, which the

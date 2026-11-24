@@ -1,6 +1,6 @@
 # Feature: Optional AI transaction categorization
 
-> Last updated: 2026-11-01
+> Last updated: 2026-11-24
 
 ## Context
 
@@ -127,6 +127,10 @@ served by `GET /api/admin/ai-calls` (admin-only).
 | Suggestion stored on the transaction | Inbox renders without re-running inference each load | Recompute on every inbox load |
 
 ## Gotchas / Pitfalls
+
+- **Provider calls never follow a redirect.** The HTTP client of the AI providers has redirects
+  off, so a `3xx` to another host cannot carry `x-api-key` or `Authorization` there; it fails the
+  call instead.
 
 - **Never inline in sync.** `autoCategorize` runs per-transaction during import and must stay
   offline/fast — the LLM only runs in the separate background job.
