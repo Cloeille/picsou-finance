@@ -117,19 +117,19 @@ The page is untrusted input, and the bytes end up served from Picsou's own origi
   page or on an image is `FAILED`, not an empty answer: a redirect to `consent.yahoo.com` or to a
   normalised URL says nothing about the mark.
 
-The client raises Reactor Netty's response-header limit to 64 KB. The quote page answers with
-more than the default 8 KB of headers, and the first live run failed every lookup on it; the
-fixtures cannot show this, so it is pinned here rather than in a test.
+The resolver has its own HTTP client, the only difference from the shared one being that it
+follows no redirect. The quote page answers with more than 8 KB of response headers, which the
+client accepts as it is.
 
 A refused image is a permanent miss (`ABSENT`) only when the refusal is about the mark itself: an
-SVG, or an image over 256 KB. "An image" means bytes with a PNG, JPEG or WebP signature; a body
-over the 4 MB read cap is never read, so there it means a declared `image/*` type. A 404 on the
-page or the image is `ABSENT` too. A response that is not an image at all (an HTML error or
-anti-bot page served with a 200, whatever its size, an empty body) says nothing about the mark,
-and is `FAILED`, like everything else that goes wrong upstream: 5xx, 3xx, timeout, a connection
-cut mid-body, a Content-Type the codecs cannot parse, and a page over its 4 MB cap (the page's
-size is Yahoo's layout, the same for every ticker). The rule behind all of these: a CDN or layout
-quirk must never settle a ticker, because it would settle every ticker at once.
+SVG, or an image over 256 KB. "An image" means bytes with a PNG, JPEG or WebP signature: a
+download stops one byte past the cap, which is enough to read the signature and to know the file
+is too large. A 404 on the page or the image is `ABSENT` too. A response that is not an image at
+all (an HTML error or anti-bot page served with a 200, whatever its size, an empty body) says
+nothing about the mark, and is `FAILED`, like everything else that goes wrong upstream: 5xx, 3xx,
+timeout, a connection cut mid-body, and a page over its 4 MB cap (the page's size is Yahoo's
+layout, the same for every ticker). The rule behind all of these: a CDN or layout quirk must never
+settle a ticker, because it would settle every ticker at once.
 
 A 404 on the quote page stays `ABSENT`: it is what Yahoo answers for a delisted or unknown symbol,
 and nothing observed so far shows Yahoo answering 404 transiently for a symbol it quotes.
@@ -164,17 +164,20 @@ row.
 
 ### When it runs
 
-Never on a render. `SchedulerService.refreshPrices` (hourly, and once at boot) calls
-`InstrumentLogoService.requestResolution()` **after** it has refreshed the prices. That queues
-one pass on a single background thread and returns immediately; a pass already in flight
-absorbs the request.
+Never on a render. `jobs::scheduler::refresh_prices` (hourly, and once at boot) runs
+`InstrumentLogos::resolve_pending` (`market/instrument_logos.rs`) **after** it has refreshed the
+prices, in the price job's own task: no request waits on it, and two passes cannot overlap. A pass
+that fails is logged and leaves the price job a success.
+
+No transaction is open while Yahoo is asked: each answer is one `INSERT ... ON CONFLICT` written
+after its requests, so a pass never holds SQLite's single writer across the network.
 
 A pass looks up at most 10 tickers that are:
 
 1. held in a live, non-`CRYPTO` account;
-2. accepted by `InstrumentLogoPort.supports`: a Yahoo-quotable symbol that CoinGecko does not
-   claim (the same split `CompositePriceProvider` prices by), so coins, ISINs and contract
-   addresses never cost a request;
+2. a Yahoo-quotable symbol (`YahooFinance::supports`) that the crypto registry does not claim,
+   the same split the price service prices by, so coins, ISINs and contract addresses never cost
+   a request;
 3. **priced at least once** (`price_snapshot` has a row). This is the request-free proof that
    the ticker is a real quoted symbol rather than a fund code or a cash line, and it is what ties
    the logo pass to the price pass: a new ticker becomes a candidate the moment the price pass
@@ -195,14 +198,14 @@ retried, which is what stops a ticker with no mark from being fetched on every p
 Yahoo had no 429 cooldown before this. `YahooCooldown` is that cooldown, deliberately
 asymmetric:
 
-- the **price path arms it** on a 429 (`YahooFinancePriceProvider.getPricesEur`) and never reads
-  it, so prices behave exactly as before;
+- the **price path arms it** on a 429 (`market/yahoo.rs`) and never reads it, so prices behave
+  exactly as before;
 - the **logo path reads it** before every lookup and arms it on a 429 or a 5xx.
 
 So a pass that meets a 429 stops, records nothing for that ticker (it was not really asked, so
 it stays first in line) and leaves the rest for a later pass. A 5xx or a timeout records the
 ticker as `FAILED` and also stops the pass. The pause is the server's `Retry-After` when sane,
-60s otherwise, capped at 15 minutes, as in `CoinGeckoPriceProvider`. Lookups are 500 ms apart.
+60s otherwise, capped at 15 minutes, as for CoinGecko. Lookups are 500 ms apart.
 
 ### Serving
 
@@ -233,10 +236,8 @@ Every failure mode is decoration-only: `logoUrl` is null and the ticker stands.
 - **Yahoo page or image unavailable**: the pass stops; the ticker is `FAILED` (5xx, 3xx,
   timeout, cut or unreadable body, a page that does not quote the symbol) or untouched (429),
   and the read path keeps showing the ticker.
-- **A bug in the logo adapter**: the lookup throws, the pass logs it at error level, records the
-  ticker as `FAILED` and goes on with the next one. Left unrecorded, the same ticker would head
-  the sorted batch every hour and starve every ticker after it. It never reaches a page render
-  or the price pass.
+- **The database refuses a write of the pass**: the pass stops and logs it at error level. It
+  never reaches a page render, and the price job that ran it still succeeded.
 - **Image 404s in the browser**: `HoldingLogo` drops the `src` and shows the fallback disc. Radix
   keeps a failed image mounted, so without that reset one failed request would leave the mark
   blank for the rest of the session.
@@ -245,33 +246,28 @@ Every failure mode is decoration-only: `logoUrl` is null and the ticker stands.
 
 - `CoinGeckoPriceProviderTest`, `CryptoLogoServiceTest`, `LogoProviderWiringTest`: the crypto
   path, as in #163.
-- `YahooQuotePageParserTest`: trimmed fixtures (`src/test/resources/yahoo/`) of the AAPL and
-  IWDA.AS pages. The right company's mark when another company's logo comes first, an ETF with
-  an exchange suffix, marked / unmarked / refused / not quoted (an unknown symbol, JSON quoting
-  only other symbols, a page with no JSON blocks, a recommendations-only object for the symbol, a
-  quote without a logo on a page with no usable mark, the real page with `logoUrl` renamed),
-  off-host and look-alike URLs.
-- `YahooQuotePageLogoProviderTest`: both variants downloaded, 429 arming the cooldown from
-  `Retry-After` and recording nothing, no request while cooling down, 5xx stopping the next
-  lookup, 404 and an unmarked quote as permanent misses, a consent page, other-symbols-only JSON,
-  a recommendations-only object, a quote without a logo on a page with no usable mark, an
-  off-host logo URL, a 3xx on the page or the image, a cut body, a malformed Content-Type and a
-  page over its cap as retryable, SVG and an oversized image refused, an image without a type, as
-  `octet-stream`, `text/plain`, `text/html` or the wrong image type stored by its signature, an
-  HTML body of any size (under the image cap, over it, over the read cap) on an image (light or
-  dark) as retryable, a dark variant Yahoo lacks keeping the
-  light one, a 429 or 503 on the dark variant failing the whole lookup, coins and ISINs never
-  reaching the network, and the price path arming the cooldown on a 429 but never waiting on it.
-- `InstrumentLogoServiceTest`: candidate selection (crypto accounts, unsupported, unpriced,
-  settled, the cap), what each outcome records, a 429 or 5xx stopping the pass, a throwing
-  lookup recorded as `FAILED` without stopping the pass, the
-  single-flight trigger and the switch, URLs only for stored rows, the dark fallback.
-- `InstrumentLogoRepositoryTest` (H2): the settled-ticker query (an old `ABSENT` stays settled,
-  an old `FAILED` comes due again), the byte-free projection, the priced-ticker query.
-- `InstrumentLogoControllerTest` (web slice with the real `SecurityConfig`): 401 for an
-  anonymous caller, the cache headers and ETag, a 304 on revalidation, the dark variant, 404.
-- `InstrumentLogoWiringTest`: the price provider's constructor choice and the port seam.
-- `SchedulerServiceTest`: logos are queued after the prices, even when the price refresh fails.
+- `market/quote_page.rs` (unit): trimmed fixtures
+  (`backend-rs/tests/integration/market/fixtures/yahoo/`) of the AAPL and IWDA.AS pages. The right
+  company's mark when another company's logo comes first, an ETF with an exchange suffix, marked /
+  unmarked / refused / not quoted (an unknown symbol, JSON quoting only other symbols, a page with
+  no JSON blocks, a recommendations-only object for the symbol, a quote without a logo on a page
+  with no usable mark, the real page with `logoUrl` renamed), off-host and look-alike URLs.
+- `market/instrument_logos.rs` (unit): an image is stored by its signature whatever its declared
+  type, an SVG or an oversized image is a permanent miss, a body that is not an image is not.
+- `tests/integration/market/instrument_logos.rs`, on both engines, with the quote page and the
+  image host stubbed. One lookup: both variants downloaded, 429 arming the cooldown from
+  `Retry-After`, no request while cooling down, 5xx stopping the next lookup, 404 and an unmarked
+  quote as permanent misses, a consent page, other-symbols-only JSON, a recommendations-only
+  object, a quote without a logo on a page with no usable mark, an off-host logo URL, a 3xx on the
+  page or the image and a page over its cap as retryable, a dark variant Yahoo lacks keeping the
+  light one, a 429 or 503 on the dark variant failing the whole lookup. The pass: candidate
+  selection (crypto accounts, coins, ISINs, unpriced, settled, the seven-day retry, the cap), what
+  each outcome records, a 429 or 5xx stopping the pass, a `FAILED` row updated in place when its
+  retry succeeds, the stored mark served by `GET /api/instrument-logos/{ticker}`. The hourly job:
+  a ticker priced for the first time gets its logo in the same run, and nothing is asked with
+  `INSTRUMENT_LOGOS_ENABLED=false`.
+- `tests/integration/accounts/holdings.rs`: the cache headers and ETag, a 304 on revalidation, the
+  dark variant, 404, and the URLs a holding carries.
 - `V107InstrumentLogoMigrationTest` (Testcontainers): the migration applies on the full chain
   and its CHECK and UNIQUE constraints hold.
 - `AccountServiceTest`: a crypto holding carries its CoinGecko logo, a share its stored URLs,

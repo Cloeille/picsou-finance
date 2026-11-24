@@ -211,7 +211,21 @@ pub async fn refresh_prices(state: &AppState) -> AppResult<()> {
     if !other_tickers.is_empty() {
         prices.refresh_prices(&other_tickers).await;
     }
+    // After the prices, never before: a ticker becomes a logo candidate only once this pass has
+    // recorded a price for it.
+    resolve_instrument_logos(state).await;
     Ok(())
+}
+
+/// The logo pass that follows the price pass (INSTRUMENT_LOGOS_ENABLED=false switches it off).
+/// Its failure is its own: it is logged, and the price job still succeeded.
+async fn resolve_instrument_logos(state: &AppState) {
+    if !state.config.instrument_logos_enabled {
+        return;
+    }
+    if let Err(e) = state.market.instrument_logos().resolve_pending().await {
+        tracing::error!("Instrument logo pass failed: {e}");
+    }
 }
 
 /// Weekly on Sunday at 03:45: refresh stale security_profile rows (capped at 40 per pass).

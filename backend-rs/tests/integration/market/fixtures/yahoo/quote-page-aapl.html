@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<!-- Trimmed from finance.yahoo.com/quote/AAPL/ (2026-10). Only the structure the parser reads is
+     kept: a trending-tickers block whose first logo belongs to ANOTHER company, a quote block in a
+     SvelteKit envelope whose body is an escaped JSON string, and noise around them. -->
+<html lang="en-US">
+<head>
+<script>window.finNeoPageStart = Date.now();</script>
+<script type="application/json" id="fin-trending-tickers">[{"fullExchangeName":"NYSE","symbol":"VST","logoUrlDarkMode":"https://s.yimg.com/lo/mysterio/api/178f/finance/resizefill_w150_h150/https://s.yimg.com/lg/logos/US92840M1027/dark/17f46449.png","logoUrl":"https://s.yimg.com/lo/mysterio/api/2a1b/finance/resizefill_w150_h150/https://s.yimg.com/lg/logos/US92840M1027/light/17f46449.png"}]</script>
+<script type="application/json" data-sveltekit-fetched data-url="/xhr/config?name=broken" data-ttl="0">{"status":200,"body":"{not json"</script>
+</head>
+<body>
+<script type="application/json" data-sveltekit-fetched data-url="https://query1.finance.yahoo.com/v6/finance/recommendationsbysymbol/AAPL?fields=&amp;lang=en-US" data-ttl="60">{"status":200,"statusText":"","headers":{"cache-control":"public, max-age=60"},"body":"{\"finance\":{\"result\":[{\"symbol\":\"AAPL\",\"recommendedSymbols\":[{\"symbol\":\"MSFT\",\"score\":0.25}]}],\"error\":null}}"}</script>
+<script type="application/json" data-sveltekit-fetched data-url="https://query1.finance.yahoo.com/v7/finance/quote?symbols=AAPL%2CMSFT&amp;lang=en-US" data-ttl="60">{"status":200,"statusText":"","headers":{"cache-control":"public, max-age=60"},"body":"{\"quoteResponse\":{\"result\":[{\"symbol\":\"MSFT\",\"logoUrl\":\"https://s.yimg.com/lo/mysterio/api/9f9f/finance/resizefill_w50_h50/https://s.yimg.com/lg/logos/US5949181045/light/1df62491.png\"},{\"symbol\":\"AAPL\",\"logoUrlDarkMode\":\"https://s.yimg.com/lo/mysterio/api/402d/finance/resizefill_w50_h50/https://s.yimg.com/lg/logos/US0378331005/dark/fabb0b30.png\",\"quoteType\":\"EQUITY\",\"regularMarketPrice\":{\"raw\":255.3,\"fmt\":\"255.30\"},\"logoUrl\":\"https://s.yimg.com/lo/mysterio/api/5dee/finance/resizefill_w50_h50/https://s.yimg.com/lg/logos/US0378331005/light/2e23b039.png\"}],\"error\":null}}"}</script>
+<script>(function(){window.YAHOO=window.YAHOO||{};})();</script>
+</body>
+</html>

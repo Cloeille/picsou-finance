@@ -6,12 +6,14 @@ pub mod coingecko;
 pub mod cooldown;
 pub mod geocoding;
 pub mod insee;
+pub mod instrument_logos;
 pub mod justetf;
 pub mod metals;
 pub mod nasdaq;
 pub mod num;
 pub mod openfigi;
 pub mod prices;
+pub mod quote_page;
 pub mod runners;
 pub mod yahoo;
 
@@ -29,6 +31,7 @@ use self::cerema::CeremaDv3f;
 use self::coingecko::CoinGecko;
 use self::cooldown::YahooCooldown;
 use self::insee::InseeBdm;
+use self::instrument_logos::InstrumentLogos;
 use self::justetf::JustEtf;
 use self::metals::PreciousMetals;
 use self::openfigi::OpenFigi;
@@ -64,6 +67,7 @@ pub struct Market {
     cooldown: Arc<YahooCooldown>,
     yahoo: Arc<YahooFinance>,
     coingecko: Arc<CoinGecko>,
+    instrument_logos: Arc<InstrumentLogos>,
 }
 
 impl Market {
@@ -105,6 +109,19 @@ impl Market {
             &config.insee_api_url,
             clock.clone(),
         ));
+        let instrument_logos = Arc::new(InstrumentLogos::new(
+            db.clone(),
+            clock.clone(),
+            reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .build()
+                .expect("the TLS backend the shared client already started"),
+            &config.yahoo_quote_page_base_url,
+            &config.yahoo_logo_image_base_url,
+            cooldown.clone(),
+            coingecko.clone(),
+        ));
         Self {
             prices: Arc::new(PriceService::new(
                 db.clone(),
@@ -126,7 +143,13 @@ impl Market {
             cooldown,
             yahoo,
             coingecko,
+            instrument_logos,
         }
+    }
+
+    /// The logo resolver of shares and funds: resolve_pending, due_tickers, lookup.
+    pub fn instrument_logos(&self) -> &Arc<InstrumentLogos> {
+        &self.instrument_logos
     }
 
     /// The Yahoo Finance client: fetch_dividend_history(ticker) -> Result<DividendHistory,

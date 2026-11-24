@@ -3,6 +3,7 @@
 mod cerema;
 mod geocoding;
 mod insee;
+mod instrument_logos;
 mod justetf;
 mod nasdaq;
 mod openfigi;

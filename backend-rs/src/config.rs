@@ -475,6 +475,9 @@ pub struct Config {
     pub geocoding_api_url: String,
     /// Price and market-data hosts Java hard-codes; overridable here so tests can stub them.
     pub yahoo_finance_base_url: String,
+    /// Where a share's quote page and the logo it links are read from (market::instrument_logos).
+    pub yahoo_quote_page_base_url: String,
+    pub yahoo_logo_image_base_url: String,
     pub coingecko_base_url: String,
     /// Optional COINGECKO_API_KEY (demo or pro); when unset, historical lookback is clamped to 364 days.
     pub coingecko_api_key: Option<String>,
@@ -935,6 +938,12 @@ impl Config {
                 .to_owned(),
             yahoo_finance_base_url: env
                 .or("YAHOO_FINANCE_BASE_URL", "https://query1.finance.yahoo.com")
+                .to_owned(),
+            yahoo_quote_page_base_url: env
+                .or("YAHOO_QUOTE_PAGE_BASE_URL", "https://finance.yahoo.com")
+                .to_owned(),
+            yahoo_logo_image_base_url: env
+                .or("YAHOO_LOGO_IMAGE_BASE_URL", "https://s.yimg.com")
                 .to_owned(),
             coingecko_base_url: env
                 .or("COINGECKO_BASE_URL", "https://api.coingecko.com/api/v3")

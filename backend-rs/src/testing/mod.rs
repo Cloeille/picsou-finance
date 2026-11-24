@@ -309,6 +309,8 @@ impl TestApp {
                 ("INSTRUMENT_LOGOS_ENABLED", "false"),
                 // Price and market-data hosts: refused unless a test points them at a stub.
                 ("YAHOO_FINANCE_BASE_URL", UNREACHABLE),
+                ("YAHOO_QUOTE_PAGE_BASE_URL", UNREACHABLE),
+                ("YAHOO_LOGO_IMAGE_BASE_URL", UNREACHABLE),
                 ("COINGECKO_BASE_URL", UNREACHABLE),
                 ("PRECIOUS_METALS_BASE_URL", UNREACHABLE),
                 ("OPENFIGI_BASE_URL", UNREACHABLE),

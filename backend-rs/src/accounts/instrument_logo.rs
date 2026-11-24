@@ -1,5 +1,5 @@
 //! InstrumentLogoController and the read side of InstrumentLogoService: the stored marks of
-//! shares and funds, served by Picsou itself. Fetching them is track T4's.
+//! shares and funds, served by Picsou itself. market::instrument_logos fetches them.
 
 use std::collections::{BTreeSet, HashMap};
 
