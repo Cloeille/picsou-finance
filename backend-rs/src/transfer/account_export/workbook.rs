@@ -214,7 +214,7 @@ pub async fn build(
     }
     let mut debts = Vec::new();
     for debt in liabilities::debts_of_member(&mut conn, member_id).await? {
-        debts.push(debt_data(&mut conn, debt, today).await?);
+        debts.push(debt_data(&mut conn, debt, member_id, today).await?);
     }
     let profile: Profile = crate::db::query_as(
         "SELECT birth_date, marginal_tax_rate, household_status, tax_household_parts, dependents, \
@@ -290,7 +290,7 @@ async fn gather(
 
     let debt = if account.account_type == AccountType::Loan {
         match liabilities::debt_of_account(&mut *conn, id).await? {
-            Some(d) => Some(debt_data(conn, d, today).await?),
+            Some(d) => Some(debt_data(conn, d, member_id, today).await?),
             None => None,
         }
     } else {
@@ -298,14 +298,16 @@ async fn gather(
     };
 
     let peer_loan = if account.account_type == AccountType::PeerLoan {
-        peer_loan(conn, id, today).await?
+        peer_loan(conn, id, member_id, today).await?
     } else {
         None
     };
 
     let mut financing = Vec::new();
     for d in liabilities::debts_linked_to(&mut *conn, id).await? {
-        financing.push(debt_data(conn, d, today).await?);
+        if access::is_readable(&mut *conn, d.account_id, member_id).await? {
+            financing.push(debt_data(conn, d, member_id, today).await?);
+        }
     }
 
     Ok(AccountData {
@@ -321,10 +323,29 @@ async fn gather(
     })
 }
 
-async fn debt_data(conn: &mut DbHandle<'_>, debt: Debt, today: NaiveDate) -> AppResult<DebtData> {
-    let loan_account = accounts::find_by_id(&mut *conn, debt.account_id).await?;
+/// A related account, only when the member may read it: the workbook of a co-owner never names
+/// an account that was not shared with them.
+async fn readable_account(
+    conn: &mut DbHandle<'_>,
+    id: i64,
+    member_id: i64,
+) -> sqlx::Result<Option<Account>> {
+    if access::is_readable(&mut *conn, id, member_id).await? {
+        accounts::find_by_id(&mut *conn, id).await
+    } else {
+        Ok(None)
+    }
+}
+
+async fn debt_data(
+    conn: &mut DbHandle<'_>,
+    debt: Debt,
+    member_id: i64,
+    today: NaiveDate,
+) -> AppResult<DebtData> {
+    let loan_account = readable_account(conn, debt.account_id, member_id).await?;
     let linked_account = match debt.linked_account_id {
-        Some(id) => accounts::find_by_id(&mut *conn, id).await?,
+        Some(id) => readable_account(conn, id, member_id).await?,
         None => None,
     };
     let schedule = loans::compute(&debt, today);
@@ -339,6 +360,7 @@ async fn debt_data(conn: &mut DbHandle<'_>, debt: Debt, today: NaiveDate) -> App
 async fn peer_loan(
     conn: &mut DbHandle<'_>,
     account_id: i64,
+    member_id: i64,
     today: NaiveDate,
 ) -> AppResult<Option<PeerLoanData>> {
     let Some(terms) = liabilities::peer_loan_terms_of_account(&mut *conn, account_id).await? else {
@@ -357,7 +379,7 @@ async fn peer_loan(
     .fetch_one(&mut *conn)
     .await?;
     let linked_account = match terms.linked_account_id {
-        Some(id) => accounts::find_by_id(&mut *conn, id).await?.map(|a| a.name),
+        Some(id) => readable_account(conn, id, member_id).await?.map(|a| a.name),
         None => None,
     };
     let rows = repayments

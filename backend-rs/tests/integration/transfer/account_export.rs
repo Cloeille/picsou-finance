@@ -401,3 +401,112 @@ async fn co_owner_can_export_a_shared_account_with_its_holdings_and_share() {
     assert!(denied.body.is_empty());
     assert_eq!(denied.header("content-type"), Some(XLSX));
 }
+
+#[tokio::test]
+async fn a_co_owner_export_names_no_account_that_was_not_shared_with_them() {
+    use picsou::ledger::accounts::{self, NewAccount};
+    use rust_decimal::Decimal;
+
+    let app = TestApp::with_admin().await;
+    let owner = admin_member(&app).await;
+    let admin = app.login_admin().await;
+    let (_, coowner_id) = app.create_member("bob", "password-1234").await;
+    let coowner = app.login("bob", "password-1234").await;
+    let now = super::support::now();
+
+    let mut ids = Vec::new();
+    for (name, account_type) in [
+        ("Shared House", AccountType::RealEstate),
+        ("Private Mortgage", AccountType::Loan),
+        ("Shared Loan", AccountType::Loan),
+        ("Private Flat", AccountType::RealEstate),
+        ("Shared Receivable", AccountType::PeerLoan),
+        ("Private Checking", AccountType::Checking),
+    ] {
+        let mut draft = NewAccount::new(owner, name, account_type);
+        draft.is_manual = true;
+        ids.push(
+            accounts::insert(&app.state.db, &draft, now)
+                .await
+                .unwrap()
+                .id,
+        );
+    }
+    let [
+        house,
+        private_mortgage,
+        shared_loan,
+        private_flat,
+        receivable,
+        private_checking,
+    ] = ids[..]
+    else {
+        unreachable!()
+    };
+    for shared in [house, shared_loan, receivable] {
+        for (member_id, share) in [(owner, Decimal::from(60)), (coowner_id, Decimal::from(40))] {
+            picsou::db::query(
+                "INSERT INTO account_ownership (account_id, member_id, share_percent, created_at, updated_at) \
+                 VALUES ($1, $2, $3, $4, $4)",
+            )
+            .bind(shared)
+            .bind(member_id)
+            .bind(share)
+            .bind(now)
+            .execute(&app.state.db)
+            .await
+            .unwrap();
+        }
+    }
+    for (loan, lender, linked) in [
+        (private_mortgage, "Private Lender", house),
+        (shared_loan, "Shared Lender", private_flat),
+    ] {
+        let saved = admin
+            .put(&format!("/api/accounts/{loan}/debt"))
+            .json(&json!({"borrowedAmount": 200000, "monthlyPayment": 900, "lenderName": lender, "linkedAccountId": linked}))
+            .send()
+            .await;
+        assert_eq!(saved.status, 200, "{}", saved.text());
+    }
+    let described = admin
+        .put(&format!("/api/accounts/{house}/real-estate"))
+        .json(&json!({"purchasePrice": 300000}))
+        .send()
+        .await;
+    assert_eq!(described.status, 200, "{}", described.text());
+    let lent = admin
+        .put(&format!("/api/accounts/{receivable}/peer-loan"))
+        .json(&json!({"principal": 1000, "lentAt": "2026-01-05", "linkedAccountId": private_checking, "withCashLeg": false}))
+        .send()
+        .await;
+    assert_eq!(lent.status, 200, "{}", lent.text());
+
+    let selection = json!({"accountIds": [house, shared_loan, receivable]});
+    let text_of = |body: &[u8]| format!("{:?}", cells(body));
+
+    let theirs = export(&coowner, selection.clone()).await;
+    assert_eq!(theirs.status, 200);
+    let theirs = text_of(&theirs.body);
+    assert!(theirs.contains("Shared Lender"), "{theirs}");
+    for private in [
+        "Private Mortgage",
+        "Private Lender",
+        "Private Flat",
+        "Private Checking",
+    ] {
+        assert!(!theirs.contains(private), "{private} leaked: {theirs}");
+    }
+
+    let own = export(&admin, selection).await;
+    assert_eq!(own.status, 200);
+    let own = text_of(&own.body);
+    for visible in [
+        "Private Mortgage",
+        "Private Lender",
+        "Private Flat",
+        "Private Checking",
+    ] {
+        assert!(own.contains(visible), "the owner lost {visible}: {own}");
+    }
+}

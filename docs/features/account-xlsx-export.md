@@ -227,7 +227,10 @@ trade-offs that come with it.
   `RealEstateSummaryCard`, which is weighted server-side.
 - **Every sheet reads through the readable check, never the owner-only one.** A co-owner exports
   an account shared with them, holdings included; an owner-only lookup behind
-  `access::require_readable` answered 500 for every co-owner.
+  `access::require_readable` answered 500 for every co-owner. The same rule holds for the accounts
+  a sheet only mentions: a loan financing the property, the account a loan or a receivable is
+  linked to. They appear only when the reader may read them too (`readable_account`), so the
+  workbook of a co-owner never names an account that was not shared with them.
 - **A `LOAN` account can have no `Debt` row.** It is typed in and never detailed; the sheet then
   shows whatever `DebtResponse` carried and no schedule, instead of failing the whole export.
 - **The service is `@Transactional(readOnly = true)`** so the lazy associations behind the property
