@@ -76,6 +76,15 @@ pub struct HoldingRequest {
 impl Validate for HoldingRequest {
     fn validate(&self, errors: &mut Errors) {
         errors.not_null("quantity", self.quantity.as_ref());
+        if let (Some(quantity), Some(buy_in)) = (self.quantity, self.average_buy_in)
+            && quantity.checked_mul(buy_in).is_none()
+        {
+            let message = errors.default_message(
+                "numeric value out of bounds",
+                "valeur numérique hors limites",
+            );
+            errors.add("averageBuyIn", message);
+        }
     }
 }
 

@@ -201,3 +201,19 @@ async fn goal_creation_embeds_wired_account_response() {
         d("250")
     );
 }
+
+#[tokio::test]
+async fn recurring_goal_allocations_summing_past_decimal_max_return_validation_error() {
+    let f = Fixture::new().await;
+    let pea = f.account(f.member, AccountType::Pea, "0").await;
+    let body: Value = serde_json::from_str(&format!(
+        r#"{{"name": "DCA", "type": "RECURRING_INVESTMENT", "monthlyAmount": 500, "accountIds": [{pea}], "allocations": [{{"ticker": "AAA", "monthlyAmount": 79228162514264337593543950335}}, {{"ticker": "BBB", "monthlyAmount": 1}}]}}"#
+    ))
+    .unwrap();
+    let response = f.goal(body).await;
+    assert_eq!(response.status, 422, "{}", response.text());
+    assert_eq!(
+        response.json()["errors"],
+        json!({"allocationWithinMonthlyAmount": "the split cannot exceed the monthly amount"})
+    );
+}

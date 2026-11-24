@@ -134,13 +134,11 @@ impl GoalRequest {
             (
                 "allocationWithinMonthlyAmount",
                 match self.monthly_amount {
-                    Some(monthly) if !lines.is_empty() => {
-                        lines
-                            .iter()
-                            .filter_map(|l| l.monthly_amount)
-                            .sum::<Decimal>()
-                            <= monthly
-                    }
+                    Some(monthly) if !lines.is_empty() => lines
+                        .iter()
+                        .filter_map(|l| l.monthly_amount)
+                        .try_fold(Decimal::ZERO, Decimal::checked_add)
+                        .is_some_and(|total| total <= monthly),
                     _ => true,
                 },
                 "the split cannot exceed the monthly amount",

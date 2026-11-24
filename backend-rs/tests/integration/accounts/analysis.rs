@@ -560,3 +560,23 @@ async fn a_profile_refresh_answers_202_with_the_tickers_it_will_consider() {
     assert_eq!(refreshed.status, 202);
     assert_eq!(refreshed.json()["queuedTickers"], 2);
 }
+
+#[tokio::test]
+async fn targets_summing_past_decimal_max_return_validation_error_without_panicking() {
+    let app = TestApp::with_admin().await;
+    let (_, client) = signed_in(&app, "alice").await;
+    let body: Value = serde_json::from_str(
+        r#"{"safetyNetMonths": 6, "realEstatePct": 79228162514264337593543950335, "equityPct": 1, "cryptoPct": 0, "alternativePct": 0}"#,
+    )
+    .unwrap();
+    let resp = client
+        .put("/api/analysis/allocation-targets")
+        .json(&body)
+        .send()
+        .await;
+    assert_eq!(resp.status, 422, "{}", resp.text());
+    assert_eq!(
+        resp.json()["errors"],
+        json!({"summingToOneHundred": "allocation targets must sum to 100"})
+    );
+}

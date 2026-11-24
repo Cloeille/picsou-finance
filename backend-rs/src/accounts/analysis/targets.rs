@@ -179,7 +179,10 @@ impl Validate for AllocationTargetsRequest {
             self.equity_pct,
             self.crypto_pct,
             self.alternative_pct,
-        ) && a + b + c + d != Decimal::ONE_HUNDRED
+        ) && [a, b, c, d]
+            .into_iter()
+            .try_fold(Decimal::ZERO, Decimal::checked_add)
+            != Some(Decimal::ONE_HUNDRED)
         {
             errors.add("summingToOneHundred", "allocation targets must sum to 100");
         }

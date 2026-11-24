@@ -111,6 +111,19 @@ impl ValidateAt for RealEstateMetadataRequest {
         ] {
             check.decimal_min(field, value, "0", true);
         }
+        if let Some(purchase_price) = self.purchase_price
+            && [self.agency_fees, self.notary_fees, self.works_cost]
+                .into_iter()
+                .flatten()
+                .try_fold(purchase_price, Decimal::checked_add)
+                .is_none()
+        {
+            let message = check.errors.default_message(
+                "numeric value out of bounds",
+                "valeur numérique hors limites",
+            );
+            check.errors.add("purchasePrice", message);
+        }
         let int = |v: Option<i16>| v.map(i64::from);
         check
             .range("constructionYear", int(self.construction_year), 1000, 2200)
@@ -518,6 +531,15 @@ impl ValidateAt for ScpiPositionRequest {
                 12,
                 8,
             );
+        if let (Some(shares), Some(price)) = (self.share_count, self.withdrawal_price_eur)
+            && shares.checked_mul(price).is_none()
+        {
+            let message = check.errors.default_message(
+                "numeric value out of bounds",
+                "valeur numérique hors limites",
+            );
+            check.errors.add("withdrawalPriceEur", message);
+        }
     }
 }
 

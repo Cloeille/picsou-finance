@@ -453,3 +453,22 @@ async fn an_override_with_surrounding_spaces_updates_reads_and_clears_without_du
         .unwrap();
     assert_eq!(rows, 0);
 }
+
+#[tokio::test]
+async fn holding_update_overflowing_cost_basis_returns_validation_error() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let pea = simple(&app, alice, "PEA", "0").await;
+    holding(&app, pea, "PSX", "1", Some("10")).await;
+
+    let body: serde_json::Value =
+        serde_json::from_str(r#"{"quantity": 79228162514264337593543950335, "averageBuyIn": 2}"#)
+            .unwrap();
+    let resp = client
+        .put(&format!("/api/accounts/{pea}/holdings/PSX"))
+        .json(&body)
+        .send()
+        .await;
+    assert_eq!(resp.status, 422, "{}", resp.text());
+    assert!(resp.json()["errors"]["averageBuyIn"].is_string());
+}

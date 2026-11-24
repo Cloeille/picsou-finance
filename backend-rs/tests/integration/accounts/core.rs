@@ -407,3 +407,46 @@ async fn the_database_stays_writable_while_a_typed_balance_is_converted() {
         .json();
     assert_eq!(num(&history[0]["balance"]), "90.00000000");
 }
+
+#[tokio::test]
+async fn real_estate_cost_basis_and_scpi_withdrawal_value_overflows_return_validation_error() {
+    let app = TestApp::with_admin().await;
+    let me = admin_member(&app).await;
+    let house = account(&app, me, "House", "REAL_ESTATE", "0").await;
+    let scpi = account(&app, me, "SCPI", "SCPI", "0").await;
+    let admin = app.login_admin().await;
+
+    let re_body: serde_json::Value = serde_json::from_str(
+        r#"{"purchasePrice": 79228162514264337593543950335, "agencyFees": 1}"#,
+    )
+    .unwrap();
+    let re_resp = admin
+        .put(&format!("/api/accounts/{house}/real-estate"))
+        .json(&re_body)
+        .send()
+        .await;
+    assert_eq!(
+        re_resp.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        re_resp.text()
+    );
+    assert!(re_resp.json()["errors"]["purchasePrice"].is_string());
+
+    let scpi_body: serde_json::Value = serde_json::from_str(
+        r#"{"shareCount": 79228162514264337593543950335, "withdrawalPriceEur": 2}"#,
+    )
+    .unwrap();
+    let scpi_resp = admin
+        .put(&format!("/api/accounts/{scpi}/scpi"))
+        .json(&scpi_body)
+        .send()
+        .await;
+    assert_eq!(
+        scpi_resp.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        scpi_resp.text()
+    );
+    assert!(scpi_resp.json()["errors"]["withdrawalPriceEur"].is_string());
+}
