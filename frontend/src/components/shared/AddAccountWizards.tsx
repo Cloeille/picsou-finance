@@ -240,7 +240,7 @@ export function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: 
                   : t('sync.revolut.webview.waiting')}
               </p>
               {webviewState === 'WAITING' && (
-                <p className="text-xs text-muted-foreground">{t('sync.revolut.webview.waitingHint')}</p>
+                <p className="text-sm text-muted-foreground">{t('sync.revolut.webview.waitingHint')}</p>
               )}
             </div>
             {webviewState === 'WAITING' && (

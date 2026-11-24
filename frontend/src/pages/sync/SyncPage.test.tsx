@@ -2,7 +2,8 @@ import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useAppStore } from '@/stores/app-store'
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -56,5 +57,37 @@ describe('SyncPage Louve Invest entry points', () => {
     renderAt('/sync')
     expect(screen.getAllByRole('tab', { name: 'sync.louve.title' }).length).toBeGreaterThan(0)
     expect(screen.getByText('banks-panel')).toBeInTheDocument()
+  })
+})
+
+describe('SyncPage inside the desktop app', () => {
+  const info = { app: { desktop: 'true', 'desktop-unavailable': 'louve-auth' } }
+  const answerInfo = () =>
+    vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify(info), { status: 200 }))
+
+  afterEach(() => {
+    useAppStore.setState({ desktopMode: false })
+    vi.restoreAllMocks()
+  })
+
+  it('says a bank the app does not ship is unavailable instead of offering its login', async () => {
+    useAppStore.setState({ desktopMode: true })
+    answerInfo()
+
+    renderAt('/sync?tab=louve')
+
+    expect(await screen.findByText('desktop.unavailableDetail')).toBeInTheDocument()
+    expect(screen.queryByText('louve-panel')).not.toBeInTheDocument()
+  })
+
+  it('does not ask which banks are missing outside the desktop app', () => {
+    const fetchSpy = answerInfo()
+
+    renderAt('/sync?tab=louve')
+
+    expect(screen.getByText('louve-panel')).toBeInTheDocument()
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 })

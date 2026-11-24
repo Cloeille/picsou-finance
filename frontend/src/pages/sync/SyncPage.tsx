@@ -162,17 +162,18 @@ export function SyncPage() {
   )
 
   const renderPanel = () => {
+    if (desktopUnavailable(tab)) return unavailableOnDesktop
     switch (tab) {
       case 'banks': return <BankSyncTab onOpenWiseJars={() => setTab('wise')} />
       case 'exchanges': return <CryptoExchangeTab />
       case 'wallets': return <CryptoWalletTab />
       case 'tr': return <TradeRepublicTab />
-      case 'revolut': return desktopUnavailable('revolut') ? unavailableOnDesktop : <RevolutTab />
+      case 'revolut': return <RevolutTab />
       case 'bourso': return <BoursoTab />
       case 'caisse-epargne': return <CaisseEpargneTab />
       case 'banque-populaire': return <BanquePopulaireTab />
       case 'lbp': return <LbpTab />
-      case 'bnp': return desktopUnavailable('bnp') ? unavailableOnDesktop : <BnpTab />
+      case 'bnp': return <BnpTab />
       case 'bourse-direct': return <BourseDirectTab />
       case 'degiro': return <DegiroTab />
       case 'ibkr': return <IbkrTab />
@@ -183,7 +184,7 @@ export function SyncPage() {
       case 'natixis': return <NatixisTab />
       case 'cic': return <CicTab />
       case 'fortuneo': return <FortuneoTab />
-      case 'amex': return desktopUnavailable('amex') ? unavailableOnDesktop : <AmexTab />
+      case 'amex': return <AmexTab />
       case 'corum': return <CorumTab />
       case 'sofidy': return <SofidyTab />
       case 'louve': return <LouveTab />

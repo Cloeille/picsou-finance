@@ -22,6 +22,7 @@ export function parseUnavailable(info: ActuatorInfo | undefined): Set<string> {
 }
 
 export function useDesktopUnavailable(): (key: string) => boolean {
+  const desktopMode = useAppStore((s) => s.desktopMode)
   const { data } = useQuery({
     queryKey: ['actuator', 'info'],
     queryFn: async (): Promise<ActuatorInfo> => {
@@ -29,6 +30,8 @@ export function useDesktopUnavailable(): (key: string) => boolean {
       return res.ok ? res.json() : {}
     },
     staleTime: Infinity,
+    // The web app and the demo ship every bank: no request to make there.
+    enabled: desktopMode,
   })
   const unavailable = parseUnavailable(data)
   return (key: string) => unavailable.has(sidecarService(key))

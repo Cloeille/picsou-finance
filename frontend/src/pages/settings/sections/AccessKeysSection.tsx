@@ -233,8 +233,6 @@ export function AccessKeysSection() {
           <HardDrives className="size-4 text-muted-foreground" />
           {t('accessKeys.connectTitle')}
         </div>
-        <p className="text-sm text-muted-foreground">{t('accessKeys.connectIntro')}</p>
-
         {desktopMode && !desktopLockEnabled && (
           <div
             role="status"
@@ -243,6 +241,8 @@ export function AccessKeysSection() {
             {t('desktop.oauthLogin.apiTabNote')}
           </div>
         )}
+
+        <p className="text-sm text-muted-foreground">{t('accessKeys.connectIntro')}</p>
 
         <div className="space-y-2">
           <Label className="text-muted-foreground">{t('accessKeys.connectEndpointLabel')}</Label>
