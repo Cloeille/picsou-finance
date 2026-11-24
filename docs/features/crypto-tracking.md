@@ -93,8 +93,8 @@ a currency and a non-negative quantity string. Duplicate JSON keys, malformed da
 transport errors and non-zero codes fail the sync. For `51024`, check the account's status and region
 on OKX.
 
-Picsou does not support exchange liabilities. A negative trading balance, such as a margin loan,
-is refused with `OKX_NEGATIVE_BALANCE`. Picsou does not net it against other balances, and
+Picsou does not support exchange liabilities. A negative trading balance, for example from a
+margin loan, is refused with `OKX_NEGATIVE_BALANCE`. Picsou does not net it against other balances, and
 dropping it would overstate net worth. Repay the borrowed balance on OKX before trying again. A
 negative amount on any other endpoint is a malformed row.
 
