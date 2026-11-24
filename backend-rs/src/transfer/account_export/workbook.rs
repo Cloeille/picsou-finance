@@ -244,7 +244,6 @@ async fn gather(
     let prices = &*state.ledger.prices;
     let balance_eur = valuation::live_balance_eur(conn, prices, &account, today).await?;
 
-    accounts::get_or_throw(&mut *conn, id, member_id).await?;
     let mut stored: Vec<AccountHolding> = crate::db::query_as(&format!(
         "SELECT {HOLDING_COLUMNS} FROM account_holding h WHERE h.account_id = $1 ORDER BY h.id"
     ))

@@ -310,3 +310,94 @@ async fn a_date_before_1900_exports_without_error() {
         "expected formatted pre-1900 date, got {purchase_row:?}"
     );
 }
+
+#[tokio::test]
+async fn co_owner_can_export_a_shared_account_with_its_holdings_and_share() {
+    use picsou::ledger::accounts::{self, NewAccount};
+    use picsou::ledger::holdings;
+    use rust_decimal::Decimal;
+
+    let app = TestApp::with_admin().await;
+    let owner = admin_member(&app).await;
+    let (_, coowner_id) = app.create_member("bob", "password-1234").await;
+    let coowner = app.login("bob", "password-1234").await;
+    let (_, _) = app.create_member("carol", "password-1234").await;
+    let outsider = app.login("carol", "password-1234").await;
+    let now = super::support::now();
+
+    let mut draft = NewAccount::new(owner, "Shared PEA", AccountType::CompteTitres);
+    draft.current_balance = Decimal::from(1000);
+    draft.is_manual = true;
+    let shared = accounts::insert(&app.state.db, &draft, now).await.unwrap();
+
+    holdings::upsert_holding(
+        &mut app.state.db.pool_handle(),
+        shared.id,
+        owner,
+        "CW8.PA",
+        Some("Amundi MSCI World"),
+        Decimal::from(10),
+        Some(Decimal::from(100)),
+        now,
+    )
+    .await
+    .unwrap();
+
+    for (member_id, share) in [(owner, Decimal::from(60)), (coowner_id, Decimal::from(40))] {
+        picsou::db::query(
+            "INSERT INTO account_ownership (account_id, member_id, share_percent, created_at, updated_at) \
+             VALUES ($1, $2, $3, $4, $4)",
+        )
+        .bind(shared.id)
+        .bind(member_id)
+        .bind(share)
+        .bind(now)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    }
+
+    let r = export(&coowner, json!({"accountIds": [shared.id]})).await;
+    assert_eq!(
+        r.status, 200,
+        "co-owner must be able to export a shared account"
+    );
+    assert_eq!(r.header("content-type"), Some(XLSX));
+
+    let book = cells(&r.body);
+    let names: Vec<&str> = book.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(names, vec!["Summary", "Debts", "Shared PEA"]);
+
+    let summary_row = book[0]
+        .1
+        .iter()
+        .find(|row| row.first().is_some_and(|c| c.contains("Shared PEA")))
+        .expect("summary row for shared account");
+    assert_eq!(
+        summary_row.get(6).map(String::as_str),
+        Some("Float(40.0)"),
+        "expected 40% share on summary sheet, got {summary_row:?}"
+    );
+
+    let account_sheet = &book[2].1;
+    let share_row = account_sheet
+        .iter()
+        .find(|row| row.first().is_some_and(|c| c.contains("Ownership share")))
+        .expect("ownership share row");
+    assert_eq!(
+        share_row.get(1).map(String::as_str),
+        Some("Float(40.0)"),
+        "expected 40% share on account sheet, got {share_row:?}"
+    );
+    assert!(
+        account_sheet
+            .iter()
+            .any(|row| row.first().is_some_and(|c| c.contains("CW8.PA"))),
+        "expected shared account holdings on account sheet, got {account_sheet:?}"
+    );
+
+    let denied = export(&outsider, json!({"accountIds": [shared.id]})).await;
+    assert_eq!(denied.status, 500);
+    assert!(denied.body.is_empty());
+    assert_eq!(denied.header("content-type"), Some(XLSX));
+}
