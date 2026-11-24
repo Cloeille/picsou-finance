@@ -410,3 +410,73 @@ async fn a_credit_that_does_not_fit_the_amount_is_left_alone() {
         .unwrap();
     assert_eq!(n, 0);
 }
+
+#[tokio::test]
+async fn classify_recent_rolls_back_all_updates_when_one_update_fails() {
+    let f = Fixture::new().await;
+    let cto = f.cto("CTO", Some("Fortuneo")).await;
+    f.holding(cto, "TTE.PA", "TotalEnergies", "10").await;
+    f.source(
+        "TTE.PA",
+        &[("2026-01-02", "0.79", Some("2026-01-06"), false)],
+    )
+    .await;
+    let mut ids = Vec::new();
+    for label in ["DIVIDENDE TOTALENERGIES 1", "DIVIDENDE TOTALENERGIES 2"] {
+        let id: i64 = picsou::db::query_scalar(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, native_currency, created_at, is_manual) \
+             VALUES ($1, '2026-01-06', $2, 7.90, 'EUR', now(), false) RETURNING id",
+        )
+        .bind(cto)
+        .bind(label)
+        .fetch_one(&f.app.state.db)
+        .await
+        .unwrap();
+        ids.push(id);
+    }
+    let (first, second) = (ids[0], ids[1]);
+    if f.app.state.db.is_sqlite() {
+        f.sql(&format!(
+            "CREATE TRIGGER trg_fail_second_tx BEFORE UPDATE ON \"transaction\" \
+             WHEN NEW.id = {second} BEGIN SELECT RAISE(ABORT, 'simulated failure'); END"
+        ))
+        .await;
+    } else {
+        f.sql(&format!(
+            "CREATE OR REPLACE FUNCTION fail_second_tx() RETURNS trigger AS $$ \
+             BEGIN IF NEW.id = {second} THEN RAISE EXCEPTION 'simulated failure'; END IF; \
+             RETURN NEW; END; $$ LANGUAGE plpgsql"
+        ))
+        .await;
+        f.sql(
+            "CREATE TRIGGER trg_fail_second_tx BEFORE UPDATE ON \"transaction\" \
+             FOR EACH ROW EXECUTE FUNCTION fail_second_tx()",
+        )
+        .await;
+    }
+
+    let classifier = f.app.state.ledger.dividends.clone();
+    let err = classifier
+        .classify_recent(
+            &f.app.state.db,
+            f.member,
+            f.app.state.clock.today(),
+            f.app.state.clock.now(),
+        )
+        .await;
+    assert!(err.is_err(), "expected update failure on second credit");
+
+    let (tx_type, ticker, category_id): (Option<String>, Option<String>, Option<i64>) =
+        picsou::db::query_as(
+            "SELECT tx_type, ticker, category_id FROM \"transaction\" WHERE id = $1",
+        )
+        .bind(first)
+        .fetch_one(&f.app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(
+        (tx_type, ticker, category_id),
+        (None, None, None),
+        "first credit must be rolled back when the second update fails"
+    );
+}

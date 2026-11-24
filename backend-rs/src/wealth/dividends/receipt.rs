@@ -455,8 +455,12 @@ pub async fn classify_recent(
             changed.push(credit);
         }
     }
-    for tx in &changed {
-        transactions::update(db, tx).await?;
+    if !changed.is_empty() {
+        let mut db_tx = db.begin().await?;
+        for tx in &changed {
+            transactions::update(&mut db_tx, tx).await?;
+        }
+        db_tx.commit().await?;
     }
     Ok(changed.len())
 }
