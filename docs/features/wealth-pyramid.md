@@ -1,6 +1,6 @@
 # Feature: Wealth pyramid (Analysis)
 
-> Last updated: 2026-11-05
+> Last updated: 2026-11-24
 
 ## Context
 
@@ -290,3 +290,10 @@ GET /api/analysis/pyramid
 - Related: [Ownership shares](./account-ownership-shares.md) — the weighting contract
 - Related: [Real estate valuation](./real-estate-valuation.md) — where `loanToValue` comes from
 - Related: [Navigation](./sidebar-navigation.md) — the fifth entry and the mobile bar
+
+## Co-owned accounts
+
+A co-owner sees their weighted share of a shared account with holdings, like the owner sees
+theirs. The Java backend answered `404` there (it checked that the account was readable, then
+loaded the holdings of the owner's accounts only); the Rust backend loads the holdings of every
+readable account, and the contract scenario `analysis.isolation` records the new answer.

@@ -1,6 +1,6 @@
 # Feature: Portfolio diversification (sector + geography)
 
-> Last updated: 2026-11-05
+> Last updated: 2026-11-24
 
 ## Context
 
@@ -256,3 +256,10 @@ PUT /api/accounts/{id}/holdings/{ticker}/classification
 - ADR: [Persisted security profiles](../decisions/2026-08-13-persisted-security-profiles.md)
 - Related: [Security Insight](./security-insight.md) — the per-ETF composition this builds on
 - Related: [Wealth pyramid](./wealth-pyramid.md) — the same Analysis page, and the same override row
+
+## Co-owned accounts
+
+A co-owner sees their weighted share of a shared account with holdings, like the owner sees
+theirs. The Java backend answered `404` there (it checked that the account was readable, then
+loaded the holdings of the owner's accounts only); the Rust backend loads the holdings of every
+readable account, and the contract scenario `analysis.isolation` records the new answer.

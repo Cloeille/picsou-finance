@@ -1,6 +1,6 @@
 # Feature: Security Insight (asset type + ETF composition)
 
-> Last updated: 2026-08-13
+> Last updated: 2026-11-24
 
 ## Context
 
@@ -26,7 +26,8 @@ single external provider (Boursorama), then caches the result in memory for a fe
   `WeightedSlice`); the backend no longer aggregates raw holdings itself.
 - **Cache** — `ConcurrentHashMap<uppercased-ticker, CachedInsight>` with a 3-day TTL
   (longer than `PriceService`, since composition changes slowly). `clearCache()` drops
-  it; it is also lost on restart.
+  it; it is also lost on restart. The Rust cache holds at most 1,024 tickers: a new entry first
+  sweeps the expired ones, then evicts the oldest.
 
 ### The Boursorama provider
 

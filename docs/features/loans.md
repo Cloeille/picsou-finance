@@ -1,6 +1,6 @@
 # Feature: Loan accounts (LOAN type)
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-24
 
 ## Sign convention
 
@@ -121,6 +121,10 @@ BalanceSnapshot persisted  →  historical balance chart steps down monthly
 - **The last installment absorbs the rounding residue.** With BigDecimal precision and scale 2,
   240 monthly capitals do not sum exactly to the borrowed amount; the service forces the
   last installment to bring `remainingBalance` to zero.
+- **A schedule has at most 1,200 installments (100 years).** Terms above that, or a negative
+  amortisation (a payment below the interest) whose balance outgrows `Decimal`, answer `400` on
+  `PUT /api/accounts/{id}/debt` and `GET /api/accounts/{id}/loan-summary` instead of building an
+  unbounded schedule or failing with a `500`.
 - **`liveBalanceEur` returns POSITIVE for LOAN; only aggregation negates.** See the
   "Sign convention" section above — the dashboard "Total liabilities" card adds the positive
   value to liabilities and subtracts liabilities from assets.
