@@ -355,7 +355,9 @@ impl AmexWebviewManager {
     fn mark_done(&self, process_id: &str, session_state: String) {
         let mut procs = self.processes.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(entry) = procs.get_mut(process_id) {
-            if !matches!(entry.status, ProcessStatus::Cancelled) {
+            // Only an attempt still being read may complete: one that failed or was cancelled
+            // meanwhile stays so, whatever the snapshot it had started returns.
+            if matches!(entry.status, ProcessStatus::Fetching) {
                 entry.status = ProcessStatus::Done { session_state };
             }
         }
@@ -421,6 +423,9 @@ impl AmexWebviewManager {
         let mut navigated_to_global = false;
         loop {
             if !self.is_waiting(&process_id) {
+                // Failed or cancelled from elsewhere (its time ran out, the page left the
+                // bank): nobody watches the window any more, so it must not stay open.
+                let _ = window.destroy();
                 return;
             }
             if Instant::now() >= deadline {
@@ -477,6 +482,7 @@ impl AmexWebviewManager {
                         );
                         if token.is_some() {
                             if !self.mark_fetching(&process_id) {
+                                let _ = window.destroy();
                                 return;
                             }
                             tracing::info!(
@@ -997,6 +1003,25 @@ fn decode_session_state(session_state: &str) -> Result<DecodedAmexSession, ApiEr
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_snapshot_arriving_after_the_attempt_failed_does_not_revive_it() {
+        let manager = AmexWebviewManager::new();
+        manager.processes.lock().unwrap().insert(
+            "p".to_owned(),
+            ProcessEntry {
+                status: ProcessStatus::Fetching,
+                window_label: "w".to_owned(),
+                created_at: Instant::now(),
+            },
+        );
+        manager.mark_failed("p", "AUTH_ATTEMPT_EXPIRED");
+        manager.mark_done("p", "state".to_owned());
+        assert!(matches!(
+            manager.processes.lock().unwrap()["p"].status,
+            ProcessStatus::Failed { .. }
+        ));
+    }
 
     #[test]
     fn authenticated_page_detection_ignores_login_and_2fa() {
