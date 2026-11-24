@@ -31,7 +31,7 @@ use rusqlite::functions::FunctionFlags;
 use rusqlite::types::Value as SqliteValue;
 use rusqlite::{Connection, OpenFlags, params_from_iter};
 use rust_decimal::Decimal;
-use tokio::sync::{OwnedMutexGuard, Semaphore};
+use tokio::sync::{OwnedMutexGuard, OwnedSemaphorePermit, Semaphore};
 
 /// Default `PRAGMA busy_timeout` in milliseconds.
 pub const DEFAULT_BUSY_TIMEOUT_MS: u32 = 5_000;
@@ -357,6 +357,35 @@ impl SqliteDb {
         })
     }
 
+    /// Starts a read-only transaction on a WAL reader of its own: it sees the database as it was
+    /// at its first read, however long it stays open, and never takes the writer. An in-memory
+    /// database has one connection, so there it is a transaction of the writer.
+    pub async fn begin_read(&self) -> Result<SqliteTx<'_>, sqlx::Error> {
+        let Some(pool) = &self.read_pool else {
+            return self.begin().await;
+        };
+        let permit = Arc::clone(&pool.semaphore)
+            .acquire_owned()
+            .await
+            .map_err(|_| sqlx::Error::PoolClosed)?;
+        let path = pool.path.clone();
+        let reader = tokio::task::spawn_blocking(move || SqliteReadPool::open_reader(&path))
+            .await
+            .map_err(|e| sqlx::Error::Protocol(format!("blocking SQLite read task failed: {e}")))?
+            .map_err(error::sqlite_err_to_sqlx)?;
+        let conn = Arc::new(Mutex::new(reader));
+        open_transaction(&conn, "BEGIN".into(), ROLLBACK.into()).await?;
+        Ok(SqliteTx {
+            conn,
+            depth: 0,
+            kind: Some(SqliteTxKind::Snapshot {
+                _reader: permit,
+                _marker: PhantomData,
+            }),
+            finished: false,
+        })
+    }
+
     /// Acquires exclusive serialized access to the SQLite writer handle (analogous to
     /// `PgPool::acquire()`).
     pub async fn acquire(&self) -> Result<SqliteConn, sqlx::Error> {
@@ -671,6 +700,12 @@ enum SqliteTxKind<'a> {
     },
     BorrowedRoot {
         _parent: PhantomData<&'a mut ()>,
+    },
+    /// A read-only transaction on its own reader, which counts as one of the pool's so a
+    /// shutdown waits for it before it checkpoints.
+    Snapshot {
+        _reader: OwnedSemaphorePermit,
+        _marker: PhantomData<&'a ()>,
     },
     Savepoint {
         name: String,

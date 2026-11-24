@@ -16,7 +16,7 @@ use zip::{CompressionMethod, ZipWriter};
 use super::Exporting;
 use super::exporters::{self, EXPORTERS, Exporter, GOAL_CHILDREN, GOAL_COLUMNS};
 use super::json::{Cell, JsonWriter, java_instant};
-use crate::db::{AsDbHandle, DbExec, DbHandle};
+use crate::db::{AsDbHandle, DbHandle};
 
 #[derive(Debug, thiserror::Error)]
 enum ExportError {
@@ -154,12 +154,9 @@ async fn write_all(
     exported_at: DateTime<Utc>,
     archive: &mut Archive,
 ) -> Result<(), ExportError> {
-    let mut tx = db.begin().await?;
-    if !DbExec::is_sqlite(&&mut tx) {
-        crate::db::query("SET TRANSACTION READ ONLY")
-            .execute(&mut tx)
-            .await?;
-    }
+    // A read snapshot, not db.begin(): the archive is written at the pace its reader downloads
+    // it, and on SQLite a transaction of the writer would keep every write waiting meanwhile.
+    let mut tx = db.begin_read().await?;
     write_json(
         &mut tx.as_handle(),
         who,

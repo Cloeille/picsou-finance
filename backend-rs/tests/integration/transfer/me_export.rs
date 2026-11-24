@@ -550,3 +550,21 @@ async fn a_failure_mid_stream_stamps_a_marker_into_a_readable_archive() {
     assert!(files["__EXPORT_FAILED__.txt"].contains("incomplete"));
     assert!(!files.contains_key("README.txt"));
 }
+
+#[tokio::test]
+async fn the_export_reads_a_snapshot_and_never_waits_for_the_writer() {
+    // The archive is written at the pace its reader downloads it. On SQLite a transaction of
+    // the one writer would keep every write waiting meanwhile; here the writer is taken by
+    // someone else for the whole export, which completes all the same.
+    let app = app().await;
+    let admin = app.login_admin().await;
+
+    let response = crate::writer_free::needs_no_writer(
+        &app.state.db,
+        export(&admin, with_password(ADMIN_PASSWORD, false)),
+    )
+    .await;
+
+    assert_eq!(response.status, 200, "{}", response.text());
+    assert!(entries(&response).contains_key("data.json"));
+}

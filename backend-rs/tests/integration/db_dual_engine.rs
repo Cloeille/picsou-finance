@@ -832,6 +832,62 @@ async fn sqlite_wal_pool_handle_reads_do_not_block_behind_active_write_tx() {
 }
 
 #[tokio::test]
+async fn a_sqlite_read_snapshot_leaves_the_writer_free_and_keeps_its_view() {
+    use std::time::Duration;
+
+    let dir = std::env::temp_dir().join(format!("picsou-sqlite-read-snapshot-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    let sq = SqliteDb::open(&dir.join("picsou.db")).expect("open file-backed WAL SQLite");
+    sq.migrate().expect("migrate SQLite");
+    let db = Db::Sqlite(sq);
+    let members = "SELECT COUNT(*) FROM family_member";
+    db::query("INSERT INTO family_member (display_name, is_managed) VALUES ('Alice', false)")
+        .execute(&db)
+        .await
+        .expect("seed member");
+
+    let mut snapshot = db.begin_read().await.expect("begin read snapshot");
+    let first: i64 = db::query_scalar(members)
+        .fetch_one(&mut snapshot)
+        .await
+        .expect("first read");
+    assert_eq!(first, 1);
+
+    // The snapshot holds no writer: a write commits while it is open.
+    tokio::time::timeout(Duration::from_secs(2), async {
+        let mut tx = db.begin().await?;
+        db::query("INSERT INTO family_member (display_name, is_managed) VALUES ('Bob', false)")
+            .execute(&mut tx)
+            .await?;
+        tx.commit().await
+    })
+    .await
+    .expect("a write must not wait for an open read snapshot")
+    .expect("write");
+
+    // It still sees the database as it first read it; a read outside it sees the write.
+    let again: i64 = db::query_scalar(members)
+        .fetch_one(&mut snapshot)
+        .await
+        .expect("second read");
+    assert_eq!(again, 1);
+    let outside: i64 = db::query_scalar(members)
+        .fetch_one(&db)
+        .await
+        .expect("read outside");
+    assert_eq!(outside, 2);
+    // And it refuses to write.
+    let written = db::query("DELETE FROM family_member")
+        .execute(&mut snapshot)
+        .await;
+    assert!(written.is_err(), "a read snapshot is read-only");
+
+    snapshot.commit().await.expect("end the snapshot");
+    db.close().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
 async fn sqlite_writer_gate_stays_free_during_external_http_calls() {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};

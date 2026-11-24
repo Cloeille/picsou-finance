@@ -57,6 +57,20 @@ pub async fn stays_writable_while<T>(db: &Db, asked: &Notify, work: impl Future<
     tokio::join!(work, write_meanwhile).0
 }
 
+/// Runs `work` while another transaction holds the writer: `work` must not need it.
+pub async fn needs_no_writer<T>(db: &Db, work: impl Future<Output = T>) -> T {
+    let mut held = db.begin().await.expect("begin");
+    db::query(PROBE)
+        .execute(&mut held)
+        .await
+        .expect("a write that takes the writer");
+    let out = tokio::time::timeout(Duration::from_secs(10), work)
+        .await
+        .expect("the flow waited for the writer another transaction holds");
+    held.rollback().await.expect("rollback");
+    out
+}
+
 const PROBE: &str = "INSERT INTO app_setting (setting_key, value, updated_at) \
      VALUES ('writer.probe', 'ok', NOW()) \
      ON CONFLICT (setting_key) DO UPDATE SET updated_at = EXCLUDED.updated_at";

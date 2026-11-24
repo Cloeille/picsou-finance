@@ -84,6 +84,22 @@ impl Db {
         }
     }
 
+    /// Starts a read-only transaction: one consistent view for a read that lasts (the data
+    /// export). On SQLite it is a WAL snapshot on a reader, which leaves the writer to everyone
+    /// else for as long as it stays open.
+    pub async fn begin_read(&self) -> Result<DbTx<'_>, sqlx::Error> {
+        match self {
+            Self::Postgres(pool) => {
+                let mut tx = pool.begin().await?;
+                sqlx::query("SET TRANSACTION READ ONLY")
+                    .execute(&mut *tx)
+                    .await?;
+                Ok(DbTx::Postgres(tx))
+            }
+            Self::Sqlite(sq) => Ok(DbTx::Sqlite(sq.begin_read().await?)),
+        }
+    }
+
     /// Acquires a single connection handle from the pool (`PoolConnection<Postgres>` on PostgreSQL,
     /// serialized writer handle on SQLite).
     pub async fn acquire(&self) -> Result<DbConn, sqlx::Error> {

@@ -185,6 +185,9 @@ Reads outside a transaction use the WAL reader pool and are not affected.
     are answered from memory. A connector built on `SyncTemplate` returns them from
     `SyncStrategy::price_needs`; a handler on an existing account reads them with
     `valuation::needs_of`.
+  - **A long read uses `db.begin_read()`**, not `db.begin()`: a read-only transaction that on
+    SQLite is a WAL snapshot on a reader. The data export streams from one, at the pace of its
+    download, without ever holding the writer.
   - The test helper `tests/integration/writer_free.rs` proves a flow follows the rule: a stubbed
     provider answers slowly, and a write made meanwhile has to go through
     (`stays_writable_while`). Add a case with every flow that calls a provider and writes.
