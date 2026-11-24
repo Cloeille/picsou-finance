@@ -500,14 +500,14 @@ class ReviewRegressionsTest(unittest.TestCase):
             with self.subTest(value=value):
                 resources = self.resources(*[arg for key in keys for arg in
                                              ("--set", f"secrets.{key}={value}")])
-                secret = next(r for r in resources if r["kind"] == "Secret")
+                rendered = next(r for r in resources if r["kind"] == "Secret")
                 for key in keys.values():
-                    self.assertEqual(base64.b64decode(secret["data"][key]), value.encode())
+                    self.assertEqual(base64.b64decode(rendered["data"][key]), value.encode())
                 with tempfile.TemporaryDirectory() as tmp:
                     chart = Path(tmp) / "picsou"
                     shutil.copytree(CHART, chart)
                     # Simulate the installed Secret for both the resource and pre-upgrade hook.
-                    stored = '(' + json.dumps(json.dumps(secret["data"])) + ' | fromJson)'
+                    stored = '(' + json.dumps(json.dumps(rendered["data"])) + ' | fromJson)'
                     for filename, scope in (("secret.yaml", "."), ("migration-job.yaml", "$.")):
                         template = chart / "templates" / filename
                         template.write_text(template.read_text().replace(
@@ -518,7 +518,7 @@ class ReviewRegressionsTest(unittest.TestCase):
                         with self.subTest(upgrade=bool(upgrade)):
                             resources = self.resources(*args, *upgrade, chart=chart)
                             existing = next(r for r in resources if r["kind"] == "Secret")
-                            self.assertEqual(existing["data"], secret["data"])
+                            self.assertEqual(existing["data"], rendered["data"])
                     result = self.render("--set", "secrets.postgresPassword=87654321", chart=chart)
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn("ALTER ROLE", result.stderr)
@@ -535,8 +535,8 @@ class ReviewRegressionsTest(unittest.TestCase):
                     self.assertIn("quote the value", result.stderr)
                     values.write_text(f'secrets:\n  {key}: "12345678"\n')
                     resources = self.resources("-f", str(values))
-                    secret = next(r for r in resources if r["kind"] == "Secret")
-                    self.assertEqual(base64.b64decode(secret["data"][secret_key]), b"12345678")
+                    rendered = next(r for r in resources if r["kind"] == "Secret")
+                    self.assertEqual(base64.b64decode(rendered["data"][secret_key]), b"12345678")
 
     def test_env_from_preserves_generated_datasource_entries_in_both_workloads(self):
         source = [{"secretRef": {"name": "database-options"}}]

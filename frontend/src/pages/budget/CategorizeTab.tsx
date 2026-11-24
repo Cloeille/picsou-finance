@@ -83,7 +83,7 @@ function formatTransactionDisplay(raw: string, lang: string): { title: string; d
   const trimmed = raw.trim()
   if (!trimmed) return { title: raw, detail: null }
 
-  // Strip embedded UUIDs (e.g. "01a194ae-aa5e-7a34-8fcb-d5d7b6c1a451") and parenthesized IBANs.
+  // Strip embedded UUIDs (e.g. "00000000-0000-7000-8000-000000000001") and parenthesized IBANs.
   let cleaned = trimmed
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '')
     .replace(/\(\s*[a-z]{2}\d{2}[a-z0-9]{10,30}\s*\)/gi, '')
