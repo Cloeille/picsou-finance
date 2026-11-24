@@ -7,7 +7,10 @@ pub mod rate_limit;
 pub mod spa;
 
 use std::panic::AssertUnwindSafe;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::task::{Context, Poll};
 
 use axum::Router;
 use axum::extract::{Request, State};
@@ -205,27 +208,72 @@ async fn desktop_setup_guard(
     next.run(request).await
 }
 
+/// Wraps `Limited` so `anonymous_body_limit` can tell when a streaming body tripped the 1 MiB
+/// cap even if the inner extractor turned the body error into a 400.
+struct TrackedLimited {
+    inner: http_body_util::Limited<axum::body::Body>,
+    exceeded: Arc<AtomicBool>,
+}
+
+impl http_body::Body for TrackedLimited {
+    type Data = bytes::Bytes;
+    type Error = axum::BoxError;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+        let poll = Pin::new(&mut self.inner).poll_frame(cx);
+        if let Poll::Ready(Some(Err(ref err))) = poll
+            && err.is::<http_body_util::LengthLimitError>()
+        {
+            self.exceeded.store(true, Ordering::Release);
+        }
+        poll
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.inner.is_end_stream()
+    }
+
+    fn size_hint(&self) -> http_body::SizeHint {
+        self.inner.size_hint()
+    }
+}
+
+fn payload_too_large(version: http::Version) -> Response {
+    let mut response = raw::response(StatusCode::PAYLOAD_TOO_LARGE, raw::PAYLOAD_TOO_LARGE);
+    if version < http::Version::HTTP_2 {
+        response
+            .headers_mut()
+            .insert(header::CONNECTION, HeaderValue::from_static("close"));
+    }
+    response
+}
+
 /// AnonymousBodyLimitFilter: refuses large or chunked bodies on the endpoints anyone can reach.
 async fn anonymous_body_limit(request: Request, next: Next) -> Response {
     let path = decoded_path(request.uri().path());
     if ANONYMOUS_BODY_PREFIXES.iter().any(|p| path.starts_with(p)) {
+        let version = request.version();
         let length = header_str(request.headers(), header::CONTENT_LENGTH)
             .and_then(|v| v.parse::<u64>().ok());
         if length.is_some_and(|l| l > MAX_ANONYMOUS_BODY)
             || request.headers().contains_key(header::TRANSFER_ENCODING)
         {
-            let mut response = raw::response(StatusCode::PAYLOAD_TOO_LARGE, raw::PAYLOAD_TOO_LARGE);
-            response
-                .headers_mut()
-                .insert(header::CONNECTION, HeaderValue::from_static("close"));
-            return response;
+            return payload_too_large(version);
         }
+        let exceeded = Arc::new(AtomicBool::new(false));
         let (parts, body) = request.into_parts();
-        let limited = axum::body::Body::new(http_body_util::Limited::new(
-            body,
-            MAX_ANONYMOUS_BODY as usize,
-        ));
-        return next.run(Request::from_parts(parts, limited)).await;
+        let limited = axum::body::Body::new(TrackedLimited {
+            inner: http_body_util::Limited::new(body, MAX_ANONYMOUS_BODY as usize),
+            exceeded: Arc::clone(&exceeded),
+        });
+        let response = next.run(Request::from_parts(parts, limited)).await;
+        if exceeded.load(Ordering::Acquire) {
+            return payload_too_large(version);
+        }
+        return response;
     }
     next.run(request).await
 }

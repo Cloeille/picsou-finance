@@ -283,9 +283,13 @@ pub async fn read_json<T: DeserializeOwned, S: Send + Sync>(
             format!("Content-Type '{reported}' is not supported."),
         ));
     }
-    let body = Bytes::from_request(request, state)
-        .await
-        .map_err(|_| AppError::BadRequest("Failed to read request".into()))?;
+    let body = Bytes::from_request(request, state).await.map_err(|err| {
+        if err.status() == StatusCode::PAYLOAD_TOO_LARGE {
+            AppError::status(StatusCode::PAYLOAD_TOO_LARGE, "Payload too large")
+        } else {
+            AppError::BadRequest("Failed to read request".into())
+        }
+    })?;
     serde_json::from_slice(&body).map_err(|_| AppError::BadRequest("Failed to read request".into()))
 }
 

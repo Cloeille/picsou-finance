@@ -279,6 +279,43 @@ async fn anonymous_bodies_are_capped() {
 }
 
 #[tokio::test]
+async fn streaming_anonymous_body_over_one_mib_is_rejected_with_413() {
+    use tower::ServiceExt;
+
+    let app = TestApp::with_admin().await;
+    let router = picsou::app(app.state.clone());
+    let expected_body =
+        "{\"status\":413,\"title\":\"Payload Too Large\",\"code\":\"payload_too_large\"}\n";
+
+    // A streaming body with no Content-Length and no Transfer-Encoding (as HTTP/2 delivers) that
+    // exceeds 1 MiB must be rejected with 413 rather than 400 when the extractor reads it.
+    let chunks: Vec<Result<bytes::Bytes, std::io::Error>> = vec![
+        Ok(bytes::Bytes::from(format!(
+            "{{\"username\":\"{}",
+            "a".repeat(600 * 1024)
+        ))),
+        Ok(bytes::Bytes::from(format!(
+            "{}\",\"password\":\"secret\"}}",
+            "b".repeat(600 * 1024)
+        ))),
+    ];
+    let request = axum::http::Request::builder()
+        .method(axum::http::Method::POST)
+        .uri("/api/auth/login")
+        .header(axum::http::header::HOST, "localhost")
+        .header(axum::http::header::CONTENT_TYPE, "application/json")
+        .body(axum::body::Body::from_stream(futures::stream::iter(chunks)))
+        .expect("build streaming request");
+
+    let response = router.oneshot(request).await.expect("router answers");
+    assert_eq!(response.status(), axum::http::StatusCode::PAYLOAD_TOO_LARGE);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("read body");
+    assert_eq!(body.as_ref(), expected_body.as_bytes());
+}
+
+#[tokio::test]
 async fn the_client_address_comes_from_the_trusted_proxy_only() {
     let app = TestApp::builder()
         .with_admin()
