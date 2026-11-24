@@ -272,6 +272,34 @@ describe('RevolutTab', () => {
     expect(await screen.findByText('WebView bridge unavailable')).toBeInTheDocument()
   })
 
+  it('translates an unreachable WebView bridge instead of showing the backend sentence', async () => {
+    apiGet.mockImplementation((url: string) => {
+      if (url === '/revolut/status') {
+        return Promise.resolve({
+          data: { connected: false, remembered: false, lastSyncedAt: null, webviewLoginSupported: true },
+        })
+      }
+      return Promise.reject(new Error(`unexpected ${url}`))
+    })
+    apiPost.mockImplementationOnce((url: string) => {
+      if (url === '/revolut/webview/start') {
+        return Promise.reject({
+          response: {
+            status: 422,
+            data: { code: 'UPSTREAM_UNAVAILABLE', detail: 'No response from the Revolut service. Please try again later.' },
+          },
+        })
+      }
+      return Promise.reject(new Error(`unexpected ${url}`))
+    })
+
+    renderTab()
+    fireEvent.click(await screen.findByRole('button', { name: 'sync.revolut.webview.connect' }))
+
+    expect(await screen.findByText('sync.revolut.errors.serverError')).toBeInTheDocument()
+    expect(screen.queryByText('No response from the Revolut service. Please try again later.')).toBeNull()
+  })
+
   it('refreshes Revolut status when WebView polling ends with FAILED', async () => {
     let connected = true
     apiGet.mockImplementation((url: string) => {

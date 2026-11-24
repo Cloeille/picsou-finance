@@ -102,6 +102,8 @@ function webviewErrorForCode(t: (key: string) => string, errorCode?: string): st
       return t('sync.revolut.errors.upstreamFormatChanged')
     case 'HUMAN_VERIFICATION_REQUIRED':
       return t('sync.revolut.errors.humanVerificationRequired')
+    case 'UPSTREAM_UNAVAILABLE':
+      return t('sync.revolut.errors.serverError')
     default:
       return null
   }
