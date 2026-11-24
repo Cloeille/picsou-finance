@@ -215,9 +215,17 @@ fn aside(data: &Path, name: &str, now_secs: u64) -> PathBuf {
 }
 
 /// Puts the copy back. Staged next to the data first so a failed restore changes nothing.
-/// Before swapping `picsou.db` back into place, any stale `-wal` and `-shm` sidecars left by
-/// the failed run are removed so SQLite never replays failed frames onto the restored file.
+/// `picsou.db` is moved aside before any stale `-wal` and `-shm` sidecars are touched, so a
+/// failed rename of `picsou.db` never strips the active database of its WAL; the stale sidecars
+/// are then moved aside too so SQLite never replays failed frames onto the restored file.
 pub fn restore(data: &Path, copy: &Path, now_secs: u64) -> io::Result<()> {
+    restore_with(data, copy, now_secs, |from, to| fs::rename(from, to))
+}
+
+fn restore_with<F>(data: &Path, copy: &Path, now_secs: u64, mut move_path: F) -> io::Result<()>
+where
+    F: FnMut(&Path, &Path) -> io::Result<()>,
+{
     if !copy.join(SQLITE_MAIN).exists() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
@@ -257,26 +265,30 @@ pub fn restore(data: &Path, copy: &Path, now_secs: u64) -> io::Result<()> {
         return Err(e);
     }
 
-    // Remove stale WAL/SHM files before moving the restored database into place.
+    let current_db = data.join(SQLITE_MAIN);
+    if current_db.exists() {
+        if let Err(e) = move_path(&current_db, &aside(data, SQLITE_MAIN, now_secs)) {
+            cleanup();
+            return Err(e);
+        }
+    }
+    // Move stale WAL/SHM files aside only after picsou.db itself has moved, so SQLite never
+    // replays failed frames onto the restored file and a failed swap never strips a live DB.
     for sidecar in SQLITE_SIDECARS {
         let path = data.join(sidecar);
         if path.exists() {
-            fs::remove_file(&path)?;
+            move_path(&path, &aside(data, sidecar, now_secs))?;
         }
     }
-    let current_db = data.join(SQLITE_MAIN);
-    if current_db.exists() {
-        fs::rename(&current_db, aside(data, SQLITE_MAIN, now_secs))?;
-    }
     for name in &db_files {
-        fs::rename(staged(name), data.join(name))?;
+        move_path(&staged(name), &data.join(name))?;
     }
     if has_secrets {
         let current_secrets = data.join(SECRETS_DIR);
         if current_secrets.exists() {
-            fs::rename(&current_secrets, aside(data, SECRETS_DIR, now_secs))?;
+            move_path(&current_secrets, &aside(data, SECRETS_DIR, now_secs))?;
         }
-        fs::rename(staged(SECRETS_DIR), current_secrets)?;
+        move_path(&staged(SECRETS_DIR), &current_secrets)?;
     }
     Ok(())
 }
@@ -536,6 +548,38 @@ mod tests {
         );
         assert!(!data.join("picsou.db.restoring").exists());
         assert!(!data.join("picsou.db.failed-9-0").exists());
+    }
+
+    #[test]
+    fn a_failed_db_rename_during_restore_keeps_wal_and_shm_intact() {
+        let data = scratch("rename-fail");
+        let copy = backup(&data, "1.0.0", "1.1.0", 1).unwrap();
+        fs::write(data.join("picsou.db"), "live-db").unwrap();
+        fs::write(data.join("picsou.db-wal"), "live-wal").unwrap();
+        fs::write(data.join("picsou.db-shm"), "live-shm").unwrap();
+
+        let err = restore_with(&data, &copy, 9, |from, to| {
+            if from == data.join("picsou.db") {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "database file in use",
+                ));
+            }
+            fs::rename(from, to)
+        })
+        .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+
+        assert_eq!(fs::read_to_string(data.join("picsou.db")).unwrap(), "live-db");
+        assert_eq!(
+            fs::read_to_string(data.join("picsou.db-wal")).unwrap(),
+            "live-wal"
+        );
+        assert_eq!(
+            fs::read_to_string(data.join("picsou.db-shm")).unwrap(),
+            "live-shm"
+        );
+        assert!(!data.join("picsou.db.restoring").exists());
     }
 
     #[test]
