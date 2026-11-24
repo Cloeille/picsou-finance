@@ -9,8 +9,13 @@ use quick_xml::{Reader, XmlVersion};
 
 use super::java_double::{self, JavaDouble};
 
-/// Inflated size allowed per part: a 10 MB upload far beyond any real export, never a zip bomb.
-const MAX_PART_BYTES: u64 = 256 * 1024 * 1024;
+/// Inflated size allowed for the parts of one package together. A real export is a few
+/// megabytes; the tree built from a part weighs many times its XML.
+const MAX_INFLATED_BYTES: u64 = 32 * 1024 * 1024;
+
+/// Nesting allowed in a part. SpreadsheetML stays under a dozen levels; the tree is dropped and
+/// walked recursively, so an unbounded depth overflows the stack and aborts the process.
+const MAX_DEPTH: usize = 64;
 
 /// A cell as POI types it. A formula cell is Blank here: the import reads neither kind.
 #[derive(Debug, Clone, PartialEq)]
@@ -158,7 +163,12 @@ fn parse_xml(bytes: &[u8]) -> Result<Node, Invalid> {
     };
     loop {
         match reader.read_event_into(&mut buf)? {
-            Event::Start(e) => stack.push(element(&e)?),
+            Event::Start(e) => {
+                if stack.len() > MAX_DEPTH {
+                    return Err(Invalid);
+                }
+                stack.push(element(&e)?);
+            }
             Event::Empty(e) => {
                 let node = element(&e)?;
                 stack
@@ -204,9 +214,18 @@ fn parse_xml(bytes: &[u8]) -> Result<Node, Invalid> {
 
 struct Package {
     archive: zip::ZipArchive<Cursor<Vec<u8>>>,
+    /// What is left of MAX_INFLATED_BYTES.
+    room: u64,
 }
 
 impl Package {
+    fn open(bytes: &[u8]) -> Result<Self, Invalid> {
+        Ok(Self {
+            archive: zip::ZipArchive::new(Cursor::new(bytes.to_vec()))?,
+            room: MAX_INFLATED_BYTES,
+        })
+    }
+
     fn part(&mut self, path: &str) -> Result<Option<Node>, Invalid> {
         let mut entry = match self.archive.by_name(path) {
             Ok(entry) => entry,
@@ -214,12 +233,12 @@ impl Package {
             Err(_) => return Err(Invalid),
         };
         let mut bytes = Vec::new();
-        (&mut entry)
-            .take(MAX_PART_BYTES + 1)
-            .read_to_end(&mut bytes)?;
-        if bytes.len() as u64 > MAX_PART_BYTES {
+        (&mut entry).take(self.room + 1).read_to_end(&mut bytes)?;
+        let inflated = bytes.len() as u64;
+        if inflated > self.room {
             return Err(Invalid);
         }
+        self.room -= inflated;
         parse_xml(&bytes).map(Some)
     }
 
@@ -380,8 +399,7 @@ const OFFICE_DOCUMENT: &str = "/officeDocument";
 
 /// Reads an XLSX workbook (WorkbookFactory.create for the OOXML format).
 pub fn read(bytes: &[u8]) -> Result<Workbook, Invalid> {
-    let archive = zip::ZipArchive::new(Cursor::new(bytes.to_vec()))?;
-    let mut package = Package { archive };
+    let mut package = Package::open(bytes)?;
     let root = package.relationships("")?;
     let workbook_path = root
         .values()
@@ -454,5 +472,37 @@ mod tests {
     #[test]
     fn rejects_what_is_not_a_package() {
         assert!(read(b"not a spreadsheet").is_err());
+    }
+
+    #[test]
+    fn a_part_nested_deeper_than_any_workbook_is_refused() {
+        let depth = 200_000;
+        let nested = format!("{}{}", "<a>".repeat(depth), "</a>".repeat(depth));
+        assert!(parse_xml(nested.as_bytes()).is_err());
+        let workbook_like = format!("{}{}", "<a>".repeat(12), "</a>".repeat(12));
+        assert!(parse_xml(workbook_like.as_bytes()).is_ok());
+    }
+
+    fn package(parts: &[(&str, &[u8])]) -> Vec<u8> {
+        use std::io::Write;
+        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, content) in parts {
+            zip.start_file(*name, zip::write::SimpleFileOptions::default())
+                .expect("start the entry");
+            zip.write_all(content).expect("write the entry");
+        }
+        zip.finish().expect("finish the archive").into_inner()
+    }
+
+    #[test]
+    fn the_parts_of_a_package_share_one_inflated_size_budget() {
+        let filler = format!("<a>{}</a>", "x".repeat(20 * 1024 * 1024));
+        let bytes = package(&[
+            ("_rels/.rels", filler.as_bytes()),
+            ("xl/workbook.xml", filler.as_bytes()),
+        ]);
+        let mut package = Package::open(&bytes).expect("a zip archive");
+        assert!(package.part("_rels/.rels").is_ok());
+        assert!(package.part("xl/workbook.xml").is_err());
     }
 }

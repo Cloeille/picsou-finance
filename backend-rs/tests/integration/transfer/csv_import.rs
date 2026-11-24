@@ -160,6 +160,39 @@ async fn invalid_rows_are_reported_and_valid_ones_still_imported() {
 }
 
 #[tokio::test]
+async fn figures_too_large_for_a_decimal_are_reported_on_their_row() {
+    let app = TestApp::with_admin().await;
+    let client = app.login_admin().await;
+    let pea = account(&app, admin_member(&app).await, AccountType::Pea, true).await;
+    let csv = "date,side,ticker,qty,price,fees,amount\n\
+2024-01-02,buy,AIR.PA,1000000000000000,1000000000000000,0,\n\
+2024-01-03,buy,AIR.PA,0.0000000001,,0,-100000000000000000000\n\
+2024-01-04,buy,AIR.PA,1,10,0,\n";
+    let body = preview(&client, pea.id, csv).await.json();
+    let mapping = json!({"date": 0, "side": 1, "tickerOrIsin": 2, "quantity": 3, "unitPrice": 4, "fees": 5, "amount": 6});
+    let request = json!({
+        "fileToken": body["fileToken"], "mapping": mapping,
+        "dialect": {"delimiter": ",", "decimal": "DOT", "dateFormat": "yyyy-MM-dd"},
+        "hasHeaderRow": true, "feesIncludedInAmount": true,
+    });
+
+    let response = client
+        .post(&format!("/api/accounts/{}/transactions/import", pea.id))
+        .json(&request)
+        .send()
+        .await;
+
+    assert_eq!(response.status, 201);
+    assert_eq!(
+        response.json(),
+        json!({"imported": 1, "skipped": 2, "errors": [
+            {"rowNumber": 2, "message": "Amount out of range"},
+            {"rowNumber": 3, "message": "Amount out of range"},
+        ]})
+    );
+}
+
+#[tokio::test]
 async fn header_only_file_has_no_data_rows_and_an_empty_file_is_refused() {
     let app = TestApp::with_admin().await;
     let client = app.login_admin().await;

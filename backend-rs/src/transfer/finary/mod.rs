@@ -366,8 +366,11 @@ async fn preview(
             "The supplied file was empty (zero bytes long)".into(),
         ));
     }
-    let workbook =
-        xlsx::read(&file.bytes).map_err(|_| AppError::BadRequest(NOT_A_SPREADSHEET.into()))?;
+    let bytes = file.bytes.clone();
+    let workbook = tokio::task::spawn_blocking(move || xlsx::read(&bytes))
+        .await
+        .map_err(|e| AppError::Internal(format!("workbook parsing: {e}")))?
+        .map_err(|_| AppError::BadRequest(NOT_A_SPREADSHEET.into()))?;
     let parsed = parse::parse(&workbook);
 
     let accounts: Vec<AccountPreview> = parsed

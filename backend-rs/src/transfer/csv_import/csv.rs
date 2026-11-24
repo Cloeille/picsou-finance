@@ -222,13 +222,17 @@ pub fn java_big_decimal(s: &str) -> Option<Decimal> {
         if body.is_empty() || !body.bytes().all(|b| b.is_ascii_digit()) {
             return None;
         }
-        let e: i64 = exp.parse().ok()?;
+        // BigDecimal keeps its scale in an int and refuses an exponent beyond it.
+        let e = i64::from(exp.parse::<i32>().ok()?);
         if e >= 0 {
-            for _ in 0..e {
-                value = value.checked_mul(Decimal::TEN)?;
+            // Zero times ten never overflows, so nothing else would end this loop.
+            if !value.is_zero() {
+                for _ in 0..e {
+                    value = value.checked_mul(Decimal::TEN)?;
+                }
             }
         } else {
-            let scale = value.scale() as i64 - e;
+            let scale = i64::from(value.scale()) - e;
             if scale > 28 {
                 return None;
             }
@@ -487,6 +491,18 @@ mod tests {
         assert_eq!(p("1e3", DecimalStyle::Dot), Some("1000".into()));
         assert!(parse_decimal(Some("abc"), DecimalStyle::Dot).is_err());
         assert!(parse_decimal(Some("-"), DecimalStyle::Dot).is_err());
+    }
+
+    #[test]
+    fn an_exponent_never_costs_more_than_the_digits_a_decimal_holds() {
+        assert_eq!(java_big_decimal("0e999999999"), Some(Decimal::ZERO));
+        assert_eq!(java_big_decimal("0e9999999999999999"), None);
+        assert_eq!(java_big_decimal("1e-9223372036854775808"), None);
+        assert_eq!(java_big_decimal("1e40"), None);
+        assert_eq!(
+            java_big_decimal("12e-3").map(|d| d.to_string()),
+            Some("0.012".into())
+        );
     }
 
     #[test]

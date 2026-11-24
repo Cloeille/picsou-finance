@@ -23,7 +23,7 @@ use crate::db::AsDbHandle;
 use crate::error::{AppError, AppResult};
 use crate::http::client_ip::ClientIp;
 use crate::http::json::{Errors, Json, Path, Validate};
-use crate::ledger::decimal::{HALF_UP, divide};
+use crate::ledger::decimal::{HALF_UP, set_scale};
 use crate::ledger::model::{Account, NewTransaction, TransactionType};
 use crate::ledger::sync_values::{java_is_blank, java_trim};
 use crate::ledger::{accounts, holding_compute, instrument, manual_transactions, transactions};
@@ -469,7 +469,7 @@ async fn map_row(
     })
     .await
     .ok_or("Missing ticker/ISIN")?;
-    let amount = signed_amount(side, quantity, price, fees);
+    let amount = signed_amount(side, quantity, price, fees).ok_or(OUT_OF_RANGE)?;
     let mut tx = NewTransaction::new(account.id, date, resolved.description, amount);
     tx.tx_type = Some(side);
     tx.ticker = Some(resolved.ticker);
@@ -542,26 +542,31 @@ fn resolve_price(
     let mut gross = amount.abs();
     if fees_included_in_amount {
         gross = if side == TransactionType::Sell {
-            gross + fees
+            gross.checked_add(fees)
         } else {
-            gross - fees
-        };
+            gross.checked_sub(fees)
+        }
+        .ok_or(OUT_OF_RANGE)?;
     }
-    Ok(divide(gross, quantity, 8, HALF_UP))
+    let price = gross.checked_div(quantity).ok_or(OUT_OF_RANGE)?;
+    Ok(set_scale(price, 8, HALF_UP))
 }
 
+/// The row's figures do not fit a decimal: reported on the row, where BigDecimal had no limit.
+const OUT_OF_RANGE: &str = "Amount out of range";
+
 /// TransactionAmountCalculator.signedAmount: BUY is an outflow (fees added), SELL an inflow
-/// (fees deducted); any other side is treated as an outflow.
+/// (fees deducted); any other side is treated as an outflow. None when the result overflows.
 pub fn signed_amount(
     side: TransactionType,
     quantity: Decimal,
     price: Decimal,
     fees: Decimal,
-) -> Decimal {
-    let gross = quantity * price;
+) -> Option<Decimal> {
+    let gross = quantity.checked_mul(price)?;
     if side == TransactionType::Sell {
-        gross - fees
+        gross.checked_sub(fees)
     } else {
-        -(gross + fees)
+        gross.checked_add(fees).map(|total| -total)
     }
 }
