@@ -19,8 +19,6 @@ import { type TimeRange } from '@/components/shared/TimeRangeSelector'
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
   CardAction,
@@ -408,13 +406,6 @@ export function DashboardPage() {
             </ItemGroup>
           )}
         </CardContent>
-        {data.goalSummaries.length > 0 && (
-          <CardFooter>
-            <CardDescription className="text-center">
-              {t('dashboard.goalsSummary')}
-            </CardDescription>
-          </CardFooter>
-        )}
       </Card>
 
       {/* Liabilities overview */}
