@@ -165,7 +165,11 @@ impl AiProvider {
     pub fn api_root(self, base_url: &str) -> String {
         let base = base_url.trim().trim_end_matches('/');
         let suffix = self.spec().api_root_suffix;
-        if suffix.is_empty() || base.ends_with(suffix) {
+        // "http://api" ends with "/api" only through the "//" of the scheme: that is a host.
+        let has_suffix = base
+            .strip_suffix(suffix)
+            .is_some_and(|rest| !rest.ends_with(":/"));
+        if suffix.is_empty() || has_suffix {
             base.to_owned()
         } else {
             format!("{base}{suffix}")
@@ -745,6 +749,11 @@ pub async fn update_ai(
             None => None,
         }
     };
+    // The key is cleared before the provider is written: a failed or concurrent write must never
+    // leave the old key paired with the host of the new provider.
+    if saved_provider != next_provider {
+        settings::upsert(&state.db, AI_API_KEY, "").await?;
+    }
     settings::upsert(&state.db, AI_PROVIDER, &provider).await?;
     settings::upsert(
         &state.db,
@@ -929,6 +938,7 @@ mod tests {
 
     #[test]
     fn api_root_does_not_duplicate_existing_suffix() {
+        assert_eq!(AiProvider::Ollama.api_root("http://api"), "http://api/api");
         assert_eq!(
             AiProvider::OpenAi.api_root("http://localhost:1234/v1"),
             "http://localhost:1234/v1"
