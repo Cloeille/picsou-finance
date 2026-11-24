@@ -119,10 +119,17 @@ impl WebviewLogins {
         Ok(())
     }
 
-    fn forget_member(&self, member_id: i64) {
+    fn forget_member(&self, member_id: i64) -> Vec<String> {
         let mut maps = self.maps();
         *maps.generations.entry(member_id).or_insert(0) += 1;
+        let webviews: Vec<String> = maps
+            .pending
+            .iter()
+            .filter(|(_, p)| p.member_id == member_id)
+            .map(|(id, _)| id.clone())
+            .collect();
         maps.pending.retain(|_, p| p.member_id != member_id);
+        webviews
     }
 }
 
@@ -395,9 +402,27 @@ pub async fn get_status(state: &AppState, member_id: i64) -> AppResult<SessionSt
 
 pub async fn clear_session(state: &AppState, member_id: i64) -> AppResult<bool> {
     let logins = webview_logins(state);
-    let _write = logins.write.lock().await;
-    logins.forget_member(member_id);
-    template().clear(state, member_id).await
+    let (removed, cancelled_webviews) = {
+        let _write = logins.write.lock().await;
+        let webviews = logins.forget_member(member_id);
+        let removed = template().clear(state, member_id).await?;
+        (removed, webviews)
+    };
+    for process_id in cancelled_webviews {
+        cancel_bridge_webview(state, &process_id).await;
+    }
+    Ok(removed)
+}
+
+async fn cancel_bridge_webview(state: &AppState, process_id: &str) {
+    if !webview_supported(state) || state.connectors.base_url(BANK.service_name()).is_empty() {
+        return;
+    }
+    let http = SidecarHttp::new(state, BANK.service_name(), BANK.label());
+    let path = format!("/webview/cancel/{process_id}");
+    let _ = http
+        .send::<Value>(http::Method::POST, &path, Some(&json!({})), WEBVIEW_TIMEOUT)
+        .await;
 }
 
 pub async fn start_webview(state: &AppState, member_id: i64) -> AppResult<WebviewStartResponse> {
@@ -422,18 +447,27 @@ pub async fn start_webview(state: &AppState, member_id: i64) -> AppResult<Webvie
     };
     let status = started.status.unwrap_or_else(|| "WAITING_LOGIN".to_owned());
     let now = state.clock.now();
-    {
+    let registered = {
         let _write = logins.write.lock().await;
-        logins.require_generation(member_id, generation)?;
-        logins.evict_expired(now);
-        logins.maps().pending.insert(
-            process_id.clone(),
-            PendingWebview {
-                member_id,
-                deadline: now + chrono::Duration::seconds(WEBVIEW_ATTEMPT_SECONDS),
-                generation,
-            },
-        );
+        match logins.require_generation(member_id, generation) {
+            Ok(()) => {
+                logins.evict_expired(now);
+                logins.maps().pending.insert(
+                    process_id.clone(),
+                    PendingWebview {
+                        member_id,
+                        deadline: now + chrono::Duration::seconds(WEBVIEW_ATTEMPT_SECONDS),
+                        generation,
+                    },
+                );
+                Ok(())
+            }
+            Err(err) => Err(err),
+        }
+    };
+    if let Err(err) = registered {
+        cancel_bridge_webview(state, &process_id).await;
+        return Err(err.into());
     }
     Ok(WebviewStartResponse { process_id, status })
 }
@@ -574,11 +608,7 @@ pub async fn cancel_webview(
     if !removed {
         return Ok(WebviewCancelResponse { cancelled: false });
     }
-    let http = SidecarHttp::new(state, BANK.service_name(), BANK.label());
-    let path = format!("/webview/cancel/{process_id}");
-    let _ = http
-        .send::<Value>(http::Method::POST, &path, Some(&json!({})), WEBVIEW_TIMEOUT)
-        .await;
+    cancel_bridge_webview(state, process_id).await;
     Ok(WebviewCancelResponse { cancelled: true })
 }
 

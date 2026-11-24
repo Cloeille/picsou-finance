@@ -888,3 +888,64 @@ async fn webview_status_poll_racing_a_disconnect_returns_expired_not_syncing() {
     assert_eq!(polled.json()["code"], "AUTH_ATTEMPT_EXPIRED");
     assert!(session_of(&app, BANK, member_id).await.is_none());
 }
+
+#[tokio::test]
+async fn start_webview_racing_a_disconnect_cancels_the_opened_bank_window() {
+    let sidecar = MockServer::start().await;
+    let in_flight = std::sync::Arc::new(tokio::sync::Notify::new());
+    Mock::given(method("POST"))
+        .and(path("/webview/start"))
+        .respond_with(super::support::DelayedNotify {
+            in_flight: in_flight.clone(),
+            delay: std::time::Duration::from_millis(300),
+            body: json!({ "processId": "wv-amex-race-cancel", "status": "WAITING_LOGIN" }),
+        })
+        .mount(&sidecar)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/webview/cancel/wv-amex-race-cancel"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "cancelled": true })))
+        .expect(1)
+        .mount(&sidecar)
+        .await;
+    let app = picsou::testing::TestApp::builder()
+        .with_admin()
+        .env(URL, sidecar.uri())
+        .env("PICSOU_DESKTOP", "true")
+        .spawn()
+        .await;
+    let (client, _) = admin(&app).await;
+
+    let (started, disconnected) = tokio::join!(client.post("/api/amex/webview/start").send(), async {
+        tokio::time::timeout(std::time::Duration::from_secs(5), in_flight.notified())
+            .await
+            .expect("start_webview reached bridge");
+        client.delete("/api/amex/session").send().await
+    });
+
+    assert_eq!(disconnected.status, 204, "{}", disconnected.text());
+    assert_eq!(started.status, 422, "{}", started.text());
+    assert_eq!(started.json()["code"], "AUTH_ATTEMPT_EXPIRED");
+    sidecar.verify().await;
+
+    // Disconnecting while a WebView login is already pending also cancels it on the bridge.
+    sidecar.reset().await;
+    answer(
+        &sidecar,
+        "/webview/start",
+        json!({ "processId": "wv-amex-open-cancel", "status": "WAITING_LOGIN" }),
+    )
+    .await;
+    Mock::given(method("POST"))
+        .and(path("/webview/cancel/wv-amex-open-cancel"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "cancelled": true })))
+        .expect(1)
+        .mount(&sidecar)
+        .await;
+    assert_eq!(
+        client.post("/api/amex/webview/start").send().await.status,
+        200
+    );
+    assert_eq!(client.delete("/api/amex/session").send().await.status, 204);
+    sidecar.verify().await;
+}
