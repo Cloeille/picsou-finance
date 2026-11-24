@@ -13,6 +13,8 @@ use serde_json::{Value, json};
 use wiremock::matchers::{body_partial_json, method, path, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+use crate::writer_free::{Slow, stays_writable_while};
+
 const EVM_ADDRESS: &str = "0x52908400098527886E0F7030069857D2E4169EE7";
 const SOL_ADDRESS: &str = "So1anaTestAddress1111111111111111111111111";
 const USDC_ETH: &str = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
@@ -66,9 +68,16 @@ struct Harness {
 
 impl Harness {
     async fn new() -> Self {
+        Self::with_env(&[]).await
+    }
+
+    async fn with_env(env: &[(&str, String)]) -> Self {
         let chain = MockServer::start().await;
-        let mut builder = TestApp::builder()
-            .with_admin()
+        let mut builder = TestApp::builder().with_admin();
+        for (key, value) in env {
+            builder = builder.env(key, value.clone());
+        }
+        let mut builder = builder
             .env("BITCOIN_API_URL", chain.uri())
             .env("SOLANA_RPC_URL", format!("{}/solana", chain.uri()));
         for (key, name) in NETWORKS {
@@ -512,6 +521,51 @@ fn esplora(funded: i64, spent: i64, tx_count: i64) -> ResponseTemplate {
     ResponseTemplate::new(200).set_body_json(json!({
         "chain_stats": {"funded_txo_sum": funded, "spent_txo_sum": spent, "tx_count": tx_count}
     }))
+}
+
+#[tokio::test]
+async fn the_database_stays_writable_while_the_rate_of_an_edited_account_currency_is_asked() {
+    // The member set the account of an empty wallet to USD: with no holding, the sync values its
+    // balance in that currency, and asks the rate before its transaction opens.
+    let yahoo = MockServer::start().await;
+    let (slow, asked) = Slow::answering(ResponseTemplate::new(200).set_body_json(json!({
+        "chart": {"result": [{
+            "meta": {"currency": "EUR", "regularMarketPrice": 0.9},
+            "timestamp": [1768471200],
+            "indicators": {"quote": [{"close": [0.9]}]}
+        }], "error": null}
+    })));
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/USDEUR=X"))
+        .respond_with(slow)
+        .mount(&yahoo)
+        .await;
+    let h = Harness::with_env(&[("YAHOO_FINANCE_BASE_URL", yahoo.uri())]).await;
+    Mock::given(method("GET"))
+        .and(path(format!("/api/address/{BIP84_RECEIVE_0}")))
+        .respond_with(esplora(0, 0, 0))
+        .mount(&h.chain)
+        .await;
+    let added = h.add("BITCOIN", BIP84_RECEIVE_0, None).await;
+    assert_eq!(added.status, StatusCode::OK, "{}", added.text());
+    let account_id = added.json()["id"].as_i64().unwrap();
+    picsou::db::query("UPDATE account SET currency = 'USD' WHERE id = $1")
+        .bind(account_id)
+        .execute(&h.app.state.db)
+        .await
+        .expect("currency edited");
+    let wallet_id = h.wallets().await[0]["id"].as_i64().unwrap();
+
+    let response = stays_writable_while(
+        &h.app.state.db,
+        &asked,
+        h.client
+            .post(&format!("/api/crypto/wallet/{wallet_id}/sync"))
+            .send(),
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::OK, "{}", response.text());
 }
 
 #[tokio::test]

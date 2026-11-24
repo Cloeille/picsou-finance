@@ -142,7 +142,20 @@ async fn prepare_wallet(state: &AppState, wallet_id: i64, member_id: i64) -> App
     let wallet = repo::find_by_id_and_member(&state.db, wallet_id, member_id)
         .await?
         .ok_or_else(wallet_not_found)?;
-    prepare(state, wallet.chain, &wallet.address, Some(wallet.id)).await
+    let prepared = prepare(state, wallet.chain, &wallet.address, Some(wallet.id)).await?;
+    // The account is valued as stored too, with a currency the member may have set.
+    let stored = valuation::needs_of_external(
+        &mut state.db.pool_handle(),
+        member_id,
+        &external_id(&wallet),
+    )
+    .await?;
+    state
+        .ledger
+        .prices
+        .prefetch(&stored, state.clock.today())
+        .await;
+    Ok(prepared)
 }
 
 /// Applies a prepared wallet sync inside the caller's transaction; None when its account was

@@ -20,6 +20,7 @@ use crate::ledger::members;
 use crate::ledger::prices::PriceNeeds;
 use crate::ledger::sidecar::{SidecarBank, SidecarErrorCode, SourceSyncResult, SyncStatus};
 use crate::ledger::sync_values;
+use crate::ledger::valuation;
 
 /// One queued import: the session row it is fenced to, its member, the decrypted session state,
 /// and whether it fetches the provider's full history instead of the routine window.
@@ -559,10 +560,14 @@ impl<S: SyncStrategy> SyncTemplate<S> {
         prepared: &S::Prepared,
     ) -> JobResult<bool> {
         let label = self.bank.label();
+        let mut needs = self.strategy.price_needs(prepared);
+        needs.merge(
+            valuation::account_needs_of_member(&mut state.db.pool_handle(), job.member_id).await?,
+        );
         state
             .ledger
             .prices
-            .prefetch(&self.strategy.price_needs(prepared), state.clock.today())
+            .prefetch(&needs, state.clock.today())
             .await;
         let mut tx = state.db.begin().await?;
         self.lock_member_if_needed(&mut tx.as_handle(), job.member_id)

@@ -341,6 +341,31 @@ pub async fn needs_of_external(
     }
 }
 
+/// The rate of the currency and the quote of the own ticker of each synced account of the
+/// member, as stored. A connector that finds its accounts by itself (the bank connectors built on
+/// SyncTemplate) announces these with what its payload brings: the member may have edited either
+/// on a synced account.
+pub async fn account_needs_of_member(
+    conn: &mut DbHandle<'_>,
+    member_id: i64,
+) -> sqlx::Result<PriceNeeds> {
+    let stored: Vec<(String, Option<String>)> = crate::db::query_as(
+        "SELECT DISTINCT a.currency, a.ticker FROM account a \
+         WHERE a.member_id = $1 AND a.deleted_at IS NULL AND a.external_account_id IS NOT NULL",
+    )
+    .bind(member_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut needs = PriceNeeds::default();
+    for (currency, ticker) in &stored {
+        needs.currency(currency);
+        if let Some(ticker) = ticker {
+            needs.ticker(ticker);
+        }
+    }
+    Ok(needs)
+}
+
 /// The rates rebuilding the manual ledgers of a member can read: the currencies of their
 /// accounts and of the rows entered on them. For PriceRead::prefetch, before an import that
 /// rebuilds whichever of them it writes into.

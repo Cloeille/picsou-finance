@@ -185,7 +185,8 @@ Reads outside a transaction use the WAL reader pool and are not affected.
     brings (the currencies it converts, the tickers its accounts will hold) and the account as
     stored (`valuation::needs_of_external`: a currency or a ticker the member edited, holdings
     the sync leaves alone). A connector built on `SyncTemplate` returns its payload's from
-    `SyncStrategy::price_needs`; a handler on an existing account reads them with
+    `SyncStrategy::price_needs`, and the template adds the stored currency and ticker of the
+    member's synced accounts (`valuation::account_needs_of_member`); a handler on an existing account reads them with
     `valuation::needs_of`.
   - **A long read uses `db.begin_read()`**, not `db.begin()`: a read-only transaction that sees
     the database as it was at its first read. On SQLite it is a WAL snapshot on a reader of its
