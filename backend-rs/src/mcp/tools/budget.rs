@@ -670,7 +670,7 @@ pub async fn call(
                 let rows =
                     repo::search(&state.db, auth.member_id, from, to, None, category_id).await?;
                 let refs = Refs::load(&state.db, &rows).await?;
-                let out: Vec<_> = rows.iter().map(|tx| refs.response(tx)).collect();
+                let out: Vec<_> = rows.iter().filter_map(|tx| refs.response(tx)).collect();
                 to_json_text(&out)
             }
         }

@@ -228,7 +228,9 @@ type PairKey = (String, NaiveDate, Decimal);
 fn trade_republic_cash_legs(rows: &[Transaction], refs: &Refs) -> HashMap<PairKey, usize> {
     let mut legs = HashMap::new();
     for tx in rows {
-        let account = refs.account(tx);
+        let Some(account) = refs.account(tx) else {
+            continue;
+        };
         let Some(stem) = trade_republic_stem(tx, "_cash") else {
             continue;
         };
@@ -289,7 +291,9 @@ async fn transfers(
     let mut tracked: Vec<(Account, Decimal)> = Vec::new();
     let mut all_legs = Decimal::ZERO;
     for tx in &rows {
-        let account = refs.account(tx);
+        let Some(account) = refs.account(tx) else {
+            continue;
+        };
         let tracked_account = AssetClass::of(account.account_type).tracks_contributions();
         if tracked_account && consume_mirrored_leg(tx, account, &mut cash_legs) {
             continue;
@@ -319,7 +323,10 @@ pub async fn flow(
     let mut expense = Tally::default();
     let mut total_income = Decimal::ZERO;
     let mut total_expense = Decimal::ZERO;
-    for tx in rows.iter().filter(|tx| !is_transfer(&refs, tx)) {
+    for tx in rows
+        .iter()
+        .filter(|tx| refs.account(tx).is_some() && !is_transfer(&refs, tx))
+    {
         let category = refs.category(tx);
         if negative(tx.amount) {
             let magnitude = jdec::negate(tx.amount);
@@ -557,7 +564,7 @@ pub async fn spending_by_category(
     let mut expense = Tally::default();
     let mut total = Decimal::ZERO;
     for tx in &rows {
-        if is_transfer(&refs, tx) || !negative(tx.amount) {
+        if refs.account(tx).is_none() || is_transfer(&refs, tx) || !negative(tx.amount) {
             continue;
         }
         let magnitude = jdec::negate(tx.amount);
@@ -654,8 +661,11 @@ pub async fn category_detail(
     let mut per_child: HashMap<i64, (Decimal, i32)> = HashMap::new();
     let mut transactions = Vec::with_capacity(rows.len());
     for tx in &rows {
+        let Some(resp) = refs.response(tx) else {
+            continue;
+        };
         total += tx.amount;
-        transactions.push(refs.response(tx));
+        transactions.push(resp);
         if let Some(id) = tx.category_id {
             let entry = per_child.entry(id).or_insert((Decimal::ZERO, 0));
             entry.0 += tx.amount;
@@ -689,7 +699,7 @@ pub async fn category_detail(
         from,
         to,
         total,
-        count: rows.len(),
+        count: transactions.len(),
         transactions,
         children,
     })

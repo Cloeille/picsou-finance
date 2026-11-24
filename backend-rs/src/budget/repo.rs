@@ -266,8 +266,8 @@ impl Refs {
         })
     }
 
-    pub fn account(&self, tx: &Transaction) -> &Account {
-        &self.accounts[&tx.account_id]
+    pub fn account(&self, tx: &Transaction) -> Option<&Account> {
+        self.accounts.get(&tx.account_id)
     }
 
     pub fn category(&self, tx: &Transaction) -> Option<&Category> {
@@ -278,14 +278,16 @@ impl Refs {
         self.categories.get(&id)
     }
 
-    /// TransactionResponse.from, without a peer-loan link.
-    pub fn response(&self, tx: &Transaction) -> TransactionResponse {
-        TransactionResponse::from_row(
+    /// TransactionResponse.from, without a peer-loan link. Returns None if the row's account was
+    /// soft-deleted after the transactions were loaded.
+    pub fn response(&self, tx: &Transaction) -> Option<TransactionResponse> {
+        let account = self.account(tx)?;
+        Some(TransactionResponse::from_row(
             tx,
-            &self.account(tx).name,
+            &account.name,
             self.category(tx).map(|c| c.name.clone()),
             None,
-        )
+        ))
     }
 }
 

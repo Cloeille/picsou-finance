@@ -1109,3 +1109,30 @@ async fn logo_proxy_is_opt_in_cached_and_falls_back_to_404() {
         404
     );
 }
+
+#[tokio::test]
+async fn refs_handles_soft_deleted_account_without_panicking() {
+    let c = ctx().await;
+    let checking = c.account("Courant", AccountType::Checking).await;
+    c.tx(&checking, "2026-01-05", "-15", "Coffee", None).await;
+    let rows = picsou::budget::repo::member_between(
+        &c.app.state.db,
+        c.member,
+        day("2026-01-01"),
+        day("2026-01-31"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 1);
+    picsou::db::query("UPDATE account SET deleted_at = $2 WHERE id = $1")
+        .bind(checking.id)
+        .bind(c.app.state.clock.now())
+        .execute(&c.app.state.db)
+        .await
+        .unwrap();
+    let refs = picsou::budget::repo::Refs::load(&c.app.state.db, &rows)
+        .await
+        .unwrap();
+    assert!(refs.account(&rows[0]).is_none());
+    assert!(refs.response(&rows[0]).is_none());
+}

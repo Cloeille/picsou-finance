@@ -81,7 +81,10 @@ pub async fn compute(
         .collect();
     let rows = repo::member_between(&state.db, member_id, from, to).await?;
     let refs = Refs::load(&state.db, &rows).await?;
-    for tx in rows.iter().filter(|tx| !is_transfer(&refs, tx)) {
+    for tx in rows
+        .iter()
+        .filter(|tx| refs.account(tx).is_some() && !is_transfer(&refs, tx))
+    {
         let cycle = cycle::cycle_for(tx.date, day);
         let index = match buckets.iter().position(|b| b.cycle.start == cycle.start) {
             Some(i) => i,

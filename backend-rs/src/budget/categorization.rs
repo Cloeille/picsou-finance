@@ -99,10 +99,10 @@ async fn search(
     let mut links = peer_loan_links(&state, &ids).await?;
     Ok(axum::Json(
         rows.iter()
-            .map(|tx| {
-                let mut response = refs.response(tx);
+            .filter_map(|tx| {
+                let mut response = refs.response(tx)?;
                 response.peer_loan_link = links.remove(&tx.id);
-                response
+                Some(response)
             })
             .collect(),
     ))
@@ -115,7 +115,7 @@ pub async fn uncategorized(
     let rows = repo::uncategorized(&state.db, auth.member_id).await?;
     let refs = Refs::load(&state.db, &rows).await?;
     Ok(axum::Json(
-        rows.iter().map(|tx| refs.response(tx)).collect(),
+        rows.iter().filter_map(|tx| refs.response(tx)).collect(),
     ))
 }
 

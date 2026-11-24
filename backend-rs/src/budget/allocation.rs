@@ -181,7 +181,9 @@ async fn contributions(
         if tx.amount <= Decimal::ZERO {
             continue;
         }
-        let account = refs.account(tx);
+        let Some(account) = refs.account(tx) else {
+            continue;
+        };
         let class = AssetClass::of(account.account_type);
         if !class.tracks_contributions() {
             continue;
