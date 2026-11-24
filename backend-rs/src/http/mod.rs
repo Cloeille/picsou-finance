@@ -6,6 +6,7 @@ pub mod json;
 pub mod rate_limit;
 pub mod spa;
 
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use axum::Router;
@@ -21,6 +22,7 @@ use crate::auth::cookies;
 use crate::auth::layer::SecurityState;
 use crate::error::{PendingProblem, Problem, raw};
 use client_ip::RequestOrigin;
+use futures::FutureExt;
 
 const BACKEND_PREFIXES: &[&str] = &[
     "/api",
@@ -549,6 +551,24 @@ async fn render_problems(request: Request, next: Next) -> Response {
     response
 }
 
+/// A handler that panics answers 500, as an uncaught exception did in the Java backend. Left to
+/// unwind, it closes the connection without a response and the SPA reports the server as
+/// unreachable.
+async fn catch_panics(request: Request, next: Next) -> Response {
+    let route = format!("{} {}", request.method(), request.uri().path());
+    match AssertUnwindSafe(next.run(request)).catch_unwind().await {
+        Ok(response) => response,
+        Err(panic) => {
+            let reason = panic
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_owned())
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "no message".to_owned());
+            crate::error::AppError::Internal(format!("panic in {route}: {reason}")).into_response()
+        }
+    }
+}
+
 /// No route: the SPA for a browser read outside the backend, else Spring's 404.
 async fn fallback(State(state): State<AppState>, request: Request) -> Response {
     let path = decoded_path(request.uri().path());
@@ -603,6 +623,7 @@ pub fn build(routes: crate::routes::Routes, state: AppState) -> Router {
         .layer(from_fn_with_state(security, crate::auth::layer::secure))
         .layer(from_fn_with_state(state.clone(), setup_gate))
         .layer(from_fn_with_state(state.clone(), cross_site_guard))
+        .layer(from_fn(catch_panics))
         .layer(from_fn_with_state(state.clone(), security_headers))
         .layer(from_fn_with_state(state.clone(), cors))
         .layer(from_fn(anonymous_body_limit))
@@ -617,6 +638,41 @@ pub fn build(routes: crate::routes::Routes, state: AppState) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_handler_that_panics_answers_500_with_a_problem_body() {
+        use tower::Service;
+
+        let mut app: Router = Router::new()
+            .route(
+                "/api/boom",
+                axum::routing::get(|| async {
+                    if true {
+                        panic!("the secret reason");
+                    }
+                }),
+            )
+            .layer(from_fn(catch_panics))
+            .layer(from_fn(render_problems));
+        let request = Request::builder()
+            .uri("/api/boom")
+            .body(axum::body::Body::empty())
+            .expect("build the request");
+
+        let response = app.call(request).await.expect("the router answers");
+
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read the body");
+        let problem: serde_json::Value = serde_json::from_slice(&body).expect("a JSON body");
+        assert_eq!(problem["status"], 500);
+        assert_eq!(problem["instance"], "/api/boom");
+        assert!(
+            !String::from_utf8_lossy(&body).contains("the secret reason"),
+            "the panic message must stay in the log"
+        );
+    }
 
     #[test]
     fn desktop_host_allowlist_accepts_loopback_and_rejects_rebinding() {
