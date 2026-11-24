@@ -148,4 +148,39 @@ describe('RevolutTab', () => {
     )
     expect(await screen.findByText('sync.revolut.syncSuccess')).toBeInTheDocument()
   })
+
+  it('returns to the WebView connect card after forgetting a connected Desktop session', async () => {
+    let connected = true
+    apiGet.mockImplementation((url: string) => {
+      if (url === '/revolut/status') {
+        return Promise.resolve({
+          data: connected
+            ? { connected: true, remembered: false, lastSyncedAt: '2026-11-21T12:00:00Z', webviewLoginSupported: true }
+            : { connected: false, remembered: false, lastSyncedAt: null, webviewLoginSupported: true },
+        })
+      }
+      return Promise.reject(new Error(`unexpected ${url}`))
+    })
+    apiDelete.mockImplementation((url: string) => {
+      if (url === '/revolut/session') {
+        connected = false
+        return Promise.resolve({ data: undefined })
+      }
+      return Promise.reject(new Error(`unexpected ${url}`))
+    })
+
+    renderTab()
+    expect(await screen.findByText('sync.revolut.connected')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'sync.revolut.sync' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'sync.revolut.webview.reconnect' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'sync.revolut.forget' }))
+
+    await waitFor(() => expect(apiDelete).toHaveBeenCalledWith('/revolut/session'))
+    expect(await screen.findByText('sync.revolut.notConnected')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'sync.revolut.webview.connect' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'sync.revolut.sync' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'sync.revolut.webview.reconnect' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'sync.revolut.forget' })).toBeNull()
+  })
 })

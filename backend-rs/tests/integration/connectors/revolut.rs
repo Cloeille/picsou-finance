@@ -859,3 +859,98 @@ async fn start_webview_racing_a_disconnect_cancels_the_opened_bank_window() {
     );
     sidecar.verify().await;
 }
+
+#[tokio::test]
+async fn desktop_status_is_disconnected_after_forget_even_with_imported_wallets() {
+    let sidecar = MockServer::start().await;
+    answer(
+        &sidecar,
+        "/webview/start",
+        json!({ "processId": "wv-revo-forget", "status": "WAITING_LOGIN" }),
+    )
+    .await;
+    Mock::given(method("GET"))
+        .and(path("/webview/status/wv-revo-forget"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "status": "DONE" })))
+        .mount(&sidecar)
+        .await;
+    answer(
+        &sidecar,
+        "/sync",
+        json!({
+            "accounts": [{
+                "externalId": "wallet-forget",
+                "name": "Revolut",
+                "type": "CHECKING",
+                "iban": IBAN,
+                "balance": n("150.00"),
+                "currency": "EUR",
+                "transactions": []
+            }]
+        }),
+    )
+    .await;
+    let app = picsou::testing::TestApp::builder()
+        .with_admin()
+        .env(URL, sidecar.uri())
+        .env("PICSOU_DESKTOP", "true")
+        .spawn()
+        .await;
+    let (client, member_id) = admin(&app).await;
+
+    assert_eq!(
+        client
+            .post("/api/revolut/webview/start")
+            .send()
+            .await
+            .status,
+        200
+    );
+    assert_eq!(
+        client
+            .get("/api/revolut/webview/status/wv-revo-forget")
+            .send()
+            .await
+            .status,
+        200
+    );
+    settle(&app).await;
+    assert_eq!(
+        client
+            .post("/api/revolut/sync/confirm")
+            .json(&json!({
+                "selectedExternalIds": ["wallet-forget"],
+                "remember": false,
+                "voluntary": false
+            }))
+            .send()
+            .await
+            .status,
+        204
+    );
+    assert_eq!(count(&app, "SELECT count(*) FROM account").await, 1);
+    let before = client.get("/api/revolut/status").send().await.json();
+    assert_eq!(before["connected"], true);
+    assert_eq!(before["webviewLoginSupported"], true);
+
+    Mock::given(method("DELETE"))
+        .and(path(format!("/session/{member_id}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "cleared": true })))
+        .mount(&sidecar)
+        .await;
+    assert_eq!(
+        client.delete("/api/revolut/session").send().await.status,
+        204
+    );
+    // Imported wallets stay, but Desktop status must drop back to disconnected.
+    assert_eq!(count(&app, "SELECT count(*) FROM account").await, 1);
+    let after = client.get("/api/revolut/status").send().await.json();
+    assert_eq!(
+        after,
+        json!({
+            "connected": false,
+            "remembered": false,
+            "webviewLoginSupported": true
+        })
+    );
+}

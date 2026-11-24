@@ -1068,18 +1068,22 @@ pub async fn cancel_webview(
     Ok(WebviewCancelResponse { cancelled: true })
 }
 
-/// `connected` once the member has completed a sidecar sync (the revolut_session row) or already
-/// has Revolut wallets from a past sync.
+/// `connected` once the member has completed a sidecar sync (the revolut_session row) or, in
+/// server mode, already has Revolut wallets from a past sync. In Desktop mode only the session row
+/// counts so forgetting the connection returns the tab to the WebView connect card while keeping
+/// previously imported wallets.
 pub async fn get_status(state: &AppState, member_id: i64) -> AppResult<StatusResponse> {
     let session = find_session(&state.db, member_id).await?;
-    let has_wallets = !accounts::find_revolut_wallets(&state.db, member_id)
-        .await?
-        .is_empty();
+    let is_desktop = webview_supported(state);
+    let has_wallets = !is_desktop
+        && !accounts::find_revolut_wallets(&state.db, member_id)
+            .await?
+            .is_empty();
     Ok(StatusResponse {
         connected: session.is_some() || has_wallets,
         remembered: session.as_ref().is_some_and(|s| s.remember_credentials),
         last_synced_at: session.and_then(|s| s.last_synced_at),
-        webview_login_supported: webview_supported(state).then_some(true),
+        webview_login_supported: is_desktop.then_some(true),
     })
 }
 
