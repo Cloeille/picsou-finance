@@ -73,6 +73,24 @@ const TRAY_INSTALL: Texts = [
     "Instalar Picsou {version}",
     "Picsou {version} installieren",
 ];
+const TRAY_INSTALLING: Texts = [
+    "Installing update…",
+    "Installation de la mise à jour…",
+    "Instalando actualización…",
+    "Update wird installiert…",
+];
+const TRAY_INSTALL_FAILED: Texts = [
+    "Update failed — retry",
+    "Échec de la mise à jour — réessayer",
+    "Error al actualizar — reintentar",
+    "Update fehlgeschlagen — erneut versuchen",
+];
+const UPDATE_INSTALL_FAILED: Texts = [
+    "The Picsou update could not be installed ({reason}). You can retry from the tray menu.",
+    "La mise à jour de Picsou n'a pas pu être installée ({reason}). Vous pouvez réessayer depuis le menu de la barre d'état.",
+    "No se ha podido instalar la actualización de Picsou ({reason}). Puedes volver a intentarlo desde el menú de la bandeja.",
+    "Das Picsou-Update konnte nicht installiert werden ({reason}). Du kannst es über das Menü in der Taskleiste erneut versuchen.",
+];
 const RESTORED: Texts = [
     "Your data from before the update is back. Reinstall the previous Picsou version, then open it.",
     "Vos données d'avant la mise à jour sont de retour. Réinstallez la version précédente de Picsou, puis ouvrez-la.",
@@ -142,6 +160,18 @@ pub fn tray_install(lang: Lang, version: &str) -> String {
     lang.pick(TRAY_INSTALL).replace("{version}", version)
 }
 
+pub fn tray_installing(lang: Lang) -> &'static str {
+    lang.pick(TRAY_INSTALLING)
+}
+
+pub fn tray_install_failed(lang: Lang) -> &'static str {
+    lang.pick(TRAY_INSTALL_FAILED)
+}
+
+pub fn update_install_failed(lang: Lang, reason: &str) -> String {
+    lang.pick(UPDATE_INSTALL_FAILED).replace("{reason}", reason)
+}
+
 /// What the error page shows once the copy from before the update is back.
 pub fn restored(lang: Lang) -> &'static str {
     lang.pick(RESTORED)
@@ -204,8 +234,9 @@ mod tests {
 
     #[test]
     fn every_language_keeps_the_placeholders_of_the_english_text() {
-        let templates: [(Texts, &[&str]); 7] = [
+        let templates: [(Texts, &[&str]); 8] = [
             (TRAY_INSTALL, &["{version}"]),
+            (UPDATE_INSTALL_FAILED, &["{reason}"]),
             (NEWER_DATA, &["{from}", "{current}"]),
             (NEWER_DATA_UNKNOWN, &["{current}"]),
             (
@@ -231,6 +262,8 @@ mod tests {
             TRAY_LAUNCH_AT_LOGIN,
             TRAY_QUIT,
             TRAY_UP_TO_DATE,
+            TRAY_INSTALLING,
+            TRAY_INSTALL_FAILED,
             RESTORED,
             DID_NOT_START,
         ] {
@@ -245,6 +278,7 @@ mod tests {
         for lang in ALL {
             for message in [
                 tray_install(lang, "1.3.0"),
+                update_install_failed(lang, "network error"),
                 newer_data(lang, Some("1.4.0"), "1.3.0"),
                 newer_data(lang, None, "1.3.0"),
                 update_failed_with_copy(lang, "1.2.0", "1.3.0", "V2 failed"),
@@ -259,6 +293,8 @@ mod tests {
             }
         }
         assert_eq!(tray_install(Lang::Fr, "1.3.0"), "Installer Picsou 1.3.0");
+        assert_eq!(tray_installing(Lang::En), "Installing update…");
+        assert_eq!(tray_install_failed(Lang::En), "Update failed — retry");
         assert_eq!(tray_open(Lang::De), "Picsou öffnen");
         assert_eq!(tray_quit(Lang::Es), "Salir de Picsou");
         assert_eq!(tray_launch_at_login(Lang::En), "Launch at login");

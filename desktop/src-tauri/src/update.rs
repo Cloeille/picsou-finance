@@ -6,6 +6,7 @@
 //! embedded SQLite backend cleanly first; the new version's first start then copies the data
 //! before migrating it, like any update (#588).
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -47,6 +48,62 @@ pub fn wants_install(args: impl IntoIterator<Item = String>) -> bool {
 /// The tray entry, disabled until an update is found.
 #[derive(Default)]
 pub struct TrayItem(pub Mutex<Option<MenuItem<tauri::Wry>>>);
+
+/// Prevents overlapping downloads/installs on double clicks or repeated `--install-update` calls.
+struct InstallGate {
+    active: AtomicBool,
+}
+
+struct InstallGuard<'a> {
+    gate: &'a InstallGate,
+}
+
+impl Drop for InstallGuard<'_> {
+    fn drop(&mut self) {
+        self.gate.active.store(false, Ordering::SeqCst);
+    }
+}
+
+impl InstallGate {
+    const fn new() -> Self {
+        Self {
+            active: AtomicBool::new(false),
+        }
+    }
+
+    fn try_begin(&self) -> Option<InstallGuard<'_>> {
+        self.active
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .ok()
+            .map(|_| InstallGuard { gate: self })
+    }
+
+    fn is_active(&self) -> bool {
+        self.active.load(Ordering::SeqCst)
+    }
+}
+
+static INSTALLING: InstallGate = InstallGate::new();
+
+#[derive(Debug, PartialEq, Eq)]
+enum InstallOutcome {
+    NoUpdate,
+    Started,
+}
+
+fn begin_install(gate: &InstallGate, on_start: impl FnOnce()) -> Option<InstallGuard<'_>> {
+    let guard = gate.try_begin()?;
+    on_start();
+    Some(guard)
+}
+
+async fn finish_guarded_install<F, H>(_guard: InstallGuard<'_>, work: F, on_outcome: H)
+where
+    F: std::future::Future<Output = Result<InstallOutcome, String>>,
+    H: FnOnce(Result<InstallOutcome, String>),
+{
+    on_outcome(work.await);
+}
 
 pub fn enabled(config: &tauri::Config) -> bool {
     has_key(config) && self_updatable()
@@ -93,7 +150,7 @@ async fn tokio_sleep(duration: Duration) {
     let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(duration)).await;
 }
 
-fn offer(app: &AppHandle, version: &str) {
+fn set_tray(app: &AppHandle, text: &str, enabled: bool) {
     if let Some(item) = app
         .state::<TrayItem>()
         .0
@@ -101,31 +158,92 @@ fn offer(app: &AppHandle, version: &str) {
         .unwrap_or_else(|e| e.into_inner())
         .as_ref()
     {
-        let _ = item.set_text(crate::i18n::tray_install(
-            crate::i18n::Lang::system(),
-            version,
-        ));
-        let _ = item.set_enabled(true);
+        let _ = item.set_text(text);
+        let _ = item.set_enabled(enabled);
+    }
+}
+
+fn offer(app: &AppHandle, version: &str) {
+    if INSTALLING.is_active() {
+        return;
+    }
+    let text = crate::i18n::tray_install(crate::i18n::Lang::system(), version);
+    set_tray(app, &text, true);
+}
+
+fn update_failed_script(message: &str) -> String {
+    let text = serde_json::to_string(message).unwrap_or_else(|_| "\"\"".to_owned());
+    format!(
+        r##"(function(){{
+  var id = "picsou-update-error";
+  var prev = document.getElementById(id);
+  if (prev) prev.remove();
+  var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  var box = document.createElement("div");
+  box.id = id;
+  box.setAttribute("role", "alert");
+  box.style.cssText = "position:fixed;right:1rem;bottom:1rem;z-index:2147483647;max-width:24rem;padding:0.875rem 1rem;border-radius:0.5rem;display:flex;gap:0.75rem;align-items:flex-start;font:0.875rem/1.45 \"Geist Variable\",system-ui,-apple-system,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,0.14);border:1px solid " + (dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)") + ";background:" + (dark ? "#171717" : "#ffffff") + ";color:" + (dark ? "#fafafa" : "#0a0a0a") + ";";
+  var msg = document.createElement("span");
+  msg.textContent = {text};
+  msg.style.flex = "1";
+  var close = document.createElement("button");
+  close.type = "button";
+  close.textContent = "\u00d7";
+  close.setAttribute("aria-label", "Close");
+  close.style.cssText = "border:0;background:transparent;color:inherit;font:inherit;font-size:1.125rem;line-height:1;cursor:pointer;padding:0 0.25rem;opacity:0.7;";
+  close.addEventListener("click", function(){{ box.remove(); }});
+  box.appendChild(msg);
+  box.appendChild(close);
+  (document.body || document.documentElement).appendChild(box);
+}})();"##
+    )
+}
+
+fn show_update_error(app: &AppHandle, reason: &str) {
+    let lang = crate::i18n::Lang::system();
+    set_tray(app, crate::i18n::tray_install_failed(lang), true);
+    let message = crate::i18n::update_install_failed(lang, reason);
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        let _ = window.eval(update_failed_script(&message));
     }
 }
 
 /// Downloads, verifies and installs the update. The backend and sidecars are stopped first,
 /// so the installer replaces no file in use and SQLite closes cleanly.
 pub fn install(app: &AppHandle) {
+    let lang = crate::i18n::Lang::system();
+    // Acquire synchronously so two rapid tray clicks cannot both spawn an install.
+    let Some(guard) = begin_install(&INSTALLING, || {
+        set_tray(app, crate::i18n::tray_installing(lang), false);
+    }) else {
+        note(app, "install already in progress, ignoring");
+        return;
+    };
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = install_now(&app).await {
-            note(&app, &format!("update failed: {e}"));
-        }
+        finish_guarded_install(guard, install_now(&app), |outcome| match outcome {
+            Ok(InstallOutcome::NoUpdate) => {
+                set_tray(&app, crate::i18n::tray_up_to_date(lang), false);
+            }
+            Ok(InstallOutcome::Started) => {}
+            Err(e) => {
+                note(&app, &format!("update failed: {e}"));
+                show_update_error(&app, &e);
+            }
+        })
+        .await;
     });
 }
 
-async fn install_now(app: &AppHandle) -> Result<(), String> {
+async fn install_now(app: &AppHandle) -> Result<InstallOutcome, String> {
     let stack = app.state::<Shared>().inner().clone();
     let updater = app.updater().map_err(|e| e.to_string())?;
     let Some(update) = updater.check().await.map_err(|e| e.to_string())? else {
         note(app, "install asked, no update available");
-        return Ok(());
+        return Ok(InstallOutcome::NoUpdate);
     };
     note(app, &format!("downloading {}", update.version));
     // Verified against the public key while downloading: a bad file never stops the stack.
@@ -143,7 +261,7 @@ async fn install_now(app: &AppHandle) -> Result<(), String> {
     supervisor::stop(&stack);
     note(app, "stack stopped, installing");
     install_bytes(app, &update, bytes);
-    Ok(())
+    Ok(InstallOutcome::Started)
 }
 
 /// Windows: the plugin's own install hung between its exit hook and the installer start, with
@@ -219,5 +337,82 @@ mod tests {
     fn the_install_argument_is_recognised() {
         assert!(wants_install(["picsou".to_owned(), INSTALL_ARG.to_owned()]));
         assert!(!wants_install(["picsou".to_owned(), "--hidden".to_owned()]));
+    }
+
+    #[tokio::test]
+    async fn double_click_is_ignored_while_installing_and_failures_are_reported_and_retryable() {
+        use std::sync::atomic::AtomicUsize;
+        use std::sync::Arc;
+        use tokio::sync::Notify;
+
+        let gate = Arc::new(InstallGate::new());
+        let starts = Arc::new(AtomicUsize::new(0));
+        let failures: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+
+        let (g1, st1, f1, s1, rel1) = (
+            Arc::clone(&gate),
+            Arc::clone(&starts),
+            Arc::clone(&failures),
+            Arc::clone(&started),
+            Arc::clone(&release),
+        );
+        let first = tokio::spawn(async move {
+            let guard = begin_install(&g1, || {
+                st1.fetch_add(1, Ordering::SeqCst);
+            })
+            .expect("first install must acquire gate");
+            finish_guarded_install(
+                guard,
+                async move {
+                    s1.notify_one();
+                    rel1.notified().await;
+                    Err("network timeout".to_owned())
+                },
+                |outcome| {
+                    if let Err(err) = outcome {
+                        f1.lock().unwrap().push(err);
+                    }
+                },
+            )
+            .await;
+        });
+
+        started.notified().await;
+        assert!(gate.is_active());
+
+        // Second click while the first install is still in flight must be ignored.
+        let second = begin_install(&gate, || {
+            starts.fetch_add(1, Ordering::SeqCst);
+        });
+        assert!(second.is_none(), "second concurrent install must be ignored");
+        assert_eq!(starts.load(Ordering::SeqCst), 1);
+
+        release.notify_one();
+        first.await.unwrap();
+        assert!(!gate.is_active());
+        assert_eq!(
+            *failures.lock().unwrap(),
+            vec!["network timeout".to_owned()],
+            "install failure must be surfaced"
+        );
+
+        // Once the failed install finishes, a retry must be allowed.
+        let retry = begin_install(&gate, || {
+            starts.fetch_add(1, Ordering::SeqCst);
+        })
+        .expect("retry after failure must acquire gate");
+        finish_guarded_install(retry, async { Ok(InstallOutcome::NoUpdate) }, |_| {}).await;
+        assert_eq!(starts.load(Ordering::SeqCst), 2);
+        assert!(!gate.is_active());
+    }
+
+    #[test]
+    fn update_failed_script_escapes_message_and_uses_text_content() {
+        let script = update_failed_script("bad \"sig\" <script>\nline2");
+        assert!(script.contains(r#"msg.textContent = "bad \"sig\" <script>\nline2";"#));
+        assert!(script.contains(r#"setAttribute("role", "alert")"#));
+        assert!(!script.contains("innerHTML"));
     }
 }
