@@ -158,6 +158,7 @@ impl SqliteReadPool {
         decimal::register_decimal_functions(&conn)?;
         register_now_function(&conn)?;
         register_pg_extrema_functions(&conn)?;
+        register_unicode_case_functions(&conn)?;
         Ok(conn)
     }
 
@@ -1098,8 +1099,38 @@ fn compare_pg_values(a: &SqliteValue, b: &SqliteValue) -> std::cmp::Ordering {
     }
 }
 
-/// Applies Picsou's mandatory PRAGMAs and registers all exact decimal SQLite functions plus `now()`
-/// and `pg_least`/`pg_greatest`.
+/// Overrides SQLite's ASCII-only built-in `lower(x)` and `upper(x)` with Unicode-aware
+/// equivalents so expression unique indexes (`lower(name)`, `lower(label)`) and queries match
+/// PostgreSQL's UTF-8 case folding on accented letters.
+pub fn register_unicode_case_functions(conn: &Connection) -> rusqlite::Result<()> {
+    let flags = FunctionFlags::SQLITE_UTF8
+        | FunctionFlags::SQLITE_INNOCUOUS
+        | FunctionFlags::SQLITE_DETERMINISTIC;
+    conn.create_scalar_function("lower", 1, flags, |ctx| eval_unicode_case(ctx, false))?;
+    conn.create_scalar_function("upper", 1, flags, |ctx| eval_unicode_case(ctx, true))?;
+    Ok(())
+}
+
+fn eval_unicode_case(
+    ctx: &rusqlite::functions::Context<'_>,
+    to_upper: bool,
+) -> rusqlite::Result<SqliteValue> {
+    let text = match SqliteValue::from(ctx.get_raw(0)) {
+        SqliteValue::Null => return Ok(SqliteValue::Null),
+        SqliteValue::Text(s) => s,
+        SqliteValue::Integer(n) => n.to_string(),
+        SqliteValue::Real(f) => f.to_string(),
+        SqliteValue::Blob(b) => String::from_utf8_lossy(&b).into_owned(),
+    };
+    Ok(SqliteValue::Text(if to_upper {
+        text.to_uppercase()
+    } else {
+        text.to_lowercase()
+    }))
+}
+
+/// Applies Picsou's mandatory PRAGMAs and registers all exact decimal SQLite functions plus `now()`,
+/// `pg_least`/`pg_greatest`, and Unicode `lower`/`upper`.
 pub fn configure_connection(
     conn: &Connection,
     busy_timeout_ms: u32,
@@ -1125,6 +1156,7 @@ pub fn configure_connection(
     decimal::register_decimal_functions(conn)?;
     register_now_function(conn)?;
     register_pg_extrema_functions(conn)?;
+    register_unicode_case_functions(conn)?;
     Ok(())
 }
 
@@ -1405,5 +1437,117 @@ mod tests {
             mode.as_deref().map(str::to_ascii_lowercase).as_deref(),
             Some("wal")
         );
+    }
+
+    #[tokio::test]
+    async fn unicode_lower_and_upper_enforce_unique_indexes_and_match_in_wal_readers() {
+        let path = std::env::temp_dir().join(format!(
+            "picsou_sqlite_unicode_case_{}_{}.db",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        let db = SqliteDb::open(&path).expect("open WAL SQLite");
+        db.migrate().expect("migrate");
+
+        let member_id: i64 = db
+            .with_conn(|conn| {
+                conn.execute(
+                    "INSERT INTO family_member (display_name, is_managed) VALUES ('Jane Doe', 0)",
+                    [],
+                )?;
+                Ok(conn.last_insert_rowid())
+            })
+            .expect("insert member");
+
+        // 1. peer_counterparty unique index on lower(name) rejects accented case duplicates.
+        db.execute(
+            "INSERT INTO peer_counterparty (member_id, name) VALUES (?1, ?2)",
+            vec![
+                SqliteValue::Integer(member_id),
+                SqliteValue::Text("Élodie".into()),
+            ],
+        )
+        .await
+        .expect("insert Élodie");
+        let dup_cp = db
+            .execute(
+                "INSERT INTO peer_counterparty (member_id, name) VALUES (?1, ?2)",
+                vec![
+                    SqliteValue::Integer(member_id),
+                    SqliteValue::Text("élodie".into()),
+                ],
+            )
+            .await
+            .expect_err("élodie must collide with Élodie on uk_peer_counterparty_member_name");
+        assert!(
+            dup_cp
+                .as_database_error()
+                .is_some_and(|e| e.is_unique_violation()),
+            "expected unique violation, got {dup_cp:?}"
+        );
+
+        // 2. recurring_series unique index on lower(label) rejects accented case duplicates.
+        db.execute(
+            "INSERT INTO recurring_series (member_id, label, expected_amount, cadence) VALUES (?1, ?2, '50.00', 'MONTHLY')",
+            vec![
+                SqliteValue::Integer(member_id),
+                SqliteValue::Text("Électricité".into()),
+            ],
+        )
+        .await
+        .expect("insert Électricité");
+        let dup_rec = db
+            .execute(
+                "INSERT INTO recurring_series (member_id, label, expected_amount, cadence) VALUES (?1, ?2, '50.00', 'MONTHLY')",
+                vec![
+                    SqliteValue::Integer(member_id),
+                    SqliteValue::Text("électricité".into()),
+                ],
+            )
+            .await
+            .expect_err("électricité must collide with Électricité on idx_recurring_member_label");
+        assert!(
+            dup_rec
+                .as_database_error()
+                .is_some_and(|e| e.is_unique_violation()),
+            "expected unique violation, got {dup_rec:?}"
+        );
+
+        // 3. WAL reader pool also uses Unicode lower()/upper() and preserves NULL.
+        let found = db
+            .fetch_all(
+                "SELECT label, lower(label), upper(label), lower(NULL), upper(NULL) \
+                 FROM recurring_series WHERE member_id = ?1 AND lower(label) = lower(?2)",
+                vec![
+                    SqliteValue::Integer(member_id),
+                    SqliteValue::Text("ÉLECTRICITÉ".into()),
+                ],
+            )
+            .await
+            .expect("query via WAL reader");
+        assert_eq!(
+            found.len(),
+            1,
+            "WAL reader must match accented case-insensitively"
+        );
+        assert_eq!(
+            found[0].value_at(1).unwrap(),
+            &SqliteValue::Text("électricité".into())
+        );
+        assert_eq!(
+            found[0].value_at(2).unwrap(),
+            &SqliteValue::Text("ÉLECTRICITÉ".into())
+        );
+        assert_eq!(found[0].value_at(3).unwrap(), &SqliteValue::Null);
+        assert_eq!(found[0].value_at(4).unwrap(), &SqliteValue::Null);
+
+        let integrity = db.check_integrity().expect("integrity check");
+        assert!(integrity.integrity_ok, "{:?}", integrity.integrity_messages);
+        assert!(integrity.foreign_key_violations.is_empty());
+
+        db.close().await;
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+        let _ = std::fs::remove_file(format!("{}-shm", path.display()));
     }
 }
