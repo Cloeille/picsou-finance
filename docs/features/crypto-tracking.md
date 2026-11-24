@@ -1,6 +1,6 @@
 # Feature: Crypto Tracking
 
-> Last updated: 2026-11-20
+> Last updated: 2026-11-24
 
 ## Context
 
@@ -106,7 +106,7 @@ Balances are **aggregated by symbol** before returning: ETH held on Ethereum + A
 
 ### Solana wallet adapter
 
-`SolanaWalletAdapter` calls `getBalance` on the Solana mainnet RPC (`api.mainnet-beta.solana.com`). Returns balance converted from lamports to SOL (9 decimals). It also calls `getTokenAccountsByOwner` to pick up known SPL stablecoins (USDC/EURC/USDT).
+`SolanaWalletAdapter` calls `getBalance` on the Solana mainnet RPC (`api.mainnet-beta.solana.com`). Returns balance converted from lamports to SOL (9 decimals). It also calls `getTokenAccountsByOwner` to pick up known SPL stablecoins (USDC/EURC/USDT). A wallet can own several token accounts for one mint; they are summed into one balance per symbol, as the EVM adapter does, because a holding is unique on `(account_id, ticker)` and a second entry would overwrite the first.
 
 ### JSON-RPC error handling
 

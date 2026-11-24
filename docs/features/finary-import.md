@@ -1,6 +1,6 @@
 # Feature: Finary Import
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-24
 
 ## Context
 
@@ -208,6 +208,7 @@ POST /api/finary/api-sync/auto
 - **Mapping a Finary account onto a connector-owned account keeps that account's `externalAccountId`.** The other connector (Enable Banking, a broker) finds the account by that id; taking it over made it create a duplicate at its next sync. Only a manual account, or one with no external id, takes the Finary id.
 - **The XLSX preview row key is not the account's identity.** The wizard keys a row by `slug(category_name)`, but the import persists `finary_{sheet}_{slug(name)}`. The matcher adds the category itself, so the XLSX preview hands it `slug(name)`. Passing the row key built `finary_Savings_savings_emergency` for a row named "Emergency" and selected the account named "Savings Emergency", whose balance and synced transactions the import then replaced.
 - **A rebuilt snapshot holds the end-of-day balance.** Both reconstructions walk transactions newest first and record, under a day's date, the running balance before that day's transactions are subtracted (once per day). Subtracting first stored the balance before the day's movements, one day's transactions off on every rebuilt point.
+- **The snapshot rebuild reads the whole stored history.** Loading it from 2000-01-01 only hid older rows: a second import of a file with a transaction before 2000 failed on `UNIQUE (account_id, date)`, and a hand-entered statement before 2000 was neither skipped nor used as the oldest bound.
 - **TOTP must be disabled for background auto-sync**: `autoSync()` passes `null` for TOTP. If 2FA is enabled on the Finary account, auto-sync returns `TOTP_REQUIRED` and the session is flagged. The user must re-authenticate interactively (via the preview endpoint with TOTP). For interactive sync via the frontend button, the TOTP input is shown and the user retries through the preview flow.
 - **Manual transactions survive Finary re-syncs**: `FinaryPersistenceHelper.importTransactions()` calls `deleteByAccountIdAndIsManualFalse()` instead of `deleteByAccountId()`. Manually-added transactions are preserved across any number of re-syncs.
 - **TOTP is a query parameter**: The TOTP code is sent as `?totp={code}` on the POST preview request. This avoids body parsing complexity but means the code is visible in server access logs.

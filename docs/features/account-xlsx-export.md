@@ -225,6 +225,9 @@ trade-offs that come with it.
   pre-multiplies. Consistent with the account list (see
   [account-ownership-shares.md](account-ownership-shares.md)), and different from the dashboard's
   `RealEstateSummaryCard`, which is weighted server-side.
+- **Every sheet reads through the readable check, never the owner-only one.** A co-owner exports
+  an account shared with them, holdings included; an owner-only lookup behind
+  `access::require_readable` answered 500 for every co-owner.
 - **A `LOAN` account can have no `Debt` row.** It is typed in and never detailed; the sheet then
   shows whatever `DebtResponse` carried and no schedule, instead of failing the whole export.
 - **The service is `@Transactional(readOnly = true)`** so the lazy associations behind the property
