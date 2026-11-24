@@ -1177,3 +1177,102 @@ async fn logo_fetch_aborts_streaming_body_past_size_cap() {
     assert!(result.is_none());
     server.abort();
 }
+
+#[tokio::test]
+async fn ai_job_does_not_copy_failed_leader_error_to_same_chunk_duplicates() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let c = ctx().await;
+    let checking = c.account("Courant", AccountType::Checking).await;
+    let tx1 = c
+        .tx(&checking, "2026-01-02", "-8.50", "Boulangerie Martin", None)
+        .await;
+    let tx2 = c
+        .tx(&checking, "2026-01-03", "-11.00", "Boulangerie Martin", None)
+        .await;
+
+    struct FailFirst {
+        calls: AtomicUsize,
+    }
+    #[async_trait::async_trait]
+    impl AiCategorizer for FailFirst {
+        async fn max_concurrency(&self) -> usize {
+            4
+        }
+        async fn provider(&self) -> (String, Option<String>) {
+            ("flaky".into(), Some("m".into()))
+        }
+        async fn categorize(
+            &self,
+            _: &CategorizationInput,
+            _: &[CategoryOption],
+            _: &[Example],
+        ) -> CategorizationResult {
+            if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                CategorizationResult {
+                    error: Some("temporary provider error".into()),
+                    ..CategorizationResult::empty("ERROR")
+                }
+            } else {
+                CategorizationResult {
+                    suggestion: Some(CategorySuggestion {
+                        category_slug: "courses".into(),
+                        confidence: d("0.95"),
+                    }),
+                    ..CategorizationResult::empty("OK")
+                }
+            }
+        }
+    }
+
+    c.app.state.budget.ai.set(Arc::new(FailFirst {
+        calls: AtomicUsize::new(0),
+    }));
+    c.client
+        .put("/api/budget/settings")
+        .json(&json!({
+            "cycleStartDay": 1,
+            "aiCategorizationEnabled": true,
+            "aiMode": "AUTO_HIGH_CONFIDENCE",
+            "aiConfidenceThreshold": 80
+        }))
+        .send()
+        .await;
+
+    let started = c
+        .client
+        .post("/api/transactions/categorize-ai")
+        .send()
+        .await
+        .json();
+    assert_eq!(started["total"], 2);
+
+    let mut status = Value::Null;
+    for _ in 0..100 {
+        status = c.get("/api/transactions/categorize-ai/status").await;
+        if status["done"] == true {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(status["processed"], 2);
+    assert_eq!(
+        status["applied"], 1,
+        "same-chunk duplicate must not inherit the leader's ERROR: {status}"
+    );
+
+    let logs: Vec<(i64, String, Option<String>, bool)> = picsou::db::query_as(
+        "SELECT transaction_id, status, error, applied FROM ai_call_log \
+         WHERE provider = 'flaky' ORDER BY id",
+    )
+    .fetch_all(&c.app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(logs.len(), 2, "{logs:?}");
+    assert_eq!(logs[0].0, tx2);
+    assert_eq!(logs[0].1, "ERROR");
+    assert_eq!(logs[1].0, tx1);
+    assert_eq!(logs[1].1, "OK");
+    assert!(logs[1].2.is_none());
+    assert!(logs[1].3);
+}

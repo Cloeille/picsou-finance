@@ -449,7 +449,7 @@ async fn run_job(
         let mut results: HashMap<i64, CategorizationResult> = HashMap::new();
         let mut to_call: Vec<(i64, &CategorizationInput, Option<DedupKey>)> = Vec::new();
         let mut chunk_leaders: HashMap<DedupKey, i64> = HashMap::new();
-        let mut same_chunk_dups: Vec<(i64, i64)> = Vec::new();
+        let mut same_chunk_dups: Vec<(i64, i64, DedupKey)> = Vec::new();
 
         for &id in chunk {
             let Some(input) = inputs.get(&id) else {
@@ -461,7 +461,7 @@ async fn run_job(
                     continue;
                 }
                 if let Some(&leader_id) = chunk_leaders.get(&key) {
-                    same_chunk_dups.push((id, leader_id));
+                    same_chunk_dups.push((id, leader_id, key));
                     continue;
                 }
                 chunk_leaders.insert(key.clone(), id);
@@ -489,9 +489,32 @@ async fn run_job(
             }
             results.insert(id, result);
         }
-        for (dup_id, leader_id) in same_chunk_dups {
+        let mut fallback: Vec<(i64, &CategorizationInput, DedupKey)> = Vec::new();
+        for (dup_id, leader_id, key) in same_chunk_dups {
             if let Some(leader_result) = results.get(&leader_id) {
-                results.insert(dup_id, reused_result(leader_result));
+                if is_cacheable_result(leader_result) {
+                    results.insert(dup_id, reused_result(leader_result));
+                } else if let Some(input) = inputs.get(&dup_id) {
+                    fallback.push((dup_id, input, key));
+                }
+            }
+        }
+        if !fallback.is_empty() {
+            let calls = fallback.into_iter().map(|(id, input, key)| {
+                let ai = ai.clone();
+                async move {
+                    (
+                        id,
+                        key,
+                        ai.categorize(input, &ctx.options, &ctx.examples).await,
+                    )
+                }
+            });
+            for (id, key, result) in futures::future::join_all(calls).await {
+                if is_cacheable_result(&result) {
+                    cache.insert(key, result.clone());
+                }
+                results.insert(id, result);
             }
         }
 
