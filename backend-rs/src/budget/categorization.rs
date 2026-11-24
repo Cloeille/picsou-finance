@@ -150,15 +150,19 @@ async fn learn_rule(
     category_id: i64,
     member_id: i64,
 ) -> AppResult<CategorizationRule> {
-    let existing: Option<CategorizationRule> = crate::db::query_as::<CategorizationRule>(
+    // Compared in Rust: SQLite's upper() folds ASCII only, and PostgreSQL's follows the locale
+    // of the cluster, so "Épicerie" and "épicerie" would each get their own rule.
+    let wanted = pattern.to_lowercase();
+    let existing = crate::db::query_as::<CategorizationRule>(
         "SELECT id, member_id, match_type, pattern, category_id, priority, source, created_at \
-         FROM categorization_rule WHERE member_id = $1 AND match_type = $2 AND upper(pattern) = upper($3) LIMIT 1",
+         FROM categorization_rule WHERE member_id = $1 AND match_type = $2 ORDER BY id",
     )
     .bind(member_id)
     .bind(match_type)
-    .bind(pattern)
-    .fetch_optional(&mut *conn)
-    .await?;
+    .fetch_all(&mut *conn)
+    .await?
+    .into_iter()
+    .find(|rule| rule.pattern.to_lowercase() == wanted);
     if let Some(rule) = existing {
         return Ok(rule);
     }

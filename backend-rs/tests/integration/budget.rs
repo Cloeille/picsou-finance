@@ -584,6 +584,32 @@ async fn allocation_groups_stock_by_class_and_counts_incoming_transfers() {
 }
 
 #[tokio::test]
+async fn a_learned_rule_is_found_again_whatever_the_case_of_its_accents() {
+    let c = ctx().await;
+    let checking = c.account("Courant", AccountType::Checking).await;
+    let food = c.category("Food", "EXPENSE", None).await;
+    let upper = c
+        .tx(&checking, "2026-01-02", "-12.00", "ÉPICERIE DU COIN", None)
+        .await;
+    let lower = c
+        .tx(&checking, "2026-01-03", "-8.00", "épicerie du coin", None)
+        .await;
+
+    for id in [upper, lower] {
+        let r = c
+            .client
+            .put(&format!("/api/transactions/{id}/category"))
+            .json(&json!({"categoryId": food, "createRule": true}))
+            .send()
+            .await;
+        assert_eq!(r.status, 204);
+    }
+
+    let rules = c.get("/api/categorization-rules").await;
+    assert_eq!(rules.as_array().unwrap().len(), 1, "{rules}");
+}
+
+#[tokio::test]
 async fn manual_categorization_learns_a_rule_and_never_overrides_a_manual_choice() {
     let c = ctx().await;
     let checking = c.account("Courant", AccountType::Checking).await;

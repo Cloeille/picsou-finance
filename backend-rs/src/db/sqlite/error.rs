@@ -156,6 +156,16 @@ impl DatabaseError for SqliteDatabaseError {
 pub fn rusqlite_to_sqlx(err: rusqlite::Error) -> sqlx::Error {
     match err {
         rusqlite::Error::QueryReturnedNoRows => sqlx::Error::RowNotFound,
+        // Another process holds the file past busy_timeout (a backup, a checkpoint): the same
+        // "try again" as a PostgreSQL pool with no connection left, a 503 and not a 500.
+        rusqlite::Error::SqliteFailure(ffi_err, _)
+            if matches!(
+                ffi_err.code,
+                ffi::ErrorCode::DatabaseBusy | ffi::ErrorCode::DatabaseLocked
+            ) =>
+        {
+            sqlx::Error::PoolTimedOut
+        }
         rusqlite::Error::SqliteFailure(ffi_err, msg) => {
             sqlx::Error::Database(Box::new(SqliteDatabaseError::from_ffi(ffi_err, msg)))
         }
@@ -176,6 +186,23 @@ pub fn sqlite_err_to_sqlx(err: SqliteError) -> sqlx::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_busy_or_locked_file_is_a_retryable_timeout() {
+        for (code, extended_code) in [
+            (ffi::ErrorCode::DatabaseBusy, ffi::SQLITE_BUSY),
+            (ffi::ErrorCode::DatabaseLocked, ffi::SQLITE_LOCKED),
+        ] {
+            let error = rusqlite_to_sqlx(rusqlite::Error::SqliteFailure(
+                ffi::Error {
+                    code,
+                    extended_code,
+                },
+                None,
+            ));
+            assert!(matches!(error, sqlx::Error::PoolTimedOut), "{error:?}");
+        }
+    }
 
     #[test]
     fn maps_unique_and_fk_constraints_to_sqlx_database_error() {

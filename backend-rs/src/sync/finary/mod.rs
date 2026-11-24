@@ -97,7 +97,9 @@ impl<T: serde::de::DeserializeOwned, S: Send + Sync> FromRequest<S> for Body<T> 
             .and_then(|v| v.to_str().ok())
             .map(str::to_owned);
         let (parts, body) = request.into_parts();
-        let bytes = axum::body::to_bytes(body, usize::MAX)
+        // axum's default body limit, which read_json applies below: reading without it would
+        // buffer a body of any size before refusing it.
+        let bytes = axum::body::to_bytes(body, 2 * 1024 * 1024)
             .await
             .map_err(|_| unreadable())?;
         let json = content_type.as_deref().is_some_and(|ct| {
