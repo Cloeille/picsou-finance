@@ -467,6 +467,7 @@ mod tests {
 
     #[test]
     fn scalar_and_aggregate_functions_are_exact() {
+        super::super::initialize_library();
         let conn = Connection::open_in_memory().unwrap();
         register_decimal_functions(&conn).unwrap();
 

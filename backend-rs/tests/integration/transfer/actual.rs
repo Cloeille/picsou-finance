@@ -140,6 +140,7 @@ impl Fixture {
         let path =
             std::env::temp_dir().join(format!("actual-fixture-{}.sqlite", uuid::Uuid::new_v4()));
         {
+            picsou::db::sqlite::initialize_library();
             let connection = rusqlite::Connection::open(&path).unwrap();
             if self.wal {
                 connection

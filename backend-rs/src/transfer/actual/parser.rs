@@ -415,6 +415,7 @@ struct TransactionRow {
 
 fn read_database(database: &Path) -> Result<ParsedBudget, Rejected> {
     let outcome = (|| -> ReadResult<ParsedBudget> {
+        crate::db::sqlite::initialize_library();
         let connection = Connection::open_with_flags(
             database,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -1123,6 +1124,7 @@ mod tests {
 
     fn database(root: &Path) -> Vec<u8> {
         let path = root.join("fixture.sqlite");
+        crate::db::sqlite::initialize_library();
         Connection::open(&path)
             .unwrap()
             .execute_batch(SCHEMA)
@@ -1219,6 +1221,7 @@ mod tests {
     fn a_preferences_view_is_refused() {
         let root = private_root();
         let path = root.join("view.sqlite");
+        crate::db::sqlite::initialize_library();
         let conn = Connection::open(&path).unwrap();
         conn.execute_batch(SCHEMA).unwrap();
         conn.execute_batch(

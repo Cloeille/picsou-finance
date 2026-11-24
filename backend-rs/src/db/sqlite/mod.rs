@@ -33,6 +33,20 @@ use rusqlite::{Connection, OpenFlags, params_from_iter};
 use rust_decimal::Decimal;
 use tokio::sync::{OwnedMutexGuard, OwnedSemaphorePermit, Semaphore};
 
+/// Sets up the SQLite library before the first connection of the process is opened. SQLite does
+/// it on the first call that needs it, and threads making that first call together can crash the
+/// process: seen on arm64, about once in 500 runs, when several tests opened their first database
+/// at the same instant. Every place that opens a connection calls this first.
+pub fn initialize_library() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        // SAFETY: the call takes no argument and the `Once` makes it the only one in flight.
+        unsafe {
+            rusqlite::ffi::sqlite3_initialize();
+        }
+    });
+}
+
 /// Default `PRAGMA busy_timeout` in milliseconds.
 pub const DEFAULT_BUSY_TIMEOUT_MS: u32 = 5_000;
 
@@ -152,6 +166,7 @@ impl SqliteReadPool {
 
     fn open_reader(path: &Path) -> Result<Connection, SqliteError> {
         let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        initialize_library();
         let conn = Connection::open_with_flags(path, flags)?;
         conn.pragma_update(None, "busy_timeout", DEFAULT_BUSY_TIMEOUT_MS)?;
         conn.pragma_update(None, "temp_store", "MEMORY")?;
@@ -247,6 +262,7 @@ impl SqliteDb {
         let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
             | OpenFlags::SQLITE_OPEN_CREATE
             | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        initialize_library();
         let conn = Connection::open_with_flags(path, flags)?;
         configure_connection(&conn, DEFAULT_BUSY_TIMEOUT_MS, true)?;
         #[cfg(unix)]
@@ -263,6 +279,7 @@ impl SqliteDb {
     /// Opens an in-memory SQLite database with Picsou's standard PRAGMAs, exact decimal functions,
     /// and UTC `now()` UDF registered.
     pub fn open_in_memory() -> Result<Self, SqliteError> {
+        initialize_library();
         let conn = Connection::open_in_memory()?;
         configure_connection(&conn, DEFAULT_BUSY_TIMEOUT_MS, false)?;
         Ok(Self {
@@ -1267,8 +1284,12 @@ mod tests {
 
     /// Every queued statement keeps a handle on the connection until it has run or been skipped.
     async fn queued_statements_have_run(db: &SqliteDb) {
+        connection_handles_are_at_most(db, 1).await;
+    }
+
+    async fn connection_handles_are_at_most(db: &SqliteDb, handles: usize) {
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while Arc::strong_count(&db.conn) > 1 {
+        while Arc::strong_count(&db.conn) > handles {
             assert!(
                 std::time::Instant::now() < deadline,
                 "a queued statement never ran"
@@ -1310,10 +1331,15 @@ mod tests {
             !db.with_conn(|conn| Ok(conn.is_autocommit()))
                 .expect("read the connection state")
         };
+        // Held until the first poll is over: a free connection could run BEGIN before that poll
+        // returns, and the future would be ready instead of pending.
+        let (release, holder) = hold_connection(&db);
         {
             let begin = db.begin();
             tokio::pin!(begin);
             assert!(futures::poll!(begin.as_mut()).is_pending());
+            release.send(()).expect("release the connection");
+            holder.join().expect("join the holder");
             // BEGIN IMMEDIATE runs on the blocking pool; the future is not polled again, so
             // nobody ever receives the transaction it opened.
             let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -1339,11 +1365,17 @@ mod tests {
     async fn a_savepoint_nobody_received_is_released() {
         let db = SqliteDb::open_in_memory().expect("open in-memory SQLite");
         let mut tx = db.begin().await.expect("begin");
+        let (release, holder) = hold_connection(&db);
         {
             let nested = tx.begin();
             tokio::pin!(nested);
             assert!(futures::poll!(nested.as_mut()).is_pending());
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            // Two handles go away while the future stays unpolled: the holder's, then the one
+            // of the SAVEPOINT once it has run on the blocking pool. Nobody receives it.
+            let queued = Arc::strong_count(&db.conn);
+            release.send(()).expect("release the connection");
+            holder.join().expect("join the holder");
+            connection_handles_are_at_most(&db, queued - 2).await;
         }
 
         let leftover = tx
@@ -1384,6 +1416,7 @@ mod tests {
 
     #[test]
     fn configure_connection_rejects_when_wal_mode_does_not_activate() {
+        initialize_library();
         let conn = Connection::open_in_memory().expect("open in-memory SQLite");
         let err = configure_connection(&conn, 100, true)
             .expect_err("in-memory connection cannot switch to WAL and must fail");
@@ -1396,6 +1429,7 @@ mod tests {
 
     #[test]
     fn configure_connection_sets_busy_timeout_before_enabling_wal() {
+        initialize_library();
         let path = std::env::temp_dir().join(format!(
             "picsou_sqlite_wal_busy_{}_{}.db",
             std::process::id(),
