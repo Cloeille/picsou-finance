@@ -1,6 +1,6 @@
 # Feature: CSV transaction import (investment accounts)
 
-> Last updated: 2026-08-31
+> Last updated: 2026-11-24
 
 ## Context
 
@@ -66,6 +66,9 @@ execute(token, mapping, dialect) ─► consume token (atomic) ─► re-parse �
 
 - **French broker exports** commonly use `;` delimiter and `,` decimals (`1 234,56`). The detector
   handles both; the user can override delimiter, decimal style, and date format in the wizard.
+- **A date format may carry a time** (`yyyy-MM-dd HH:mm:ss`, fractions, AM/PM, an offset or a
+  short zone), as the Java parser accepted: the row keeps the calendar date and the time is
+  checked, then dropped.
 - **ISINs must be resolved to tickers at import time** (`InstrumentFieldResolver`) or Yahoo pricing
   never populates and an ISIN row won't merge with the equivalent ticker row.
 - **Amount signing lives in one place** (`TransactionAmountCalculator`, mirrored in the TS modal):

@@ -1,6 +1,6 @@
 # Feature: Actual Budget import
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-24
 
 ## Context
 
@@ -194,7 +194,8 @@ execute ─► validate mappings + sync plan ─► consume token ─► @Transa
     file never held.
   - Rows are counted before a table is read. Stored rows (deleted ones included): 10 000
     accounts, category groups and categories; 50 000 payees, `payee_mapping` and
-    `category_mapping` rows; 300 000 transactions. A heavy decade-long budget holds tens of
+    `category_mapping` rows; 300 000 transactions; 10 000 `preferences` rows (read for the
+    budget's currency, plain table and stored columns like the others). A heavy decade-long budget holds tens of
     thousands of transactions, a few thousand payees and some hundred categories, so the caps
     leave an order of magnitude of headroom; the transaction cap leaves room for tombstones and
     split parents above the 200 000 live rows imported.

@@ -1,6 +1,6 @@
 # Feature: Account spreadsheet export (xlsx)
 
-> Last updated: 2026-08-19
+> Last updated: 2026-11-24
 
 ## Context
 
@@ -184,7 +184,11 @@ trade-offs that come with it.
 - **Figures go in as numeric cells, dates as date cells.** The entire point is that the reader can
   sum and sort them. `SheetCursor` is the only place that writes cells, precisely so a string
   cannot slip in — a money value written with `setCellValue(String)` looks identical on screen and
-  silently breaks every formula pointed at it.
+  silently breaks every formula pointed at it. A date outside Excel's 1900-9999 serial range is
+  the one exception: it goes in as ISO-8601 text rather than failing the export.
+- **Sheet names are made safe.** Leading and trailing spaces and apostrophes are stripped, a name
+  is cut at Excel's 31 UTF-16 code units, and every name (the fixed `Summary` and `Debts` sheets
+  included) is deduplicated in one set, so two accounts with the same label both get a sheet.
 - **`SXSSFWorkbook.dispose()` is not optional.** SXSSF spills rows past the access window to temp
   files; without `dispose()` in the `finally` they survive the request. `close()` alone does not
   remove them.
