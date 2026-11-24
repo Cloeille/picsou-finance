@@ -93,9 +93,10 @@ a currency and a non-negative quantity string. Duplicate JSON keys, malformed da
 transport errors and non-zero codes fail the sync. For `51024`, check the account's status and region
 on OKX.
 
-Picsou does not support exchange liabilities. A negative balance on any endpoint is refused with
-`OKX_NEGATIVE_BALANCE`. Picsou does not net it against other balances, and dropping it would
-overstate net worth. Repay the borrowed balance on OKX before trying again.
+Picsou does not support exchange liabilities. A negative trading balance, such as a margin loan,
+is refused with `OKX_NEGATIVE_BALANCE`. Picsou does not net it against other balances, and
+dropping it would overstate net worth. Repay the borrowed balance on OKX before trying again. A
+negative amount on any other endpoint is a malformed row.
 
 Picsou reads only the invested `amt` and excludes On-chain Earn earnings (`earningData`). If OKX
 pays the earnings only at redemption, the balance is slightly understated.
@@ -318,11 +319,11 @@ Upsert Account (type=CRYPTO, no ticker)
 - `CryptoExchangePositionRepositoryTest` -- the delete-then-reinsert rewrite against the real `uq_crypto_exchange_position`, the exact quantities it leaves behind, a product no longer held disappearing, and — with a second seeded account — that the bulk delete filters by account rather than emptying the table
 - `MeriaAdapterTest` -- aggregation across wallets/stakings/lendings per currency, staking counted as `amount` with accrued interest **not** added on top, a contract with no reward fields at all, a reward above the quantity or below zero reported with no decomposition at all (and a merge with one such contract staying undecomposed), symbols upper-cased under a forced Turkish locale, zero/blank entries dropped; and the all-or-nothing contract: every endpoint × {401, 403, 404, 429, 500} throws, as do `success:false` on HTTP 200, a reactor-wrapped timeout and a non-JSON (Cloudflare) body — while `data: []` **and an empty body on a 2xx** both yield an empty list without throwing. Also pins that only an `API-KEY` header is sent (no `Authorization`, no `X-MBX-APIKEY`, no `signature` query), that the secret argument is ignored, and that no message or log line contains the API key
 - `MeriaAdapterWiringTest` -- Spring picks the production constructor with and without `app.meria.base-url` set, and the production client reads a staking payload larger than the framework's default buffer (served over a real socket — the `ExchangeFunction` fixtures decode with the stub's strategies and cannot see that configuration)
-- `OkxAdapterTest` -- synthetic fixtures in `backend/src/test/resources/okx/` cover six-endpoint aggregation, per-connection routing, signing, receipt reconciliation, malformed responses and credential redaction.
+- `OkxAdapterTest` -- synthetic fixtures in `backend/src/test/resources/okx/` cover six-endpoint aggregation, per-connection routing, signing, receipt reconciliation, malformed responses and credential redaction, and that the connection test reads all six endpoints and refuses a negative trading balance (`OKX_NEGATIVE_BALANCE`) or BETH/OKSOL in Earn (`OKX_STAKING_RECEIPT_IN_EARN`) like the sync does.
 - `OkxAdapterWiringTest` -- Spring creates the adapter with the three production hosts in region order.
 - `CryptoExchangeTab.test.tsx` and `SyncAllModal.test.tsx` -- OKX region help, passphrase masking,
-  submission with an explicit region, display of the stored region and translation of region mismatches
-  during connection and manual sync.
+  submission with an explicit region, display of the stored region and translation of the three OKX
+  error codes during connection, and of region mismatches during manual sync.
 - `PositionsByProduct.test.tsx` -- positions grouped per product, the same asset kept in both its spot and staking sections, principal/interest columns only where the exchange reports yield, no subtotal at all when a product is fully *or partly* unvalued (an EUR 0 there reads as "worth nothing"), and the recorded-price marker naming its own day under a time zone behind UTC
 - `WalletSyncServiceTest` -- unit tests for wallet sync
 - `JsonRpcResponseTest` -- envelope validation: valid/zero/empty-array results returned; null/error/missing/explicit-null throw

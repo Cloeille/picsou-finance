@@ -303,17 +303,27 @@ class OkxAdapterTest {
         assertThat(output.toString()).doesNotContain(CREDENTIALS.apiKey(), CREDENTIALS.apiSecret(), CREDENTIALS.apiPassphrase());
     }
 
-    @ParameterizedTest
-    @CsvSource({TRADING + ",eq,COIN", FUNDING + ",bal,COIN", SAVINGS + ",amt,COIN",
-        ORDERS + ",amt,COIN", ETH_STAKING + ",amt,BETH", SOL_STAKING + ",amt,OKSOL"})
-    void probeAndSyncBothRejectNegativeBalances(String path, String field, String currency) {
-        String row = "{\"ccy\":\"%s\",\"%s\":\"-2\"}".formatted(currency, field);
-        var adapter = withBody(path, balance(path, row));
+    @Test
+    void probeAndSyncBothRejectANegativeTradingBalanceAsALiability() {
+        var adapter = withBody(TRADING, balance(TRADING, "{\"ccy\":\"COIN\",\"eq\":\"-2\"}"));
         assertThatThrownBy(() -> adapter.testConnection(CREDENTIALS))
             .isInstanceOfSatisfying(SyncException.class, ex -> assertThat(ex.getCode()).isEqualTo("OKX_NEGATIVE_BALANCE"));
         assertThatThrownBy(() -> adapter.fetchPositions(CREDENTIALS))
             .isInstanceOfSatisfying(SyncException.class, ex -> assertThat(ex.getCode()).isEqualTo("OKX_NEGATIVE_BALANCE"))
-            .hasMessageContainingAll("negative " + field, path, "liabilities", "Repay the borrowed balance on OKX");
+            .hasMessageContainingAll("negative eq", TRADING, "liabilities", "Repay the borrowed balance on OKX");
+    }
+
+    @ParameterizedTest
+    @CsvSource({FUNDING + ",bal,COIN", SAVINGS + ",amt,COIN",
+        ORDERS + ",amt,COIN", ETH_STAKING + ",amt,BETH", SOL_STAKING + ",amt,OKSOL"})
+    void probeAndSyncBothRejectNegativeAmountsElsewhereAsMalformed(String path, String field, String currency) {
+        String row = "{\"ccy\":\"%s\",\"%s\":\"-2\"}".formatted(currency, field);
+        var adapter = withBody(path, balance(path, row));
+        assertThatThrownBy(() -> adapter.testConnection(CREDENTIALS))
+            .isInstanceOfSatisfying(SyncException.class, ex -> assertThat(ex.getCode()).isNull());
+        assertThatThrownBy(() -> adapter.fetchPositions(CREDENTIALS))
+            .isInstanceOfSatisfying(SyncException.class, ex -> assertThat(ex.getCode()).isNull())
+            .hasMessage("OKX returned unexpected negative " + field + " for " + path + ".");
     }
 
     @ParameterizedTest

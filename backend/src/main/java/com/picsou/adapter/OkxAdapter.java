@@ -196,6 +196,8 @@ public class OkxAdapter implements CryptoExchangePort {
     private static BigDecimal requireBalance(JsonNode row, String field, String path) {
         BigDecimal quantity = requireAmount(row, field, path);
         if (quantity.signum() < 0) {
+            // Only the trading account can go below zero (a margin loan). Elsewhere it is a bad row.
+            if (!path.equals(TRADING)) throw invalidShape(path, "negative " + field);
             throw new SyncException("OKX returned a negative " + field + " for " + path
                 + ". Picsou does not support exchange liabilities. "
                 + "Repay the borrowed balance on OKX, then reconnect or sync again.", null, "OKX_NEGATIVE_BALANCE");
