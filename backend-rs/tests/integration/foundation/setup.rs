@@ -47,6 +47,33 @@ async fn the_gate_blocks_the_api_until_setup_completes() {
 }
 
 #[tokio::test]
+async fn an_admin_group_keeps_the_password_bootstrap_closed_while_sso_is_misconfigured() {
+    for (issuer, client_id) in [("", ""), ("not a url", "picsou"), ("https://idp.test", "")] {
+        let app = TestApp::builder()
+            .env("SSO_ADMIN_GROUP", "picsou-admin")
+            .env("SSO_ISSUER_URI", issuer)
+            .env("SSO_CLIENT_ID", client_id)
+            .spawn()
+            .await;
+        let client = app.client();
+
+        let status = client.get("/api/setup/status").send().await.json();
+        assert_eq!(
+            status["sso"],
+            json!({"enabled": false, "providerName": "SSO", "adminBootstrap": true}),
+            "issuer {issuer:?}, client id {client_id:?}"
+        );
+        let response = client
+            .post("/api/setup/admin")
+            .json(&json!({"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD}))
+            .send()
+            .await;
+        assert_eq!(response.status, StatusCode::CONFLICT);
+        assert_eq!(response.json()["code"], "SSO_ADMIN_REQUIRED");
+    }
+}
+
+#[tokio::test]
 async fn admin_request_validation() {
     let app = TestApp::spawn().await;
     let client = app.client();

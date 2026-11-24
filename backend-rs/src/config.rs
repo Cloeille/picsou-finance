@@ -303,13 +303,23 @@ pub struct SsoConfig {
 }
 
 impl SsoConfig {
-    /// On only when the issuer and the client id are both set, as SsoProperties decides.
+    /// SsoProperties.evaluate: the issuer must be an absolute http(s) URI with a host, the client
+    /// id set and the revalidation window positive. Anything else leaves SSO off.
     pub fn enabled(&self) -> bool {
-        !self.issuer_uri.trim().is_empty() && !self.client_id.trim().is_empty()
+        let issuer = self.issuer_uri.trim();
+        if issuer.is_empty() || self.client_id.trim().is_empty() {
+            return false;
+        }
+        let absolute = url::Url::parse(issuer).is_ok_and(|u| {
+            matches!(u.scheme(), "http" | "https") && u.host_str().is_some_and(|h| !h.is_empty())
+        });
+        absolute && !self.session_revalidate_after.is_zero()
     }
 
+    /// Independent of `enabled`, as in SsoProperties: SSO settings that do not hold together must
+    /// never reopen the password bootstrap of the first admin.
     pub fn admin_group_configured(&self) -> bool {
-        self.enabled() && !self.admin_group.trim().is_empty()
+        !self.admin_group.trim().is_empty()
     }
 }
 
@@ -718,9 +728,9 @@ impl Config {
                 .unwrap_or_else(|| "groups".to_owned()),
             admin_group: env.or("SSO_ADMIN_GROUP", "").to_owned(),
             session_revalidate_after: env
-                .get("SSO_SESSION_REVALIDATE_AFTER")
+                .non_blank("SSO_SESSION_REVALIDATE_AFTER")
                 .map(|v| {
-                    parse_duration(v, Duration::from_millis(1))
+                    parse_duration(&v, Duration::from_millis(1))
                         .ok_or_else(|| invalid("SSO_SESSION_REVALIDATE_AFTER must be a duration"))
                 })
                 .transpose()?
