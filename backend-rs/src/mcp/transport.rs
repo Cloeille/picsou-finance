@@ -103,7 +103,7 @@ impl Drop for SseCleanup {
 
 fn sse_stream(
     initial: Option<Event>,
-    mut rx: mpsc::UnboundedReceiver<String>,
+    mut rx: mpsc::Receiver<String>,
     keep_alive: Option<std::time::Duration>,
     cleanup: SseCleanup,
 ) -> impl Stream<Item = Result<Event, Infallible>> + Send + 'static {
@@ -193,7 +193,7 @@ pub async fn get_mcp(State(state): State<AppState>, auth: Auth, headers: HeaderM
     match protocol_mode(&state) {
         ProtocolMode::Sse => {
             let session_id = Uuid::new_v4().to_string();
-            let (tx, rx) = mpsc::unbounded_channel();
+            let (tx, rx) = mpsc::channel(crate::mcp::SSE_CHANNEL_CAPACITY);
             state.mcp.insert_sse(session_id.clone(), auth.user.id, tx);
             let endpoint = format!("/mcp/message?sessionId={session_id}");
             let initial = Event::default().event("endpoint").data(endpoint);
@@ -220,7 +220,7 @@ pub async fn get_mcp(State(state): State<AppState>, auth: Auth, headers: HeaderM
                     ),
                 );
             };
-            let (tx, rx) = mpsc::unbounded_channel();
+            let (tx, rx) = mpsc::channel(crate::mcp::SSE_CHANNEL_CAPACITY);
             let now = state.clock.now();
             let Some(sse_id) = state
                 .mcp
@@ -414,11 +414,18 @@ pub async fn post_message(
             let resp =
                 protocol::handle_request(&state, &auth, id, &method, params, ProtocolMode::Sse)
                     .await;
-            if let Ok(serialized) = serde_json::to_string(&resp)
-                && tx.send(serialized).is_err()
-            {
-                state.mcp.remove_sse(session_id);
-                return StatusCode::NOT_FOUND.into_response();
+            if let Ok(serialized) = serde_json::to_string(&resp) {
+                match tx.try_send(serialized) {
+                    Ok(()) => {}
+                    Err(mpsc::error::TrySendError::Closed(_)) => {
+                        state.mcp.remove_sse(session_id);
+                        return StatusCode::NOT_FOUND.into_response();
+                    }
+                    Err(mpsc::error::TrySendError::Full(_)) => {
+                        state.mcp.remove_sse(session_id);
+                        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+                    }
+                }
             }
             StatusCode::OK.into_response()
         }

@@ -2081,3 +2081,97 @@ async fn analysis_ai_and_peer_loan_tools_behavior() {
         rust_decimal::Decimal::ZERO
     );
 }
+
+#[tokio::test]
+async fn sse_sessions_are_capped_per_user_and_evict_oldest() {
+    let app = TestApp::builder()
+        .with_admin()
+        .env("MCP_PROTOCOL", "SSE")
+        .env("MCP_KEEP_ALIVE_INTERVAL", "0s")
+        .spawn()
+        .await;
+    let (alice_uid, _) = app.create_member("cap-alice", "pass12345678").await;
+    let (bob_uid, _) = app.create_member("cap-bob", "pass12345678").await;
+    let alice_key = app.create_access_key(alice_uid, &["accounts:read"]).await;
+    let bob_key = app.create_access_key(bob_uid, &["accounts:read"]).await;
+    let http = reqwest::Client::new();
+
+    async fn open_sse(
+        http: &reqwest::Client,
+        base_url: &str,
+        bearer: &str,
+    ) -> (
+        String,
+        impl futures::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Unpin,
+    ) {
+        let resp = http
+            .get(format!("{base_url}/mcp"))
+            .bearer_auth(bearer)
+            .header("Accept", "text/event-stream")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let mut stream = Box::pin(resp.bytes_stream());
+        let mut buf = String::new();
+        timeout(Duration::from_secs(5), async {
+            while !buf.contains("sessionId=") {
+                let chunk = stream.next().await.expect("stream closed").expect("chunk");
+                buf.push_str(&String::from_utf8_lossy(&chunk));
+            }
+        })
+        .await
+        .expect("endpoint event");
+        let endpoint = buf
+            .lines()
+            .filter_map(|l| l.strip_prefix("data:"))
+            .map(str::trim)
+            .find(|l| l.contains("sessionId="))
+            .expect("sessionId endpoint")
+            .to_owned();
+        (format!("{base_url}{endpoint}"), stream)
+    }
+
+    let (bob_url, _bob_stream) = open_sse(&http, &app.base_url, &bob_key).await;
+
+    let mut alice_urls = Vec::new();
+    let mut _alice_streams = Vec::new();
+    for _ in 0..17 {
+        let (url, stream) = open_sse(&http, &app.base_url, &alice_key).await;
+        alice_urls.push(url);
+        _alice_streams.push(stream);
+    }
+
+    // Alice's 1st session must have been evicted once she opened a 17th (cap = 16).
+    let evicted = http
+        .post(&alice_urls[0])
+        .bearer_auth(&alice_key)
+        .json(&json!({"jsonrpc": "2.0", "id": 1, "method": "ping"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        evicted.status(),
+        StatusCode::NOT_FOUND,
+        "oldest SSE session should be evicted when per-user cap is exceeded"
+    );
+
+    // Alice's newest session and Bob's session must remain active.
+    let newest = http
+        .post(alice_urls.last().unwrap())
+        .bearer_auth(&alice_key)
+        .json(&json!({"jsonrpc": "2.0", "id": 2, "method": "ping"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(newest.status(), StatusCode::OK);
+
+    let bob_ping = http
+        .post(&bob_url)
+        .bearer_auth(&bob_key)
+        .json(&json!({"jsonrpc": "2.0", "id": 3, "method": "ping"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bob_ping.status(), StatusCode::OK);
+}

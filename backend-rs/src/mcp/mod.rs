@@ -20,6 +20,10 @@ use crate::routes::Routes;
 const STREAMABLE_IDLE_TTL: chrono::Duration = chrono::Duration::minutes(30);
 /// Per-user cap on concurrent Streamable HTTP sessions; oldest idle session is evicted first.
 const MAX_STREAMABLE_PER_USER: usize = 64;
+/// Per-user cap on concurrent legacy SSE sessions; oldest session is evicted first.
+pub const MAX_SSE_PER_USER: usize = 16;
+/// Bounded per-session SSE outbound message buffer.
+pub const SSE_CHANNEL_CAPACITY: usize = 64;
 
 pub fn register(routes: &mut Routes) {
     routes
@@ -55,14 +59,15 @@ pub struct Runtime {
 
 struct SseSession {
     user_id: i64,
-    tx: mpsc::UnboundedSender<String>,
+    seq: u64,
+    tx: mpsc::Sender<String>,
 }
 
 struct StreamableSession {
     user_id: i64,
     initialized: bool,
     last_seen: DateTime<Utc>,
-    sse_tx: Option<(u64, mpsc::UnboundedSender<String>)>,
+    sse_tx: Option<(u64, mpsc::Sender<String>)>,
 }
 
 impl StreamableSession {
@@ -73,16 +78,24 @@ impl StreamableSession {
 }
 
 impl Runtime {
-    pub(crate) fn insert_sse(
-        &self,
-        session_id: String,
-        user_id: i64,
-        tx: mpsc::UnboundedSender<String>,
-    ) {
-        self.sse
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(session_id, SseSession { user_id, tx });
+    pub(crate) fn insert_sse(&self, session_id: String, user_id: i64, tx: mpsc::Sender<String>) {
+        let mut guard = self.sse.lock().unwrap_or_else(|e| e.into_inner());
+        guard.retain(|_, s| !s.tx.is_closed());
+        let user_count = guard.values().filter(|s| s.user_id == user_id).count();
+        if user_count >= MAX_SSE_PER_USER {
+            let overflow = user_count + 1 - MAX_SSE_PER_USER;
+            let mut candidates: Vec<(String, u64)> = guard
+                .iter()
+                .filter(|(_, s)| s.user_id == user_id)
+                .map(|(k, s)| (k.clone(), s.seq))
+                .collect();
+            candidates.sort_by_key(|(_, seq)| *seq);
+            for (evict_id, _) in candidates.into_iter().take(overflow) {
+                guard.remove(&evict_id);
+            }
+        }
+        let seq = self.next_sse_id.fetch_add(1, Ordering::Relaxed);
+        guard.insert(session_id, SseSession { user_id, seq, tx });
     }
 
     pub(crate) fn remove_sse(&self, session_id: &str) {
@@ -96,7 +109,7 @@ impl Runtime {
         &self,
         session_id: &str,
         user_id: i64,
-    ) -> Option<mpsc::UnboundedSender<String>> {
+    ) -> Option<mpsc::Sender<String>> {
         let guard = self.sse.lock().unwrap_or_else(|e| e.into_inner());
         guard
             .get(session_id)
@@ -178,7 +191,7 @@ impl Runtime {
         &self,
         session_id: &str,
         user_id: i64,
-        tx: mpsc::UnboundedSender<String>,
+        tx: mpsc::Sender<String>,
         now: DateTime<Utc>,
     ) -> Option<u64> {
         let mut guard = self.streamable.lock().unwrap_or_else(|e| e.into_inner());
@@ -289,8 +302,8 @@ mod tests {
             .unwrap()
             .with_timezone(&Utc);
         rt.insert_streamable("s1".into(), 1, t0);
-        let (tx1, _rx1) = mpsc::unbounded_channel();
-        let (tx2, _rx2) = mpsc::unbounded_channel();
+        let (tx1, _rx1) = mpsc::channel(SSE_CHANNEL_CAPACITY);
+        let (tx2, _rx2) = mpsc::channel(SSE_CHANNEL_CAPACITY);
         let id1 = rt.attach_streamable_sse("s1", 1, tx1, t0).unwrap();
         let id2 = rt.attach_streamable_sse("s1", 1, tx2, t0).unwrap();
         // Detaching the superseded stream must not clear the newer sender.
@@ -305,5 +318,27 @@ mod tests {
             1
         );
         assert!(!rt.has_streamable("s1", 1, t0 + chrono::Duration::minutes(31)));
+    }
+
+    #[test]
+    fn sse_sessions_cap_per_user_and_use_bounded_channels() {
+        let rt = Runtime::default();
+        let mut rxs = Vec::new();
+        for i in 0..=MAX_SSE_PER_USER {
+            let (tx, rx) = mpsc::channel(SSE_CHANNEL_CAPACITY);
+            rt.insert_sse(format!("s{i}"), 1, tx);
+            rxs.push(rx);
+        }
+        assert!(rt.sse_sender("s0", 1).is_none(), "oldest session evicted");
+        let latest = rt
+            .sse_sender(&format!("s{MAX_SSE_PER_USER}"), 1)
+            .expect("newest session kept");
+        for i in 0..SSE_CHANNEL_CAPACITY {
+            assert!(latest.try_send(format!("msg-{i}")).is_ok());
+        }
+        assert!(matches!(
+            latest.try_send("overflow".to_owned()),
+            Err(mpsc::error::TrySendError::Full(_))
+        ));
     }
 }
