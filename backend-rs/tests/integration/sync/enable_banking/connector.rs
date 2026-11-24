@@ -147,3 +147,61 @@ async fn oversized_response_body_is_rejected_as_a_sync_error() {
         "{detail}"
     );
 }
+
+#[tokio::test]
+async fn every_answer_of_enable_banking_reaches_the_admin_call_log() {
+    let b = bank().await;
+    Mock::given(method("GET"))
+        .and(path("/aspsps"))
+        .and(query_param("country", "FR"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"aspsps": [
+            {"name": "BoursoBank", "country": "FR", "psu_types": ["personal"]}
+        ]})))
+        .mount(&b.server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/aspsps"))
+        .and(query_param("country", "DE"))
+        .respond_with(ResponseTemplate::new(503).set_body_string("upstream down"))
+        .mount(&b.server)
+        .await;
+
+    let listed = b
+        .admin
+        .get("/api/sync/institutions?country=FR")
+        .send()
+        .await;
+    assert_eq!(listed.status, StatusCode::OK);
+    b.admin
+        .get("/api/sync/institutions?country=DE")
+        .send()
+        .await;
+
+    let log = b
+        .admin
+        .get("/api/admin/enablebanking/call-log")
+        .send()
+        .await
+        .json();
+    let calls = log.as_array().expect("a list of calls");
+    assert_eq!(calls.len(), 2, "{log}");
+    let (failed, answered) = (&calls[0], &calls[1]);
+    assert_eq!(
+        failed["responseStatus"], 503,
+        "newest first, errors included"
+    );
+    assert_eq!(failed["responseBody"], "upstream down");
+    assert_eq!(answered["method"], "GET");
+    assert_eq!(
+        answered["url"],
+        format!("{}/aspsps?country=FR", b.server.uri())
+    );
+    assert_eq!(answered["responseStatus"], 200);
+    assert_eq!(answered["requestBody"], "");
+    assert!(
+        answered["responseBody"]
+            .as_str()
+            .is_some_and(|body| body.contains("BoursoBank")),
+        "{answered}"
+    );
+}

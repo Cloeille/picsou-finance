@@ -143,6 +143,7 @@ async fn call<T: DeserializeOwned>(
         "{}{path}",
         state.config.enablebanking.base_url.trim_end_matches('/')
     );
+    let method_name = method.clone();
     let mut request = state
         .http
         .request(method, url)
@@ -158,6 +159,7 @@ async fn call<T: DeserializeOwned>(
     let failed = |message: String| EbError::sync(format!("{context}: {message}"));
     let response = request.send().await.map_err(|e| failed(e.to_string()))?;
     let status = response.status();
+    let called = response.url().to_string();
     let text = read_capped_text(response, MAX_RESPONSE_BYTES)
         .await
         .map_err(|e| match e {
@@ -166,6 +168,13 @@ async fn call<T: DeserializeOwned>(
                 failed(format!("response body exceeds {limit} bytes"))
             }
         })?;
+    state.admin.eb_calls.record(
+        state.clock.now(),
+        method_name.as_str(),
+        &called,
+        status.as_u16(),
+        &text,
+    );
     if status.is_client_error() || status.is_server_error() {
         return Err(failed(match report {
             Report::Body => text,
