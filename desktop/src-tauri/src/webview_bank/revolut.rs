@@ -977,6 +977,7 @@ where
                 }
             },
             now_ms,
+            &acc.currency,
             &fiat,
         )
         .await

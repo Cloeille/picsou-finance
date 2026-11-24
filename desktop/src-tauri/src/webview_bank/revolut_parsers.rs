@@ -22,7 +22,8 @@ const DAY_MS: i64 = 24 * 3600 * 1000;
 const NOISE_POCKET_TYPES: &[&str] = &["MERCHANT", "REVX_FIAT"];
 const FIAT_FALLBACK: &[&str] = &[
     "EUR", "USD", "GBP", "CHF", "JPY", "CAD", "AUD", "SEK", "NOK", "DKK", "PLN", "CZK", "HUF",
-    "RON", "BGN", "TRY", "ZAR", "SGD", "HKD", "NZD", "MXN", "ILS", "AED", "THB",
+    "RON", "BGN", "TRY", "ZAR", "SGD", "HKD", "NZD", "MXN", "ILS", "AED", "THB", "KWD", "BHD",
+    "OMR", "JOD", "TND", "KRW", "ISK", "CLP", "VND",
 ];
 
 static CURRENCY_RE: LazyLock<Regex> =
@@ -96,8 +97,21 @@ fn pick_non_empty_str(obj: &serde_json::Map<String, Value>, keys: &[&str]) -> Op
     pick_str(obj, keys).filter(|s| !s.is_empty())
 }
 
-/// Converts Revolut integer minor units (cents) into major units as an exact `Decimal`.
-pub fn minor_to_major(value: Option<&Value>) -> Decimal {
+/// ISO 4217 minor-unit divisor for a fiat currency (`1` for 0-decimal currencies like JPY,
+/// `1000` for 3-decimal currencies like KWD, `100` for standard 2-decimal currencies).
+pub fn fiat_minor_unit_divisor(currency: &str) -> Decimal {
+    match currency.trim().to_ascii_uppercase().as_str() {
+        "BIF" | "CLP" | "DJF" | "GNF" | "ISK" | "JPY" | "KMF" | "KRW" | "PYG" | "RWF" | "UGX"
+        | "UYI" | "VND" | "VUV" | "XAF" | "XOF" | "XPF" => Decimal::from(1),
+        "BHD" | "IQD" | "JOD" | "KWD" | "LYD" | "OMR" | "TND" => Decimal::from(1000),
+        "CLF" | "UYW" => Decimal::from(10_000),
+        _ => Decimal::from(100),
+    }
+}
+
+/// Converts Revolut integer minor units into major units as an exact `Decimal` using the
+/// currency's ISO 4217 minor-unit scale.
+pub fn minor_to_major(value: Option<&Value>, currency: &str) -> Decimal {
     let Some(val) = value else {
         return Decimal::ZERO;
     };
@@ -110,8 +124,9 @@ pub fn minor_to_major(value: Option<&Value>) -> Decimal {
             .ok(),
         _ => None,
     };
+    let divisor = fiat_minor_unit_divisor(currency);
     parsed
-        .map(|d| (d / Decimal::from(100)).normalize())
+        .map(|d| (d / divisor).normalize())
         .unwrap_or(Decimal::ZERO)
 }
 
@@ -131,15 +146,19 @@ pub fn transaction_currency(raw: Option<&Value>) -> Result<Option<String>, Parse
     }
 }
 
-/// Fiat legs are cents (100); crypto legs are 1e-8 units (100_000_000).
+/// Fiat legs use their ISO 4217 minor-unit scale (falling back to the pocket's currency when the
+/// row omits `currency`); crypto legs are 1e-8 units (100_000_000).
 pub fn transaction_major(
     amount: Decimal,
     currency: Option<&str>,
+    pocket_currency: Option<&str>,
     fiat: &HashSet<String>,
 ) -> Decimal {
     let divisor = match currency {
-        None => Decimal::from(100),
-        Some(c) if fiat.contains(c) => Decimal::from(100),
+        None => pocket_currency
+            .map(fiat_minor_unit_divisor)
+            .unwrap_or_else(|| Decimal::from(100)),
+        Some(c) if fiat.contains(c) => fiat_minor_unit_divisor(c),
         Some(_) => Decimal::from(100_000_000i64),
     };
     (amount / divisor).normalize()
@@ -296,6 +315,7 @@ pub fn parse_transactions_page(data: &Value) -> Result<&[Value], ParseError> {
 pub async fn fetch_transactions_with<F, Fut>(
     mut fetch_page: F,
     now_ms: i64,
+    pocket_currency: &str,
     fiat: &HashSet<String>,
 ) -> Result<Vec<RevolutTxnPayload>, ParseError>
 where
@@ -368,7 +388,7 @@ where
                 external_id: tid,
                 date,
                 description,
-                amount: transaction_major(raw_amount, currency.as_deref(), fiat),
+                amount: transaction_major(raw_amount, currency.as_deref(), Some(pocket_currency), fiat),
                 currency,
                 counterparty: merchant_name,
                 kind: None,
@@ -532,16 +552,17 @@ pub fn assemble_accounts_and_wallets(
             }
         }
         let bal_field = obj.get("balance");
-        let (balance, bal_ccy) = match bal_field.and_then(Value::as_object) {
+        let (amount_val, bal_ccy) = match bal_field.and_then(Value::as_object) {
             Some(bal_obj) => (
-                minor_to_major(bal_obj.get("amount")),
+                bal_obj.get("amount"),
                 pick_non_empty_str(bal_obj, &["currency"]),
             ),
-            None => (minor_to_major(bal_field), None),
+            None => (bal_field, None),
         };
         let currency = bal_ccy
             .or_else(|| pick_non_empty_str(obj, &["currency", "currencyCode"]))
             .unwrap_or_else(|| "EUR".to_owned());
+        let balance = minor_to_major(amount_val, &currency);
         accounts.push(RevolutAccountPayload {
             external_id: mb_id,
             name: pick_non_empty_str(obj, &["name"]).unwrap_or_else(|| "Vault".to_owned()),
@@ -575,7 +596,7 @@ pub fn assemble_accounts_and_wallets(
                 continue;
             }
             let parent = wallet_id.as_ref().filter(|wid| *wid != &pid).cloned();
-            let balance = minor_to_major(pick(obj, &["balance", "amount"]));
+            let balance = minor_to_major(pick(obj, &["balance", "amount"]), &currency);
             let name = match pick_non_empty_str(obj, &["name"]) {
                 Some(explicit) if !explicit.eq_ignore_ascii_case("CURRENT") => explicit,
                 _ if ptype.eq_ignore_ascii_case("CURRENT") => format!("Revolut {currency}"),
@@ -908,6 +929,7 @@ mod tests {
                 async move { Ok(Value::Array(page)) }
             },
             fixed_now_ms(),
+            "EUR",
             &fiat,
         )
         .await
@@ -963,6 +985,7 @@ mod tests {
                 async move { Ok(Value::Array(batch)) }
             },
             now,
+            "EUR",
             &fiat,
         )
         .await
@@ -1008,6 +1031,7 @@ mod tests {
                 }]))
             },
             now,
+            "EUR",
             &fiat,
         )
         .await
@@ -1036,6 +1060,7 @@ mod tests {
                 async move { Ok(Value::Array(page)) }
             },
             now,
+            "EUR",
             &fiat,
         )
         .await
@@ -1101,5 +1126,88 @@ mod tests {
             .unwrap();
         assert_eq!(usd_pocket.name, "Revolut USD");
         assert_eq!(usd_pocket.parent_external_id, None);
+    }
+
+    #[tokio::test]
+    async fn zero_and_three_decimal_fiat_currencies_scale_by_iso_minor_units() {
+        let fiat = HashSet::from(["EUR".to_owned(), "JPY".to_owned(), "KWD".to_owned()]);
+        let money_boxes = vec![
+            json!({
+                "id": "mb-jpy",
+                "name": "Tokyo",
+                "balance": {"amount": 50_000, "currency": "JPY"},
+                "pocket": {"id": "p-mb-jpy"},
+                "accountId": "w-1"
+            }),
+            json!({
+                "id": "mb-kwd",
+                "name": "Kuwait",
+                "balance": {"amount": 12_500, "currency": "KWD"},
+                "pocket": {"id": "p-mb-kwd"},
+                "accountId": "w-1"
+            }),
+        ];
+        let wallets = vec![(
+            Some("w-1".to_owned()),
+            vec![
+                json!({"id": "p-jpy", "type": "CURRENT", "currency": "JPY", "balance": 15_000}),
+                json!({"id": "p-kwd", "type": "CURRENT", "currency": "KWD", "balance": 2_750}),
+            ],
+        )];
+        let (accounts, _, _) = assemble_accounts_and_wallets(&money_boxes, &wallets, &fiat);
+        let by_id: HashMap<&str, &RevolutAccountPayload> = accounts
+            .iter()
+            .map(|a| (a.external_id.as_str(), a))
+            .collect();
+
+        assert_eq!(by_id["mb-jpy"].balance, dec("50000"));
+        assert_eq!(by_id["mb-kwd"].balance, dec("12.5"));
+        assert_eq!(by_id["p-jpy"].balance, dec("15000"));
+        assert_eq!(by_id["p-kwd"].balance, dec("2.75"));
+
+        let now = fixed_now_ms();
+        let rows = vec![
+            json!({
+                "id": "tx-jpy",
+                "completedDate": now - 1000,
+                "description": "Ramen",
+                "amount": -1500,
+                "currency": "JPY",
+                "type": "CARD_PAYMENT"
+            }),
+            json!({
+                "id": "tx-jpy-pocket-default",
+                "completedDate": now - 1500,
+                "description": "Metro",
+                "amount": -220,
+                "type": "CARD_PAYMENT"
+            }),
+            json!({
+                "id": "tx-kwd",
+                "completedDate": now - 2000,
+                "description": "Coffee",
+                "amount": -1250,
+                "currency": "KWD",
+                "type": "CARD_PAYMENT"
+            }),
+        ];
+        let calls = RefCell::new(0usize);
+        let txns = fetch_transactions_with(
+            |_to| {
+                let mut c = calls.borrow_mut();
+                *c += 1;
+                let batch = if *c == 1 { rows.clone() } else { vec![] };
+                async move { Ok(Value::Array(batch)) }
+            },
+            now,
+            "JPY",
+            &fiat,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(txns[0].amount, dec("-1500"));
+        assert_eq!(txns[1].amount, dec("-220"));
+        assert_eq!(txns[2].amount, dec("-1.25"));
     }
 }
