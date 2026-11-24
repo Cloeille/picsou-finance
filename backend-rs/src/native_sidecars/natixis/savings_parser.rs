@@ -42,8 +42,14 @@ impl fmt::Display for SavingsFormatError {
 impl std::error::Error for SavingsFormatError {}
 
 pub fn money_close(actual: Decimal, expected: Decimal) -> bool {
-    let tolerance = MONEY_ABSOLUTE_TOLERANCE.max(expected.abs() * MONEY_RELATIVE_TOLERANCE);
-    (actual - expected).abs() <= tolerance
+    let Some(diff) = actual.checked_sub(expected).map(|d| d.abs()) else {
+        return false;
+    };
+    let Some(rel_tol) = expected.abs().checked_mul(MONEY_RELATIVE_TOLERANCE) else {
+        return false;
+    };
+    let tolerance = MONEY_ABSOLUTE_TOLERANCE.max(rel_tol);
+    diff <= tolerance
 }
 
 fn parse_decimal_str(raw: &str, what: &str) -> Result<Decimal, SavingsFormatError> {
@@ -344,10 +350,18 @@ fn parse_positions(
 
         if let Some(&idx) = index_by_key.get(&key) {
             let line = &mut merged[idx];
-            line.quantity += quantity;
-            line.value_eur += value;
+            line.quantity = line
+                .quantity
+                .checked_add(quantity)
+                .ok_or_else(|| SavingsFormatError::new(FORMAT_CHANGED, "Fund units out of range"))?;
+            line.value_eur = line
+                .value_eur
+                .checked_add(value)
+                .ok_or_else(|| SavingsFormatError::new(FORMAT_CHANGED, "Fund amount out of range"))?;
             line.pnl_eur = match (line.pnl_eur, pnl) {
-                (Some(existing), Some(added)) => Some(existing + added),
+                (Some(existing), Some(added)) => Some(existing.checked_add(added).ok_or_else(
+                    || SavingsFormatError::new(FORMAT_CHANGED, "Fund gains out of range"),
+                )?),
                 _ => None,
             };
         } else {
@@ -405,7 +419,10 @@ pub fn parse_plans(
         let plan_id = parse_text(plan.get("id"), "Plan id")?;
         let balance = parse_amount(plan, "amount", "Plan amount")?;
         let positions = parse_positions(plan, codes)?;
-        let lines_total: Decimal = positions.iter().map(|p| p.value_eur).sum();
+        let lines_total = positions
+            .iter()
+            .try_fold(Decimal::ZERO, |acc, p| acc.checked_add(p.value_eur))
+            .ok_or_else(|| SavingsFormatError::new(FORMAT_CHANGED, "Fund amounts out of range"))?;
         if !money_close(lines_total, balance) {
             return Err(SavingsFormatError::new(
                 PORTFOLIO_INCOMPLETE,
@@ -480,7 +497,10 @@ pub fn parse_plans(
             "Plans and products list a different number of plans",
         ));
     }
-    let plans_total: Decimal = plans.iter().map(|p| p.balance_eur).sum();
+    let plans_total = plans
+        .iter()
+        .try_fold(Decimal::ZERO, |acc, p| acc.checked_add(p.balance_eur))
+        .ok_or_else(|| SavingsFormatError::new(FORMAT_CHANGED, "Plan amounts out of range"))?;
     if !money_close(plans_total, products_total) {
         return Err(SavingsFormatError::new(
             PORTFOLIO_INCOMPLETE,

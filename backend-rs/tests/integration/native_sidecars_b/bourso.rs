@@ -2930,3 +2930,73 @@ fn accounts_parser_never_panics_on_a_mangled_page() {
         let _ = accounts_parser::parse_amount(page);
     });
 }
+
+#[test]
+fn bourso_parsers_report_errors_instead_of_panicking_on_decimal_overflow() {
+    let huge = "50000000000000000000000000000";
+
+    // Trading summary: position values sum past Decimal::MAX.
+    let overflow_positions = trading_summary(
+        "0",
+        huge,
+        huge,
+        vec![
+            trading_position(Some("SYM1"), "1", huge, "EUR"),
+            trading_position(Some("SYM2"), "1", huge, "EUR"),
+        ],
+    );
+    let err = parse_trading_summary(&overflow_positions, "acc1").unwrap_err();
+    assert_eq!(err.code, INVALID_DATA);
+
+    // Trading summary: cash + valuation overflows Decimal::MAX.
+    let overflow_total = trading_summary(
+        huge,
+        huge,
+        huge,
+        vec![trading_position(Some("SYM1"), "1", huge, "EUR")],
+    );
+    let err = parse_trading_summary(&overflow_total, "acc2").unwrap_err();
+    assert_eq!(err.code, INVALID_DATA);
+
+    // Assurance-vie: euro funds / lines summing past Decimal::MAX.
+    let li_rows = [
+        li_row("Fonds Euro A", None, None, "", "", "", huge, ""),
+        li_row("Fonds Euro B", None, None, "", "", "", huge, ""),
+    ]
+    .concat();
+    let err = parse_life_insurance(&li_page(&li_rows, huge)).unwrap_err();
+    assert_eq!(err.code, INVALID_DATA);
+
+    // PER: compartment lines summing past Decimal::MAX.
+    let per_rows = [
+        per_row(
+            "Fonds A",
+            Some("FR0000000001"),
+            None,
+            "1",
+            "1,00",
+            "1,00",
+            "0,00",
+            "0,00 %",
+            huge,
+        ),
+        per_row(
+            "Fonds B",
+            Some("FR0000000002"),
+            None,
+            "1",
+            "1,00",
+            "1,00",
+            "0,00",
+            "0,00 %",
+            huge,
+        ),
+    ]
+    .concat();
+    let comp = per_compartment("Compartiment 1", &per_rows, Some(huge));
+    let err = parse_per(&per_page(&[comp], "100,00 €")).unwrap_err();
+    assert_eq!(err.code, INVALID_DATA);
+
+    // money_close with opposite extremes must return false without panicking.
+    assert!(!money_close(Decimal::MAX, -Decimal::MAX));
+}

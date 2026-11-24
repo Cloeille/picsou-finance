@@ -180,17 +180,36 @@ pub fn text_value(value: Option<&Value>, limit: usize) -> Option<String> {
 }
 
 pub fn money_close(actual: Decimal, expected: Decimal) -> bool {
-    let difference = (actual - expected).abs();
+    let Some(difference) = actual.checked_sub(expected).map(|d| d.abs()) else {
+        return false;
+    };
     if difference <= money_absolute_tolerance() {
         return true;
     }
-    difference <= expected.abs() * money_relative_tolerance()
+    expected
+        .abs()
+        .checked_mul(money_relative_tolerance())
+        .is_some_and(|tol| difference <= tol)
 }
 
 pub fn lines_close(actual: Decimal, expected: Decimal, lines: usize) -> bool {
-    let per_line = money_per_line_tolerance() * Decimal::from(lines);
+    let Some(difference) = actual.checked_sub(expected).map(|d| d.abs()) else {
+        return false;
+    };
+    let Some(per_line) = money_per_line_tolerance().checked_mul(Decimal::from(lines)) else {
+        return false;
+    };
     let allowance = money_absolute_tolerance().max(per_line);
-    (actual - expected).abs() <= allowance
+    difference <= allowance
+}
+
+fn checked_add(a: Decimal, b: Decimal) -> Result<Decimal, AccountsFormatError> {
+    a.checked_add(b)
+        .ok_or_else(|| AccountsFormatError::new(INVALID_DATA, "amount out of range"))
+}
+
+fn checked_sum(iter: impl IntoIterator<Item = Decimal>) -> Result<Decimal, AccountsFormatError> {
+    iter.into_iter().try_fold(Decimal::ZERO, checked_add)
 }
 
 /// Shape-only description of a JSON value: containers and key names, never values.
@@ -243,7 +262,12 @@ pub fn relative_difference(actual: Decimal, expected: Decimal) -> String {
     if expected.is_zero() {
         return if actual.is_zero() { "n/a" } else { "inf" }.to_owned();
     }
-    let ratio = (actual - expected).abs() / expected.abs();
+    let Some(ratio) = actual
+        .checked_sub(expected)
+        .and_then(|diff| diff.abs().checked_div(expected.abs()))
+    else {
+        return "inf".to_owned();
+    };
     let rounded = ratio.round_dp_with_strategy(4, RoundingStrategy::MidpointNearestEven);
     format!("{rounded:.4}")
 }
@@ -1093,7 +1117,7 @@ pub fn parse_trading_summary(
         }
     }
 
-    let mut lines_total: Decimal = positions.iter().map(|p| p.current_value_eur).sum();
+    let mut lines_total = checked_sum(positions.iter().map(|p| p.current_value_eur))?;
 
     if position_lists.len() > 1 && !money_close(lines_total, valuation) {
         let union_raw_len: usize = position_lists.iter().map(|l| l.len()).sum();
@@ -1140,7 +1164,7 @@ pub fn parse_trading_summary(
             .into_iter()
             .filter_map(|k| unique.remove(&k))
             .collect();
-        let union_total: Decimal = union.iter().map(|p| p.current_value_eur).sum();
+        let union_total = checked_sum(union.iter().map(|p| p.current_value_eur))?;
         if money_close(union_total, valuation) {
             raw_count = union_raw_len;
             positions = union;
@@ -1148,16 +1172,17 @@ pub fn parse_trading_summary(
         }
     }
 
+    let cash_plus_valuation = checked_add(cash, valuation)?;
     let mut shape = format!(
         "account {short_id}…; {} of {raw_count} line(s); cash+valuation vs total={}; lines vs valuation={}",
         positions.len(),
-        relative_difference(cash + valuation, total),
+        relative_difference(cash_plus_valuation, total),
         relative_difference(lines_total, valuation),
     );
     if raw_count == 0 {
         shape.push_str(&format!("; payload={}", describe_payload(payload, 0)));
     }
-    if !money_close(cash + valuation, total) {
+    if !money_close(cash_plus_valuation, total) {
         return Err(AccountsFormatError::new(
             INCOMPLETE,
             format!("Trading account total does not reconcile ({shape})"),
@@ -1406,7 +1431,7 @@ pub fn parse_life_insurance(html: &str) -> Result<LineValuedSummary, AccountsFor
                 && price.is_none_or(|p| p.is_zero())
                 && LI_EURO_FUND_RE.is_match(&deaccent(&label));
             if is_euro_fund {
-                cash += value;
+                cash = checked_add(cash, value)?;
                 continue;
             }
             if quantity.is_none() || !value.is_zero() {
@@ -1431,10 +1456,10 @@ pub fn parse_life_insurance(html: &str) -> Result<LineValuedSummary, AccountsFor
         });
     }
 
-    let lines_total: Decimal = positions
+    let lines_total = positions
         .iter()
         .map(|p| p.current_value_eur)
-        .fold(cash, |acc, v| acc + v);
+        .try_fold(cash, checked_add)?;
     if !lines_close(lines_total, total, rows.len()) {
         return Err(AccountsFormatError::new(
             INCOMPLETE,
@@ -1628,7 +1653,7 @@ pub fn parse_per(html: &str) -> Result<LineValuedSummary, AccountsFormatError> {
             }
             let value = per_amount(cells[6], "amount", true)?.expect("amount");
             lines += 1;
-            compartment_lines += value;
+            compartment_lines = checked_add(compartment_lines, value)?;
 
             if per_pending(cells[1]) {
                 per_amount(cells[3], "price", false)?;
@@ -1640,7 +1665,7 @@ pub fn parse_per(html: &str) -> Result<LineValuedSummary, AccountsFormatError> {
                     per_amount(cells[5], "gain percentage", false)?;
                 }
                 pending += 1;
-                cash += value;
+                cash = checked_add(cash, value)?;
                 continue;
             }
 
@@ -1667,7 +1692,7 @@ pub fn parse_per(html: &str) -> Result<LineValuedSummary, AccountsFormatError> {
                     && price.is_none_or(|p| p.is_zero())
                     && LI_EURO_FUND_RE.is_match(&deaccent(&full_label))
                 {
-                    cash += value;
+                    cash = checked_add(cash, value)?;
                     continue;
                 }
                 return Err(AccountsFormatError::new(
@@ -1726,10 +1751,10 @@ pub fn parse_per(html: &str) -> Result<LineValuedSummary, AccountsFormatError> {
                 ),
             ));
         }
-        totals += compartment_total;
+        totals = checked_add(totals, compartment_total)?;
         line_count += lines;
         pending_lines += pending;
-        lines_sum += compartment_lines;
+        lines_sum = checked_add(lines_sum, compartment_lines)?;
     }
 
     let shape = format!(

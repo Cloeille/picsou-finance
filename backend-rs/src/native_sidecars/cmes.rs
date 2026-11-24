@@ -497,10 +497,15 @@ pub fn plan_kind(label: &str) -> Option<String> {
 }
 
 pub fn money_close(actual: Decimal, expected: Decimal) -> bool {
+    let Some(diff) = actual.checked_sub(expected).map(|d| d.abs()) else {
+        return false;
+    };
     let abs_tol = Decimal::new(5, 2); // 0.05
-    let rel_tol = expected.abs() * Decimal::new(1, 3); // 0.001
+    let Some(rel_tol) = expected.abs().checked_mul(Decimal::new(1, 3)) else {
+        return false;
+    }; // 0.001
     let tolerance = abs_tol.max(rel_tol);
-    (actual - expected).abs() <= tolerance
+    diff <= tolerance
 }
 
 fn table_at(page: &str, start: usize) -> Result<&str, SituationFormatError> {
@@ -570,7 +575,10 @@ fn parse_plan_table(table: &str) -> Result<SituationPlan, SituationFormatError> 
             "A funded plan lists no fund",
         ));
     }
-    let funds_sum: Decimal = funds.iter().map(|f| f.value_eur).sum();
+    let funds_sum = funds
+        .iter()
+        .try_fold(Decimal::ZERO, |acc, f| acc.checked_add(f.value_eur))
+        .ok_or_else(|| SituationFormatError::new(FORMAT_CHANGED, "Fund values overflow"))?;
     if !money_close(funds_sum, balance) {
         return Err(SituationFormatError::new(
             INCOMPLETE,
@@ -737,7 +745,10 @@ pub fn parse_my_savings(page: &str) -> Result<FundSavingsDetails, SituationForma
     let value_eur = parse_money(&amount)?;
     let quantity = parse_units(&units)?;
     let unit_value = parse_money(&price)?;
-    if !money_close(quantity * unit_value, value_eur) {
+    let computed = quantity
+        .checked_mul(unit_value)
+        .ok_or_else(|| SituationFormatError::new(FORMAT_CHANGED, "Units times unit value overflow"))?;
+    if !money_close(computed, value_eur) {
         return Err(SituationFormatError::new(
             FORMAT_CHANGED,
             "Units times unit value do not give the fund value",

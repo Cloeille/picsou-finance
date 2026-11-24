@@ -2020,3 +2020,95 @@ async fn log_hygiene_never_logs_sensitive_values() {
         );
     }
 }
+
+#[test]
+fn natixis_savings_parser_reports_format_changed_instead_of_panicking_on_decimal_overflow() {
+    let huge = "50000000000000000000000000000";
+    let products_one = json!({
+        "items": [{ "id": "P1", "code": "PEE", "internalAccount": true }],
+        "additionalInformation": {
+            "internalAmountsManagedByNIE": { "total": { "value": huge, "currencyCode": "EUR" } }
+        }
+    });
+
+    // Merging the same fundId across compartments overflows units/amount.
+    let merged_overflow = json!({
+        "items": [{
+            "id": "PEE-1",
+            "family": "PEE",
+            "displayableProductLabel": "PEE",
+            "amount": { "value": huge, "currencyCode": "EUR" },
+            "compartments": [
+                {
+                    "investmentOptions": [{
+                        "fundId": 1001, "type": "FUND", "label": "FONDS A",
+                        "units": huge,
+                        "amount": { "value": huge, "currencyCode": "EUR" },
+                        "gainsOrLossesAmount": { "value": huge, "currencyCode": "EUR" }
+                    }]
+                },
+                {
+                    "investmentOptions": [{
+                        "fundId": 1001, "type": "FUND", "label": "FONDS A",
+                        "units": huge,
+                        "amount": { "value": huge, "currencyCode": "EUR" },
+                        "gainsOrLossesAmount": { "value": huge, "currencyCode": "EUR" }
+                    }]
+                }
+            ]
+        }]
+    });
+    let err = parse_plans(&merged_overflow, &products_one, EMPLOYEE_ID, &HashMap::new())
+        .unwrap_err();
+    assert_eq!(err.code, FORMAT_CHANGED);
+
+    // Two distinct funds in one plan whose amounts sum past Decimal::MAX.
+    let lines_overflow = json!({
+        "items": [{
+            "id": "PEE-1",
+            "family": "PEE",
+            "displayableProductLabel": "PEE",
+            "amount": { "value": huge, "currencyCode": "EUR" },
+            "compartments": [{
+                "investmentOptions": [
+                    { "fundId": 1001, "type": "FUND", "label": "FONDS A", "units": "1", "amount": { "value": huge, "currencyCode": "EUR" } },
+                    { "fundId": 1002, "type": "FUND", "label": "FONDS B", "units": "1", "amount": { "value": huge, "currencyCode": "EUR" } }
+                ]
+            }]
+        }]
+    });
+    let err =
+        parse_plans(&lines_overflow, &products_one, EMPLOYEE_ID, &HashMap::new()).unwrap_err();
+    assert_eq!(err.code, FORMAT_CHANGED);
+
+    // Two plans whose balances sum past Decimal::MAX.
+    let plans_overflow = json!({
+        "items": [
+            {
+                "id": "PEE-1", "family": "PEE", "displayableProductLabel": "PEE 1",
+                "amount": { "value": huge, "currencyCode": "EUR" },
+                "compartments": [{ "investmentOptions": [{ "fundId": 1001, "type": "FUND", "label": "A", "units": "1", "amount": { "value": huge, "currencyCode": "EUR" } }] }]
+            },
+            {
+                "id": "PEE-2", "family": "PEE", "displayableProductLabel": "PEE 2",
+                "amount": { "value": huge, "currencyCode": "EUR" },
+                "compartments": [{ "investmentOptions": [{ "fundId": 1002, "type": "FUND", "label": "B", "units": "1", "amount": { "value": huge, "currencyCode": "EUR" } }] }]
+            }
+        ]
+    });
+    let products_two = json!({
+        "items": [
+            { "id": "P1", "code": "PEE", "internalAccount": true },
+            { "id": "P2", "code": "PER", "internalAccount": true }
+        ],
+        "additionalInformation": {
+            "internalAmountsManagedByNIE": { "total": { "value": huge, "currencyCode": "EUR" } }
+        }
+    });
+    let err =
+        parse_plans(&plans_overflow, &products_two, EMPLOYEE_ID, &HashMap::new()).unwrap_err();
+    assert_eq!(err.code, FORMAT_CHANGED);
+
+    // money_close with opposite extremes must return false without panicking.
+    assert!(!money_close(Decimal::MAX, -Decimal::MAX));
+}

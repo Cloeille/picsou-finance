@@ -601,12 +601,13 @@ fn declared_total(table: &str) -> Result<Decimal, PositionsFormatError> {
 
 fn check_totals(table: &str, holdings: &[HoldingPayload]) -> Result<Decimal, PositionsFormatError> {
     let declared = declared_total(table)?;
-    let computed: Decimal = holdings
+    let sum = holdings
         .iter()
-        .map(|h| h.total_eur)
-        .sum::<Decimal>()
-        .round_dp_with_strategy(2, RoundingStrategy::MidpointNearestEven);
-    if (computed - declared).abs() > Decimal::new(1, 2) {
+        .try_fold(Decimal::ZERO, |acc, h| acc.checked_add(h.total_eur))
+        .ok_or_else(|| PositionsFormatError::new("INVALID_DATA", "portfolio total out of range"))?;
+    let computed = sum.round_dp_with_strategy(2, RoundingStrategy::MidpointNearestEven);
+    let diff = computed.checked_sub(declared).map(|d| d.abs());
+    if diff.is_none_or(|d| d > Decimal::new(1, 2)) {
         return Err(PositionsFormatError::new(
             "PORTFOLIO_INCOMPLETE",
             format!("funds total {computed} but the page declares {declared}"),

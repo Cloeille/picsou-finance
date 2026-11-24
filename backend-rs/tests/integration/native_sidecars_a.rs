@@ -1979,3 +1979,55 @@ fn sofidy_parser_never_panics_on_a_mangled_page() {
         let _ = sofidy::parse_portfolio(page);
     });
 }
+
+#[test]
+fn cmes_and_sofidy_parsers_report_errors_instead_of_panicking_on_decimal_overflow() {
+    let huge = "50000000000000000000000000000";
+
+    // CMES situation: two funds whose values overflow Decimal on sum.
+    let cmes_rows = format!(
+        "{}{}",
+        cmes_fund_row(0, "FONDS A", huge, "+ 1,00", "pos"),
+        cmes_fund_row(1, "FONDS B", huge, "+ 1,00", "pos"),
+    );
+    let cmes_page = cmes_situation_page(&cmes_plan_table(
+        "Plan d&#39;&#233;pargne groupe",
+        huge,
+        &cmes_rows,
+    ));
+    let err = cmes::parse_situation(&cmes_page).unwrap_err();
+    assert_eq!(err.code, cmes::FORMAT_CHANGED);
+
+    // CMES fund savings: quantity * unit_value overflows Decimal.
+    let savings_page = cmes_fund_savings(
+        "1 000,00",
+        "0,00",
+        "1000000000000000",
+        "1000000000000000",
+    );
+    let err = cmes::parse_my_savings(&savings_page).unwrap_err();
+    assert_eq!(err.code, cmes::FORMAT_CHANGED);
+
+    // CMES money_close: extreme opposite signs must not overflow.
+    assert!(!cmes::money_close(Decimal::MAX, -Decimal::MAX));
+
+    // Sofidy: two holdings whose totals overflow Decimal on sum.
+    let sofidy_rows = format!(
+        "{}{}",
+        sofidy_fund_row("SCPI A", "10.00", "100.00", huge, "A"),
+        sofidy_fund_row("SCPI B", "10.00", "100.00", huge, "B"),
+    );
+    let sofidy_html = sofidy_page(&sofidy_rows, &sofidy_total_row("20.00", huge));
+    let err = sofidy::parse_portfolio(&sofidy_html).unwrap_err();
+    assert_eq!(err.code, "INVALID_DATA");
+
+    // Sofidy: computed - declared overflows Decimal -> PORTFOLIO_INCOMPLETE.
+    let max_str = Decimal::MAX.to_string();
+    let neg_max_str = (-Decimal::MAX).to_string();
+    let sofidy_diff_html = sofidy_page(
+        &sofidy_fund_row("SCPI A", "10.00", "100.00", &max_str, "A"),
+        &sofidy_total_row("10.00", &neg_max_str),
+    );
+    let err = sofidy::parse_portfolio(&sofidy_diff_html).unwrap_err();
+    assert_eq!(err.code, "PORTFOLIO_INCOMPLETE");
+}
