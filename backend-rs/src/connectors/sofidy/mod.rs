@@ -163,6 +163,10 @@ fn template() -> SyncTemplate<Strategy> {
     SyncTemplate::new(BANK, Strategy, true)
 }
 
+pub async fn recover_interrupted_syncs(state: &AppState) -> sqlx::Result<u64> {
+    template().recover_interrupted(state).await
+}
+
 async fn initiate(
     State(state): State<AppState>,
     auth: Auth,

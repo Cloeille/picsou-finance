@@ -148,6 +148,9 @@ pub async fn recover_interrupted_syncs(state: &AppState) -> anyhow::Result<()> {
     cmes::recover_interrupted_syncs(state)
         .await
         .map_err(|e| recovery_failed("cmes", e))?;
+    corum::recover_interrupted_syncs(state)
+        .await
+        .map_err(|e| recovery_failed("corum", e))?;
     fortuneo::recover_interrupted_syncs(state)
         .await
         .map_err(|e| recovery_failed("fortuneo", e))?;
@@ -160,6 +163,9 @@ pub async fn recover_interrupted_syncs(state: &AppState) -> anyhow::Result<()> {
     natixis::recover_interrupted_syncs(state)
         .await
         .map_err(|e| recovery_failed("natixis", e))?;
+    sofidy::recover_interrupted_syncs(state)
+        .await
+        .map_err(|e| recovery_failed("sofidy", e))?;
     Ok(())
 }
 

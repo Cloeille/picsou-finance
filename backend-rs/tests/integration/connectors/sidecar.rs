@@ -259,3 +259,45 @@ fn all_17_connector_controllers_are_fully_covered() {
     let missing: Vec<_> = expected.difference(&served).collect();
     assert!(missing.is_empty(), "T6 endpoints not served: {missing:?}");
 }
+
+#[tokio::test]
+async fn startup_recovery_fails_the_in_flight_sync_of_every_bank() {
+    let sidecar = MockServer::start().await;
+    let app = app_with_sidecar(URL, &sidecar).await;
+    let (_, member_id) = admin(&app).await;
+    let yesterday = app.state.clock.now() - chrono::Duration::days(1);
+    // La Banque Postale keeps its sessions in a table of its own.
+    let banks = SidecarBank::ALL
+        .iter()
+        .filter(|bank| !matches!(bank, SidecarBank::Lbp));
+    for bank in banks {
+        let region =
+            matches!(bank, SidecarBank::BanquePopulaire).then_some("ALSACE_LORRAINE_CHAMPAGNE");
+        picsou::db::query(
+            "INSERT INTO sidecar_session (bank, member_id, session_state, region, last_validated_at, \
+             is_active, sync_status, updated_at) VALUES ($1, $2, 'state', $3, $4, true, 'RUNNING', $4)",
+        )
+        .bind(bank.as_str())
+        .bind(member_id)
+        .bind(region)
+        .bind(yesterday)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    }
+
+    picsou::connectors::recover_interrupted_syncs(&app.state)
+        .await
+        .unwrap();
+
+    let stuck: Vec<String> = picsou::db::query_scalar(
+        "SELECT bank FROM sidecar_session WHERE sync_status IN ('QUEUED', 'RUNNING') ORDER BY bank",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert!(
+        stuck.is_empty(),
+        "still in flight after a restart: {stuck:?}"
+    );
+}

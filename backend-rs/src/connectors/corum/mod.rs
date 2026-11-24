@@ -270,6 +270,10 @@ pub async fn get_status(state: &AppState, member_id: i64) -> AppResult<StatusRes
         .map_or_else(StatusResponse::inactive, |s| StatusResponse::of(&s)))
 }
 
+pub async fn recover_interrupted_syncs(state: &AppState) -> sqlx::Result<u64> {
+    template().recover_interrupted(state).await
+}
+
 /// Deletes the session and its stored credentials; a login still waiting on CORUM stores
 /// nothing once it lands. Whether there was a session to delete.
 pub async fn clear_session(state: &AppState, member_id: i64) -> AppResult<bool> {
