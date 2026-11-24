@@ -456,7 +456,7 @@ impl RevolutWebviewManager {
 
         self.set_progress(&key, "HARVESTING", Some(0));
         let now_ms = Utc::now().timestamp_millis();
-        let payload = harvest_accounts_with(
+        let payload = match harvest_accounts_with(
             now_ms,
             |method, path, params| {
                 let jar = Arc::clone(&jar);
@@ -474,7 +474,19 @@ impl RevolutWebviewManager {
             },
             |count| self.set_progress(&key, "HARVESTING", i32::try_from(count).ok()),
         )
-        .await?;
+        .await
+        {
+            Ok(payload) => payload,
+            Err(err) => {
+                if err.status == StatusCode::UNAUTHORIZED {
+                    self.sessions
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .remove(&key);
+                }
+                return Err(err);
+            }
+        };
 
         let updated_cookies: Vec<StoredCookie> = jar
             .lock()
@@ -907,6 +919,9 @@ where
     };
 
     let wallets_resp = api_call("GET", WALLETS_PATH, &[]).await;
+    if wallets_resp.status == 401 || wallets_resp.status == 403 {
+        return Err(ApiError::new(StatusCode::UNAUTHORIZED, "SESSION_EXPIRED"));
+    }
     let mut wallets = if wallets_resp.status == 200 {
         wallets_resp
             .data
@@ -918,9 +933,23 @@ where
     };
     if wallets.is_empty() {
         let single_resp = api_call("GET", SINGLE_WALLET_PATH, &[]).await;
+        if single_resp.status == 401 || single_resp.status == 403 {
+            return Err(ApiError::new(StatusCode::UNAUTHORIZED, "SESSION_EXPIRED"));
+        }
         if single_resp.status == 200 {
             if let Some(data) = single_resp.data.as_ref() {
                 wallets = revolut_parsers::parse_single_wallet(data);
+            }
+        }
+        if wallets.is_empty() {
+            if wallets_resp.status != 200 && single_resp.status != 200 {
+                return Err(ApiError::new(
+                    StatusCode::BAD_GATEWAY,
+                    "UPSTREAM_UNAVAILABLE",
+                ));
+            }
+            if wallets_resp.data.is_none() && single_resp.data.is_none() {
+                return Err(ApiError::new(StatusCode::BAD_GATEWAY, "INVALID_DATA"));
             }
         }
     }
@@ -1429,5 +1458,83 @@ mod tests {
         }
         assert_eq!(mgr.sessions.lock().unwrap().len(), MAX_SESSIONS);
         assert_eq!(mgr.progress.lock().unwrap().len(), MAX_PROGRESS);
+    }
+
+    #[tokio::test]
+    async fn wallet_endpoint_failures_return_an_error_instead_of_zero_accounts() {
+        let now_ms = 1_768_471_200_000; // 2026-01-15T10:00:00Z
+
+        let err = harvest_accounts_with(
+            now_ms,
+            |_method, path, _params| {
+                let path = path.to_owned();
+                async move {
+                    if path == MONEY_BOXES_PATH {
+                        FetchResponse { status: 200, data: Some(json!([])) }
+                    } else if path == CURRENCIES_PATH {
+                        FetchResponse { status: 200, data: Some(json!([{"code": "EUR"}])) }
+                    } else if path == WALLETS_PATH || path == SINGLE_WALLET_PATH {
+                        FetchResponse { status: 503, data: None }
+                    } else {
+                        FetchResponse { status: 200, data: Some(json!([])) }
+                    }
+                }
+            },
+            |_| {},
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, StatusCode::BAD_GATEWAY);
+        assert_eq!(err.detail, "UPSTREAM_UNAVAILABLE");
+
+        let auth_err = harvest_accounts_with(
+            now_ms,
+            |_method, path, _params| {
+                let path = path.to_owned();
+                async move {
+                    if path == WALLETS_PATH || path == SINGLE_WALLET_PATH {
+                        FetchResponse { status: 401, data: None }
+                    } else {
+                        FetchResponse { status: 200, data: Some(json!([])) }
+                    }
+                }
+            },
+            |_| {},
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(auth_err.status, StatusCode::UNAUTHORIZED);
+        assert_eq!(auth_err.detail, "SESSION_EXPIRED");
+
+        // Fallback still succeeds when /wallets is 404 and /user/current/wallet is 200.
+        let fallback_ok = harvest_accounts_with(
+            now_ms,
+            |_method, path, _params| {
+                let path = path.to_owned();
+                async move {
+                    if path == MONEY_BOXES_PATH || path == TRANSACTIONS_PATH {
+                        FetchResponse { status: 200, data: Some(json!([])) }
+                    } else if path == CURRENCIES_PATH {
+                        FetchResponse { status: 200, data: Some(json!([{"code": "EUR"}])) }
+                    } else if path == WALLETS_PATH {
+                        FetchResponse { status: 404, data: None }
+                    } else if path == SINGLE_WALLET_PATH {
+                        FetchResponse {
+                            status: 200,
+                            data: Some(json!({
+                                "id": "w-single",
+                                "pockets": [{"id": "p-1", "type": "CURRENT", "currency": "EUR", "balance": 1000}]
+                            })),
+                        }
+                    } else {
+                        FetchResponse { status: 404, data: None }
+                    }
+                }
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+        assert_eq!(fallback_ok.accounts.len(), 2);
     }
 }
