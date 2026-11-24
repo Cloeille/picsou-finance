@@ -572,6 +572,35 @@ impl RevolutWebviewManager {
             .is_some_and(|e| matches!(e.status, ProcessStatus::WaitingLogin))
     }
 
+    fn is_fetching(&self, process_id: &str) -> bool {
+        let procs = self.processes.lock().unwrap_or_else(|e| e.into_inner());
+        procs
+            .get(process_id)
+            .is_some_and(|e| matches!(e.status, ProcessStatus::Fetching))
+    }
+
+    /// Ends a harvest. Its session and its snapshot are keyed by member, not by attempt, so they
+    /// are kept only while the attempt is still being read: one cancelled or failed meanwhile
+    /// must not leave the member connected with what it returned. They are stored before the
+    /// attempt shows as done, so the sync that follows finds them.
+    fn complete_harvest(
+        &self,
+        process_id: &str,
+        member_key: &str,
+        payload: RevolutHarvestPayload,
+        session: Option<(String, Vec<StoredCookie>)>,
+    ) -> bool {
+        if !self.is_fetching(process_id) {
+            return false;
+        }
+        if let Some((device_id, cookies)) = session {
+            self.store_session(member_key.to_owned(), device_id, cookies);
+        }
+        self.remember_snapshot(member_key, payload);
+        self.mark_done(process_id);
+        true
+    }
+
     fn remember_snapshot(&self, member_key: &str, payload: RevolutHarvestPayload) {
         let now = Instant::now();
         let mut cache = self.snapshots.lock().unwrap_or_else(|e| e.into_inner());
@@ -671,12 +700,13 @@ impl RevolutWebviewManager {
                             .finish_webview_harvest(&window, &member_key, &device_id)
                             .await
                         {
-                            Ok(payload) => {
-                                self.remember_snapshot(&member_key, payload);
-                                self.mark_done(&process_id);
-                                tracing::info!(
-                                    "Revolut WebView harvest ready, closing login window"
-                                );
+                            Ok((payload, session)) => {
+                                if self.complete_harvest(&process_id, &member_key, payload, session)
+                                {
+                                    tracing::info!(
+                                        "Revolut WebView harvest ready, closing login window"
+                                    );
+                                }
                             }
                             Err(err) => {
                                 tracing::warn!(
@@ -717,7 +747,7 @@ impl RevolutWebviewManager {
         window: &WebviewWindow,
         member_key: &str,
         device_id: &str,
-    ) -> Result<RevolutHarvestPayload, ApiError> {
+    ) -> Result<(RevolutHarvestPayload, Option<(String, Vec<StoredCookie>)>), ApiError> {
         let now_ms = Utc::now().timestamp_millis();
         let payload = harvest_accounts_with(
             now_ms,
@@ -766,11 +796,9 @@ impl RevolutWebviewManager {
                 .map(|c| c.value.clone())
                 .unwrap_or_default()
         };
-        if !stored.is_empty() && !final_device_id.is_empty() {
-            self.store_session(member_key.to_owned(), final_device_id, stored);
-        }
-
-        Ok(payload)
+        let session = (!stored.is_empty() && !final_device_id.is_empty())
+            .then_some((final_device_id, stored));
+        Ok((payload, session))
     }
 
     async fn http_api_call(
@@ -1169,6 +1197,55 @@ pub fn cookie_in_scope(cookie: &StoredCookie) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_harvest_of_a_failed_attempt_connects_nobody() {
+        let manager = RevolutWebviewManager::new();
+        let attempt = |status| ProcessEntry {
+            status,
+            window_label: "w".to_owned(),
+            created_at: Instant::now(),
+        };
+        let cookie = || StoredCookie {
+            name: "revo_device_id".to_owned(),
+            value: "device".to_owned(),
+            domain: Some(".revolut.com".to_owned()),
+            path: Some("/".to_owned()),
+            expires: None,
+            http_only: Some(true),
+            secure: Some(true),
+            same_site: None,
+        };
+        let harvest = || RevolutHarvestPayload {
+            accounts: Vec::new(),
+        };
+        {
+            let mut processes = manager.processes.lock().unwrap();
+            processes.insert("failed".to_owned(), attempt(ProcessStatus::Fetching));
+            processes.insert("read".to_owned(), attempt(ProcessStatus::Fetching));
+        }
+        manager.mark_failed("failed", "AUTH_ATTEMPT_EXPIRED");
+
+        let kept = manager.complete_harvest(
+            "failed",
+            "member",
+            harvest(),
+            Some(("device".to_owned(), vec![cookie()])),
+        );
+
+        assert!(!kept);
+        assert!(manager.sessions.lock().unwrap().is_empty());
+        assert!(manager.take_cached_snapshot("member").is_none());
+
+        assert!(manager.complete_harvest(
+            "read",
+            "member",
+            harvest(),
+            Some(("device".to_owned(), vec![cookie()])),
+        ));
+        assert!(manager.sessions.lock().unwrap().contains_key("member"));
+        assert!(manager.take_cached_snapshot("member").is_some());
+    }
 
     #[test]
     fn a_snapshot_arriving_after_the_attempt_failed_does_not_revive_it() {
