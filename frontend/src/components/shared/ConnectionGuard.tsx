@@ -64,7 +64,9 @@ export function ConnectionGuard({ children }: { children: ReactNode }) {
         ) : (
           <>
             <WifiSlash className="size-10 text-destructive" />
-            <h2 className="text-lg font-semibold">{t('error.noConnection')}</h2>
+            <h2 className="text-lg font-semibold">
+              {desktopMode ? t('error.noConnectionDesktop') : t('error.noConnection')}
+            </h2>
             <p className="text-sm text-muted-foreground">
               {desktopMode ? t('error.noConnectionDescDesktop') : t('error.noConnectionDesc')}
             </p>

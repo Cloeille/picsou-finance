@@ -65,6 +65,8 @@ describe('ConnectionGuard', () => {
 
     expect(await screen.findByText('error.noConnectionDescDesktop')).toBeInTheDocument()
     expect(screen.queryByText('error.noConnectionDesc')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'error.noConnectionDesktop' })).toBeInTheDocument()
+    expect(screen.queryByText('error.noConnection')).not.toBeInTheDocument()
   })
 
   it('uses server wording outside the Tauri shell when desktopMode is false', async () => {
@@ -90,6 +92,8 @@ describe('ConnectionGuard', () => {
 
     expect(await screen.findByText('error.noConnectionDesc')).toBeInTheDocument()
     expect(screen.queryByText('error.noConnectionDescDesktop')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'error.noConnection' })).toBeInTheDocument()
+    expect(screen.queryByText('error.noConnectionDesktop')).not.toBeInTheDocument()
   })
 
   it('renders children once the health probe succeeds', async () => {

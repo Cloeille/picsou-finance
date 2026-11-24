@@ -2898,6 +2898,7 @@
     "connecting": "Connecting to server...",
     "connectingDesktop": "Starting Picsou...",
     "noConnection": "Cannot connect to server",
+    "noConnectionDesktop": "Picsou is not responding",
     "noConnectionDesc": "Make sure the server is running and try again.",
     "noConnectionDescDesktop": "Picsou's local engine is not responding yet. Try again in a moment or restart the app.",
     "degradedMode": "No connection to server. Some features may not work.",
