@@ -818,15 +818,13 @@ async fn start_webview_racing_a_disconnect_cancels_the_opened_bank_window() {
         .await;
     let (client, _) = admin(&app).await;
 
-    let (started, disconnected) = tokio::join!(
-        client.post("/api/revolut/webview/start").send(),
-        async {
+    let (started, disconnected) =
+        tokio::join!(client.post("/api/revolut/webview/start").send(), async {
             tokio::time::timeout(std::time::Duration::from_secs(5), in_flight.notified())
                 .await
                 .expect("start_webview reached bridge");
             client.delete("/api/revolut/session").send().await
-        }
-    );
+        });
 
     assert_eq!(disconnected.status, 204, "{}", disconnected.text());
     assert_eq!(started.status, 422, "{}", started.text());
