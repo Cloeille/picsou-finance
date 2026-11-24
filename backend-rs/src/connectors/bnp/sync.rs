@@ -547,6 +547,13 @@ pub async fn complete_auth(
         )
         .into());
     }
+    if current.stage == Stage::Webview {
+        return Err(error(
+            SidecarErrorCode::AuthAttemptExpired,
+            "BNP Paribas sign-in attempt expired",
+        )
+        .into());
+    }
     let code_required = current.stage == Stage::Code;
     if code_required != code.is_some() {
         return Err(if code_required {

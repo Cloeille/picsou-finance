@@ -647,3 +647,60 @@ async fn webview_endpoints_are_desktop_only_and_drive_full_sync_on_desktop() {
         "AUTH_ATTEMPT_EXPIRED"
     );
 }
+
+#[tokio::test]
+async fn complete_auth_rejects_a_webview_attempt_without_deleting_it() {
+    let sidecar = MockServer::start().await;
+    answer(
+        &sidecar,
+        "/webview/start",
+        json!({ "processId": "wv-live", "status": "WAITING_LOGIN" }),
+    )
+    .await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/webview/status/wv-live"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(json!({ "status": "WAITING_LOGIN" })),
+        )
+        .mount(&sidecar)
+        .await;
+    let app = picsou::testing::TestApp::builder()
+        .with_admin()
+        .env(URL, sidecar.uri())
+        .env("PICSOU_DESKTOP", "true")
+        .spawn()
+        .await;
+    let (client, _) = admin(&app).await;
+
+    let started = client
+        .post("/api/bnp/webview/start")
+        .json(&json!({ "brand": "bnp" }))
+        .send()
+        .await;
+    assert_eq!(started.status, 200, "{}", started.text());
+
+    let rejected = client
+        .post("/api/bnp/auth/complete")
+        .json(&json!({ "processId": "wv-live" }))
+        .send()
+        .await;
+    assert_eq!(rejected.status, 422, "{}", rejected.text());
+    assert_eq!(rejected.json()["code"], "AUTH_ATTEMPT_EXPIRED");
+
+    let calls: Vec<String> = sidecar
+        .received_requests()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|r| r.url.path().to_owned())
+        .collect();
+    assert!(
+        !calls.iter().any(|p| p == "/complete"),
+        "complete_auth must not call /complete for a WebView processId, saw {calls:?}"
+    );
+
+    let polled = client.get("/api/bnp/webview/status/wv-live").send().await;
+    assert_eq!(polled.status, 200, "{}", polled.text());
+    assert_eq!(polled.json()["status"], "WAITING_LOGIN");
+}
