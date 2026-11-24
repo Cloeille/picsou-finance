@@ -30,7 +30,6 @@ bytes = "1.12.2"
 chrono = { version = "0.4.45", features = ["serde"] }
 chrono-tz = "0.10.4"
 crc32fast = "1.5.5"
-csv = "1.4.0"
 futures = "0.3.34"
 hex = "0.4.3"
 hmac = "0.13.0"
@@ -43,7 +42,6 @@ jsonwebtoken = { version = "12.0.0", features = ["rust_crypto"] }
 libc = "0.2.191"
 md-5 = "0.11.0"
 mime_guess = "2.0.5"
-openidconnect = "4.1.0"
 percent-encoding = "2.3.2"
 qrcode = "0.15.0"
 quick-xml = { version = "0.42.0", features = ["serialize"] }
