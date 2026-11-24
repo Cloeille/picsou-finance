@@ -217,6 +217,154 @@ async fn changing_the_password_revokes_every_other_token() {
     app.login(ADMIN_USERNAME, "a-new-password").await;
 }
 
+async fn install_abort_trigger(db: &picsou::db::Db, event: &str, table: &str, name: &str) {
+    match db {
+        picsou::db::Db::Postgres(pool) => {
+            let fn_name = format!("{name}_fn");
+            sqlx::raw_sql(&format!(
+                "CREATE OR REPLACE FUNCTION {fn_name}() RETURNS trigger AS $$ \
+                 BEGIN RAISE EXCEPTION 'injected failure'; END; \
+                 $$ LANGUAGE plpgsql; \
+                 CREATE TRIGGER {name} BEFORE {event} ON {table} \
+                 FOR EACH ROW EXECUTE FUNCTION {fn_name}();"
+            ))
+            .execute(pool)
+            .await
+            .expect("install pg trigger");
+        }
+        picsou::db::Db::Sqlite(sq) => {
+            let sql = format!(
+                "CREATE TRIGGER {name} BEFORE {event} ON {table} \
+                 BEGIN SELECT RAISE(ABORT, 'injected failure'); END;"
+            );
+            sq.with_conn(move |conn| {
+                conn.execute_batch(&sql)?;
+                Ok(())
+            })
+            .expect("install sqlite trigger");
+        }
+    }
+}
+
+async fn drop_trigger(db: &picsou::db::Db, table: &str, name: &str) {
+    match db {
+        picsou::db::Db::Postgres(pool) => {
+            let fn_name = format!("{name}_fn");
+            sqlx::raw_sql(&format!(
+                "DROP TRIGGER IF EXISTS {name} ON {table}; \
+                 DROP FUNCTION IF EXISTS {fn_name}();"
+            ))
+            .execute(pool)
+            .await
+            .expect("drop pg trigger");
+        }
+        picsou::db::Db::Sqlite(sq) => {
+            let sql = format!("DROP TRIGGER IF EXISTS {name};");
+            sq.with_conn(move |conn| {
+                conn.execute_batch(&sql)?;
+                Ok(())
+            })
+            .expect("drop sqlite trigger");
+        }
+    }
+}
+
+#[tokio::test]
+async fn change_password_rolls_back_when_revoking_sessions_fails() {
+    let app = TestApp::with_admin().await;
+    let remembered = app.client();
+    assert_eq!(
+        remembered
+            .post("/api/auth/login")
+            .json(&login_body(ADMIN_USERNAME, ADMIN_PASSWORD, true))
+            .send()
+            .await
+            .status,
+        StatusCode::OK
+    );
+    let persistent_cookie = remembered.cookie("persistent_token").unwrap();
+    let here = app.login_admin().await;
+
+    install_abort_trigger(
+        &app.state.db,
+        "UPDATE",
+        "persistent_session",
+        "abort_ps_revoke_on_pw_change",
+    )
+    .await;
+
+    let failed = here
+        .post("/api/auth/change-password")
+        .json(&json!({"currentPassword": ADMIN_PASSWORD, "newPassword": "a-new-password"}))
+        .send()
+        .await;
+    assert_eq!(failed.status, StatusCode::INTERNAL_SERVER_ERROR);
+
+    drop_trigger(
+        &app.state.db,
+        "persistent_session",
+        "abort_ps_revoke_on_pw_change",
+    )
+    .await;
+
+    // Because revoking persistent sessions failed, the password update must have rolled back.
+    let new_login = app
+        .client()
+        .post("/api/auth/login")
+        .json(&login_body(ADMIN_USERNAME, "a-new-password", false))
+        .send()
+        .await;
+    assert_eq!(
+        new_login.status,
+        StatusCode::UNAUTHORIZED,
+        "new password must not be committed when session revocation fails"
+    );
+
+    // Once the fault is gone, retrying succeeds and revokes the remembered device.
+    let retried = here
+        .post("/api/auth/change-password")
+        .json(&json!({"currentPassword": ADMIN_PASSWORD, "newPassword": "a-new-password"}))
+        .send()
+        .await;
+    assert_eq!(retried.status, StatusCode::OK);
+
+    let other_device = app.client();
+    other_device.set_cookie("persistent_token", &persistent_cookie);
+    assert_eq!(
+        other_device.get("/api/auth/sessions").send().await.status,
+        StatusCode::UNAUTHORIZED,
+        "remembered device must be signed out after password change succeeds"
+    );
+}
+
+#[tokio::test]
+async fn concurrent_password_changes_leave_only_one_session_valid() {
+    let app = TestApp::with_admin().await;
+    let first = app.login_admin().await;
+    let second = app.login_admin().await;
+
+    let (r1, r2) = tokio::join!(
+        first
+            .post("/api/auth/change-password")
+            .json(&json!({"currentPassword": ADMIN_PASSWORD, "newPassword": "first-new-password"}))
+            .send(),
+        second
+            .post("/api/auth/change-password")
+            .json(&json!({"currentPassword": ADMIN_PASSWORD, "newPassword": "second-new-password"}))
+            .send(),
+    );
+    assert_eq!(r1.status, StatusCode::OK);
+    assert_eq!(r2.status, StatusCode::OK);
+
+    let s1 = first.get("/api/auth/sessions").send().await.status;
+    let s2 = second.get("/api/auth/sessions").send().await.status;
+    let valid_count = usize::from(s1 == StatusCode::OK) + usize::from(s2 == StatusCode::OK);
+    assert_eq!(
+        valid_count, 1,
+        "only the winning concurrent password change may keep a valid session (s1={s1}, s2={s2})"
+    );
+}
+
 #[tokio::test]
 async fn remember_me_restores_and_detects_replay() {
     let app = TestApp::with_admin().await;

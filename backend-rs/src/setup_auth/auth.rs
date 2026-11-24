@@ -636,14 +636,23 @@ pub async fn change_password(
         return Err(AppError::BadCredentials);
     }
     let hash = password::hash(&req.new_password.unwrap_or_default()).await?;
-    user.token_version += 1;
-    crate::db::query("UPDATE app_user SET password_hash = $1, token_version = $2, updated_at = now() WHERE id = $3")
-        .bind(&hash)
-        .bind(user.token_version)
-        .bind(user.id)
-        .execute(&state.db)
-        .await?;
-    persistent::revoke_all_for_user(&state, user.id).await?;
+    let mut tx = state.db.begin().await?;
+    user.token_version = crate::db::query_scalar(
+        "UPDATE app_user SET password_hash = $1, token_version = token_version + 1, updated_at = now() \
+         WHERE id = $2 RETURNING token_version",
+    )
+    .bind(&hash)
+    .bind(user.id)
+    .fetch_one(&mut tx)
+    .await?;
+    crate::db::query(
+        "UPDATE persistent_session SET revoked_at = $1 WHERE user_id = $2 AND revoked_at IS NULL",
+    )
+    .bind(state.clock.now())
+    .bind(user.id)
+    .execute(&mut tx)
+    .await?;
+    tx.commit().await?;
     let mut jar = cookie_jar(&state).await;
     jar.access_and_refresh(
         &state.jwt,
