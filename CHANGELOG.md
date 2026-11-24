@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Direct desktop downloads.** Each release now also publishes the desktop installers under
+  version-less names (`Picsou-macOS-arm64.dmg`, `Picsou-Windows-x64.exe`,
+  `Picsou-Linux-x64.AppImage`). The README opens with a desktop app section and one download
+  button per platform that always serves the latest version.
+
 ## [1.3.0] — 2026-11-24
 
 ### Added

@@ -23,14 +23,14 @@ Picsou is a free, open-source, self-hosted project and does not yet pay for an A
 
 ### Windows (64-bit)
 
-1. Double-click the downloaded installer (`Picsou_<version>_x64-setup.exe`).
+1. Double-click the downloaded installer (`Picsou-Windows-x64.exe` from the README button, or `Picsou_<version>_x64-setup.exe` from the Releases page).
 2. When Microsoft Defender SmartScreen displays **"Windows protected your PC"** (*Windows a protégé votre ordinateur*), click **More info** (*Informations complémentaires*).
 3. Click **Run anyway** (*Exécuter quand même*).
 4. Picsou installs into your user folder (`%LOCALAPPDATA%\Picsou`) without asking for administrator rights.
 
 ### Linux
 
-- **AppImage**: make the file executable (`chmod +x Picsou_*.AppImage`) and run it.
+- **AppImage**: make the file executable (`chmod +x Picsou*.AppImage`) and run it.
 - **Debian / Ubuntu (`.deb`)**: install with `sudo apt install ./Picsou_*.deb`.
 
 ## Context
