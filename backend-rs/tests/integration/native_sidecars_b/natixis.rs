@@ -2112,3 +2112,20 @@ fn natixis_savings_parser_reports_format_changed_instead_of_panicking_on_decimal
     // money_close with opposite extremes must return false without panicking.
     assert!(!money_close(Decimal::MAX, -Decimal::MAX));
 }
+
+#[tokio::test]
+async fn dropped_initiate_releases_reserved_pending_slot() {
+    let h = Harness::start_with(|c| c.with_max_pending(1)).await;
+    h.state.lock().unwrap().password_delay = Duration::from_secs(5);
+
+    // Drop the /initiate future mid-flight after it reserved the sole pending slot.
+    let timed = tokio::time::timeout(Duration::from_millis(100), h.initiate()).await;
+    assert!(timed.is_err(), "first initiate should have been cancelled");
+
+    h.state.lock().unwrap().password_delay = Duration::ZERO;
+    let res = h.initiate().await;
+    assert!(
+        res.is_ok(),
+        "second initiate must succeed once the dropped request freed its slot, got: {res:?}"
+    );
+}

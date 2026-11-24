@@ -331,6 +331,19 @@ struct Inner {
     pending: PendingStore,
 }
 
+struct PendingSlotGuard<'a> {
+    store: &'a PendingStore,
+    process_id: Option<String>,
+}
+
+impl Drop for PendingSlotGuard<'_> {
+    fn drop(&mut self) {
+        if let Some(id) = self.process_id.take() {
+            self.store.close(&id);
+        }
+    }
+}
+
 /// In-process native Rust implementation of `services/natixis-auth`.
 #[derive(Debug, Clone)]
 pub struct NativeNatixis {
@@ -517,6 +530,11 @@ impl NativeNatixis {
         let entry = PendingEntry::initiating(client.clone(), self.inner.config.clock.now());
         // Reserve the slot before Natixis is asked to send a code.
         self.inner.pending.put_or_raise(process_id.clone(), entry)?;
+        // Release the reserved slot if this future is cancelled or returns an error.
+        let mut slot_guard = PendingSlotGuard {
+            store: &self.inner.pending,
+            process_id: Some(process_id.clone()),
+        };
 
         let result = Self::run_with_deadline("login", self.inner.config.route_deadline, async {
             let mut state = self.open_login(&client).await?;
@@ -530,6 +548,7 @@ impl NativeNatixis {
         match result {
             Ok((state, mode)) => {
                 self.inner.pending.mark_ready(&process_id, state);
+                slot_guard.process_id = None;
                 let payload = InitiateResponse {
                     process_id,
                     mfa_required: true,
@@ -539,10 +558,7 @@ impl NativeNatixis {
                     serde_json::to_value(payload).expect("InitiateResponse serializes"),
                 ))
             }
-            Err(err) => {
-                self.inner.pending.close(&process_id);
-                Err(err)
-            }
+            Err(err) => Err(err),
         }
     }
 
