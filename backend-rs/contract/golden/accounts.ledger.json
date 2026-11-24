@@ -1,0 +1,524 @@
+{
+  "description": "Manual transactions and statements on a ledger account, and their effect on balance and history",
+  "scenario": "accounts.ledger",
+  "steps": [
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 1000,
+        "currentBalanceEur": 1000,
+        "hidden": false,
+        "id": "<id:1>",
+        "isManual": true,
+        "listCollapsed": false,
+        "name": "Courant",
+        "type": "CHECKING"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "04 POST /api/accounts as admin"
+    },
+    {
+      "body": {
+        "accountId": "<id:1>",
+        "accountName": "Courant",
+        "amount": 2500,
+        "budgetNeutral": false,
+        "createdAt": "<instant>",
+        "date": "<today-2>",
+        "description": "Salaire",
+        "id": "<id:1>",
+        "isManual": true,
+        "merchantLabel": "Salaire",
+        "nativeCurrency": "EUR",
+        "txType": "DEPOSIT"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "05 POST /api/accounts/{checking}/transactions as admin"
+    },
+    {
+      "body": {
+        "accountId": "<id:1>",
+        "accountName": "Courant",
+        "amount": -900.5,
+        "budgetNeutral": false,
+        "createdAt": "<instant>",
+        "date": "<today-1>",
+        "description": "Loyer",
+        "id": "<id:2>",
+        "isManual": true,
+        "merchantLabel": "Loyer",
+        "nativeCurrency": "EUR",
+        "txType": "WITHDRAWAL"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "06 POST /api/accounts/{checking}/transactions as admin"
+    },
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 1599.50000000,
+        "currentBalanceEur": 1599.50000000,
+        "hidden": false,
+        "id": "<id:1>",
+        "isManual": true,
+        "isOwner": true,
+        "listCollapsed": false,
+        "name": "Courant",
+        "type": "CHECKING"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "07 GET /api/accounts/{checking} as admin"
+    },
+    {
+      "body": [
+        {
+          "accountId": "<id:1>",
+          "accountName": "Courant",
+          "amount": -900.50000000,
+          "budgetNeutral": false,
+          "createdAt": "<instant>",
+          "date": "<today-1>",
+          "description": "Loyer",
+          "id": "<id:2>",
+          "isManual": true,
+          "merchantLabel": "Loyer",
+          "nativeCurrency": "EUR",
+          "txType": "WITHDRAWAL"
+        },
+        {
+          "accountId": "<id:1>",
+          "accountName": "Courant",
+          "amount": 2500.00000000,
+          "budgetNeutral": false,
+          "createdAt": "<instant>",
+          "date": "<today-2>",
+          "description": "Salaire",
+          "id": "<id:1>",
+          "isManual": true,
+          "merchantLabel": "Salaire",
+          "nativeCurrency": "EUR",
+          "txType": "DEPOSIT"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "08 GET /api/accounts/{checking}/transactions as admin"
+    },
+    {
+      "body": {
+        "accountId": "<id:1>",
+        "accountName": "Courant",
+        "amount": -950,
+        "budgetNeutral": false,
+        "createdAt": "<instant>",
+        "date": "<today-1>",
+        "description": "Loyer novembre",
+        "id": "<id:2>",
+        "isManual": true,
+        "merchantLabel": "Loyer",
+        "nativeCurrency": "EUR",
+        "txType": "WITHDRAWAL"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "09 PUT /api/accounts/{checking}/transactions/{rent} as admin"
+    },
+    {
+      "body": {
+        "balance": 3000,
+        "createdAt": "<instant>",
+        "date": "<today-3>",
+        "id": "<id:3>",
+        "investedAmount": 1550.00000000,
+        "nativeBalance": 3000,
+        "source": "MANUAL",
+        "statementEnteredAt": "<instant>"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "10 POST /api/accounts/{checking}/history as admin"
+    },
+    {
+      "body": [
+        {
+          "balance": 3000.00000000,
+          "createdAt": "<instant>",
+          "date": "<today-3>",
+          "id": "<id:3>",
+          "investedAmount": 1550.00000000,
+          "nativeBalance": 3000.00000000,
+          "source": "MANUAL",
+          "statementEnteredAt": "<instant>"
+        },
+        {
+          "balance": 5500.00000000,
+          "createdAt": "<instant>",
+          "date": "<today-2>",
+          "id": "<id:4>",
+          "investedAmount": 5500.00000000,
+          "source": "DERIVED"
+        },
+        {
+          "balance": 4550.00000000,
+          "createdAt": "<instant>",
+          "date": "<today-1>",
+          "id": "<id:5>",
+          "investedAmount": 4550.00000000,
+          "source": "DERIVED"
+        },
+        {
+          "balance": 4550.00000000,
+          "createdAt": "<instant>",
+          "date": "<today>",
+          "id": "<id:6>",
+          "investedAmount": 4550.00000000,
+          "source": "DERIVED"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "11 GET /api/accounts/{checking}/history as admin"
+    },
+    {
+      "body": null,
+      "bodyKind": "empty",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 204,
+      "step": "12 DELETE /api/accounts/{checking}/transactions/{salary} as admin"
+    },
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 2050.00000000,
+        "currentBalanceEur": 2050.00000000,
+        "hidden": false,
+        "id": "<id:1>",
+        "isManual": true,
+        "isOwner": true,
+        "lastSyncedAt": "<instant>",
+        "listCollapsed": false,
+        "name": "Courant",
+        "type": "CHECKING"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "13 GET /api/accounts/{checking} as admin"
+    },
+    {
+      "body": [
+        {
+          "accounts": {
+            "<id:1>": {
+              "invested": 1550.00000000,
+              "pnl": 1450.00000000,
+              "total": 3000.00000000
+            }
+          },
+          "date": "<today-3>",
+          "invested": 1550.00000000,
+          "pnl": 1450.00000000,
+          "total": 3000.00000000
+        },
+        {
+          "accounts": {
+            "<id:1>": {
+              "invested": 2050.00000000,
+              "pnl": 0E-8,
+              "total": 2050.00000000
+            }
+          },
+          "date": "<today-1>",
+          "invested": 2050.00000000,
+          "pnl": 0E-8,
+          "total": 2050.00000000
+        },
+        {
+          "accounts": {
+            "<id:1>": {
+              "invested": 2050.00000000,
+              "pnl": 0E-8,
+              "total": 2050.00000000
+            }
+          },
+          "date": "<today>",
+          "invested": 2050.00000000,
+          "pnl": 0E-8,
+          "total": 2050.00000000
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "14 GET /api/history?accountIds={checking}&months=1&split=true as admin"
+    },
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 1234.56,
+        "currentBalanceEur": 1234.56,
+        "hidden": false,
+        "id": "<id:1>",
+        "isManual": true,
+        "lastSyncedAt": "<instant>",
+        "listCollapsed": false,
+        "name": "Courant",
+        "type": "CHECKING"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "15 PUT /api/accounts/{checking} as admin"
+    },
+    {
+      "body": [
+        {
+          "balance": 3000.00000000,
+          "createdAt": "<instant>",
+          "date": "<today-3>",
+          "id": "<id:3>",
+          "investedAmount": 1550.00000000,
+          "nativeBalance": 3000.00000000,
+          "source": "MANUAL",
+          "statementEnteredAt": "<instant>"
+        },
+        {
+          "balance": 2050.00000000,
+          "createdAt": "<instant>",
+          "date": "<today-1>",
+          "id": "<id:7>",
+          "investedAmount": 2050.00000000,
+          "source": "DERIVED"
+        },
+        {
+          "balance": 1234.56000000,
+          "createdAt": "<instant>",
+          "date": "<today>",
+          "id": "<id:8>",
+          "investedAmount": 1234.56000000,
+          "nativeBalance": 1234.56000000,
+          "source": "MANUAL",
+          "statementEnteredAt": "<instant>"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "16 GET /api/accounts/{checking}/history as admin"
+    },
+    {
+      "body": {
+        "errors": {
+          "amount": "must not be null",
+          "date": "must not be null",
+          "description": "must not be blank"
+        },
+        "instance": "/api/accounts/<id:1>/transactions",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "17 POST /api/accounts/{checking}/transactions as admin"
+    },
+    {
+      "body": {
+        "detail": "Transaction not found",
+        "instance": "/api/accounts/<id:1>/transactions/999999",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "18 DELETE /api/accounts/{checking}/transactions/999999 as admin"
+    }
+  ]
+}

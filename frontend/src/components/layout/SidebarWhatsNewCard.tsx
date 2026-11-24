@@ -28,7 +28,7 @@ export function SidebarWhatsNewCard() {
       <button
         type="button"
         onClick={handleOpen}
-        className="group flex w-full cursor-pointer flex-col gap-2 rounded-xl border border-border/60 bg-muted/50 px-3 py-3 text-left transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="group flex w-full cursor-pointer flex-col gap-2.5 rounded-xl border border-border/60 bg-muted/50 px-3 py-3 text-left transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <div className="flex w-full items-center justify-between gap-2">
           <span className="inline-flex items-center gap-1.5">
@@ -47,7 +47,7 @@ export function SidebarWhatsNewCard() {
             aria-hidden="true"
           />
         </div>
-        <div className="space-y-0.5">
+        <div className="space-y-1">
           <p className="text-sm font-semibold leading-snug text-foreground">
             {t('whatsNew.cardTitle', { version: latest.version })}
           </p>

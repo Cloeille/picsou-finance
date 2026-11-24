@@ -36,8 +36,8 @@ data. Nothing is persisted — the transaction stream is the source of truth (sa
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/service/RealizedPnlService.java` — the moving-average pass.
-- `backend/src/main/java/com/picsou/dto/RealizedPnlResponse.java` — `currency`, `realizedTotal`,
+- `backend-rs/src/accounts/realized_pnl.rs` — the moving-average pass.
+- `backend-rs/src/accounts/realized_pnl.rs` — `currency`, `realizedTotal`,
   `byTicker[]`, `lots[]`.
 - `AccountController#getRealizedPnl` — `GET /api/accounts/{id}/realized-pnl` (member-scoped, read-only).
 - `frontend/src/components/shared/RealizedPnlSection.tsx` — closed-lot table + green/red total.

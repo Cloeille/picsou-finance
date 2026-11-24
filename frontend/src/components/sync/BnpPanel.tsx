@@ -55,6 +55,9 @@ type AuthState =
   | "AWAITING_APP"
   | "AWAITING_CODE"
   | "SENDING_CODE"
+  | "WEBVIEW_STARTING"
+  | "WEBVIEW_WAITING"
+  | "WEBVIEW_FETCHING"
   | "ERROR"
 
 /** The bank's password is exactly 6 digits; the sidecar and backend require exactly 6. */
@@ -73,6 +76,7 @@ const LOST_COMPLETION_WAIT_MS = 210_000
 const LOST_COMPLETION_POLL_MS = 3_000
 /** Each poll tick is its own bounded status read; reads may overlap, the first live answer wins. */
 const LOST_COMPLETION_READ_TIMEOUT_MS = 10_000
+const WEBVIEW_POLL_MS = 1_500
 
 /** No answer from the backend (iOS drops requests while Safari is in the background). */
 function isLostRequest(value: unknown) {
@@ -164,6 +168,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
   // The attempt waiting for the SMS code, and the code being typed (never kept past sending).
   const [codeProcessId, setCodeProcessId] = useState<string | null>(null)
   const [code, setCode] = useState("")
+  const [webviewProcessId, setWebviewProcessId] = useState<string | null>(null)
   const [lostCompletionAt, setLostCompletionAt] = useState<number | null>(null)
   const submitting = useRef(false)
   const notifyConnectedOnSuccess = useRef(false)
@@ -294,9 +299,67 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
   }, [lostCompletionAt, startFirstSync, t])
 
   const connected = status.data?.isActive === true
+  const webviewSupported = status.data?.webviewLoginSupported === true
   const syncStatus = status.data?.syncStatus ?? "IDLE"
   const isSyncing = syncStatus === "QUEUED" || syncStatus === "RUNNING"
   const requestingSync = sync.isPending || isSyncing
+
+  useEffect(() => {
+    if (!webviewProcessId) return
+    if (authState !== "WEBVIEW_WAITING" && authState !== "WEBVIEW_FETCHING") return
+    let cancelled = false
+    let inFlight = false
+    const timer = setInterval(() => {
+      if (inFlight) return
+      inFlight = true
+      void bnpApi
+        .getWebviewStatus(webviewProcessId)
+        .then((res) => {
+          if (cancelled) return
+          if (res.status === "WAITING_LOGIN") {
+            setAuthState("WEBVIEW_WAITING")
+          } else if (res.status === "FETCHING") {
+            setAuthState("WEBVIEW_FETCHING")
+          } else if (res.status === "SYNCING" || res.status === "DONE") {
+            cancelled = true
+            clearInterval(timer)
+            setWebviewProcessId(null)
+            setError(null)
+            setAuthState("IDLE")
+            firstSyncStarted.current = true
+            notifyConnectedOnSuccess.current = true
+            void refetchStatus()
+          } else if (res.status === "CANCELLED") {
+            cancelled = true
+            clearInterval(timer)
+            setWebviewProcessId(null)
+            setError(null)
+            setAuthState("IDLE")
+          } else if (res.status === "FAILED") {
+            cancelled = true
+            clearInterval(timer)
+            setWebviewProcessId(null)
+            setError(messageForCode(res.errorCode) ?? t("sync.bnp.errors.serverError"))
+            setAuthState("ERROR")
+          }
+        })
+        .catch((value) => {
+          if (cancelled) return
+          cancelled = true
+          clearInterval(timer)
+          setWebviewProcessId(null)
+          setError(formatError(value))
+          setAuthState("ERROR")
+        })
+        .finally(() => {
+          inFlight = false
+        })
+    }, WEBVIEW_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [authState, formatError, messageForCode, refetchStatus, t, webviewProcessId])
 
   // A login that finished while the panel was unmounted still needs its first sync queued:
   // the stored session holds no accounts until then. Decided only from a settled, fresh
@@ -512,12 +575,59 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
     )
   }
 
+  const startWebviewLogin = async () => {
+    if (submitting.current) return
+    submitting.current = true
+    firstSyncStarted.current = false
+    notifyConnectedOnSuccess.current = false
+    setError(null)
+    setAuthState("WEBVIEW_STARTING")
+    try {
+      const result = await bnpApi.startWebview(brand)
+      if (!result.processId) {
+        setError(t("sync.bnp.errors.serverError"))
+        setAuthState("ERROR")
+        return
+      }
+      setWebviewProcessId(result.processId)
+      setAuthState("WEBVIEW_WAITING")
+    } catch (value) {
+      setError(formatError(value))
+      setAuthState("ERROR")
+    } finally {
+      submitting.current = false
+    }
+  }
+
+  const cancelWebviewLogin = () => {
+    const pid = webviewProcessId
+    setWebviewProcessId(null)
+    setError(null)
+    setAuthState("IDLE")
+    if (pid) {
+      void bnpApi.cancelWebview(pid).catch(() => {
+        // Best effort: window may already be closed.
+      })
+    }
+  }
+
   if (status.isLoading) return <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
 
-  const waiting = authState === "AWAITING_APP" || authState === "AWAITING_CODE" || authState === "SENDING_CODE"
+  const webviewInProgress =
+    authState === "WEBVIEW_WAITING" || authState === "WEBVIEW_FETCHING"
+  const waiting =
+    authState === "AWAITING_APP" ||
+    authState === "AWAITING_CODE" ||
+    authState === "SENDING_CODE" ||
+    webviewInProgress
   const showForm = !connected && !waiting
   const pending =
-    authState === "SUBMITTING" || authState === "KEYPAD" || authState === "SENDING_KEYPAD"
+    authState === "SUBMITTING" ||
+    authState === "KEYPAD" ||
+    authState === "SENDING_KEYPAD" ||
+    authState === "WEBVIEW_STARTING"
+  const selectedBrandLabel = t(`sync.bnp.brands.${brand}`)
+  const sessionExpired = status.data?.lastSyncError === "SESSION_EXPIRED"
 
   return (
     <div className="space-y-6">
@@ -636,7 +746,64 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
         </>
       )}
 
-      {showForm && (
+      {showForm && webviewSupported && (
+        <Card size="sm">
+          <CardContent className="space-y-4">
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium">{t("sync.bnp.brand")}</legend>
+              <div className="flex flex-wrap gap-4">
+                {BRANDS.map((value) => (
+                  <label key={value} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="bnp-brand"
+                      value={value}
+                      checked={brand === value}
+                      onChange={() => setBrand(value)}
+                      className="size-4 accent-primary"
+                    />
+                    {t(`sync.bnp.brands.${value}`)}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <p className="text-sm text-muted-foreground">{t("sync.bnp.webview.hint")}</p>
+            <Button type="button" disabled={pending} onClick={() => void startWebviewLogin()}>
+              {pending ? <ArrowsClockwise className="animate-spin" /> : <Bank />}
+              {pending
+                ? t("sync.bnp.connecting")
+                : sessionExpired
+                  ? t("sync.bnp.webview.reconnect", { brand: selectedBrandLabel })
+                  : t("sync.bnp.webview.connect", { brand: selectedBrandLabel })}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {!connected && webviewInProgress && (
+        <Card size="sm">
+          <CardContent className="flex items-center gap-3">
+            <ArrowsClockwise className="size-5 shrink-0 animate-spin text-muted-foreground" />
+            <div className="flex-1 space-y-1">
+              <p className="text-sm">
+                {authState === "WEBVIEW_FETCHING"
+                  ? t("sync.bnp.webview.fetching")
+                  : t("sync.bnp.webview.waiting", { brand: selectedBrandLabel })}
+              </p>
+              {authState === "WEBVIEW_WAITING" && (
+                <p className="text-sm text-muted-foreground">{t("sync.bnp.webview.waitingHint")}</p>
+              )}
+            </div>
+            {authState === "WEBVIEW_WAITING" && (
+              <Button type="button" variant="outline" size="sm" onClick={cancelWebviewLogin}>
+                {t("common.cancel")}
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {showForm && !webviewSupported && (
         <form
           className="space-y-4"
           onSubmit={(event) => {

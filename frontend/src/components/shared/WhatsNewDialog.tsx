@@ -30,6 +30,7 @@ export function WhatsNewDialog({ open, onOpenChange }: WhatsNewDialogProps) {
   const locale = resolveWhatsNewLocale(i18n.resolvedLanguage ?? i18n.language)
   const isAdmin = useAuthStore((s) => s.user?.role === 'ADMIN')
   const demoMode = useAppStore((s) => s.demoMode)
+  const desktopMode = useAppStore((s) => s.desktopMode)
   const { data: instanceStatus } = useInstanceStatus(open && isAdmin && !demoMode)
   const [copied, setCopied] = useState(false)
 
@@ -68,24 +69,28 @@ export function WhatsNewDialog({ open, onOpenChange }: WhatsNewDialogProps) {
                   <ArrowSquareOut className="size-3" aria-hidden="true" />
                 </a>
               </div>
-              <p className="text-sm text-muted-foreground">{t('whatsNew.updateInstructions')}</p>
-              <div className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-background px-3 py-2">
-                <code className="min-w-0 truncate font-mono text-xs text-foreground">
-                  {PICSOU_UPDATE_COMMAND}
-                </code>
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label={copied ? t('whatsNew.copied') : t('whatsNew.copy')}
-                  title={copied ? t('whatsNew.copied') : t('whatsNew.copy')}
-                  onClick={() => void handleCopyUpdate()}
-                >
-                  {copied
-                    ? <Check className="size-3.5 text-emerald-600" aria-hidden="true" />
-                    : <Copy className="size-3.5" aria-hidden="true" />}
-                </Button>
-              </div>
+              {!desktopMode && (
+                <>
+                  <p className="text-sm text-muted-foreground">{t('whatsNew.updateInstructions')}</p>
+                  <div className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-background px-3 py-2">
+                    <code className="min-w-0 truncate font-mono text-xs text-foreground">
+                      {PICSOU_UPDATE_COMMAND}
+                    </code>
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={copied ? t('whatsNew.copied') : t('whatsNew.copy')}
+                      title={copied ? t('whatsNew.copied') : t('whatsNew.copy')}
+                      onClick={() => void handleCopyUpdate()}
+                    >
+                      {copied
+                        ? <Check className="size-3.5 text-emerald-600" aria-hidden="true" />
+                        : <Copy className="size-3.5" aria-hidden="true" />}
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           )}
 

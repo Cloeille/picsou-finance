@@ -29,7 +29,7 @@ The builder invoked the **stop protocol**: did NOT invent a proxy. Instead:
 The orchestrator then:
 
 1. **Validated:** Confirmed the diagnostic was sound.
-2. **Cleaned up:** Dropped `oauth2:token` from `Scopes.java` (removed dead constant, removed from `ALL` allowlist).
+2. **Cleaned up:** Dropped `oauth2:token` from `backend-rs/src/identity/scopes.rs` (removed dead constant, removed from `ALL` allowlist).
 3. **Ratified:** Created an ADR for the decision (scope was removed because no service exists to honour it; if the use case emerges later, it's a separate design).
 
 ## How to apply

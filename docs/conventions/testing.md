@@ -1,219 +1,83 @@
 # Convention: Testing
 
-## Structure
-
-There is **no** `unit/` or `integration/` directory split. All tests live flat under `src/test/java/com/picsou/`, mirroring the source package structure.
+## Backend: structure
 
 ```
-src/test/java/com/picsou/
-├── service/         # service unit tests (GoalService, AccountService, FamilyService,
-│   │                #   MfaService, SecurityInsightService, HoldingCompute, …)
-│   └── budget/      # budget tests (Categorization, MerchantNormalizer, MerchantKnowledgeBase,
-│                    #   CashflowFlow, RecurringDetection, MerchantLogo, + the Postgres IT)
-├── controller/      # controller tests (mostly pure Mockito; MockMvc where HTTP-level behavior matters)
-├── config/          # security / config tests, incl. the OAuth2/MCP authorization-server suite
-├── adapter/         # external-provider adapter tests
-├── repository/      # custom-query tests (@DataJpaTest + H2)
-├── migration/       # data-mutating Flyway migrations (Testcontainers + real Postgres)
-├── validation/      # custom constraint tests
-└── export/          # GDPR export tests
+backend-rs/
+├── src/**/*.rs            unit tests, in a `#[cfg(test)] mod tests` at the end of the file they test
+├── src/testing/           TestApp, the in-process harness the integration tests use
+├── tests/integration/     one test binary; one file or folder per module (accounts.rs, sync/, connectors/, …)
+└── contract/              the HTTP contract harness and its goldens (see its README)
 ```
 
-## Unit tests
+## Backend: unit tests
 
-**Stack:** Mockito + AssertJ — no Spring context loaded.
+For logic with no database and no HTTP: parsers, calculations, mappings, formatting.
 
-```java
-@ExtendWith(MockitoExtension.class)
-class GoalServiceTest {
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    @Mock GoalRepository goalRepository;
-    @Mock AccountRepository accountRepository;
-    @Mock BalanceSnapshotRepository snapshotRepository;
-    @Mock AccountService accountService;
-    @Mock GoalMonthOverrideRepository overrideRepository;
-
-    @InjectMocks GoalService goalService;
-
-    @Test
-    void progressCalculation_onTrack() {
-        // arrange
-        Account account = Account.builder()
-            .id(1L)
-            .name("LEP")
-            .type(AccountType.LEP)
-            .currency("EUR")
-            .currentBalance(new BigDecimal("5000"))
-            .color("#6366f1")
-            .build();
-
-        when(accountService.toResponse(account)).thenReturn(/* ... */);
-
-        // act
-        GoalProgressResponse progress = goalService.toProgressResponse(goal);
-
-        // assert
-        assertThat(progress.currentTotal()).isEqualByComparingTo("5000");
+    #[test]
+    fn versions_compare_numerically() {
+        assert!(Version::parse("10").unwrap() > Version::parse("9").unwrap());
     }
 }
 ```
 
-### Patterns
+- **A name is a sentence** that states the behaviour:
+  `a_stored_card_never_takes_a_positive_balance`, not `test_card_3`.
+- **One behaviour per test.** Several assertions on the same result are fine; several scenarios
+  are several tests, or one loop that names the failing case in the assertion message.
+- **A parser of outside content gets a robustness test**: the synthetic page, mangled
+  (truncated, a character removed, multi-byte and markup characters inserted), must never panic
+  and never hang (`assert_never_panics` in `tests/integration/native_sidecars_a.rs`).
 
-- **`@ExtendWith(MockitoExtension.class)`** with `@Mock` and `@InjectMocks` — no `MockitoAnnotations.openMocks()`.
-- **Lombok builders for test data** — `Account.builder()`, `Goal.builder()` etc. No test fixtures or mother objects, except `com.picsou.support.TestEntities` for the few member and user shapes that several classes built identically. A test that needs a different field builds its own entity.
-- **Canned HTTP answers via `WebClientStubs`** (`com.picsou.support`) — `returning(status, json)`, `neverResponding()`, `failing(error)`, `sequence(...)`, and `recording(...)` for the path and body of each request. Do not hand-roll an `ExchangeFunction` for those cases. A sidecar connector's error mapping (malformed error body, unknown or undeclared `detail` code, bare 401, 410, empty body, timeout) is tested once for all of them in `SidecarContractTest`: add a row there for a new connector, not a copy in its own test class.
-- **AssertJ** for all assertions (`assertThat`, `isEqualByComparingTo`). No JUnit `assertEquals`.
-- **No Spring context** in unit tests — pure Mockito mocking.
-- **Log capture on the root logger** — a `ListAppender` on the root logger also receives events from other threads, such as the schedulers of Spring contexts left by earlier test classes in the same JVM. Those threads can still append after `detachAppender`. Copy `appender.list` inside `synchronized (appender)` before you assert on it (see `CaisseEpargneAdapterAuthTest.snapshot`). Iterating the live list fails at random with `ConcurrentModificationException`. Prefer a ListAppender on the class's own logger when the test does not need every logger.
+## Backend: integration tests
 
-### Naming
+The default for anything a client can observe. `TestApp` starts the whole backend in-process on
+a fresh database, with a fixed clock and cookie-carrying clients:
 
-- **Class:** `[Class]Test` (e.g., `GoalServiceTest`).
-- **Method:** descriptive, underscore-separated, e.g., `progressCalculation_onTrack`. Not strictly `should_xxx_when_yyy`.
-- **One test per behavior** — a test may have multiple assertions on the same logical result, but does not test multiple scenarios.
-
-## Integration tests
-
-The Mockito unit test above is the overwhelming default — no Spring context, no database. When a
-repository query needs real JPA (non-trivial JPQL, entity mapping), reach for `@DataJpaTest` with
-**H2 in-memory** — see `TransactionRepositoryTest`. Reach further, for a Testcontainers-backed real
-Postgres, **only when the behavior under test is a property of the database itself** that even H2
-would paper over.
-
-`SyncServiceCurrencyMatchTest` uses H2 for account matching and snapshot persistence. Its test-only
-`AccountEnumH2Dialect` registers `SqlTypes.NAMED_ENUM` as `VarcharJdbcType` because `Account.type`
-explicitly requests PostgreSQL's named-enum JDBC type. A VARCHAR fixture column alone does not
-override that mapping. A dedicated regression persists and reloads `AccountType.CHECKING`.
-The other cases exercise Enable Banking and Revolut matching and EUR snapshots, plus Caisse
-d'Epargne loan linking to the EUR account after a shared-IBAN import. The test sets
-`spring.jpa.properties.hibernate.dialect` to override the application's PostgreSQL dialect.
-The override stays in that context and does not validate PostgreSQL enum semantics.
-
-For that case, stand up a **Testcontainers-backed `@SpringBootTest` against a real PostgreSQL 16**,
-as `BudgetSeedWriteOnReadPostgresTest` does:
-
-```java
-@SpringBootTest
-@Testcontainers(disabledWithoutDocker = true)   // self-skips when no Docker daemon is present
-class BudgetSeedWriteOnReadPostgresTest {
-
-    @Container
-    @ServiceConnection                            // auto-wires the datasource — no manual JDBC props
-    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
-    // ...
+```rust
+#[tokio::test]
+async fn a_member_only_sees_their_own_accounts() {
+    let app = TestApp::with_admin().await;
+    let admin = app.login_admin().await;
+    // … create data through the API, then assert on responses or on rows
+    let response = admin.get("/api/accounts").send().await;
+    assert_eq!(response.status, StatusCode::OK);
 }
 ```
 
-`PostgresContainers` (`com.picsou.support`) is the single place that knows the image, the Docker
-API pin, the Docker guard, the Flyway setup and the JDBC connection. Do not copy that plumbing
-into a test class; call the helper.
+- **Go through the API**, as a client does. Read a row directly only to prove what was stored.
+- **Time comes from `app.clock`** (`app.clock.advance(..)`). No test may depend on today's date.
+- **An outside service is a `wiremock` server**, passed through the environment:
+  `TestApp::builder().env("X_URL", server.uri())`. No test reaches the internet or a real bank.
+- **Fixtures are synthetic.** No real account data, session, token, screenshot or log.
+- **Both engines.** The suite runs on PostgreSQL 16 (`127.0.0.1:55432`, user `picsou`, trust
+  authentication: the harness migrates one template database per run and clones it per test),
+  then again on embedded SQLite with `PICSOU_TEST_DB=sqlite`. `make test-backend` and CI run
+  both.
 
-```bash
-make test-backend TEST=BudgetSeedWriteOnReadPostgresTest   # needs a running Docker daemon
-```
+### Tests that guard a rule
 
-Testcontainers is on the test classpath (`spring-boot-testcontainers` + `testcontainers:postgresql`
-/ `junit-jupiter`), versions managed by the Spring Boot parent BOM. H2 is also on the classpath via
-`spring-boot-starter-test`, used for `@DataJpaTest` repository-query tests (see
-`TransactionRepositoryTest`) — but H2 **silently tolerates** Postgres-illegal operations, most
-notably an `INSERT` inside a read-only transaction, which real Postgres rejects with SQLSTATE
-`25006`. That is exactly the class of bug an integration test exists to catch, so prefer a real
-Postgres container whenever DB fidelity — not just JPA mapping — is the point.
+Some tests exist to fail a build that breaks a project rule. Keep them, and add one when a
+rule can be checked:
 
-> **Docker API floor.** docker-java (bundled with Testcontainers) defaults to Docker Engine API
-> `1.32`, which Docker Engine 25+ rejects. Surefire pins a safe floor via the `api.version` system
-> property (`<docker.api.version>`, default `1.44`, override with `-Ddocker.api.version=…`) so the
-> container tests work under `make test-backend` on a modern daemon. With no Docker, the tests self-skip and
-> the rest of the suite runs untouched.
+| Test | Rule |
+|------|------|
+| `every_migration_has_a_unique_version` (`src/db/flyway.rs`) | two branches cannot both add the same migration version |
+| `a_changed_checksum_fails`, `the_expected_schema_is_the_one_the_migrations_build` (`tests/integration/foundation/migrations.rs`) | a shipped migration is never edited; `schema.tsv` matches the migrations |
+| `tests/integration/foundation/no_floats.rs` | no `f32` or `f64` for money |
+| the route tests (`tests/integration/foundation/routes.rs`) | every endpoint of `scripts/java_endpoints.tsv` is served |
 
-### Testcontainers — only for real-PostgreSQL behaviour
+### The HTTP contract harness
 
-H2 cannot run the Flyway chain: the migrations are PostgreSQL-flavoured
-(`CREATE TYPE ... AS ENUM`, `split_part()`, partial indexes). So a **data-mutating
-migration** — one that rewrites existing rows rather than only adding structure — is
-verified against real PostgreSQL via Testcontainers.
-
-Reach for it *only* for that. Everything else stays on Mockito, H2, or the
-`@SpringBootTest`+`@ServiceConnection` pattern above; a container costs seconds of wall clock per
-class.
-
-Pattern (see `WalletEvmMigrationTest`): no Spring context — drive Flyway and
-JDBC directly, migrating in two steps so the seeded data is what the migration under test
-actually operates on.
-
-```java
-@RequiresPostgres
-class V99SomeMigrationTest {
-    @Container
-    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
-
-    @BeforeAll
-    static void migrateAndSeed() throws SQLException {
-        PostgresContainers.migrateTo(POSTGRES, "98");   // the schema a deployed instance is already on
-        // ... seed rows via PostgresContainers.connection(POSTGRES), incl. negative controls ...
-        PostgresContainers.migrateTo(POSTGRES, "99");   // apply the migration under test, alone
-    }
-}
-```
-
-Assert both directions: the rows that must change, **and** the rows that must not.
-
-`@RequiresPostgres` and `PostgresContainers` carry three things every such class needs, all
-learned the hard way. Do not re-implement them per class:
-
-- **Gate on Docker.** `@RequiresPostgres` combines `@Testcontainers` with
-  `@EnabledIf("com.picsou.support.PostgresContainers#dockerAvailable")`, so a machine without a
-  Docker socket skips the class instead of failing the whole suite. It must be a JUnit
-  `ExecutionCondition` — a `@BeforeAll` assumption runs *after* the Testcontainers extension has
-  already tried to start the container.
-- **Pin `api.version=1.44`, in two places.** Otherwise docker-java negotiates down to API
-  1.32, which Engine ≥ 28 refuses — and that surfaces as the *same* "Could not find a valid
-  Docker environment" error a Docker-less machine gives, so the guard above would quietly
-  skip the test on a perfectly capable host. `pom.xml` sets it via surefire
-  `systemPropertyVariables` so it applies process-wide before *any* Testcontainers class
-  initializes; `PostgresContainers` also sets it in a static initializer so IDE and failsafe runs
-  (which never read surefire config) work too. A classpath `testcontainers.properties` is
-  **not** honored for this — tested. Sets the floor at Docker Engine ≥ 25.0.
-- **Make CI refuse to skip.** A skip is invisible in a green build, so `ci.yml` sets
-  `PICSOU_REQUIRE_DOCKER_TESTS=true` and `dockerAvailable()` throws instead of returning
-  false when it is set. Without this, any Docker drift on the runner silently converts the
-  PostgreSQL coverage of data-mutating migrations into a permanently green no-op.
-
-The three interlock: the guard alone turns a config problem into a silent pass, and the
-API pin alone makes Docker-less machines fail the whole suite.
-
-CI runs the backend suite in 3 shards of test classes (`.github/scripts/backend_shards.py`),
-balanced on the class times of the last main run. `ci-ok` then fails when a top-level test
-class ran in two shards or in none, and checks the PostgreSQL classes ran in full. Which
-classes share a JVM changes with the timings, so a test must not count what other code leaves
-in shared places such as the system temp directory: give such code a root a `@TempDir` can
-replace (`ActualBudgetFileParser` does).
-
-To reproduce a shard locally (the `--out` folder must be absolute: Maven runs in `backend/`):
-
-```bash
-python3 .github/scripts/backend_shards.py --shards 3 --shard 2 --out /tmp/s
-make test-backend SHARD_INCLUDES=/tmp/s/backend-shard-2.includes
-# The last shard runs everything the others do not:
-python3 .github/scripts/backend_shards.py --shards 3 --shard 3 --out /tmp/s
-make test-backend SHARD_EXCLUDES=/tmp/s/backend-shard-3.excludes
-```
-
-Without `--timings <file.json>` the split is by hash, so a shard's classes differ from CI's
-timed split; `--write-timings <reports-dir> <file.json>` builds that file from surefire reports.
-
-Keep **one fresh container per test class** (`@Container static final`, never shared across
-classes): migration tests migrate to specific versions and seed rows, so a shared database would
-leak state between them. Helpers: `migrateTo` / `migrateToOutOfOrder` (the latter mirrors
-`application.yml`), `connection`, and `registerValidatedDatasource` for a Flyway-migrated
-`@DataJpaTest` with `ddl-auto=validate`. A class that opts in on top of another condition (for
-example `HomeBankQifPrivateSmokeTest`) and must skip, never fail, without Docker uses
-`@EnabledIf("com.picsou.support.PostgresContainers#dockerDaemonReachable")` instead.
-
-Also order any test that mutates the shared seeded dataset **last**
-(`@TestMethodOrder` + `@Order`) — JUnit's default method order is deliberately
-unspecified, so otherwise the other tests may assert against post-mutation state.
+`backend-rs/contract/` replays scripted scenarios against the built binary and diffs every
+response with its golden: status, headers, cookies, normalized JSON. Run it after a change to a
+response shape (`bun run backend-rs/contract/run.ts check --all`). A golden only changes when
+the contract is meant to change.
 
 ## Frontend tests
 
@@ -268,33 +132,22 @@ match the legs.
 ## Running tests
 
 `make test-backend`, `make test-frontend`, `make test-e2e` and `make test-sidecar SIDECAR=<name>`,
-from the repository root. Options (one class, one method, the Sofidy contract) are in
+from the repository root. Options (a name filter, one sidecar) are in
 [`CONTRIBUTING.md`](../../CONTRIBUTING.md#commands).
 
-## Current coverage
+## What to test first
 
-The suite has **132 backend test classes** (service, controller, config, adapter, repository,
-migration, validation, export). Service-layer unit tests dominate — nearly 40% of the classes live
-under `service/` (14 of them under `service/budget/`). Eleven classes are Testcontainers-backed
-integration tests, which self-skip when no Docker daemon is present. When adding coverage,
-prioritize:
-
-1. **Service-layer unit tests** — mock dependencies, test business logic.
-2. **Repository custom queries** — `@DataJpaTest` for non-trivial JPQL.
-3. **Controller tests** — pure Mockito (`@Mock` + `@InjectMocks`), calling controller methods
-   directly and asserting on the returned DTO, for most controllers; reach for MockMvc only when
-   the behavior under test is HTTP-level (security headers, OAuth2/MCP routing and filters) rather
-   than business logic. Assert that the member id comes from `UserContext`, which is the scoping
-   contract at that layer.
-4. **DB-fidelity integration tests** — a Testcontainers `@SpringBootTest` *only* when the behavior
-   is a Postgres property a mock (or H2) can't reproduce (see above).
-5. **Data-mutating migrations** — Testcontainers, per the section above.
+1. **Behaviour a client can observe**: an integration test through the API, on both engines.
+2. **Member scoping**: a second member must not read or change the first member's data.
+3. **Pure logic with many cases** (a parser, a schedule, a rate): a unit test next to the code.
+4. **A migration that rewrites rows**: seed the rows it operates on, apply it, and assert both
+   the rows that must change and the rows that must not.
 
 ## Don'ts
 
-- **Never load Spring context in unit tests** — pure Mockito. A Spring context (`@SpringBootTest` on
-  Testcontainers) is reserved for the rare DB-fidelity integration test.
-- **Never use `MockitoAnnotations.openMocks()`** — use `@ExtendWith(MockitoExtension.class)`.
-- **Never use JUnit `assertEquals`** — always AssertJ (`assertThat`).
-- **Never use `@Autowired` in tests** unless it's a Testcontainers `@SpringBootTest` integration test.
-- **Never create test fixtures or "mother objects"** — use Lombok builders directly.
+- **Never depend on the current date or the system clock**: use the test clock.
+- **Never call a real bank, exchange or price provider** from a test.
+- **Never put real account data in a fixture**: synthetic only.
+- **Never weaken or delete a test to make a change pass.** A test that guards a rule fails for
+  a reason: fix the change, or change the rule in the open.
+- **Never assert on a log line or a private function when an observable result exists.**

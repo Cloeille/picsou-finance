@@ -1,6 +1,6 @@
 # Feature: Revolut Sidecar Connector
 
-> Last updated: 2026-10-31 (hCaptcha content-quad clipping; shared architecture-aware Camoufox base; legacy Enable Banking coexistence and IBAN log privacy)
+> Last updated: 2026-11-24 (Desktop WebView parser scales by ISO minor units; hCaptcha content-quad clipping; shared architecture-aware Camoufox base; legacy Enable Banking coexistence and IBAN log privacy)
 > Status: ⚠️ Code shipped + unit-tested; live end-to-end coverage still depends on a real Revolut
 > approval session.
 
@@ -204,22 +204,22 @@ and while polling for approval; shared app initialization does not replace it.
   CPU (`lin.x86_64` or `lin.arm64`), GeoIP and addons once in the base. The GeoIP
   download uses a direct release asset URL to avoid GitHub API rate limits.
   `services/base/test_pin_camoufox.py` covers both CPUs and direct downloads.
-- `backend/.../adapter/RevolutAdapter.java` — `SidecarWebClientFactory` client → sidecar `/sync` (480 s
+- `backend-rs/src/connectors/revolut/adapter.rs` — `SidecarWebClientFactory` client → sidecar `/sync` (480 s
   timeout) + a best-effort `/progress` poll side-channel relayed into `SyncProgressService`; maps
   `401`/`408`/`409`/`503`. A 401 carrying the `Picsou-Sidecar-Key` challenge is a key mismatch
   (`SIDECAR_UNAUTHORIZED`), never `SESSION_EXPIRED`.
-- `backend/.../service/sync/SyncProgressService.java` — per-member+provider live progress (single-flight
+- `backend-rs/src/connectors/revolut/progress.rs` — per-member+provider live progress (single-flight
   guard, phase/countdown/count, + Revolut's harvested-but-unpersisted discovery held in memory between
   discover and confirm). `dto/{SyncProgress,DiscoveredRevolutAccount}.java`, `service/sync/{SyncProvider,
-  RevolutSyncPhase}.java`, `config/SyncExecutorConfig.java` (`revolutSyncExecutor`).
-- `backend/.../service/RevolutSyncService.java` — `sync` (synchronous, scheduler), `discover` (background
+  RevolutSyncPhase}.java`, `backend-rs/src/connectors/sidecar/jobs.rs` (`revolutSyncExecutor`).
+- `backend-rs/src/connectors/revolut/sync.rs` — `sync` (synchronous, scheduler), `discover` (background
   harvest), `confirmSync(selected, remember, voluntary)` (additive upsert of the selection), IBAN-first upsert.
-- `backend/.../controller/RevolutController.java` — `/api/revolut/{sync→202,sync/progress,sync/confirm,status,session}`.
-- `backend/.../service/DashboardService.java` — excludes pocket children from net-worth AND from the
+- `backend-rs/src/connectors/revolut/mod.rs` — `/api/revolut/{sync→202,sync/progress,sync/confirm,status,session}`.
+- `backend-rs/src/accounts/dashboard.rs` — excludes pocket children from net-worth AND from the
   history account-id set (the latter fixes a double-count once real pocket balances flow).
-- `backend/.../service/FamilyViewService.java` (shared net worth) and `mcp/tools/InsightTools.java` (default
+- `FamilyViewService.java` (shared net worth) and `backend-rs/src/mcp/tools/insights.rs` (default
   account ids) — leave out a pocket whose parent wallet is in the same list; a pocket without it still counts.
-- `backend/.../model/RevolutSession.java`; `db/migration/V48__revolut_session.sql`, `V49__…credentials.sql`.
+- `RevolutSession.java`; `backend-rs/migrations/V48__revolut_session.sql`, `V49__…credentials.sql`.
 - `frontend/src/pages/sync/RevolutTab.tsx` — auto-sync tab (live phase → auto-confirm all, no selection).
 - `frontend/src/components/sync/RevolutSelectionCard.tsx` — Add-account selection (only not-imported;
   child-check implies parent-check). `features/sync/revolut-phase.ts` — shared phase and error labels.
@@ -282,7 +282,9 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   (tducret/revolut-python), not from a captured payload. A malformed `currency` fails closed
   with `502 INVALID_DATA` for the whole sync, like a malformed amount; an absent one means the
   pocket's (#251). Every fiat leg is read as cents, which is wrong for 0-decimal (JPY) and
-  3-decimal (KWD, BHD) currencies. It does not matter while only EUR legs are booked.
+  3-decimal (KWD, BHD) currencies. It does not matter while only EUR legs are booked. The
+  Desktop WebView parser (`desktop/src-tauri/src/webview_bank/revolut_parsers.rs`) scales each
+  fiat amount by its currency's ISO 4217 minor units instead (0, 2, 3 or 4 decimals).
 - **`/api/retail/wallets` is a dict keyed by account type** (`{PERSONAL:[...], PERSONAL_JOINT:[...],
   YOUTH:[], ...}`), NOT a list, and NOT under a `wallets` key. Each wallet has a `pockets` list.
 - **Money-box balance is nested**: `{"amount": <cents>, "currency": "EUR"}` (not a flat number).
@@ -372,13 +374,19 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   its blocking `webRequest` listener intermittently stalls http(s) requests, sometimes for the
   browser's remaining life, which made `Page.set_content` time out waiting for the iframe's load event.
   Human challenge completion and the proposed Camofox runtime evaluation remain follow-up work.
-- **Backend and UI carry the code, not the sentence.** `RevolutAdapter` maps `403`/`424` to
-  `SyncException` with the code as both message and `getCode()`; `RevolutSyncService.friendly()` turns
+- **Backend and UI carry the code, not the sentence.** `RevolutAdapter` maps `401`/`403`/`424` to
+  `SyncException` with the code as both message and `getCode()` (`SESSION_EXPIRED`,
+  `HUMAN_VERIFICATION_REQUIRED`, `UPSTREAM_FORMAT_CHANGED`); `RevolutSyncService.friendly()` turns
   them into English sentences, and `discover` passes the code to `SyncProgressService.error`, which
   exposes it as `SyncProgress.errorCode`. The three Revolut surfaces (Sync tab, Add-account wizard,
   Sync-all row) render `revolutErrorLabel` (`features/sync/revolut-phase.ts`), which translates the code
   (`sync.revolut.errors.*`) and falls back to the English sentence for any other failure. The
   unattended scheduler path keeps its generic `FAILED` result.
+- **On Picsou Desktop, `connected` means a session row exists.** `GET /api/revolut/status` counts
+  already imported wallets as connected in server mode only. On Desktop (`webviewLoginSupported`)
+  the WebView login is the only way in, so after **Forget** the tab must return to the connect
+  card even though the wallets stay; an expired WebView session after a restart reports
+  `SESSION_EXPIRED` and the tab asks to reconnect in the user's language.
 - **6-digit passcode auto-submits** — do not click "Continuer" after typing it (that hung `auto_login`).
 - **One Firefox per profile — serialize per member.** A persistent Camoufox profile can be opened by
   only ONE Firefox process at a time. Two `/sync` calls for the same member (double-click, or the
@@ -443,7 +451,7 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
 - `RevolutAdapterTest` (`403`/`424` mapping), `RevolutSyncServiceTest` (code + friendly message on
   `discover`/`sync`), `SyncProgressServiceTest` (`errorCode`), and `features/sync/revolut-phase.test.ts`
   plus `SyncAllModal.test.tsx` (translated captcha message, no countdown).
-- `backend/.../service/RevolutSyncServiceTest.java` — sync mapping (pockets/vaults), IBAN dedup vs
+- `RevolutSyncServiceTest.java` — sync mapping (pockets/vaults), IBAN dedup vs
   Enable Banking, transaction dedup, remembered-vs-not credentials, always-upsert session marker row.
 - `SyncServiceCurrencyMatchTest` persists synthetic Enable Banking accounts with a shared IBAN,
   then runs Revolut discovery and confirmation for EUR, GBP, and missing-currency wallets. It

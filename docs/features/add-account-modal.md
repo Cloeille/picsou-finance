@@ -171,7 +171,7 @@ assurance-vie and carries an opening date.
 - `frontend/src/lib/utils.test.ts` — `formatCurrency` regression case: an invalid code does not throw
   and the raw code appears in the output (issue #9).
 - `frontend/src/components/shared/AddAccountModal.test.tsx` — Trade Republic wizard regression cases; exchange, bank and Finary wizard cases; Bourse Direct, Amundi, IBKR, SimpleFIN, Wise, Amex, CORUM, and Sofidy wizard flow tests (mock panel → `onOpenChange(false)`).
-- `backend/src/test/java/com/picsou/validation/CurrencyValidatorTest.java` — accepts valid ISO 4217
+- `CurrencyValidatorTest.java` — accepts valid ISO 4217
   codes, rejects unknown ones, leaves null/blank to `@NotBlank`.
 
 ## Links

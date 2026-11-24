@@ -1,6 +1,6 @@
 # Feature: Account spreadsheet export (xlsx)
 
-> Last updated: 2026-08-19
+> Last updated: 2026-11-24
 
 ## Context
 
@@ -131,22 +131,22 @@ trade-offs that come with it.
 ### Key files
 
 **Backend**
-- `service/SavingsRateCalculator.java` — monthly contributions and the rate, shared with nothing
+- `SavingsRateCalculator.java` — monthly contributions and the rate, shared with nothing
   else yet
-- `controller/AccountExportController.java` — `POST /api/accounts/export`, rate limit, audit log,
+- `backend-rs/src/transfer/account_export/mod.rs` — `POST /api/accounts/export`, rate limit, audit log,
   streaming response
-- `export/xlsx/AccountsWorkbookService.java` — gathers each account's data, opens the workbook,
+- `backend-rs/src/transfer/account_export/workbook.rs` — gathers each account's data, opens the workbook,
   names the sheets
-- `export/xlsx/AccountSheetWriter.java` — one account's sheet, block by block
-- `export/xlsx/SheetCursor.java` — append-only write head; also where "typed cell, not string"
+- `backend-rs/src/transfer/account_export/workbook.rs` — one account's sheet, block by block
+- `backend-rs/src/transfer/account_export/sheet.rs` — append-only write head; also where "typed cell, not string"
   is enforced
-- `export/xlsx/WorkbookStyles.java` — the shared cell formats
-- `export/xlsx/SheetLabels.java` / `LabelKey.java` — heading resolution and the wire contract
-- `export/xlsx/AccountExportData.java` — one account's gathered data
-- `export/xlsx/DebtExportData.java` — one loan and its amortization
-- `export/xlsx/PeerLoanExportData.java` — one peer loan, its computed figures and the journal rows
-- `dto/AccountsExportRequest.java` — `(List<Long> accountIds, Map<String,String> labels)`
-- `config/RateLimitConfig.java` — `accountExportBuckets` bean + `createAccountExportBucket()`
+- `backend-rs/src/transfer/account_export/sheet.rs` — the shared cell formats
+- `backend-rs/src/transfer/account_export/labels.rs` / `backend-rs/src/transfer/account_export/labels.rs` — heading resolution and the wire contract
+- `AccountExportData.java` — one account's gathered data
+- `DebtExportData.java` — one loan and its amortization
+- `PeerLoanExportData.java` — one peer loan, its computed figures and the journal rows
+- `AccountsExportRequest.java` — `(List<Long> accountIds, Map<String,String> labels)`
+- `backend-rs/src/http/rate_limit.rs` — `accountExportBuckets` bean + `createAccountExportBucket()`
 
 **Frontend**
 - `components/shared/ExportAccountsModal.tsx` — the picker
@@ -184,7 +184,11 @@ trade-offs that come with it.
 - **Figures go in as numeric cells, dates as date cells.** The entire point is that the reader can
   sum and sort them. `SheetCursor` is the only place that writes cells, precisely so a string
   cannot slip in — a money value written with `setCellValue(String)` looks identical on screen and
-  silently breaks every formula pointed at it.
+  silently breaks every formula pointed at it. A date outside Excel's 1900-9999 serial range is
+  the one exception: it goes in as ISO-8601 text rather than failing the export.
+- **Sheet names are made safe.** Leading and trailing spaces and apostrophes are stripped, a name
+  is cut at Excel's 31 UTF-16 code units, and every name (the fixed `Summary` and `Debts` sheets
+  included) is deduplicated in one set, so two accounts with the same label both get a sheet.
 - **`SXSSFWorkbook.dispose()` is not optional.** SXSSF spills rows past the access window to temp
   files; without `dispose()` in the `finally` they survive the request. `close()` alone does not
   remove them.
@@ -221,6 +225,12 @@ trade-offs that come with it.
   pre-multiplies. Consistent with the account list (see
   [account-ownership-shares.md](account-ownership-shares.md)), and different from the dashboard's
   `RealEstateSummaryCard`, which is weighted server-side.
+- **Every sheet reads through the readable check, never the owner-only one.** A co-owner exports
+  an account shared with them, holdings included; an owner-only lookup behind
+  `access::require_readable` answered 500 for every co-owner. The same rule holds for the accounts
+  a sheet only mentions: a loan financing the property, the account a loan or a receivable is
+  linked to. They appear only when the reader may read them too (`readable_account`), so the
+  workbook of a co-owner never names an account that was not shared with them.
 - **A `LOAN` account can have no `Debt` row.** It is typed in and never detailed; the sheet then
   shows whatever `DebtResponse` carried and no schedule, instead of failing the whole export.
 - **The service is `@Transactional(readOnly = true)`** so the lazy associations behind the property

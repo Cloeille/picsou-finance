@@ -1,11 +1,11 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-11-06 (the app generates the JWT and encryption keys, never the database password; connectors opt-in through Compose profiles; one supported stack; sidecar URLs only in application.yml; shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility; La Banque Postale on the shared Chromium base)
+> Last updated: 2026-11-23 (the Rust backend replaces the Java one; the app generates the JWT and encryption keys, never the database password; connectors opt-in through Compose profiles; one supported stack; sidecar URLs only in `backend-rs/src/sidecars.tsv`; shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility; La Banque Postale on the shared Chromium base)
 
 ## Context
 
 Picsou deploys as the app, PostgreSQL and up to fifteen opt-in authentication sidecars orchestrated by `docker/docker-compose.yml`, the only supported Compose stack. It retains shared sidecar bases and explicit proxy trust:
-- **`picsou:latest`** — main app: frontend + backend in one Spring Boot process, no Python, no nginx. Published to GHCR as `ghcr.io/cloeille/picsou-finance`.
+- **`picsou:latest`** — main app: frontend + backend in one process (the Rust backend serves the SPA), no Python, no nginx. Published to GHCR as `ghcr.io/cloeille/picsou-finance`.
 - **`docker-tr-auth`** — Trade Republic auth sidecar: headless Chromium + Python/uvicorn. Published to GHCR as `ghcr.io/cloeille/picsou-finance/tr-auth`.
 - **`bourse-direct-auth`** — isolated Bourse Direct login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` and reachable only on the Compose network.
 - **`amundi-auth`** — Amundi login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/amundi-auth`.
@@ -13,12 +13,12 @@ Picsou deploys as the app, PostgreSQL and up to fifteen opt-in authentication si
 - **`caisse-epargne-auth`** — Caisse d'Epargne browser-assisted login (keypad + Sécur'Pass) and session-replay read sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/caisse-epargne-auth`.
 - **`banque-populaire-auth`** — Banque Populaire sidecar on the same shared BPCE code (region + keypad + Sécur'Pass login, session-replay reads), published to GHCR as `ghcr.io/cloeille/picsou-finance/banque-populaire-auth`.
 - **`lbp-auth`** — La Banque Postale browser-login sidecar (current account and livrets, on demand), published to GHCR as `ghcr.io/cloeille/picsou-finance/lbp-auth`.
-- **`bnp-auth`** — BNP Paribas / Hello bank! login (customer number, keypad clicked in the member's browser, app approval or SMS code) and account sidecar, on the shared `sidecar-camoufox` base, published as `ghcr.io/cloeille/picsou-finance/bnp-auth`. Opt-in through the Compose profile `bnp` (or `all-connectors`); the backend reaches it at `BNP_AUTH_URL` (`application.yml` defaults to `http://bnp-auth:8001`); see [`bnp-paribas.md`](bnp-paribas.md).
+- **`bnp-auth`** — BNP Paribas / Hello bank! login (customer number, keypad clicked in the member's browser, app approval or SMS code) and account sidecar, on the shared `sidecar-camoufox` base, published as `ghcr.io/cloeille/picsou-finance/bnp-auth`. Opt-in through the Compose profile `bnp` (or `all-connectors`); the backend reaches it at `BNP_AUTH_URL` (`sidecars.tsv` defaults to `http://bnp-auth:8001`); see [`bnp-paribas.md`](bnp-paribas.md).
 - **`fortuneo-auth`** — Fortuneo login/2FA, positions and transaction-history sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/fortuneo-auth`.
 - **`revolut-auth`**, **`corum-auth`**, **`sofidy-auth`** — provider sidecars published under the same GHCR repository prefix.
-- **`cmes-auth`** — browserless Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cmes-auth`. The backend reaches it at `CMES_AUTH_URL` (`application.yml` defaults to `http://cmes-auth:8001`); see [`cmes-epargne-salariale.md`](cmes-epargne-salariale.md).
-- **`natixis-auth`** — browserless Natixis Interépargne login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/natixis-auth`. The backend reaches it at `NATIXIS_AUTH_URL` (`application.yml` defaults to `http://natixis-auth:8001`); see [`natixis-interepargne.md`](natixis-interepargne.md).
-- **`cic-auth`** — browserless CIC online-banking login/2FA and account sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cic-auth`. The backend reaches it at `CIC_AUTH_URL` (`application.yml` defaults to `http://cic-auth:8001`); see [`cic-banking.md`](cic-banking.md).
+- **`cmes-auth`** — browserless Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cmes-auth`. The backend reaches it at `CMES_AUTH_URL` (`sidecars.tsv` defaults to `http://cmes-auth:8001`); see [`cmes-epargne-salariale.md`](cmes-epargne-salariale.md).
+- **`natixis-auth`** — browserless Natixis Interépargne login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/natixis-auth`. The backend reaches it at `NATIXIS_AUTH_URL` (`sidecars.tsv` defaults to `http://natixis-auth:8001`); see [`natixis-interepargne.md`](natixis-interepargne.md).
+- **`cic-auth`** — browserless CIC online-banking login/2FA and account sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cic-auth`. The backend reaches it at `CIC_AUTH_URL` (`sidecars.tsv` defaults to `http://cic-auth:8001`); see [`cic-banking.md`](cic-banking.md).
 - **`amex-auth`** — American Express login and account sidecar, built with Camoufox/Firefox, published as `ghcr.io/cloeille/picsou-finance/amex-auth`.
 - **`degiro-auth`** — browserless DEGIRO authentication and portfolio sidecar, published as `ghcr.io/cloeille/picsou-finance/degiro-auth`.
 
@@ -64,33 +64,36 @@ On Kubernetes, the Helm chart in `charts/picsou` deploys the same images; the `c
 ### Main image — `docker/Dockerfile` (3-stage build, context: project root)
 
 1. **`frontend-build`** — `oven/bun:alpine`. `bun install --frozen-lockfile`, `bun run build`. Output: `dist/`.
-2. **`backend-build`** — `maven:3.9-eclipse-temurin-21-alpine`. `mvn dependency:go-offline` (layer cache), then `mvn package -DskipTests`. Output: fat JAR.
-3. **Runtime** — `eclipse-temurin:21-jre-jammy`, no extra package. Creates user and group `picsou` (uid/gid 1000, no login shell, home `/app`) and `/data` owned by it, copies `dist/` to `/app/spa` (served by Spring Boot, `SPA_LOCATION=/app/spa`) and the JAR, sets `APP_STARTUP_SYNC_ENABLED=false`, then runs as `USER 1000:1000` with an exec-form `ENTRYPOINT` `java -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -Djava.security.egd=file:/dev/./urandom -jar /app/app.jar`.
+2. **`backend-build`** — `rust:1.96-bookworm`. Copies `backend-rs/` and the migrations it embeds (`backend-rs/migrations`), then `cargo build --release --locked --bin picsou` for the target's triple. Output: one binary linked against glibc, `picsou` (the backend, ADR [rust-backend](../decisions/2026-11-21-rust-backend.md)).
+3. **Runtime** — `debian:bookworm-slim` (the build stage's Debian release, so glibc matches), no extra package: TLS is rustls with built-in roots. Creates user and group `picsou` (uid/gid 1000, no login shell, home `/app`) and `/data` owned by it, copies `dist/` to `/app/spa` (served by the backend, `SPA_LOCATION=/app/spa`) and the binary to `/usr/local/bin/picsou`, sets `APP_STARTUP_SYNC_ENABLED=false`, then runs as `USER 1000:1000` with an exec-form `ENTRYPOINT ["picsou"]`. A shell and coreutils stay: Compose's `data-permissions` service runs `chown` in this image and the Helm migration job runs `picsou migrate` through `sh`. `picsou migrate` and `picsou verify` are the release migration check (below).
 
-Spring Boot serves the SPA, the API and every response header on port 8080, and resolves the client address and the public scheme/host/port itself. See [the SPA ADR](../decisions/2026-11-03-spring-serves-the-spa.md) and [the one-process ADR](../decisions/2026-11-03-one-non-root-process.md).
+The backend serves the SPA, the API and every response header on port 8080, and resolves the client address and the public scheme/host/port itself. See [the SPA ADR](../decisions/2026-11-03-spring-serves-the-spa.md) and [the one-process ADR](../decisions/2026-11-03-one-non-root-process.md).
 
 SPA caching: files under `/assets/` (Vite's content-hashed output) are cached for a year (`immutable`); every other file, `index.html` and the client-route fallbacks included, is `no-cache` and revalidated by ETag, so a redeploy reaches browsers at once. The ETag of every one of those revalidated files is a digest of its content (`frontend/public` is about 47 KB in total, so reading them on every GET or HEAD costs nothing measurable, one read for the tag and one for the body); hashed assets use last-modified seconds and length, so a bundle is never read to build a tag.
 
-The two build stages run on `--platform=$BUILDPLATFORM`: `dist/` and the JAR are the same on
-every architecture, so the multi-platform publish builds them once, natively, and only the
-runtime stage runs per target (arm64 under QEMU). `APP_VERSION` and `VITE_*` are declared after
-the dependency installs, so a new `APP_VERSION` reuses the bun, Maven and apt layers (an edit to
+The two build stages run on `--platform=$BUILDPLATFORM`: `dist/` is the same on every
+architecture, and the backend is cross-compiled on the builder for `TARGETARCH` (Debian's
+`gcc-<arch>-linux-gnu` links it and builds `ring`'s C code), so no compiler runs under QEMU;
+only the runtime stage's `useradd` does. `APP_VERSION` and `VITE_*` are declared after
+the dependency installs, so a new `APP_VERSION` reuses the bun and cargo layers (an edit to
 `frontend/package.json` still reinstalls the bun dependencies). The
 Dockerfile therefore needs BuildKit (the default builder once `docker buildx` is installed);
 the legacy builder rejects the empty `$BUILDPLATFORM`.
 
-The main container runs **one** process: the JVM is PID 1, as uid 1000.
+The main container runs **one** process: the Rust backend `picsou` is PID 1, as uid 1000, and
+uses about 10 MB at rest (10.5 MB RSS measured on macOS; the JVM image needed a 1.5 GB limit,
+the chart now requests 128 Mi).
 
 | Process | Port | Role |
 |---------|------|------|
-| Java (Spring Boot) | 8080 | Serves the SPA, the API and every response header; Tomcat resolves the client address from the one trusted proxy; the public origin is applied from any peer |
+| `picsou` (Rust backend) | 8080 | Serves the SPA, the API and every response header; resolves the client address from the one trusted proxy; the public origin is applied from any peer |
 
-There is no supervisor: Docker (`restart: unless-stopped`) and Kubernetes restart the container when the JVM exits. Behaviour that nginx used to provide and that changed:
+There is no supervisor: Docker (`restart: unless-stopped`) and Kubernetes restart the container when the process exits. Behaviour that nginx used to provide and that changed:
 
-- **No proxy timeouts.** nginx cut requests at 60 s (90 s for the Caisse d'Epargne keypad, 180 s for the Caisse d'Epargne, CMES and CIC login completions). Tomcat has no response timeout, and the backend caps its own waits on third-party APIs and sidecars.
-- **`/mcp` streams** straight from Tomcat. The SSE keep-alive and `spring.mvc.async.request-timeout` settings are unchanged.
-- **Request size.** nginx's default 1 MB body limit used to apply everywhere. Authenticated uploads now follow Spring's multipart limit (10 MB). The endpoints an anonymous client can reach (`/api/setup`, `/api/auth/`, `/oauth2/register`) keep a 1 MB cap in `AnonymousBodyLimitFilter`, which answers 413 from the `Content-Length` before the body is read (a body of unknown length is refused too); without it a few dozen concurrent 20 MB JSON posts exhausted the heap of a 1.5 GB container. Spring's `FormContentFilter` is off (`spring.mvc.formcontent.filter.enabled: false`): it runs before every security filter and would read a form-encoded PUT/PATCH/DELETE body whole, on any path.
-- **Slow clients.** nginx buffered request bodies, so a slow client held an nginx connection, not a Tomcat thread. Tomcat now keeps its defaults: 200 worker threads, 100 queued connections, a 60 s read timeout between packets, not a deadline for the whole request. A few hundred clients that send a body slowly can occupy every thread; a client that sends a little data before each timeout holds its thread indefinitely, and new requests replace finished ones. `/actuator/health/liveness` is served by the same threads and stalls meanwhile. Lowering those bounds would make starvation easier, not harder. An instance reachable from the internet belongs behind a reverse proxy that buffers request bodies (nginx does by default), and the proxy must be the only route to port 8080: the default Compose file publishes 8080 on every host interface, so add [`docker/docker-compose.no-http.yml`](../../docker/docker-compose.no-http.yml) when the proxy reaches the app over the Docker network. With nginx, set `client_max_body_size 10m` (its 1 MB default would refuse the 10 MB uploads) and keep `/mcp` unbuffered (`proxy_buffering off`), see [MCP proxy settings](mcp-server.md#gotchas--pitfalls).
+- **No proxy timeouts.** nginx cut requests at 60 s (90 s for the Caisse d'Epargne keypad, 180 s for the Caisse d'Epargne, CMES and CIC login completions). The backend sets no response timeout, and caps its own waits on third-party APIs and sidecars.
+- **`/mcp` streams** straight from the backend. The SSE keep-alive (`MCP_KEEP_ALIVE_INTERVAL`, 60 s by default) is unchanged.
+- **Request size.** nginx's default 1 MB body limit used to apply everywhere. Authenticated file uploads are limited to 10 MB. The endpoints an anonymous client can reach (`/api/setup`, `/api/auth/`, `/oauth2/register`) keep a 1 MB cap (`anonymous_body_limit` in `backend-rs/src/http/mod.rs`), which answers 413 from the `Content-Length` before the body is read (a chunked body, of unknown length, is refused too).
+- **Slow clients.** nginx buffered request bodies, so a slow client held an nginx connection, not a backend one. The backend gives each connection a lightweight task, not a thread, and sets no read deadline: a client that sends its headers or its body slowly holds its socket for as long as it likes, and enough of them use up the container's file descriptors. An instance reachable from the internet belongs behind a reverse proxy that buffers request bodies (nginx does by default), and the proxy must be the only route to port 8080: the default Compose file publishes 8080 on every host interface, so add [`docker/docker-compose.no-http.yml`](../../docker/docker-compose.no-http.yml) when the proxy reaches the app over the Docker network. With nginx, set `client_max_body_size 10m` (its 1 MB default would refuse the 10 MB uploads) and keep `/mcp` unbuffered (`proxy_buffering off`), see [MCP proxy settings](mcp-server.md#gotchas--pitfalls).
 - **Existing `/data` and `docker run`.** Compose and `deploy.sh` hand `/data` to uid 1000 themselves. With a plain `docker run`, do it once: `docker run --rm --user 0 --entrypoint chown -v <volume>:/data <image> -R 1000:1000 /data`. Until then the app refuses to start (`Cannot write secret file … AccessDeniedException`) and generates no new secret.
 - **No 502/504 pages from the image.** A stopped app is a refused connection, or your own proxy's error page.
 
@@ -230,8 +233,8 @@ Generate it with `openssl rand -base64 32`. `docker/docker-compose.yml` forwards
 explicitly to the app and to every sidecar service. It is required only when a
 connector is enabled: the app starts without it, and each sidecar refuses to start
 when it is missing or empty. Sidecar URLs are set in one place,
-`backend/src/main/resources/application.yml` (`app.<sidecar>.url`, Compose service
-name); `application-dev.yml` gives each one its own `127.0.0.1` port. Compose and the
+`backend-rs/src/sidecars.tsv` (the Compose service name, and one `127.0.0.1` port per
+sidecar under the dev profile). Compose and the
 entrypoint set none. The AMEX and BNP Paribas services use `init: true` so an init process reaps orphaned
 browser children during repeated logins. The app does not generate the
 shared secret: the sidecars run in separate containers and
@@ -260,10 +263,10 @@ cannot read the app's `/data/.secrets/` volume.
   `docker compose -f docker/docker-compose.yml logs <bank>-auth`, then set the key and
   recreate the app and enabled sidecars.
 
-### Secrets (`SecretBootstrap`) and the trusted proxy (`TrustedProxyBootstrap`)
+### Secrets and the trusted proxy
 
-The image sets `PICSOU_SECRETS_DIR=/data/.secrets`. Before any bean exists, the Spring Boot app
-(`com.picsou.config.SecretBootstrap`, an `EnvironmentPostProcessor`) generates two secrets in
+The image sets `PICSOU_SECRETS_DIR=/data/.secrets`. Before it reads its configuration, the backend
+(`backend-rs/src/crypto/secrets.rs`) generates two secrets in
 that directory (mounted named volume) on first boot:
 - `JWT_SECRET` (`jwt_secret`): 48-byte base64
 - `CRYPTO_ENCRYPTION_KEY` (`crypto_key`): 32-byte base64
@@ -271,29 +274,20 @@ that directory (mounted named volume) on first boot:
 `POSTGRES_PASSWORD` (`postgres_password`) is never generated: the app cannot set the
 database's password, so a generated one could only mismatch it. It comes from the
 `POSTGRES_PASSWORD` variable, else from an existing `postgres_password` file written by an
-earlier version. The app never writes that file. With neither, `SecretBootstrap` publishes
-nothing and `application.yml`'s default `picsou` applies.
+earlier version. The app never writes that file. With neither, the default `picsou` applies.
 
 On subsequent boots, re-reads from the files. If `JWT_SECRET` or `CRYPTO_ENCRYPTION_KEY` is already set by the operator, it is respected and written to the file for consistency (an existing file is never overwritten). Secrets are **never** regenerated once created: doing so would invalidate JWTs and corrupt all encrypted data in the DB. An empty secret file stops the app, naming the file and the variable, when the variable is unset. A set variable is used and the empty file is left as is, so the next start without it fails: delete the empty file to let the value be copied again. Files are written through a temp file and a hard link, mode `0600` in a `0700` directory, so the final name never shows a partial value and an existing file is never replaced. A filesystem without hard links (some NAS mounts) falls back to renaming the complete temp file into place under a `<file>.lock` created with `CREATE_NEW`: the final name still never shows a partial value and never replaces a file another process created first. A start that finds the lock waits up to 10 seconds for the other start's file; a lock left by a crashed start stops the app and names the lock to delete. A filesystem that cannot apply the modes only logs a warning. Without `PICSOU_SECRETS_DIR`, nothing is generated.
 
-`TrustedProxyBootstrap`, a second `EnvironmentPostProcessor` registered next to it, turns `PICSOU_PROXY_IP` into `server.tomcat.remoteip.internal-proxies`, the only peer Tomcat takes the client address from. Unset or empty, the expression matches nothing. Anything but one plain IPv4 address (no leading zeros, octets up to 255) stops startup with `PICSOU_PROXY_IP must be one plain IPv4 address.`, without echoing the value; this check runs whenever the variable is set. **An explicitly configured `server.tomcat.remoteip.internal-proxies` wins** (`SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES`, `-D`, the command line, `SPRING_APPLICATION_JSON`): `PICSOU_PROXY_IP` is then ignored for the expression. Compose always sets `PICSOU_PROXY_IP` (default `172.30.253.2`), which is why the explicit property has to outrank it.
+`PICSOU_PROXY_IP` names the only peer the backend takes the client address from (`backend-rs/src/config.rs`). Unset or empty, no peer is trusted. Anything but one plain IPv4 address (no leading zeros, octets up to 255) stops startup with `PICSOU_PROXY_IP must be one plain IPv4 address.`, without echoing the value; this check runs whenever the variable is set. **An explicitly set `SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES` wins** (a regular expression on the peer address; the variable keeps the name the Java backend read): `PICSOU_PROXY_IP` is then ignored, and an empty value trusts no peer. Compose always sets `PICSOU_PROXY_IP` (default `172.30.253.2`), which is why the explicit variable has to outrank it.
 
-The datasource password follows Spring's ordinary precedence, through `application.yml`:
-`password: ${SPRING_DATASOURCE_PASSWORD:${POSTGRES_PASSWORD:picsou}}`. `SecretBootstrap`
-publishes the supplied or persisted `POSTGRES_PASSWORD`, so it feeds that
-placeholder instead of the literal `picsou` fallback, and `--spring.datasource.password`,
-`-Dspring.datasource.password`, `SPRING_APPLICATION_JSON` and a non-empty
-`SPRING_DATASOURCE_PASSWORD` all outrank it. An empty `SPRING_DATASOURCE_PASSWORD` or
-`POSTGRES_PASSWORD` (what a Compose-style file gives for an unset variable) behaves as unset,
-with or without `PICSOU_SECRETS_DIR`: `SecretBootstrap` publishes both names, in a source ahead
-of the environment, with the fallback password. That fallback is a `spring.datasource.password`
-from any source, a config file included, then a non-empty `POSTGRES_PASSWORD`, then the legacy
-`postgres_password` file, then `picsou`. Without `PICSOU_SECRETS_DIR`, `POSTGRES_PASSWORD` in the
-environment also reaches the datasource; with neither variable the password is still `picsou`.
+The datasource password is, in this order: a non-empty `SPRING_DATASOURCE_PASSWORD`, a non-empty
+`POSTGRES_PASSWORD`, the legacy `postgres_password` file (read only with `PICSOU_SECRETS_DIR`
+set and neither variable given), then `picsou`. An empty `SPRING_DATASOURCE_PASSWORD` or
+`POSTGRES_PASSWORD` (what a Compose-style file gives for an unset variable) behaves as unset.
+The backend reads the environment only: `SPRING_APPLICATION_JSON`, `-D` properties and
+`--spring.*` arguments, which the Java backend accepted, are ignored.
 
-The Helm migration hook does not start Spring's environment: it maps `SPRING_DATASOURCE_PASSWORD`
-to `POSTGRES_PASSWORD` in the shell. A password given only through `SPRING_APPLICATION_JSON` is
-not seen there, so set `SPRING_DATASOURCE_PASSWORD` instead when the two differ.
+The Helm migration hook maps `SPRING_DATASOURCE_PASSWORD` to `POSTGRES_PASSWORD` in the shell.
 
 This does not synchronize or rotate the database container's password. Set
 `POSTGRES_PASSWORD` in `docker/.env` to the actual database password before
@@ -331,7 +325,7 @@ managed certificate rather than failing the TLS handshake with no certificate. C
 an explicit SNI continue to use their requested name. This does not change certificate trust:
 LAN devices must still trust the Caddy local CA.
 
-Caddy sets `X-Forwarded-Proto`/`-Host`/`-For` by default. Tomcat's native forwarding support reads
+Caddy sets `X-Forwarded-Proto`/`-Host`/`-For` by default. The backend reads
 them from the known Caddy peer only. See [trusted proxy client addresses](#trusted-proxy-client-addresses).
 
 #### TLS is a first-boot decision, not an add-on
@@ -358,20 +352,18 @@ in `.env`. README step 3f documents the recovery path.
 
 ### HSTS is opt-in (`HSTS_ENABLED`, default off)
 
-Spring Security is the **only** emitter. Both of its filter chains (the API chain in
-`SecurityConfig` and the OAuth2 authorization-server chain in `AuthorizationServerConfig`) use one
-shared header customizer, so the gate applies to the SPA, `/api`, `/actuator`, `/mcp`, `/oauth2`
+The backend is the **only** emitter: one layer (`backend-rs/src/http/mod.rs`) sets the security
+headers on every response, so the gate applies to the SPA, `/api`, `/actuator`, `/mcp`, `/oauth2`
 and `/.well-known/oauth-*` alike. No proxy in the image adds headers.
 
 **Accepted values:** `true`, `1`, `yes`, `on`, case-insensitive, surrounding whitespace tolerated.
 Anything else disables the header. A value that is neither one of those nor `false`, `0`, `no`,
 `off` or blank logs `HSTS_ENABLED='...' not understood, HSTS disabled.` once at startup, so a typo
 is visible rather than silent. Interior whitespace is deliberately *not* stripped, so `t rue`
-warns instead of enabling. `SecurityConfigHstsParsingTest` pins the tokens and the warning rule.
+warns instead of enabling.
 
-Spring Security's `HstsHeaderWriter` fires on any request where `isSecure()` is true, and
-`forward-headers-strategy: native` makes that true from `X-Forwarded-Proto: https` sent by a
-configured proxy. Since the SPA calls the API on load, an ungated response pins the policy on the
+The header goes out on any request the backend sees as HTTPS, which `X-Forwarded-Proto: https`
+sent by a configured proxy makes true. Since the SPA calls the API on load, an ungated response pins the policy on the
 very first page view. Before the single-process change the OAuth2 chain was ungated (it sent HSTS
 on `/oauth2/jwks` over HTTPS with the flag off); the shared customizer closes that.
 
@@ -381,7 +373,7 @@ anyway" bypass for the untrusted cert — leaving no in-app recovery, only clear
 browser internals. Enable it only behind a publicly-trusted certificate.
 
 Because `HSTS_ENABLED` only reaches the app through `env_file`, changing it may not recreate the
-container. Use `up -d --force-recreate app` so Spring re-reads the property. **`restart app` does not work** — it reuses the existing container, whose environment was
+container. Use `up -d --force-recreate app` so the backend re-reads the variable. **`restart app` does not work** — it reuses the existing container, whose environment was
 fixed at create time, so the new value is never seen.
 
 > **Behavior change:** deployments already behind a TLS proxy stop receiving HSTS until they set
@@ -390,10 +382,10 @@ fixed at create time, so the new value is never seen.
 
 ### Trusted proxy client addresses
 
-The bundled path is `client -> Caddy -> Tomcat`. The optional `proxy` service has
+The bundled path is `client -> Caddy -> backend`. The optional `proxy` service has
 one exact IPv4 address on the dedicated internal `tls-proxy` bridge, with its default network
 retained for ACME egress. It reaches the app through the bridge-only `app-tls` alias. No sidecar
-joins this bridge. Tomcat is the edge: its Remote IP valve trusts only `PICSOU_PROXY_IP`
+joins this bridge. The backend is the edge: it trusts only `PICSOU_PROXY_IP`
 (not loopback, not the private networks), and a request from any other address keeps its socket
 address whatever headers it sends. Rate limiters, session metadata and audit logs share the
 resolved remote address. The public origin is not restricted that way: `ForwardedOriginCustomizer`
@@ -410,7 +402,7 @@ allocation range, preventing the app from taking its address when it starts firs
 three in `docker/.env` if this subnet overlaps an existing network. The range must be inside
 the subnet and exclude Caddy's address and the gateway; Caddy needs a usable host address
 inside the subnet. Allow at least two usable addresses in the range for the live app and
-one migration container. Compose also passes `PICSOU_PROXY_IP` to the app as Tomcat's trusted
+one migration container. Compose also passes `PICSOU_PROXY_IP` to the app as its trusted
 peer. The app rejects proxy values other than a plain IPv4 literal. Standalone image
 runs with `PICSOU_PROXY_IP` unset trust no upstream client-address header.
 
@@ -444,13 +436,10 @@ address is needed. When both are set, `SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES` 
 `PICSOU_PROXY_IP` is only validated; Compose always passes `PICSOU_PROXY_IP`, so it can stay
 in the file.
 
-The Java tests (`TrustedProxyClientIpTest`, `ForwardedHeadersCorsTest`) build the Tomcat
-valves from the production properties and cover trusted and untrusted peers, IPv4 and IPv6,
-the public port cases, the precedence of an explicit `internal-proxies` and the
-`PICSOU_PROXY_IP` validation. `ForwardedOriginServerTest` starts the real server on a random
-port (PostgreSQL through Testcontainers) and checks that `X-Forwarded-Proto` and
-`X-Forwarded-Host` from a plain-HTTP peer reach the application as the public origin and
-that `Strict-Transport-Security` follows `HSTS_ENABLED`. See [CORS & cookie security](./security-cors-cookies.md) and the
+The backend tests cover it: `forwarded_for_only_from_the_trusted_proxy` and
+`forwarded_origin_from_any_peer` (`backend-rs/src/http/client_ip.rs`), then, on the running
+server, `the_client_address_comes_from_the_trusted_proxy_only` and
+`hsts_only_when_enabled_and_secure` (`backend-rs/tests/integration/foundation/security.rs`). See [CORS & cookie security](./security-cors-cookies.md) and the
 [proxy address ADR](../decisions/2026-10-31-trusted-proxy-client-address.md).
 
 `docker/tests/test_proxy_client_ip.py` starts fresh isolated Compose projects with real Caddy
@@ -479,14 +468,14 @@ and HTTPS API response through the deployment script.
 - `services/tr-auth/Dockerfile` — tr-auth sidecar image
 - `services/bourse-direct-auth/Dockerfile` — Bourse Direct sidecar image
 - `services/fortuneo-auth/Dockerfile` — Fortuneo sidecar image
-- `docker/Dockerfile` — non-root runtime stage, JVM as PID 1 (secrets: `SecretBootstrap`, trusted proxy: `TrustedProxyBootstrap`)
+- `docker/Dockerfile` — non-root runtime stage, the Rust backend as PID 1 (secrets: `backend-rs/src/crypto`, trusted proxy: `backend-rs/src/config.rs`)
 
 ### Flow
 
 ```
 docker compose -f docker/docker-compose.yml up        # COMPOSE_PROFILES selects the connectors
   → data-permissions (one-shot: chown -R 1000:1000 /data)
-  → picsou:latest  (Spring Boot :8080 serves the SPA and the API, uid 1000)
+  → picsou:latest  (the backend, :8080, serves the SPA and the API, uid 1000)
   → postgres:16-alpine (:5432)
   enabled connectors only:
   → docker-tr-auth (uvicorn:8001)
@@ -507,8 +496,8 @@ docker compose -f docker/docker-compose.yml up        # COMPOSE_PROFILES selects
   → degiro-auth (uvicorn:8001, internal only)
 ```
 
-`/mcp` is the embedded MCP HTTP+SSE transport (access-key auth). Tomcat streams it
-with no proxy buffering or timeout. Spring never answers a backend prefix with
+`/mcp` is the embedded MCP HTTP+SSE transport (access-key auth). The backend streams it
+with no proxy buffering or timeout. It never answers a backend prefix with
 `index.html`, so a missing MCP route is a 404, not HTML.
 
 ### Moving the stack to another machine
@@ -790,7 +779,7 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 | Choice | Why | Rejected alternative |
 |--------|-----|----------------------|
 | Bun for frontend build | Project uses bun exclusively (`bun.lock`) | npm (would need a separate lock file) |
-| Browser connectors as separate containers | Keeps the main image slim (JRE only, no Python/Playwright) and isolates unofficial browser protocols | Embed browser automation in the main image via supervisord |
+| Browser connectors as separate containers | Keeps the main image slim (one binary, no Python/Playwright) and isolates unofficial browser protocols | Embed browser automation in the main image via supervisord |
 | `python:3.12-slim` + Chromium only | Only Chromium is used (`p.chromium.launch()`); base image is ~5× smaller than `mcr.microsoft.com/playwright/python` which pre-installs all three browsers | `mcr.microsoft.com/playwright/python:v1.44.0-jammy` — included Firefox + WebKit unnecessarily (+~1.5GB uncompressed) |
 | Auto-generated JWT and encryption keys on first boot | Zero-config install: user runs `docker compose up` with no pre-configuration | Require operator to set secrets manually before first boot |
 | Database password never generated by the app | The app cannot set the database's password, so a generated one could only mismatch it; Compose and Helm always pass one | Generating it like the other secrets, which broke bare-metal and standalone starts against an existing database |
@@ -801,20 +790,20 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 - **`.dockerignore` must NOT exclude `docker/` entirely.** The Compose file and `deploy.sh` live there; the runtime stage itself copies nothing from it.
 - **Frontend lock file is `bun.lock`.** The Dockerfile must use `oven/bun` and `bun install --frozen-lockfile`. npm will fail.
 - **`VITE_DEMO_MODE` build arg** defaults to `false`. Pass `--build-arg VITE_DEMO_MODE=true` for a demo build.
-- **Spring Boot listens on 8080** and is the only process. `server.port` is 8080 in `application.yml`; there is no 9090 any more.
+- **The backend listens on 8080** (`SERVER_PORT`) and is the only process; there is no 9090 any more.
 - **`/data` must be writable by uid 1000.** Compose runs the one-shot `data-permissions` service (same image, `user: "0:0"`, `chown -R 1000:1000 /data`) before the app; `deploy.sh` runs it explicitly because it recreates the app with `--no-deps`. A bind mount whose filesystem ignores `chown` (NAS, CIFS) needs mount options `uid=1000,gid=1000` instead.
   `docker compose up app --no-deps` skips that service too: run `data-permissions` once first, with the same Compose options as the app (same `-f` files and `-p` project name, so it chowns the same volume): `docker compose -f docker/docker-compose.yml run --rm --no-deps data-permissions` from the repository root, or `docker compose run --rm --no-deps data-permissions` from `docker/`. A plain `docker run` install needs the one-off `chown` given under the main image above.
-- **`SPA_LOCATION` blank means no SPA.** `app.spa.location` registers nothing when empty (development uses Vite, backend tests are unaffected). A SPA file that Spring cannot read gives `index.html` for routes and a 404 for any path with a static extension. An unreadable `index.html` itself gives a 404 for every route, since there is no page to fall back to.
+- **`SPA_LOCATION` blank means no SPA.** Nothing is served when it is empty (development uses Vite, backend tests are unaffected). A SPA file that the backend cannot read gives `index.html` for routes and a 404 for any path with a static extension. An unreadable `index.html` itself gives a 404 for every route, since there is no page to fall back to.
 - **`docker/tests/header_diff.py BASE CANDIDATE`** compares status and headers of two running instances, path by path, plain and with `X-Forwarded-Proto: https`. Use it against a pre-change image to prove nothing observable changed.
 - **`caddy_data` must persist.** It holds issued certificates *and the internal CA's root key*. Deleting the volume regenerates the root, invalidating the certificate every device was told to trust — everyone has to re-install it.
 - **Closing the plain-HTTP `:8080` publish uses an overlay file**, `docker/docker-compose.no-http.yml` (`ports: !reset []`), not an env var. Compose cannot vary `ports` by profile, and two env-var forms were tried and rejected: `${VAR:-0.0.0.0}:8080:8080` binds IPv4 only and silently drops the `[::]` binding the unqualified short form gives (breaking IPv6 clients on *every* deployment), while the prefix form `${VAR:-}8080:8080` turns a value missing its trailing colon into `127.0.0.18080:8080` — an opaque "invalid published port" that aborts the whole stack, db and tr-auth included. Long-syntax `host_ip: ""` is rejected as an invalid IP. Requires Compose v2.24+ for `!reset`.
 - **`picsou.localhost` (the `PICSOU_DOMAIN` default) only resolves on the Docker host itself** — browsers map `*.localhost` to loopback. Fine for verifying the profile works; set a LAN IP or a real domain for access from other devices. Enable Banking's portal may also refuse to register a `.localhost` redirect URL.
 - **Enabling the `tls` profile against a pre-built GHCR image does not get the HSTS fix.** An image built before the HSTS gate existed still sends HSTS unconditionally — which is precisely the lockout combination with an internal-CA certificate. Pull a current image, or rebuild with `--build`.
-- **Sidecar URLs live only in `application.yml`.** Compose sets no `*_AUTH_URL`; an operator `.env` value still overrides the default.
+- **Sidecar URLs live only in `backend-rs/src/sidecars.tsv`.** Compose sets no `*_AUTH_URL`; an operator `.env` value still overrides the default.
 - **Bourse Direct 2FA state is process-local.** Keep `bourse-direct-auth` at one replica unless request affinity or shared pending state is added.
 - **La Banque Postale state is process-local for the whole sync, not just the login.** Keep `app` at one replica (or route all `/api/lbp/*` requests for the same member to the same replica for the duration of an active sync): `/auth/keypad`, `/auth/complete`, the following reads, and a disconnect from another device must reach the backend that handled `/auth/initiate`, or the pending login is lost (`AUTH_ATTEMPT_EXPIRED`) and the generation guard misfires. Keep `lbp-auth` at one replica too: it holds the pending Chromium context, so `/keypad` and `/complete` must reach the same sidecar. A restart, rollout or redeploy of either service drops the pending state and fails the active sync; the user starts again.
 - **Secrets are never regenerated.** If `/data/.secrets/jwt_secret` exists, it is reused. Deleting it will log out all users and invalidate all encrypted secrets in the DB.
-- **Spring Boot env var naming:** Properties under `app.*` require the `APP_` prefix. `app.finary.email` → `APP_FINARY_EMAIL`. Variables like `JWT_SECRET` work because `application.yml` maps them explicitly.
+- **Variable names** are the ones the Java backend read (`APP_…`, `SPRING_DATASOURCE_…`, `JWT_SECRET`): `backend-rs/src/config.rs` reads each of them by name.
 - **Stale env vars removed (2026-04-19):** `TR_PHONE_NUMBER`, `TR_PIN`, `FINARY_TOTP`, `POWENS_*`, `FINARY_EMAIL`, `FINARY_PASSWORD`. Do not re-add them.
 
 ## Tests
@@ -826,12 +815,20 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 
 - `python3 -m pytest docker/tests/test_deploy.py -v` exercises deployment ordering and failure
   isolation against command doubles. CI runs it independently of the application tests.
-- `ReleaseMigrationCliTest` checks strict migration history and idempotency on real PostgreSQL.
+- `picsou migrate` and `picsou verify` replace the Java `ReleaseMigrationCli` in `deploy.sh`
+  and the Helm pre-upgrade job: the same strict history (validation, out of order, the high
+  baseline and duplicate-account checks, every local script applied for `verify`), then the
+  physical schema: every table, column and type and every enum label the migrations create must
+  exist (`backend-rs/src/db/schema.tsv`, kept current by a test), unless the history has a
+  `BASELINE` row (that schema was not built by these scripts). Unlike Hibernate's `validate`,
+  this compares every column the migrations create, mapped or not, and types exactly. Output is limited to
+  migration names, our own messages and SQLSTATE codes. Tested in `backend-rs`
+  (`foundation::migrations`) on real PostgreSQL.
 - CI builds the release image and runs `test_deploy_integration.py` against real PostgreSQL,
-  the packaged JAR, the normal application entrypoint, and its API route. The build goes
+  the packaged binary, the normal application entrypoint, and its API route. The build goes
   through Buildx with the GitHub Actions layer cache (its own `release-smoke` scope, plus the
-  release build's `app` scope from `docker.yml`), so Maven Central and the npm registry are only
-  contacted when `backend/pom.xml`, `frontend/package.json` or `frontend/bun.lock` changes, or
+  release build's `app` scope from `docker.yml`), so crates.io and the npm registry are only
+  contacted when `backend-rs/Cargo.lock`, `frontend/package.json` or `frontend/bun.lock` changes, or
   when the cached layers are missing (evicted or cache unavailable). Cold builds from shared runners
   were rejected by Maven Central with `429 Too Many Requests`.
 - Build validation: `docker build -f docker/Dockerfile .`.

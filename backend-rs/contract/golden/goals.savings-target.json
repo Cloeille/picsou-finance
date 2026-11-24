@@ -1,0 +1,389 @@
+{
+  "description": "A savings target over one account: create, read, update, months, delete, validation",
+  "scenario": "goals.savings-target",
+  "steps": [
+    {
+      "body": {
+        "color": "#6366f1",
+        "createdAt": "<instant>",
+        "currency": "EUR",
+        "currentBalance": 2000,
+        "currentBalanceEur": 2000,
+        "hidden": false,
+        "id": "<id:1>",
+        "isManual": true,
+        "listCollapsed": false,
+        "name": "Livret A",
+        "type": "LIVRET_A"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "04 POST /api/accounts as admin"
+    },
+    {
+      "body": {
+        "accounts": [
+          {
+            "color": "#6366f1",
+            "createdAt": "<instant>",
+            "currency": "EUR",
+            "currentBalance": 2000.00000000,
+            "currentBalanceEur": 2000.00000000,
+            "hidden": false,
+            "id": "<id:1>",
+            "isManual": true,
+            "listCollapsed": false,
+            "name": "Livret A",
+            "type": "LIVRET_A"
+          }
+        ],
+        "allocations": [],
+        "createdAt": "<instant>",
+        "currentTotal": 2000.00000000,
+        "deadline": "<month+18:last>",
+        "id": "<id:1>",
+        "isOnTrack": true,
+        "monthlyNeeded": 1000.00,
+        "monthsLeft": 18,
+        "name": "Apport maison",
+        "percentComplete": 10.0000,
+        "surplus": 0,
+        "targetAmount": 20000,
+        "type": "SAVINGS_TARGET"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "05 POST /api/goals as admin"
+    },
+    {
+      "body": [
+        {
+          "accounts": [
+            {
+              "color": "#6366f1",
+              "createdAt": "<instant>",
+              "currency": "EUR",
+              "currentBalance": 2000.00000000,
+              "currentBalanceEur": 2000.00000000,
+              "hidden": false,
+              "id": "<id:1>",
+              "isManual": true,
+              "listCollapsed": false,
+              "name": "Livret A",
+              "type": "LIVRET_A"
+            }
+          ],
+          "allocations": [],
+          "createdAt": "<instant>",
+          "currentTotal": 2000.00000000,
+          "deadline": "<month+18:last>",
+          "id": "<id:1>",
+          "isOnTrack": true,
+          "monthlyNeeded": 1000.00,
+          "monthsLeft": 18,
+          "name": "Apport maison",
+          "percentComplete": 10.0000,
+          "surplus": 0,
+          "targetAmount": 20000.00,
+          "type": "SAVINGS_TARGET"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "06 GET /api/goals as admin"
+    },
+    {
+      "body": {
+        "accounts": [
+          {
+            "color": "#6366f1",
+            "createdAt": "<instant>",
+            "currency": "EUR",
+            "currentBalance": 2000.00000000,
+            "currentBalanceEur": 2000.00000000,
+            "hidden": false,
+            "id": "<id:1>",
+            "isManual": true,
+            "listCollapsed": false,
+            "name": "Livret A",
+            "type": "LIVRET_A"
+          }
+        ],
+        "allocations": [],
+        "createdAt": "<instant>",
+        "currentTotal": 2000.00000000,
+        "deadline": "<month+18:last>",
+        "id": "<id:1>",
+        "isOnTrack": true,
+        "monthlyNeeded": 1000.00,
+        "monthsLeft": 18,
+        "name": "Apport maison",
+        "percentComplete": 10.0000,
+        "surplus": 0,
+        "targetAmount": 20000.00,
+        "type": "SAVINGS_TARGET"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "07 GET /api/goals/{goal} as admin"
+    },
+    {
+      "body": {
+        "accounts": [
+          {
+            "color": "#6366f1",
+            "createdAt": "<instant>",
+            "currency": "EUR",
+            "currentBalance": 2000.00000000,
+            "currentBalanceEur": 2000.00000000,
+            "hidden": false,
+            "id": "<id:1>",
+            "isManual": true,
+            "listCollapsed": false,
+            "name": "Livret A",
+            "type": "LIVRET_A"
+          }
+        ],
+        "allocations": [],
+        "createdAt": "<instant>",
+        "currentTotal": 2000.00000000,
+        "deadline": "<month+18:last>",
+        "id": "<id:1>",
+        "isOnTrack": true,
+        "monthlyNeeded": 1277.81,
+        "monthsLeft": 18,
+        "name": "Apport appartement",
+        "percentComplete": 8.0000,
+        "surplus": 0,
+        "targetAmount": 25000.5,
+        "type": "SAVINGS_TARGET"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "08 PUT /api/goals/{goal} as admin"
+    },
+    {
+      "body": [
+        {
+          "objective": 1277.81,
+          "yearMonth": "<month>"
+        },
+        {
+          "objective": 1277.81,
+          "yearMonth": "<month+1>"
+        },
+        {
+          "objective": 1277.81,
+          "yearMonth": "<month+2>"
+        },
+        {
+          "objective": 1277.81,
+          "yearMonth": "<month+3>"
+        },
+        {
+          "objective": 1277.81,
+          "yearMonth": "<month+4>"
+        },
+        {
+          "objective": 1277.81,
+          "yearMonth": "<month+5>"
+        },
+        {
+          "objective": 1277.81,
+          "yearMonth": "<month+6>"
+        },
+        {
+          "objective": 1277.81,
+          "yearMonth": "<month+7>"
+        },
+        {
+          "objective": 1277.81,
+          "yearMonth": "<month+8>"
+        },
+        {
+          "objective": 1277.81,
+          "yearMonth": "<month+9>"
+        },
+        {
+          "objective": 1277.81,
+          "yearMonth": "<month+10>"
+        },
+        {
+          "objective": 1277.81,
+          "yearMonth": "<month+11>"
+        },
+        {
+          "objective": 1277.81,
+          "yearMonth": "<month+12>"
+        },
+        {
+          "objective": 1277.81,
+          "yearMonth": "<month+13>"
+        },
+        {
+          "objective": 1277.81,
+          "yearMonth": "<month+14>"
+        },
+        {
+          "objective": 1277.81,
+          "yearMonth": "<month+15>"
+        },
+        {
+          "objective": 1277.81,
+          "yearMonth": "<month+16>"
+        },
+        {
+          "objective": 1277.81,
+          "yearMonth": "<month+17>"
+        },
+        {
+          "objective": 1277.81,
+          "yearMonth": "<month+18>"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "09 GET /api/goals/{goal}/months as admin"
+    },
+    {
+      "body": {
+        "errors": {
+          "accountIds": "must not be empty",
+          "deadline": "must be a future date"
+        },
+        "instance": "/api/goals",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "10 POST /api/goals as admin"
+    },
+    {
+      "body": null,
+      "bodyKind": "empty",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 204,
+      "step": "11 DELETE /api/goals/{goal} as admin"
+    },
+    {
+      "body": {
+        "detail": "Goal not found",
+        "instance": "/api/goals/<id:1>",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "12 GET /api/goals/{goal} as admin"
+    }
+  ]
+}

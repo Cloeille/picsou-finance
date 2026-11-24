@@ -1,7 +1,9 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
+import { isInsideDesktopShell } from '@/features/desktop/shell'
 import { useLoginWithRememberMe } from '@/features/mfa/hooks'
+import { useSetupStatus } from '@/features/setup/hooks'
 import { ssoErrorMessage } from '@/features/sso/errors'
 import { useSsoInfo } from '@/features/sso/hooks'
 import { submitSsoStart } from '@/features/sso/start'
@@ -21,7 +23,8 @@ import { SsoProgressScreen } from './SsoProgressScreen'
 export function LoginPage() {
   const { t } = useTranslation()
   const [searchParams] = useSearchParams()
-  const [username, setUsername] = useState('')
+  // `null` until typed in: the locked desktop app then names its own account.
+  const [typedUsername, setUsername] = useState<string | null>(null)
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
   const [showPw, setShowPw] = useState(false)
@@ -32,6 +35,31 @@ export function LoginPage() {
   const [ssoRedirecting, setSsoRedirecting] = useState(false)
   const loginMutation = useLoginWithRememberMe()
   const demoMode = useAppStore(s => s.demoMode)
+  const storeDesktopMode = useAppStore(s => s.desktopMode)
+  const storeDesktopLockEnabled = useAppStore(s => s.desktopLockEnabled)
+  const setupStatus = useSetupStatus(!demoMode)
+  const desktopMode =
+    setupStatus.data !== undefined ? Boolean(setupStatus.data.desktopMode) : storeDesktopMode
+  const desktopLockEnabled =
+    setupStatus.data !== undefined
+      ? Boolean(setupStatus.data.desktopLockEnabled)
+      : storeDesktopLockEnabled
+  // Without a password lock nobody can type a password. In a browser the way forward is to turn
+  // the lock on in the app; inside the app the automatic sign-in failed and a restart retries it.
+  const desktopUnlocked = !demoMode && desktopMode && !desktopLockEnabled
+  const insideDesktopShell = isInsideDesktopShell()
+  const showDesktopLockNotice = desktopUnlocked && !insideDesktopShell
+  const showDesktopRestartNotice = desktopUnlocked && insideDesktopShell
+  // Quick start derived the local username from the space name: its owner never chose it, so
+  // the form fills it in and only the password is left to type.
+  const desktopUsername = setupStatus.data?.desktopUsername
+  const username = typedUsername ?? desktopUsername ?? ''
+  const passwordInput = useRef<HTMLInputElement>(null)
+  // The name can arrive after someone started typing one: their field keeps the cursor.
+  const usernameUntouched = typedUsername === null
+  useEffect(() => {
+    if (desktopUsername && usernameUntouched) passwordInput.current?.focus()
+  }, [desktopUsername, usernameUntouched])
   const navigate = useNavigate()
   const redirect = safeRedirect(searchParams.get('redirect'))
   const ssoInfo = useSsoInfo(!demoMode)
@@ -100,7 +128,7 @@ export function LoginPage() {
       const status = getErrorStatus(err)
       const ax = err as { response?: unknown; message?: string }
       if (!ax.response) {
-        setError(t('auth.networkError'))
+        setError(desktopMode ? t('auth.networkErrorDesktop') : t('auth.networkError'))
       } else if (status === 401) {
         setError(t('auth.error'))
       } else {
@@ -114,6 +142,26 @@ export function LoginPage() {
   return (
     <div className="flex min-h-dvh items-center justify-center bg-background px-4 py-10">
       <div className="mx-auto flex w-full max-w-md flex-col gap-4">
+        {(showDesktopLockNotice || showDesktopRestartNotice) && (
+          <Card
+            role="status"
+            className="rounded-xl border-0 bg-muted/50 py-0 ring-1 ring-foreground/10"
+          >
+            <CardContent className="space-y-1 px-6 py-4 sm:px-8">
+              <p className="text-sm font-semibold text-foreground">
+                {showDesktopRestartNotice
+                  ? t('desktop.autologinFailed.title')
+                  : t('desktop.oauthLogin.title')}
+              </p>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                {showDesktopRestartNotice
+                  ? t('desktop.autologinFailed.description')
+                  : t('desktop.oauthLogin.description')}
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         <Card className="rounded-xl border border-border/60 py-7 ring-0 sm:py-8">
           <CardHeader className="items-center gap-1.5 px-6 text-center sm:px-8">
             <CardTitle className="text-2xl font-semibold tracking-tight sm:text-3xl">
@@ -170,7 +218,7 @@ export function LoginPage() {
                   onChange={e => setUsername(e.target.value)}
                   autoComplete="username"
                   required
-                  placeholder="admin"
+                  placeholder={desktopMode ? undefined : 'admin'}
                   className="h-10 rounded-lg px-3.5 text-sm"
                 />
               </div>
@@ -187,6 +235,7 @@ export function LoginPage() {
                     onChange={e => setPassword(e.target.value)}
                     autoComplete="current-password"
                     required
+                    ref={passwordInput}
                     placeholder="••••••••"
                     className="h-10 rounded-lg px-3.5 pr-11 text-sm"
                   />

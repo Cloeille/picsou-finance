@@ -150,9 +150,9 @@ LiabilitiesCard renders if liabilities.length > 0
 | `frontend/src/pages/dashboard/DashboardPage.tsx` | Add `<LiabilitiesCard>` between Goals and Holdings |
 | `frontend/src/components/shared/LiabilitiesCard.tsx` | New component |
 | `frontend/src/types/api.ts` | Extend `DashboardData` and liabilities entry |
-| `backend/.../dto/DashboardSummaryDto.java` | Add `totalMonthlyPayment`, extend liability DTO |
-| `backend/.../service/DashboardService.java` | Fetch debts, enrich liability entries |
-| `backend/.../controller/DashboardController.java` | No change expected |
+| `DashboardSummaryDto.java` | Add `totalMonthlyPayment`, extend liability DTO |
+| `backend-rs/src/accounts/dashboard.rs` | Fetch debts, enrich liability entries |
+| `DashboardController.java` | No change expected |
 
 ## Out of scope
 

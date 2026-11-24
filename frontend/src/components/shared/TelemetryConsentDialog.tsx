@@ -27,6 +27,7 @@ export function TelemetryConsentDialog() {
   // Waits for the one-time sidebar prompt so two modals never stack on first launch.
   const { open } = useTelemetryConsentPrompt()
   const dismiss = useAppStore((s) => s.dismissTelemetryConsent)
+  const desktopMode = useAppStore((s) => s.desktopMode)
   const update = useUpdateTelemetry()
 
   function choose(enabled: boolean) {
@@ -56,7 +57,9 @@ export function TelemetryConsentDialog() {
               {NEVER.map((k) => <li key={k}>{t(`telemetry.consent.${k}`)}</li>)}
             </ul>
           </section>
-          <p className="text-sm text-muted-foreground">{t('telemetry.consent.tunnel')}</p>
+          <p className="text-sm text-muted-foreground">
+            {desktopMode ? t('telemetry.consent.tunnelDesktop') : t('telemetry.consent.tunnel')}
+          </p>
         </div>
 
         <DialogFooter>

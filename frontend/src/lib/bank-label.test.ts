@@ -28,13 +28,13 @@ describe('formatBankLabel', () => {
 
   it('extracts readable motif and sender from French bank transfer labels', () => {
     const res = formatBankLabel(
-      'Recu De Mme Chantal De Bailliencourt Motif Argent De Poche Ref',
+      'Recu De Mme Jeanne De Montclair Motif Argent De Poche Ref',
       'fr',
       tFr,
     )
     expect(res).toEqual({
       title: 'Argent de poche',
-      detail: 'Mme Chantal De Bailliencourt',
+      detail: 'Mme Jeanne De Montclair',
     })
   })
 

@@ -6,8 +6,7 @@ side of getting a change merged.
 ## Prerequisites
 
 - GNU Make, Docker
-- Java 21 + Maven (backend). Maven enforces Java 21 during `validate`: point
-  `JAVA_HOME` at a JDK 21.
+- Rust stable with `rustfmt` and `clippy` (the backend, `backend-rs/`, and the desktop shell).
 - [Bun](https://bun.sh) (frontend)
 
 ## Commands
@@ -17,9 +16,9 @@ green `make test-…` locally is the CI job. `make help` lists them.
 
 | Command | What it does |
 |---|---|
-| `make dev` | PostgreSQL in Docker on `127.0.0.1:5432` (container `picsou-db` with user, password and database `picsou`, kept between runs), the backend on http://localhost:8080 (`dev` profile, with the `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` generated when `picsou-db` is created and stored in it, so every checkout decrypts the same data; exported values win; a `picsou-db` created by hand before `make dev` holds none, so export the `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` you ran it with) and Vite on https://localhost:5173 (proxies `/api/*` to the backend). Ctrl-C stops both processes. |
+| `make dev` | PostgreSQL in Docker on `127.0.0.1:5432` (container `picsou-db` with user, password and database `picsou`, kept between runs), the backend on http://localhost:8080 (`cargo run` in `backend-rs` with the `dev` profile, with the `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` generated when `picsou-db` is created and stored in it, so every checkout decrypts the same data; exported values win; a `picsou-db` created by hand before `make dev` holds none, so export the `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` you ran it with) and Vite on https://localhost:5173 (proxies `/api/*` to the backend). Ctrl-C stops both processes. |
 | `make test` | Every suite below, in order. |
-| `make test-backend` | Backend Maven tests. `TEST=GoalServiceTest` or `TEST=GoalServiceTest#method` runs one class or method. The PostgreSQL tests need Docker and skip themselves without it. `SOFIDY_PYTHON=python3` also runs the Java/Python Sofidy contract test (`pip install -r services/base/requirements.txt` first). To run one of CI's shards: `python3 .github/scripts/backend_shards.py --shards 3 --shard 2 --out /tmp/s && make test-backend SHARD_INCLUDES=/tmp/s/backend-shard-2.includes` (shard 3 writes `backend-shard-3.excludes`: pass it as `SHARD_EXCLUDES`). Without `--timings` the split is by hash, not CI's timed one. |
+| `make test-backend` | The backend: `cargo fmt --check`, `clippy -D warnings`, then every test (`TEST=routes` filters by name), then the integration tests again on embedded SQLite. The PostgreSQL tests create and drop their own databases on PostgreSQL 16 at `127.0.0.1:55432`, user `picsou`, trust authentication; for example `docker run -d --name picsou-test-db -p 127.0.0.1:55432:5432 -e POSTGRES_USER=picsou -e POSTGRES_HOST_AUTH_METHOD=trust postgres:16-alpine`. |
 | `make test-frontend` | ESLint (zero warnings), TypeScript, Vitest. |
 | `make lint-frontend` | ESLint (zero warnings) and TypeScript only. |
 | `make unit-frontend [SHARD=1/2]` | Vitest only, optionally one shard (CI runs two). |
@@ -27,7 +26,7 @@ green `make test-…` locally is the CI job. `make help` lists them.
 | `make test-sidecar SIDECAR=tr-auth` | Builds one connector's shared base and image, then runs its tests inside it. |
 | `make test-sidecars` | The `services/base` tests, then every connector. |
 | `make build` | Every image Compose builds: the app, the connectors and their bases. `SERVICES="app tr-auth"` builds only those. |
-| `make desktop` | The Linux desktop app (`.deb`, AppImage) from the same jar and SPA, with the Docker release's Java and PostgreSQL majors. See [desktop-app.md](docs/features/desktop-app.md). |
+| `make desktop` | The desktop app for this machine (Linux `.deb` and AppImage, macOS `.app`, Windows installer): the shell links the backend and carries the SPA; its data is an embedded SQLite database. See [desktop-app.md](docs/features/desktop-app.md). |
 | `make format` | Prettier on the frontend sources. |
 | `make deps` | Reinstalls the frontend dependencies (after a `bun.lock` change). |
 | `make release VERSION=x.y.z` | Maintainers. Checks that `CHANGELOG.md` has a `## [x.y.z]` section, that the tree is clean and `HEAD` is on `origin/main`, then tags and pushes the tag (`REMOTE=upstream` from a fork). CI publishes the images and the chart once green. |
@@ -36,7 +35,7 @@ green `make test-…` locally is the CI job. `make help` lists them.
 a type error.
 
 The `dev` profile points each bank connector at its own `127.0.0.1` port
-(`backend/src/main/resources/application-dev.yml`). To use one, start its sidecar
+(`backend-rs/src/sidecars.tsv`). To use one, start its sidecar
 from `services/<name>/` with `APP_SIDECAR_API_KEY=<same key as the backend> uvicorn main:app --port <port>`
 (PYTHONPATH must include `services/base`; Revolut and AMEX also need the Xvfb display their
 `entrypoint.sh` starts; the main image has no entrypoint script).
@@ -61,11 +60,11 @@ accept the browser warning once.
 - **Commits**: [Conventional Commits](https://www.conventionalcommits.org/) —
   `feat(scope):`, `fix(scope):`, `refactor(scope):`, `docs:`, `test:`, `chore:`.
 - **Code style**: read [`docs/conventions/`](docs/conventions/) and the
-  module guides ([`backend/CLAUDE.md`](backend/CLAUDE.md),
+  module guides ([`backend-rs/README.md`](backend-rs/README.md),
   [`frontend/CLAUDE.md`](frontend/CLAUDE.md)) before coding. The
   non-negotiables live in [`docs/CODING_RULES.md`](docs/CODING_RULES.md).
 - **Database**: schema changes go through Flyway migrations
-  (`backend/src/main/resources/db/migration/`) — never edit a migration that is on
+  (`backend-rs/migrations/`) — never edit a migration that is on
   `main`; add a new versioned file (numbering: see
   [Before you open a pull request](#before-you-open-a-pull-request)).
 - **i18n**: user-visible strings go through `useTranslation()`; add every new
@@ -220,11 +219,11 @@ finished releases, and a release is tagged from it (`make release`).
 
 | You change | Target | Example |
 |---|---|---|
-| A bug fix (`fix/xxx`), a patch or minor dependency bump | the patch branch | `release/1.2.3` |
-| A feature, refactor or major dependency bump (`feature/xxx`, `refactor/xxx`) | the next minor branch | `release/1.3.0` |
+| A bug fix (`fix/xxx`), a patch or minor dependency bump | the patch branch | `release/1.3.1` |
+| A feature, refactor or major dependency bump (`feature/xxx`, `refactor/xxx`) | the next minor branch | `release/1.4.0` |
 
 - **Which branch.** The open `release/x.y.z` whose version is the next patch (fixes) or the next
-  minor (features) after the latest stable tag (ignore prerelease tags such as `1.3.0-rc.1`). List
+  minor (features) after the latest stable tag (ignore prerelease tags such as `1.4.0-rc.1`). List
   them with `git fetch --prune origin && git branch -r --list 'origin/release/*'`; if none matches,
   ask in the issue. In a clone of your fork, `origin` is the fork, and a fork can keep a branch
   that was deleted here: run both commands with the remote that points to this repository instead
@@ -237,8 +236,8 @@ finished releases, and a release is tagged from it (`make release`).
   open branch. The open branches are cut from `main` after the release, so they contain the
   released branch.
 - **Branch and sync from the target**, not from `main`: `git fetch --prune origin`, then
-  `git switch -c fix/xxx origin/release/1.2.3`; to sync, `git fetch origin` again and merge
-  `origin/release/1.2.3` into your branch (a merge, not a rebase). Compare your diff
+  `git switch -c fix/xxx origin/release/1.3.1`; to sync, `git fetch origin` again and merge
+  `origin/release/1.3.1` into your branch (a merge, not a rebase). Compare your diff
   against the same branch.
 - **Migrations** take the next free `V<n>` across `main` and every open release branch, so two
   releases never ship the same version. Two pull requests on different release branches can still
@@ -246,25 +245,25 @@ finished releases, and a release is tagged from it (`make release`).
   `main` is merged into the minor branch. So before merging a pull request that adds a migration,
   a maintainer runs `git fetch origin` and checks that its version is neither on `main` nor on any
   other open release branch (for each such `<branch>`, `git ls-tree --name-only origin/<branch>
-  backend/src/main/resources/db/migration/ | grep '/V<n>__'` prints nothing); if it is on one, the
+  backend-rs/migrations/ | grep '/V<n>__'` prints nothing); if it is on one, the
   pull request renumbers first. Merges are done one at a time, which serialises the check.
 - **`CHANGELOG.md`**: your entry goes under `[Unreleased]` on the target branch. Before the merge
   into `main`, a maintainer freezes the release branch (nothing else merges into it), renames that
   section to `## [x.y.z]` on it (`make release` requires it) and leaves an empty `[Unreleased]`
   above it. A fix that misses the freeze waits for the next release branch.
 - **Release flow (maintainers).**
-  1. Merge `release/1.2.3` into `main` with a pull request (a merge commit, not a squash), pull
-     `main`, and run `make release VERSION=1.2.3` (`HEAD` must be on `origin/main`).
-  2. Merge `main` into `release/1.3.0`, so every fix released in 1.2.3 reaches 1.3.0 (a merge,
+  1. Merge `release/1.3.1` into `main` with a pull request (a merge commit, not a squash), pull
+     `main`, and run `make release VERSION=1.3.1` (`HEAD` must be on `origin/main`).
+  2. Merge `main` into `release/1.4.0`, so every fix released in 1.3.1 reaches 1.4.0 (a merge,
      not a rebase). Do this after every patch release. `CHANGELOG.md` conflicts there: keep the
-     `## [1.2.3]` section from `main` and every entry under `[Unreleased]`.
-  3. When 1.3.0 is ready, freeze the open patch branch too: nothing else merges into it until
-     step 4 deletes it. If it holds commits that no release shipped, merge it into `release/1.3.0`
-     before you rename the `[Unreleased]` section there, so that its entries land in `## [1.3.0]`
-     and its commits ship in 1.3.0 (1.2.0 took `release/1.1.1` this way). Then merge
-     `release/1.3.0` into `main` and run `make release VERSION=1.3.0`.
-  4. After each release, cut the next branches from `main` (`release/1.2.4` after 1.2.3,
-     `release/1.3.1` and `release/1.4.0` after 1.3.0). A minor release also ends the patch branch
+     `## [1.3.1]` section from `main` and every entry under `[Unreleased]`.
+  3. When 1.4.0 is ready, freeze the open patch branch too: nothing else merges into it until
+     step 4 deletes it. If it holds commits that no release shipped, merge it into `release/1.4.0`
+     before you rename the `[Unreleased]` section there, so that its entries land in `## [1.4.0]`
+     and its commits ship in 1.4.0 (1.2.0 took `release/1.1.1` this way). Then merge
+     `release/1.4.0` into `main` and run `make release VERSION=1.4.0`.
+  4. After each release, cut the next branches from `main` (`release/1.3.2` after 1.3.1,
+     `release/1.4.1` and `release/1.5.0` after 1.4.0). A minor release also ends the patch branch
      that was open before it. Retarget every pull request that is still open against a branch you
      are about to delete, then delete the branch. Update the branch names in this section and in
      [`CLAUDE.md`](CLAUDE.md).
@@ -306,7 +305,7 @@ the checklist below.
    every open `release/*` branch (all of them can still take a number). Another open pull request
    may take the same number: whichever merges second renumbers its own **unmerged** files (and
    anything that names them) after syncing, keeping their order and numbering them after the
-   latest version on the target branch; `MigrationVersionsTest` fails the build on a duplicate.
+   latest version on the target branch; the `every_migration_has_a_unique_version` test fails the build on a duplicate.
    Never renumber or edit a migration that is already on `main` or a release branch
    ([why](docs/conventions/database.md#writing-a-new-migration)). Name the version in the pull
    request description. A local `picsou-db` that already applied the old number refuses the

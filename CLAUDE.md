@@ -4,10 +4,11 @@ Self-hosted personal-finance dashboard for an individual or a small family — b
 
 ## Stack
 
-- Backend: Java 21 / Spring Boot 3.5.16 / Maven
+- Backend: Rust (Axum, Tokio, sqlx), one crate in `backend-rs/`
 - Frontend: React 19 / TypeScript 5.9 / Vite 8 / Tailwind v4
-- DB: PostgreSQL 16 / Flyway
-- Build: Maven (backend), bun (frontend)
+- DB: PostgreSQL 16 (Flyway-compatible migrations), or embedded SQLite (desktop app, single-container Docker)
+- Desktop: Tauri shell in `desktop/` that links the backend
+- Build: Cargo (backend, desktop), bun (frontend)
 - Deployment: Docker Compose; Kubernetes with the Helm chart in `charts/picsou`
 
 ## Essential commands
@@ -16,14 +17,14 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md#commands): one `make` target per task, r
 
 ## Code conventions
 
-See [`docs/conventions/`](docs/conventions/) and module-specific CLAUDE.md files (`backend/CLAUDE.md`, `frontend/CLAUDE.md`).
+See [`docs/conventions/`](docs/conventions/) and the module guides (`backend-rs/README.md`, `frontend/CLAUDE.md`).
 
 ## Project architecture
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full architecture overview, data flows, and external dependencies.
 
 For module-specific details, see:
-- [`backend/CLAUDE.md`](backend/CLAUDE.md) -- package structure, ports & adapters, auth, configuration
+- [`backend-rs/README.md`](backend-rs/README.md) -- module layout, routes, handlers, configuration, tests
 - [`frontend/CLAUDE.md`](frontend/CLAUDE.md) -- component hierarchy, API layer, demo mode, i18n
 
 ## Technical documentation
@@ -65,7 +66,7 @@ Before opening or updating a pull request, read [`CONTRIBUTING.md`](CONTRIBUTING
 - Target a release branch, never `main` directly: the open patch branch (next patch after the latest stable tag) for a bug fix, the open minor branch (next minor after it) for a feature, a refactor or a major dependency bump; a large or behaviour-changing fix goes to the minor branch. Run `git fetch --prune origin`, then list them with `git branch -r --list 'origin/release/*'` (when `origin` is your fork, use the remote of the project repository, usually `upstream`, in both commands); a branch that is not listed was released and deleted, never branch from it or target it; if none matches or the target is unclear, ask in the issue. A follow-up goes to its parent's branch. Branch from it, open the pull request against it, and put the `CHANGELOG.md` entry under `[Unreleased]` on it. Only a change to the release workflow itself (these rules, CI triggers) targets `main`.
 - Sync with the branch you target (`git fetch origin`, then merge it in) and have CI green before asking for review. Never weaken a lint, test or convention to pass.
 - Every behaviour change has a test that fails without it. No test may depend on the current date: inject a `Clock`.
-- A new migration takes the next free `V<n>` on an up-to-date target branch, counting `main` and every open `release/*` branch; after another pull request merges first, renumber your own unmerged file. `MigrationVersionsTest` enforces unique versions. Never renumber one already on `main` or a release branch.
+- A new migration takes the next free `V<n>` on an up-to-date target branch, counting `main` and every open `release/*` branch; after another pull request merges first, renumber your own unmerged file. The `every_migration_has_a_unique_version` test enforces unique versions. Never renumber one already on `main` or a release branch.
 - For a user-visible change, add one `CHANGELOG.md` entry under `[Unreleased]` of the target branch as the last step, after your final sync. On a conflict there, keep both entries.
 - Bank connectors: synthetic fixtures only. Never put real account data, sessions, tokens, screenshots or logs in code, tests, fixtures or the pull request.
 - Before the first push and after every later one, review your whole diff against the branch you target with a reviewer agent (for example Claude Code's `/code-review`) and iterate until it reports no blocking issue. Do the impact analysis first (callers, docs, tests, migrations, i18n) and fix the whole bug class, not only the reported line. Put what the review found, and the design decisions, in the pull request description.
@@ -73,7 +74,7 @@ Before opening or updating a pull request, read [`CONTRIBUTING.md`](CONTRIBUTING
 
 ## Release flow
 
-Maintainers only (1.2.3 and 1.3.0 stand for the open patch and minor versions): merge `release/1.2.3` into `main` and run `make release VERSION=1.2.3`, then merge `main` into `release/1.3.0` (merge, not rebase) so the fixes reach it; later merge `release/1.3.0` into `main` and tag 1.3.0. After each release, cut the next branches from `main`, delete the released one and update the names here. Details: [`CONTRIBUTING.md`](CONTRIBUTING.md#release-branches).
+Maintainers only (1.3.1 and 1.4.0 stand for the open patch and minor versions): merge `release/1.3.1` into `main` and run `make release VERSION=1.3.1`, then merge `main` into `release/1.4.0` (merge, not rebase) so the fixes reach it; later merge `release/1.4.0` into `main` and tag 1.4.0. After each release, cut the next branches from `main`, delete the released one and update the names here. Details: [`CONTRIBUTING.md`](CONTRIBUTING.md#release-branches).
 
 ## Design Context
 

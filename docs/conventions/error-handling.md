@@ -1,44 +1,34 @@
 # Convention: Error Handling
 
-## Exception hierarchy
+## The error type
 
-```
-RuntimeException
-  +-- ResourceNotFoundException      404 NOT_FOUND
-  +-- SyncException                  422 UNPROCESSABLE_ENTITY
-  +-- WalletRpcException             422 UNPROCESSABLE_ENTITY (adapter-level, see below)
-  +-- BadCredentialsException        401 UNAUTHORIZED   (Spring Security)
-  +-- IllegalArgumentException       400 BAD_REQUEST
-  +-- MethodArgumentNotValidException 422 UNPROCESSABLE_ENTITY (via @Valid)
+Every handler returns `AppResult<T>`. The error is one enum, `AppError`
+(`backend-rs/src/error.rs`), rendered as an RFC 7807 problem body:
 
-Exception (catch-all)               500 INTERNAL_SERVER_ERROR
-```
-
-There is **no** `AppException` base class. Each exception type is standalone.
+| Variant | Status | Detail |
+|---------|--------|--------|
+| `NotFound(detail)` | 404 | the message |
+| `BadRequest(detail)` | 400 | the message |
+| `BadCredentials` | 401 | `"Invalid credentials"` |
+| `Forbidden(detail)` | 403 | the message |
+| `Status { status, detail }` | any | the message |
+| `Coded { status, code, detail }` | any | the message, plus a stable `code` |
+| `Validation(errors)` | 422 | title `"Validation failed"`, the field map under `errors` |
+| `Problem(problem)` | any | a problem body a handler builds for a special case |
+| `Internal(message)` | 500 | `"An unexpected error occurred"`; the message is logged, never sent |
 
 ## Rules
 
-- **Services throw business exceptions** — controllers never catch or handle them.
-- **Controllers never wrap responses in try/catch** — `GlobalExceptionHandler` handles everything.
-- **External errors** (bank APIs, crypto exchanges, price providers) are wrapped in `SyncException` with the original cause.
-- **Stack traces are never exposed** to clients (`server.error.include-stacktrace: never`, `include-message: never`).
-- **Generic 500 errors** always return `"An unexpected error occurred"` — the real exception is logged server-side via `log.error()`.
-
-## GlobalExceptionHandler
-
-**File:** `com.picsou.exception.GlobalExceptionHandler`
-
-A `@RestControllerAdvice` that extends `ResponseEntityExceptionHandler`. Returns `ProblemDetail` (RFC 7807) for every case.
-
-| Handler method | Exception | Status | Detail |
-|---------------|-----------|--------|--------|
-| `handleNotFound` | `ResourceNotFoundException` | 404 | `ex.getMessage()` |
-| `handleSync` | `SyncException` | 422 | `ex.getMessage()` plus optional stable `code` (logged at WARN) |
-| `handleWalletRpc` | `WalletRpcException` | 422 | generic `"Could not reach the blockchain network…"` (logged at WARN) |
-| `handleBadCredentials` | `BadCredentialsException` | 401 | `"Invalid credentials"` |
-| `handleIllegalArgument` | `IllegalArgumentException` | 400 | `ex.getMessage()` |
-| `handleMethodArgumentNotValid` | `MethodArgumentNotValidException` | 422 | Field map under `"errors"` key |
-| `handleGeneric` | `Exception` (fallback) | 500 | `"An unexpected error occurred"` |
+- **Handlers return errors with `?`** and never build a response for a failure by hand.
+- **A module with its own failures keeps its own error type** and converts it into `AppError` at
+  the edge. `EbError` (`backend-rs/src/sync/enable_banking/error.rs`) is the model: an upstream
+  failure becomes a 422 with a message safe to show and an optional `code`, logged at WARN.
+- **External errors** (bank APIs, crypto exchanges, price providers) never reach the client raw:
+  the response carries a message written for the user, the log carries the upstream detail.
+- **`Internal` never exposes its message.** The client gets the generic 500, the log gets
+  `Unhandled exception: …` at ERROR.
+- **404 messages are ID-free** (`"Account not found"`). The caller already knows the id, and a
+  raw id in a message the user sees is noise at best and a leak at worst.
 
 ### Validation error shape (422)
 
@@ -55,95 +45,48 @@ A `@RestControllerAdvice` that extends `ResponseEntityExceptionHandler`. Returns
 }
 ```
 
-The `errors` map is built from `FieldError.getField()` and `FieldError.getDefaultMessage()`. When two errors hit the same field, the first wins.
+A request body implements `Validate` (`backend-rs/src/http/json.rs`); the `Json<T>` extractor
+runs it before the handler. When two errors hit the same field, the first wins.
 
-## Custom exceptions
+### Codes
 
-### ResourceNotFoundException
-
-```java
-// Static factories for consistent messages
-ResourceNotFoundException.account(Long id);       // "Account not found"
-ResourceNotFoundException.goal(Long id);          // "Goal not found"
-ResourceNotFoundException.requisition(String id); // "Requisition not found"
-ResourceNotFoundException.transaction(Long id);   // "Transaction not found"
-```
-
-**Messages are ID-free.** The factories take the id (handy for logging / call-site
-clarity) but deliberately do **not** interpolate it into the user-facing message.
-Leaking a raw resource id into a 404 the user sees is noise at best and an
-information leak at worst — the id is already known to the caller. Keep new
-factories ID-free for the same reason.
-
-### SyncException
-
-```java
-// Wraps upstream provider failures
-new SyncException("Enable Banking API error: ...");
-new SyncException("Binance API timeout", cause);  // with original cause
-new SyncException("Incomplete portfolio", cause, "PORTFOLIO_INCOMPLETE");
-```
-
-Logged at WARN level so upstream flakiness is trackable without alert fatigue.
-Use the optional code for domain errors that the frontend must translate or
-react to. Codes are API contracts; messages remain English diagnostics and must
-not be parsed.
-
-## Adding a new exception type
-
-1. Extend `RuntimeException` directly (no base class).
-2. Add a handler method in `GlobalExceptionHandler` returning `ProblemDetail`.
-3. Throw it from a service — never from a controller.
+Use `AppError::coded` for a domain error the frontend must translate or react to
+(`PORTFOLIO_INCOMPLETE`, `MFA_ACTIVE`). Codes are API contracts; messages remain English
+diagnostics and must not be parsed.
 
 ## Don'ts
 
-- **Never catch exceptions in controllers** — let `GlobalExceptionHandler` handle them.
-- **Never create an `AppException` base class** — each exception type extends `RuntimeException` directly.
-- **Never expose stack traces to clients** — the generic 500 handler returns "An unexpected error occurred".
-- **Never throw business exceptions from adapters** — wrap external errors in `SyncException`.
-  The one sanctioned exception is `WalletRpcException`: a *technical* signal (no user-facing
-  message) a wallet adapter throws when a blockchain JSON-RPC response is an error / missing
-  its `result`, so it can't silently report a 0 balance. `WalletSyncService.sync()` catches
-  it and wraps it in a friendly `SyncException`; `GlobalExceptionHandler` maps it to a generic
-  `422` as defense-in-depth. The business rule still holds — this is a technical, not a
-  business, exception. See [`docs/features/crypto-tracking.md`](../features/crypto-tracking.md).
+- **Never answer a failure with a hand-built body** — return an `AppError`.
+- **Never put an upstream message, a path or a type name in a detail** the user sees.
+- **Never turn a missing upstream value into a plausible number.** A wallet RPC response that
+  is an error or lacks its `result` fails the sync with a 422, it does not report a balance
+  of 0. See [`docs/features/crypto-tracking.md`](../features/crypto-tracking.md).
 
 ## Swallowing rules (backend)
 
-A `catch` that neither rethrows nor logs is a bug unless the failure is *expected
-and irrelevant* (a POSIX `chmod` on Windows, a non-numeric cell while sniffing a
-CSV header). Everything else follows two rules:
+An error that is neither returned nor logged is a bug unless the failure is *expected and
+irrelevant* (a POSIX `chmod` on Windows, a non-numeric cell while sniffing a CSV header).
+Everything else follows two rules:
 
-- **Keep the cause.** Wrapping (`SyncException`, `MfaException`,
-  `IllegalArgumentException`) always passes the original exception as the cause.
-  The user-facing message is deliberately generic, so the cause is the only
-  remaining record of what actually broke.
-- **Log at the level the failure deserves.** Expected upstream flakiness →
-  `log.warn` with the message. Anything that reaches a `catch (Exception |
-  RuntimeException)` fallback is a bug → `log.error(msg, ex)` *with the
-  exception object*, never `ex.getMessage()` alone (which prints `null` for an
-  NPE). Auto-sync entry points (`resyncIfSessionActive`) split the two: a
-  `SyncException` is WARN, any other `RuntimeException` is ERROR with a trace.
+- **Keep the cause.** The user-facing message is deliberately generic, so the log line is the
+  only remaining record of what actually broke: log the original error where it is replaced.
+- **Log at the level the failure deserves.** Expected upstream flakiness → `tracing::warn!`
+  with the message. A failure that should not happen is a bug → `tracing::error!` with the
+  error. Auto-sync entry points split the two: an upstream failure is WARN, anything else is
+  ERROR.
 
 ## Logging outside-controlled values (backend)
 
-`logback-spring.xml` replaces line breaks and control characters (CR, LF, U+0085, U+2028,
-U+2029, ESC, other C0/C1; TAB is kept) with `?` in every message (`%m`) and in exception
-messages inside stack traces (`%wEx`), so a logged value cannot forge a log line or send
-terminal escapes. The layout is otherwise Spring Boot's default, on the console and, when
-`logging.file.name` or `logging.file.path` is set, in the rolling log file (`logback-file.xml`,
-included only then).
-
-On top of that, wrap a value an outsider controls in `LogSanitizer.safe(value)` at the call
-site: request parameters and headers, the remote address, usernames (user-chosen and
-renamable), user-supplied tickers, uploaded file names and content, upstream response
-bodies, status texts and `ex.getMessage()` of an upstream call. It applies the same
-replacement and caps the value at 500 characters, keeps the call safe under any other logging
-setup, and is what CodeQL's `java/log-injection` recognises. Pass the `String` it returns
-straight to the log call: an object that sanitises inside a deferred `toString()` hides the
-sanitiser from CodeQL, and the alert stays open. Don't wrap ids, enums, numbers or
-the app's own constants. Pass exceptions as the last argument
-(`log.warn(msg, ex)`), not wrapped.
+The log output keeps each event on one line: a line break or a control character inside an
+event becomes `?` (`OneLine` in `backend-rs/src/logging.rs`), so a logged value cannot forge a
+log line. On top of that, wrap a value an outsider controls in a one-line helper at the call
+site (`log_safe` in `backend-rs/src/identity/common.rs`, `safe` in
+`backend-rs/src/sync/enable_banking/wire.rs`): request parameters and headers, usernames
+(user-chosen and renamable), user-supplied tickers, uploaded file names and content, upstream
+response bodies and status texts. The helper replaces line breaks and control characters, so a logged value
+cannot forge a log line. Log an identifier that
+must stay private as a fingerprint (`fingerprint` in the same file), never in full. Don't wrap
+ids, enums, numbers or the app's own constants.
 
 ## Swallowing rules (frontend)
 
@@ -158,7 +101,7 @@ omits an account.
 
 All user-facing error strings derived from an Axios error MUST go through
 `extractErrorMessage(err, fallback)` in `frontend/src/lib/errors.ts`. It walks the
-Axios error in priority order: `response.data.detail` (Spring `ProblemDetail`,
+Axios error in priority order: `response.data.detail` (the RFC 7807 problem body,
 with embedded-JSON detection on adapter strings of the form
 `"Enable Banking auth failed: {...}"`) → `response.data.message` → `err.message`
 (skipping the Axios boilerplate `"Request failed with status code N"`) →
@@ -214,9 +157,9 @@ the add-account modal).
 
 ### Backend message language
 
-The backend is **English-only** (no i18n layer — see `backend/CLAUDE.md`); messages
-are fixed at the throw site. User-facing English must be friendly and free of
-internals: no concatenated `ex.getMessage()` (log it instead via `log.warn`), no
+The backend is **English-only** (no i18n layer, apart from the validation messages that
+follow `Accept-Language`); messages are fixed where the error is built. User-facing English
+must be friendly and free of internals: no upstream error text appended (log it instead), no
 French strings reaching the English UI, no PEM/wizard/PKCS#8 jargon for non-operator
 audiences. Translation to the user's locale happens **only** on the frontend through
 `formatApiError`'s i18n keys; specific backend 4xx reasons pass through verbatim.

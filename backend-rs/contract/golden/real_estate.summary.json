@@ -1,0 +1,218 @@
+{
+  "description": "Real estate summary with a property, its metadata and loan, an SCPI; valuations; geocoding with the stub down",
+  "scenario": "real_estate.summary",
+  "steps": [
+    {
+      "body": {
+        "costBasis": 0.00,
+        "grossValue": 0.00,
+        "monthlyRentalIncome": 0.00,
+        "netValue": 0.00,
+        "outstandingDebt": 0.00,
+        "paper": [],
+        "paperDebt": 0.00,
+        "paperGross": 0.00,
+        "paperNet": 0.00,
+        "properties": [],
+        "unrealizedGain": 0.00
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "04 GET /api/real-estate/summary as admin"
+    },
+    {
+      "body": {
+        "costBasis": 270000.00,
+        "grossValue": 300000.00,
+        "loanToValue": 40.00,
+        "monthlyRentalIncome": 900.00,
+        "netValue": 180000.00,
+        "outstandingDebt": 120000.00,
+        "paper": [
+          {
+            "accountId": "<id:1>",
+            "color": "#6366f1",
+            "grossValue": 5000.00,
+            "loans": [],
+            "managementCompany": "CORUM",
+            "name": "CORUM XL",
+            "netValue": 5000.00,
+            "outstandingDebt": 0.00,
+            "shareCount": 25.00000000,
+            "sharePercent": 100,
+            "valuationStatus": "PRICE_INCOMPLETE"
+          }
+        ],
+        "paperDebt": 0.00,
+        "paperGross": 5000.00,
+        "paperNet": 5000.00,
+        "properties": [
+          {
+            "accountId": "<id:2>",
+            "city": "Lyon",
+            "color": "#6366f1",
+            "costBasis": 270000.00,
+            "grossValue": 300000.00,
+            "lastConfidence": "MEDIUM",
+            "lastValuedAt": "2020-06-01",
+            "loans": [
+              {
+                "accountId": "<id:3>",
+                "lenderName": "Banque",
+                "monthlyPayment": 800.00,
+                "name": "Prêt",
+                "outstandingBalance": 120000.00,
+                "sharePercent": 100
+              }
+            ],
+            "name": "Appartement",
+            "netValue": 180000.00,
+            "outstandingDebt": 120000.00,
+            "rentalIncome": 900.00,
+            "sharePercent": 100,
+            "unrealizedGain": 30000.00,
+            "valuationMode": "ESTIMATED"
+          }
+        ],
+        "unrealizedGain": 30000.00,
+        "unrealizedGainPercent": 11.11
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "06 GET /api/real-estate/summary as admin"
+    },
+    {
+      "body": [
+        {
+          "confidence": "MEDIUM",
+          "estimatedValue": 290000.00000000,
+          "provider": "CEREMA_DVF",
+          "valuedAt": "2020-06-01"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "07 GET /api/real-estate/<id:2>/valuations as admin"
+    },
+    {
+      "body": {
+        "detail": "Account not found",
+        "instance": "/api/real-estate/999999/valuations",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "08 GET /api/real-estate/999999/valuations as admin"
+    },
+    {
+      "body": [],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "09 GET /api/geocode?q=ab as admin"
+    },
+    {
+      "body": [],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "10 GET /api/geocode?q=8%20boulevard%20du%20port as admin"
+    },
+    {
+      "body": {
+        "detail": "Required parameter 'q' is not present.",
+        "instance": "/api/geocode",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "11 GET /api/geocode as admin"
+    }
+  ]
+}

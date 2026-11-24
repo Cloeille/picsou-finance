@@ -1,0 +1,166 @@
+{
+  "description": "Password-protected .hbexport: the right password decodes it, a wrong or missing one is a 400",
+  "scenario": "transfer.homebank.encrypted",
+  "steps": [
+    {
+      "body": {
+        "accounts": [
+          {
+            "balance": 2362.95999999,
+            "closed": false,
+            "currency": "EUR",
+            "initialBalance": 0,
+            "institution": "Synthetic Bank",
+            "name": "Synthetic Checking",
+            "sourceId": "<uuid:1>",
+            "sourceType": "bank",
+            "suggestedType": "CHECKING",
+            "transactionCount": 3
+          },
+          {
+            "balance": 25.25,
+            "closed": true,
+            "currency": "EUR",
+            "initialBalance": 0,
+            "name": "Synthetic Savings",
+            "sourceId": "<uuid:2>",
+            "sourceType": "savings",
+            "suggestedType": "SAVINGS",
+            "transactionCount": 1
+          }
+        ],
+        "categories": [
+          {
+            "income": false,
+            "kindInferred": false,
+            "name": "Fresh produce",
+            "parentSourceId": "<uuid:3>",
+            "sourceId": "<uuid:4>",
+            "transactionCount": 1
+          },
+          {
+            "income": false,
+            "kindInferred": false,
+            "name": "Groceries",
+            "sourceId": "<uuid:3>",
+            "transactionCount": 0
+          },
+          {
+            "income": true,
+            "kindInferred": false,
+            "name": "Salary",
+            "sourceId": "<uuid:5>",
+            "transactionCount": 1
+          }
+        ],
+        "existingAccounts": [],
+        "existingCategories": [],
+        "fileToken": "<secret:6>",
+        "forecastTransactions": 1,
+        "sampleTransactions": [
+          {
+            "accountSourceId": "<uuid:1>",
+            "amount": -12.34000001,
+            "categorySourceId": "<uuid:4>",
+            "currency": "EUR",
+            "date": "<month-33:last>",
+            "notes": "Fresh food note",
+            "payee": "Synthetic Market",
+            "sourceId": "<uuid:7>",
+            "transfer": false
+          },
+          {
+            "accountSourceId": "<uuid:1>",
+            "amount": 2400.55,
+            "categorySourceId": "<uuid:5>",
+            "currency": "EUR",
+            "date": "<month-32:first>",
+            "payee": "Synthetic Market",
+            "sourceId": "<uuid:8>",
+            "transfer": false
+          },
+          {
+            "accountSourceId": "<uuid:1>",
+            "amount": -25.25,
+            "currency": "EUR",
+            "date": "2024-03-02",
+            "sourceId": "<uuid:9>",
+            "transfer": true
+          },
+          {
+            "accountSourceId": "<uuid:2>",
+            "amount": 25.25,
+            "currency": "EUR",
+            "date": "2024-03-02",
+            "sourceId": "<uuid:10>",
+            "transfer": true
+          }
+        ],
+        "totalTransactions": 4
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "04 POST /api/homebank/import/preview as admin"
+    },
+    {
+      "body": {
+        "detail": "Incorrect password or corrupted HomeBank export",
+        "instance": "/api/homebank/import/preview",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "05 POST /api/homebank/import/preview as admin"
+    },
+    {
+      "body": {
+        "detail": "Password required for HomeBank export",
+        "instance": "/api/homebank/import/preview",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "06 POST /api/homebank/import/preview as admin"
+    }
+  ]
+}

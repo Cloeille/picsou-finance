@@ -260,12 +260,12 @@ to a 1 / 2 / 2.5 / 5 × 10ⁿ figure so the ticks stay readable.
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/model/GoalType.java`, `Goal.java`
-- `backend/src/main/java/com/picsou/dto/GoalRequest.java` — the compact constructor and the `@AssertTrue` rules
-- `backend/src/main/java/com/picsou/service/GoalService.java` — `toRecurringResponse`, `requireSavingsTarget`
-- `backend/src/main/java/com/picsou/service/ProjectionService.java`
-- `backend/src/main/java/com/picsou/model/GoalAllocation.java`
-- `backend/src/main/resources/db/migration/V85__goal_recurring_investment.sql`,
+- `backend-rs/src/wealth/goals/dto.rs`, `backend-rs/src/wealth/goals/repo.rs`
+- `backend-rs/src/wealth/goals/dto.rs` — the compact constructor and the `@AssertTrue` rules
+- `backend-rs/src/wealth/goals/` — `toRecurringResponse`, `requireSavingsTarget`
+- `backend-rs/src/accounts/analysis/projection.rs`
+- `GoalAllocation.java`
+- `backend-rs/migrations/V85__goal_recurring_investment.sql`,
   `V89__goal_allocation.sql`
 - `frontend/src/pages/goals/GoalsPage.tsx` — two sections, two form shapes, `RecurringPlanCard`
 - `frontend/src/pages/goals/AllocationPicker.tsx` — the split editor

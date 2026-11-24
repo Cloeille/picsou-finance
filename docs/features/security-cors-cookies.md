@@ -203,19 +203,19 @@ therefore passes on both chains. The 403 handler
 
 | File | Role |
 |------|------|
-| `backend/src/main/java/com/picsou/config/DynamicCorsConfigurationSource.java` | Per-request origin resolution (DB → env → fail closed), wildcard stripping |
-| `backend/src/main/java/com/picsou/config/SecurityConfig.java` | `.cors()`, explicit `CorsFilter` bean, token-less CSRF wiring + 403 body, filter chain |
-| `backend/src/main/java/com/picsou/config/CrossSiteCookieRequestMatcher.java` | Decides which requests are cross-site cookie-authenticated writes (mode `false` for the SSO chain: any cross-site write) |
-| `backend/src/main/java/com/picsou/config/SsoSecurityConfig.java` | SSO chain: POST-only `/oauth2/sso/**`, cross-site check without the cookie condition |
-| `backend/src/main/java/com/picsou/config/CookieBridgeAuthenticationFilter.java` | Authorization Server cookie bridge; enforces the SSO window on `GET /oauth2/authorize` |
-| `backend/src/main/java/com/picsou/config/LoggingCorsProcessor.java` | Logs origin on CORS rejection |
-| `backend/src/main/java/com/picsou/config/AuthCookieWriter.java` / `SecureCookieProvider.java` | Cookie construction + `Secure` flag |
-| `backend/src/main/resources/application.yml` | `server.forward-headers-strategy: native`, explicit Tomcat proxy trust, CORS and cookie settings |
-| `backend/src/main/java/com/picsou/config/TrustedProxyBootstrap.java` | `PICSOU_PROXY_IP` becomes Tomcat's only trusted proxy; rejects malformed values |
-| `backend/src/main/java/com/picsou/config/ForwardedOriginCustomizer.java` | Keeps the public port from `X-Forwarded-Host` / `X-Forwarded-Port` |
-| `backend/src/main/java/com/picsou/config/ClientIp.java` | Container-resolved client IP for rate-limit keys (`getRemoteAddr()`) |
-| `backend/src/main/java/com/picsou/config/RateLimitConfig.java` | Bucket4j bucket definitions; bounded Caffeine-backed bucket-store beans |
-| `backend/src/main/java/com/picsou/controller/SetupController.java` (`/api/setup/security`) | Persists wizard's allowed origins |
+| `DynamicCorsConfigurationSource.java` | Per-request origin resolution (DB → env → fail closed), wildcard stripping |
+| `SecurityConfig.java` | `.cors()`, explicit `CorsFilter` bean, token-less CSRF wiring + 403 body, filter chain |
+| `CrossSiteCookieRequestMatcher.java` | Decides which requests are cross-site cookie-authenticated writes (mode `false` for the SSO chain: any cross-site write) |
+| `SsoSecurityConfig.java` | SSO chain: POST-only `/oauth2/sso/**`, cross-site check without the cookie condition |
+| `CookieBridgeAuthenticationFilter.java` | Authorization Server cookie bridge; enforces the SSO window on `GET /oauth2/authorize` |
+| `LoggingCorsProcessor.java` | Logs origin on CORS rejection |
+| `backend-rs/src/auth/cookies.rs` / `SecureCookieProvider.java` | Cookie construction + `Secure` flag |
+| `backend-rs/src/config.rs`, `backend-rs/src/http/` | Forwarded headers from the trusted proxy only, CORS and cookie settings |
+| `TrustedProxyBootstrap.java` | `PICSOU_PROXY_IP` becomes Tomcat's only trusted proxy; rejects malformed values |
+| `backend-rs/src/http/client_ip.rs` | Keeps the public port from `X-Forwarded-Host` / `X-Forwarded-Port` |
+| `backend-rs/src/http/client_ip.rs` | Container-resolved client IP for rate-limit keys (`getRemoteAddr()`) |
+| `backend-rs/src/http/rate_limit.rs` | Bucket4j bucket definitions; bounded Caffeine-backed bucket-store beans |
+| `backend-rs/src/setup_auth/` (`/api/setup/security`) | Persists wizard's allowed origins |
 
 ## Technical choices
 

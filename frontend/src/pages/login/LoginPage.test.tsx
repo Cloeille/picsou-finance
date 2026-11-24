@@ -38,6 +38,9 @@ vi.stubGlobal('sessionStorage', memoryStorage())
 const { useSsoInfo } = vi.hoisted(() => ({ useSsoInfo: vi.fn() }))
 vi.mock('@/features/sso/hooks', () => ({ useSsoInfo }))
 
+const { useSetupStatus } = vi.hoisted(() => ({ useSetupStatus: vi.fn() }))
+vi.mock('@/features/setup/hooks', () => ({ useSetupStatus }))
+
 const { submitSsoStart } = vi.hoisted(() => ({ submitSsoStart: vi.fn() }))
 vi.mock('@/features/sso/start', () => ({ submitSsoStart }))
 
@@ -73,12 +76,22 @@ function renderLogin(entry = '/login', opts: { strict?: boolean } = {}) {
 describe('LoginPage SSO', () => {
   beforeEach(() => {
     useSsoInfo.mockReset()
+    useSetupStatus.mockReset()
+    useSetupStatus.mockReturnValue({
+      data: {
+        state: 'COMPLETE',
+        needsSetup: false,
+        integrations: {},
+        desktopMode: false,
+        desktopLockEnabled: false,
+      },
+    })
     submitSsoStart.mockReset()
     loginMutation.mutateAsync.mockReset()
     loginMutation.isPending = false
     sessionStorage.clear()
     localStorage.clear()
-    useAppStore.setState({ demoMode: false })
+    useAppStore.setState({ demoMode: false, desktopMode: false, desktopLockEnabled: false })
   })
 
   it('shows the SSO button with a divider when SSO is enabled', () => {
@@ -237,6 +250,164 @@ describe('LoginPage SSO', () => {
 
       expect(screen.queryByText(en.auth.sso.redirecting)).not.toBeInTheDocument()
       expect(screen.getByLabelText('Username')).toBeInTheDocument()
+    })
+  })
+
+  describe('Desktop unlocked OAuth/MCP guidance', () => {
+    it('shows the Desktop password lock guidance when desktopMode is true and desktopLockEnabled is false', () => {
+      useSsoInfo.mockReturnValue(SSO_DISABLED)
+      useSetupStatus.mockReturnValue({
+        data: {
+          state: 'COMPLETE',
+          needsSetup: false,
+          integrations: {},
+          desktopMode: true,
+          desktopLockEnabled: false,
+        },
+      })
+
+      renderLogin('/login?redirect=%2Foauth2%2Fauthorize%3Fclient_id%3Dmcp-client')
+
+      const notice = screen.getByRole('status')
+      expect(notice).toHaveTextContent(en.desktop.oauthLogin.title)
+      expect(notice).toHaveTextContent(en.desktop.oauthLogin.description)
+      expect(useSetupStatus).toHaveBeenCalledWith(true)
+    })
+
+    it('hides the Desktop notice when desktopLockEnabled is true', () => {
+      useSsoInfo.mockReturnValue(SSO_DISABLED)
+      useSetupStatus.mockReturnValue({
+        data: {
+          state: 'COMPLETE',
+          needsSetup: false,
+          integrations: {},
+          desktopMode: true,
+          desktopLockEnabled: true,
+        },
+      })
+
+      renderLogin('/login?redirect=%2Foauth2%2Fauthorize%3Fclient_id%3Dmcp-client')
+
+      expect(screen.queryByText(en.desktop.oauthLogin.title)).not.toBeInTheDocument()
+    })
+
+    it('names the local account on a locked desktop, leaving the password to type', () => {
+      useSsoInfo.mockReturnValue(SSO_DISABLED)
+      useSetupStatus.mockReturnValue({
+        data: {
+          state: 'COMPLETE',
+          needsSetup: false,
+          integrations: {},
+          desktopMode: true,
+          desktopLockEnabled: true,
+          desktopUsername: 'my-space',
+        },
+      })
+
+      renderLogin('/login')
+
+      const username = screen.getByLabelText(en.auth.username)
+      expect(username).toHaveValue('my-space')
+      expect(username).not.toHaveAttribute('placeholder')
+      expect(screen.getByLabelText(en.auth.password)).toHaveFocus()
+    })
+
+    it('keeps the cursor where the member is typing when the account name arrives late', () => {
+      useSsoInfo.mockReturnValue(SSO_DISABLED)
+      const status = { state: 'COMPLETE', needsSetup: false, integrations: {}, desktopMode: true, desktopLockEnabled: true }
+      useSetupStatus.mockReturnValue({ data: undefined })
+      const { rerenderSame } = renderLogin('/login')
+      const username = screen.getByLabelText(en.auth.username)
+      username.focus()
+      fireEvent.change(username, { target: { value: 'other' } })
+
+      useSetupStatus.mockReturnValue({ data: { ...status, desktopUsername: 'my-space' } })
+      rerenderSame()
+
+      expect(username).toHaveValue('other')
+      expect(username).toHaveFocus()
+    })
+
+    it('leaves the username empty when the desktop app does not name the account', () => {
+      useSsoInfo.mockReturnValue(SSO_DISABLED)
+      useSetupStatus.mockReturnValue({
+        data: {
+          state: 'COMPLETE',
+          needsSetup: false,
+          integrations: {},
+          desktopMode: true,
+          desktopLockEnabled: true,
+        },
+      })
+
+      renderLogin('/login')
+
+      expect(screen.getByLabelText(en.auth.username)).toHaveValue('')
+    })
+
+    it('hides the Desktop notice outside Desktop Mode', () => {
+      useSsoInfo.mockReturnValue(SSO_DISABLED)
+      useSetupStatus.mockReturnValue({
+        data: {
+          state: 'COMPLETE',
+          needsSetup: false,
+          integrations: {},
+          desktopMode: false,
+          desktopLockEnabled: false,
+        },
+      })
+
+      renderLogin('/login?redirect=%2Foauth2%2Fauthorize%3Fclient_id%3Dmcp-client')
+
+      expect(screen.queryByText(en.desktop.oauthLogin.title)).not.toBeInTheDocument()
+    })
+
+    it('asks for a restart instead when the page runs inside the Desktop window', () => {
+      // Tauri defines window.isTauri on every page its WebView loads.
+      Object.defineProperty(window, 'isTauri', { value: true, configurable: true })
+      try {
+        useSsoInfo.mockReturnValue(SSO_DISABLED)
+        useSetupStatus.mockReturnValue({
+          data: {
+            state: 'COMPLETE',
+            needsSetup: false,
+            integrations: {},
+            desktopMode: true,
+            desktopLockEnabled: false,
+          },
+        })
+
+        renderLogin('/login')
+
+        const notice = screen.getByRole('status')
+        expect(notice).toHaveTextContent(en.desktop.autologinFailed.title)
+        expect(notice).toHaveTextContent(en.desktop.autologinFailed.description)
+        expect(screen.queryByText(en.desktop.oauthLogin.title)).not.toBeInTheDocument()
+      } finally {
+        delete (window as Window & { isTauri?: boolean }).isTauri
+      }
+    })
+
+    it('shows no Desktop notice inside the Desktop window once the lock is enabled', () => {
+      Object.defineProperty(window, 'isTauri', { value: true, configurable: true })
+      try {
+        useSsoInfo.mockReturnValue(SSO_DISABLED)
+        useSetupStatus.mockReturnValue({
+          data: {
+            state: 'COMPLETE',
+            needsSetup: false,
+            integrations: {},
+            desktopMode: true,
+            desktopLockEnabled: true,
+          },
+        })
+
+        renderLogin('/login')
+
+        expect(screen.queryByRole('status')).not.toBeInTheDocument()
+      } finally {
+        delete (window as Window & { isTauri?: boolean }).isTauri
+      }
     })
   })
 })

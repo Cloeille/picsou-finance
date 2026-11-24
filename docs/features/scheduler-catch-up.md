@@ -24,9 +24,9 @@ Every minute (first tick one minute after startup), for each job in that order:
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/service/CatchUpScheduler.java` — the tick, the job list, `runNow`
-- `backend/src/main/java/com/picsou/service/SchedulerService.java` — the jobs themselves
-- `backend/src/main/java/com/picsou/config/StartupSyncService.java` — the optional startup sync,
+- `backend-rs/src/jobs/catch_up.rs` — the tick, the job list, `runNow`
+- `backend-rs/src/jobs/scheduler.rs` — the jobs themselves
+- `backend-rs/src/jobs/startup.rs` — the optional startup sync,
   now through `runNow` so it counts as the day's run
 
 ## Technical choices

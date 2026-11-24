@@ -1,0 +1,294 @@
+{
+  "description": "CSV preview then import of investment transactions into a securities account",
+  "scenario": "transfer.csv-import",
+  "steps": [
+    {
+      "body": {
+        "detectedColumns": [
+          "Date",
+          "Sens",
+          "Ticker",
+          "Nom",
+          "Quantité",
+          "Prix",
+          "Frais",
+          "Devise"
+        ],
+        "dialect": {
+          "dateFormat": "dd/MM/yyyy",
+          "decimal": "COMMA",
+          "delimiter": ";"
+        },
+        "fileToken": "<secret:1>",
+        "hasHeaderRow": true,
+        "sampleRows": [
+          [
+            "15/01/2020",
+            "ACHAT",
+            "CW8.PA",
+            "Amundi MSCI World",
+            "3",
+            "412,50",
+            "1,99",
+            "EUR"
+          ],
+          [
+            "20/02/2020",
+            "ACHAT",
+            "CW8.PA",
+            "Amundi MSCI World",
+            "2",
+            "398,10",
+            "1,99",
+            "EUR"
+          ],
+          [
+            "10/03/2020",
+            "VENTE",
+            "CW8.PA",
+            "Amundi MSCI World",
+            "1",
+            "350",
+            "0",
+            "EUR"
+          ],
+          [
+            "11/03/2020",
+            "VENTE",
+            "",
+            "Sans ticker",
+            "1",
+            "350",
+            "0",
+            "EUR"
+          ]
+        ],
+        "suggestedMapping": {
+          "currency": 7,
+          "date": 0,
+          "fees": 6,
+          "name": 3,
+          "quantity": 4,
+          "side": 1,
+          "tickerOrIsin": 2,
+          "unitPrice": 5
+        },
+        "totalRows": 4
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "06 POST /api/accounts/9001/transactions/import/preview as admin"
+    },
+    {
+      "body": {
+        "errors": [
+          {
+            "message": "Missing ticker/ISIN",
+            "rowNumber": 5
+          }
+        ],
+        "imported": 3,
+        "skipped": 1
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "07 POST /api/accounts/9001/transactions/import as admin"
+    },
+    {
+      "body": {
+        "detail": "Preview expired or invalid -- please re-upload the file",
+        "instance": "/api/accounts/9001/transactions/import",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "08 POST /api/accounts/9001/transactions/import as admin"
+    },
+    {
+      "body": {
+        "detail": "Preview expired or invalid -- please re-upload the file",
+        "instance": "/api/accounts/9001/transactions/import",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "09 POST /api/accounts/9001/transactions/import as admin"
+    },
+    {
+      "body": {
+        "errors": {
+          "dialect": "must not be null",
+          "fileToken": "<secret:2>",
+          "mapping": "must not be null"
+        },
+        "instance": "/api/accounts/9001/transactions/import",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "10 POST /api/accounts/9001/transactions/import as admin"
+    },
+    {
+      "body": {
+        "detail": "The file is empty",
+        "instance": "/api/accounts/9001/transactions/import/preview",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "11 POST /api/accounts/9001/transactions/import/preview as admin"
+    },
+    {
+      "body": {
+        "detail": "CSV transaction import is only available for investment accounts (PEA, CTO, crypto)",
+        "instance": "/api/accounts/9002/transactions/import/preview",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "12 POST /api/accounts/9002/transactions/import/preview as admin"
+    },
+    {
+      "body": {
+        "detail": "Account not found",
+        "instance": "/api/accounts/424242/transactions/import/preview",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "13 POST /api/accounts/424242/transactions/import/preview as admin"
+    },
+    {
+      "body": {
+        "detail": "Required part 'file' is not present.",
+        "instance": "/api/accounts/9001/transactions/import/preview",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "14 POST /api/accounts/9001/transactions/import/preview as admin"
+    }
+  ]
+}

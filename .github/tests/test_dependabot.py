@@ -27,7 +27,7 @@ class DependabotCoverageTest(unittest.TestCase):
 
         expected = {
             "github-actions": {ROOT},
-            "maven": {path.parent for path in ROOT.glob("*/pom.xml")},
+            "cargo": {path.parent for path in ROOT.rglob("Cargo.lock") if "target" not in path.parts},
             "bun": {path.parent for path in ROOT.rglob("bun.lock") if "node_modules" not in path.parts},
             "pip": {path.parent for path in (ROOT / "services").glob("*/requirements*.txt")},
             "docker-compose": {path.parent for path in ROOT.rglob("*.y*ml")

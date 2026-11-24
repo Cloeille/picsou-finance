@@ -17,7 +17,7 @@
       "forbidden": "Dafür hast du keine Berechtigung.",
       "tooManyRequests": "Zu viele Versuche. Bitte warte einen Moment und versuche es erneut.",
       "serverError": "Bei uns ist etwas schiefgelaufen. Bitte versuche es erneut.",
-      "network": "Der Picsou-Server ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut."
+      "network": "Picsou ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut."
     },
     "dateHint": "tt.mm.jjjj",
     "search": "Suchen",
@@ -68,6 +68,7 @@
     "loggingIn": "Anmeldung läuft...",
     "error": "Ungültige Zugangsdaten",
     "networkError": "Server nicht erreichbar. Prüfe die Verbindung und versuche es erneut.",
+    "networkErrorDesktop": "Picsou ist lokal nicht erreichbar. Versuche es gleich noch einmal oder starte die App neu.",
     "loginGenericError": "Anmeldung fehlgeschlagen. Bitte versuche es erneut.",
     "showPassword": "Passwort anzeigen",
     "hidePassword": "Passwort verbergen",
@@ -1051,7 +1052,7 @@
         "invalidPin": "Falsche PIN oder falsches Passwort.",
         "invalidTan": "Der Bestätigungscode ist falsch oder abgelaufen. Verwende den zuletzt erhaltenen Code oder starte den Schritt neu, um einen neuen zu erhalten.",
         "authenticationFailed": "Trade-Republic-Authentifizierung fehlgeschlagen.",
-        "serviceUnavailable": "Der lokale Trade-Republic-Dienst ist nicht verfügbar. Starte die Server neu und versuche es erneut.",
+        "serviceUnavailable": "Der lokale Trade-Republic-Dienst ist nicht verfügbar. Starte Picsou neu und versuche es erneut.",
         "serverError": "Trade-Republic-Serverfehler. Bitte versuche es erneut.",
         "phoneNumberRequired": "Telefonnummer ist erforderlich.",
         "pinRequired": "PIN oder Passwort ist erforderlich.",
@@ -1515,6 +1516,7 @@
       "customerId": "Kennung",
       "rememberIdentifier": "Kennung merken",
       "rememberIdentifierHint": "Die Kennung wird verschlüsselt auf deinem Server gespeichert. Das Passwort wird nie gespeichert.",
+      "rememberIdentifierHintDesktop": "Die Kennung wird verschlüsselt lokal auf deinem Gerät gespeichert. Das Passwort wird nie gespeichert.",
       "connect": "Verbinden",
       "connecting": "Verbindung…",
       "sync": "Synchronisieren",
@@ -1787,7 +1789,15 @@
       },
       "historyLimit": "AMEX begrenzt den Verlauf auf die von der Transaktions-API bereitgestellten Daten; ältere Transaktionen sind möglicherweise nicht verfügbar.",
       "recoverHistory": "Verfügbaren Verlauf abrufen",
-      "recoveringHistory": "Verlauf wird abgerufen…"
+      "recoveringHistory": "Verlauf wird abgerufen…",
+      "webview": {
+        "hint": "Melde dich direkt im offiziellen American Express Portal in einem eigenen Fenster an. Picsou sieht deine Zugangsdaten nie.",
+        "connect": "Bei American Express anmelden",
+        "reconnect": "American Express erneut verbinden",
+        "waiting": "Melde dich im gerade geöffneten American Express-Fenster an…",
+        "waitingHint": "Gib deine Zugangsdaten ein und schließe die zweistufige Bestätigung direkt auf der Website von American Express ab. Das Fenster schließt sich automatisch nach der Anmeldung.",
+        "fetching": "Angemeldet — Konten werden abgerufen…"
+      }
     },
     "revolut": {
       "title": "Revolut",
@@ -1809,7 +1819,10 @@
       },
       "errors": {
         "humanVerificationRequired": "Revolut verlangt einen Menschlichkeitsnachweis (Captcha), den Picsou nicht für dich erledigen kann. Die Anmeldung kann nicht fortgesetzt werden. Versuche es später erneut.",
-        "upstreamFormatChanged": "Die Anmeldung hat nicht geklappt. Prüfe deine Telefonnummer und versuche es erneut."
+        "upstreamFormatChanged": "Die Anmeldung hat nicht geklappt. Prüfe deine Telefonnummer und versuche es erneut.",
+        "authAttemptExpired": "Der Anmeldeversuch ist abgelaufen. Bitte versuche es erneut.",
+        "sessionExpired": "Deine Revolut-Sitzung ist abgelaufen. Bitte verbinde dich erneut.",
+        "serverError": "Revolut ist nicht erreichbar. Bitte versuche es erneut."
       },
       "selection": {
         "title": "Choose which accounts to import",
@@ -1819,6 +1832,14 @@
         "alreadyImported": "Already imported",
         "transactions": "{{count}} transactions",
         "allImported": "All your Revolut accounts are already imported."
+      },
+      "webview": {
+        "hint": "Melde dich direkt im offiziellen Revolut Webportal in einem eigenen Fenster an. Picsou sieht deine Zugangsdaten nie.",
+        "connect": "Bei Revolut anmelden",
+        "reconnect": "Revolut erneut verbinden",
+        "waiting": "Melde dich im gerade geöffneten Revolut-Fenster an…",
+        "waitingHint": "Gib deine Zugangsdaten ein und bestätige die Anmeldung auf deinem Smartphone direkt auf der Revolut-Website. Das Fenster schließt sich automatisch nach der Anmeldung.",
+        "fetching": "Angemeldet — Konten werden abgerufen…"
       }
     },
     "corum": {
@@ -2029,6 +2050,14 @@
         "cancel": "Abbrechen",
         "clear": "Löschen",
         "validate": "Bestätigen"
+      },
+      "webview": {
+        "hint": "Melde Dich direkt im offiziellen Portal Deiner Bank in einem eigenen Fenster an. Picsou sieht Deine Zugangsdaten nie.",
+        "connect": "Bei {{brand}} anmelden",
+        "reconnect": "{{brand}} erneut verbinden",
+        "waiting": "Melde Dich im gerade geöffneten {{brand}}-Fenster an…",
+        "waitingHint": "Gib Deine Zugangsdaten ein und bestätige Clé Digitale direkt auf der Website der Bank. Das Fenster schließt sich automatisch nach der Anmeldung.",
+        "fetching": "Angemeldet — Konten werden abgerufen…"
       }
     },
     "searchPlaceholder": "Bank, Broker oder Import suchen...",
@@ -2364,6 +2393,7 @@
       "never2": "Namen, E-Mail-Adressen, Benutzernamen oder IP-Adressen",
       "never3": "Jegliche Kennung von Benutzer, Gerät oder Sitzung",
       "tunnel": "Berichte laufen über deinen eigenen Picsou-Server, der sie vor der Weiterleitung erneut bereinigt.",
+      "tunnelDesktop": "Berichte werden vor dem Versand lokal auf deinem Gerät bereinigt.",
       "enable": "Aktivieren",
       "decline": "Nein danke",
       "error": "Deine Auswahl konnte nicht gespeichert werden. Bitte versuche es erneut."
@@ -2434,21 +2464,6 @@
         "redirectUri": "die Weiterleitungs-URI",
         "privateKey": "der private Schlüssel"
       }
-    },
-    "integrations": {
-      "title": "Integrationen",
-      "description": "Datenkonnektoren aktivieren oder deaktivieren",
-      "enablebanking": "Enable Banking",
-      "boursobank": "BoursoBank",
-      "boursedirect": "Bourse Direct",
-      "fortuneo": "Fortuneo",
-      "amex": "Synchronisiere deine American-Express-Karten",
-      "corum": "CORUM-SCPI- und Lebensversicherungsbestände",
-      "sofidy": "Sofidy-SCPI-Bestände",
-      "traderepublic": "Trade Republic",
-      "lbp": "La Banque Postale",
-      "finary": "Finary",
-      "crypto": "Krypto"
     },
     "members": {
       "title": "Mitglieder",
@@ -2555,9 +2570,13 @@
   },
   "error": {
     "connecting": "Verbindung zum Server wird hergestellt...",
+    "connectingDesktop": "Picsou wird gestartet...",
     "noConnection": "Keine Verbindung zum Server möglich",
+    "noConnectionDesktop": "Picsou antwortet nicht",
     "noConnectionDesc": "Stelle sicher, dass der Server läuft, und versuche es erneut.",
+    "noConnectionDescDesktop": "Die lokale Picsou-Engine antwortet noch nicht. Versuche es gleich noch einmal oder starte die App neu.",
     "degradedMode": "Keine Verbindung zum Server. Einige Funktionen sind eventuell nicht verfügbar.",
+    "degradedModeDesktop": "Verbindung zur lokalen Picsou-Engine unterbrochen. Einige Funktionen sind eventuell nicht verfügbar.",
     "notFound": "Die gesuchte Seite existiert nicht.",
     "backToDashboard": "Zurück zum Dashboard",
     "forbidden": "Du hast keine Berechtigung, auf diese Seite zuzugreifen.",
@@ -2836,6 +2855,7 @@
       "ok": "Der Sidecar läuft und ist bereit.",
       "downTitle": "Wir konnten den Sidecar nicht erreichen.",
       "downHint": "Stelle sicher, dass der bourso-auth-Container läuft. Docker Compose startet ihn standardmäßig.",
+      "downHintDesktop": "BoursoBank läuft nativ in Picsou Desktop. Prüfe deine Internetverbindung und versuche es erneut.",
       "retry": "Erneut versuchen",
       "continue": "Weiter",
       "skip": "Vorerst überspringen"
@@ -3694,5 +3714,60 @@
     "copied": "Kopiert",
     "copy": "Kopieren",
     "cardTitle": "Entdecke Picsou {{version}}"
+  },
+  "desktop": {
+    "unavailable": "Nicht in der Desktop-App",
+    "unavailableDetail": "Dieser Bank-Connector ist in Picsou Desktop noch nicht verfügbar.",
+    "onboarding": {
+      "title": "Willkommen bei Picsou",
+      "subtitle": "Dein persönliches Finanz-Dashboard, lokal auf deinem Computer gespeichert.",
+      "nameLabel": "Name des Bereichs",
+      "namePlaceholder": "Mein Bereich",
+      "cta": "Loslegen",
+      "starting": "Wird eingerichtet...",
+      "error": "Picsou konnte nicht gestartet werden. Bitte versuche es erneut.",
+      "legacyPostgresTitle": "Bisherige lokale Daten erhalten",
+      "legacyPostgresBody": "Picsou Desktop nutzt jetzt eine eingebettete SQLite-Datenbank. Ein Neustart hier legt eine neue lokale Datenbank an, und dein bisheriger Datenordner (postgres/) wurde unverändert im Anwendungsdaten-Verzeichnis erhalten."
+    },
+    "emptyDashboard": {
+      "title": "Erstes Konto hinzufügen",
+      "description": "Verbinde eine Bank oder erstelle ein manuelles Konto, um dein Vermögen zu verfolgen.",
+      "cta": "Konto hinzufügen"
+    },
+    "advancedMode": {
+      "title": "Erweiterter Modus",
+      "description": "Verwaltungswerkzeuge, MCP-Zugangsschlüssel, verbundene OAuth-Apps und technische Protokolle anzeigen."
+    },
+    "lock": {
+      "title": "Desktop-Sicherheit",
+      "description": "Schütze den lokalen Start von Picsou mit einem Passwort.",
+      "statusEnabled": "Passwortsperre aktiviert",
+      "statusDisabled": "Direkter Start ohne Passwort",
+      "mfaRequiresLock": "Aktiviere zuerst die Passwortsperre oben, bevor du die Zwei-Faktor-Authentifizierung einrichtest.",
+      "disableBlockedByMfa": "Deaktiviere zuerst die Zwei-Faktor-Authentifizierung unten, bevor du die Passwortsperre ausschaltest.",
+      "usernameHint": "Lokaler Benutzername: {{username}}",
+      "enableButton": "Sperre aktivieren",
+      "disableButton": "Sperre deaktivieren",
+      "newPasswordLabel": "Neues Passwort (mindestens 8 Zeichen)",
+      "confirmPasswordLabel": "Passwort bestätigen",
+      "currentPasswordLabel": "Aktuelles Passwort",
+      "passwordTooShort": "Das Passwort muss mindestens 8 Zeichen lang sein.",
+      "passwordMismatch": "Die Passwörter stimmen nicht überein.",
+      "invalidPassword": "Das aktuelle Passwort ist falsch.",
+      "enableConfirm": "Aktivieren",
+      "disableConfirm": "Deaktivieren",
+      "enabledToast": "Passwortsperre aktiviert.",
+      "disabledToast": "Passwortsperre deaktiviert.",
+      "cancel": "Abbrechen"
+    },
+    "oauthLogin": {
+      "title": "Passwortsperre erforderlich",
+      "description": "Picsou Desktop läuft derzeit ohne Passwort. Um eine externe Anwendung (wie einen MCP-Client) im Browser zu autorisieren, aktiviere zuerst die Passwortsperre in Picsou Desktop unter Einstellungen > Sicherheit.",
+      "apiTabNote": "Um eine externe OAuth- oder MCP-Anwendung im Browser zu autorisieren, aktiviere zuerst die Passwortsperre unter Einstellungen > Sicherheit."
+    },
+    "autologinFailed": {
+      "title": "Anmeldung nicht möglich",
+      "description": "Picsou konnte deine Sitzung nicht automatisch öffnen. Beende Picsou über sein Symbol im Infobereich und starte es erneut."
+    }
   }
 }
