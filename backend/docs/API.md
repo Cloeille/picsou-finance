@@ -1733,7 +1733,7 @@ rate limiting returns `429`.
 | Status | When |
 |--------|------|
 | `400` | Blank API key, missing required secret or passphrase, unexpected secret or passphrase, a passphrase beyond the UTF-8 byte limit, or a missing, unknown or unexpected region. When the adapter declares regions, region errors list the allowed codes. |
-| `422` | Bean-validation failure (`errors` map), the credentials were refused by the exchange, or the immediate sync failed. OKX error `50119` carries `code: "OKX_REGION_MISMATCH"`. |
+| `422` | Bean-validation failure (`errors` map), the connection test failed, or the immediate sync failed. For OKX, the response `code` is `OKX_REGION_MISMATCH` for error `50119`, `OKX_NEGATIVE_BALANCE` for a negative balance, or `OKX_STAKING_RECEIPT_IN_EARN` for BETH or OKSOL held in Earn. |
 
 ---
 
@@ -1744,7 +1744,9 @@ rate limiting returns `429`.
 
 **Response `200` — `AccountResponse`** (updated with latest holdings).
 
-**Errors:** `422` when the sync fails. OKX error `50119` carries `code: "OKX_REGION_MISMATCH"`.
+**Errors:** `422` when the sync fails. For OKX, the response `code` is `OKX_REGION_MISMATCH` for
+error `50119`, `OKX_NEGATIVE_BALANCE` for a negative balance, or `OKX_STAKING_RECEIPT_IN_EARN` for
+BETH or OKSOL held in Earn.
 
 ---
 

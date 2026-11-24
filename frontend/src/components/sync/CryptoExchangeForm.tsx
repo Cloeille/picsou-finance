@@ -9,7 +9,7 @@ import { Eye, EyeSlash, CircleNotch } from '@phosphor-icons/react'
 import type { ExchangeType } from '@/types/api'
 import { SUPPORTED_EXCHANGES, exchangeRequiresApiPassphrase, exchangeRequiresApiSecret } from '@/types/api'
 import { useAddCryptoExchange } from '@/features/sync/hooks'
-import { extractErrorMessage, getErrorCode, getErrorDetail } from '@/lib/errors'
+import { extractErrorMessage, getErrorCode, getErrorDetail, okxErrorKey } from '@/lib/errors'
 import { EXCHANGE_API_KEY_MAX_LENGTH, EXCHANGE_API_PASSPHRASE_MAX_LENGTH, EXCHANGE_API_SECRET_MAX_LENGTH } from '@/lib/constants'
 
 interface CryptoExchangeFormProps {
@@ -68,8 +68,9 @@ export function CryptoExchangeForm({ onSuccess, onCancel, variant }: CryptoExcha
         // user to check a secret they were never asked for sends them looking for a field that
         // does not exist.
         onError: (err: unknown) => {
-          if (getErrorCode(err) === 'OKX_REGION_MISMATCH') {
-            setError(t('sync.exchanges.okxRegionMismatch'))
+          const key = okxErrorKey(getErrorCode(err))
+          if (key) {
+            setError(t(key))
             return
           }
           const fallback = t(requiresPassphrase

@@ -1169,6 +1169,8 @@
       "apiKeyOnly": "Meria se conecta con una única clave API de solo lectura — no hace falta secreto.",
       "okxRegionHelp": "Elige Global para okx.com, Espacio Económico Europeo para my.okx.com o Estados Unidos para app.okx.com.",
       "okxRegionMismatch": "Elige la región en la que creaste tu clave API de OKX.",
+      "okxNegativeBalance": "Tu cuenta de OKX tiene un saldo negativo, por ejemplo, por un préstamo de margen. Picsou no puede registrar esa deuda. Págala en OKX y vuelve a intentarlo.",
+      "okxStakingReceiptInEarn": "Tienes BETH u OKSOL en Simple Earn u On-chain Earn de OKX. Picsou podría contarlos dos veces. Retíralos de Earn a tu cuenta de fondos y vuelve a intentarlo.",
       "showSecret": "Mostrar el secreto API",
       "hideSecret": "Ocultar el secreto API",
       "connect": "Conectar",

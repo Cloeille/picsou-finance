@@ -54,8 +54,12 @@ to submit the credentials for the correct region and update the existing OKX con
 
 Each GET sends `User-Agent: Picsou` and four `OK-ACCESS-*` headers. The signature is Base64 of
 HMAC-SHA256 with the secret over timestamp + "GET" + path including any query. The injected clock
-uses UTC milliseconds. Skew over 30 seconds can trigger `50102`. `testConnection()` applies the
-same validation to the trading response as sync. [OKX v5 API reference](https://www.okx.com/docs-v5/en/)
+uses UTC milliseconds. Skew over 30 seconds can trigger `50102`.
+[OKX v5 API reference](https://www.okx.com/docs-v5/en/)
+
+The connection test reads all six endpoints and applies the same checks as sync. This rejects
+accounts Picsou cannot value before saving the connection. A successful connection makes all six
+calls twice, first for the test and then for the immediate sync.
 
 | GET endpoint | Position mapping |
 |---|---|
@@ -72,8 +76,9 @@ balances include receipts in trading and funding as well as those being redeemed
 each endpoint's `amt` once as `STAKING` ETH or SOL. If the combined trading and funding receipts
 exceed the corresponding staking amount, the sync fails without recording a partial balance.
 A zero or absent staking balance therefore requires zero receipts in trading and funding. BETH or
-OKSOL placed in Simple Earn or in an On-chain Earn order also fails the sync, because OKX does not
-say whether the staking balance includes it.
+OKSOL placed in Simple Earn or in an On-chain Earn order is refused with
+`OKX_STAKING_RECEIPT_IN_EARN`. OKX does not say whether the staking balance includes those receipts.
+Redeem them to the funding account before trying again.
 [OKX v5 Earn reference](https://www.okx.com/docs-v5/en/#financial-product),
 [OKX ETH staking FAQ](https://www.okx.com/en-eu/help/eth-staking-faq),
 [OKX SOL staking guide](https://www.okx.com/en-eu/help/how-do-i-stake-and-redeem-oksol-crypto)
@@ -87,6 +92,13 @@ order requires a unique, nonblank `ordId` and at least one investment row. Every
 a currency and a non-negative quantity string. Duplicate JSON keys, malformed data, timeouts,
 transport errors and non-zero codes fail the sync. For `51024`, check the account's status and region
 on OKX.
+
+Picsou does not support exchange liabilities. A negative balance on any endpoint is refused with
+`OKX_NEGATIVE_BALANCE`. Picsou does not net it against other balances, and dropping it would
+overstate net worth. Repay the borrowed balance on OKX before trying again.
+
+Picsou reads only the invested `amt` and excludes On-chain Earn earnings (`earningData`). If OKX
+pays the earnings only at redemption, the balance is slightly understated.
 
 Unauthenticated requests to the four Earn routes return `50103` on `us.okx.com`, `www.okx.com` and
 `eea.okx.com`, so the routes exist on every host; whether OKX serves them to a US account is not

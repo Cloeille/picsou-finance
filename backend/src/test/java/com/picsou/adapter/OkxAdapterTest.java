@@ -91,7 +91,8 @@ class OkxAdapterTest {
         assertThat(adapter.requiresApiPassphrase()).isTrue();
         assertThat(adapter.testConnection(CREDENTIALS)).isTrue();
 
-        assertThat(requests).singleElement().satisfies(request -> {
+        assertThat(requests).extracting(request -> request.url().getPath()).containsExactlyElementsOf(ENDPOINTS);
+        assertThat(requests.getFirst()).satisfies(request -> {
             assertThat(request.method()).isEqualTo(HttpMethod.GET);
             assertThat(request.url().getRawPath()).isEqualTo(TRADING);
             assertThat(request.url().getRawQuery()).isNull();
@@ -126,9 +127,13 @@ class OkxAdapterTest {
     void routesEachConnectionUsingItsOwnRegion() {
         OkxAdapter adapter = adapter(path -> response(HttpStatus.OK, emptyFor(path)));
         adapter.testConnection(CREDENTIALS);
+        assertThat(requests).hasSize(ENDPOINTS.size())
+            .allSatisfy(request -> assertThat(request.url().getHost()).isEqualTo("eea.example.test"));
+        requests.clear();
+
         adapter.testConnection(new ExchangeCredentials("us-key", "us-secret", "us-passphrase", "US"));
-        assertThat(requests).extracting(request -> request.url().getHost())
-            .containsExactly("eea.example.test", "us.example.test");
+        assertThat(requests).hasSize(ENDPOINTS.size())
+            .allSatisfy(request -> assertThat(request.url().getHost()).isEqualTo("us.example.test"));
     }
 
     @ParameterizedTest
@@ -298,10 +303,17 @@ class OkxAdapterTest {
         assertThat(output.toString()).doesNotContain(CREDENTIALS.apiKey(), CREDENTIALS.apiSecret(), CREDENTIALS.apiPassphrase());
     }
 
-    @Test
-    void rejectsNegativeEquityBeforeNettingSpotBalances() {
-        assertThatThrownBy(() -> withBody(TRADING, balance(TRADING, "{\"ccy\":\"COIN\",\"eq\":\"-2\"}"))
-            .fetchPositions(CREDENTIALS)).isInstanceOf(SyncException.class).hasMessageContaining("liabilities");
+    @ParameterizedTest
+    @CsvSource({TRADING + ",eq,COIN", FUNDING + ",bal,COIN", SAVINGS + ",amt,COIN",
+        ORDERS + ",amt,COIN", ETH_STAKING + ",amt,BETH", SOL_STAKING + ",amt,OKSOL"})
+    void probeAndSyncBothRejectNegativeBalances(String path, String field, String currency) {
+        String row = "{\"ccy\":\"%s\",\"%s\":\"-2\"}".formatted(currency, field);
+        var adapter = withBody(path, balance(path, row));
+        assertThatThrownBy(() -> adapter.testConnection(CREDENTIALS))
+            .isInstanceOfSatisfying(SyncException.class, ex -> assertThat(ex.getCode()).isEqualTo("OKX_NEGATIVE_BALANCE"));
+        assertThatThrownBy(() -> adapter.fetchPositions(CREDENTIALS))
+            .isInstanceOfSatisfying(SyncException.class, ex -> assertThat(ex.getCode()).isEqualTo("OKX_NEGATIVE_BALANCE"))
+            .hasMessageContainingAll("negative " + field, path, "liabilities", "Repay the borrowed balance on OKX");
     }
 
     @ParameterizedTest
@@ -427,7 +439,7 @@ class OkxAdapterTest {
         "OKSOL," + SOL_STAKING + "," + SAVINGS,
         "OKSOL," + SOL_STAKING + "," + ORDERS
     })
-    void rejectsReceiptsPlacedInEarnProducts(String receipt, String stakingPath, String earnPath) {
+    void probeAndSyncBothRejectReceiptsPlacedInEarnProducts(String receipt, String stakingPath, String earnPath) {
         String earn = earnPath.equals(SAVINGS)
             ? envelope("{\"ccy\":\"%s\",\"amt\":\"1\"}".formatted(receipt))
             : envelope("{\"ordId\":\"1\",\"investData\":[{\"ccy\":\"%s\",\"amt\":\"1\"}]}".formatted(receipt));
@@ -435,8 +447,11 @@ class OkxAdapterTest {
             earnPath, earn,
             stakingPath, envelope("{\"ccy\":\"%s\",\"amt\":\"4\"}".formatted(receipt)));
         var adapter = adapter(path -> response(HttpStatus.OK, bodies.getOrDefault(path, emptyFor(path))));
-        assertThatThrownBy(() -> adapter.fetchPositions(CREDENTIALS)).isInstanceOf(SyncException.class)
-            .hasMessageContainingAll(receipt, "Simple Earn or On-chain Earn");
+        assertThatThrownBy(() -> adapter.testConnection(CREDENTIALS))
+            .isInstanceOfSatisfying(SyncException.class, ex -> assertThat(ex.getCode()).isEqualTo("OKX_STAKING_RECEIPT_IN_EARN"));
+        assertThatThrownBy(() -> adapter.fetchPositions(CREDENTIALS))
+            .isInstanceOfSatisfying(SyncException.class, ex -> assertThat(ex.getCode()).isEqualTo("OKX_STAKING_RECEIPT_IN_EARN"))
+            .hasMessageContainingAll(receipt, "Simple Earn or On-chain Earn", "to your funding account");
     }
 
     private OkxAdapter adapterWithReceipts(String receipt, String stakingPath, String trading, String funding, String staked) {

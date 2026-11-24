@@ -199,6 +199,8 @@ describe('CryptoExchangeTab credential fields', () => {
 
   it.each([
     ['OKX_REGION_MISMATCH', 'sync.exchanges.okxRegionMismatch'],
+    ['OKX_NEGATIVE_BALANCE', 'sync.exchanges.okxNegativeBalance'],
+    ['OKX_STAKING_RECEIPT_IN_EARN', 'sync.exchanges.okxStakingReceiptInEarn'],
     [undefined, 'The OKX API key does not exist in the selected region (50119).'],
   ])('displays the OKX connection error for code %s', async (code, expected) => {
     apiPost.mockRejectedValueOnce({

@@ -135,7 +135,8 @@ public class OkxAdapter implements CryptoExchangePort {
 
     @Override
     public boolean testConnection(ExchangeCredentials credentials) {
-        fetchTradingBalances(credentials);
+        // Reject accounts we cannot value before the connection is saved.
+        fetchPositions(credentials);
         return true;
     }
 
@@ -160,7 +161,9 @@ public class OkxAdapter implements CryptoExchangePort {
         // is not documented: counting it twice or dropping it would both be a wrong balance.
         if (lending.containsKey(receipt) || staking.containsKey(receipt)) {
             throw new SyncException("OKX reported " + receipt + " in Simple Earn or On-chain Earn. "
-                + "Picsou cannot tell whether the dedicated staking balance already includes it.");
+                + "Picsou cannot tell whether the dedicated staking balance already includes it. "
+                + "Redeem " + receipt + " from Earn to your funding account, then reconnect or sync again.",
+                null, "OKX_STAKING_RECEIPT_IN_EARN");
         }
         JsonNode rows = fetch(path, credentials);
         if (rows.size() > 1) throw invalidShape(path, "multiple staking balances");
@@ -194,7 +197,8 @@ public class OkxAdapter implements CryptoExchangePort {
         BigDecimal quantity = requireAmount(row, field, path);
         if (quantity.signum() < 0) {
             throw new SyncException("OKX returned a negative " + field + " for " + path
-                + ". Picsou does not support exchange liabilities.");
+                + ". Picsou does not support exchange liabilities. "
+                + "Repay the borrowed balance on OKX, then reconnect or sync again.", null, "OKX_NEGATIVE_BALANCE");
         }
         return quantity;
     }
