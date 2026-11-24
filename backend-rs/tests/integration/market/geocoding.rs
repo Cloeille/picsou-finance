@@ -84,3 +84,23 @@ async fn geocode_handles_blank_empty_and_outages_gracefully() {
             .is_none()
     );
 }
+
+#[test]
+fn department_code_handles_non_ascii_insee_without_panicking() {
+    let make = |code: &str| GeocodeResult {
+        label: None,
+        score: None,
+        latitude: None,
+        longitude: None,
+        insee_code: Some(code.to_owned()),
+        postcode: None,
+        city: None,
+        ban_id: None,
+    };
+    assert_eq!(make("€").department_code(), None);
+    assert_eq!(make("é").department_code(), None);
+    assert_eq!(make("aé").department_code().as_deref(), Some("aé"));
+    assert_eq!(make("97é").department_code().as_deref(), Some("97é"));
+    assert_eq!(make("97611").department_code().as_deref(), Some("976"));
+    assert_eq!(make("2A004").department_code().as_deref(), Some("2A"));
+}

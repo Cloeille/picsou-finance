@@ -352,3 +352,36 @@ async fn property_valuation_adjusts_reindexes_geocodes_and_respects_manual_lock(
     // Scheduled refresh handles all 3 independently and returns 2 OK (Maison + Manuel).
     assert_eq!(refresh_all_for_member(&app.state, member).await, 2);
 }
+
+#[tokio::test]
+async fn estimate_handles_non_ascii_insee_code_without_panicking() {
+    use picsou::wealth::real_estate::valuation::estimate;
+
+    let cerema_srv = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&cerema_srv)
+        .await;
+    let app = TestApp::builder()
+        .with_admin()
+        .env("CEREMA_API_URL", cerema_srv.uri())
+        .spawn()
+        .await;
+    let member = admin_member(&app).await;
+    let mut prop = NewAccount::new(member, "Bien", AccountType::RealEstate);
+    prop.is_manual = true;
+    prop.current_balance = d("200000");
+    let prop_id = account(&app, prop).await.id;
+    picsou::db::query(
+        "INSERT INTO real_estate_metadata (account_id, member_id, purchase_price, property_type, insee_code, surface_area, valuation_mode) \
+         VALUES ($1, $2, 200000, 'HOUSE', '97é', 80, 'ESTIMATED')",
+    )
+    .bind(prop_id)
+    .bind(member)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+
+    let resp = estimate(&app.state, prop_id, member).await;
+    assert!(resp.is_ok(), "non-ASCII INSEE code must not panic: {resp:?}");
+}

@@ -802,15 +802,10 @@ fn build_address_query(m: &FullMetadata) -> String {
 }
 
 fn to_input(m: &FullMetadata, kind: PropertyKind) -> ValuationInput {
-    let department = m.insee_code.as_deref().and_then(|insee| {
-        if insee.starts_with("97") && insee.len() >= 3 {
-            Some(insee[..3].to_owned())
-        } else if insee.len() >= 2 {
-            Some(insee[..2].to_owned())
-        } else {
-            None
-        }
-    });
+    let department = m
+        .insee_code
+        .as_deref()
+        .and_then(geocoding::department_code_from_insee);
     ValuationInput {
         insee_code: m.insee_code.clone(),
         department_code: department,

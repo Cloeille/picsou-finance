@@ -25,17 +25,24 @@ pub struct GeocodeResult {
     pub ban_id: Option<String>,
 }
 
+/// Two-character metropolitan department code, or three characters overseas (97x).
+pub fn department_code_from_insee(code: &str) -> Option<String> {
+    let mut chars = code.chars();
+    let c1 = chars.next()?;
+    let c2 = chars.next()?;
+    if c1 == '9'
+        && c2 == '7'
+        && let Some(c3) = chars.next()
+    {
+        return Some([c1, c2, c3].into_iter().collect());
+    }
+    Some([c1, c2].into_iter().collect())
+}
+
 impl GeocodeResult {
     /// Two-digit metropolitan department code, or three digits overseas (97x).
     pub fn department_code(&self) -> Option<String> {
-        let code = self.insee_code.as_deref()?;
-        if code.starts_with("97") && code.len() >= 3 {
-            Some(code[..3].to_owned())
-        } else if code.len() >= 2 {
-            Some(code[..2].to_owned())
-        } else {
-            None
-        }
+        department_code_from_insee(self.insee_code.as_deref()?)
     }
 }
 
