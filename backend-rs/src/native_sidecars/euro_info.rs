@@ -661,29 +661,29 @@ impl EuroInfoClient {
             ));
         }
 
-        let Some(mut state) = self.pending.take(&req.process_id).await else {
+        let Some(mut lease) = self.pending.take_lease(&req.process_id).await else {
             return Err(NativeSidecarError::new(
                 StatusCode::GONE,
                 "AUTH_ATTEMPT_EXPIRED",
             ));
         };
 
-        let landing = match state.kind {
+        let landing = match lease.value.kind {
             MfaKind::Sms => {
                 let Some(code) = req.code.as_deref() else {
                     self.pending
-                        .put_or_err(req.process_id, state, "UPSTREAM_UNAVAILABLE")
+                        .repark_or_err(req.process_id, lease, "UPSTREAM_UNAVAILABLE")
                         .await?;
                     return Err(NativeSidecarError::new(
                         StatusCode::BAD_REQUEST,
                         "INVALID_OTP",
                     ));
                 };
-                match self.submit_sms_code(&mut state, code).await {
+                match self.submit_sms_code(&mut lease.value, code).await {
                     Ok(page) => page,
                     Err(err) if err.detail == "INVALID_OTP" => {
                         self.pending
-                            .put_or_err(req.process_id, state, "UPSTREAM_UNAVAILABLE")
+                            .repark_or_err(req.process_id, lease, "UPSTREAM_UNAVAILABLE")
                             .await?;
                         return Err(err);
                     }
@@ -698,14 +698,14 @@ impl EuroInfoClient {
                     )
                     .into_sidecar_error());
                 }
-                self.await_confirmation(&state).await?;
-                self.finish_confirmation(&state).await?
+                self.await_confirmation(&lease.value).await?;
+                self.finish_confirmation(&lease.value).await?
             }
         };
 
         self.require_logged_in("after second factor", &landing)
             .map_err(UpstreamError::into_sidecar_error)?;
-        Ok(json!({ "sessionState": state.jar.serialize_json() }))
+        Ok(json!({ "sessionState": lease.value.jar.serialize_json() }))
     }
 
     // ─── Internal login steps ───────────────────────────────────────────────

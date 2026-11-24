@@ -6,62 +6,152 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use chrono::{DateTime, Utc};
 use http::{HeaderValue, StatusCode};
 use reqwest::cookie::CookieStore;
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 use url::Url;
 
 use super::NativeSidecarError;
+use crate::clock::{Clock, SystemClock};
 
 // ─── Pending second-factor store ────────────────────────────────────────────
 
 struct PendingEntry<T> {
     value: T,
-    created_at: Instant,
+    created_at: DateTime<Utc>,
+}
+
+/// A taken pending entry paired with its original creation timestamp so callers can re-park it
+/// after a rejected OTP without extending its TTL.
+pub struct PendingLease<T> {
+    pub value: T,
+    created_at: DateTime<Utc>,
+}
+
+struct PendingMap<T> {
+    entries: HashMap<String, PendingEntry<T>>,
+    sweeper_active: bool,
 }
 
 /// Thread-safe in-memory store for pending authentication attempts between `/initiate` and `/complete`.
-pub struct PendingStore<T> {
+pub struct PendingStore<T: Send + 'static> {
     ttl: Duration,
     max_size: Option<usize>,
-    entries: Mutex<HashMap<String, PendingEntry<T>>>,
+    clock: Arc<dyn Clock>,
+    state: Arc<Mutex<PendingMap<T>>>,
+    wake: Arc<Notify>,
 }
 
-impl<T> PendingStore<T> {
+impl<T: Send + 'static> Drop for PendingStore<T> {
+    fn drop(&mut self) {
+        self.wake.notify_one();
+    }
+}
+
+fn is_live(now: DateTime<Utc>, created_at: DateTime<Utc>, ttl: Duration) -> bool {
+    let ttl = chrono::Duration::from_std(ttl).unwrap_or(chrono::Duration::MAX);
+    now - created_at < ttl
+}
+
+impl<T: Send + 'static> PendingStore<T> {
     pub fn new(ttl: Duration, max_size: Option<usize>) -> Self {
+        Self::with_clock(ttl, max_size, Arc::new(SystemClock))
+    }
+
+    pub fn with_clock(ttl: Duration, max_size: Option<usize>, clock: Arc<dyn Clock>) -> Self {
         Self {
             ttl,
             max_size,
-            entries: Mutex::new(HashMap::new()),
+            clock,
+            state: Arc::new(Mutex::new(PendingMap {
+                entries: HashMap::new(),
+                sweeper_active: false,
+            })),
+            wake: Arc::new(Notify::new()),
         }
+    }
+
+    fn spawn_sweeper_if_needed(&self, map: &mut PendingMap<T>) {
+        if map.sweeper_active || map.entries.is_empty() {
+            return;
+        }
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        map.sweeper_active = true;
+        let weak = Arc::downgrade(&self.state);
+        let wake = self.wake.clone();
+        let clock = self.clock.clone();
+        let ttl = self.ttl;
+        let ttl_chrono = chrono::Duration::from_std(ttl).unwrap_or(chrono::Duration::MAX);
+        tokio::spawn(async move {
+            loop {
+                let next_sleep = {
+                    let Some(state) = weak.upgrade() else {
+                        return;
+                    };
+                    let mut guard = state.lock().await;
+                    let now = clock.now();
+                    guard
+                        .entries
+                        .retain(|_, entry| is_live(now, entry.created_at, ttl));
+                    let earliest = guard
+                        .entries
+                        .values()
+                        .map(|entry| {
+                            let remaining = ttl_chrono - (now - entry.created_at);
+                            remaining.to_std().unwrap_or(Duration::ZERO)
+                        })
+                        .min();
+                    match earliest {
+                        Some(dur) => dur.max(Duration::from_millis(1)),
+                        None => {
+                            guard.sweeper_active = false;
+                            return;
+                        }
+                    }
+                };
+                tokio::select! {
+                    _ = tokio::time::sleep(next_sleep) => {}
+                    _ = wake.notified() => {}
+                }
+            }
+        });
     }
 
     pub async fn expire(&self) {
-        let now = Instant::now();
-        let mut map = self.entries.lock().await;
-        map.retain(|_, entry| now.duration_since(entry.created_at) < self.ttl);
+        let now = self.clock.now();
+        let mut guard = self.state.lock().await;
+        guard
+            .entries
+            .retain(|_, entry| is_live(now, entry.created_at, self.ttl));
     }
 
     pub async fn put(&self, process_id: String, value: T) -> bool {
-        let now = Instant::now();
-        let mut map = self.entries.lock().await;
-        map.retain(|_, entry| now.duration_since(entry.created_at) < self.ttl);
+        let now = self.clock.now();
+        let mut guard = self.state.lock().await;
+        guard
+            .entries
+            .retain(|_, entry| is_live(now, entry.created_at, self.ttl));
         if let Some(max) = self.max_size
-            && map.len() >= max
-            && !map.contains_key(&process_id)
+            && guard.entries.len() >= max
+            && !guard.entries.contains_key(&process_id)
         {
             return false;
         }
-        map.insert(
+        let created_at = guard
+            .entries
+            .get(&process_id)
+            .map_or(now, |existing| existing.created_at);
+        guard.entries.insert(
             process_id,
-            PendingEntry {
-                value,
-                created_at: now,
-            },
+            PendingEntry { value, created_at },
         );
+        self.spawn_sweeper_if_needed(&mut guard);
         true
     }
 
@@ -81,15 +171,70 @@ impl<T> PendingStore<T> {
         }
     }
 
-    pub async fn take(&self, process_id: &str) -> Option<T> {
+    pub async fn take_lease(&self, process_id: &str) -> Option<PendingLease<T>> {
         let entry = {
-            let mut map = self.entries.lock().await;
-            map.remove(process_id)?
+            let mut guard = self.state.lock().await;
+            guard.entries.remove(process_id)?
         };
-        if Instant::now().duration_since(entry.created_at) >= self.ttl {
+        if !is_live(self.clock.now(), entry.created_at, self.ttl) {
             None
         } else {
-            Some(entry.value)
+            Some(PendingLease {
+                value: entry.value,
+                created_at: entry.created_at,
+            })
+        }
+    }
+
+    pub async fn take(&self, process_id: &str) -> Option<T> {
+        self.take_lease(process_id).await.map(|lease| lease.value)
+    }
+
+    /// Re-parks a taken lease under its original creation timestamp. Drops the lease immediately
+    /// without re-inserting if its TTL already elapsed while checked out.
+    pub async fn repark(&self, process_id: String, lease: PendingLease<T>) -> bool {
+        let now = self.clock.now();
+        if !is_live(now, lease.created_at, self.ttl) {
+            return true;
+        }
+        let mut guard = self.state.lock().await;
+        guard
+            .entries
+            .retain(|_, entry| is_live(now, entry.created_at, self.ttl));
+        if let Some(max) = self.max_size
+            && guard.entries.len() >= max
+            && !guard.entries.contains_key(&process_id)
+        {
+            return false;
+        }
+        guard.entries.insert(
+            process_id,
+            PendingEntry {
+                value: lease.value,
+                created_at: lease.created_at,
+            },
+        );
+        if guard.sweeper_active {
+            self.wake.notify_one();
+        } else {
+            self.spawn_sweeper_if_needed(&mut guard);
+        }
+        true
+    }
+
+    pub async fn repark_or_err(
+        &self,
+        process_id: String,
+        lease: PendingLease<T>,
+        detail: &str,
+    ) -> Result<(), NativeSidecarError> {
+        if self.repark(process_id, lease).await {
+            Ok(())
+        } else {
+            Err(NativeSidecarError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                detail,
+            ))
         }
     }
 }
@@ -614,18 +759,73 @@ pub fn build_http_client(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use super::*;
+
+    struct DropFlag(Arc<AtomicBool>);
+
+    impl Drop for DropFlag {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
 
     #[tokio::test]
     async fn pending_store_sweeps_expired_on_every_put_and_enforces_cap() {
-        let store = PendingStore::new(Duration::from_millis(20), Some(2));
+        let clock = Arc::new(crate::clock::FixedClock::new(
+            DateTime::parse_from_rfc3339("2026-01-15T10:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+        ));
+        let store = PendingStore::with_clock(Duration::from_secs(300), Some(2), clock.clone());
         assert!(store.put("p1".to_owned(), "secret-1").await);
-        tokio::time::sleep(Duration::from_millis(30)).await;
+        clock.advance(Duration::from_secs(301));
         // Putting p2 sweeps expired p1 even though len(1) < cap(2).
         assert!(store.put("p2".to_owned(), "secret-2").await);
-        assert_eq!(store.entries.lock().await.len(), 1);
+        assert_eq!(store.state.lock().await.entries.len(), 1);
         assert!(store.put("p3".to_owned(), "secret-3").await);
         // At cap=2, p4 is rejected.
         assert!(!store.put("p4".to_owned(), "secret-4").await);
+    }
+
+    #[tokio::test]
+    async fn pending_store_put_does_not_reset_ttl_and_sweeper_drops_expired_entries() {
+        let clock = Arc::new(crate::clock::FixedClock::new(
+            DateTime::parse_from_rfc3339("2026-01-15T10:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+        ));
+        // 1. Re-putting an existing key or reparking a taken lease must preserve its original TTL.
+        let store = PendingStore::with_clock(Duration::from_secs(300), Some(4), clock.clone());
+        assert!(store.put("p1".to_owned(), "secret").await);
+        clock.advance(Duration::from_secs(200));
+        assert!(store.put("p1".to_owned(), "secret").await);
+        let lease = store.take_lease("p1").await.expect("still live at 200s");
+        assert!(store.repark("p1".to_owned(), lease).await);
+        clock.advance(Duration::from_secs(105));
+        assert!(
+            store.take("p1").await.is_none(),
+            "re-putting or reparking the same key must not extend its TTL"
+        );
+
+        // 2. An abandoned entry must be swept and dropped without another request arriving.
+        let dropped = Arc::new(AtomicBool::new(false));
+        let sweep_store = PendingStore::new(Duration::from_millis(25), Some(4));
+        assert!(
+            sweep_store
+                .put("abandoned".to_owned(), DropFlag(dropped.clone()))
+                .await
+        );
+        for _ in 0..40 {
+            if dropped.load(Ordering::SeqCst) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(
+            dropped.load(Ordering::SeqCst),
+            "expired pending entry must be dropped by background sweep"
+        );
     }
 }

@@ -63,11 +63,15 @@ impl Default for NativeSofidy {
 
 impl NativeSofidy {
     pub fn with_base_url(base_url: &str) -> Self {
+        Self::with_base_url_and_clock(base_url, Arc::new(crate::clock::SystemClock))
+    }
+
+    pub fn with_base_url_and_clock(base_url: &str, clock: Arc<dyn crate::clock::Clock>) -> Self {
         let normalized = normalize_base_url(base_url);
         let url = Url::parse(&normalized).expect("valid Sofidy base URL");
         Self {
             base_url: url,
-            pending: PendingStore::new(PENDING_TTL, Some(MAX_PENDING)),
+            pending: PendingStore::with_clock(PENDING_TTL, Some(MAX_PENDING), clock),
         }
     }
 
@@ -289,7 +293,7 @@ impl NativeSofidy {
             ));
         }
 
-        let Some(state) = self.pending.take(&process_id).await else {
+        let Some(lease) = self.pending.take_lease(&process_id).await else {
             return Err(NativeSidecarError::new(
                 StatusCode::GONE,
                 "AUTH_ATTEMPT_EXPIRED",
@@ -297,18 +301,18 @@ impl NativeSofidy {
         };
 
         let mut form = HashMap::new();
-        form.insert("user", state.associate_code.as_str());
-        form.insert("pass", state.password.as_str());
+        form.insert("user", lease.value.associate_code.as_str());
+        form.insert("pass", lease.value.password.as_str());
         form.insert("code", code.as_str());
         let raw = self
-            .post_portal(&state.client, VERIFY_2FA_PATH, &form)
+            .post_portal(&lease.value.client, VERIFY_2FA_PATH, &form)
             .await?
             .trim()
             .to_ascii_lowercase();
 
         if raw != "fauxyes" && raw != "firstyes" {
             self.pending
-                .put_or_err(process_id, state, "TOO_MANY_PENDING")
+                .repark_or_err(process_id, lease, "TOO_MANY_PENDING")
                 .await?;
             return Err(NativeSidecarError::new(
                 StatusCode::UNAUTHORIZED,
@@ -316,7 +320,7 @@ impl NativeSofidy {
             ));
         }
 
-        if !is_logged_in(&self.fetch_home(&state.client).await?) {
+        if !is_logged_in(&self.fetch_home(&lease.value.client).await?) {
             tracing::warn!("Sofidy verification succeeded without opening a session");
             return Err(NativeSidecarError::new(
                 StatusCode::BAD_GATEWAY,
@@ -324,7 +328,7 @@ impl NativeSofidy {
             ));
         }
 
-        Ok(json!({ "sessionState": state.jar.serialize_json() }))
+        Ok(json!({ "sessionState": lease.value.jar.serialize_json() }))
     }
 
     async fn handle_positions(&self, body: Value) -> Result<Value, NativeSidecarError> {

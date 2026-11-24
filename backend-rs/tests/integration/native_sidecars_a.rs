@@ -2031,3 +2031,69 @@ fn cmes_and_sofidy_parsers_report_errors_instead_of_panicking_on_decimal_overflo
     let err = sofidy::parse_portfolio(&sofidy_diff_html).unwrap_err();
     assert_eq!(err.code, "PORTFOLIO_INCOMPLETE");
 }
+
+#[tokio::test]
+async fn sofidy_wrong_otp_does_not_extend_pending_ttl() {
+    let bank = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(sofidy::HOME_PATH))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("set-cookie", "PHPSESSID=sid1; Path=/")
+                .set_body_string("<html>accueil</html>"),
+        )
+        .mount(&bank)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(sofidy::LOGIN_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_string("2FA|email"))
+        .mount(&bank)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(sofidy::VERIFY_2FA_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_string("faux"))
+        .mount(&bank)
+        .await;
+
+    let clock = Arc::new(picsou::clock::FixedClock::new(picsou::testing::epoch()));
+    let sidecar = NativeSofidy::with_base_url_and_clock(&bank.uri(), clock.clone());
+    let init = sidecar
+        .call(
+            Method::POST,
+            "/initiate",
+            json!({"associateCode": "123456", "password": "secret"}),
+        )
+        .await
+        .expect("initiate ok");
+    let pid = init["processId"].as_str().unwrap().to_owned();
+
+    // Wrong OTP 200s later must NOT reset the 300s TTL.
+    clock.advance(Duration::from_secs(200));
+    let wrong = sidecar
+        .call(
+            Method::POST,
+            "/complete",
+            json!({"processId": pid, "code": "000000"}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (wrong.status, wrong.detail.as_str()),
+        (StatusCode::UNAUTHORIZED, "MFA_INVALID")
+    );
+
+    // 110s later (310s total > 300s TTL, but < 300s since the wrong OTP), attempt must be expired.
+    clock.advance(Duration::from_secs(110));
+    let expired = sidecar
+        .call(
+            Method::POST,
+            "/complete",
+            json!({"processId": pid, "code": "123456"}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (expired.status, expired.detail.as_str()),
+        (StatusCode::GONE, "AUTH_ATTEMPT_EXPIRED")
+    );
+}
