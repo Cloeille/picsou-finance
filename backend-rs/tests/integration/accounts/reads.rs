@@ -596,3 +596,40 @@ async fn dashboard_includes_debt_payment_and_progress_for_credit_card_liability(
     assert_eq!(num(&row["currentBalanceEur"]), "-600.00000000");
     assert!(row.get("debt").is_none());
 }
+
+#[tokio::test]
+async fn dashboard_values_synced_corum_life_with_ticker_and_zero_holdings_via_to_eur() {
+    let app = TestApp::with_admin().await;
+    let me = admin_member(&app).await;
+    let contract = account(&app, me, "Corum Life", "ASSURANCE_VIE", "10").await;
+    let card = account(&app, me, "Corum Card", "CREDIT_CARD", "-4").await;
+    exec(
+        &app,
+        &format!(
+            "UPDATE account SET is_manual = false, external_account_id = 'corum_life_c1', \
+             provider_invested_eur = 100, currency = 'EUR', ticker = 'PSCORUM' WHERE id = {contract}; \
+             UPDATE account SET is_manual = false, external_account_id = 'corum_life_c2', \
+             provider_invested_eur = 100, currency = 'EUR', ticker = 'PSCORUM' WHERE id = {card}; \
+             INSERT INTO price_snapshot (ticker, date, price_eur) VALUES ('PSCORUM', '2026-01-14', 50)"
+        ),
+    )
+    .await;
+
+    let dashboard = app
+        .login_admin()
+        .await
+        .get("/api/dashboard")
+        .send()
+        .await
+        .json();
+    assert_eq!(
+        num(&by_account(&dashboard["assets"], contract)["balanceEur"]),
+        "500.0000000000000000"
+    );
+    assert_eq!(
+        num(&by_account(&dashboard["liabilities"], card)["balanceEur"]),
+        "200.0000000000000000"
+    );
+    assert_eq!(num(&dashboard["totalLiabilities"]), "200.0000000000000000");
+    assert_eq!(num(&dashboard["totalNetWorth"]), "300.0000000000000000");
+}

@@ -161,10 +161,8 @@ pub async fn get_dashboard(
     for a in &top_level_accounts {
         let val = valuation::valuation_from_batch(prices, a, &batch, today).await;
         valuations.insert(a.id, val);
-        let has_holdings = holding_counts[&a.id] > 0;
         let value = match a.account_type {
             AccountType::Loan => val.live_eur,
-            AccountType::CreditCard if !has_holdings => -val.live_eur,
             AccountType::CreditCard => {
                 -prices
                     .to_eur(
@@ -175,21 +173,7 @@ pub async fn get_dashboard(
                     )
                     .await
             }
-            AccountType::PeerLoan if !has_holdings && batch.peer_terms.contains_key(&a.id) => {
-                prices
-                    .to_eur(
-                        Some(a.current_balance),
-                        &a.currency,
-                        a.ticker.as_deref(),
-                        today,
-                    )
-                    .await
-            }
-            _ if !has_holdings
-                && a.is_synced_corum_life()
-                && a.provider_invested_eur.is_some()
-                && !a.currency.eq_ignore_ascii_case("EUR") =>
-            {
+            _ if holding_counts[&a.id] == 0 => {
                 prices
                     .to_eur(
                         Some(a.current_balance),
