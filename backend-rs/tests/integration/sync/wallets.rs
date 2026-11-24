@@ -673,6 +673,27 @@ async fn an_overflowing_bitcoin_satoshi_sum_fails_the_sync_instead_of_panicking(
 }
 
 #[tokio::test]
+async fn oversized_wallet_rpc_response_fails_the_sync() {
+    let h = Harness::new().await;
+    let body = format!(
+        "{}{}",
+        r#"{"chain_stats":{"funded_txo_sum":100000000,"spent_txo_sum":0,"tx_count":1}}"#,
+        " ".repeat(256 * 1024)
+    );
+    Mock::given(method("GET"))
+        .and(path(format!("/api/address/{BIP84_RECEIVE_0}")))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/json"))
+        .mount(&h.chain)
+        .await;
+    h.prices(&[("BTC", "60000")]);
+
+    let response = h.add("BITCOIN", BIP84_RECEIVE_0, None).await;
+    assert_eq!(response.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(response.json()["detail"], sync_failed("BITCOIN"));
+    assert_eq!(h.wallets().await, json!([]));
+}
+
+#[tokio::test]
 async fn input_is_checked_before_anything_is_stored_or_called() {
     let h = Harness::new().await;
     Mock::given(method("POST"))

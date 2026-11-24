@@ -1084,6 +1084,29 @@ async fn a_failing_category_is_retried_then_named() {
 }
 
 #[tokio::test]
+async fn oversized_finary_response_body_fails_preview() {
+    let f = Finary::start().await;
+    f.connect().await;
+    f.clerk("complete").await;
+    f.empty_portfolio().await;
+    let huge = format!("{}{}", r#"{"result":[]}"#, " ".repeat(8 * 1024 * 1024));
+    Mock::given(method("GET"))
+        .and(path(format!("{PORTFOLIO}/checkings/accounts")))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(huge, "application/json"))
+        .with_priority(1)
+        .expect(1)
+        .mount(&f.server)
+        .await;
+
+    let r = f.admin.post("/api/finary/api-sync/preview").send().await;
+    assert_eq!(r.status, 422, "{}", r.text());
+    assert_eq!(
+        r.json()["detail"],
+        "Failed to fetch accounts from checkings"
+    );
+}
+
+#[tokio::test]
 async fn transactions_page_until_a_short_batch() {
     let f = Finary::start().await;
     f.ready().await;

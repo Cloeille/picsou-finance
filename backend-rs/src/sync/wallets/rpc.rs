@@ -8,9 +8,11 @@ use rust_decimal::prelude::ToPrimitive;
 use serde_json::Value;
 
 use crate::AppState;
+use crate::native_sidecars::common::{ReadBodyError, read_capped_bytes};
 
 /// Every upstream call is bounded by this, as the Java adapters' WebClient timeouts.
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(10);
+const MAX_RESPONSE_BYTES: usize = 256 * 1024;
 
 /// A failed balance fetch. expected is WalletRpcException's "routine sync problem" (a WARN);
 /// anything else is logged as a bug (an ERROR). Both reach the user as the same 422.
@@ -83,10 +85,14 @@ pub async fn send(request: reqwest::RequestBuilder) -> Result<Option<Value>, Cal
         .await
         .and_then(reqwest::Response::error_for_status)
         .map_err(|e| CallError(without_url(&e)))?;
-    let body = response
-        .bytes()
+    let body = read_capped_bytes(response, MAX_RESPONSE_BYTES)
         .await
-        .map_err(|e| CallError(without_url(&e)))?;
+        .map_err(|e| match e {
+            ReadBodyError::Transport(err) => CallError(without_url(&err)),
+            ReadBodyError::TooLarge { limit } => {
+                CallError(format!("unreadable body: response exceeds {limit} bytes"))
+            }
+        })?;
     if body.is_empty() {
         return Ok(None);
     }

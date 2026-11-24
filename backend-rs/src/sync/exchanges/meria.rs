@@ -15,11 +15,13 @@ use super::port::{
 };
 use crate::AppState;
 use crate::ledger::sync_values::java_is_blank;
+use crate::native_sidecars::common::{ReadBodyError, read_capped_bytes};
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 const API_KEY_HEADER: &str = "API-KEY";
 /// /stakings carries every contract's full reward history: megabytes for an old account.
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+const STATUS_MAX_RESPONSE_BYTES: usize = 256 * 1024;
 
 pub struct Meria<'a> {
     http: &'a reqwest::Client,
@@ -147,25 +149,18 @@ impl<'a> Meria<'a> {
 }
 
 /// A body read in full, refused past MAX_RESPONSE_BYTES.
-async fn read_limited(mut response: reqwest::Response, path: &str) -> Result<Vec<u8>, FetchError> {
-    let mut body = Vec::new();
-    loop {
-        match response.chunk().await {
-            Ok(Some(chunk)) => {
-                if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
-                    tracing::error!(
-                        "Meria request for {path} failed unexpectedly (body over {MAX_RESPONSE_BYTES} bytes) -- failing the sync"
-                    );
-                    return Err(FetchError::Sync(format!(
-                        "Could not read {path} from Meria."
-                    )));
-                }
-                body.extend_from_slice(&chunk);
+async fn read_limited(response: reqwest::Response, path: &str) -> Result<Vec<u8>, FetchError> {
+    read_capped_bytes(response, MAX_RESPONSE_BYTES)
+        .await
+        .map_err(|e| match e {
+            ReadBodyError::TooLarge { limit } => {
+                tracing::error!(
+                    "Meria request for {path} failed unexpectedly (body over {limit} bytes) -- failing the sync"
+                );
+                FetchError::Sync(format!("Could not read {path} from Meria."))
             }
-            Ok(None) => return Ok(body),
-            Err(e) => return Err(transport_failure(path, &e)),
-        }
-    }
+            ReadBodyError::Transport(err) => transport_failure(path, &err),
+        })
 }
 
 /// A failed call, always a SyncException; never logs the API key, only the path.
@@ -410,10 +405,14 @@ impl ExchangePort for Meria<'_> {
             return false;
         }
         let json = is_json(&response);
-        let body = match response.bytes().await {
+        let body = match read_capped_bytes(response, STATUS_MAX_RESPONSE_BYTES).await {
             Ok(body) => body,
-            Err(e) => {
+            Err(ReadBodyError::Transport(e)) => {
                 tracing::warn!("Meria connection test failed: {}", describe(&e));
+                return false;
+            }
+            Err(ReadBodyError::TooLarge { .. }) => {
+                tracing::warn!("Meria connection test failed: unreadable body from GET /status");
                 return false;
             }
         };

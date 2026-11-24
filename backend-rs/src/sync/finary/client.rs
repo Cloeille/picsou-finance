@@ -15,6 +15,7 @@ use super::upstream::{
 use crate::AppState;
 use crate::error::AppError;
 use crate::ledger::sync_values::java_is_blank;
+use crate::native_sidecars::common::{ReadBodyError, read_capped_text};
 
 const CLERK_QUERY_PARAMS: &str = "?__clerk_api_version=2025-11-10&_clerk_js_version=5.125.4";
 const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
@@ -22,6 +23,7 @@ const ORIGIN: &str = "https://app.finary.com";
 const REFERER: &str = "https://app.finary.com/";
 const ACCEPT_LANGUAGE: &str = "fr-FR,fr;q=0.9,en;q=0.8";
 const TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_RETRIES: u32 = 3;
 const UNREACHABLE: &str = "Unable to reach Finary. Please check your connection and try again.";
 
@@ -399,16 +401,20 @@ async fn send_with_retry(request: impl Fn() -> RequestBuilder) -> Result<(u16, S
         let outcome: Result<(), String> = match request().send().await {
             Ok(response) => {
                 let status = response.status().as_u16();
-                match response.text().await {
-                    Ok(_) if status >= 500 => {
-                        tracing::warn!(
-                            "Finary/Clerk returned HTTP {status} (attempt {}/{MAX_RETRIES})",
-                            attempt + 1
-                        );
-                        Err(format!("HTTP {status}"))
+                if status >= 500 {
+                    tracing::warn!(
+                        "Finary/Clerk returned HTTP {status} (attempt {}/{MAX_RETRIES})",
+                        attempt + 1
+                    );
+                    Err(format!("HTTP {status}"))
+                } else {
+                    match read_capped_text(response, MAX_RESPONSE_BYTES).await {
+                        Ok(body) => return Ok((status, body)),
+                        Err(ReadBodyError::TooLarge { .. }) => {
+                            return Err(Step::Io("unreadable response body".to_owned()));
+                        }
+                        Err(ReadBodyError::Transport(error)) => Err(describe(&error)),
                     }
-                    Ok(body) => return Ok((status, body)),
-                    Err(error) => Err(describe(&error)),
                 }
             }
             Err(error) => {

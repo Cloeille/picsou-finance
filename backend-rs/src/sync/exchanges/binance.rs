@@ -15,9 +15,11 @@ use super::port::{
 };
 use crate::AppState;
 use crate::clock::AppClock;
+use crate::native_sidecars::common::{ReadBodyError, read_capped_bytes};
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 const ACCOUNT_PATH: &str = "/api/v3/account";
+const MAX_RESPONSE_BYTES: usize = 256 * 1024;
 
 pub struct Binance<'a> {
     http: &'a reqwest::Client,
@@ -63,10 +65,14 @@ impl<'a> Binance<'a> {
             )));
         }
         let json = is_json(&response);
-        let body = response
-            .bytes()
+        let body = read_capped_bytes(response, MAX_RESPONSE_BYTES)
             .await
-            .map_err(|e| FetchError::Unexpected(describe(&e)))?;
+            .map_err(|e| match e {
+                ReadBodyError::Transport(err) => FetchError::Unexpected(describe(&err)),
+                ReadBodyError::TooLarge { .. } => {
+                    FetchError::Unexpected(format!("unreadable body from GET {ACCOUNT_PATH}"))
+                }
+            })?;
         if is_blank(&body) {
             return Ok(None);
         }

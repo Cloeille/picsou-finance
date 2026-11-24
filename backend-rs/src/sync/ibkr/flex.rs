@@ -12,9 +12,11 @@ use super::xml::{self, Element};
 use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::ledger::sync_values::{java_is_blank, java_trim};
+use crate::native_sidecars::common::{ReadBodyError, read_capped_text};
 
 const VERSION: &str = "3";
 const TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 /// How many times GetStatement is polled while IBKR is still generating the report.
 const MAX_POLLS: u32 = 8;
 /// Base wait between polls; IBKR needs a few seconds and rate-limits to about one request a second.
@@ -184,7 +186,15 @@ async fn get(state: &AppState, url: &str) -> AppResult<String> {
             status.as_u16()
         )));
     }
-    let body = response.text().await.map_err(unreachable)?;
+    let body = read_capped_text(response, MAX_RESPONSE_BYTES)
+        .await
+        .map_err(|e| match e {
+            ReadBodyError::Transport(err) => unreachable(err),
+            ReadBodyError::TooLarge { limit } => {
+                tracing::error!("IBKR Flex response exceeded {limit} bytes");
+                sync_error("Interactive Brokers returned an unexpected (non-XML) response.")
+            }
+        })?;
     if java_is_blank(&body) {
         return Err(sync_error(
             "Interactive Brokers returned an empty response. Please try again.",

@@ -711,3 +711,32 @@ async fn the_database_stays_writable_while_the_tickers_are_resolved() {
     let id = body[0]["id"].as_i64().expect("the synced account");
     assert_eq!(f.holdings(id).await.len(), 1);
 }
+
+#[tokio::test]
+async fn oversized_flex_response_body_fails_the_sync() {
+    let f = Fixture::new().await;
+    f.connect().await;
+    let huge = format!(
+        "<FlexStatementResponse timestamp=\"x\"><Status>Success</Status>\
+         <ReferenceCode>5550001</ReferenceCode></FlexStatementResponse>{}",
+        " ".repeat(8 * 1024 * 1024)
+    );
+    Mock::given(method("GET"))
+        .and(path("/SendRequest"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(huge))
+        .mount(&f.server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/GetStatement"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(statement("", "")))
+        .mount(&f.server)
+        .await;
+
+    let (status, body) = f.sync().await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        body["detail"],
+        json!("Interactive Brokers returned an unexpected (non-XML) response.")
+    );
+    assert!(!body.to_string().contains(TOKEN));
+}

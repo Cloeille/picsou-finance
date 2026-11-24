@@ -17,8 +17,10 @@ use super::error::EbError;
 use super::wire::{fingerprint, java_split, safe};
 use crate::AppState;
 use crate::ledger::bank_import::TransactionData;
+use crate::native_sidecars::common::{ReadBodyError, read_capped_text};
 
 const TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 /// Bank coverage per country changes rarely; this avoids re-asking on every "Add Account" open.
 const COUNTRIES_CACHE_TTL_SECONDS: i64 = 21_600;
 /// Bounds fetch_transactions: a few ASPSPs paginate very small.
@@ -156,7 +158,14 @@ async fn call<T: DeserializeOwned>(
     let failed = |message: String| EbError::sync(format!("{context}: {message}"));
     let response = request.send().await.map_err(|e| failed(e.to_string()))?;
     let status = response.status();
-    let text = response.text().await.map_err(|e| failed(e.to_string()))?;
+    let text = read_capped_text(response, MAX_RESPONSE_BYTES)
+        .await
+        .map_err(|e| match e {
+            ReadBodyError::Transport(err) => failed(err.to_string()),
+            ReadBodyError::TooLarge { limit } => {
+                failed(format!("response body exceeds {limit} bytes"))
+            }
+        })?;
     if status.is_client_error() || status.is_server_error() {
         return Err(failed(match report {
             Report::Body => text,

@@ -125,3 +125,25 @@ async fn institution_search_caps_the_result_at_thirty() {
         .json();
     assert_eq!(found.as_array().unwrap().len(), 30);
 }
+
+#[tokio::test]
+async fn oversized_response_body_is_rejected_as_a_sync_error() {
+    let b = bank().await;
+    let body = format!("{}{}", r#"{"aspsps":[]}"#, " ".repeat(8 * 1024 * 1024));
+    Mock::given(method("GET"))
+        .and(path("/aspsps"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/json"))
+        .mount(&b.server)
+        .await;
+    let response = b
+        .admin
+        .get("/api/sync/institutions?country=FR")
+        .send()
+        .await;
+    assert_eq!(response.status, StatusCode::UNPROCESSABLE_ENTITY);
+    let detail = response.json()["detail"].as_str().unwrap().to_owned();
+    assert!(
+        detail.starts_with("Failed to fetch institutions: "),
+        "{detail}"
+    );
+}

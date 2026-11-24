@@ -838,3 +838,45 @@ async fn resync_all_reporting_names_the_failed_exchanges_and_continues() {
         .count();
     assert_eq!(meria_requests, 1, "MERIA still synced after BINANCE failed");
 }
+
+#[tokio::test]
+async fn binance_oversized_response_body_fails_the_sync() {
+    let server = MockServer::start().await;
+    let body = format!("{}{}", r#"{"balances":[]}"#, " ".repeat(256 * 1024));
+    binance(
+        &server,
+        ResponseTemplate::new(200).set_body_raw(body, "application/json"),
+    )
+    .await;
+    let app = app_with(&server).await;
+    let client = app.login_admin().await;
+
+    let response = add(
+        &client,
+        json!({"type": "BINANCE", "apiKey": KEY, "apiSecret": SECRET}),
+    )
+    .await;
+    assert_eq!(response.status, 422, "{}", response.text());
+    assert_eq!(session_count(&app).await, 0);
+}
+
+#[tokio::test]
+async fn meria_oversized_status_response_fails_connection_test() {
+    let server = MockServer::start().await;
+    let body = format!("{}{}", r#"{"success":true}"#, " ".repeat(256 * 1024));
+    meria(
+        &server,
+        "/status",
+        ResponseTemplate::new(200).set_body_raw(body, "application/json"),
+    )
+    .await;
+    meria(&server, "/wallets", envelope(json!([]))).await;
+    meria(&server, "/stakings", envelope(json!([]))).await;
+    meria(&server, "/lendings", envelope(json!([]))).await;
+    let app = app_with(&server).await;
+    let client = app.login_admin().await;
+
+    let response = add(&client, json!({"type": "MERIA", "apiKey": KEY})).await;
+    assert_eq!(response.status, 422, "{}", response.text());
+    assert_eq!(session_count(&app).await, 0);
+}
