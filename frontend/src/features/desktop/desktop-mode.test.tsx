@@ -369,6 +369,38 @@ describe('Desktop Mode auto-login & Advanced Mode', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('desktop.lock.disableBlockedByMfa')
   })
 
+  it('shows invalidPassword only on 401 REAUTH_FAILED and not on an uncoded 401 when disabling lock', async () => {
+    useAuthStore.getState().login(LOCAL_ADMIN)
+    useAppStore.setState({ desktopMode: true, desktopLockEnabled: true })
+    getLockStatus.mockResolvedValue({ enabled: true })
+    getMfaStatus.mockResolvedValue({ enabled: false, remainingRecoveryCodes: 0 })
+    updateLock
+      .mockRejectedValueOnce({
+        response: { status: 401, data: { code: 'REAUTH_FAILED', detail: 'Invalid current password.' } },
+      })
+      .mockRejectedValueOnce({
+        response: { status: 401, data: { detail: 'Authentication required' } },
+      })
+
+    render(
+      <QueryClientProvider client={makeClient()}>
+        <DesktopLockCard />
+      </QueryClientProvider>,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'desktop.lock.disableButton' }))
+    fireEvent.change(screen.getByLabelText('desktop.lock.currentPasswordLabel'), {
+      target: { value: 'wrong-password' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'desktop.lock.disableConfirm' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('desktop.lock.invalidPassword')
+
+    fireEvent.click(screen.getByRole('button', { name: 'desktop.lock.disableConfirm' }))
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('common.errors.unauthorized')
+    })
+  })
+
   it('shows the Desktop password lock guidance note in AccessKeysSection only when Desktop is unlocked', async () => {
     useAuthStore.getState().login(LOCAL_ADMIN)
     useAppStore.setState({ desktopMode: true, desktopLockEnabled: false })

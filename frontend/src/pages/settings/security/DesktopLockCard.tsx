@@ -80,7 +80,7 @@ export function DesktopLockCard() {
       toast.success(t('desktop.lock.disabledToast'))
       resetForm()
     } catch (err: unknown) {
-      if (getErrorStatus(err) === 401) {
+      if (getErrorStatus(err) === 401 && getErrorCode(err) === 'REAUTH_FAILED') {
         setError(t('desktop.lock.invalidPassword'))
       } else if (getErrorStatus(err) === 409 && getErrorCode(err) === 'MFA_ACTIVE') {
         setError(t('desktop.lock.disableBlockedByMfa'))
