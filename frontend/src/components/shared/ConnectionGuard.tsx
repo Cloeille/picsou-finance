@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { isInsideDesktopShell } from '@/features/desktop/shell'
 import { useAppStore } from '@/stores/app-store'
 import { useConnectivityStore } from '@/stores/connectivity-store'
 import { useTranslation } from 'react-i18next'
@@ -9,7 +10,7 @@ import picsouLogo from '@/assets/horizontal-white-picsou.svg'
 export function ConnectionGuard({ children }: { children: ReactNode }) {
   const { t } = useTranslation()
   const demoMode = useAppStore((s) => s.demoMode)
-  const desktopMode = useAppStore((s) => s.desktopMode)
+  const desktopMode = useAppStore((s) => s.desktopMode) || isInsideDesktopShell()
   const { setConnected, setChecking } = useConnectivityStore()
   const [status, setStatus] = useState<'checking' | 'connected' | 'failed'>('checking')
 
