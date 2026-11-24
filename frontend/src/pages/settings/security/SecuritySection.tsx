@@ -60,7 +60,7 @@ interface OpenDialog {
  * export and the persistent session list (Remember Me devices). Rows key
  * their layout to the card's width (container query) and stack when narrow.
  */
-export function SecuritySection() {
+export function SecuritySection({ exportOnly = false }: { exportOnly?: boolean } = {}) {
   const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
   const [arrival] = useState(() => readArrival(searchParams))
@@ -114,10 +114,10 @@ export function SecuritySection() {
       )}
 
       {/* ── Sign-in methods ──────────────────────────────────────────── */}
-      <SignInMethodsCard onAction={openDialog} />
+      {!exportOnly && <SignInMethodsCard onAction={openDialog} />}
 
       {/* ── 2FA block: Picsou's TOTP only protects the password ──────── */}
-      {methods?.hasPassword && (
+      {!exportOnly && methods?.hasPassword && (
         <div className="space-y-3 border-t pt-4 first:border-t-0 first:pt-0">
           <div className="flex flex-col gap-3 @xl:flex-row @xl:items-center @xl:justify-between">
             <div className="flex items-center gap-2">
@@ -180,13 +180,16 @@ export function SecuritySection() {
       )}
 
       {/* ── GDPR data export block ───────────────────────────────────── */}
-      <div className="space-y-3 border-t pt-4">
-        <div className="space-y-1">
-          <p className="text-sm font-medium">{t('settings.exportTitle')}</p>
-          <p className="text-sm text-muted-foreground">
-            {t('settings.exportShortDesc')}
-          </p>
-        </div>
+      <div className={exportOnly ? undefined : 'space-y-3 border-t pt-4'}>
+        {/* Alone, the card around it already carries this title and description. */}
+        {!exportOnly && (
+          <div className="space-y-1">
+            <p className="text-sm font-medium">{t('settings.exportTitle')}</p>
+            <p className="text-sm text-muted-foreground">
+              {t('settings.exportShortDesc')}
+            </p>
+          </div>
+        )}
         <Button
           variant="outline"
           size="sm"
@@ -198,15 +201,17 @@ export function SecuritySection() {
       </div>
 
       {/* ── Persistent sessions block ────────────────────────────────── */}
-      <div className="space-y-2 pt-4 border-t">
-        <div>
-          <p className="text-sm font-medium">{t('settings.sessions')}</p>
-          <p className="text-sm text-muted-foreground">
-            {t('settings.sessionsDescription')}
-          </p>
+      {!exportOnly && (
+        <div className="space-y-2 pt-4 border-t">
+          <div>
+            <p className="text-sm font-medium">{t('settings.sessions')}</p>
+            <p className="text-sm text-muted-foreground">
+              {t('settings.sessionsDescription')}
+            </p>
+          </div>
+          <SessionsList />
         </div>
-        <SessionsList />
-      </div>
+      )}
 
       <MfaEnrollDialog open={enrollOpen && !mfaRequiresDesktopLock} onOpenChange={setEnrollOpen} />
       <MfaDisableDialog open={disableOpen} onOpenChange={setDisableOpen} />

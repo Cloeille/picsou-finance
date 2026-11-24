@@ -179,6 +179,44 @@ async fn quick_start_defaults_blank_display_name_by_accept_language() {
     assert_eq!(user["username"], "mon-espace");
 }
 
+/// Without the password lock the member has no password to prove who they are with: the app's
+/// window signed them in, and that same gate lets it export their data. With the lock on, the
+/// export asks for the password like anywhere else.
+#[tokio::test]
+async fn the_unlocked_app_exports_without_a_password_and_the_locked_one_asks_for_it() {
+    let app = TestApp::builder()
+        .env("APP_DESKTOP_MODE", "true")
+        .spawn()
+        .await;
+    let window = app.desktop_client();
+    let started = window
+        .post("/api/setup/desktop-quick-start")
+        .json(&json!({"displayName": "Camille"}))
+        .send()
+        .await;
+    assert_eq!(started.status, StatusCode::OK);
+
+    let unlocked = window.post("/api/me/export").json(&json!({})).send().await;
+    assert_eq!(unlocked.status, StatusCode::OK);
+    assert_eq!(unlocked.header("content-type"), Some("application/zip"));
+
+    let locked = window
+        .put("/api/desktop/lock")
+        .json(&json!({"enabled": true, "newPassword": "my-strong-password"}))
+        .send()
+        .await;
+    assert_eq!(locked.status, StatusCode::OK);
+    let refused = window.post("/api/me/export").json(&json!({})).send().await;
+    assert_eq!(refused.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(refused.json()["code"], "REAUTH_FAILED");
+    let proven = window
+        .post("/api/me/export")
+        .json(&json!({"reAuth": {"password": "my-strong-password"}}))
+        .send()
+        .await;
+    assert_eq!(proven.status, StatusCode::OK);
+}
+
 #[tokio::test]
 async fn autologin_and_password_lock_lifecycle() {
     let app = TestApp::builder()

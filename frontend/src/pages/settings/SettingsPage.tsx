@@ -517,12 +517,21 @@ export function SettingsPage() {
       {effectiveTab === 'security' && (
         <div className="space-y-6">
           {desktopMode && isAdmin && <DesktopLockCard />}
-          {(!desktopMode || desktopLockEnabled || isAdvancedMode) && (
+          {!desktopMode || desktopLockEnabled || isAdvancedMode ? (
             <SectionCard
               title={t('settings.security')}
               description={t('settings.securityDescription')}
             >
               <SecuritySection />
+            </SectionCard>
+          ) : (
+            // No lock: sign-in methods, two-factor and trusted devices have nothing to act on,
+            // but the member's data is still theirs to take out.
+            <SectionCard
+              title={t('settings.exportTitle')}
+              description={t('settings.exportShortDesc')}
+            >
+              <SecuritySection exportOnly />
             </SectionCard>
           )}
         </div>

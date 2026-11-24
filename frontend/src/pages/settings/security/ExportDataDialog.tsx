@@ -18,6 +18,7 @@ import { useExportData } from '@/features/export/hooks'
 import { formatSsoApiError } from '@/features/sso/errors'
 import { useSignInMethods } from '@/features/sso/hooks'
 import { formatApiError, getErrorStatus } from '@/lib/errors'
+import { useAppStore } from '@/stores/app-store'
 import { ReauthPanel } from './ReauthPanel'
 
 /**
@@ -26,6 +27,8 @@ import { ReauthPanel } from './ReauthPanel'
  * balance snapshots (off by default — they can dwarf the rest of the
  * archive). A password-less account confirms through the IdP instead
  * (ReauthPanel), and the resulting proof cookie authorizes the export.
+ * The desktop app without its password lock asks for nothing: there is no
+ * password to type, and the backend accepts the app's own window.
  *
  * On success the browser starts downloading a ZIP and the dialog closes.
  * The form fields are cleared after the close transition so re-opening
@@ -53,6 +56,8 @@ export function ExportDataDialog({
   const [reauthConfirmed, setReauthConfirmed] = useState(resumed)
   const [reauthExpired, setReauthExpired] = useState(false)
   const passwordless = signInMethods.data?.hasPassword === false
+  const desktopUnlocked = useAppStore((s) => s.desktopMode && !s.desktopLockEnabled)
+  const asksCredentials = !passwordless && !desktopUnlocked
   const step = signInMethods.isPending
     ? 'loading'
     : !signInMethods.data
@@ -82,7 +87,7 @@ export function ExportDataDialog({
     try {
       await exportMutation.mutateAsync({
         // Password-less: the proof cookie minted through ReauthPanel authorizes the export.
-        ...(passwordless ? {} : { reAuth: mfaStatus?.enabled ? { totpCode } : { password } }),
+        ...(asksCredentials ? { reAuth: mfaStatus?.enabled ? { totpCode } : { password } } : {}),
         includeBalanceSnapshots,
       })
       close()
@@ -131,7 +136,7 @@ export function ExportDataDialog({
 
         {step === 'form' && (
           <form onSubmit={handleSubmit} className="space-y-4">
-            {!passwordless && (mfaStatus?.enabled ? (
+            {asksCredentials && (mfaStatus?.enabled ? (
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="export-totp">{t('auth.mfaCodeLabel')}</Label>
                 <Input

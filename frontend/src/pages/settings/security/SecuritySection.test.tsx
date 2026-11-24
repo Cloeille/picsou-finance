@@ -62,6 +62,7 @@ vi.mock('@/features/mfa/api', () => ({
 }))
 
 const { SecuritySection } = await import('./SecuritySection')
+const { useAppStore } = await import('@/stores/app-store')
 
 const IDENTITY = {
   id: 7,
@@ -87,18 +88,18 @@ function LocationProbe() {
   return <div data-testid="location">{location.pathname + location.search}</div>
 }
 
-function renderSection(entry: string, methods = PASSWORDLESS) {
+function renderSection(entry: string, methods = PASSWORDLESS, exportOnly = false) {
   api.getSignInMethods.mockResolvedValue(methods)
-  mountSection(entry)
+  mountSection(entry, exportOnly)
 }
 
-function mountSection(entry: string) {
+function mountSection(entry: string, exportOnly = false) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={[entry]}>
-          <SecuritySection />
+          <SecuritySection exportOnly={exportOnly} />
           <LocationProbe />
         </MemoryRouter>
       </QueryClientProvider>
@@ -126,6 +127,22 @@ describe('SecuritySection', () => {
     Object.values(api).forEach(fn => fn.mockReset())
     api.download.mockResolvedValue({ blob: new Blob(['zip']), filename: 'picsou-export.zip' })
     api.getMfaStatus.mockResolvedValue({ enabled: false, enrolledAt: null, remainingRecoveryCodes: 0 })
+    useAppStore.setState({ desktopMode: false, desktopLockEnabled: false })
+  })
+
+  it('offers the export alone on a desktop app without its lock, and asks for no password', async () => {
+    useAppStore.setState({ desktopMode: true, desktopLockEnabled: false })
+    renderSection('/settings', WITH_PASSWORD, true)
+
+    fireEvent.click(await screen.findByRole('button', { name: en.settings.exportButton }))
+    const dialog = await screen.findByRole('dialog')
+    const download = await within(dialog).findByRole('button', { name: en.settings.exportDownload })
+    expect(within(dialog).queryByLabelText(en.settings.currentPassword)).not.toBeInTheDocument()
+    fireEvent.click(download)
+
+    await waitFor(() => expect(api.download).toHaveBeenCalledWith({ includeBalanceSnapshots: false }))
+    expect(screen.queryByText(en.settings.mfaStatus)).not.toBeInTheDocument()
+    expect(screen.queryByText(en.settings.sessions)).not.toBeInTheDocument()
   })
 
   it.each([

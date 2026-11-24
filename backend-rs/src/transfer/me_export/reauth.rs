@@ -10,7 +10,7 @@ use crate::auth::jwt::TokenType;
 use crate::auth::{AppUser, cookies, password};
 use crate::error::{AppError, AppResult, Problem};
 use crate::ledger::sync_values::java_is_blank;
-use crate::setup_auth::mfa;
+use crate::setup_auth::{desktop, mfa, settings};
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,13 +47,24 @@ pub(crate) fn has_valid_proof(state: &AppState, user: &AppUser, headers: &Header
         && claims.tv == Some(user.token_version)
 }
 
+/// The desktop app without its password lock: quick start gave the account a random password
+/// nobody knows, and the gate cookie of the app's own window is what signed the member in. It is
+/// the only proof there is, so it stands for the password here too. With the lock on, the
+/// password is asked like anywhere else.
+async fn signed_in_by_the_desktop_app(state: &AppState, headers: &HeaderMap) -> AppResult<bool> {
+    Ok(state.config.desktop_mode
+        && desktop::has_valid_desktop_gate(headers, state)
+        && !settings::desktop_lock_enabled(state).await?)
+}
+
 pub(crate) async fn verify(
     state: &AppState,
     user: &AppUser,
     re_auth: Option<&ReAuth>,
     headers: &HeaderMap,
 ) -> AppResult<()> {
-    if has_valid_proof(state, user, headers) {
+    if has_valid_proof(state, user, headers) || signed_in_by_the_desktop_app(state, headers).await?
+    {
         return Ok(());
     }
     let Some(re_auth) = re_auth else {
