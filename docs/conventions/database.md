@@ -171,7 +171,9 @@ once.
   server: `DATABASE_URL` or `SPRING_DATASOURCE_URL`, the user (default `picsou`) and the password
   in the server's order (`SPRING_DATASOURCE_PASSWORD`, `POSTGRES_PASSWORD`,
   `PICSOU_SECRETS_DIR/postgres_password`, then `picsou`), without generating a secret. `migrate`
-  and `verify` also take a SQLite file; `export-sqlite` reads PostgreSQL only.
+  and `verify` also take a SQLite file; `export-sqlite` reads PostgreSQL only. `verify` opens a
+  SQLite file the way the server does (read-write, WAL, owner-only permissions): to check a
+  read-only backup, verify a copy of it.
 
 ### One writer on SQLite
 

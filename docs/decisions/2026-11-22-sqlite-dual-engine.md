@@ -64,6 +64,11 @@ Therefore, in SQLite:
      `SqliteDb::migrate`) that rewrites a value with more decimals through `dec_round(x, s)`, half
      up, so sums and checks add the same rounded values on both engines. A value that is not a
      decimal is left as it is. The triggers belong to the connection, not to the file.
+   - Precision is not enforced: PostgreSQL refuses a value with more integer digits than its
+     `NUMERIC(p, s)` column holds ("numeric field overflow"), SQLite stores it. An amount of some
+     thirty digits typed into a form is therefore kept on SQLite, and a later calculation on it
+     overflows and answers 500 until the value is corrected. A precision check next to the write
+     rounding is the follow-up; per-field bounds in the request validators would not close it.
 3. **Physical type mapping** across all 739 columns:
    - `int8`, `int4`, `int2` → `INTEGER` (`INTEGER PRIMARY KEY AUTOINCREMENT` for `BIGSERIAL` / `IDENTITY` PKs)
    - `bool` → `INTEGER` with `CHECK (col IN (0, 1))`
