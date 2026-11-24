@@ -6,11 +6,30 @@
 
 Track bank accounts, brokerage, crypto, and net worth — all in one place.
 
+[![macOS (Apple Silicon)](https://img.shields.io/badge/Download-macOS%20%28Apple%20Silicon%29-2563eb?style=for-the-badge)](https://github.com/Cloeille/picsou-finance/releases/latest/download/Picsou-macOS-arm64.dmg)
+[![Windows](https://img.shields.io/badge/Download-Windows-2563eb?style=for-the-badge)](https://github.com/Cloeille/picsou-finance/releases/latest/download/Picsou-Windows-x64.exe)
+[![Linux](https://img.shields.io/badge/Download-Linux-2563eb?style=for-the-badge)](https://github.com/Cloeille/picsou-finance/releases/latest/download/Picsou-Linux-x64.AppImage)
+
 [![License: Apache 2.0 + Commons Clause](https://img.shields.io/badge/License-Apache%202.0%20%2B%20Commons%20Clause-blue.svg)](LICENSE)
 
-[Getting started](#getting-started) · [Screenshots](#screenshots) · [Features](#features) · [Another machine](#another-machine) · [Development](#development) · [Security](SECURITY.md)
+[Download](#desktop-app) · [Getting started](#getting-started) · [Screenshots](#screenshots) · [Features](#features) · [Another machine](#another-machine) · [Development](#development) · [Security](SECURITY.md)
 
 </div>
+
+---
+
+## Desktop app
+
+Picsou is a personal finance dashboard. It shows your bank accounts, investments, crypto, real estate and net worth in one place. The desktop app is the simplest way to use it. It installs like any other program, with no Docker, no server and no terminal.
+
+- **Your data on your computer.** Picsou stores it in a local database on your machine. No online account is needed.
+- **Your banks in the app.** The bank connections run inside the app. Some of them use a browser component of about 150 MB, which the app downloads once in the background after the first launch.
+- **Automatic updates.** The app checks for new versions in the background. You install them from the tray menu.
+- **First launch.** The installers are not signed yet, so macOS Gatekeeper or Windows SmartScreen asks you to confirm the first launch. The [opening guide](docs/features/desktop-app.md#opening-the-unsigned-desktop-app-macos-gatekeeper--windows-smartscreen) shows each step.
+
+Use the download buttons above for macOS on Apple Silicon (Intel Macs are not supported), Windows 64-bit, or Linux x86_64 (AppImage).
+
+The desktop app serves one computer. For a family server, or to reach Picsou from your phone and other devices, [self-host it with Docker](#getting-started).
 
 ---
 
@@ -87,7 +106,7 @@ Modules, data flows and key constraints: [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 
 ## Getting started
 
-> **Prefer a one-click desktop app instead of Docker?** Download the macOS (Apple Silicon), Windows, or Linux installer from [GitHub Releases](https://github.com/Cloeille/picsou-finance/releases). Releases are unsigned, so macOS Gatekeeper / Windows SmartScreen will ask you to approve the first launch — see the [step-by-step opening guide](docs/features/desktop-app.md#opening-the-unsigned-desktop-app-macos-gatekeeper--windows-smartscreen).
+> Want the desktop app instead of Docker? See [Desktop app](#desktop-app).
 
 ### Prerequisites
 
