@@ -11,7 +11,8 @@ Auth flow (an OAuth2 authorization code with PKCE, bridged over SAML):
     → password → strong authentication required → code sent by SMS/voice/e-mail
     → {processId, mfaRequired: true, mfaType}
   POST /complete {processId, code}
-    → code verified → SAML response posted back → authorization code
+    → code verified → (passkey registration put off, when asked)
+    → SAML response posted back → authorization code
     → tokens → {sessionState}
   POST /positions {sessionState}
     → refresh-token grant → savings + products → {plans, sessionState}
@@ -415,10 +416,26 @@ async def _verify_code(client: httpx.AsyncClient, state: dict[str, Any], code: s
         raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"second factor answered {response.status_code}")
 
 
-async def _finish_login(client: httpx.AsyncClient, state: dict[str, Any]) -> dict[str, Any]:
-    """Profile check → SAML response posted back → authorization code → tokens."""
+async def _profile_check(client: httpx.AsyncClient, state: dict[str, Any]) -> httpx.Response:
     response = await client.post(f"{IDP}/auth/v1/profiles/me/verifications", headers=_idp_headers(state))
     _upstream(response, "profile check")
+    return response
+
+
+async def _finish_login(client: httpx.AsyncClient, state: dict[str, Any]) -> dict[str, Any]:
+    """Profile check → SAML response posted back → authorization code → tokens."""
+    response = await _profile_check(client, state)
+    if response.status_code == 403 and "WEBAUTHN_REGISTRATION_REQUIRED" in _error_codes(response):
+        # Natixis can ask a new device to register a passkey; the saver space's "later" button
+        # puts that off. Picsou does the same: no key is created and the account is unchanged.
+        # Registering a passkey of its own is ruled out, since a passkey signs in without the
+        # code: Picsou would hold a full login credential.
+        skip = await client.post(f"{IDP}/auth/v1/profiles/me/webauthnRegistrations/CURRENT/skip",
+                                 json={"duration": "SHORT", "reason": "BY_USER"}, headers=_idp_headers(state))
+        _upstream(skip, "passkey registration skip")
+        if skip.status_code not in (200, 201, 204):
+            raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"passkey registration skip answered {skip.status_code}")
+        response = await _profile_check(client, state)
     if response.status_code not in (200, 201):
         raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"profile check answered {response.status_code}")
     saml = _json(response, "profile check")["saml"]
