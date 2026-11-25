@@ -86,7 +86,7 @@ Authoritative design files: [`PRODUCT.md`](PRODUCT.md) (strategy: register, user
 - **Palette**: restrained — **Coffre Blue** (oklch 0.488 0.243 264.376) is the only saturated color on interactive chrome, ≤10% of any screen. **Growth Green** family is reserved for charts/positive movement only.
 - **Critical figures** (amounts, balances, alerts) render in **Ledger Ink** (oklch 0.145 0 0), never Quiet Slate — this is how the system meets AAA on the content the user came to read. AA everywhere else.
 - **Elevation**: flat by default; hairline ring (`ring-1 ring-foreground/10`) separates cards from canvas, no shadows at rest. Shadows only on floating elements (dialogs, sheets, popovers).
-- **Typography**: single family (Geist Variable) — hierarchy from weight and size, never a second face. Card titles small-bold (0.875rem / 700).
+- **Typography**: single family (Plus Jakarta Sans Variable) — hierarchy from weight and size, never a second face. Card titles small-bold (0.875rem / 700).
 - **Motion**: feedback where it carries meaning (press-scale, sync), silent elsewhere. `prefers-reduced-motion` enforced globally.
 
 When building UI, read `DESIGN.md` first; for non-visual product questions, read `PRODUCT.md` first.

@@ -302,7 +302,7 @@ the checklist below.
    round; run the `make test-…` targets your change touches. Open a draft while it is red.
 5. **Test every behaviour change**, including the failure case (a fix starts with a test that
    fails without it). Tests must not depend on the date or the time of day: inject a `Clock` or
-   use dates relative to a fixed one, never `LocalDate.now()` against a literal date. A test that
+   use dates relative to a fixed one, never `Utc::now()` or `new Date()` against a literal date. A test that
    is green today and red next month blocks every other pull request.
 6. **Migrations.** Take the next free `V<n>` on an up-to-date target branch, counting `main` and
    every open `release/*` branch (all of them can still take a number). Another open pull request
