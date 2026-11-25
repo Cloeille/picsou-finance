@@ -9,10 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **OKX exchange sync.** Connect a read-only API key to track trading and funding
+  balances, Simple Earn Flexible, On-chain Earn, and ETH and SOL staking. Choose
+  Global, EEA, or US when adding the connection. (#622)
 - **Branded iOS and PWA home-screen icon and web app manifest.** Added `apple-touch-icon.png`
   (180×180), 192×192 and 512×512 PNG icons (including a full-bleed maskable icon), and
   `manifest.webmanifest` wired into `index.html`, so saving Picsou to an iOS or Android home
   screen shows the Picsou icon and title instead of a generic placeholder. (#438)
+
+### Fixed
+
+- **Reject oversized crypto exchange quantities.** Sync reports an invalid exchange response
+  when a position or asset total exceeds the supported range and keeps the previous balance. (#755)
 
 ## [1.3.0] — 2026-11-24
 

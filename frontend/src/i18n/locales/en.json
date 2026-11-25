@@ -1262,7 +1262,7 @@
     "trConnected": "Trade Republic connected!",
     "desc": {
       "banks": "Connect your banks via OAuth",
-      "exchanges": "Binance, Meria...",
+      "exchanges": "Binance, Meria, OKX",
       "wallets": "Bitcoin, Ethereum, BNB, Solana...",
       "tr": "Trade Republic",
       "revolut": "Phone + passcode, on-demand sync",
@@ -1513,6 +1513,10 @@
         "US": "United States"
       },
       "apiKeyOnly": "Meria connects with a single read-only API key — no secret needed.",
+      "okxRegionHelp": "Choose Global for okx.com, European Economic Area for my.okx.com, or United States for app.okx.com.",
+      "okxRegionMismatch": "Choose the region where you created your OKX API key.",
+      "okxNegativeBalance": "Your OKX account has a negative balance, for example from a margin loan. Picsou cannot track exchange debt. Repay it on OKX, then try again.",
+      "okxStakingReceiptInEarn": "Your OKX account holds BETH or OKSOL in Simple Earn or On-chain Earn. Picsou could count them twice. Redeem them to your funding account, then try again.",
       "showSecret": "Show API secret",
       "hideSecret": "Hide API secret",
       "connect": "Connect",
@@ -3061,7 +3065,7 @@
         },
         "crypto": {
           "title": "Crypto exchanges",
-          "description": "Track Binance and friends via read-only API keys, encrypted at rest."
+          "description": "Track Binance, Meria and OKX with read-only API keys encrypted at rest."
         },
         "bnp": {
           "title": "BNP Paribas / Hello bank!",
@@ -3217,7 +3221,7 @@
     },
     "crypto": {
       "title": "Encrypt your exchange API keys",
-      "body": "Your exchange API keys (Binance, Meria...) are encrypted at rest. Picsou can generate the encryption key for you: it stays on your disk and is never transmitted.",
+      "body": "Your exchange API keys (Binance, Meria, OKX) are encrypted at rest. Picsou can generate the encryption key for you: it stays on your disk and is never transmitted.",
       "generateCta": "Generate a key for me",
       "generating": "Generating...",
       "existed": "Your encryption key is already configured, nothing to do.",

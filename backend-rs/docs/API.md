@@ -1720,11 +1720,11 @@ rate limiting returns `429`.
 **Request body:**
 | Field | Type | Description |
 |-------|------|-------------|
-| `type` | `ExchangeType` | `BINANCE` · `KRAKEN` · `MERIA` |
+| `type` | `ExchangeType` | `BINANCE` · `KRAKEN` · `MERIA` · `OKX` |
 | `apiKey` | `string` | Exchange API key (required, max 200 chars) |
-| `apiSecret` | `string?` | Exchange API secret (max 300 chars). **Required** for `BINANCE` and `KRAKEN`; must be **omitted** for `MERIA`, which authenticates with a single read-only API key |
-| `apiPassphrase` | `string?` | Exchange API passphrase (max 200 characters and 347 UTF-8 bytes). Required only when the adapter uses one. Omit it for all current exchanges. |
-| `region` | `string?` | Region code (max 20 characters). Required when the adapter declares regions. The service trims and upper-cases the code. Omit it for all current exchanges. |
+| `apiSecret` | `string?` | Exchange API secret (max 300 chars). **Required** for `BINANCE` and `OKX`. Omit for `MERIA`, which authenticates with a single read-only API key. |
+| `apiPassphrase` | `string?` | Exchange API passphrase (max 200 characters and 347 UTF-8 bytes). **Required** for `OKX`. Omit for other exchanges. |
+| `region` | `string?` | Region code (max 20 characters), trimmed and upper-cased. **Required** for `OKX`: `GLOBAL`, `EEA` or `US`, the entity where the API key was created. Omit for other exchanges. |
 
 **Response `200` — `AccountResponse`.**
 
@@ -1733,7 +1733,7 @@ rate limiting returns `429`.
 | Status | When |
 |--------|------|
 | `400` | Blank API key, missing required secret or passphrase, unexpected secret or passphrase, a passphrase beyond the UTF-8 byte limit, or a missing, unknown or unexpected region. When the adapter declares regions, region errors list the allowed codes. |
-| `422` | Bean-validation failure (`errors` map), the credentials were refused by the exchange, or the immediate sync failed |
+| `422` | Request validation failure (`errors` map), an unsupported exchange (`KRAKEN`), a failed connection test, or a failed immediate sync. For OKX, the response `code` is `OKX_REGION_MISMATCH` for error `50119`, `OKX_NEGATIVE_BALANCE` for a negative trading balance (a liability), or `OKX_STAKING_RECEIPT_IN_EARN` for BETH or OKSOL held in Earn. |
 
 ---
 
@@ -1743,6 +1743,10 @@ rate limiting returns `429`.
 - **Body:** none
 
 **Response `200` — `AccountResponse`** (updated with latest holdings).
+
+**Errors:** `422` when the sync fails. For OKX, the response `code` is `OKX_REGION_MISMATCH` for
+error `50119`, `OKX_NEGATIVE_BALANCE` for a negative trading balance (a liability), or
+`OKX_STAKING_RECEIPT_IN_EARN` for BETH or OKSOL held in Earn.
 
 ---
 

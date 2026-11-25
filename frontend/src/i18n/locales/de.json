@@ -960,7 +960,7 @@
     "trConnected": "Trade Republic verbunden!",
     "desc": {
       "banks": "Verbinde deine Banken per OAuth",
-      "exchanges": "Binance, Meria...",
+      "exchanges": "Binance, Meria, OKX",
       "wallets": "Bitcoin, Ethereum, BNB, Solana...",
       "tr": "Trade Republic",
       "bourso": "Girokonten, Sparkonten, PEA und Wertpapierdepots bei BoursoBank",
@@ -1168,6 +1168,10 @@
         "US": "Vereinigte Staaten"
       },
       "apiKeyOnly": "Meria verbindet sich mit einem einzigen schreibgeschützten API-Key — kein Secret nötig.",
+      "okxRegionHelp": "Wähle Global für okx.com, Europäischer Wirtschaftsraum für my.okx.com oder Vereinigte Staaten für app.okx.com.",
+      "okxRegionMismatch": "Wähle die Region, in der du deinen OKX-API-Key erstellt hast.",
+      "okxNegativeBalance": "Dein OKX-Konto hat einen negativen Saldo, etwa durch einen Margin-Kredit. Picsou kann diese Schulden nicht erfassen. Zahle sie bei OKX zurück und versuche es erneut.",
+      "okxStakingReceiptInEarn": "Du hältst BETH oder OKSOL in Simple Earn oder On-chain Earn bei OKX. Picsou könnte sie doppelt zählen. Löse sie ein, damit sie wieder auf deinem Finanzierungskonto liegen, und versuche es erneut.",
       "showSecret": "API-Secret anzeigen",
       "hideSecret": "API-Secret verbergen",
       "connect": "Verbinden",
@@ -2731,7 +2735,7 @@
         },
         "crypto": {
           "title": "Krypto-Exchanges",
-          "description": "Verfolge Binance & Co. über schreibgeschützte API-Keys, verschlüsselt gespeichert."
+          "description": "Verfolge Binance, Meria und OKX mit schreibgeschützten API-Keys, die verschlüsselt gespeichert werden."
         },
         "revolut": {
           "title": "Revolut",
@@ -2883,7 +2887,7 @@
     },
     "crypto": {
       "title": "Verschlüssele deine Exchange-API-Keys",
-      "body": "Deine Exchange-API-Keys (Binance, Meria...) werden verschlüsselt gespeichert. Picsou kann den Verschlüsselungsschlüssel für dich generieren: Er bleibt auf deiner Festplatte und wird nie übertragen.",
+      "body": "Deine Exchange-API-Keys (Binance, Meria, OKX) werden verschlüsselt gespeichert. Picsou kann den Verschlüsselungsschlüssel für dich generieren: Er bleibt auf deiner Festplatte und wird nie übertragen.",
       "generateCta": "Schlüssel für mich generieren",
       "generating": "Wird generiert...",
       "existed": "Dein Verschlüsselungsschlüssel existiert bereits auf der Festplatte, nichts zu tun.",

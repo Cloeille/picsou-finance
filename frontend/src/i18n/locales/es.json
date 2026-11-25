@@ -960,7 +960,7 @@
     "trConnected": "¡Trade Republic conectado!",
     "desc": {
       "banks": "Conecta tus bancos vía OAuth",
-      "exchanges": "Binance, Meria...",
+      "exchanges": "Binance, Meria, OKX",
       "wallets": "Bitcoin, Ethereum, BNB, Solana...",
       "tr": "Trade Republic",
       "bourso": "Cuentas corrientes, ahorro, PEA y cuentas de valores en BoursoBank",
@@ -1168,6 +1168,10 @@
         "US": "Estados Unidos"
       },
       "apiKeyOnly": "Meria se conecta con una única clave API de solo lectura — no hace falta secreto.",
+      "okxRegionHelp": "Elige Global para okx.com, Espacio Económico Europeo para my.okx.com o Estados Unidos para app.okx.com.",
+      "okxRegionMismatch": "Elige la región en la que creaste tu clave API de OKX.",
+      "okxNegativeBalance": "Tu cuenta de OKX tiene un saldo negativo, por ejemplo, por un préstamo de margen. Picsou no puede registrar esa deuda. Págala en OKX y vuelve a intentarlo.",
+      "okxStakingReceiptInEarn": "Tienes BETH u OKSOL en Simple Earn u On-chain Earn de OKX. Picsou podría contarlos dos veces. Retíralos de Earn a tu cuenta de fondos y vuelve a intentarlo.",
       "showSecret": "Mostrar el secreto API",
       "hideSecret": "Ocultar el secreto API",
       "connect": "Conectar",
@@ -2723,7 +2727,7 @@
         },
         "crypto": {
           "title": "Exchanges de cripto",
-          "description": "Sigue Binance y compañía mediante claves API de solo lectura, cifradas en reposo."
+          "description": "Sigue Binance, Meria y OKX mediante claves API de solo lectura, cifradas en reposo."
         },
         "revolut": {
           "title": "Revolut",
@@ -2883,7 +2887,7 @@
     },
     "crypto": {
       "title": "Cifra tus claves API de exchange",
-      "body": "Tus claves API de exchange (Binance, Meria...) se cifran en reposo. Picsou puede generar la clave de cifrado por ti: se queda en tu disco y nunca se transmite.",
+      "body": "Tus claves API de exchange (Binance, Meria, OKX) se cifran en reposo. Picsou puede generar la clave de cifrado por ti: se queda en tu disco y nunca se transmite.",
       "generateCta": "Generar una clave por mí",
       "generating": "Generando...",
       "existed": "Tu clave de cifrado ya existe en el disco, nada que hacer.",
