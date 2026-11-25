@@ -18,6 +18,50 @@ export const PICSOU_UPDATE_COMMAND = 'docker compose pull && docker compose up -
  */
 export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [
   {
+    version: '1.3.1',
+    date: '2026-11-26',
+    summary: {
+      fr: 'Import CSV sur tous les comptes, cours par ISIN, connexion La Banque Postale rétablie, connecteur OKX et nouveaux fournisseurs d’intelligence artificielle.',
+      en: 'CSV import on every account, pricing by ISIN, La Banque Postale login restored, OKX connector, and more AI providers.',
+      de: 'CSV-Import für alle Konten, Kurse nach ISIN, Anmeldung bei La Banque Postale wiederhergestellt, OKX-Connector und weitere KI-Anbieter.',
+      es: 'Importación CSV en todas las cuentas, cotizaciones por ISIN, acceso a La Banque Postale restaurado, conector OKX y más proveedores de inteligencia artificial.',
+    },
+    highlights: {
+      fr: [
+        'Import CSV : importez vos relevés bancaires et de cartes sur tous les comptes hors investissement (sauf les prêts), avec détection automatique des doublons.',
+        'Valorisation plus fiable : les actions, ETF et fonds non cotés sont désormais valorisés par ISIN, et les cours incohérents ne gonflent plus la valeur d’un PEA.',
+        'Synchronisation bancaire : la connexion à La Banque Postale fonctionne à nouveau, et un bouton permet de signaler en un clic un connecteur en panne sans aucune donnée personnelle.',
+        'Connecteur OKX : connectez une clé API en lecture seule pour suivre vos soldes de trading, de financement, Earn et staking sur un compte Global, EEE ou US.',
+        'Plus de fournisseurs d’intelligence artificielle : la catégorisation prend désormais en charge Mistral, Google Gemini et tout serveur compatible OpenAI, avec adresses préremplies et modèles suggérés.',
+        'Interface et mobile : cartes d’objectifs allégées avec les détails de rythme dans la fenêtre dédiée, et icône Picsou lors de l’ajout à l’écran d’accueil sur iOS ou Android.',
+      ],
+      en: [
+        'CSV import: import bank and card statements on every non-investment account (except loans), with automatic duplicate skipping.',
+        'More accurate portfolio prices: shares, ETFs and unlisted funds are now valued by ISIN, and contradictory quotes no longer inflate PEA balances.',
+        'Bank sync: La Banque Postale sign-in works again, and failed bank syncs now offer a one-click button to report a broken connector with no personal data.',
+        'OKX connector: connect a read-only API key to track your trading, funding, Earn and staking balances across Global, EEA or US accounts.',
+        'More AI providers: categorization now supports Mistral, Google Gemini and any OpenAI-compatible server, with pre-filled URLs and suggested models.',
+        'Interface and mobile: decluttered goal cards with pacing figures moved to the detail dialog, plus a Picsou icon when saved to an iOS or Android home screen.',
+      ],
+      de: [
+        'CSV-Import: Importieren Sie Bank- und Kartenauszüge für alle Konten außerhalb von Geldanlagen (außer Krediten) mit automatischer Duplikaterkennung.',
+        'Genauere Portfoliokurse: Aktien, ETFs und nicht börsennotierte Fonds werden jetzt nach ISIN bewertet, und widersprüchliche Kurse blähen PEA-Bestände nicht mehr auf.',
+        'Banksynchronisierung: Die Anmeldung bei La Banque Postale funktioniert wieder, und bei fehlgeschlagenen Abrufen lässt sich ein defekter Connector mit einem Klick ohne persönliche Daten melden.',
+        'OKX-Connector: Verbinden Sie einen schreibgeschützten API-Schlüssel, um Ihre Trading-, Funding-, Earn- und Staking-Bestände für Global-, EWR- oder US-Konten zu verfolgen.',
+        'Mehr KI-Anbieter: Die Kategorisierung unterstützt jetzt Mistral, Google Gemini und jeden OpenAI-kompatiblen Server, mit vorausgefüllten Adressen und Modellvorschlägen.',
+        'Oberfläche und Mobilgeräte: übersichtlichere Zielkarten mit Tempokennzahlen im Detaildialog sowie ein eigenes Picsou-Symbol auf dem iOS- oder Android-Startbildschirm.',
+      ],
+      es: [
+        'Importación CSV: importa extractos bancarios y de tarjetas en todas las cuentas que no sean de inversión (salvo préstamos), con omisión automática de duplicados.',
+        'Precios más precisos: acciones, ETF y fondos no cotizados se valoran ahora por ISIN, y las cotizaciones incoherentes ya no inflan el saldo de un PEA.',
+        'Sincronización bancaria: el inicio de sesión de La Banque Postale vuelve a funcionar, y las sincronizaciones fallidas ofrecen un botón para informar en un clic de un conector roto sin datos personales.',
+        'Conector OKX: conecta una clave API de solo lectura para seguir tus saldos de trading, fondos, Earn y staking en cuentas Global, EEE o US.',
+        'Más proveedores de inteligencia artificial: la categorización ahora es compatible con Mistral, Google Gemini y cualquier servidor compatible con OpenAI, con direcciones prellenadas y modelos sugeridos.',
+        'Interfaz y móvil: tarjetas de objetivos más limpias con el ritmo de ahorro en la ventana de detalle, y un icono de Picsou al añadir la aplicación a la pantalla de inicio en iOS o Android.',
+      ],
+    },
+  },
+  {
     version: '1.3.0',
     date: '2026-11-24',
     summary: {
