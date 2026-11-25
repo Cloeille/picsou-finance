@@ -7,14 +7,143 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Direct desktop downloads.** Each release now also publishes the desktop installers under
+  version-less names (`Picsou-macOS-arm64.dmg`, `Picsou-Windows-x64.exe`,
+  `Picsou-Linux-x64.AppImage`). The README opens with a desktop app section and one download
+  button per platform that always serves the latest version.
+- **Edit a categorization rule.** Each rule in Budget → Manage has an edit button, and the Automate
+  menu of the "To categorize" tab has a "Manage rules" entry that opens the rules (#692).
+- **More AI providers.** AI categorization can use Mistral, Google Gemini or any OpenAI-compatible
+  server (key optional, and the base URL may end with `/v1`), next to Anthropic, OpenAI, OpenRouter
+  and Ollama. The settings form fills the base URL of the chosen provider and suggests the models
+  that the provider offers. The stored API key is now sent only to the provider and host it was
+  saved for, and a change of provider without a new key clears it.
+
+### Changed
+
+- **Goal cards.** A goal card on the Goals page shows the amount and the progress only. Months
+  left, the amount needed per month and the average contribution are in the detail dialog of the
+  goal. The dashboard no longer shows a sentence under its goals card.
+- **AI setup from the desktop app.** When no AI provider is set up and advanced mode is off, the
+  Automate menu of the "To categorize" tab offers to turn advanced mode on and opens the AI
+  settings.
+- **Faster AI categorization by default.** A new Anthropic, OpenAI or OpenRouter provider starts
+  with 8 parallel requests instead of 4. The setting stays, with a hint that says when to lower
+  it: each transaction is one request, and a provider that answers with rate-limit errors needs
+  fewer of them at once.
+
 ### Fixed
 
+- **Manual PER and life insurance accounts.** A manual PER or life insurance account now offers the
+  buy and sell form, so a fund position can be entered without a detour through a securities
+  account.
+- **Merchant logos on the account page.** The transactions of an account show merchant logos, as
+  the budget pages do (#697).
+- **Card labels with a glued Lemonway prefix.** A label such as `CARTE 07/11/26 LMWSNCF CONNECT`
+  is now read as `Sncf Connect`, so the merchant is recognised (#691).
 - **American Express: log in when AMEX asks for an approval in the AMEX app.** Some accounts confirm
   the login with a push notification instead of a code by SMS or e-mail. The verify page then has no
   channel to pick and the sync failed with "The Amex website format changed". The connector now waits
   for the approval on the phone and completes the login on its own. An approval not given in time
   ends with "The Amex authentication attempt expired". The verify page diagnostic now logs which known
   keywords the page's headings and buttons contain, never their text.
+
+## [1.3.0] — 2026-11-24
+
+### Added
+
+- **Native Rust backend (`backend-rs/`).** Rewrote the Picsou backend in Rust with full API, MCP,
+  OAuth, and Flyway migration parity, bringing significantly lower memory usage and faster startup
+  times while keeping the existing PostgreSQL schema and frontend contract intact.
+- **Embedded SQLite dual-engine support.** Picsou Desktop now runs exclusively on an embedded SQLite
+  database (removing the bundled PostgreSQL server and `pgtools` runtime), and self-hosters can now
+  deploy a single-container SQLite stack with `docker/compose.sqlite.yml`. PostgreSQL 16 remains
+  fully supported for multi-container Docker and Kubernetes deployments.
+- **Desktop Grand Public experience.** Streamlined Picsou Desktop for local personal use with
+  1-step local onboarding, loopback-only hardened auto-login (single-use launch token, strict `Host`
+  allowlist, and cross-site request checks), optional Desktop password lock coordinated with
+  two-factor authentication (password lock required before enabling 2FA, and 2FA must be disabled
+  before turning off the lock), clear browser guidance when authorizing external OAuth/MCP clients
+  while unlocked, external links that open in the system browser, a tray menu and startup screen
+  in the system language (English, French, Spanish, German), launch at login as an opt-in choice
+  in the tray menu, and an opt-in **Advanced Mode** toggle in Settings for admin, API/MCP, and
+  developer controls.
+- **Native OS WebView bank connectors for Picsou Desktop.** BNP Paribas / Hello bank!, American
+  Express, and Revolut now authenticate directly through a sandboxed native OS WebView window in
+  Picsou Desktop, eliminating the need for local Chromium or Camoufox containers.
+- **Six pure-HTTP bank connectors compiled natively into Rust.** BoursoBank (`bourso-auth`), CIC
+  (`cic-auth`), Crédit Mutuel Épargne Salariale (`cmes-auth`), DEGIRO (`degiro-auth`), Natixis
+  Interépargne (`natixis-auth`), and Sofidy (`sofidy-auth`) can now run in-process inside the Rust
+  backend via `APP_NATIVE_SIDECARS=true` (or `nativeSidecars: true` in the Helm chart, `false` by
+  default in this release; explicit `<BANK>_AUTH_URL` overrides still take precedence).
+- **Native `picsou healthcheck` CLI and Docker `HEALTHCHECK`.** Added a built-in `picsou healthcheck`
+  subcommand wired into the Docker image `HEALTHCHECK` so container health probes work out of the
+  box without `curl` or `wget`.
+- **Demo frontend image published by CI.** `ghcr.io/<owner>/picsou-finance/demo` (nginx, port 8080, `VITE_DEMO_MODE=true`, built from `docker/Dockerfile.demo`) follows the same tags as the app image, so a public demo site can track `nightly` instead of a hand-built image.
+
+### Deprecated
+
+- **Python HTTP bank sidecars (`bourso-auth`, `cic-auth`, `cmes-auth`, `degiro-auth`,
+  `natixis-auth`, `sofidy-auth`).** Deprecated in favor of the in-process Rust connectors enabled
+  with `APP_NATIVE_SIDECARS=true` (or Helm `nativeSidecars: true`). They remain deployed by default
+  in Docker Compose and Helm during the transition period.
+
+### Removed
+
+- **The Java backend.** The Rust backend is the only one: the Java sources, their Maven build and
+  their tests are gone, and the PostgreSQL migrations now live in `backend-rs/migrations/` (same
+  files, same Flyway history). Nothing changes for an existing database. The backend reads
+  environment variables only: `SPRING_APPLICATION_JSON`, `-D` properties and `--spring.*`
+  arguments, which the Java backend accepted, are ignored. So are the alternative names Spring
+  derived from a property (`APP_SECURE_COOKIES` for `SECURE_COOKIES`, for instance): set the
+  documented name. The experimental Powens adapter,
+  which existed only in Java and was never enabled, is gone with it.
+
+### Fixed
+
+- **Enable Banking: bank cards are imported as cards.** A card the bank declares as such (Boursorama's
+  immediate- and deferred-debit cards, for instance) was imported as a current account named
+  `immediat_debit` or `delayed_debit`. It is now a card, immediate or deferred debit, named after the label
+  the bank shows (e.g. the card brand and holder), and its balance counts as a debt. Accounts
+  already imported this way are fixed on the next sync; a type other than current account, or a
+  name you typed, is kept. When a card's balance cannot be read as an amount owed (positive, or
+  only the credit left), the card still syncs with its transactions and its balance is left as it was.
+  Two gaps remain: immediate-debit purchases are still counted twice in the budget, and a
+  deferred-debit card has no due date yet (#667, #668). (#664)
+- **Words in buttons and fields are spaced like the rest of the page.** The wider word spacing
+  of the theme never reached button labels, tabs and fields, whose words sat half as far apart
+  as the text around them ("Ajouter un compte" read almost as two words).
+- **No more font error in the browser console.** A small part of the font was embedded in the
+  stylesheet, which the Content-Security-Policy refuses; the browser logged an error on every page.
+- **A one-time code is accepted once.** A two-factor code, a recovery code or an OAuth
+  authorization code sent twice at the same instant could be accepted by both requests.
+- **A co-owner can open the wealth pyramid and the diversification, and export a shared account
+  to Excel.** All three failed for a member who co-owns an account without owning it: the two
+  analysis pages answered "account not found" as soon as the shared account held securities or
+  crypto, and the export ended in an error. The analysis counts the shared holdings at the
+  member's share; the workbook shows the whole account with the ownership share beside it.
+- **A second Finary import no longer fails on history older than 2000.** Rebuilding the balance
+  history only read back the snapshots from 2000 on, so importing a file with an older transaction
+  a second time failed, and a balance typed by hand before 2000 was ignored.
+- **A Solana wallet holding one token in several accounts shows the whole amount.** A wallet can
+  keep a token (USDC, for instance) in more than one token account; only the last one was kept as
+  the holding, so the wallet was undervalued.
+- **A CORUM or Sofidy sync interrupted by a restart no longer stays "in progress".** It could not
+  be started again until the bank was disconnected and reconnected. It is now marked as failed at
+  startup, like the other banks, and can be retried.
+- **The Excel export accepts an account name ending with an apostrophe and dates before 1900.** A
+  sheet name left with a leading or trailing apostrophe made the export fail, and a date before
+  1900 (an old purchase date) came out as an unreadable cell; it is now written as text.
+- **A custom classification is found again when its ticker was typed with spaces around it.** The
+  ticker was stored without them but looked up as typed, so the classification could not be read
+  back or changed.
+- **The Enable Banking call log records calls again.** The admin page's "Diagnostic API Enable
+  Banking" panel stayed empty because the connector no longer wrote to it. Every response from
+  Enable Banking is recorded again, in memory only and bounded (200 newest calls, 256 K
+  characters per body, 8 M in all). The panel and the `.txt` export now warn that they hold raw
+  bank data to review before sharing. (#665)
 
 ## [1.2.2] — 2026-11-21
 

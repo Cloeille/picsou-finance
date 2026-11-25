@@ -29,7 +29,20 @@ import type { SidecarAuthInitResponse, SidecarSessionStatus } from "@/types/api"
  * app and the completion request simply stays open until the user approves it.
  * Only reachable when the panel declares {@link SidecarSessionPanelProps.appPush}.
  */
-type AuthState = "IDLE" | "AWAITING_OTP" | "AWAITING_APP" | "ERROR"
+type AuthState =
+  | "IDLE"
+  | "AWAITING_OTP"
+  | "AWAITING_APP"
+  | "WEBVIEW_STARTING"
+  | "WEBVIEW_WAITING"
+  | "WEBVIEW_FETCHING"
+  | "ERROR"
+
+export interface SidecarWebviewActions {
+  start: () => Promise<{ processId: string; status: string }>
+  getStatus: (processId: string) => Promise<{ status: string; errorCode?: string }>
+  cancel: (processId: string) => Promise<{ cancelled: boolean }>
+}
 
 /**
  * A single extra choice appended to the login form and merged into the
@@ -90,6 +103,7 @@ const ERROR_MESSAGE_SUFFIXES: Record<string, string> = {
  */
 const LOST_CONFIRMATION_WAIT_MS = 150_000
 const LOST_CONFIRMATION_POLL_MS = 3_000
+const WEBVIEW_POLL_MS = 1_500
 
 /**
  * The completion request got no answer from the backend: iOS drops it while
@@ -143,6 +157,11 @@ export interface SidecarSessionPanelProps {
    * never reads as a plain success.
    */
   successSummary?: ReactNode
+  /**
+   * Picsou Desktop native OS WebView login actions. Activated only when the backend
+   * advertises `status.webviewLoginSupported === true`.
+   */
+  webview?: SidecarWebviewActions
 }
 
 /**
@@ -165,6 +184,7 @@ export function SidecarSessionPanel({
   onConnected,
   recoveryAction,
   successSummary,
+  webview,
 }: SidecarSessionPanelProps) {
   const { t } = useTranslation()
   const [authState, setAuthState] = useState<AuthState>("IDLE")
@@ -174,8 +194,10 @@ export function SidecarSessionPanel({
   const [extraValue, setExtraValue] = useState(extraField?.defaultValue ?? "")
   const [remember, setRemember] = useState(false)
   const [processId, setProcessId] = useState<string | null>(null)
+  const [webviewProcessId, setWebviewProcessId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [lostConfirmationAt, setLostConfirmationAt] = useState<number | null>(null)
+  const webviewSubmitting = useRef(false)
   const notifyConnectedOnSuccess = useRef(false)
   const autoReconnectHandled = useRef(false)
 
@@ -205,6 +227,7 @@ export function SidecarSessionPanel({
   const resetAuth = () => {
     setAuthState("IDLE")
     setProcessId(null)
+    setWebviewProcessId(null)
     setCode("")
     setLostConfirmationAt(null)
   }
@@ -282,10 +305,15 @@ export function SidecarSessionPanel({
   }
 
   const connected = status.data?.isActive === true
+  const webviewSupported = webview !== undefined && status.data?.webviewLoginSupported === true
+  const sessionExpired = status.data?.lastSyncError === "SESSION_EXPIRED"
   const canReconnect = "reconnect" in sidecarProviders[provider] && status.data?.canReconnect === true
   const syncStatus = status.data?.syncStatus ?? "IDLE"
   const isSyncing = syncStatus === "QUEUED" || syncStatus === "RUNNING"
   const requestingSync = sync.isPending || isSyncing
+  const webviewInProgress =
+    authState === "WEBVIEW_WAITING" || authState === "WEBVIEW_FETCHING"
+  const webviewPending = authState === "WEBVIEW_STARTING"
   const backgroundError =
     syncStatus === "FAILED"
       ? (messageForCode(status.data?.lastSyncError) ??
@@ -295,6 +323,109 @@ export function SidecarSessionPanel({
   const visibleError = error ?? backgroundError ?? statusError
 
   const { refetch: refetchStatus } = status
+
+  useEffect(() => {
+    if (!webview || !webviewProcessId) return
+    if (authState !== "WEBVIEW_WAITING" && authState !== "WEBVIEW_FETCHING") return
+    let cancelled = false
+    let inFlight = false
+    const timer = setInterval(() => {
+      if (inFlight) return
+      inFlight = true
+      void webview
+        .getStatus(webviewProcessId)
+        .then((res) => {
+          if (cancelled) return
+          if (res.status === "WAITING_LOGIN") {
+            setAuthState("WEBVIEW_WAITING")
+          } else if (res.status === "FETCHING") {
+            setAuthState("WEBVIEW_FETCHING")
+          } else if (res.status === "SYNCING" || res.status === "DONE") {
+            cancelled = true
+            clearInterval(timer)
+            setWebviewProcessId(null)
+            setError(null)
+            setAuthState("IDLE")
+            notifyConnectedOnSuccess.current = true
+            void refetchStatus()
+          } else if (res.status === "CANCELLED") {
+            cancelled = true
+            clearInterval(timer)
+            setWebviewProcessId(null)
+            setError(null)
+            setAuthState("IDLE")
+          } else if (res.status === "FAILED") {
+            cancelled = true
+            clearInterval(timer)
+            setWebviewProcessId(null)
+            const suffix = res.errorCode ? ERROR_MESSAGE_SUFFIXES[res.errorCode] : undefined
+            setError(suffix ? t(`${translationPrefix}.errors.${suffix}`) : t(`${translationPrefix}.errors.serverError`))
+            setAuthState("ERROR")
+          }
+        })
+        .catch((value) => {
+          if (cancelled) return
+          cancelled = true
+          clearInterval(timer)
+          setWebviewProcessId(null)
+          const httpStatus = getErrorStatus(value)
+          if (httpStatus === 429) {
+            setError(t(`${translationPrefix}.errors.tooManyAttempts`))
+          } else {
+            const code = getErrorCode(value)
+            const suffix = code ? ERROR_MESSAGE_SUFFIXES[code] : undefined
+            setError(
+              suffix
+                ? t(`${translationPrefix}.errors.${suffix}`)
+                : extractErrorMessage(value, t(`${translationPrefix}.errors.serverError`)),
+            )
+          }
+          setAuthState("ERROR")
+        })
+        .finally(() => {
+          inFlight = false
+        })
+    }, WEBVIEW_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [authState, refetchStatus, t, translationPrefix, webview, webviewProcessId])
+
+  const startWebviewLogin = async () => {
+    if (!webview || webviewSubmitting.current) return
+    webviewSubmitting.current = true
+    notifyConnectedOnSuccess.current = false
+    setError(null)
+    setAuthState("WEBVIEW_STARTING")
+    try {
+      const result = await webview.start()
+      if (!result.processId) {
+        setError(t(key("errors.serverError")))
+        setAuthState("ERROR")
+        return
+      }
+      setWebviewProcessId(result.processId)
+      setAuthState("WEBVIEW_WAITING")
+    } catch (value) {
+      setError(formatError(value))
+      setAuthState("ERROR")
+    } finally {
+      webviewSubmitting.current = false
+    }
+  }
+
+  const cancelWebviewLogin = () => {
+    const pid = webviewProcessId
+    setWebviewProcessId(null)
+    setError(null)
+    setAuthState("IDLE")
+    if (pid && webview) {
+      void webview.cancel(pid).catch(() => {
+        // Best effort: window may already be closed.
+      })
+    }
+  }
   useEffect(() => {
     if (lostConfirmationAt === null) return
     const timer = setInterval(() => {
@@ -445,7 +576,46 @@ export function SidecarSessionPanel({
         </div>
       )}
 
-      {!connected && authState === "IDLE" && canReconnect && (
+      {!connected && webviewSupported && !webviewInProgress && (
+        <Card size="sm">
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">{t(key("webview.hint"))}</p>
+            <Button type="button" disabled={webviewPending} onClick={() => void startWebviewLogin()}>
+              {webviewPending ? <ArrowsClockwise className="animate-spin" /> : <LoginIcon />}
+              {webviewPending
+                ? t(key("connecting"))
+                : sessionExpired
+                  ? t(key("webview.reconnect"))
+                  : t(key("webview.connect"))}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {!connected && webviewInProgress && (
+        <Card size="sm">
+          <CardContent className="flex items-center gap-3">
+            <ArrowsClockwise className="size-5 shrink-0 animate-spin text-muted-foreground" />
+            <div className="flex-1 space-y-1">
+              <p className="text-sm">
+                {authState === "WEBVIEW_FETCHING"
+                  ? t(key("webview.fetching"))
+                  : t(key("webview.waiting"))}
+              </p>
+              {authState === "WEBVIEW_WAITING" && (
+                <p className="text-sm text-muted-foreground">{t(key("webview.waitingHint"))}</p>
+              )}
+            </div>
+            {authState === "WEBVIEW_WAITING" && (
+              <Button type="button" variant="outline" size="sm" onClick={cancelWebviewLogin}>
+                {t("common.cancel")}
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {!connected && !webviewSupported && authState === "IDLE" && canReconnect && (
         <Card size="sm">
           <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <p className="flex-1 text-sm text-muted-foreground">{t(key("reconnectHint"))}</p>
@@ -463,7 +633,7 @@ export function SidecarSessionPanel({
         </Card>
       )}
 
-      {!connected && authState === "IDLE" && (
+      {!connected && !webviewSupported && authState === "IDLE" && (
         <form
           className="space-y-4"
           onSubmit={(event) => {

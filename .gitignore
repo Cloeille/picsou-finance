@@ -11,15 +11,10 @@
 *.crt
 *.cer
 secrets/
-backend/.local/
+backend-rs/.local/
 frontend/.local/
 
-# Java / Maven
-backend/target/
-backend/.mvn/repository/
-*.jar
-*.war
-*.class
+# Logs
 *.log
 
 # Node / Frontend

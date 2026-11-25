@@ -21,6 +21,7 @@ const hooks = vi.hoisted(() => ({
   useSavingsSuggestions: vi.fn(),
   useCategories: vi.fn(),
   useCategorize: vi.fn(),
+  useMerchantLogoUrl: vi.fn(),
   useLoanSummary: vi.fn(),
   useOwnership: vi.fn(),
   useUpdateOwnership: vi.fn(),
@@ -61,6 +62,7 @@ vi.mock('@/features/savings/hooks', () => ({
 vi.mock('@/features/budget/hooks', () => ({
   useCategories: hooks.useCategories,
   useCategorize: hooks.useCategorize,
+  useMerchantLogoUrl: hooks.useMerchantLogoUrl,
 }))
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -84,9 +86,17 @@ vi.mock('@/components/shared/NetWorthChart', () => ({ NetWorthChart: () => null 
 vi.mock('@/components/shared/HoldingsTable', () => ({ HoldingsTable: () => null }))
 vi.mock('@/components/shared/PositionsByProduct', () => ({ PositionsByProduct: () => null }))
 vi.mock('@/components/shared/RealizedPnlSection', () => ({ RealizedPnlSection: () => null }))
-const transactionsListProps = vi.hoisted(() => ({ last: null as { accountProvider?: string | null } | null }))
+const transactionsListProps = vi.hoisted(() => ({
+  last: null as {
+    accountProvider?: string | null
+    logoUrlFor?: (brandId: number | null | undefined) => string | null
+  } | null,
+}))
 vi.mock('@/components/shared/TransactionsList', () => ({
-  TransactionsList: (props: { accountProvider?: string | null }) => {
+  TransactionsList: (props: {
+    accountProvider?: string | null
+    logoUrlFor?: (brandId: number | null | undefined) => string | null
+  }) => {
     transactionsListProps.last = props
     return null
   },
@@ -144,6 +154,8 @@ describe('AccountDetailPage PER balance', () => {
     hooks.useSavingsSuggestions.mockReturnValue({ data: [] })
     hooks.useCategories.mockReturnValue({ data: [] })
     hooks.useCategorize.mockReturnValue(mutation())
+    hooks.useMerchantLogoUrl.mockReset().mockReturnValue(() => null)
+    transactionsListProps.last = null
   })
 
   it('renders the euro-fund balance without implying zero PnL when basis is unknown', () => {
@@ -211,6 +223,27 @@ describe('AccountDetailPage PER balance', () => {
 
     expect(screen.queryByText('accounts.lifeContract.title')).not.toBeInTheDocument()
   })
+
+  it('forwards logoUrlFor from useMerchantLogoUrl to TransactionsList', () => {
+    const logoUrlFor = (brandId: number | null | undefined) =>
+      brandId != null ? `/api/merchants/${brandId}/logo` : null
+    hooks.useMerchantLogoUrl.mockReturnValue(logoUrlFor)
+
+    const client = new QueryClient()
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/accounts/42']}>
+          <Routes>
+            <Route path="/accounts/:id" element={<AccountDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(hooks.useMerchantLogoUrl).toHaveBeenCalledTimes(1)
+    expect(transactionsListProps.last?.logoUrlFor).toBe(logoUrlFor)
+    expect(transactionsListProps.last?.logoUrlFor?.(17)).toBe('/api/merchants/17/logo')
+  })
 })
 
 const LOAN_ACCOUNT: Account = {
@@ -259,6 +292,7 @@ describe('AccountDetailPage loan ownership editor', () => {
     hooks.useSavingsSuggestions.mockReturnValue({ data: [] })
     hooks.useCategories.mockReturnValue({ data: [] })
     hooks.useCategorize.mockReturnValue(mutation())
+    hooks.useMerchantLogoUrl.mockReset().mockReturnValue(() => null)
     // No debt details: the summary call answers 404 (issue #550).
     hooks.useLoanSummary.mockReturnValue({ data: undefined, isLoading: false, isError: true })
     hooks.useOwnership.mockReturnValue({ data: LOAN_OWNERSHIP, isLoading: false })
@@ -307,6 +341,8 @@ describe('AccountDetailPage savings tab query param', () => {
     hooks.useSavingsSuggestions.mockReturnValue({ data: [] })
     hooks.useCategories.mockReturnValue({ data: [] })
     hooks.useCategorize.mockReturnValue(mutation())
+    hooks.useMerchantLogoUrl.mockReset().mockReturnValue(() => null)
+    transactionsListProps.last = null
   })
 
   it('opens directly on the savings configuration tab when ?tab=config is present', () => {

@@ -1,0 +1,829 @@
+{
+  "description": "Rule CRUD, preview, recategorize, manual categorization learning a rule, the inbox and the cross-account search",
+  "scenario": "budget.rules",
+  "steps": [
+    {
+      "body": {
+        "archived": false,
+        "color": "#6366f1",
+        "id": "<id:1>",
+        "isDefault": false,
+        "kind": "EXPENSE",
+        "name": "Abonnements perso",
+        "sortOrder": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "06 POST /api/categories as admin"
+    },
+    {
+      "body": {
+        "archived": false,
+        "color": "#6366f1",
+        "id": "<id:2>",
+        "isDefault": false,
+        "kind": "EXPENSE",
+        "name": "Autre",
+        "sortOrder": 1
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "07 POST /api/categories as admin"
+    },
+    {
+      "body": [
+        {
+          "accountId": "<id:2>",
+          "accountName": "Caché",
+          "amount": -5.00000000,
+          "budgetNeutral": false,
+          "counterparty": "Café",
+          "createdAt": "<instant>",
+          "date": "<today-1>",
+          "description": "Café",
+          "id": "<id:3>",
+          "isManual": false,
+          "nativeCurrency": "EUR"
+        },
+        {
+          "accountId": "<id:1>",
+          "accountName": "Courant",
+          "amount": -3.20000000,
+          "budgetNeutral": false,
+          "counterparty": "Boulangerie du coin",
+          "createdAt": "<instant>",
+          "date": "<today-1>",
+          "description": "Boulangerie du coin",
+          "id": "<id:4>",
+          "isManual": false,
+          "nativeCurrency": "EUR"
+        },
+        {
+          "accountId": "<id:1>",
+          "accountName": "Courant",
+          "amount": -42.10000000,
+          "budgetNeutral": false,
+          "counterparty": "CARREFOUR CITY PARIS",
+          "createdAt": "<instant>",
+          "date": "<today-1>",
+          "description": "CARREFOUR CITY PARIS",
+          "id": "<id:5>",
+          "isManual": false,
+          "nativeCurrency": "EUR"
+        },
+        {
+          "accountId": "<id:1>",
+          "accountName": "Courant",
+          "amount": -9.99000000,
+          "budgetNeutral": false,
+          "counterparty": "NETFLIX",
+          "createdAt": "<instant>",
+          "date": "<today-2>",
+          "description": "NETFLIX",
+          "id": "<id:2>",
+          "isManual": false,
+          "nativeCurrency": "EUR"
+        },
+        {
+          "accountId": "<id:1>",
+          "accountName": "Courant",
+          "amount": -9.99000000,
+          "budgetNeutral": false,
+          "counterparty": "NETFLIX",
+          "createdAt": "<instant>",
+          "date": "<today-3>",
+          "description": "NETFLIX",
+          "id": "<id:1>",
+          "isManual": false,
+          "nativeCurrency": "EUR"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "13 GET /api/transactions/uncategorized as admin"
+    },
+    {
+      "body": {
+        "matchCount": 1,
+        "transactions": [
+          {
+            "amount": -42.10000000,
+            "date": "<today-1>",
+            "id": "<id:5>",
+            "label": "CARREFOUR CITY PARIS"
+          }
+        ]
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "14 POST /api/categorization-rules/preview as admin"
+    },
+    {
+      "body": {
+        "matchCount": 3,
+        "transactions": [
+          {
+            "amount": -3.20000000,
+            "date": "<today-1>",
+            "id": "<id:4>",
+            "label": "Boulangerie du coin"
+          },
+          {
+            "amount": -9.99000000,
+            "date": "<today-2>",
+            "id": "<id:2>",
+            "label": "NETFLIX"
+          },
+          {
+            "amount": -9.99000000,
+            "date": "<today-3>",
+            "id": "<id:1>",
+            "label": "NETFLIX"
+          }
+        ]
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "15 POST /api/categorization-rules/preview as admin"
+    },
+    {
+      "body": {
+        "errors": {
+          "matchType": "must not be null",
+          "pattern": "must not be blank"
+        },
+        "instance": "/api/categorization-rules/preview",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "16 POST /api/categorization-rules/preview as admin"
+    },
+    {
+      "body": {
+        "categoryId": "<id:2>",
+        "categoryName": "Autre",
+        "id": "<id:1>",
+        "matchType": "KEYWORDS_ALL",
+        "pattern": "city carrefour",
+        "priority": 0,
+        "source": "USER"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "17 POST /api/categorization-rules as admin"
+    },
+    {
+      "body": {
+        "detail": "Category not found",
+        "instance": "/api/categorization-rules",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "18 POST /api/categorization-rules as admin"
+    },
+    {
+      "body": {
+        "categorized": 1
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "19 POST /api/categorization-rules/recategorize as admin"
+    },
+    {
+      "body": {
+        "categoryId": "<id:2>",
+        "categoryName": "Autre",
+        "id": "<id:1>",
+        "matchType": "KEYWORD",
+        "pattern": "carrefour",
+        "priority": 5,
+        "source": "USER"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "20 PUT /api/categorization-rules/{rule} as admin"
+    },
+    {
+      "body": [
+        {
+          "categoryId": "<id:2>",
+          "categoryName": "Autre",
+          "id": "<id:1>",
+          "matchType": "KEYWORD",
+          "pattern": "carrefour",
+          "priority": 5,
+          "source": "USER"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "21 GET /api/categorization-rules as admin"
+    },
+    {
+      "body": null,
+      "bodyKind": "empty",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 204,
+      "step": "22 PUT /api/transactions/{netflix}/category as admin"
+    },
+    {
+      "body": {
+        "errors": {
+          "categoryId": "must not be null"
+        },
+        "instance": "/api/transactions/<id:2>/category",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "23 PUT /api/transactions/{netflix}/category as admin"
+    },
+    {
+      "body": {
+        "detail": "Transaction not found",
+        "instance": "/api/transactions/999999/category",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "24 PUT /api/transactions/999999/category as admin"
+    },
+    {
+      "body": [
+        {
+          "categoryId": "<id:2>",
+          "categoryName": "Autre",
+          "id": "<id:1>",
+          "matchType": "KEYWORD",
+          "pattern": "carrefour",
+          "priority": 5,
+          "source": "USER"
+        },
+        {
+          "categoryId": "<id:1>",
+          "categoryName": "Abonnements perso",
+          "id": "<id:2>",
+          "matchType": "COUNTERPARTY",
+          "pattern": "NETFLIX",
+          "priority": 0,
+          "source": "AUTO"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "25 GET /api/categorization-rules as admin"
+    },
+    {
+      "body": [
+        {
+          "accountId": "<id:2>",
+          "accountName": "Caché",
+          "amount": -5.00000000,
+          "budgetNeutral": false,
+          "counterparty": "Café",
+          "createdAt": "<instant>",
+          "date": "<today-1>",
+          "description": "Café",
+          "id": "<id:3>",
+          "isManual": false,
+          "merchantLabel": "Café",
+          "nativeCurrency": "EUR"
+        },
+        {
+          "accountId": "<id:1>",
+          "accountName": "Courant",
+          "amount": -3.20000000,
+          "budgetNeutral": false,
+          "counterparty": "Boulangerie du coin",
+          "createdAt": "<instant>",
+          "date": "<today-1>",
+          "description": "Boulangerie du coin",
+          "id": "<id:4>",
+          "isManual": false,
+          "merchantLabel": "Boulangerie Du Coin",
+          "nativeCurrency": "EUR"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "26 GET /api/transactions/uncategorized as admin"
+    },
+    {
+      "body": [
+        {
+          "accountId": "<id:1>",
+          "accountName": "Courant",
+          "amount": -3.20000000,
+          "budgetNeutral": false,
+          "counterparty": "Boulangerie du coin",
+          "createdAt": "<instant>",
+          "date": "<today-1>",
+          "description": "Boulangerie du coin",
+          "id": "<id:4>",
+          "isManual": false,
+          "merchantLabel": "Boulangerie Du Coin",
+          "nativeCurrency": "EUR"
+        },
+        {
+          "accountId": "<id:1>",
+          "accountName": "Courant",
+          "amount": -42.10000000,
+          "budgetNeutral": false,
+          "categoryId": "<id:2>",
+          "categoryName": "Autre",
+          "counterparty": "CARREFOUR CITY PARIS",
+          "createdAt": "<instant>",
+          "date": "<today-1>",
+          "description": "CARREFOUR CITY PARIS",
+          "id": "<id:5>",
+          "isManual": false,
+          "merchantBrandId": "<id:1>",
+          "merchantLabel": "Carrefour City Paris",
+          "nativeCurrency": "EUR"
+        },
+        {
+          "accountId": "<id:1>",
+          "accountName": "Courant",
+          "amount": -9.99000000,
+          "budgetNeutral": false,
+          "categoryId": "<id:1>",
+          "categoryName": "Abonnements perso",
+          "counterparty": "NETFLIX",
+          "createdAt": "<instant>",
+          "date": "<today-2>",
+          "description": "NETFLIX",
+          "id": "<id:2>",
+          "isManual": false,
+          "merchantBrandId": "<id:6>",
+          "merchantLabel": "Netflix",
+          "nativeCurrency": "EUR"
+        },
+        {
+          "accountId": "<id:1>",
+          "accountName": "Courant",
+          "amount": -9.99000000,
+          "budgetNeutral": false,
+          "categoryId": "<id:1>",
+          "categoryName": "Abonnements perso",
+          "counterparty": "NETFLIX",
+          "createdAt": "<instant>",
+          "date": "<today-3>",
+          "description": "NETFLIX",
+          "id": "<id:1>",
+          "isManual": false,
+          "merchantBrandId": "<id:6>",
+          "merchantLabel": "Netflix",
+          "nativeCurrency": "EUR"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "27 GET /api/transactions?from=<month-34:first>&to=2099-12-31 as admin"
+    },
+    {
+      "body": [
+        {
+          "accountId": "<id:1>",
+          "accountName": "Courant",
+          "amount": -9.99000000,
+          "budgetNeutral": false,
+          "categoryId": "<id:1>",
+          "categoryName": "Abonnements perso",
+          "counterparty": "NETFLIX",
+          "createdAt": "<instant>",
+          "date": "<today-2>",
+          "description": "NETFLIX",
+          "id": "<id:2>",
+          "isManual": false,
+          "merchantBrandId": "<id:6>",
+          "merchantLabel": "Netflix",
+          "nativeCurrency": "EUR"
+        },
+        {
+          "accountId": "<id:1>",
+          "accountName": "Courant",
+          "amount": -9.99000000,
+          "budgetNeutral": false,
+          "categoryId": "<id:1>",
+          "categoryName": "Abonnements perso",
+          "counterparty": "NETFLIX",
+          "createdAt": "<instant>",
+          "date": "<today-3>",
+          "description": "NETFLIX",
+          "id": "<id:1>",
+          "isManual": false,
+          "merchantBrandId": "<id:6>",
+          "merchantLabel": "Netflix",
+          "nativeCurrency": "EUR"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "28 GET /api/transactions?from=<month-34:first>&to=2099-12-31&categoryId={subs} as admin"
+    },
+    {
+      "body": {
+        "detail": "Required parameter 'from' is not present.",
+        "instance": "/api/transactions",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "29 GET /api/transactions?to=2099-12-31 as admin"
+    },
+    {
+      "body": {
+        "detail": "Failed to convert 'from' with value: 'x'",
+        "instance": "/api/transactions",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "30 GET /api/transactions?from=x&to=2099-12-31 as admin"
+    },
+    {
+      "body": null,
+      "bodyKind": "empty",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 204,
+      "step": "31 DELETE /api/categorization-rules/{rule} as admin"
+    },
+    {
+      "body": {
+        "detail": "Categorization rule not found",
+        "instance": "/api/categorization-rules/<id:1>",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "32 DELETE /api/categorization-rules/{rule} as admin"
+    },
+    {
+      "body": {
+        "applied": 0,
+        "done": false,
+        "processed": 0,
+        "running": false,
+        "suggested": 0,
+        "total": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "33 GET /api/transactions/categorize-ai/status as admin"
+    },
+    {
+      "body": {
+        "applied": 0,
+        "done": true,
+        "processed": 0,
+        "running": false,
+        "suggested": 0,
+        "total": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 202,
+      "step": "34 POST /api/transactions/categorize-ai as admin"
+    },
+    {
+      "body": null,
+      "bodyKind": "empty",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "35 GET /api/merchants/<id:1>/logo as admin"
+    },
+    {
+      "body": {
+        "detail": "Failed to convert 'id' with value: 'abc'",
+        "instance": "/api/merchants/abc/logo",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "36 GET /api/merchants/abc/logo as admin"
+    }
+  ]
+}

@@ -1,0 +1,879 @@
+{
+  "description": "Default categories, create a root and a child, rename, archive, unarchive, invalid parent",
+  "scenario": "budget.categories",
+  "steps": [
+    {
+      "body": [
+        {
+          "archived": false,
+          "color": "#22c55e",
+          "icon": "shopping-cart",
+          "id": "<id:1>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Courses",
+          "sortOrder": 0
+        },
+        {
+          "archived": false,
+          "color": "#f97316",
+          "icon": "utensils",
+          "id": "<id:2>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Restaurants",
+          "sortOrder": 1
+        },
+        {
+          "archived": false,
+          "color": "#3b82f6",
+          "icon": "car",
+          "id": "<id:3>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Transport",
+          "sortOrder": 2
+        },
+        {
+          "archived": false,
+          "color": "#8b5cf6",
+          "icon": "house",
+          "id": "<id:4>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Logement",
+          "sortOrder": 3
+        },
+        {
+          "archived": false,
+          "color": "#eab308",
+          "icon": "zap",
+          "id": "<id:5>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Factures & énergie",
+          "sortOrder": 4
+        },
+        {
+          "archived": false,
+          "color": "#ef4444",
+          "icon": "heart-pulse",
+          "id": "<id:6>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Santé",
+          "sortOrder": 5
+        },
+        {
+          "archived": false,
+          "color": "#ec4899",
+          "icon": "gamepad-2",
+          "id": "<id:7>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Loisirs",
+          "sortOrder": 6
+        },
+        {
+          "archived": false,
+          "color": "#14b8a6",
+          "icon": "shopping-bag",
+          "id": "<id:8>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Shopping",
+          "sortOrder": 7
+        },
+        {
+          "archived": false,
+          "color": "#6366f1",
+          "icon": "repeat",
+          "id": "<id:9>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Abonnements",
+          "sortOrder": 8
+        },
+        {
+          "archived": false,
+          "color": "#06b6d4",
+          "icon": "plane",
+          "id": "<id:10>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Voyages",
+          "sortOrder": 9
+        },
+        {
+          "archived": false,
+          "color": "#a16207",
+          "icon": "landmark",
+          "id": "<id:11>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Impôts & taxes",
+          "sortOrder": 10
+        },
+        {
+          "archived": false,
+          "color": "#be123c",
+          "icon": "hand-coins",
+          "id": "<id:12>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Crédit",
+          "sortOrder": 11
+        },
+        {
+          "archived": false,
+          "color": "#94a3b8",
+          "icon": "ellipsis",
+          "id": "<id:13>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Divers",
+          "sortOrder": 12
+        },
+        {
+          "archived": false,
+          "color": "#16a34a",
+          "icon": "wallet",
+          "id": "<id:14>",
+          "isDefault": true,
+          "kind": "INCOME",
+          "name": "Salaire",
+          "sortOrder": 13
+        },
+        {
+          "archived": false,
+          "color": "#65a30d",
+          "icon": "hand-coins",
+          "id": "<id:15>",
+          "isDefault": true,
+          "kind": "INCOME",
+          "name": "Autres revenus",
+          "sortOrder": 14
+        },
+        {
+          "archived": false,
+          "color": "#ca8a04",
+          "icon": "coins",
+          "id": "<id:16>",
+          "isDefault": true,
+          "kind": "INCOME",
+          "name": "Revenus du capital",
+          "sortOrder": 15
+        },
+        {
+          "archived": false,
+          "color": "#0ea5e9",
+          "icon": "undo-2",
+          "id": "<id:17>",
+          "isDefault": true,
+          "kind": "INCOME",
+          "name": "Remboursements",
+          "sortOrder": 16
+        },
+        {
+          "archived": false,
+          "color": "#0891b2",
+          "icon": "piggy-bank",
+          "id": "<id:18>",
+          "isDefault": true,
+          "kind": "TRANSFER",
+          "name": "Épargne",
+          "sortOrder": 17
+        },
+        {
+          "archived": false,
+          "color": "#7c3aed",
+          "icon": "trending-up",
+          "id": "<id:19>",
+          "isDefault": true,
+          "kind": "TRANSFER",
+          "name": "Investissement",
+          "sortOrder": 18
+        },
+        {
+          "archived": false,
+          "color": "#64748b",
+          "icon": "arrow-left-right",
+          "id": "<id:20>",
+          "isDefault": true,
+          "kind": "TRANSFER",
+          "name": "Virement interne",
+          "sortOrder": 19
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "04 GET /api/categories as admin"
+    },
+    {
+      "body": {
+        "archived": false,
+        "color": "#f59e0b",
+        "icon": "gamepad",
+        "id": "<id:21>",
+        "isDefault": false,
+        "kind": "EXPENSE",
+        "name": "Loisirs",
+        "sortOrder": 20
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "05 POST /api/categories as admin"
+    },
+    {
+      "body": {
+        "archived": false,
+        "color": "#6366f1",
+        "id": "<id:22>",
+        "isDefault": false,
+        "kind": "EXPENSE",
+        "name": "Cinéma",
+        "parentId": "<id:21>",
+        "sortOrder": 21
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "06 POST /api/categories as admin"
+    },
+    {
+      "body": {
+        "detail": "A sub-category must share its parent's kind",
+        "instance": "/api/categories",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "07 POST /api/categories as admin"
+    },
+    {
+      "body": {
+        "archived": false,
+        "color": "#6366f1",
+        "id": "<id:22>",
+        "isDefault": false,
+        "kind": "EXPENSE",
+        "name": "Cinéma & théâtre",
+        "parentId": "<id:21>",
+        "sortOrder": 3
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "08 PUT /api/categories/{cinema} as admin"
+    },
+    {
+      "body": null,
+      "bodyKind": "empty",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 204,
+      "step": "09 DELETE /api/categories/{cinema} as admin"
+    },
+    {
+      "body": [
+        {
+          "archived": false,
+          "color": "#22c55e",
+          "icon": "shopping-cart",
+          "id": "<id:1>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Courses",
+          "sortOrder": 0
+        },
+        {
+          "archived": false,
+          "color": "#f97316",
+          "icon": "utensils",
+          "id": "<id:2>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Restaurants",
+          "sortOrder": 1
+        },
+        {
+          "archived": false,
+          "color": "#3b82f6",
+          "icon": "car",
+          "id": "<id:3>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Transport",
+          "sortOrder": 2
+        },
+        {
+          "archived": false,
+          "color": "#8b5cf6",
+          "icon": "house",
+          "id": "<id:4>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Logement",
+          "sortOrder": 3
+        },
+        {
+          "archived": true,
+          "color": "#6366f1",
+          "id": "<id:22>",
+          "isDefault": false,
+          "kind": "EXPENSE",
+          "name": "Cinéma & théâtre",
+          "parentId": "<id:21>",
+          "sortOrder": 3
+        },
+        {
+          "archived": false,
+          "color": "#eab308",
+          "icon": "zap",
+          "id": "<id:5>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Factures & énergie",
+          "sortOrder": 4
+        },
+        {
+          "archived": false,
+          "color": "#ef4444",
+          "icon": "heart-pulse",
+          "id": "<id:6>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Santé",
+          "sortOrder": 5
+        },
+        {
+          "archived": false,
+          "color": "#ec4899",
+          "icon": "gamepad-2",
+          "id": "<id:7>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Loisirs",
+          "sortOrder": 6
+        },
+        {
+          "archived": false,
+          "color": "#14b8a6",
+          "icon": "shopping-bag",
+          "id": "<id:8>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Shopping",
+          "sortOrder": 7
+        },
+        {
+          "archived": false,
+          "color": "#6366f1",
+          "icon": "repeat",
+          "id": "<id:9>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Abonnements",
+          "sortOrder": 8
+        },
+        {
+          "archived": false,
+          "color": "#06b6d4",
+          "icon": "plane",
+          "id": "<id:10>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Voyages",
+          "sortOrder": 9
+        },
+        {
+          "archived": false,
+          "color": "#a16207",
+          "icon": "landmark",
+          "id": "<id:11>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Impôts & taxes",
+          "sortOrder": 10
+        },
+        {
+          "archived": false,
+          "color": "#be123c",
+          "icon": "hand-coins",
+          "id": "<id:12>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Crédit",
+          "sortOrder": 11
+        },
+        {
+          "archived": false,
+          "color": "#94a3b8",
+          "icon": "ellipsis",
+          "id": "<id:13>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Divers",
+          "sortOrder": 12
+        },
+        {
+          "archived": false,
+          "color": "#16a34a",
+          "icon": "wallet",
+          "id": "<id:14>",
+          "isDefault": true,
+          "kind": "INCOME",
+          "name": "Salaire",
+          "sortOrder": 13
+        },
+        {
+          "archived": false,
+          "color": "#65a30d",
+          "icon": "hand-coins",
+          "id": "<id:15>",
+          "isDefault": true,
+          "kind": "INCOME",
+          "name": "Autres revenus",
+          "sortOrder": 14
+        },
+        {
+          "archived": false,
+          "color": "#ca8a04",
+          "icon": "coins",
+          "id": "<id:16>",
+          "isDefault": true,
+          "kind": "INCOME",
+          "name": "Revenus du capital",
+          "sortOrder": 15
+        },
+        {
+          "archived": false,
+          "color": "#0ea5e9",
+          "icon": "undo-2",
+          "id": "<id:17>",
+          "isDefault": true,
+          "kind": "INCOME",
+          "name": "Remboursements",
+          "sortOrder": 16
+        },
+        {
+          "archived": false,
+          "color": "#0891b2",
+          "icon": "piggy-bank",
+          "id": "<id:18>",
+          "isDefault": true,
+          "kind": "TRANSFER",
+          "name": "Épargne",
+          "sortOrder": 17
+        },
+        {
+          "archived": false,
+          "color": "#7c3aed",
+          "icon": "trending-up",
+          "id": "<id:19>",
+          "isDefault": true,
+          "kind": "TRANSFER",
+          "name": "Investissement",
+          "sortOrder": 18
+        },
+        {
+          "archived": false,
+          "color": "#64748b",
+          "icon": "arrow-left-right",
+          "id": "<id:20>",
+          "isDefault": true,
+          "kind": "TRANSFER",
+          "name": "Virement interne",
+          "sortOrder": 19
+        },
+        {
+          "archived": false,
+          "color": "#f59e0b",
+          "icon": "gamepad",
+          "id": "<id:21>",
+          "isDefault": false,
+          "kind": "EXPENSE",
+          "name": "Loisirs",
+          "sortOrder": 20
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "10 GET /api/categories as admin"
+    },
+    {
+      "body": {
+        "archived": false,
+        "color": "#6366f1",
+        "id": "<id:22>",
+        "isDefault": false,
+        "kind": "EXPENSE",
+        "name": "Cinéma & théâtre",
+        "parentId": "<id:21>",
+        "sortOrder": 3
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "11 POST /api/categories/{cinema}/unarchive as admin"
+    },
+    {
+      "body": {
+        "errors": {
+          "kind": "must not be null",
+          "name": "must not be blank"
+        },
+        "instance": "/api/categories",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "12 POST /api/categories as admin"
+    },
+    {
+      "body": [
+        {
+          "archived": false,
+          "color": "#22c55e",
+          "icon": "shopping-cart",
+          "id": "<id:1>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Courses",
+          "sortOrder": 0
+        },
+        {
+          "archived": false,
+          "color": "#f97316",
+          "icon": "utensils",
+          "id": "<id:2>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Restaurants",
+          "sortOrder": 1
+        },
+        {
+          "archived": false,
+          "color": "#3b82f6",
+          "icon": "car",
+          "id": "<id:3>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Transport",
+          "sortOrder": 2
+        },
+        {
+          "archived": false,
+          "color": "#8b5cf6",
+          "icon": "house",
+          "id": "<id:4>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Logement",
+          "sortOrder": 3
+        },
+        {
+          "archived": false,
+          "color": "#6366f1",
+          "id": "<id:22>",
+          "isDefault": false,
+          "kind": "EXPENSE",
+          "name": "Cinéma & théâtre",
+          "parentId": "<id:21>",
+          "sortOrder": 3
+        },
+        {
+          "archived": false,
+          "color": "#eab308",
+          "icon": "zap",
+          "id": "<id:5>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Factures & énergie",
+          "sortOrder": 4
+        },
+        {
+          "archived": false,
+          "color": "#ef4444",
+          "icon": "heart-pulse",
+          "id": "<id:6>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Santé",
+          "sortOrder": 5
+        },
+        {
+          "archived": false,
+          "color": "#ec4899",
+          "icon": "gamepad-2",
+          "id": "<id:7>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Loisirs",
+          "sortOrder": 6
+        },
+        {
+          "archived": false,
+          "color": "#14b8a6",
+          "icon": "shopping-bag",
+          "id": "<id:8>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Shopping",
+          "sortOrder": 7
+        },
+        {
+          "archived": false,
+          "color": "#6366f1",
+          "icon": "repeat",
+          "id": "<id:9>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Abonnements",
+          "sortOrder": 8
+        },
+        {
+          "archived": false,
+          "color": "#06b6d4",
+          "icon": "plane",
+          "id": "<id:10>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Voyages",
+          "sortOrder": 9
+        },
+        {
+          "archived": false,
+          "color": "#a16207",
+          "icon": "landmark",
+          "id": "<id:11>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Impôts & taxes",
+          "sortOrder": 10
+        },
+        {
+          "archived": false,
+          "color": "#be123c",
+          "icon": "hand-coins",
+          "id": "<id:12>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Crédit",
+          "sortOrder": 11
+        },
+        {
+          "archived": false,
+          "color": "#94a3b8",
+          "icon": "ellipsis",
+          "id": "<id:13>",
+          "isDefault": true,
+          "kind": "EXPENSE",
+          "name": "Divers",
+          "sortOrder": 12
+        },
+        {
+          "archived": false,
+          "color": "#16a34a",
+          "icon": "wallet",
+          "id": "<id:14>",
+          "isDefault": true,
+          "kind": "INCOME",
+          "name": "Salaire",
+          "sortOrder": 13
+        },
+        {
+          "archived": false,
+          "color": "#65a30d",
+          "icon": "hand-coins",
+          "id": "<id:15>",
+          "isDefault": true,
+          "kind": "INCOME",
+          "name": "Autres revenus",
+          "sortOrder": 14
+        },
+        {
+          "archived": false,
+          "color": "#ca8a04",
+          "icon": "coins",
+          "id": "<id:16>",
+          "isDefault": true,
+          "kind": "INCOME",
+          "name": "Revenus du capital",
+          "sortOrder": 15
+        },
+        {
+          "archived": false,
+          "color": "#0ea5e9",
+          "icon": "undo-2",
+          "id": "<id:17>",
+          "isDefault": true,
+          "kind": "INCOME",
+          "name": "Remboursements",
+          "sortOrder": 16
+        },
+        {
+          "archived": false,
+          "color": "#0891b2",
+          "icon": "piggy-bank",
+          "id": "<id:18>",
+          "isDefault": true,
+          "kind": "TRANSFER",
+          "name": "Épargne",
+          "sortOrder": 17
+        },
+        {
+          "archived": false,
+          "color": "#7c3aed",
+          "icon": "trending-up",
+          "id": "<id:19>",
+          "isDefault": true,
+          "kind": "TRANSFER",
+          "name": "Investissement",
+          "sortOrder": 18
+        },
+        {
+          "archived": false,
+          "color": "#64748b",
+          "icon": "arrow-left-right",
+          "id": "<id:20>",
+          "isDefault": true,
+          "kind": "TRANSFER",
+          "name": "Virement interne",
+          "sortOrder": 19
+        },
+        {
+          "archived": false,
+          "color": "#f59e0b",
+          "icon": "gamepad",
+          "id": "<id:21>",
+          "isDefault": false,
+          "kind": "EXPENSE",
+          "name": "Loisirs",
+          "sortOrder": 20
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "13 GET /api/categories as admin"
+    }
+  ]
+}

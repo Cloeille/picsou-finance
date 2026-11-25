@@ -56,7 +56,7 @@ Radius, color, and control sizing come from `--radius` and the semantic color to
 - Flyway owns the schema; migrations are append-only and never edited once merged.
 - Migration numbering spans branches: take the next free `V<n>` on an up-to-date `main`, and when
   another pull request merges first, renumber your own *unmerged* file after syncing
-  (`MigrationVersionsTest` fails on a duplicate). Never renumber one already on `main`.
+  (the `every_migration_has_a_unique_version` test fails on a duplicate). Never renumber one already on `main`.
   — [database.md](./conventions/database.md)
 
 ## 5. Tests are ground truth

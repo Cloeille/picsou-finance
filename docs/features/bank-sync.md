@@ -2,12 +2,10 @@
 
 > Last updated: 2026-10-31 (merged account attribution, provider scope, and currency-aware matching)
 
-> **Status (1.0.0).** Enable Banking is the only enabled provider. The Powens
-> adapter ships in the codebase but is **experimental and untested** —
-> `@Primary` was removed from `PowensBankConnector` so Enable Banking remains
-> injected as the canonical `BankConnectorPort` even when `POWENS_CLIENT_ID`
-> is set. Sections below referring to Powens describe the full design that
-> can be re-enabled once the adapter has been validated end-to-end.
+> **Status (1.3.0).** Enable Banking is the only provider. The Powens adapter of
+> the Java backend was experimental and untested, and was not carried over to the
+> Rust backend: the `POWENS_*` variables are ignored. Sections below referring to
+> Powens describe that earlier design, which is no longer in the code.
 
 ## Context
 
@@ -34,7 +32,7 @@ keep their status.
 
 **Enable Banking** (`EnableBankingBankConnector`): Uses the PSD2 Bank Account Data API. Auth is JWT-based (RS256 signed with an RSA private key). Sessions are created via OAuth redirect. After the user authorizes, Enable Banking populates the `session.accounts` list **asynchronously** — some ASPSPs take seconds, others hours (Boursorama). The adapter polls `GET /sessions/{id}` up to 8 times with 2-second delays (≤ 16 s total, configurable via `app.enablebanking.session-poll-attempts` / `session-poll-delay-ms`). If the session still has no accounts, it returns an empty list rather than throwing — the requisition is marked **FAILED** (preserving the session id) so the scheduler can retry the next day without going back through OAuth.
 
-**Powens** (`PowensBankConnector`) — ⚠ experimental, disabled in 1.0.0. Uses screen scraping via the Budget Insight API. Auth is an OAuth webview that handles bank selection and credential entry. The OAuth code is exchanged for a permanent access token. Gated behind `@ConditionalOnExpression` (so it only registers when `POWENS_CLIENT_ID` is set), but `@Primary` was removed for 1.0.0, so Enable Banking remains injected even when the bean is registered.
+**Powens** (`PowensBankConnector`) — ⚠ experimental in the Java backend, removed with it in 1.3.0. Used screen scraping via the Budget Insight API. Auth is an OAuth webview that handles bank selection and credential entry. The OAuth code is exchanged for a permanent access token. Gated behind `@ConditionalOnExpression` (so it only registers when `POWENS_CLIENT_ID` is set), but `@Primary` was removed for 1.0.0, so Enable Banking remains injected even when the bean is registered.
 
 ### Account-matching resilience (Enable Banking 0.16.4)
 
@@ -94,10 +92,33 @@ Picsou now handles this with a two-pronged strategy:
 The adapter reads the IBAN from `account_id.iban`. The display name is the first
 nonblank value in `details`, `product`, and `name`, with `Account` as the fallback.
 `name` identifies the holder, so it is less useful than the account description.
+A card (`cash_account_type = CARD`) whose `details` is a known technical token
+(Boursorama: `immediat_debit`, `delayed_debit`) is the exception: its order is `name`,
+`product`, with `Card` as the fallback, because `name` is then the label the holder sees,
+which also tells apart two cards of one joint account (#664). Any other card keeps the usual
+order, where `details` describes the card better than the holder's name.
+On a card, a currency of `XXX` (ISO 4217 "no currency", sent by Boursorama) counts as absent.
+A card's balance is what it owes, stored negative as on the BPCE and La Banque Postale cards.
+Only an account-scoped balance list can say what a card owes: in the fallback (shared-list) path
+a `CARD` resource is imported as before, as `CHECKING`. "Available" balances (`ITAV`, `CLAV`,
+`OPAV`, `FWAV`: credit left, not an amount owed) are left out before the usual selection. A card
+left with no other balance, or whose selected balance is positive, is still
+synced as a card with its transactions, but with `AccountData.balance` null: `upsertAccount`
+leaves the stored balance and currency as they are and writes no snapshot (a new card starts
+at 0; a `CHECKING` account holding a positive balance is not turned into a card until a readable
+balance arrives, since that figure is credit left, not owed). Whatever the path, an account
+already stored as a card never takes a positive balance, and a tie between owed balances counts
+as unreadable.
+Nothing is stored with a guessed sign. A malformed or ambiguous balance list still skips the card,
+as it skips any account. The usual priority applies (`CLBD` before `XPCD`); Boursorama's cards
+send `OTHR` and `XPCD` only.
 After balance selection, the adapter truncates the display name to 100 characters
 to fit `account.name`. Balance matching always uses the full account description,
 so descriptions that share the first 100 characters remain distinct matching keys.
-Existing-account names remain unchanged on sync to preserve user edits. An existing
+Existing-account names remain unchanged on sync to preserve user edits, with one
+exception: a card whose stored name is still exactly the one the earlier order produced
+(`AccountData.legacyName`, e.g. `delayed_debit`) takes the card name, since the user never
+chose it. An existing
 generic `Account` label can be renamed in the account form. Balances and IBANs refresh
 through the usual upsert path, including currency-aware IBAN matching after a uid rotation.
 
@@ -314,19 +335,45 @@ Every public method of `EnableBankingBankConnector` maps **all** provider failur
 
 ### Account type detection
 
-`SyncService.detectType()` maps provider metadata (product name, cash account type) to the `AccountType` enum. Keywords like "pea", "lep", "livret", "titre" in the product string are matched case-insensitively. The `cashAccountType` field (e.g. "SVGS") is used as a fallback. Default is `CHECKING`.
+The connector reports the type in `AccountData.type`. Enable Banking maps only the ISO 20022
+`cash_account_type` `CARD` to `CREDIT_CARD`; every other value (`CACC`, `SVGS`, `LOAN`…) and
+every Powens account stay `CHECKING`. Mapping the other codes would retype accounts for every
+Enable Banking user and is a separate change. There is no `detectType()`: the dual-bank-providers
+ADR describes an earlier intent.
 
-> **Known gap (pre-existing, not addressed by the country picker above):** as of this writing, no `detectType()` method actually exists in `SyncService` — `upsertAccount()` hardcodes `AccountType.CHECKING` for every new account. This section (and the matching description in `docs/ARCHITECTURE.md` / the dual-bank-providers ADR) describes intended/previous behavior that doesn't currently match the code. Flagging it here since widening bank search to more countries makes correct type detection more relevant, not less — but fixing it is a separate task from this one.
+A card's nature comes from its `details` token, case-insensitive: `immediat_debit` is
+`IMMEDIATE_DEBIT`, `delayed_debit` is `DEFERRED_DEBIT`, anything else leaves it unknown. Enable
+Banking has no standard field for it.
+
+On an existing account, `SyncService.refreshCardIdentity()` turns a still-`CHECKING` account into a
+card when the bank says `CARD` and fills in an unknown card nature. A type other than `CHECKING`
+and a known nature are never changed; `CHECKING` cannot be told apart from the old default, so a
+card the user set back to it by hand is upgraded again. Accounts are never turned back from a card
+into `CHECKING`.
+
+Known gaps (#664 follow-ups):
+- **Immediate-debit purchases count twice in the budget.** Boursorama lists each purchase both on
+  the immediate-debit card and on the current account (observed: 177 of 178 rows). This predates
+  #664; typing the account as a card does not change it (#667).
+- **Deferred-debit cards** have no `paymentDueAmount` / `paymentDueDate`, no link to their current
+  account and no settlement tagging: Enable Banking says neither which account a card is debited
+  from nor when (#668). The card's balance is its `XPCD` balance (the real-time amount still owed).
+- **A card never stores or matches an IBAN**: a card may carry its current account's IBAN, and
+  matching on it would turn that account into the card, while storing it would leave two accounts
+  sharing `(iban, currency)` and break the current account's own uid-rotation fallback. An IBAN
+  stored before the card was recognised is cleared on its next sync. A rotated card uid therefore
+  creates a second card. This predates #664 (the rows were `CHECKING` without an IBAN too).
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/adapter/EnableBankingBankConnector.java` -- PSD2 adapter (RSA JWT, async account linking)
-- `backend/src/main/java/com/picsou/adapter/PowensBankConnector.java` -- Scraping adapter (experimental, OAuth webview; `@Primary` removed in 1.0.0)
-- `backend/src/main/java/com/picsou/port/BankConnectorPort.java` -- Port interface with `AccountData`, `InstitutionData` records, `DEFAULT_COUNTRY`, and the shared `parseInstitutionId()` static parser
-- `backend/src/main/java/com/picsou/service/SyncService.java` -- Orchestration: initiate, complete, retry, resync, type detection
-- `backend/src/main/java/com/picsou/service/RequisitionLifecycleWriter.java` -- Independent transaction checkpoints for consumed OAuth sessions and retryable failures
-- `backend/src/main/java/com/picsou/controller/SyncController.java` -- REST endpoints under `/api/sync/`
-- `backend/src/main/java/com/picsou/model/Requisition.java` -- Tracks connection lifecycle (CREATED/LINKED/FAILED)
+- `backend-rs/src/sync/enable_banking/connector.rs` -- PSD2 adapter (RSA JWT, async account linking)
+- `backend-rs/src/admin/mod.rs` (`EnableBankingCallLog`) -- In-memory log of raw Enable Banking responses, read by the admin page (see [admin-page.md](./admin-page.md#enable-banking-call-log))
+- `PowensBankConnector.java` -- Scraping adapter (experimental, OAuth webview; `@Primary` removed in 1.0.0)
+- `backend-rs/src/sync/enable_banking/entries.rs` -- Port interface with `AccountData`, `InstitutionData` records, `DEFAULT_COUNTRY`, and the shared `parseInstitutionId()` static parser
+- `backend-rs/src/sync/enable_banking/` -- Orchestration: initiate, complete, retry, resync, type detection
+- `RequisitionLifecycleWriter.java` -- Independent transaction checkpoints for consumed OAuth sessions and retryable failures
+- `backend-rs/src/sync/enable_banking/` -- REST endpoints under `/api/sync/`
+- `backend-rs/src/sync/enable_banking/requisitions.rs` -- Tracks connection lifecycle (CREATED/LINKED/FAILED)
 - `frontend/src/components/shared/BankCountrySelect.tsx` -- Country picker, populated from `GET /api/sync/countries`
 
 ### Flow
@@ -421,7 +468,7 @@ Because the text fields (Application ID + Redirect URI) live in Postgres while t
 
 ## Gotchas / Pitfalls
 
-- **Powens is disabled in 1.0.0**: `@Primary` was removed from `PowensBankConnector`, so even setting `POWENS_CLIENT_ID` will NOT activate Powens — Enable Banking stays injected. To re-enable after validating the adapter, restore `@Primary` on `PowensBankConnector` and set `POWENS_CLIENT_ID`.
+- **Powens is gone in 1.3.0**: the adapter existed only in the Java backend. Setting `POWENS_CLIENT_ID` does nothing.
 - **Enable Banking RSA key**: The private key must be PKCS8 PEM format. The `ENABLEBANKING_PRIVATE_KEY` env var can contain literal `\n` characters -- both formats are handled in `parsePem()`. The key lives on disk, **not** in the DB — see "Enable Banking configuration" above; setting only the text fields (Application ID + Redirect URI) leaves searches failing until a key is generated/imported.
 - **Local dev key path**: the `dev` Spring profile stores the generated key under `backend/.local/keys/enablebanking-private.pem` so bare-metal macOS/Linux runs do not try to create Docker's `/data/keys` directory at filesystem root.
 - **The callback URI must be HTTPS — a plain-HTTP deployment cannot sync banks.** Enable Banking rejects `http://` redirect URLs for PRODUCTION applications, and PRODUCTION is the only mode that lists real banks (see the SANDBOX pitfall above), so there is no HTTP escape hatch. Docker deployments must therefore terminate TLS: add `tls` to `COMPOSE_PROFILES` for the bundled Caddy proxy (see [docker-deployment.md](./docker-deployment.md)) or use an existing reverse proxy. Note that Enable Banking never *fetches* the callback URL — the redirect is browser-side only (`window.location.href = authLink`, then the SPA POSTs the `code`) — so a certificate from Caddy's internal CA works fine on a LAN, as long as the family's browsers trust its root.
@@ -430,7 +477,7 @@ Because the text fields (Application ID + Redirect URI) live in Postgres while t
 - **OAuth `state` correlation**: each initiation stores a random single-use nonce on the requisition; the callback resolves the requisition by it (member derived from the row — this is what makes admin-impersonated connections complete correctly). See [ADR 2026-07-08](../decisions/2026-07-08-oauth-state-requisition-correlation.md).
 - **Session identifiers stay out of logs**: Enable Banking session ids are opaque references that still identify a long-lived PSD2 consent. Use the internal requisition id and institution name for log correlation; never print the raw session id.
 - **One bank-status query key**: bank-sync feature hooks own `syncKeys.banks()`, and every complete/retry/reconnect/delete mutation invalidates it. Components must use those hooks rather than introducing a parallel key such as `['sync', 'connections']`, or another sync surface can remain stale until its polling interval elapses.
-- **Type upgrade on resync**: If the user has not customized an account's type, `upsertAccount()` will upgrade it from CHECKING to the detected type on the next sync. Manual user changes are preserved (only CHECKING is auto-upgraded).
+- **Type upgrade on resync**: an account the bank reports as a card is upgraded from `CHECKING` to `CREDIT_CARD` on the next sync. Manual user changes are preserved (only `CHECKING` is upgraded), so an account the user set back to `CHECKING` by hand is upgraded again.
 - **Both providers are optional**: The app starts fine without either. No `BankConnectorPort` bean is required at startup.
 - **Enable Banking uid instability.** EB 0.16.4 changed the account uid derivation for ASPSPs that
   don't expose per-account currency. Picsou first matches the current uid, then uses currency-aware
@@ -452,7 +499,9 @@ Because the text fields (Application ID + Redirect URI) live in Postgres while t
 
 ## Tests
 
-- `SyncServiceTest` -- unit tests for type detection, upsert logic, retry flow, checkpoint ordering on fetch/upsert failures, and logo matching for both the current and the legacy institution id format
+- `SyncServiceCardAccountTest` -- a new card is created as one with its nature and name; an account imported as `CHECKING` becomes a card and loses its technical name; a type, nature or name the user chose is kept
+- `EnableBankingAccountDataTest` -- card resources (type, nature per `details` token, name order, `legacyName`, `XXX` currency); a current account keeps its type and name order; a whole session shaped like a redacted live Boursorama capture (three current accounts, immediate cards with a lone `OTHR`, a deferred card with `OTHR` and `XPCD`)
+- `SyncServiceTest` -- unit tests for upsert logic, retry flow, checkpoint ordering on fetch/upsert failures, and logo matching for both the current and the legacy institution id format
 - `RequisitionLifecycleWriterTest` -- session/nonce transitions and `REQUIRES_NEW` propagation invariant
 - `AddAccountModal.test.tsx` -- the Pro badge shows for a business-only institution, and not for a retail one nor for an unrecognised PSU type
 - `EnableBankingConfigProviderTest` -- DB/env resolution precedence, and `keyId()` falling back to the Application ID vs honoring an explicitly-configured value

@@ -1,0 +1,156 @@
+{
+  "description": "Authorization-server and protected-resource metadata, the empty JWKS",
+  "scenario": "oauth.discovery",
+  "steps": [
+    {
+      "body": {
+        "authorization_endpoint": "http://picsou.test/oauth2/authorize",
+        "code_challenge_methods_supported": [
+          "S256"
+        ],
+        "device_authorization_endpoint": "http://picsou.test/oauth2/device_authorization",
+        "dpop_signing_alg_values_supported": [
+          "RS256",
+          "RS384",
+          "RS512",
+          "PS256",
+          "PS384",
+          "PS512",
+          "ES256",
+          "ES384",
+          "ES512"
+        ],
+        "grant_types_supported": [
+          "authorization_code",
+          "client_credentials",
+          "refresh_token",
+          "urn:ietf:params:oauth:grant-type:device_code",
+          "urn:ietf:params:oauth:grant-type:token-exchange"
+        ],
+        "introspection_endpoint": "http://picsou.test/oauth2/introspect",
+        "introspection_endpoint_auth_methods_supported": [
+          "client_secret_basic",
+          "client_secret_post",
+          "client_secret_jwt",
+          "private_key_jwt",
+          "tls_client_auth",
+          "self_signed_tls_client_auth"
+        ],
+        "issuer": "http://picsou.test",
+        "jwks_uri": "http://picsou.test/oauth2/jwks",
+        "registration_endpoint": "http://picsou.test/oauth2/register",
+        "response_types_supported": [
+          "code"
+        ],
+        "revocation_endpoint": "http://picsou.test/oauth2/revoke",
+        "revocation_endpoint_auth_methods_supported": [
+          "client_secret_basic",
+          "client_secret_post",
+          "client_secret_jwt",
+          "private_key_jwt",
+          "tls_client_auth",
+          "self_signed_tls_client_auth"
+        ],
+        "tls_client_certificate_bound_access_tokens": true,
+        "token_endpoint": "http://picsou.test/oauth2/token",
+        "token_endpoint_auth_methods_supported": [
+          "client_secret_basic",
+          "client_secret_post",
+          "client_secret_jwt",
+          "private_key_jwt",
+          "tls_client_auth",
+          "self_signed_tls_client_auth"
+        ]
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "04 GET /.well-known/oauth-authorization-server as anon"
+    },
+    {
+      "body": {
+        "authorization_servers": [
+          "http://picsou.test"
+        ],
+        "bearer_methods_supported": [
+          "header"
+        ],
+        "resource": "http://picsou.test/mcp",
+        "scopes_supported": [
+          "accounts:read",
+          "accounts:write",
+          "analysis:read",
+          "budget:ai-write",
+          "budget:categories-read",
+          "budget:categories-write",
+          "budget:dashboard-read",
+          "budget:envelopes-read",
+          "budget:envelopes-write",
+          "budget:recurring-read",
+          "budget:recurring-write",
+          "budget:rules-read",
+          "budget:rules-write",
+          "budget:transactions-read",
+          "budget:transactions-write",
+          "dashboard:read",
+          "family:read",
+          "goals:read",
+          "goals:write",
+          "oauth2:discover",
+          "oauth2:session-status",
+          "prices:read",
+          "sync:read",
+          "sync:trigger",
+          "transactions:read",
+          "transactions:write"
+        ]
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "05 GET /.well-known/oauth-protected-resource as anon"
+    },
+    {
+      "body": {
+        "keys": []
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json;charset=ISO-8859-1",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "06 GET /oauth2/jwks as anon"
+    }
+  ]
+}

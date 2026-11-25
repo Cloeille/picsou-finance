@@ -56,12 +56,12 @@ DashboardPage renders NetWorthChart with intraday prop
 ### Key files
 
 **Backend:**
-- `backend/src/main/java/com/picsou/adapter/CoinGeckoPriceProvider.java` — `getIntradayPricesEur()`: fetches hourly crypto prices via `market_chart/range`
-- `backend/src/main/java/com/picsou/adapter/YahooFinancePriceProvider.java` — `getIntradayPricesEur()`: fetches hourly stock prices via `interval=1h`
-- `backend/src/main/java/com/picsou/service/PriceService.java` — `getIntradayPricesEur()`: routes to CoinGecko or Yahoo based on ticker; `getCryptoIntradayPricesEur()`: CoinGecko only
-- `backend/src/main/java/com/picsou/service/HistoryService.java` — `buildIntradayHistory()`: assembles hourly net worth points
-- `backend/src/main/java/com/picsou/controller/HistoryController.java` — `GET /api/history/net-worth/intraday`
-- `backend/src/main/java/com/picsou/dto/DashboardResponse.java` — `NetWorthIntradayPoint(timestamp, total, invested)`
+- `backend-rs/src/market/coingecko.rs` — `getIntradayPricesEur()`: fetches hourly crypto prices via `market_chart/range`
+- `backend-rs/src/market/yahoo.rs` — `getIntradayPricesEur()`: fetches hourly stock prices via `interval=1h`
+- `backend-rs/src/market/prices.rs` — `getIntradayPricesEur()`: routes to CoinGecko or Yahoo based on ticker; `getCryptoIntradayPricesEur()`: CoinGecko only
+- `HistoryService.java` — `buildIntradayHistory()`: assembles hourly net worth points
+- `HistoryController.java` — `GET /api/history/net-worth/intraday`
+- `backend-rs/src/accounts/dashboard.rs` — `NetWorthIntradayPoint(timestamp, total, invested)`
 
 **Frontend:**
 - `frontend/src/components/shared/TimeRangeSelector.tsx` — `1D` replaced with `24H`

@@ -13,13 +13,12 @@ import { ErrorState } from '@/components/shared/ErrorState'
 import { HoldingsCard } from '@/components/shared/HoldingsCard'
 import { LiabilitiesCard } from '@/components/shared/LiabilitiesCard'
 import { RealEstateSummaryCard } from '@/components/property/RealEstateSummaryCard'
+import { AddAccountModal } from '@/components/shared/AddAccountModal'
 import { SyncAllModal } from '@/components/sync/SyncAllModal'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
   CardAction,
@@ -56,6 +55,7 @@ const EXCLUDED_FINANCIAL = new Set(['CHECKING', 'LOAN', 'REAL_ESTATE', 'PRECIOUS
 export function DashboardPage() {
   const { t } = useTranslation()
   const [showSyncModal, setShowSyncModal] = useState(false)
+  const [showAddAccountModal, setShowAddAccountModal] = useState(false)
   const [range, setRange] = useState<TimeRange>('1Y')
   const [wealthMode, setWealthMode] = useState<WealthMode>('net')
   const [detailGoalId, setDetailGoalId] = useState<number | null>(null)
@@ -178,6 +178,11 @@ export function DashboardPage() {
     { value: 'financial', key: 'financialWorth' },
   ]
 
+  const hasNoAccounts =
+    data.assets.length === 0 &&
+    data.liabilities.length === 0 &&
+    data.totalNetWorth === 0
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -194,6 +199,30 @@ export function DashboardPage() {
           </Button>
         }
       />
+
+      {/* First-account CTA for an empty space */}
+      {hasNoAccounts && (
+        <Card className="rounded-xl bg-card">
+          <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <p className="text-sm font-bold text-foreground">
+                {t('desktop.emptyDashboard.title')}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {t('desktop.emptyDashboard.description')}
+              </p>
+            </div>
+            <Button
+              type="button"
+              onClick={() => setShowAddAccountModal(true)}
+              className="shrink-0"
+            >
+              <Plus className="size-4" aria-hidden="true" />
+              {t('desktop.emptyDashboard.cta')}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Failed bank sync banner */}
       {failedBanks.length > 0 && (
@@ -377,13 +406,6 @@ export function DashboardPage() {
             </ItemGroup>
           )}
         </CardContent>
-        {data.goalSummaries.length > 0 && (
-          <CardFooter>
-            <CardDescription className="text-center">
-              {t('dashboard.goalsSummary')}
-            </CardDescription>
-          </CardFooter>
-        )}
       </Card>
 
       {/* Liabilities overview */}
@@ -399,6 +421,11 @@ export function DashboardPage() {
 
       {/* Sync all modal */}
       <SyncAllModal open={showSyncModal} onOpenChange={setShowSyncModal} />
+
+      {/* Add first account modal (mounted on demand) */}
+      {showAddAccountModal && (
+        <AddAccountModal open={showAddAccountModal} onOpenChange={setShowAddAccountModal} />
+      )}
 
       {/* Goal detail modal */}
       <GoalDetailModal goalId={detailGoalId} onClose={() => setDetailGoalId(null)} />

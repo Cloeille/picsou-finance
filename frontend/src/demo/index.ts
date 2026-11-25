@@ -1518,6 +1518,18 @@ handlers.set(key('POST', '/bnp/auth/complete'), () => {
   demoBnpAuthenticated = true
   return demoBnpStatus()
 })
+handlers.set(key('POST', '/bnp/webview/start'), () => ({
+  processId: 'demo',
+  status: 'WAITING_LOGIN',
+}))
+handlers.set(key('GET', '/bnp/webview/status/:processId'), () => {
+  demoBnpAuthenticated = true
+  demoBnpSynced = true
+  return { status: 'SYNCING', session: demoBnpStatus() }
+})
+handlers.set(key('POST', '/bnp/webview/cancel/:processId'), () => ({
+  cancelled: true,
+}))
 handlers.set(key('POST', '/bnp/sync'), () => {
   demoBnpAuthenticated = true
   demoBnpSynced = true
@@ -1638,6 +1650,17 @@ const demoIdleSidecar = {
 }
 handlers.set(key('GET', '/bourse-direct/status'), () => ({ ...demoIdleSidecar, expiresAt: null }))
 handlers.set(key('GET', '/amex/status'), () => demoIdleSidecar)
+handlers.set(key('POST', '/amex/webview/start'), () => ({
+  processId: 'demo',
+  status: 'WAITING_LOGIN',
+}))
+handlers.set(key('GET', '/amex/webview/status/:processId'), () => ({
+  status: 'SYNCING',
+  session: { ...demoIdleSidecar, isActive: true, syncStatus: 'SUCCESS' },
+}))
+handlers.set(key('POST', '/amex/webview/cancel/:processId'), () => ({
+  cancelled: true,
+}))
 handlers.set(key('GET', '/corum/status'), () => demoIdleSidecar)
 handlers.set(key('GET', '/sofidy/status'), () => demoIdleSidecar)
 handlers.set(key('GET', '/louve/status'), () => ({ connected: false, status: null, lastSyncedAt: null }))
@@ -1660,6 +1683,17 @@ const demoIdleSyncProgress = {
 }
 handlers.set(key('GET', '/revolut/status'), () => ({ connected: false, remembered: false, lastSyncedAt: null }))
 handlers.set(key('GET', '/revolut/sync/progress'), () => demoIdleSyncProgress)
+handlers.set(key('POST', '/revolut/webview/start'), () => ({
+  processId: 'demo',
+  status: 'WAITING_LOGIN',
+}))
+handlers.set(key('GET', '/revolut/webview/status/:processId'), () => ({
+  status: 'SYNCING',
+  session: { connected: true, remembered: false, lastSyncedAt: null },
+}))
+handlers.set(key('POST', '/revolut/webview/cancel/:processId'), () => ({
+  cancelled: true,
+}))
 
 // Trade Republic - session status
 const demoTrStatus = {
@@ -1742,6 +1776,24 @@ handlers.set(key('PUT', '/admin/settings/security'), () => ({}))
 handlers.set(key('PUT', '/admin/settings/enablebanking'), () => ({}))
 handlers.set(key('PUT', '/admin/settings/ai'), () => ({}))
 handlers.set(key('POST', '/admin/settings/ai/test'), () => ({ ok: true, message: 'Demo mode' }))
+handlers.set(key('POST', '/admin/settings/ai/models'), (config) => {
+  const body: { provider?: string } =
+    typeof config.data === 'string'
+      ? JSON.parse(config.data || '{}')
+      : ((config.data as { provider?: string } | undefined) ?? {})
+  const modelsByProvider: Record<string, string[]> = {
+    anthropic: ['claude-haiku-4-5', 'claude-sonnet-4-5', 'claude-opus-4-5'],
+    openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
+    gemini: ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.5-pro'],
+    mistral: ['mistral-small-latest', 'mistral-medium-latest', 'ministral-8b-latest'],
+    openrouter: ['anthropic/claude-3.5-haiku', 'openai/gpt-4o-mini', 'google/gemini-2.5-flash'],
+    ollama: ['qwen3:0.6b', 'llama3.2:3b', 'mistral:7b'],
+  }
+  return {
+    ok: true,
+    models: modelsByProvider[body.provider ?? ''] ?? ['gpt-4o-mini', 'claude-haiku-4-5', 'mistral-small-latest'],
+  }
+})
 
 // Admin AI call log
 handlers.set(key('GET', '/admin/ai-calls'), () => ({
@@ -1799,6 +1851,10 @@ handlers.set(key('GET', '/admin/instance-status'), () => ({
 // The demo never reaches Enable Banking, so there is no call to log.
 handlers.set(key('GET', '/admin/enablebanking/call-log'), () => [])
 handlers.set(key('DELETE', '/admin/enablebanking/call-log'), () => null)
+
+// Desktop Mode lock (not active in web demo)
+handlers.set(key('GET', '/desktop/lock'), () => ({ enabled: false }))
+handlers.set(key('PUT', '/desktop/lock'), () => ({ enabled: false }))
 
 // Finary - configured
 // Settings — security (2FA off in demo, one active session)
@@ -1989,19 +2045,42 @@ for (const c of mockCategories) {
 }
 
 // Categorization rules
-handlers.set(key('GET', '/categorization-rules'), () => mockRules)
+let _demoRules = mockRules.map((r) => ({ ...r }))
+handlers.set(key('GET', '/categorization-rules'), () => _demoRules)
 handlers.set(key('POST', '/categorization-rules'), (config) => {
   const body = JSON.parse(config.data || '{}')
   const cat = mockCategories.find((c) => c.id === body.categoryId)
-  return {
+  const created = {
     id: Date.now(), matchType: body.matchType ?? 'COUNTERPARTY', pattern: body.pattern ?? '',
     categoryId: body.categoryId ?? 0, categoryName: cat?.name ?? '', priority: body.priority ?? 0,
-    source: 'USER',
+    source: 'USER' as const,
   }
+  _demoRules = [..._demoRules, created]
+  return created
 })
-for (const r of mockRules) {
-  handlers.set(key('DELETE', `/categorization-rules/${r.id}`), () => ({}))
-}
+handlers.set(key('PUT', '/categorization-rules/:id'), (config, { id }) => {
+  const body = JSON.parse(config.data || '{}')
+  const numId = Number(id)
+  const existing = _demoRules.find((r) => r.id === numId)
+  if (!existing) return {}
+  const categoryId = body.categoryId ?? existing.categoryId
+  const cat = mockCategories.find((c) => c.id === categoryId)
+  const updated = {
+    ...existing,
+    matchType: body.matchType ?? existing.matchType,
+    pattern: typeof body.pattern === 'string' ? body.pattern.trim() : existing.pattern,
+    categoryId,
+    categoryName: cat?.name ?? existing.categoryName,
+    priority: body.priority ?? existing.priority,
+  }
+  _demoRules = _demoRules.map((r) => (r.id === numId ? updated : r))
+  return updated
+})
+handlers.set(key('DELETE', '/categorization-rules/:id'), (_config, { id }) => {
+  const numId = Number(id)
+  _demoRules = _demoRules.filter((r) => r.id !== numId)
+  return {}
+})
 handlers.set(key('POST', '/categorization-rules/recategorize'), () => ({ categorized: 4 }))
 
 // To-categorize inbox

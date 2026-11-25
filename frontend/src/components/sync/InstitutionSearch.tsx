@@ -10,6 +10,7 @@ import { BankCountrySelect, DEFAULT_BANK_COUNTRY } from '@/components/shared/Ban
 import { Bank, CircleNotch, MagnifyingGlass } from '@phosphor-icons/react'
 import { extractErrorMessage, formatApiError, getErrorCode, getErrorDetail } from '@/lib/errors'
 import { useBankCountries, useSearchInstitutions } from '@/features/sync/hooks'
+import { selectIsAdvancedMode, useAppStore } from '@/stores/app-store'
 import { useAuthStore } from '@/stores/auth-store'
 
 function isEnableBankingNotConfigured(err: unknown): boolean {
@@ -43,6 +44,8 @@ export function InstitutionSearch({ onConnect, connecting, layout }: Institution
   const { t } = useTranslation()
   const modal = layout === 'modal'
   const isAdmin = useAuthStore((s) => s.user?.role) === 'ADMIN'
+  const isAdvancedMode = useAppStore(selectIsAdvancedMode)
+  const showAdminConfig = isAdmin && isAdvancedMode
   const [searchQuery, setSearchQuery] = useState('')
   const [country, setCountry] = useState(DEFAULT_BANK_COUNTRY)
 
@@ -140,7 +143,7 @@ export function InstitutionSearch({ onConnect, connecting, layout }: Institution
           role="alert"
           className="gap-3"
           action={
-            isAdmin ? (
+            showAdminConfig ? (
               <Button
                 variant="outline"
                 size="sm"
@@ -152,7 +155,7 @@ export function InstitutionSearch({ onConnect, connecting, layout }: Institution
             ) : undefined
           }
         >
-          {t(isAdmin ? 'sync.banks.notConfigured' : 'sync.banks.notConfiguredMember')}
+          {t(showAdminConfig ? 'sync.banks.notConfigured' : 'sync.banks.notConfiguredMember')}
         </AlertBanner>
       )}
 

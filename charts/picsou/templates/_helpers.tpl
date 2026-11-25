@@ -66,6 +66,15 @@ Service name of a sidecar. Call with (dict "ctx" $ "name" "bourso-auth").
 {{- end }}
 
 {{/*
+True when nativeSidecars is enabled and this sidecar is one of the 6 pure-HTTP
+connectors compiled natively into the Rust app binary.
+*/}}
+{{- define "picsou.sidecar.isNative" -}}
+{{- $native := list "bourso-auth" "cic-auth" "cmes-auth" "degiro-auth" "natixis-auth" "sofidy-auth" -}}
+{{- if and .ctx.Values.nativeSidecars (has .name $native) -}}true{{- end -}}
+{{- end }}
+
+{{/*
 Image reference. Call with (dict "ctx" $ "image" .Values.app.image).
 */}}
 {{- define "picsou.image" -}}
@@ -231,13 +240,19 @@ Image reference. Call with (dict "ctx" $ "image" .Values.app.image).
       name: {{ $secret }}
       key: sso-client-secret
       optional: true
+{{- if .Values.nativeSidecars }}
+- name: APP_NATIVE_SIDECARS
+  value: "true"
+{{- end }}
 {{- range $name, $sc := .Values.sidecars }}
+{{- if not (include "picsou.sidecar.isNative" (dict "ctx" $ "name" $name)) }}
 - name: {{ $sc.urlEnv }}
 {{- if $sc.enabled }}
   value: {{ printf "http://%s:%v" (include "picsou.sidecarName" (dict "ctx" $ "name" $name)) $sc.port | quote }}
 {{- else }}
   # Never let a disabled integration resolve a different stack's Service.
   value: {{ printf "http://127.0.0.1:%v" $sc.port | quote }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- with .Values.app.enableBanking.existingSecret }}

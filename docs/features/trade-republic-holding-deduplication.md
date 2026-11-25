@@ -36,9 +36,9 @@ Modified `TradeRepublicSyncService.upsertAccount()` (and `BoursoSyncService` whi
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/service/HoldingDedup.java` — shared VWAP merge helper
-- `backend/src/main/java/com/picsou/service/TradeRepublicSyncService.java:346-378` — TR upsertAccount dedup loop
-- `backend/src/main/java/com/picsou/service/BoursoSyncService.java:245-281` — Bourso upsertAccount dedup loop
+- `HoldingDedup.java` — shared VWAP merge helper
+- `backend-rs/src/connectors/trade_republic/sync.rs:346-378` — TR upsertAccount dedup loop
+- `backend-rs/src/connectors/bourso/sync.rs:245-281` — Bourso upsertAccount dedup loop
 
 ## Technical choices
 

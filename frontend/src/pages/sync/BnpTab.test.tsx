@@ -237,4 +237,60 @@ describe('BnpTab', () => {
     expect(await screen.findByText('F42')).toBeInTheDocument()
     expect(screen.queryByText(/secret-id-1/)).toBeNull()
   })
+
+  it('uses the 1-click native WebView flow on Desktop and cancels cleanly', async () => {
+    apiGet.mockResolvedValue({ data: { ...DISCONNECTED, webviewLoginSupported: true } })
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/bnp/webview/start') return Promise.resolve({ data: { processId: 'wv-1', status: 'WAITING_LOGIN' } })
+      if (url === '/bnp/webview/cancel/wv-1') return Promise.resolve({ data: { cancelled: true } })
+      return Promise.reject(new Error(`unexpected ${url}`))
+    })
+    renderTab()
+
+    // No customer-id input is shown on Desktop when native WebView login is available.
+    const connectBtn = await screen.findByText(/sync\.bnp\.webview\.connect/)
+    expect(screen.queryByLabelText(/sync\.bnp\.customerId/)).toBeNull()
+
+    fireEvent.click(screen.getByLabelText('sync.bnp.brands.hellobank'))
+    fireEvent.click(connectBtn)
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/bnp/webview/start', { brand: 'hellobank' }))
+    expect(await screen.findByText(/^sync\.bnp\.webview\.waiting\b/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('common.cancel'))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/bnp/webview/cancel/wv-1'))
+    expect(await screen.findByText(/sync\.bnp\.webview\.connect/)).toBeInTheDocument()
+  })
+
+  it('polls WebView status on Desktop and transitions into syncing automatically', async () => {
+    let statusCalls = 0
+    apiGet.mockImplementation((url: string) => {
+      if (url === '/bnp/status') {
+        statusCalls += 1
+        return Promise.resolve({
+          data:
+            statusCalls === 1
+              ? { ...DISCONNECTED, webviewLoginSupported: true }
+              : { ...ACTIVE, syncStatus: 'RUNNING', webviewLoginSupported: true },
+        })
+      }
+      if (url === '/bnp/webview/status/wv-2') {
+        return Promise.resolve({ data: { status: 'SYNCING' } })
+      }
+      return Promise.reject(new Error(`unexpected ${url}`))
+    })
+    apiPost.mockResolvedValue({ data: { processId: 'wv-2', status: 'WAITING_LOGIN' } })
+    renderTab()
+
+    fireEvent.click(await screen.findByText(/sync\.bnp\.webview\.connect/))
+    expect(await screen.findByText(/^sync\.bnp\.webview\.waiting\b/)).toBeInTheDocument()
+
+    await waitFor(
+      () => expect(apiGet).toHaveBeenCalledWith('/bnp/webview/status/wv-2', expect.anything()),
+      { timeout: 4000 },
+    )
+    expect(await screen.findByText('sync.bnp.sessionActive')).toBeInTheDocument()
+    // Backend already started the sync; frontend must not call /bnp/auth/initiate.
+    expect(apiPost.mock.calls.filter(([url]) => url === '/bnp/auth/initiate')).toHaveLength(0)
+  })
 })

@@ -1,187 +1,152 @@
-"""The backend shards cover every test class exactly once, and the check catches when they do not."""
+"""The backend shards: every listed test lands in one shard, and the check fails unless each ran once."""
 
+import contextlib
 import importlib.util
 import io
-import json
-import os
-from contextlib import redirect_stdout
 from pathlib import Path
-import re
 import tempfile
 import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 _spec = importlib.util.spec_from_file_location("backend_shards", ROOT / ".github/scripts/backend_shards.py")
-shards = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(shards)
+backend_shards = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(backend_shards)
+
+NAMES = [f"module_{i % 4}::case_{i:02}" for i in range(11)]
+LISTING = "".join(f"{name}: test\n" for name in NAMES) + "\n11 tests, 0 benchmarks\n"
 
 
-def _write(root, relative, text):
-    path = Path(root) / relative
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+def run_select(listing, shard):
+    """The exit code, what the recipe passes to `--exact`, and what reaches the shard's output."""
+    out, err = io.StringIO(), io.StringIO()
+    with mock.patch("sys.stdin", io.StringIO(listing)), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = backend_shards.main(["select", shard])
+    return code, out.getvalue(), err.getvalue()
 
 
-def _report(folder, name, seconds=1.0, tests=1):
-    _write(folder, f"TEST-{name}.xml", f'<testsuite name="{name}" time="{seconds}" tests="{tests}" '
-                                       'failures="0" errors="0" skipped="0"/>')
-    _write(folder, f"{name}.txt", f"Tests run: {tests}, Failures: 0, Errors: 0, Skipped: 0\n")
+class SelectTest(unittest.TestCase):
+    def test_the_shards_partition_the_listing(self):
+        for total in range(1, 6):
+            with self.subTest(total=total):
+                shards = [backend_shards.select(LISTING, f"{k}/{total}") for k in range(1, total + 1)]
+                self.assertEqual(sorted(name for shard in shards for name in shard), sorted(NAMES))
+                self.assertLessEqual(max(map(len, shards)) - min(map(len, shards)), 1)
 
+    def test_prints_the_names_for_cargo_and_again_for_the_check(self):
+        code, out, err = run_select(LISTING, "2/3")
+        self.assertEqual((code, out), (0, " ".join(NAMES[1::3]) + "\n"))
+        self.assertEqual(err, "selected 2/3: " + " ".join(NAMES[1::3]) + "\n")
 
-def _surefire_selects(pattern, path):
-    """Surefire's pattern match on a class path: **/ spans folders, * stays within one."""
-    regex = "".join(
-        "(.*/)?" if part == "**/" else "[^/]*" if part == "*" else re.escape(part)
-        for part in re.split(r"(\*\*/|\*)", pattern)
-    )
-    return re.fullmatch(regex, path) is not None
-
-
-def _runs(classes, shard, bins):
-    """The discovered classes a shard runs, as surefire would select them."""
-    kind, lines = shards.shard_file(bins, shard)
-    paths = [f"{name}.class" for name in classes]
-    if kind == "includes":
-        return {path for path in paths if path in lines}
-    return {path for path in paths if not any(_surefire_selects(line, path) for line in lines)}
-
-
-class DiscoveryTest(unittest.TestCase):
-    def test_only_concrete_top_level_classes_named_like_surefire_includes(self):
-        with tempfile.TemporaryDirectory() as root:
-            for name in ("FooTest", "FooTests", "TestBar", "BazTestCase", "Helper", "Fixtures"):
-                _write(root, f"com/picsou/x/{name}.java", f"class {name} {{ @Test void a() {{}} }}")
-            _write(root, "com/picsou/x/BaseTest.java", "public abstract class BaseTest { @Test void a() {} }")
-            _write(root, "com/picsou/x/MarkerTest.java", "interface MarkerTest {}")
-            _write(root, "com/picsou/x/RequiresTest.java", "public @interface RequiresTest {}")
-            _write(root, "com/picsou/x/TestEntities.java", "public final class TestEntities {}")
-            _write(root, "com/picsou/x/OuterTest.java",
-                   "class OuterTest { @Nested class InnerTest { @ParameterizedTest void a() {} } }")
-
-            self.assertEqual(shards.discover(Path(root)), [
-                "com/picsou/x/BazTestCase", "com/picsou/x/FooTest", "com/picsou/x/FooTests",
-                "com/picsou/x/OuterTest", "com/picsou/x/TestBar",
-            ])
-
-
-class AssignTest(unittest.TestCase):
-    CLASSES = [f"com/picsou/C{index}Test" for index in range(40)]
-
-    def test_timings_balance_the_shards_longest_first(self):
-        seconds = {name: float(index % 7 + 1) for index, name in enumerate(self.CLASSES)}
-        bins = shards.assign(self.CLASSES, 3, seconds)
-        loads = [sum(seconds[name] for name in names) for names in bins]
-        self.assertLessEqual(max(loads) - min(loads), max(seconds.values()))
-
-    def test_a_class_without_a_timing_counts_as_the_median(self):
-        seconds = {"a/ATest": 10.0, "a/BTest": 1.0, "a/CTest": 2.0}
-        bins = shards.assign(["a/ATest", "a/BTest", "a/CTest", "a/NewTest"], 2, seconds)
-        self.assertEqual(bins, [["a/ATest"], ["a/BTest", "a/CTest", "a/NewTest"]])
-
-    def test_without_timings_the_split_is_a_stable_hash(self):
-        self.assertEqual(shards.assign(self.CLASSES, 3), shards.assign(list(reversed(self.CLASSES)), 3, {}))
-
-    def test_the_timings_file_sums_nested_suites_into_their_top_level_class(self):
-        with tempfile.TemporaryDirectory() as folder:
-            _report(Path(folder) / "surefire-1", "com.picsou.x.FooTest", 1.5)
-            _report(Path(folder) / "surefire-2", "com.picsou.x.FooTest$Nested", 2.0)
-            _report(Path(folder) / "surefire-2", "com.picsou.x.BarTest", 0.25)
-            path = Path(folder) / "timings.json"
-            self.assertEqual(shards.main(["--write-timings", folder, str(path)]), 0)
-            self.assertEqual(json.loads(path.read_text()), {"com/picsou/x/BarTest": 0.25, "com/picsou/x/FooTest": 3.5})
-            self.assertEqual(shards.read_timings(path), {"com/picsou/x/BarTest": 0.25, "com/picsou/x/FooTest": 3.5})
-
-    def test_a_missing_timings_file_falls_back_to_the_hash(self):
-        with tempfile.TemporaryDirectory() as folder:
-            self.assertEqual(shards.read_timings(Path(folder) / "backend-timings.json"), {})
-        self.assertEqual(shards.read_timings(None), {})
-
-
-class ExactlyOnceTest(unittest.TestCase):
-    def assert_exactly_once(self, classes, bins):
-        runs = [_runs(classes, shard, bins) for shard in range(1, len(bins) + 1)]
-        everything = [path for shard in runs for path in shard]
-        self.assertEqual(sorted(everything), sorted(f"{name}.class" for name in classes))
-
-    def test_every_real_backend_class_runs_in_exactly_one_hashed_shard(self):
-        classes = shards.discover()
-        self.assertGreater(len(classes), 100)
-        for count in (2, 3, 4):
-            with self.subTest(shards=count):
-                self.assert_exactly_once(classes, shards.assign(classes, count))
-
-    def test_every_real_backend_class_runs_in_exactly_one_timed_shard(self):
-        classes = shards.discover()
-        seconds = {name: float(len(name) % 11) for name in classes[::2]}
-        self.assert_exactly_once(classes, shards.assign(classes, 3, seconds))
-
-    def test_the_last_shard_runs_new_classes_and_keeps_excluding_nested_ones(self):
-        bins = [["a/ATest"], ["a/BTest"], ["a/CTest"]]
-        kind, lines = shards.shard_file(bins, 3)
-        self.assertEqual((kind, lines), ("excludes", ["a/ATest.class", "a/BTest.class", "**/*$*"]))
-        self.assertEqual(_runs(["a/ATest", "a/CTest", "a/NewTest", "a/ATest$Inner"], 3, bins),
-                         {"a/CTest.class", "a/NewTest.class"})
-
-    def test_split_writes_the_shard_file_and_its_github_output(self):
-        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
-            for index in range(20):
-                _write(root, f"a/C{index}Test.java", f"class C{index}Test {{ @Test void a() {{}} }}")
-            output = Path(out) / "github-output"
-            written = {}
-            for shard in (1, 2):
-                with redirect_stdout(io.StringIO()), mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}):
-                    written[shard] = shards.split(2, shard, out, tests=Path(root))
-            self.assertEqual(written[1].name, "backend-shard-1.includes")
-            self.assertEqual(written[2].name, "backend-shard-2.excludes")
-            included = written[1].read_text().split()
-            self.assertTrue(included)
-            self.assertEqual(written[2].read_text().split(), included + ["**/*$*"])
-            self.assertEqual(output.read_text().splitlines(), [f"includes={written[1]}", f"excludes={written[2]}"])
-
-    def test_split_balances_on_the_timings_file(self):
-        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
-            for name in ("ATest", "BTest", "CTest"):
-                _write(root, f"a/{name}.java", f"class {name} {{ @Test void a() {{}} }}")
-            timings = Path(out) / "timings.json"
-            timings.write_text(json.dumps({"a/ATest": 9.0, "a/BTest": 5.0, "a/CTest": 4.0}))
-            with redirect_stdout(io.StringIO()):
-                written = shards.split(2, 1, out, timings, tests=Path(root))
-            self.assertEqual(written.read_text().split(), ["a/ATest.class"])
-
-    def test_split_refuses_an_empty_includes_file(self):
-        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
-            _write(root, "a/ATest.java", "class ATest { @Test void a() {} }")
-            with self.assertRaises(SystemExit), redirect_stdout(io.StringIO()):
-                shards.split(3, 1, out, tests=Path(root))
+    def test_a_shard_outside_its_total_and_an_empty_listing_are_errors(self):
+        # A failed build lists nothing: `--exact` with no name would run every test.
+        for listing, shard in ((LISTING, "0/3"), (LISTING, "4/3"), ("error: could not compile `picsou`\n", "1/2")):
+            with self.subTest(shard=shard):
+                code, out, _ = run_select(listing, shard)
+                self.assertEqual((code, out), (1, ""))
 
 
 class CheckTest(unittest.TestCase):
-    def check(self, reports, sources=("a.ATest", "a.BTest")):
-        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as directory:
-            for name in sources:
-                _write(root, name.replace(".", "/") + ".java", "class X { @Test void a() {} }")
-            for folder, names in reports.items():
-                (Path(directory) / folder).mkdir()
-                for name in names:
-                    _report(Path(directory) / folder, name, tests=2)
-            output = io.StringIO()
-            with redirect_stdout(output):
-                errors = shards.check(directory, tests=Path(root))
-            return errors, output.getvalue()
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.reports = Path(self._tmp.name)
 
-    def test_each_class_in_one_shard_passes_and_prints_the_totals(self):
-        errors, output = self.check({"surefire-1": ["a.ATest", "a.ATest$Nested"], "surefire-2": ["a.BTest"]})
-        self.assertEqual(errors, [])
-        self.assertIn("2 test classes over 2 shards: tests 6", output)
+    def report(self, folder, shard, names, total=len(NAMES), passed=None, failed=0):
+        """A shard's output: the selection, then what `cargo test` prints while the application logs."""
+        passed = len(names) if passed is None else passed
+        lines = [f"selected {shard}: " + " ".join(names), "   Compiling picsou v0.1.0", f"running {len(names)} tests"]
+        # libtest writes the name and the outcome apart: a log line can land between them.
+        lines += [f"test {name} ... 2026-11-24T21:24:18Z  INFO import complete\nok" for name in names]
+        lines += ["", f"test result: ok. {passed} passed; {failed} failed; 0 ignored; 0 measured; "
+                      f"{total - passed - failed} filtered out; finished in 1.00s"]
+        self.write(folder, "\n".join(lines) + "\n")
 
-    def test_a_class_in_two_shards_fails_even_through_a_nested_report(self):
-        errors, _ = self.check({"surefire-1": ["a.ATest"], "surefire-2": ["a.BTest", "a.ATest$Nested"]})
-        self.assertEqual(errors, ["a/ATest ran in surefire-1, surefire-2"])
+    def write(self, folder, text):
+        path = self.reports / folder / "tests.txt"
+        path.parent.mkdir(parents=True)
+        path.write_text(text, encoding="utf-8")
 
-    def test_a_class_without_a_report_fails(self):
-        errors, _ = self.check({"surefire-1": ["a.ATest"], "surefire-2": []})
-        self.assertEqual(errors, ["a/BTest has no report"])
+    def shards(self, engine, total):
+        for k in range(1, total + 1):
+            self.report(f"backend-rs-{engine}-{k}", f"{k}/{total}", backend_shards.select(LISTING, f"{k}/{total}"))
+
+    def run_check(self, *expected):
+        with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+            return backend_shards.main(["check", str(self.reports), *(expected or ("postgres=3", "sqlite=2"))])
+
+    def test_passes_when_each_engine_ran_every_test_once(self):
+        self.shards("postgres", 3)
+        self.shards("sqlite", 2)
+        self.assertEqual(self.run_check(), 0)
+
+    def test_fails_when_an_engine_has_no_output(self):
+        self.shards("postgres", 3)
+        self.assertEqual(self.run_check(), 1)
+
+    def test_fails_when_a_shard_is_missing(self):
+        self.report("backend-rs-postgres-1", "1/2", NAMES[0::2])
+        self.assertEqual(self.run_check("postgres=2"), 1)
+
+    def test_fails_on_an_output_no_leg_is_expected_to_write(self):
+        self.shards("postgres", 3)
+        self.assertEqual(self.run_check("postgres=2"), 1)
+
+    def test_fails_on_an_unexpected_folder_even_without_a_test_output(self):
+        self.shards("postgres", 3)
+        (self.reports / "backend-rs-extra").mkdir()
+        self.assertEqual(self.run_check("postgres=3"), 1)
+
+    def test_rejects_legs_that_would_check_nothing(self):
+        self.shards("postgres", 3)
+        for expected in (("postgres=0",), ("postgres=-1",), ("postgres=3", "postgres=1"), ("=3",), ("postgres",)):
+            with self.subTest(expected=expected):
+                self.assertEqual(self.run_check(*expected), 1)
+
+    def test_fails_when_a_leg_ran_another_shard_than_its_own(self):
+        self.report("backend-rs-sqlite-1", "1/2", NAMES[0::2])
+        self.report("backend-rs-sqlite-2", "1/2", NAMES[0::2])
+        self.assertEqual(self.run_check("sqlite=2"), 1)
+
+    def test_fails_when_a_test_is_in_two_shards(self):
+        self.report("backend-rs-postgres-1", "1/2", NAMES[0::2] + NAMES[1:2])
+        self.report("backend-rs-postgres-2", "2/2", NAMES[1::2])
+        self.assertEqual(self.run_check("postgres=2"), 1)
+
+    def test_fails_when_the_shards_come_from_different_binaries(self):
+        self.report("backend-rs-sqlite-1", "1/2", NAMES[0::2])
+        self.report("backend-rs-sqlite-2", "2/2", NAMES[1::2], total=len(NAMES) + 1)
+        self.assertEqual(self.run_check("sqlite=2"), 1)
+
+    def test_fails_when_a_shard_stopped_before_its_result(self):
+        self.report("backend-rs-sqlite-1", "1/2", NAMES[0::2])
+        self.write("backend-rs-sqlite-2", "selected 2/2: " + " ".join(NAMES[1::2]) + "\nrunning 5 tests\n")
+        self.assertEqual(self.run_check("sqlite=2"), 1)
+
+    def test_fails_on_a_failed_test_and_on_a_selected_test_that_did_not_run(self):
+        for case in ({"failed": 1, "passed": len(NAMES) - 1}, {"passed": len(NAMES) - 1}):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as reports:
+                self.reports = Path(reports)
+                self.report("backend-rs-sqlite-1", "1/1", NAMES, **case)
+                self.assertEqual(self.run_check("sqlite=1"), 1)
+
+    def test_fails_on_an_empty_selection(self):
+        for selection in ("selected 1/1: ", "selected 1/1:   "):
+            with self.subTest(selection=selection), tempfile.TemporaryDirectory() as reports:
+                self.reports = Path(reports)
+                self.write("backend-rs-sqlite-1", selection + "\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n")
+                self.assertEqual(self.run_check("sqlite=1"), 1)
+
+    def test_a_counts_like_line_from_the_application_is_not_a_result(self):
+        self.write("backend-rs-sqlite-1", "selected 1/1: a b\nINFO 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n")
+        self.assertEqual(self.run_check("sqlite=1"), 1)
+
+    def test_an_ignored_test_counts_as_done(self):
+        self.write("backend-rs-sqlite-1", "selected 1/1: a b\ntest result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out\n")
+        self.assertEqual(self.run_check("sqlite=1"), 0)
+
+    def test_select_reads_a_listing_with_windows_line_endings(self):
+        self.assertEqual(backend_shards.select(LISTING.replace("\n", "\r\n"), "1/1"), NAMES)
 
 
 if __name__ == "__main__":
