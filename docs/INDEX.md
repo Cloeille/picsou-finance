@@ -97,6 +97,7 @@
 | 2026-11-07 | [Contract kinds seen in few live runs are enabled per bank and demoted, not fatal](./decisions/2026-11-07-provisional-kinds-per-bank.md) | Active |
 | 2026-11-06 | [Parallel CI legs that prove their own completeness](./decisions/2026-11-06-parallel-ci-legs.md) | Active |
 | 2026-11-20 | [Exchange credentials carry an API passphrase and region when required](./decisions/2026-11-20-exchange-api-passphrase.md) | Active |
+| 2026-11-22 | [Daily NAV source for unlisted funds, by ISIN](./decisions/2026-11-22-unlisted-fund-nav-source.md) | Proposed |
 | 2026-11-15 | [A Tauri desktop app built from the Docker release](./decisions/2026-11-15-desktop-app-tauri.md) | Proposed |
 | 2026-11-21 | [Rewrite the backend in Rust](./decisions/2026-11-21-rust-backend.md) | Proposed |
 | 2026-11-22 | [Dual-engine database architecture (Embedded SQLite + PostgreSQL)](./decisions/2026-11-22-sqlite-dual-engine.md) | Proposed |
@@ -143,6 +144,7 @@
 | American Express France credit-card sidecar | 2026-10-31 | [amex-sidecar.md](./features/amex-sidecar.md) |
 | Trade Republic — Holdings deduplication | 2026-05-18 | [trade-republic-holding-deduplication.md](./features/trade-republic-holding-deduplication.md) |
 | ISIN → Ticker conversion | 2026-08-10 | [ISIN_TO_TICKER_CONVERSION.md](./features/ISIN_TO_TICKER_CONVERSION.md) |
+| Pricing by ISIN | 2026-11-22 | [isin-pricing.md](./features/isin-pricing.md) |
 | Encryption at rest | 2026-04-08 | [encryption-at-rest.md](./features/encryption-at-rest.md) |
 | Crypto tracking | 2026-08-11 | [crypto-tracking.md](./features/crypto-tracking.md) |
 | Wealth pyramid (Analysis) | 2026-11-05 | [wealth-pyramid.md](./features/wealth-pyramid.md) |
