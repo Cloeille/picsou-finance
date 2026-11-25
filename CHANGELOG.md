@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Daily NAV for unlisted funds.** A fund with no market price (an OPCVM such as Carmignac
+  Patrimoine) now takes its daily NAV from Boursorama, by ISIN, in euros (#704).
 - **Direct desktop downloads.** Each release now also publishes the desktop installers under
   version-less names (`Picsou-macOS-arm64.dmg`, `Picsou-Windows-x64.exe`,
   `Picsou-Linux-x64.AppImage`). The README opens with a desktop app section and one download

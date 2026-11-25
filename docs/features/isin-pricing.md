@@ -24,7 +24,14 @@ This note covers step #700: the price source. Nothing reads it yet. Valuation sw
    ISIN whose market currency is unknown here gets no Yahoo price. At most 3 matches are probed,
    and the symbol found is remembered for the next calls.
 
-Neither source goes through OpenFIGI or a ticker held on the holding.
+3. **Boursorama** (`BoursoramaIsinPriceSource`, #704), for unlisted funds (OPCVM with one NAV a
+   day) that the first two do not carry. `/recherche/?query=<ISIN>` redirects to
+   `/cours/<symbol>/` only when Boursorama knows the ISIN. The search row of that symbol
+   (`/recherche/ajax`) must show its price in euros. The daily closes come from
+   `GetTicksEOD?symbol=<symbol>&length=<days>`, asked as an XHR. The quote is the last close of
+   the 30-day window.
+
+None of the sources goes through OpenFIGI or a ticker held on the holding.
 
 ## Technical choices
 
@@ -35,6 +42,11 @@ Neither source goes through OpenFIGI or a ticker held on the holding.
   market is a property of the instrument, not a guess about which line Yahoo carries.
 - **Cache.** 15 min for a quote, 5 min for a miss, so an unlisted fund is not asked on every render.
 - **429.** justETF pauses itself for 5 minutes. Yahoo arms the existing `YahooCooldown`.
+  Boursorama pauses itself for 5 minutes on a 429 or a 403.
+- **Boursorama windows.** `GetTicksEOD` answers `[]` for any `length` outside
+  30, 90, 180, 365, 730, 1095, 1825, 3650 and 7300 days. History asks the shortest one that
+  reaches back to the first day wanted. A plain request (no `X-Requested-With`) answers 410.
+  Checked live on 2026-11-25.
 
 ## Gotchas
 

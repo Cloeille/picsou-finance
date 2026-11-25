@@ -1,6 +1,7 @@
 //! EUR prices by ISIN (#700, part of #698): the instrument's own identity rather than a ticker that
-//! names one of its listings. Two sources, justETF then Yahoo on the ISIN's reference listing;
-//! `IsinPriceService` asks them in that order and the first answer wins. Nothing reads it yet.
+//! names one of its listings. Three sources, justETF, then Yahoo on the ISIN's reference listing,
+//! then Boursorama for unlisted funds (#704); `IsinPriceService` asks them in that order and the
+//! first answer wins.
 //!
 //! A source never fails on an expected upstream problem (timeout, 429, unknown ISIN, an unlisted
 //! fund): it answers None or an empty series and the next source tries.
@@ -10,10 +11,15 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use chrono::Days;
 use chrono::{DateTime, NaiveDate, Utc};
 use percent_encoding::utf8_percent_encode;
+use regex::Regex;
 use rust_decimal::Decimal;
 use serde_json::Value;
+use std::sync::LazyLock;
+
+use super::boursorama::symbol_from_location;
 
 use super::num::json_decimal;
 use super::openfigi::is_isin;
@@ -22,8 +28,13 @@ use crate::clock::AppClock;
 
 const JUSTETF: &str = "justETF";
 const YAHOO: &str = "Yahoo";
+const BOURSORAMA: &str = "Boursorama";
+const BOURSORAMA_HOST: &str = "https://www.boursorama.com";
 const JUSTETF_TIMEOUT: Duration = Duration::from_secs(8);
-/// How long a justETF 429 pauses that source.
+const BOURSORAMA_TIMEOUT: Duration = Duration::from_secs(8);
+/// The windows, in days, Boursorama's end-of-day series accepts: any other length answers `[]`.
+pub const BOURSORAMA_WINDOWS: [u64; 9] = [30, 90, 180, 365, 730, 1095, 1825, 3650, 7300];
+/// How long a justETF 429, or a Boursorama 429 or 403, pauses that source.
 pub const RATE_LIMIT_PAUSE: chrono::Duration = chrono::Duration::minutes(5);
 /// How many of Yahoo's matches are probed for the reference currency, in its own order.
 pub const MAX_PROBED: usize = 3;
@@ -337,6 +348,214 @@ impl IsinPriceSource for YahooIsinPriceSource {
     }
 }
 
+static SEARCH_ROW: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?s)href="[^"]*/cours/([^/"?]+)/".*?class="last">([^<]*)<"#).expect("regex")
+});
+
+/// Boursorama, asked by ISIN (#704, ADR 2026-11-22): the only source found for the daily NAV of
+/// an unlisted fund (OPCVM), which justETF and Yahoo do not carry. Three unauthenticated calls:
+///
+/// 1. `GET /recherche/?query=<ISIN>`, not followed: Boursorama redirects to `/cours/<symbol>/`
+///    only when it knows the ISIN, and answers 200 otherwise. The symbol never comes from the
+///    holding's ticker.
+/// 2. `GET /recherche/ajax?query=<ISIN>`: the result row of that symbol must show its last price
+///    in euros. Any other currency gets no price.
+/// 3. `GET /bourse/action/graph/ws/GetTicksEOD?symbol=<symbol>&length=<days>`, as an XHR (a plain
+///    request answers 410): `QuoteTab` holds one point per day, `d` days after 1970-01-01, close
+///    `c`. Only the windows in [`BOURSORAMA_WINDOWS`] answer.
+///
+/// A 429 or 403 pauses the source for `RATE_LIMIT_PAUSE`. The symbol found is remembered.
+pub struct BoursoramaIsinPriceSource {
+    http: reqwest::Client,
+    base_url: String,
+    clock: AppClock,
+    paused_until: Mutex<DateTime<Utc>>,
+    symbol_by_isin: Mutex<HashMap<String, String>>,
+}
+
+impl BoursoramaIsinPriceSource {
+    pub fn new(base_url: &str, clock: AppClock) -> Self {
+        let http = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(BOURSORAMA_TIMEOUT)
+            .build()
+            .unwrap_or_default();
+        Self {
+            http,
+            base_url: base_url.trim_end_matches('/').to_owned(),
+            clock,
+            paused_until: Mutex::new(DateTime::<Utc>::UNIX_EPOCH),
+            symbol_by_isin: Mutex::new(HashMap::new()),
+        }
+    }
+
+    async fn get(&self, path_and_query: &str, xhr: bool) -> Option<reqwest::Response> {
+        if self.clock.now() < *self.paused_until.lock().unwrap_or_else(|e| e.into_inner()) {
+            return None;
+        }
+        let mut request = self
+            .http
+            .get(format!("{}{path_and_query}", self.base_url))
+            .header("User-Agent", "Mozilla/5.0")
+            .header("Accept-Language", "fr-FR");
+        if xhr {
+            request = request.header("X-Requested-With", "XMLHttpRequest");
+        }
+        let response = match request.send().await {
+            Ok(response) => response,
+            Err(e) => {
+                tracing::debug!("Boursorama request failed: {}", transport_message(&e));
+                return None;
+            }
+        };
+        if matches!(response.status().as_u16(), 403 | 429) {
+            *self.paused_until.lock().unwrap_or_else(|e| e.into_inner()) =
+                self.clock.now() + RATE_LIMIT_PAUSE;
+            tracing::warn!(
+                "Boursorama answered {}, pausing it for {RATE_LIMIT_PAUSE}",
+                response.status()
+            );
+            return None;
+        }
+        Some(response)
+    }
+
+    /// Boursorama's symbol for the ISIN, when it knows the ISIN and quotes it in euros.
+    async fn symbol(&self, isin: &str) -> Option<String> {
+        if let Some(known) = self
+            .symbol_by_isin
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(isin)
+        {
+            return Some(known.clone());
+        }
+        let found = self
+            .get(&format!("/recherche/?query={}", query_value(isin)), false)
+            .await?;
+        if !found.status().is_redirection() {
+            return None;
+        }
+        let symbol = found
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(symbol_from_location)?;
+        let rows = self
+            .get(
+                &format!("/recherche/ajax?query={}&searchId=", query_value(isin)),
+                false,
+            )
+            .await?;
+        let html = rows.text().await.ok()?;
+        if !quoted_in_euros(&html, &symbol) {
+            tracing::debug!(
+                "Boursorama does not quote {} in euros, no price taken",
+                safe(isin)
+            );
+            return None;
+        }
+        self.symbol_by_isin
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(isin.to_owned(), symbol.clone());
+        Some(symbol)
+    }
+
+    async fn closes(&self, symbol: &str, days: u64) -> BTreeMap<NaiveDate, Decimal> {
+        let path = format!(
+            "/bourse/action/graph/ws/GetTicksEOD?symbol={}&length={days}&period=0&guid=",
+            query_value(symbol)
+        );
+        let Some(response) = self
+            .get(&path, true)
+            .await
+            .filter(|r| r.status().is_success())
+        else {
+            return BTreeMap::new();
+        };
+        match response.json::<Value>().await {
+            Ok(body) => end_of_day_closes(&body),
+            Err(_) => BTreeMap::new(),
+        }
+    }
+}
+
+/// Whether the search row linking to `symbol` shows a price in euros (`827,91 €`).
+pub fn quoted_in_euros(search_html: &str, symbol: &str) -> bool {
+    search_html.split("<li>").any(|row| {
+        SEARCH_ROW
+            .captures(row)
+            .is_some_and(|c| &c[1] == symbol && c[2].trim().ends_with('€'))
+    })
+}
+
+/// The closes of a `GetTicksEOD` body, by day. Anything but the expected shape is no series.
+pub fn end_of_day_closes(body: &Value) -> BTreeMap<NaiveDate, Decimal> {
+    let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).expect("valid date");
+    body.pointer("/d/QuoteTab")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|point| {
+            let day = epoch.checked_add_days(Days::new(point.get("d")?.as_u64()?))?;
+            let close = point.get("c").and_then(json_decimal)?;
+            (close > Decimal::ZERO).then_some((day, close))
+        })
+        .collect()
+}
+
+/// The shortest window Boursorama accepts that reaches back `days`, the longest one otherwise.
+pub fn boursorama_window(days: u64) -> u64 {
+    BOURSORAMA_WINDOWS
+        .into_iter()
+        .find(|w| *w >= days)
+        .unwrap_or(BOURSORAMA_WINDOWS[BOURSORAMA_WINDOWS.len() - 1])
+}
+
+#[async_trait]
+impl IsinPriceSource for BoursoramaIsinPriceSource {
+    fn name(&self) -> &'static str {
+        BOURSORAMA
+    }
+
+    async fn quote(&self, isin: &str) -> Option<IsinQuote> {
+        let isin = normalize(isin)?;
+        let symbol = self.symbol(&isin).await?;
+        let (day, close) = self
+            .closes(&symbol, BOURSORAMA_WINDOWS[0])
+            .await
+            .pop_last()?;
+        Some(IsinQuote {
+            price_eur: close,
+            as_of: Some(day),
+            source: BOURSORAMA,
+        })
+    }
+
+    async fn daily_history(
+        &self,
+        isin: &str,
+        from: NaiveDate,
+        to: NaiveDate,
+    ) -> BTreeMap<NaiveDate, Decimal> {
+        let Some(isin) = normalize(isin) else {
+            return BTreeMap::new();
+        };
+        if from > to {
+            return BTreeMap::new();
+        }
+        let Some(symbol) = self.symbol(&isin).await else {
+            return BTreeMap::new();
+        };
+        // The window ends today, so it has to reach back to `from`.
+        let back = (self.clock.today() - from).num_days().max(1) as u64;
+        let mut closes = self.closes(&symbol, boursorama_window(back)).await;
+        closes.retain(|day, _| *day >= from && *day <= to);
+        closes
+    }
+}
+
 type CachedQuote = (Option<IsinQuote>, DateTime<Utc>);
 
 /// EUR prices by ISIN from the sources in order, the first answer winning. Nothing here falls
@@ -358,13 +577,20 @@ impl IsinPriceService {
         }
     }
 
-    /// The production order: justETF, then Yahoo on the reference listing.
+    /// The production order: justETF, then Yahoo on the reference listing, then Boursorama.
     pub fn standard(
         http: reqwest::Client,
         justetf_base_url: &str,
         yahoo: Arc<YahooFinance>,
         clock: AppClock,
     ) -> Self {
+        // As Market does for ETF composition: offline tests point justETF at a stub, and then
+        // Boursorama is not asked either.
+        let boursorama_base_url = if justetf_base_url.contains("justetf.com") {
+            BOURSORAMA_HOST
+        } else {
+            ""
+        };
         Self::new(
             vec![
                 Arc::new(JustEtfIsinPriceSource::new(
@@ -373,6 +599,10 @@ impl IsinPriceService {
                     clock.clone(),
                 )),
                 Arc::new(YahooIsinPriceSource::new(yahoo)),
+                Arc::new(BoursoramaIsinPriceSource::new(
+                    boursorama_base_url,
+                    clock.clone(),
+                )),
             ],
             clock,
         )
