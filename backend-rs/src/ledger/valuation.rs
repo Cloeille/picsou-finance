@@ -10,6 +10,7 @@ use crate::db::DbHandle;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 
+use super::decimal::{HALF_UP, set_scale};
 use super::liabilities;
 use super::model::{
     Account, AccountHolding, AccountType, BalanceSnapshot, Debt, PeerLoanRepayment, PeerLoanTerms,
@@ -388,6 +389,48 @@ fn value_holdings(
             any_stale,
         },
         any_cost_basis_unknown,
+    }
+}
+
+pub(crate) struct PositionValuation {
+    pub value: Option<Decimal>,
+    pub cost_basis: Option<Decimal>,
+    pub pnl: Option<Decimal>,
+    pub pnl_percent: Option<Decimal>,
+}
+
+pub(crate) fn position_valuation(
+    account_id: i64,
+    quantity: Decimal,
+    price: Option<Decimal>,
+    average_buy_in: Option<Decimal>,
+) -> PositionValuation {
+    let checked = |result: Option<Decimal>, field| {
+        if result.is_none() {
+            tracing::warn!(account_id, field, "Exchange position valuation overflow");
+        }
+        result
+    };
+    let value = price.and_then(|p| checked(p.checked_mul(quantity), "current value"));
+    let cost_basis = average_buy_in.and_then(|a| checked(a.checked_mul(quantity), "cost basis"));
+    let pnl = value
+        .zip(cost_basis)
+        .and_then(|(v, c)| checked(v.checked_sub(c), "profit and loss"));
+    let pnl_percent = pnl
+        .zip(cost_basis)
+        .filter(|(_, c)| !c.is_zero())
+        .and_then(|(p, c)| {
+            // The absolute cost basis keeps the sign of the P&L itself.
+            let result = p
+                .checked_div(c.abs())
+                .and_then(|ratio| set_scale(ratio, 4, HALF_UP).checked_mul(Decimal::ONE_HUNDRED));
+            checked(result, "profit and loss percentage")
+        });
+    PositionValuation {
+        value,
+        cost_basis,
+        pnl,
+        pnl_percent,
     }
 }
 

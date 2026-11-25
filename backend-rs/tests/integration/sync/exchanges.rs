@@ -130,6 +130,325 @@ fn detail(response: &picsou::testing::Response) -> String {
         .to_owned()
 }
 
+async fn binance_quantity(server: &MockServer, free: &str, locked: &str) {
+    binance(
+        server,
+        balances(json!([{"asset": "BTC", "free": free, "locked": locked}])),
+    )
+    .await;
+}
+
+async fn add_binance(client: &Client) -> picsou::testing::Response {
+    add(
+        client,
+        json!({"type": "BINANCE", "apiKey": KEY, "apiSecret": SECRET}),
+    )
+    .await
+}
+
+fn assert_invalid_response(response: &picsou::testing::Response, exchange: &str, reason: &str) {
+    assert_eq!(response.status, 422, "{}", response.text());
+    assert_eq!(
+        detail(response),
+        format!("{exchange} returned an invalid response. {reason}")
+    );
+    assert!(response.json().get("code").is_none());
+}
+
+async fn assert_no_exchange_writes(app: &TestApp) {
+    let counts: (i64, i64, i64, i64, i64) = picsou::db::query_as(
+        "SELECT (SELECT count(*) FROM crypto_exchange_session),
+                (SELECT count(*) FROM account),
+                (SELECT count(*) FROM account_holding),
+                (SELECT count(*) FROM crypto_exchange_position),
+                (SELECT count(*) FROM balance_snapshot)",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(counts, (0, 0, 0, 0, 0));
+}
+
+#[tokio::test]
+async fn an_out_of_range_quantity_refuses_add() {
+    let server = MockServer::start().await;
+    binance_quantity(&server, "1000000000000", "0").await;
+    let app = app_with(&server).await;
+    price(&app, "BTC", "0.5").await;
+    let client = app.login_admin().await;
+
+    assert_invalid_response(
+        &add_binance(&client).await,
+        "BINANCE",
+        "A position quantity is outside the supported range.",
+    );
+    assert_no_exchange_writes(&app).await;
+}
+
+#[tokio::test]
+async fn an_out_of_range_quantity_keeps_the_previous_sync() {
+    let server = MockServer::start().await;
+    binance_quantity(&server, "4", "0").await;
+    let app = app_with(&server).await;
+    price(&app, "BTC", "0.5").await;
+    let client = app.login_admin().await;
+    let added = add_binance(&client).await;
+    assert_eq!(added.status, 200, "{}", added.text());
+    let account_id = added.json()["id"].as_i64().unwrap();
+    let session_id: i64 = picsou::db::query_scalar("SELECT id FROM crypto_exchange_session")
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    server.reset().await;
+    binance_quantity(&server, "1000000000000", "0").await;
+
+    let sync = client
+        .post(&format!("{EXCHANGE}/{session_id}/sync"))
+        .send()
+        .await;
+    assert_invalid_response(
+        &sync,
+        "BINANCE",
+        "A position quantity is outside the supported range.",
+    );
+    assert_eq!(session_status(&app, session_id).await, "ERROR");
+    assert_eq!(
+        holdings(&app, account_id).await,
+        vec![("BTC".into(), d("4"))]
+    );
+    let (quantity, balance, snapshot): (Decimal, Decimal, Decimal) = picsou::db::query_as(
+        "SELECT p.quantity, a.current_balance, s.balance FROM account a
+         JOIN crypto_exchange_position p ON p.account_id = a.id
+         JOIN balance_snapshot s ON s.account_id = a.id WHERE a.id = $1",
+    )
+    .bind(account_id)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!((quantity, balance, snapshot), (d("4"), d("2"), d("2")));
+}
+
+#[tokio::test]
+async fn a_total_across_products_outside_the_supported_range_refuses_add() {
+    let server = MockServer::start().await;
+    meria_status_ok(&server).await;
+    meria(
+        &server,
+        "/wallets",
+        envelope(json!([{"currencyCode": "eth", "balance": "600000000000"}])),
+    )
+    .await;
+    meria(
+        &server,
+        "/stakings",
+        envelope(json!([{"currencyCode": "ETH", "amount": "400000000001", "reward": "1"}])),
+    )
+    .await;
+    meria(&server, "/lendings", envelope(json!([]))).await;
+    let app = app_with(&server).await;
+    price(&app, "ETH", "0.5").await;
+    let client = app.login_admin().await;
+
+    let response = add(&client, json!({"type": "MERIA", "apiKey": KEY})).await;
+
+    assert_invalid_response(
+        &response,
+        "MERIA",
+        "A total quantity for one asset is outside the supported range.",
+    );
+    assert_no_exchange_writes(&app).await;
+}
+
+#[tokio::test]
+async fn a_quantity_that_rounds_out_of_range_refuses_add() {
+    let server = MockServer::start().await;
+    binance_quantity(&server, "999999999999.999999995", "0").await;
+    let app = app_with(&server).await;
+    price(&app, "BTC", "0.5").await;
+    let client = app.login_admin().await;
+
+    assert_invalid_response(
+        &add_binance(&client).await,
+        "BINANCE",
+        "A position quantity is outside the supported range.",
+    );
+    assert_no_exchange_writes(&app).await;
+}
+
+#[tokio::test]
+async fn a_quantity_at_decimal_max_refuses_add() {
+    let server = MockServer::start().await;
+    binance_quantity(&server, "79228162514264337593543950335", "0").await;
+    let app = app_with(&server).await;
+    price(&app, "BTC", "2").await;
+    let client = app.login_admin().await;
+
+    assert_invalid_response(
+        &add_binance(&client).await,
+        "BINANCE",
+        "A position quantity is outside the supported range.",
+    );
+    assert_no_exchange_writes(&app).await;
+}
+
+#[tokio::test]
+async fn overflowing_free_and_locked_balances_refuse_add() {
+    let server = MockServer::start().await;
+    binance_quantity(&server, "79228162514264337593543950335", "1").await;
+    let app = app_with(&server).await;
+    let client = app.login_admin().await;
+
+    assert_invalid_response(
+        &add_binance(&client).await,
+        "BINANCE",
+        "A position quantity is outside the supported range.",
+    );
+    assert_no_exchange_writes(&app).await;
+}
+
+#[tokio::test]
+async fn overflowing_same_product_contracts_refuse_add() {
+    let server = MockServer::start().await;
+    meria_status_ok(&server).await;
+    meria(&server, "/wallets", envelope(json!([]))).await;
+    meria(
+        &server,
+        "/stakings",
+        envelope(json!([
+            {"currencyCode": "ETH", "amount": "79228162514264337593543950335"},
+            {"currencyCode": "ETH", "amount": "1"}
+        ])),
+    )
+    .await;
+    meria(&server, "/lendings", envelope(json!([]))).await;
+    let app = app_with(&server).await;
+    let client = app.login_admin().await;
+
+    assert_invalid_response(
+        &add(&client, json!({"type": "MERIA", "apiKey": KEY})).await,
+        "MERIA",
+        "A position quantity is outside the supported range.",
+    );
+    assert_no_exchange_writes(&app).await;
+}
+
+#[tokio::test]
+async fn a_large_valid_quantity_is_stored_exactly() {
+    let server = MockServer::start().await;
+    let quantity = "999999999999.99999999";
+    binance_quantity(&server, quantity, "0").await;
+    let app = app_with(&server).await;
+    price(&app, "BTC", "0.5").await;
+    let client = app.login_admin().await;
+
+    let response = add_binance(&client).await;
+
+    assert_eq!(response.status, 200, "{}", response.text());
+    let account_id = response.json()["id"].as_i64().unwrap();
+    assert_eq!(
+        holdings(&app, account_id).await,
+        vec![("BTC".into(), d(quantity))]
+    );
+    let stored: Decimal = picsou::db::query_scalar(
+        "SELECT quantity FROM crypto_exchange_position WHERE account_id = $1",
+    )
+    .bind(account_id)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(stored, d(quantity));
+}
+
+#[tokio::test]
+async fn an_out_of_range_eur_total_refuses_add() {
+    let server = MockServer::start().await;
+    binance(
+        &server,
+        balances(json!([
+            {"asset": "BTC", "free": "300000000000", "locked": "0"},
+            {"asset": "ETH", "free": "300000000000", "locked": "0"}
+        ])),
+    )
+    .await;
+    let app = app_with(&server).await;
+    price(&app, "BTC", "2").await;
+    price(&app, "ETH", "2").await;
+    let client = app.login_admin().await;
+
+    assert_invalid_response(
+        &add_binance(&client).await,
+        "BINANCE",
+        "The EUR valuation is outside the supported range.",
+    );
+    assert_no_exchange_writes(&app).await;
+}
+
+#[tokio::test]
+async fn an_overflowing_eur_product_refuses_add_even_with_an_in_range_quantity() {
+    // Only SQLite can store a cached quote this large.
+    if !picsou::testing::is_sqlite_test_db() {
+        return;
+    }
+    let server = MockServer::start().await;
+    binance_quantity(&server, "100000000000", "0").await;
+    let app = app_with(&server).await;
+    price(&app, "BTC", "100000000000000000000").await;
+    let client = app.login_admin().await;
+
+    assert_invalid_response(
+        &add_binance(&client).await,
+        "BINANCE",
+        "The EUR valuation is outside the supported range.",
+    );
+    assert_no_exchange_writes(&app).await;
+}
+
+#[tokio::test]
+async fn a_legacy_position_with_an_overflowing_valuation_keeps_its_quantity_readable() {
+    // Only SQLite could have accepted this legacy position.
+    if !picsou::testing::is_sqlite_test_db() {
+        return;
+    }
+    let server = MockServer::start().await;
+    meria_status_ok(&server).await;
+    meria(&server, "/wallets", envelope(json!([]))).await;
+    meria(
+        &server,
+        "/stakings",
+        envelope(json!([{"currencyCode": "ETH", "amount": "1"}])),
+    )
+    .await;
+    meria(&server, "/lendings", envelope(json!([]))).await;
+    let app = app_with(&server).await;
+    price(&app, "ETH", "10000000000").await;
+    let client = app.login_admin().await;
+    let added = add(&client, json!({"type": "MERIA", "apiKey": KEY})).await;
+    assert_eq!(added.status, 200, "{}", added.text());
+    let account_id = added.json()["id"].as_i64().unwrap();
+    let legacy_quantity = d("100000000000000000000");
+    picsou::db::query("UPDATE crypto_exchange_position SET quantity = $1 WHERE account_id = $2")
+        .bind(legacy_quantity)
+        .bind(account_id)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+
+    let response = client
+        .get(&format!("/api/accounts/{account_id}/positions"))
+        .send()
+        .await;
+    assert_eq!(response.status, 200, "{}", response.text());
+    let body = response.json();
+    let lines = body.as_array().unwrap();
+    assert_eq!(lines.len(), 1);
+    let line = &lines[0];
+    assert_eq!(d(&line["quantity"].to_string()), legacy_quantity);
+    assert_eq!(d(&line["currentPriceEur"].to_string()), d("10000000000"));
+    for field in ["currentValueEur", "costBasisEur", "pnlEur", "pnlPercent"] {
+        assert!(line.get(field).is_none(), "{line}");
+    }
+}
+
 #[test]
 fn binance_signs_the_query_with_hmac_sha256_hex() {
     // The example of Binance's API documentation.
