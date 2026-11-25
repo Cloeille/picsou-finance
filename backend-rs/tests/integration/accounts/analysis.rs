@@ -3,6 +3,8 @@
 
 use picsou::testing::TestApp;
 use serde_json::{Value, json};
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::analysis_support::{
     Acct, account, d, dec, get_json, holding, num, price, share, signed_in, simple, sql,
@@ -579,4 +581,170 @@ async fn targets_summing_past_decimal_max_return_validation_error_without_panick
         resp.json()["errors"],
         json!({"summingToOneHundred": "allocation targets must sum to 100"})
     );
+}
+
+const TRACKED_ISIN: &str = "IE00B4L5Y983";
+
+/// Declares the account's tracked fund the way a saved form would, without the resolution.
+async fn track(app: &TestApp, account: i64, isin: &str) {
+    sql(
+        app,
+        &format!("UPDATE account SET tracked_isin = '{isin}' WHERE id = {account}"),
+    )
+    .await;
+}
+
+async fn classify(app: &TestApp, member: i64, ticker: &str, tier: &str) {
+    sql(
+        app,
+        &format!(
+            "INSERT INTO holding_classification (member_id, ticker, wealth_tier, created_at, updated_at) \
+             VALUES ({member}, '{ticker}', '{tier}', now(), now())"
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_tracked_savings_account_counts_as_equity() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let savings = simple(&app, alice, "SAVINGS", "1000").await;
+    track(&app, savings, TRACKED_ISIN).await;
+
+    let pyramid = get_json(&client, "/api/analysis/pyramid").await;
+    assert_eq!(dec(&tier(&pyramid, "EQUITY")["valueEur"]), d("1000"));
+    assert_eq!(
+        tier(&pyramid, "EQUITY")["accounts"][0]["accountId"],
+        json!(savings)
+    );
+    assert_eq!(dec(&pyramid["safetyNet"]["valueEur"]), d("0"));
+    assert_eq!(dec(&pyramid["safetyNet"]["dailyCashEur"]), d("0"));
+}
+
+#[tokio::test]
+async fn an_override_on_the_tracked_ticker_wins() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let pea = simple(&app, alice, "PEA", "1000").await;
+    track(&app, pea, TRACKED_ISIN).await;
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO security_profile (ticker, asset_type, isin, status, created_at, updated_at) \
+             VALUES ('IWDA.AS', 'ETF', '{TRACKED_ISIN}', 'OK', now(), now())"
+        ),
+    )
+    .await;
+    classify(&app, alice, "IWDA.AS", "SAFETY_NET").await;
+
+    let pyramid = get_json(&client, "/api/analysis/pyramid").await;
+    assert_eq!(dec(&pyramid["safetyNet"]["valueEur"]), d("1000"));
+    assert_eq!(dec(&tier(&pyramid, "EQUITY")["valueEur"]), d("0"));
+}
+
+#[tokio::test]
+async fn a_tracked_account_with_holdings_uses_its_holdings() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let savings = account(
+        &app,
+        Acct {
+            cash: Some("0"),
+            ..Acct::new(alice, "SAVINGS", "0")
+        },
+    )
+    .await;
+    track(&app, savings, TRACKED_ISIN).await;
+    holding(&app, savings, "PSX", "1", None).await;
+    price(&app, "PSX", "1000").await;
+
+    let pyramid = get_json(&client, "/api/analysis/pyramid").await;
+    // An unclassified line stays with the account's own tier, as without a tracked fund.
+    assert_eq!(dec(&pyramid["safetyNet"]["valueEur"]), d("1000"));
+    assert_eq!(dec(&tier(&pyramid, "EQUITY")["valueEur"]), d("0"));
+}
+
+#[tokio::test]
+async fn a_shared_tracked_account_counts_the_members_share() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let (bob, _) = signed_in(&app, "bob").await;
+    let savings = simple(&app, alice, "SAVINGS", "1000").await;
+    track(&app, savings, TRACKED_ISIN).await;
+    share(&app, savings, alice, "50").await;
+    share(&app, savings, bob, "50").await;
+
+    let pyramid = get_json(&client, "/api/analysis/pyramid").await;
+    assert_eq!(dec(&tier(&pyramid, "EQUITY")["valueEur"]), d("500"));
+    assert_eq!(dec(&pyramid["safetyNet"]["valueEur"]), d("0"));
+}
+
+#[tokio::test]
+async fn a_foreign_currency_tracked_account_counts_in_eur() {
+    let yahoo = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/USDEUR=X"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "chart": {"result": [{
+                "meta": {"currency": "EUR", "regularMarketPrice": 0.9},
+                "timestamp": [1768471200],
+                "indicators": {"quote": [{"close": [0.9]}]}
+            }], "error": null}
+        })))
+        .mount(&yahoo)
+        .await;
+    let app = TestApp::builder()
+        .with_admin()
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .spawn()
+        .await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let dollars = simple(&app, alice, "SAVINGS", "1000").await;
+    sql(
+        &app,
+        &format!("UPDATE account SET currency = 'USD' WHERE id = {dollars}"),
+    )
+    .await;
+    track(&app, dollars, TRACKED_ISIN).await;
+
+    let pyramid = get_json(&client, "/api/analysis/pyramid").await;
+    assert_eq!(dec(&tier(&pyramid, "EQUITY")["valueEur"]), d("900"));
+    assert_eq!(dec(&pyramid["safetyNet"]["valueEur"]), d("0"));
+}
+
+#[tokio::test]
+async fn a_hidden_tracked_account_stays_out() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let hidden = account(
+        &app,
+        Acct {
+            hidden: true,
+            ..Acct::new(alice, "SAVINGS", "1000")
+        },
+    )
+    .await;
+    track(&app, hidden, TRACKED_ISIN).await;
+
+    let pyramid = get_json(&client, "/api/analysis/pyramid").await;
+    assert_eq!(num(&pyramid["totalAssetsEur"]), "0.00");
+    assert_eq!(dec(&tier(&pyramid, "EQUITY")["valueEur"]), d("0"));
+}
+
+#[tokio::test]
+async fn a_tracked_current_account_overridden_to_safety_net_is_daily_cash() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let cushion = simple(&app, alice, "CHECKING", "1000").await;
+    track(&app, cushion, TRACKED_ISIN).await;
+    classify(&app, alice, TRACKED_ISIN, "SAFETY_NET").await;
+    // The same kind of account tracking a fund left in equity is invested, not daily cash.
+    let invested = simple(&app, alice, "CHECKING", "300").await;
+    track(&app, invested, "IE00B5BMR087").await;
+
+    let pyramid = get_json(&client, "/api/analysis/pyramid").await;
+    assert_eq!(dec(&pyramid["safetyNet"]["dailyCashEur"]), d("1000"));
+    assert_eq!(dec(&pyramid["safetyNet"]["valueEur"]), d("0"));
+    assert_eq!(dec(&tier(&pyramid, "EQUITY")["valueEur"]), d("300"));
 }
