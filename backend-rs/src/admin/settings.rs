@@ -23,6 +23,26 @@ pub const AI_BASE_URL: &str = "ai.base-url";
 pub const AI_API_KEY: &str = "ai.api-key";
 pub const AI_MAX_CONCURRENCY: &str = "ai.max-concurrency";
 
+/// Wire protocol shared by one or more AI providers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AiProtocol {
+    OpenAiChat,
+    AnthropicMessages,
+    Ollama,
+}
+
+/// Static description of one AI provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AiProviderSpec {
+    pub key: &'static str,
+    pub name: &'static str,
+    pub protocol: AiProtocol,
+    pub default_base_url: Option<&'static str>,
+    pub default_model: Option<&'static str>,
+    pub key_required: bool,
+    pub api_root_suffix: &'static str,
+}
+
 /// The configurable AI providers (AiProvider): default base URL, default model, key required.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AiProvider {
@@ -30,49 +50,130 @@ pub enum AiProvider {
     OpenRouter,
     Anthropic,
     Ollama,
+    Mistral,
+    Gemini,
+    Custom,
 }
 
 impl AiProvider {
+    pub const ALL: [Self; 7] = [
+        Self::OpenAi,
+        Self::OpenRouter,
+        Self::Anthropic,
+        Self::Ollama,
+        Self::Mistral,
+        Self::Gemini,
+        Self::Custom,
+    ];
+
+    pub const fn spec(self) -> &'static AiProviderSpec {
+        match self {
+            Self::OpenAi => &AiProviderSpec {
+                key: "openai",
+                name: "OPENAI",
+                protocol: AiProtocol::OpenAiChat,
+                default_base_url: Some("https://api.openai.com"),
+                default_model: Some("gpt-4o-mini"),
+                key_required: true,
+                api_root_suffix: "/v1",
+            },
+            Self::OpenRouter => &AiProviderSpec {
+                key: "openrouter",
+                name: "OPENROUTER",
+                protocol: AiProtocol::OpenAiChat,
+                default_base_url: Some("https://openrouter.ai/api"),
+                default_model: Some("anthropic/claude-3.5-haiku"),
+                key_required: true,
+                api_root_suffix: "/v1",
+            },
+            Self::Anthropic => &AiProviderSpec {
+                key: "anthropic",
+                name: "ANTHROPIC",
+                protocol: AiProtocol::AnthropicMessages,
+                default_base_url: Some("https://api.anthropic.com"),
+                default_model: Some("claude-haiku-4-5"),
+                key_required: true,
+                api_root_suffix: "/v1",
+            },
+            Self::Ollama => &AiProviderSpec {
+                key: "ollama",
+                name: "OLLAMA",
+                protocol: AiProtocol::Ollama,
+                default_base_url: Some("http://ollama:11434"),
+                default_model: Some("qwen3:0.6b"),
+                key_required: false,
+                api_root_suffix: "/api",
+            },
+            Self::Mistral => &AiProviderSpec {
+                key: "mistral",
+                name: "MISTRAL",
+                protocol: AiProtocol::OpenAiChat,
+                default_base_url: Some("https://api.mistral.ai"),
+                default_model: Some("mistral-small-latest"),
+                key_required: true,
+                api_root_suffix: "/v1",
+            },
+            Self::Gemini => &AiProviderSpec {
+                key: "gemini",
+                name: "GEMINI",
+                protocol: AiProtocol::OpenAiChat,
+                default_base_url: Some("https://generativelanguage.googleapis.com/v1beta/openai"),
+                default_model: Some("gemini-flash-latest"),
+                key_required: true,
+                api_root_suffix: "",
+            },
+            Self::Custom => &AiProviderSpec {
+                key: "custom",
+                name: "CUSTOM",
+                protocol: AiProtocol::OpenAiChat,
+                default_base_url: None,
+                default_model: None,
+                key_required: false,
+                api_root_suffix: "/v1",
+            },
+        }
+    }
+
     /// fromKey: blank or "none" is no provider; matching ignores case.
     pub fn from_key(key: Option<&str>) -> Option<Self> {
-        match key?.trim().to_ascii_uppercase().as_str() {
-            "OPENAI" => Some(Self::OpenAi),
-            "OPENROUTER" => Some(Self::OpenRouter),
-            "ANTHROPIC" => Some(Self::Anthropic),
-            "OLLAMA" => Some(Self::Ollama),
-            _ => None,
-        }
+        let key = key?.trim();
+        Self::ALL
+            .into_iter()
+            .find(|p| p.spec().key.eq_ignore_ascii_case(key))
     }
 
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::OpenAi => "OPENAI",
-            Self::OpenRouter => "OPENROUTER",
-            Self::Anthropic => "ANTHROPIC",
-            Self::Ollama => "OLLAMA",
-        }
+    pub const fn name(self) -> &'static str {
+        self.spec().name
     }
 
-    pub fn default_base_url(self) -> &'static str {
-        match self {
-            Self::OpenAi => "https://api.openai.com",
-            Self::OpenRouter => "https://openrouter.ai/api",
-            Self::Anthropic => "https://api.anthropic.com",
-            Self::Ollama => "http://ollama:11434",
-        }
+    pub const fn protocol(self) -> AiProtocol {
+        self.spec().protocol
     }
 
-    pub fn default_model(self) -> &'static str {
-        match self {
-            Self::OpenAi => "gpt-4o-mini",
-            Self::OpenRouter => "anthropic/claude-3.5-haiku",
-            Self::Anthropic => "claude-haiku-4-5",
-            Self::Ollama => "qwen3:0.6b",
-        }
+    pub const fn default_base_url(self) -> Option<&'static str> {
+        self.spec().default_base_url
     }
 
-    pub fn key_required(self) -> bool {
-        self != Self::Ollama
+    pub const fn default_model(self) -> Option<&'static str> {
+        self.spec().default_model
+    }
+
+    pub const fn key_required(self) -> bool {
+        self.spec().key_required
+    }
+
+    pub fn api_root(self, base_url: &str) -> String {
+        let base = base_url.trim().trim_end_matches('/');
+        let suffix = self.spec().api_root_suffix;
+        // "http://api" ends with "/api" only through the "//" of the scheme: that is a host.
+        let has_suffix = base
+            .strip_suffix(suffix)
+            .is_some_and(|rest| !rest.ends_with(":/"));
+        if suffix.is_empty() || has_suffix {
+            base.to_owned()
+        } else {
+            format!("{base}{suffix}")
+        }
     }
 }
 
@@ -98,18 +199,27 @@ impl std::fmt::Debug for AiConfig {
 
 impl AiConfig {
     pub fn effective_base_url(&self) -> String {
-        if self.base_url.trim().is_empty() {
-            self.provider.default_base_url().to_owned()
+        let trimmed = self.base_url.trim();
+        if trimmed.is_empty() {
+            self.provider
+                .default_base_url()
+                .unwrap_or_default()
+                .to_owned()
         } else {
-            self.base_url.trim().to_owned()
+            trimmed.to_owned()
         }
     }
 
+    pub fn api_root(&self) -> String {
+        self.provider.api_root(&self.effective_base_url())
+    }
+
     pub fn effective_model(&self) -> String {
-        if self.model.trim().is_empty() {
-            self.provider.default_model().to_owned()
+        let trimmed = self.model.trim();
+        if trimmed.is_empty() {
+            self.provider.default_model().unwrap_or_default().to_owned()
         } else {
-            self.model.trim().to_owned()
+            trimmed.to_owned()
         }
     }
 }
@@ -607,21 +717,43 @@ fn encrypt(crypto: &CryptoEncryption, raw: &str) -> AppResult<String> {
     Ok(crypto.encrypt(raw)?)
 }
 
-/// AiConfigProvider.save: a blank key keeps the stored one; turning AI off clears it.
+/// AiConfigProvider.save: a blank key keeps the stored one only for the same provider;
+/// turning AI off or switching providers clears it.
 pub async fn update_ai(
     State(state): State<AppState>,
-    Json(req): Json<AiRequest>,
+    body: crate::identity::common::JsonBody<AiRequest>,
 ) -> AppResult<StatusCode> {
+    let mut errors = body.errors();
+    let req = body.value;
+    req.validate(&mut errors);
+    if let Some(provider) = AiProvider::from_key(req.provider.as_deref()) {
+        if provider.default_base_url().is_none() {
+            errors.not_blank("baseUrl", req.base_url.as_deref());
+        }
+        if provider.default_model().is_none() {
+            errors.not_blank("model", req.model.as_deref());
+        }
+    }
+    errors.into_result()?;
+
     let provider = req.provider.unwrap_or_default();
-    let disabling = AiProvider::from_key(Some(&provider)).is_none();
-    let key = if disabling {
+    let next_provider = AiProvider::from_key(Some(&provider));
+    let saved_provider =
+        AiProvider::from_key(settings::read(&state, AI_PROVIDER).await?.as_deref());
+    let key = if next_provider.is_none() {
         Some(String::new())
     } else {
         match req.api_key.as_deref().filter(|k| !k.trim().is_empty()) {
             Some(raw) => Some(encrypt(&state.crypto, raw)?),
+            None if saved_provider != next_provider => Some(String::new()),
             None => None,
         }
     };
+    // The key is cleared before the provider is written: a failed or concurrent write must never
+    // leave the old key paired with the host of the new provider.
+    if saved_provider != next_provider {
+        settings::upsert(&state.db, AI_API_KEY, "").await?;
+    }
     settings::upsert(&state.db, AI_PROVIDER, &provider).await?;
     settings::upsert(
         &state.db,
@@ -670,5 +802,178 @@ mod tests {
         };
         let rendered_none = format!("{without_key:?}");
         assert!(rendered_none.contains("api_key: None"));
+    }
+
+    #[test]
+    fn ai_provider_from_key_matches_every_provider_case_insensitively() {
+        assert_eq!(
+            AiProvider::from_key(Some("openai")),
+            Some(AiProvider::OpenAi)
+        );
+        assert_eq!(
+            AiProvider::from_key(Some("openrouter")),
+            Some(AiProvider::OpenRouter)
+        );
+        assert_eq!(
+            AiProvider::from_key(Some("anthropic")),
+            Some(AiProvider::Anthropic)
+        );
+        assert_eq!(
+            AiProvider::from_key(Some("ollama")),
+            Some(AiProvider::Ollama)
+        );
+        assert_eq!(
+            AiProvider::from_key(Some("mistral")),
+            Some(AiProvider::Mistral)
+        );
+        assert_eq!(
+            AiProvider::from_key(Some(" MISTRAL ")),
+            Some(AiProvider::Mistral)
+        );
+        assert_eq!(
+            AiProvider::from_key(Some("gemini")),
+            Some(AiProvider::Gemini)
+        );
+        assert_eq!(
+            AiProvider::from_key(Some("GeMiNi")),
+            Some(AiProvider::Gemini)
+        );
+        assert_eq!(
+            AiProvider::from_key(Some("custom")),
+            Some(AiProvider::Custom)
+        );
+        assert_eq!(
+            AiProvider::from_key(Some("CUSTOM")),
+            Some(AiProvider::Custom)
+        );
+        assert_eq!(AiProvider::from_key(Some("none")), None);
+        assert_eq!(AiProvider::from_key(Some("unknown")), None);
+        assert_eq!(AiProvider::from_key(Some("   ")), None);
+        assert_eq!(AiProvider::from_key(None), None);
+    }
+
+    #[test]
+    fn ai_provider_table_describes_defaults_keys_and_api_roots() {
+        let cases = [
+            (
+                AiProvider::OpenAi,
+                "OPENAI",
+                AiProtocol::OpenAiChat,
+                Some("https://api.openai.com"),
+                Some("gpt-4o-mini"),
+                true,
+                "https://api.openai.com/v1",
+            ),
+            (
+                AiProvider::OpenRouter,
+                "OPENROUTER",
+                AiProtocol::OpenAiChat,
+                Some("https://openrouter.ai/api"),
+                Some("anthropic/claude-3.5-haiku"),
+                true,
+                "https://openrouter.ai/api/v1",
+            ),
+            (
+                AiProvider::Anthropic,
+                "ANTHROPIC",
+                AiProtocol::AnthropicMessages,
+                Some("https://api.anthropic.com"),
+                Some("claude-haiku-4-5"),
+                true,
+                "https://api.anthropic.com/v1",
+            ),
+            (
+                AiProvider::Ollama,
+                "OLLAMA",
+                AiProtocol::Ollama,
+                Some("http://ollama:11434"),
+                Some("qwen3:0.6b"),
+                false,
+                "http://ollama:11434/api",
+            ),
+            (
+                AiProvider::Mistral,
+                "MISTRAL",
+                AiProtocol::OpenAiChat,
+                Some("https://api.mistral.ai"),
+                Some("mistral-small-latest"),
+                true,
+                "https://api.mistral.ai/v1",
+            ),
+            (
+                AiProvider::Gemini,
+                "GEMINI",
+                AiProtocol::OpenAiChat,
+                Some("https://generativelanguage.googleapis.com/v1beta/openai"),
+                Some("gemini-flash-latest"),
+                true,
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+            ),
+            (
+                AiProvider::Custom,
+                "CUSTOM",
+                AiProtocol::OpenAiChat,
+                None,
+                None,
+                false,
+                "https://llm.example/v1",
+            ),
+        ];
+
+        assert_eq!(cases.len(), AiProvider::ALL.len());
+        for (provider, name, protocol, base_url, model, key_required, expected_root) in cases {
+            assert_eq!(provider.name(), name, "{provider:?}");
+            assert_eq!(provider.protocol(), protocol, "{provider:?}");
+            assert_eq!(provider.default_base_url(), base_url, "{provider:?}");
+            assert_eq!(provider.default_model(), model, "{provider:?}");
+            assert_eq!(provider.key_required(), key_required, "{provider:?}");
+            let base = base_url.unwrap_or("https://llm.example/");
+            assert_eq!(provider.api_root(base), expected_root, "{provider:?}");
+        }
+        assert_eq!(
+            AiProvider::Gemini.api_root("https://generativelanguage.googleapis.com/v1beta/openai/"),
+            "https://generativelanguage.googleapis.com/v1beta/openai"
+        );
+    }
+
+    #[test]
+    fn api_root_does_not_duplicate_existing_suffix() {
+        assert_eq!(AiProvider::Ollama.api_root("http://api"), "http://api/api");
+        assert_eq!(
+            AiProvider::OpenAi.api_root("http://localhost:1234/v1"),
+            "http://localhost:1234/v1"
+        );
+        assert_eq!(
+            AiProvider::OpenAi.api_root("http://localhost:1234/v1/"),
+            "http://localhost:1234/v1"
+        );
+        assert_eq!(
+            AiProvider::OpenAi.api_root("http://localhost:1234"),
+            "http://localhost:1234/v1"
+        );
+        assert_eq!(
+            AiProvider::Custom.api_root("http://localhost:1234/v1/"),
+            "http://localhost:1234/v1"
+        );
+        assert_eq!(
+            AiProvider::Gemini.api_root("https://generativelanguage.googleapis.com/v1beta/openai"),
+            "https://generativelanguage.googleapis.com/v1beta/openai"
+        );
+        assert_eq!(
+            AiProvider::Gemini.api_root("https://generativelanguage.googleapis.com/v1beta/openai/"),
+            "https://generativelanguage.googleapis.com/v1beta/openai"
+        );
+        assert_eq!(
+            AiProvider::Ollama.api_root("http://ollama:11434/api"),
+            "http://ollama:11434/api"
+        );
+        assert_eq!(
+            AiProvider::Ollama.api_root("http://ollama:11434/api/"),
+            "http://ollama:11434/api"
+        );
+        assert_eq!(
+            AiProvider::Ollama.api_root("http://ollama:11434"),
+            "http://ollama:11434/api"
+        );
     }
 }

@@ -42,6 +42,8 @@ const FRAMEWORK_ROUTES: &[(&str, &str)] = &[
     ("POST", "/api/revolut/webview/start"),
     ("GET", "/api/revolut/webview/status/{}"),
     ("POST", "/api/revolut/webview/cancel/{}"),
+    // Additive Rust endpoints (not in Java).
+    ("POST", "/api/admin/settings/ai/models"),
 ];
 
 /// Spring and axum share the {name} syntax; a regex constraint ({id:\d+}) and the variable name

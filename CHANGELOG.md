@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   button per platform that always serves the latest version.
 - **Edit a categorization rule.** Each rule in Budget → Manage has an edit button, and the Automate
   menu of the "To categorize" tab has a "Manage rules" entry that opens the rules (#692).
+- **More AI providers.** AI categorization can use Mistral, Google Gemini or any OpenAI-compatible
+  server (key optional, and the base URL may end with `/v1`), next to Anthropic, OpenAI, OpenRouter
+  and Ollama. The backend can list the models that a provider offers. The stored API key is now
+  sent only to the provider and host it was saved for, and a change of provider without a new key
+  clears it.
 
 ### Changed
 
