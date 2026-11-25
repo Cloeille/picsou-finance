@@ -45,7 +45,8 @@ the chunk's results in its own transaction. Progress increments after every chun
 ### Providers and defaults
 
 The admin form pre-fills the base URL, model, and parallel-request defaults when a provider is
-selected (and keeps a user-edited base URL across provider switches):
+selected. A change of provider always starts from the defaults of the new provider, or from the
+saved values when the user comes back to the saved provider:
 
 | Key | Label | Default base URL | Default model | API key | Default parallel requests |
 |---|---|---|---|---|---|

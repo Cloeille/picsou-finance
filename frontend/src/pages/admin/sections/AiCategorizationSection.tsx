@@ -282,19 +282,17 @@ export function AiCategorizationSection({ settings }: { settings: AdminAiSetting
   }
 
   const handleProviderChange = (nextProvider: string, onFieldChange: (value: string) => void) => {
-    const prevProvider = getValues('provider')
-    const prevDefaultUrl = defaultBaseUrlFor(getProviderSpec(prevProvider), desktopMode)
     const nextSpec = getProviderSpec(nextProvider)
-    const nextDefaultUrl = defaultBaseUrlFor(nextSpec, desktopMode)
-    const currentBaseUrl = getValues('baseUrl')
-    const nextBaseUrl =
-      currentBaseUrl.trim() === prevDefaultUrl ? nextDefaultUrl : currentBaseUrl
+    // A URL or a model typed for one provider is wrong for another: each provider starts from its
+    // defaults, and the saved provider from its saved values.
+    const saved = nextProvider === settings.provider ? settings : null
+    const nextBaseUrl = saved?.baseUrl.trim() || defaultBaseUrlFor(nextSpec, desktopMode)
 
     onFieldChange(nextProvider)
     setValue('baseUrl', nextBaseUrl)
-    setValue('model', nextSpec?.model ?? '')
+    setValue('model', saved?.model.trim() || nextSpec?.model || '')
     setValue('apiKey', '')
-    setValue('maxConcurrency', nextSpec?.maxConcurrency ?? 4)
+    setValue('maxConcurrency', saved?.maxConcurrency ?? nextSpec?.maxConcurrency ?? 4)
     clearErrors(['apiKey', 'baseUrl', 'model', 'maxConcurrency'])
     testAi.reset?.()
     listModels.reset?.()

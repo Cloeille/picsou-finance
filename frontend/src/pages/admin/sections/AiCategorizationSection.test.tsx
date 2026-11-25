@@ -244,21 +244,42 @@ describe('AiCategorizationSection', () => {
     })
   })
 
-  it('replaces an unedited base URL on provider change, but keeps a user-edited base URL', () => {
+  it('starts each provider from its default base URL, even after the URL was edited', () => {
     render(<AiCategorizationSection settings={DEFAULT_SETTINGS} />)
     fireEvent.click(screen.getByRole('button', { name: 'admin.ai.addProvider' }))
 
     const select = getProviderSelect()
     const baseUrlInput = screen.getByLabelText('admin.ai.baseUrl')
 
-    // Unedited default is replaced when switching provider
     chooseSelectOption(select, 'openai')
     expect(baseUrlInput).toHaveValue('https://api.openai.com')
 
-    // User-edited URL survives switching to another provider
     fireEvent.change(baseUrlInput, { target: { value: 'https://proxy.example.com/v1' } })
     chooseSelectOption(select, 'mistral')
-    expect(baseUrlInput).toHaveValue('https://proxy.example.com/v1')
+    expect(baseUrlInput).toHaveValue('https://api.mistral.ai')
+  })
+
+  it('restores the saved base URL and model when the user comes back to the saved provider', () => {
+    render(
+      <AiCategorizationSection
+        settings={{
+          provider: 'custom',
+          model: 'local-model',
+          baseUrl: 'http://localhost:1234/v1',
+          apiKeyPresent: false,
+          maxConcurrency: 2,
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'common.edit' }))
+
+    const select = getProviderSelect()
+    chooseSelectOption(select, 'ollama')
+    expect(screen.getByLabelText('admin.ai.baseUrl')).toHaveValue('http://ollama:11434')
+
+    chooseSelectOption(select, 'custom')
+    expect(screen.getByLabelText('admin.ai.baseUrl')).toHaveValue('http://localhost:1234/v1')
+    expect(screen.getByLabelText('admin.ai.model')).toHaveValue('local-model')
   })
 
   it('keeps working for an install saved with openai and its own base URL, and fills defaults when saved base URL is blank', async () => {
