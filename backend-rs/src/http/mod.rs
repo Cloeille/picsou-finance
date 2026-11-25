@@ -44,6 +44,7 @@ const COMPRESSIBLE: &[&str] = &[
     "text/javascript",
     "application/javascript",
     "application/json",
+    "application/manifest+json",
 ];
 
 /// SpaPaths.isBackend: the URL space the SPA never answers.

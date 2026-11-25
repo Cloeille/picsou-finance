@@ -11,8 +11,56 @@ fn site() -> std::path::PathBuf {
     .unwrap();
     std::fs::write(dir.join("assets/index-abc123.js"), "console.log('picsou')").unwrap();
     std::fs::write(dir.join("favicon.svg"), "<svg/>").unwrap();
+    std::fs::write(
+        dir.join("manifest.webmanifest"),
+        r#"{"name":"Picsou","short_name":"Picsou","start_url":"/","display":"standalone"}"#,
+    )
+    .unwrap();
+    std::fs::write(dir.join("apple-touch-icon.png"), b"\x89PNG\r\n\x1a\n").unwrap();
     std::fs::write(dir.with_extension("secret"), "nope").unwrap();
     dir
+}
+
+#[tokio::test]
+async fn serves_the_web_manifest_and_touch_icon_with_expected_headers() {
+    let dir = site();
+    let app = TestApp::builder()
+        .env("SPA_LOCATION", dir.display().to_string())
+        .spawn()
+        .await;
+    let client = app.client();
+
+    let manifest = client.get("/manifest.webmanifest").send().await;
+    assert_eq!(manifest.status, StatusCode::OK);
+    assert_eq!(
+        manifest.header("content-type"),
+        Some("application/manifest+json")
+    );
+    assert_eq!(manifest.header("cache-control"), Some("no-cache"));
+    assert_eq!(manifest.header("x-content-type-options"), Some("nosniff"));
+    assert!(
+        manifest
+            .header("content-security-policy")
+            .unwrap()
+            .contains("default-src 'self'"),
+        "CSP must allow same-origin manifest"
+    );
+    assert_eq!(manifest.json()["short_name"], "Picsou");
+
+    let icon = client.get("/apple-touch-icon.png").send().await;
+    assert_eq!(icon.status, StatusCode::OK);
+    assert_eq!(icon.header("content-type"), Some("image/png"));
+    assert_eq!(icon.header("cache-control"), Some("no-cache"));
+
+    let missing_manifest = client.get("/missing.webmanifest").send().await;
+    assert_eq!(
+        missing_manifest.status,
+        StatusCode::NOT_FOUND,
+        "a missing .webmanifest must 404 instead of falling back to index.html"
+    );
+
+    let _ = std::fs::remove_file(dir.with_extension("secret"));
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[tokio::test]
