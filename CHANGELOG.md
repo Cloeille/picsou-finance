@@ -36,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Natixis Interépargne (desktop app): logins asked to register a passkey now complete.** The
+  in-process Rust connector used by the desktop app (and when `APP_NATIVE_SIDECARS=true`) now puts
+  off Natixis's passkey registration prompt ("later") and retries the profile check instead of
+  failing with an upstream format error (#686, #688).
 - **Manual PER and life insurance accounts.** A manual PER or life insurance account now offers the
   buy and sell form, so a fund position can be entered without a detour through a securities
   account.

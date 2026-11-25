@@ -198,6 +198,10 @@ spending. The rows stay visible on the account page and in exports.
   best effort, 10 s). When this happens through an account deletion, the call runs inside
   that deletion's transaction.
 - **Dev port: 8015** (`application-dev.yml`).
+- **In-process Rust sidecar (`backend-rs/src/native_sidecars/natixis/mod.rs`):** used by the
+  desktop app (and when `APP_NATIVE_SIDECARS=true`), mirrors the same
+  `WEBAUTHN_REGISTRATION_REQUIRED` passkey registration skip (`SHORT` / `BY_USER`) and single
+  profile-check retry.
 
 ## Tests
 
