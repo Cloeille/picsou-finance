@@ -808,6 +808,7 @@ async fn upsert_account(
             }
             account.requisition_id = Some(req.id);
             refresh_card_identity(&mut account, data);
+            refresh_savings_type(&mut account, data);
             accounts::update(&mut *conn, &account, now).await?
         }
         None => {
@@ -861,6 +862,16 @@ async fn upsert_account(
         .to_response(state, conn, &account)
         .await?;
     Ok(Some(response))
+}
+
+/// Brings a savings account synced before the provider's savings type was read up to date, as
+/// [`refresh_card_identity`] does for cards: a still-Checking account becomes Savings, any other
+/// type is the member's choice and is kept. Checking cannot be told apart from the old default,
+/// so a savings account set back to it by hand is upgraded again.
+fn refresh_savings_type(account: &mut Account, data: &AccountData) {
+    if data.account_type == AccountType::Savings && account.account_type == AccountType::Checking {
+        account.account_type = AccountType::Savings;
+    }
 }
 
 /// Brings an account synced before the provider's card type was read up to date (#664): a

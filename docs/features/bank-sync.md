@@ -1,6 +1,6 @@
 # Feature: Bank Sync
 
-> Last updated: 2026-10-31 (merged account attribution, provider scope, and currency-aware matching)
+> Last updated: 2026-11-25 (savings accounts from `cash_account_type` `SVGS`)
 
 > **Status (1.3.0).** Enable Banking is the only provider. The Powens adapter of
 > the Java backend was experimental and untested, and was not carried over to the
@@ -335,11 +335,12 @@ Every public method of `EnableBankingBankConnector` maps **all** provider failur
 
 ### Account type detection
 
-The connector reports the type in `AccountData.type`. Enable Banking maps only the ISO 20022
-`cash_account_type` `CARD` to `CREDIT_CARD`; every other value (`CACC`, `SVGS`, `LOAN`…) and
-every Powens account stay `CHECKING`. Mapping the other codes would retype accounts for every
-Enable Banking user and is a separate change. There is no `detectType()`: the dual-bank-providers
-ADR describes an earlier intent.
+The connector reports the type in `AccountData.type`. Enable Banking maps the ISO 20022
+`cash_account_type` `CARD` to `CREDIT_CARD` and `SVGS` to `SAVINGS` (a passbook; Wise sends it
+for each jar), both case-insensitive. Every other value (`CACC`, `LOAN`, `TRAS`…), a missing one
+and every Powens account stay `CHECKING`. `SVGS` is read on every balance path, the fallback
+(shared-list) one included: unlike a card's, a savings account's balance needs no sign
+convention. There is no `detectType()`: the dual-bank-providers ADR describes an earlier intent.
 
 A card's nature comes from its `details` token, case-insensitive: `immediat_debit` is
 `IMMEDIATE_DEBIT`, `delayed_debit` is `DEFERRED_DEBIT`, anything else leaves it unknown. Enable
@@ -350,6 +351,19 @@ card when the bank says `CARD` and fills in an unknown card nature. A type other
 and a known nature are never changed; `CHECKING` cannot be told apart from the old default, so a
 card the user set back to it by hand is upgraded again. Accounts are never turned back from a card
 into `CHECKING`.
+
+`SyncService.refreshSavingsType()` (`refresh_savings_type`) does the same for savings: a
+still-`CHECKING` account the bank declares `SVGS` becomes `SAVINGS`, any other stored type is the
+user's choice and is kept, and a savings account set back to `CHECKING` by hand is upgraded
+again. An account the bank stops declaring `SVGS` is never turned back into `CHECKING`.
+
+Known gaps:
+- **A Wise jar invested in stocks is typed `SAVINGS`.** Enable Banking sends it as `SVGS` with its
+  market value and nothing that tells it from a cash jar, so it lands in the safety net. Only the
+  Wise API says a jar is invested (#685).
+- **A bank that sends `SVGS` for a current account** gets it typed `SAVINGS`, and it stays so on
+  every sync even after the user sets it back to `CHECKING`; its debits then leave the expense
+  analysis, which reads `CHECKING` accounts only. Setting another type (e.g. `OTHER`) sticks.
 
 Known gaps (#664 follow-ups):
 - **Immediate-debit purchases count twice in the budget.** Boursorama lists each purchase both on

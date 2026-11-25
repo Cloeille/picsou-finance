@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Enable Banking: savings accounts are imported as savings.** An account the bank declares as
+  savings (a passbook, a Wise jar) was imported as a current account, so it stayed out of the
+  safety net of the wealth pyramid. It is now a savings account. Accounts already imported this
+  way are fixed on the next sync; a type other than current account, chosen by hand, is kept.
+
 ## [1.3.0] — 2026-11-24
 
 ### Added
