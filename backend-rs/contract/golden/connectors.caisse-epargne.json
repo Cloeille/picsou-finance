@@ -1,0 +1,979 @@
+{
+  "description": "Caisse d'Epargne: keypad login steps, validation, budgets, sync and stored session states, member isolation",
+  "scenario": "connectors.caisse-epargne",
+  "steps": [
+    {
+      "body": {
+        "isActive": false,
+        "remembered": false,
+        "syncStatus": "IDLE",
+        "unsupported": [],
+        "unsupportedCount": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "06 GET /api/caisse-epargne/status as admin"
+    },
+    {
+      "body": {
+        "detail": "Authentication required",
+        "status": 401,
+        "title": "Unauthorized"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json;charset=ISO-8859-1",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401,
+      "step": "07 GET /api/caisse-epargne/status as anon"
+    },
+    {
+      "body": {
+        "code": "UPSTREAM_UNAVAILABLE",
+        "detail": "Caisse d'Epargne is temporarily unavailable",
+        "instance": "/api/caisse-epargne/auth/initiate",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "08 POST /api/caisse-epargne/auth/initiate as admin"
+    },
+    {
+      "body": {
+        "detail": "The Caisse d'Epargne request is not valid",
+        "instance": "/api/caisse-epargne/auth/initiate",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "09 POST /api/caisse-epargne/auth/initiate as admin"
+    },
+    {
+      "body": {
+        "detail": "The Caisse d'Epargne request is not valid",
+        "instance": "/api/caisse-epargne/auth/initiate",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "10 POST /api/caisse-epargne/auth/initiate as admin"
+    },
+    {
+      "body": {
+        "detail": "The Caisse d'Epargne request is not valid",
+        "instance": "/api/caisse-epargne/auth/initiate",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "11 POST /api/caisse-epargne/auth/initiate as admin"
+    },
+    {
+      "body": {
+        "detail": "The Caisse d'Epargne request is not valid",
+        "instance": "/api/caisse-epargne/auth/initiate",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "12 POST /api/caisse-epargne/auth/initiate as admin"
+    },
+    {
+      "body": {
+        "detail": "Failed to read request",
+        "instance": "/api/caisse-epargne/auth/initiate",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "13 POST /api/caisse-epargne/auth/initiate as admin"
+    },
+    {
+      "body": {
+        "code": "INVALID_CREDENTIALS",
+        "detail": "No Caisse d'Epargne identifier is remembered. Please enter it.",
+        "instance": "/api/caisse-epargne/auth/initiate",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "14 POST /api/caisse-epargne/auth/initiate as admin"
+    },
+    {
+      "body": {
+        "code": "UPSTREAM_UNAVAILABLE",
+        "detail": "Caisse d'Epargne is temporarily unavailable",
+        "instance": "/api/caisse-epargne/auth/initiate",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "15 POST /api/caisse-epargne/auth/initiate as admin"
+    },
+    {
+      "body": {
+        "detail": "Too many Caisse d'Epargne sign-in attempts. Please wait before retrying.",
+        "instance": "/api/caisse-epargne/auth/initiate",
+        "status": 429,
+        "title": "Too Many Requests",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "retry-after": "900",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 429,
+      "step": "16 POST /api/caisse-epargne/auth/initiate as admin"
+    },
+    {
+      "body": {
+        "code": "AUTH_ATTEMPT_EXPIRED",
+        "detail": "This Caisse d'Epargne sign-in attempt expired. Please start again.",
+        "instance": "/api/caisse-epargne/auth/keypad",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "17 POST /api/caisse-epargne/auth/keypad as admin"
+    },
+    {
+      "body": {
+        "detail": "The Caisse d'Epargne request is not valid",
+        "instance": "/api/caisse-epargne/auth/keypad",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "18 POST /api/caisse-epargne/auth/keypad as admin"
+    },
+    {
+      "body": {
+        "detail": "The Caisse d'Epargne request is not valid",
+        "instance": "/api/caisse-epargne/auth/keypad",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "19 POST /api/caisse-epargne/auth/keypad as admin"
+    },
+    {
+      "body": {
+        "detail": "The Caisse d'Epargne request is not valid",
+        "instance": "/api/caisse-epargne/auth/keypad",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "20 POST /api/caisse-epargne/auth/keypad as admin"
+    },
+    {
+      "body": {
+        "detail": "The Caisse d'Epargne request is not valid",
+        "instance": "/api/caisse-epargne/auth/keypad",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "21 POST /api/caisse-epargne/auth/keypad as admin"
+    },
+    {
+      "body": {
+        "detail": "The Caisse d'Epargne request is not valid",
+        "instance": "/api/caisse-epargne/auth/keypad",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "22 POST /api/caisse-epargne/auth/keypad as admin"
+    },
+    {
+      "body": {
+        "code": "AUTH_ATTEMPT_EXPIRED",
+        "detail": "This Caisse d'Epargne sign-in attempt expired. Please start again.",
+        "instance": "/api/caisse-epargne/auth/keypad",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "23 POST /api/caisse-epargne/auth/keypad as admin"
+    },
+    {
+      "body": {
+        "code": "AUTH_ATTEMPT_EXPIRED",
+        "detail": "This Caisse d'Epargne sign-in attempt expired. Please start again.",
+        "instance": "/api/caisse-epargne/auth/keypad",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "24 POST /api/caisse-epargne/auth/keypad as admin"
+    },
+    {
+      "body": {
+        "code": "AUTH_ATTEMPT_EXPIRED",
+        "detail": "This Caisse d'Epargne sign-in attempt expired. Please start again.",
+        "instance": "/api/caisse-epargne/auth/keypad",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "25 POST /api/caisse-epargne/auth/keypad as admin"
+    },
+    {
+      "body": {
+        "code": "AUTH_ATTEMPT_EXPIRED",
+        "detail": "This Caisse d'Epargne sign-in attempt expired. Please start again.",
+        "instance": "/api/caisse-epargne/auth/keypad",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "26 POST /api/caisse-epargne/auth/keypad as admin"
+    },
+    {
+      "body": {
+        "detail": "Too many Caisse d'Epargne keypad requests. Please wait before retrying.",
+        "instance": "/api/caisse-epargne/auth/keypad",
+        "status": 429,
+        "title": "Too Many Requests",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "retry-after": "900",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 429,
+      "step": "27 POST /api/caisse-epargne/auth/keypad as admin"
+    },
+    {
+      "body": {
+        "code": "AUTH_ATTEMPT_EXPIRED",
+        "detail": "This Caisse d'Epargne sign-in attempt expired. Please start again.",
+        "instance": "/api/caisse-epargne/auth/complete",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "28 POST /api/caisse-epargne/auth/complete as admin"
+    },
+    {
+      "body": {
+        "detail": "The Caisse d'Epargne request is not valid",
+        "instance": "/api/caisse-epargne/auth/complete",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "29 POST /api/caisse-epargne/auth/complete as admin"
+    },
+    {
+      "body": {
+        "detail": "The Caisse d'Epargne request is not valid",
+        "instance": "/api/caisse-epargne/auth/complete",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "30 POST /api/caisse-epargne/auth/complete as admin"
+    },
+    {
+      "body": {
+        "code": "SESSION_EXPIRED",
+        "detail": "No active Caisse d'Epargne session. Please reconnect.",
+        "instance": "/api/caisse-epargne/sync",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "31 POST /api/caisse-epargne/sync as admin"
+    },
+    {
+      "body": {
+        "bankSessionRevoked": false,
+        "message": "The stored session was deleted from Picsou. The Caisse d'Epargne session itself is not revoked and may remain active until it expires.",
+        "removed": false
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "32 DELETE /api/caisse-epargne/session as admin"
+    },
+    {
+      "body": {
+        "isActive": false,
+        "lastSyncCompletedAt": "<instant>",
+        "lastSyncError": "SESSION_EXPIRED",
+        "lastSyncStartedAt": "<instant>",
+        "remembered": false,
+        "syncStatus": "FAILED",
+        "unsupported": [
+          {
+            "externalId": "ce_9",
+            "familyCode": "AV"
+          },
+          {
+            "externalId": "x",
+            "familyCode": "?"
+          }
+        ],
+        "unsupportedCount": 2
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "34 GET /api/caisse-epargne/status as admin"
+    },
+    {
+      "body": {
+        "isActive": false,
+        "remembered": false,
+        "syncStatus": "IDLE",
+        "unsupported": [],
+        "unsupportedCount": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "35 GET /api/caisse-epargne/status as member"
+    },
+    {
+      "body": {
+        "code": "SESSION_EXPIRED",
+        "detail": "The Caisse d'Epargne session expired. Please reconnect.",
+        "instance": "/api/caisse-epargne/sync",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "36 POST /api/caisse-epargne/sync as admin"
+    },
+    {
+      "body": {
+        "bankSessionRevoked": false,
+        "message": "The stored session was deleted from Picsou. The Caisse d'Epargne session itself is not revoked and may remain active until it expires.",
+        "removed": false
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "37 DELETE /api/caisse-epargne/session as member"
+    },
+    {
+      "body": {
+        "isActive": false,
+        "lastSyncCompletedAt": "<instant>",
+        "lastSyncError": "SESSION_EXPIRED",
+        "lastSyncStartedAt": "<instant>",
+        "remembered": false,
+        "syncStatus": "FAILED",
+        "unsupported": [
+          {
+            "externalId": "ce_9",
+            "familyCode": "AV"
+          },
+          {
+            "externalId": "x",
+            "familyCode": "?"
+          }
+        ],
+        "unsupportedCount": 2
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "38 GET /api/caisse-epargne/status as admin"
+    },
+    {
+      "body": {
+        "isActive": true,
+        "lastSyncCompletedAt": "<instant>",
+        "lastSyncStartedAt": "<instant>",
+        "remembered": false,
+        "syncStatus": "SUCCESS",
+        "unsupported": [
+          {
+            "externalId": "ce_9",
+            "familyCode": "AV"
+          },
+          {
+            "externalId": "x",
+            "familyCode": "?"
+          }
+        ],
+        "unsupportedCount": 2
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "40 GET /api/caisse-epargne/status as admin"
+    },
+    {
+      "body": {
+        "code": "INVALID_SESSION_STATE",
+        "detail": "The stored Caisse d'Epargne session is unusable. Please reconnect.",
+        "instance": "/api/caisse-epargne/sync",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "41 POST /api/caisse-epargne/sync as admin"
+    },
+    {
+      "body": {
+        "isActive": false,
+        "lastSyncCompletedAt": "<instant>",
+        "lastSyncError": "INVALID_SESSION_STATE",
+        "remembered": false,
+        "syncStatus": "FAILED",
+        "unsupported": [
+          {
+            "externalId": "ce_9",
+            "familyCode": "AV"
+          },
+          {
+            "externalId": "x",
+            "familyCode": "?"
+          }
+        ],
+        "unsupportedCount": 2
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "42 GET /api/caisse-epargne/status as admin"
+    },
+    {
+      "body": {
+        "isActive": true,
+        "remembered": false,
+        "syncStatus": "QUEUED",
+        "unsupported": [
+          {
+            "externalId": "ce_9",
+            "familyCode": "AV"
+          },
+          {
+            "externalId": "x",
+            "familyCode": "?"
+          }
+        ],
+        "unsupportedCount": 2
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 202,
+      "step": "44 POST /api/caisse-epargne/sync as admin"
+    },
+    {
+      "body": {
+        "bankSessionRevoked": false,
+        "message": "The stored session was deleted from Picsou. The Caisse d'Epargne session itself is not revoked and may remain active until it expires.",
+        "removed": true
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "45 DELETE /api/caisse-epargne/session as admin"
+    },
+    {
+      "body": {
+        "isActive": false,
+        "remembered": false,
+        "syncStatus": "IDLE",
+        "unsupported": [],
+        "unsupportedCount": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "46 GET /api/caisse-epargne/status as admin"
+    }
+  ]
+}

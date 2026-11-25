@@ -6,11 +6,30 @@
 
 Track bank accounts, brokerage, crypto, and net worth — all in one place.
 
+[![macOS (Apple Silicon)](https://img.shields.io/badge/Download-macOS%20%28Apple%20Silicon%29-2563eb?style=for-the-badge)](https://github.com/Cloeille/picsou-finance/releases/latest/download/Picsou-macOS-arm64.dmg)
+[![Windows](https://img.shields.io/badge/Download-Windows-2563eb?style=for-the-badge)](https://github.com/Cloeille/picsou-finance/releases/latest/download/Picsou-Windows-x64.exe)
+[![Linux](https://img.shields.io/badge/Download-Linux-2563eb?style=for-the-badge)](https://github.com/Cloeille/picsou-finance/releases/latest/download/Picsou-Linux-x64.AppImage)
+
 [![License: Apache 2.0 + Commons Clause](https://img.shields.io/badge/License-Apache%202.0%20%2B%20Commons%20Clause-blue.svg)](LICENSE)
 
-[Getting started](#getting-started) · [Screenshots](#screenshots) · [Features](#features) · [Another machine](#another-machine) · [Development](#development) · [Security](SECURITY.md)
+[Download](#desktop-app) · [Getting started](#getting-started) · [Screenshots](#screenshots) · [Features](#features) · [Another machine](#another-machine) · [Development](#development) · [Security](SECURITY.md)
 
 </div>
+
+---
+
+## Desktop app
+
+Picsou is a personal finance dashboard. It shows your bank accounts, investments, crypto, real estate and net worth in one place. The desktop app is the simplest way to use it. It installs like any other program, with no Docker, no server and no terminal.
+
+- **Your data on your computer.** Picsou stores it in a local database on your machine. No online account is needed.
+- **Your banks in the app.** The bank connections run inside the app. Some of them use a browser component of about 150 MB, which the app downloads once in the background after the first launch.
+- **Automatic updates.** The app checks for new versions in the background. You install them from the tray menu.
+- **First launch.** The installers are not signed yet, so macOS Gatekeeper or Windows SmartScreen asks you to confirm the first launch. The [opening guide](docs/features/desktop-app.md#opening-the-unsigned-desktop-app-macos-gatekeeper--windows-smartscreen) shows each step.
+
+Use the download buttons above for macOS on Apple Silicon (Intel Macs are not supported), Windows 64-bit, or Linux x86_64 (AppImage).
+
+The desktop app serves one computer. For a family server, or to reach Picsou from your phone and other devices, [self-host it with Docker](#getting-started).
 
 ---
 
@@ -64,8 +83,8 @@ Track bank accounts, brokerage, crypto, and net worth — all in one place.
 
 ```
 ┌──────────────────┐     ┌───────────────────────┐     ┌────────────┐
-│  React Frontend  │────▶│  Spring Boot Backend   │────▶│ PostgreSQL │
-│   (Vite/Bun)     │◀────│     (Tomcat :8080)     │     │  (:5432)   │
+│  React Frontend  │────▶│     Rust Backend       │────▶│ PostgreSQL │
+│   (Vite/Bun)     │◀────│      (Axum :8080)      │     │ or SQLite  │
 └──────────────────┘     └───────────┬────────────┘     └────────────┘
                                      │
                       ┌──────────────┼──────────────┬──────────────┐
@@ -80,12 +99,14 @@ Modules, data flows and key constraints: [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Java 21, Spring Boot 3.5, Maven |
+| Backend | Rust (Axum, Tokio, sqlx) |
 | Frontend | React 19, TypeScript 5.9, Vite 8, Tailwind v4, Bun |
-| Database | PostgreSQL 16, Flyway |
-| Runtime | Docker (one non-root Spring Boot process) |
+| Database | PostgreSQL 16, or embedded SQLite (desktop app, single-container Docker) |
+| Runtime | Docker (one non-root process), or the desktop app (Tauri) |
 
 ## Getting started
+
+> Want the desktop app instead of Docker? See [Desktop app](#desktop-app).
 
 ### Prerequisites
 
@@ -168,6 +189,48 @@ Use the [migration-safe deployment workflow](docs/features/docker-deployment.md#
 to rehearse migrations on a restored backup, migrate the live database, and verify the API
 before declaring the release ready. Keep Flyway enabled; a historical
 `SPRING_FLYWAY_ENABLED=false` workaround is not a migration strategy.
+
+### 2b. Single-Container SQLite Mode (optional, no PostgreSQL)
+
+Want the lightest possible self-hosted setup with a single container and a single `/data` volume? Picsou can run directly on an embedded SQLite database (`DATABASE_URL=sqlite:///data/picsou.db`) instead of PostgreSQL, with the 6 pure-HTTP bank connectors compiled natively in-process (`APP_NATIVE_SIDECARS=true`):
+
+```bash
+docker compose -f docker/compose.sqlite.yml pull
+docker compose -f docker/compose.sqlite.yml up -d
+```
+
+Or without Compose, as a single `docker run`:
+
+```bash
+docker run -d --name picsou --restart unless-stopped \
+  -p 8080:8080 \
+  -e DATABASE_URL=sqlite:///data/picsou.db \
+  -e APP_NATIVE_SIDECARS=true \
+  -v picsou_data:/data \
+  ghcr.io/cloeille/picsou-finance:latest
+```
+
+Everything persists under `/data` (`picsou.db`, `.secrets/`, and `keys/`). PostgreSQL (`docker/docker-compose.yml` and the Helm chart) remains the default for multi-container deployments and browser-based bank sidecars.
+
+> [!TIP]
+> **Opting into native connectors on PostgreSQL / Helm:** The 6 pure-HTTP Python sidecars (`bourso-auth`, `cic-auth`, `cmes-auth`, `degiro-auth`, `natixis-auth`, `sofidy-auth`) are deprecated and scheduled for removal in the next release. Docker Compose users can opt into the in-process Rust implementations today by setting `APP_NATIVE_SIDECARS=true` in `docker/.env`; Helm users can set `nativeSidecars: true` in `charts/picsou/values.yaml`. Explicit `<BANK>_AUTH_URL` variables continue to take precedence when set.
+
+#### Backing up SQLite
+
+SQLite runs in WAL mode (`picsou.db`, `picsou.db-wal`, `picsou.db-shm`). **Never hot-copy `/data/picsou.db` with `cp` or `tar` while the container is running**: copying a live WAL database mid-write can produce an inconsistent or corrupt backup.
+
+Choose one of two safe methods (and always back up `/data/.secrets/` alongside the database so stored bank sessions and API keys remain decryptable):
+
+1. **Online backup (no downtime)** using SQLite's backup API:
+   ```bash
+   sqlite3 /path/to/data/picsou.db ".backup '/path/to/backups/picsou.db'"
+   ```
+2. **Cold backup (brief stop)** for named Docker volumes:
+   ```bash
+   docker compose -f docker/compose.sqlite.yml stop app
+   # Copy /data/picsou.db (plus -wal / -shm if present) and /data/.secrets/
+   docker compose -f docker/compose.sqlite.yml start app
+   ```
 
 ### 3. HTTPS (decide before the first launch)
 
@@ -300,7 +363,7 @@ curl -sI https://picsou.example.com/ | grep -i strict-transport
 
 Exactly one `Strict-Transport-Security` line when enabled, none when disabled.
 
-In this image Spring Boot is the only emitter, gated by `HSTS_ENABLED`, and it sends the header
+In this image the backend is the only emitter, gated by `HSTS_ENABLED`, and it sends the header
 once on every response over HTTPS. To check the backend without the proxy in front, ask it
 directly from inside the container (`curl` is in the base image). The backend applies
 `X-Forwarded-Proto` from any peer, so the loopback request below counts as HTTPS; it prints one
@@ -392,7 +455,9 @@ cp docker/.env.example docker/.env
 
 | Variable | When to set | Description |
 |----------|-------------|-------------|
+| `DATABASE_URL` | Embedded SQLite or custom DB URI | `sqlite:///data/picsou.db` for single-container embedded SQLite mode, or a `postgres://` / `postgresql://` URL. Takes precedence over `SPRING_DATASOURCE_URL` |
 | `COMPOSE_PROFILES` | To enable connectors or TLS | Comma-separated connector profiles (`bourso,revolut`), optionally including `tls`, or `all-connectors`. Empty: app and database only |
+| `APP_NATIVE_SIDECARS` | Skip Python containers for 6 banks | `true` runs BoursoBank, CIC, CMES, DEGIRO, Natixis and Sofidy natively in-process in Rust without starting their Python sidecars (defaults to `false`) |
 | `APP_SIDECAR_API_KEY` | When a connector is enabled | `openssl rand -base64 32`. Shared by the app and every enabled `*-auth` sidecar; recreate them together after a rotation |
 | `POSTGRES_PASSWORD` | Before the first start | Strong random password, shared by the app and PostgreSQL (default `picsou`) |
 | `JWT_SECRET` | Override auto-gen | `openssl rand -base64 48` |

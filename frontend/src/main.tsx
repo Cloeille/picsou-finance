@@ -5,10 +5,12 @@ import { RouterProvider } from 'react-router/dom'
 import { Providers } from './app/providers'
 import { router } from './app/routes'
 import { initSystemThemeListener, applyTheme, getStoredTheme } from './lib/theme'
+import { installChunkReloadListener } from './lib/chunk-reload'
 import { ErrorBoundary } from './components/shared/ErrorBoundary'
 import { ConnectionGuard } from './components/shared/ConnectionGuard'
 import './index.css'
 
+installChunkReloadListener()
 initSystemThemeListener()
 applyTheme(getStoredTheme())
 

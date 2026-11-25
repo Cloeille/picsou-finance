@@ -35,11 +35,11 @@ understate them by that premium, so they are priced as coins, not as metal.
 
 ### Key files
 
-- `backend/.../model/PreciousMetal.java`: the catalogue (ticker, name, unit, Loomis slug)
-- `backend/.../adapter/PreciousMetalPriceProvider.java`: spot and coin quotes behind `PriceProviderPort`
-- `backend/.../adapter/CompositePriceProvider.java`: routes `GOLD:` tickers to it
-- `backend/.../controller/PriceController.java`: `GET /api/prices/precious-metals` (the catalogue)
-- `backend/src/main/resources/db/migration/V123__account_type_precious_metals.sql`
+- `backend-rs/src/market/metals.rs`: the catalogue (ticker, name, unit, Loomis slug)
+- `backend-rs/src/market/metals.rs`: spot and coin quotes behind `PriceProviderPort`
+- `backend-rs/src/market/prices.rs`: routes `GOLD:` tickers to it
+- `PriceController.java`: `GET /api/prices/precious-metals` (the catalogue)
+- `backend-rs/migrations/V123__account_type_precious_metals.sql`
 - `frontend/src/components/shared/AddTransactionModal.tsx`: product picker on a metals account
 
 ### Flow

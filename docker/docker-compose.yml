@@ -35,7 +35,7 @@ services:
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-picsou}?sslmode=prefer
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-picsou}
-      # Match the database service fallback. application.yml reads
+      # Match the database service fallback. The backend reads
       # SPRING_DATASOURCE_PASSWORD, then POSTGRES_PASSWORD, so this is also the
       # datasource password unless SPRING_DATASOURCE_PASSWORD is set.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-picsou}
@@ -43,10 +43,20 @@ services:
       # Opt-in anonymous telemetry: empty DSN = feature fully inactive (docs/features/telemetry.md)
       APP_TELEMETRY_DSN: ${APP_TELEMETRY_DSN:-}
       APP_TELEMETRY_ENVIRONMENT: ${APP_TELEMETRY_ENVIRONMENT:-production}
-      # Must match the proxy's exact address on tls-proxy below. It is Tomcat's only
+      # Must match the proxy's exact address on tls-proxy below. It is the backend's only
       # trusted forwarded-address peer.
       PICSOU_PROXY_IP: ${PICSOU_PROXY_IP:-172.30.253.2}
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
+      # Optional: set APP_NATIVE_SIDECARS=true in docker/.env to run the 6 pure-HTTP
+      # connectors (bourso, cic, cmes, degiro, natixis, sofidy) natively in-process
+      # without spinning up their Python sidecar containers.
+      APP_NATIVE_SIDECARS: ${APP_NATIVE_SIDECARS:-false}
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/picsou", "healthcheck"]
+      interval: 30s
+      timeout: 3s
+      start_period: 15s
+      retries: 3
     depends_on:
       db:
         condition: service_started
@@ -173,6 +183,7 @@ services:
     volumes:
       - revolut_profiles:/data/revolut-profiles
 
+  # Deprecated in favor of APP_NATIVE_SIDECARS=true (runs natively in-process in the app).
   bourso-auth:
     image: ghcr.io/cloeille/picsou-finance/bourso-auth:latest
     profiles: ["bourso", "all-connectors"]
@@ -311,6 +322,7 @@ services:
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
 
+  # Deprecated in favor of APP_NATIVE_SIDECARS=true (runs natively in-process in the app).
   sofidy-auth:
     image: ghcr.io/cloeille/picsou-finance/sofidy-auth:latest
     profiles: ["sofidy", "all-connectors"]
@@ -340,6 +352,7 @@ services:
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
 
+  # Deprecated in favor of APP_NATIVE_SIDECARS=true (runs natively in-process in the app).
   degiro-auth:
     image: ghcr.io/cloeille/picsou-finance/degiro-auth:latest
     profiles: ["degiro", "all-connectors"]
@@ -354,6 +367,7 @@ services:
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
 
+  # Deprecated in favor of APP_NATIVE_SIDECARS=true (runs natively in-process in the app).
   cmes-auth:
     image: ghcr.io/cloeille/picsou-finance/cmes-auth:latest
     profiles: ["cmes", "all-connectors"]
@@ -368,6 +382,7 @@ services:
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
 
+  # Deprecated in favor of APP_NATIVE_SIDECARS=true (runs natively in-process in the app).
   natixis-auth:
     image: ghcr.io/cloeille/picsou-finance/natixis-auth:latest
     profiles: ["natixis", "all-connectors"]
@@ -382,6 +397,7 @@ services:
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
 
+  # Deprecated in favor of APP_NATIVE_SIDECARS=true (runs natively in-process in the app).
   cic-auth:
     image: ghcr.io/cloeille/picsou-finance/cic-auth:latest
     profiles: ["cic", "all-connectors"]

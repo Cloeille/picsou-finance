@@ -1,0 +1,822 @@
+{
+  "description": "La Banque Postale: keypad login steps, strict validation, per-IP budgets, sync without and with stored sessions, member isolation",
+  "scenario": "connectors.lbp",
+  "steps": [
+    {
+      "body": {
+        "isActive": false,
+        "syncStatus": "IDLE",
+        "unsupported": [],
+        "unsupportedCount": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "06 GET /api/lbp/status as admin"
+    },
+    {
+      "body": {
+        "detail": "Authentication required",
+        "status": 401,
+        "title": "Unauthorized"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json;charset=ISO-8859-1",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401,
+      "step": "07 GET /api/lbp/status as anon"
+    },
+    {
+      "body": {
+        "code": "UPSTREAM_UNAVAILABLE",
+        "detail": "La Banque Postale is temporarily unavailable",
+        "instance": "/api/lbp/auth/initiate",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "08 POST /api/lbp/auth/initiate as admin"
+    },
+    {
+      "body": {
+        "detail": "The La Banque Postale request is not valid",
+        "instance": "/api/lbp/auth/initiate",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "09 POST /api/lbp/auth/initiate as admin"
+    },
+    {
+      "body": {
+        "detail": "The La Banque Postale request is not valid",
+        "instance": "/api/lbp/auth/initiate",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "10 POST /api/lbp/auth/initiate as admin"
+    },
+    {
+      "body": {
+        "detail": "The La Banque Postale request is not valid",
+        "instance": "/api/lbp/auth/initiate",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "11 POST /api/lbp/auth/initiate as admin"
+    },
+    {
+      "body": {
+        "detail": "The La Banque Postale request is not valid",
+        "instance": "/api/lbp/auth/initiate",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "12 POST /api/lbp/auth/initiate as admin"
+    },
+    {
+      "body": {
+        "code": "UPSTREAM_UNAVAILABLE",
+        "detail": "La Banque Postale is temporarily unavailable",
+        "instance": "/api/lbp/auth/initiate",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "13 POST /api/lbp/auth/initiate as admin"
+    },
+    {
+      "body": {
+        "code": "UPSTREAM_UNAVAILABLE",
+        "detail": "La Banque Postale is temporarily unavailable",
+        "instance": "/api/lbp/auth/initiate",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "14 POST /api/lbp/auth/initiate as admin"
+    },
+    {
+      "body": {
+        "detail": "Too many La Banque Postale sign-in attempts. Please wait before retrying.",
+        "instance": "/api/lbp/auth/initiate",
+        "status": 429,
+        "title": "Too Many Requests",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "retry-after": "900",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 429,
+      "step": "15 POST /api/lbp/auth/initiate as admin"
+    },
+    {
+      "body": {
+        "code": "AUTH_ATTEMPT_EXPIRED",
+        "detail": "This La Banque Postale sign-in attempt expired. Please start again.",
+        "instance": "/api/lbp/auth/keypad",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "16 POST /api/lbp/auth/keypad as admin"
+    },
+    {
+      "body": {
+        "detail": "The La Banque Postale request is not valid",
+        "instance": "/api/lbp/auth/keypad",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "17 POST /api/lbp/auth/keypad as admin"
+    },
+    {
+      "body": {
+        "detail": "The La Banque Postale request is not valid",
+        "instance": "/api/lbp/auth/keypad",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "18 POST /api/lbp/auth/keypad as admin"
+    },
+    {
+      "body": {
+        "detail": "The La Banque Postale request is not valid",
+        "instance": "/api/lbp/auth/keypad",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "19 POST /api/lbp/auth/keypad as admin"
+    },
+    {
+      "body": {
+        "code": "AUTH_ATTEMPT_EXPIRED",
+        "detail": "This La Banque Postale sign-in attempt expired. Please start again.",
+        "instance": "/api/lbp/auth/keypad",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "20 POST /api/lbp/auth/keypad as admin"
+    },
+    {
+      "body": {
+        "code": "AUTH_ATTEMPT_EXPIRED",
+        "detail": "This La Banque Postale sign-in attempt expired. Please start again.",
+        "instance": "/api/lbp/auth/keypad",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "21 POST /api/lbp/auth/keypad as admin"
+    },
+    {
+      "body": {
+        "code": "AUTH_ATTEMPT_EXPIRED",
+        "detail": "This La Banque Postale sign-in attempt expired. Please start again.",
+        "instance": "/api/lbp/auth/keypad",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "22 POST /api/lbp/auth/keypad as admin"
+    },
+    {
+      "body": {
+        "code": "AUTH_ATTEMPT_EXPIRED",
+        "detail": "This La Banque Postale sign-in attempt expired. Please start again.",
+        "instance": "/api/lbp/auth/keypad",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "23 POST /api/lbp/auth/keypad as admin"
+    },
+    {
+      "body": {
+        "detail": "Too many La Banque Postale keypad requests. Please wait before retrying.",
+        "instance": "/api/lbp/auth/keypad",
+        "status": 429,
+        "title": "Too Many Requests",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "retry-after": "900",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 429,
+      "step": "24 POST /api/lbp/auth/keypad as admin"
+    },
+    {
+      "body": {
+        "code": "AUTH_ATTEMPT_EXPIRED",
+        "detail": "This La Banque Postale sign-in attempt expired. Please start again.",
+        "instance": "/api/lbp/auth/complete",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "25 POST /api/lbp/auth/complete as admin"
+    },
+    {
+      "body": {
+        "detail": "The La Banque Postale request is not valid",
+        "instance": "/api/lbp/auth/complete",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "26 POST /api/lbp/auth/complete as admin"
+    },
+    {
+      "body": {
+        "detail": "The La Banque Postale request is not valid",
+        "instance": "/api/lbp/auth/complete",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "27 POST /api/lbp/auth/complete as admin"
+    },
+    {
+      "body": {
+        "code": "SESSION_EXPIRED",
+        "detail": "No active La Banque Postale session. Please reconnect.",
+        "instance": "/api/lbp/sync",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "28 POST /api/lbp/sync as admin"
+    },
+    {
+      "body": {
+        "bankSessionRevoked": false,
+        "message": "The stored session was deleted from Picsou. The La Banque Postale session itself is not revoked and may remain active until it expires.",
+        "removed": false
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "29 DELETE /api/lbp/session as admin"
+    },
+    {
+      "body": {
+        "isActive": false,
+        "lastSyncCompletedAt": "<instant>",
+        "lastSyncError": "SESSION_EXPIRED",
+        "lastSyncStartedAt": "<instant>",
+        "syncStatus": "FAILED",
+        "unsupported": [
+          {
+            "externalId": "<id:1>:string",
+            "familyCode": "ASSURANCE_VIE"
+          }
+        ],
+        "unsupportedCount": 1
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "31 GET /api/lbp/status as admin"
+    },
+    {
+      "body": {
+        "isActive": false,
+        "syncStatus": "IDLE",
+        "unsupported": [],
+        "unsupportedCount": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "32 GET /api/lbp/status as member"
+    },
+    {
+      "body": {
+        "code": "SESSION_EXPIRED",
+        "detail": "The La Banque Postale session expired. Please reconnect.",
+        "instance": "/api/lbp/sync",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "33 POST /api/lbp/sync as admin"
+    },
+    {
+      "body": {
+        "bankSessionRevoked": false,
+        "message": "The stored session was deleted from Picsou. The La Banque Postale session itself is not revoked and may remain active until it expires.",
+        "removed": false
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "34 DELETE /api/lbp/session as member"
+    },
+    {
+      "body": {
+        "isActive": false,
+        "lastSyncCompletedAt": "<instant>",
+        "lastSyncError": "SESSION_EXPIRED",
+        "lastSyncStartedAt": "<instant>",
+        "syncStatus": "FAILED",
+        "unsupported": [
+          {
+            "externalId": "<id:1>:string",
+            "familyCode": "ASSURANCE_VIE"
+          }
+        ],
+        "unsupportedCount": 1
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "35 GET /api/lbp/status as admin"
+    },
+    {
+      "body": {
+        "isActive": true,
+        "syncStatus": "QUEUED",
+        "unsupported": [
+          {
+            "externalId": "<id:1>:string",
+            "familyCode": "ASSURANCE_VIE"
+          }
+        ],
+        "unsupportedCount": 1
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 202,
+      "step": "37 POST /api/lbp/sync as admin"
+    },
+    {
+      "body": {
+        "isActive": true,
+        "syncStatus": "QUEUED",
+        "unsupported": [
+          {
+            "externalId": "<id:1>:string",
+            "familyCode": "ASSURANCE_VIE"
+          }
+        ],
+        "unsupportedCount": 1
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "38 GET /api/lbp/status as admin"
+    },
+    {
+      "body": {
+        "bankSessionRevoked": false,
+        "message": "The stored session was deleted from Picsou. The La Banque Postale session itself is not revoked and may remain active until it expires.",
+        "removed": true
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "39 DELETE /api/lbp/session as admin"
+    },
+    {
+      "body": {
+        "isActive": false,
+        "syncStatus": "IDLE",
+        "unsupported": [],
+        "unsupportedCount": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "40 GET /api/lbp/status as admin"
+    }
+  ]
+}

@@ -18,6 +18,7 @@ import { useExportData } from '@/features/export/hooks'
 import { formatSsoApiError } from '@/features/sso/errors'
 import { useSignInMethods } from '@/features/sso/hooks'
 import { formatApiError, getErrorStatus } from '@/lib/errors'
+import { useAppStore } from '@/stores/app-store'
 import { ReauthPanel } from './ReauthPanel'
 
 /**
@@ -26,6 +27,10 @@ import { ReauthPanel } from './ReauthPanel'
  * balance snapshots (off by default — they can dwarf the rest of the
  * archive). A password-less account confirms through the IdP instead
  * (ReauthPanel), and the resulting proof cookie authorizes the export.
+ * The desktop app without its password lock first asks for nothing: the
+ * account it signs in itself has no password to type, and the backend
+ * accepts the app's own window for it. Any other account is refused there,
+ * and the dialog then asks for its credentials.
  *
  * On success the browser starts downloading a ZIP and the dialog closes.
  * The form fields are cleared after the close transition so re-opening
@@ -53,6 +58,9 @@ export function ExportDataDialog({
   const [reauthConfirmed, setReauthConfirmed] = useState(resumed)
   const [reauthExpired, setReauthExpired] = useState(false)
   const passwordless = signInMethods.data?.hasPassword === false
+  const desktopUnlocked = useAppStore((s) => s.desktopMode && !s.desktopLockEnabled)
+  const [windowRefused, setWindowRefused] = useState(false)
+  const asksCredentials = !passwordless && !(desktopUnlocked && !windowRefused)
   const step = signInMethods.isPending
     ? 'loading'
     : !signInMethods.data
@@ -68,6 +76,7 @@ export function ExportDataDialog({
     setError(null)
     setReauthConfirmed(false)
     setReauthExpired(false)
+    setWindowRefused(false)
     exportMutation.reset()
   }
 
@@ -82,7 +91,7 @@ export function ExportDataDialog({
     try {
       await exportMutation.mutateAsync({
         // Password-less: the proof cookie minted through ReauthPanel authorizes the export.
-        ...(passwordless ? {} : { reAuth: mfaStatus?.enabled ? { totpCode } : { password } }),
+        ...(asksCredentials ? { reAuth: mfaStatus?.enabled ? { totpCode } : { password } } : {}),
         includeBalanceSnapshots,
       })
       close()
@@ -92,6 +101,9 @@ export function ExportDataDialog({
         // The ZIP endpoint answers with a Blob, so only the status is readable: the proof expired.
         setReauthConfirmed(false)
         setReauthExpired(true)
+      } else if (status === 401 && !asksCredentials) {
+        // Not the account the app signs in itself: its password or code is asked after all.
+        setWindowRefused(true)
       } else if (status === 401) setError(t('settings.exportInvalidCredentials'))
       else if (status === 429) setError(t('settings.exportRateLimited'))
       else setError(formatApiError(err, t))
@@ -131,7 +143,7 @@ export function ExportDataDialog({
 
         {step === 'form' && (
           <form onSubmit={handleSubmit} className="space-y-4">
-            {!passwordless && (mfaStatus?.enabled ? (
+            {asksCredentials && (mfaStatus?.enabled ? (
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="export-totp">{t('auth.mfaCodeLabel')}</Label>
                 <Input

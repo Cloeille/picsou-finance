@@ -42,23 +42,23 @@ sub-sections so the page renders from a single query — no fan-out, single
 ### Key files
 
 Backend:
-- `backend/src/main/java/com/picsou/controller/AdminController.java` — endpoints:
+- `backend-rs/src/admin/settings.rs` — endpoints:
   `GET /settings`, `PUT /settings/security`, `PUT /settings/enablebanking`,
   `PATCH /settings/integrations/{key}?enabled=...`, plus EB keypair management
   `POST /settings/enablebanking/keypair` (idempotent generate) and
   `/keypair/import` (422 on a bad PEM). `GET /settings` reads EB credentials from
   the *resolved* `EnableBankingConfigProvider` (DB-then-env), not raw DB rows, so
   env-configured installs report their real values rather than blanks.
-- `backend/src/main/java/com/picsou/dto/AdminSettingsResponse.java` — record with
+- `AdminSettingsResponse.java` — record with
   nested `SecuritySettings` and `EnableBankingSettings` (the latter carries a
   `privateKeyPresent` boolean so the UI can flag a missing key-file).
-- `backend/src/main/java/com/picsou/dto/AdminSecurityRequest.java` — `@NotNull
+- `AdminSecurityRequest.java` — `@NotNull
   @Size(min=1) List<String> allowedOrigins`, `boolean secureCookies`.
-- `backend/src/main/java/com/picsou/dto/AdminEnableBankingRequest.java` — three
+- `AdminEnableBankingRequest.java` — three
   `@NotBlank` fields.
-- `backend/src/main/java/com/picsou/config/SecurityConfig.java:57` — the
+- `SecurityConfig.java:57` — the
   `hasRole("ADMIN")` matcher.
-- `backend/src/main/java/com/picsou/service/SetupService.java` — re-used writers
+- `SetupService.java` — re-used writers
   (`writeSecurity` line 151, `writeEnableBankingConfig` line 168, `readSetting`
   line 186, `INTEGRATIONS` constant line 37).
 
@@ -84,7 +84,7 @@ Frontend:
   `createMember` + `generateActivationLink` (one loading/error state, returns the
   activation link); plus `useFamilyMembers`, `useDeleteMember`,
   `useGenerateActivationLink`, `useResetMemberPassword`.
-- `backend/src/main/java/com/picsou/service/FamilyService.java` — `deriveUsername`
+- `FamilyService.java` — `deriveUsername`
   slugifier (used by `generateActivationToken`) + member CRUD / token writers.
 - `frontend/src/features/admin/api.ts` — `adminApi` (typed endpoints).
 - `frontend/src/features/admin/hooks.ts` — `useAdminSettings`,
@@ -127,27 +127,23 @@ the raw HTTP exchanges with Enable Banking, so a maintainer can ask a user for t
 actual answers when a sync goes wrong (`GET` / `DELETE /api/admin/enablebanking/call-log`,
 admin role only).
 
-- **Recording is always on.** `EnableBankingCallLogger.filter()` is applied to the connector's
-  WebClient and records every response it receives, whatever its status: time, method, URL,
-  status and body. A call that gets no response (timeout, refused connection) is not recorded;
-  the sync error reports those.
+- **Recording is always on.** Every request to Enable Banking goes through one function, `call`
+  in `backend-rs/src/sync/enable_banking/connector.rs`, which records each response it receives
+  in `EnableBankingCallLog` (`backend-rs/src/admin/mod.rs`), whatever its status: time, method,
+  URL with its query, status and body. A call that gets no response (timeout, refused connection,
+  a body past the connector's own size limit) is not recorded; the sync error reports those.
 - **Memory only, bounded.** At most the 200 newest calls, newest first, lost on restart and
   cleared by "Vider". Each stored body is capped at 256 K characters and then ends with
-  `…[truncated, N characters in total]`, never splitting an emoji (a lone surrogate would make
-  every read of the log fail). All stored bodies together stay under 8 M characters, the oldest
-  calls going first, so repeated bank searches (the catalog answers in megabytes) cannot weigh
-  on a small instance's heap. The connector itself still reads the whole body.
-- **The connector reads the same body.** The filter decodes the response, records it and hands
-  the connector a copy rebuilt in UTF-8, with the Content-Type charset rewritten to match and
-  Content-Length dropped.
-- **Request bodies are not captured** (stored as `""`): in a WebClient filter they are opaque
-  body inserters, and only `POST /auth` and `POST /sessions` send one. The responses are what
-  diagnose a sync.
+  `…[truncated, N characters in total]`, cut on a whole character. All stored bodies together
+  stay under 8 M characters, the oldest calls going first, so repeated bank searches (the catalog
+  answers in megabytes) cannot weigh on a small instance's memory.
+- **Request bodies are not captured** (stored as `""`): only `POST /auth` and `POST /sessions`
+  send one, and the responses are what diagnose a sync.
 - **Raw, not masked.** IBANs, holder names, balances, transactions and session ids stay as the
   bank sent them, because they are what is being debugged (matching a card to its account needs
   the IBAN). The dialog states it, and the `.txt` export (`ebCallLogExport.ts`) opens with an
   English warning to review the file before sharing it publicly. Both name the session ids: the
-  server log only ever shows their fingerprint (`LogSanitizer`), the call log shows them whole.
+  server log only ever shows their fingerprint, the call log shows them whole.
 
 ## Technical choices
 
@@ -217,13 +213,13 @@ admin role only).
 
 ## Tests
 
-- `backend/src/test/java/com/picsou/controller/AdminControllerTest.java` —
+- `AdminControllerTest.java` —
   Mockito tests covering the four endpoints: `getSettings` aggregation,
   `updateSecurity` and `updateEnableBanking` delegation to `SetupService`,
   `toggleIntegration` with `enabled=true/false`. URL-level role gate is enforced by
   Spring Security and not exercised by these unit tests; coverage relies on the
   `SecurityConfig` matcher being correct.
-- `backend/src/test/java/com/picsou/service/FamilyServiceTest.java` — Mockito tests
+- `backend-rs/tests/integration/family/members.rs` — Mockito tests
   for the username derivation in `generateActivationToken`: simple slug, accent +
   space normalization (`Jean Dupont` → `jean.dupont`, `Élodie` → `elodie`),
   collision suffix (`alice` → `alice.2`), and the blank/non-alphanumeric fallback
@@ -231,13 +227,13 @@ admin role only).
 - No dedicated integration test for the role gate (manual verification — same
   approach as `security-cors-cookies.md`). A future MockMvc slice test asserting a
   USER-role request is rejected with 403 would close the gap.
-- `backend/src/test/java/com/picsou/service/EnableBankingCallLoggerTest.java` — the call-log
-  filter records successful and error responses, hands the caller the same body (also from a
-  non-UTF-8 charset), caps a stored body without splitting a surrogate pair, and keeps the
-  newest calls within the entry and character budgets.
-- `EnableBankingAccountDataTest.everyProviderCall_landsInTheAdminCallLog` — pins the
-  connector's wiring against a local HTTP server. The writer was once dropped by a merge
-  conflict resolution and the panel stayed empty for months without a failing test.
+- `backend-rs/src/admin/mod.rs` (unit tests) — the call log caps a stored body on a whole
+  character and says how long it was, and keeps the newest calls within the entry and character
+  budgets.
+- `sync::enable_banking::connector::every_answer_of_enable_banking_reaches_the_admin_call_log` —
+  pins the connector's wiring against a local HTTP server, successful and failed answers alike.
+  The writer was once dropped by a merge conflict resolution, and was missing again in the Rust
+  port: the panel stayed empty without a failing test.
 - `frontend/src/pages/admin/sections/EnableBankingDebugSection.test.tsx` — the raw-data warning
   in the dialog and at the top of the export.
 - Other admin sections: `make test-frontend` plus their own Vitest files where present.

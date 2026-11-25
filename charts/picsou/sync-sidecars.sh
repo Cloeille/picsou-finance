@@ -1,8 +1,8 @@
 #!/bin/sh
 # Compares the *-auth sidecars of docker/docker-compose.yml with the `sidecars`
 # map of charts/picsou/values.yaml. The URL variable and port of each sidecar come
-# from the `app.sidecars.*.url` entries of backend/src/main/resources/application.yml
-# (`${VAR:http://host:port}`), the single place where sidecar URLs are set.
+# from the rows of backend-rs/src/sidecars.tsv (service, variable,
+# `http://host:port`), the single place where sidecar URLs are set.
 #
 # A sidecar is "standard" when its Compose service has nothing but an image, a
 # build, a restart policy, Compose profiles and APP_SIDECAR_API_KEY (the chart
@@ -24,15 +24,15 @@
 #             so that --json stays a parseable array)
 #   --json    print the findings as a JSON array instead of text
 #
-# Files default to the repository's; --compose, --values and --app-config <path>
-# override docker-compose.yml, values.yaml and application.yml.
+# Files default to the repository's; --compose, --values and --sidecars <path>
+# override docker-compose.yml, values.yaml and sidecars.tsv.
 #
 # Requires yq v4 (mikefarah). Exit 1 on usage/read/write errors.
 set -eu
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 compose="$root/docker/docker-compose.yml"
-app_config="$root/backend/src/main/resources/application.yml"
+sidecar_urls="$root/backend-rs/src/sidecars.tsv"
 values="$root/charts/picsou/values.yaml"
 mode=check
 github=false
@@ -46,7 +46,7 @@ while [ $# -gt 0 ]; do
     --json) json=true ;;
     --compose) compose=$2; shift ;;
     --values) values=$2; shift ;;
-    --app-config) app_config=$2; shift ;;
+    --sidecars) sidecar_urls=$2; shift ;;
     -h|--help) sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
@@ -54,7 +54,7 @@ while [ $# -gt 0 ]; do
 done
 
 command -v yq >/dev/null 2>&1 || { echo "yq v4 is required" >&2; exit 1; }
-for f in "$compose" "$values" "$app_config"; do
+for f in "$compose" "$values" "$sidecar_urls"; do
   [ -r "$f" ] || { echo "cannot read $f" >&2; exit 1; }
 done
 
@@ -103,12 +103,9 @@ findings=""   # one "sidecar|kind|detail" line per finding
 add_finding() { findings="${findings}$1|$2|$3
 "; }
 
-# "<VAR> <host> <port>" for every `app.sidecars.<key>.url: ${VAR:http(s)://host:port}`
-# of application.yml.
-urls=$(yq -r '.app.sidecars // {} | to_entries | .[]
-  | select((.value | tag) == "!!map") | select(.value.url | tag == "!!str")
-  | .value.url' "$app_config" \
-  | sed -n 's|^\${\([A-Z0-9_]*\):https\{0,1\}://\([a-z0-9.-]*\):\([0-9]*\)}$|\1 \2 \3|p')
+# "<VAR> <host> <port>" for every `<service> <VAR> http(s)://host:port` row of sidecars.tsv.
+urls=$(awk -F'\t' '!/^#/ { print $2, $3 }' "$sidecar_urls" \
+  | sed -n 's|^\([A-Z0-9_]*\) https\{0,1\}://\([a-z0-9.-]*\):\([0-9]*\)$|\1 \2 \3|p')
 
 compose_sidecars=$(yq -r '.services | keys | .[] | select(test("-auth$"))' "$compose")
 chart_sidecars=$(yq -r '.sidecars | keys | .[]' "$values")
@@ -130,10 +127,10 @@ for name in $compose_sidecars; do
     chart_env=$(yq -r ".sidecars[\"$name\"].urlEnv" "$values")
     if [ -z "$wiring" ]; then
       wiring_error=true
-      add_finding "$name" unwired "no app.sidecars.*.url in application.yml points at it"
+      add_finding "$name" unwired "no row of sidecars.tsv points at it"
     elif [ "$chart_port" != "$port" ] || [ "$chart_env" != "$url_env" ]; then
       wiring_error=true
-      add_finding "$name" mismatch "application.yml: $url_env on port $port, chart: $chart_env on port $chart_port"
+      add_finding "$name" mismatch "sidecars.tsv: $url_env on port $port, chart: $chart_env on port $chart_port"
     fi
     # Compare capabilities for every listed sidecar, not just known service names.
     # NetworkPolicies provide the Compose network isolation for all entries.
@@ -176,7 +173,7 @@ for name in $compose_sidecars; do
   fi
 
   if [ -z "$wiring" ]; then
-    add_finding "$name" unwired "no app.sidecars.*.url in application.yml points at it"
+    add_finding "$name" unwired "no row of sidecars.tsv points at it"
   elif [ -n "$extra_keys$extra_env" ]; then
     detail="needs a chart change by hand:"
     [ -n "$extra_keys" ] && detail="$detail keys ${extra_keys% }"

@@ -14,6 +14,11 @@ export const authApi = {
       ...r.data,
       role: r.data.role as 'ADMIN' | 'MEMBER'
     })),
+  desktopAutologin: () =>
+    api.post<{ username: string; role: string; memberId: number; displayName: string }>('/auth/desktop-autologin').then(r => ({
+      ...r.data,
+      role: r.data.role as 'ADMIN' | 'MEMBER'
+    })),
   activate: (token: string, password: string, acknowledgedWarning: boolean) =>
     api.post(`/auth/activate/${token}`, { password, acknowledgedWarning }),
 }

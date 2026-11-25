@@ -47,7 +47,7 @@ vi.mock('@/components/ui/card', () => {
     Card: Part,
     CardContent: Part,
     CardDescription: Part,
-    CardFooter: Part,
+    CardFooter: ({ children }: { children?: ReactNode }) => <div data-testid="card-footer">{children}</div>,
     CardHeader: Part,
     CardTitle: Part,
     CardAction: Part,
@@ -269,5 +269,52 @@ describe('DashboardPage financial wealth mode', () => {
     expect(props.data.map(d => d.accountId)).toEqual([1, 4])
     expect(props.data[0]?.percentage).toBeCloseTo(33.3, 1)
     expect(props.data[1]?.percentage).toBeCloseTo(66.7, 1)
+  })
+})
+
+describe('DashboardPage goals card', () => {
+  beforeEach(() => {
+    hooks.useDashboard.mockReturnValue({
+      data: {
+        ...DASHBOARD_DATA,
+        goalSummaries: [
+          {
+            id: 1,
+            name: 'Emergency fund',
+            type: 'SAVINGS_TARGET',
+            createdAt: '2026-01-01T00:00:00Z',
+            historyStartMonth: null,
+            accounts: [],
+            currentTotal: 3000,
+            targetAmount: 10000,
+            deadline: '2027-12-31',
+            percentComplete: 30,
+            monthlyNeeded: 500,
+            avgMonthlyContribution: 400,
+            surplus: -100,
+            monthsLeft: 14,
+            isOnTrack: true,
+            monthlyAmount: null,
+            expectedReturn: null,
+            startDate: null,
+            endDate: null,
+            allocations: [],
+          },
+        ],
+      },
+      isLoading: false,
+    })
+    hooks.useNetWorthIntraday.mockReturnValue({ data: [] })
+    hooks.usePnl.mockReturnValue({ data: undefined })
+    hooks.useHistory.mockReturnValue({ data: [] })
+    hooks.useBankSyncStatus.mockReturnValue({ data: [] })
+  })
+
+  it('renders the goal list without a tagline footer beneath it', () => {
+    renderDashboard()
+
+    expect(screen.getByText('Emergency fund')).toBeInTheDocument()
+    expect(screen.queryByText('dashboard.goalsSummary')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('card-footer')).not.toBeInTheDocument()
   })
 })

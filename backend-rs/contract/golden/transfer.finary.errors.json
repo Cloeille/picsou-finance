@@ -1,0 +1,266 @@
+{
+  "description": "Finary import failures: bad uploads, unknown tokens, shared, foreign or unknown targets",
+  "scenario": "transfer.finary.errors",
+  "steps": [
+    {
+      "body": {
+        "detail": "That file isn't a valid Excel spreadsheet (.xlsx).",
+        "instance": "/api/finary/preview",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "05 POST /api/finary/preview as admin"
+    },
+    {
+      "body": {
+        "detail": "The supplied file was empty (zero bytes long)",
+        "instance": "/api/finary/preview",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "06 POST /api/finary/preview as admin"
+    },
+    {
+      "body": {
+        "detail": "Required part 'file' is not present.",
+        "instance": "/api/finary/preview",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "07 POST /api/finary/preview as admin"
+    },
+    {
+      "body": {
+        "detail": "Preview expired or invalid -- please re-upload the file",
+        "instance": "/api/finary/import",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "08 POST /api/finary/import as admin"
+    },
+    {
+      "body": {
+        "accounts": [
+          {
+            "currentBalance": 10.0,
+            "finaryCategory": "Checkings",
+            "finaryId": "checkings_joint",
+            "finaryInstitution": "Bank",
+            "finaryName": "Joint",
+            "nativeCurrency": "EUR",
+            "suggestedType": "CHECKING",
+            "transactionCount": 0
+          },
+          {
+            "currentBalance": 20.0,
+            "finaryCategory": "Checkings",
+            "finaryId": "checkings_perso",
+            "finaryInstitution": "Bank",
+            "finaryName": "Perso",
+            "nativeCurrency": "EUR",
+            "suggestedType": "CHECKING",
+            "transactionCount": 0
+          }
+        ],
+        "autoMapped": false,
+        "existingPicsouAccounts": [],
+        "fileToken": "<secret:1>",
+        "suggestedMappings": [
+          {
+            "action": "CREATE_NEW",
+            "finaryCategory": "Checkings",
+            "finaryId": "checkings_joint",
+            "finaryName": "Joint"
+          },
+          {
+            "action": "CREATE_NEW",
+            "finaryCategory": "Checkings",
+            "finaryId": "checkings_perso",
+            "finaryName": "Perso"
+          }
+        ],
+        "totalTransactionCount": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "09 POST /api/finary/preview as admin"
+    },
+    {
+      "body": {
+        "detail": "Two Finary accounts are mapped onto the same Picsou account 1 -- pick a different account for one of them",
+        "instance": "/api/finary/import",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "10 POST /api/finary/import as admin"
+    },
+    {
+      "body": {
+        "detail": "Account 1 not found",
+        "instance": "/api/finary/import",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "11 POST /api/finary/import as admin"
+    },
+    {
+      "body": {
+        "detail": "Account 999999 not found",
+        "instance": "/api/finary/import",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "12 POST /api/finary/import as admin"
+    },
+    {
+      "body": {
+        "accountsCreated": 1,
+        "accountsMapped": 0,
+        "accountsSkipped": 0,
+        "importedAccounts": [
+          {
+            "color": "#6366f1",
+            "currentBalance": 20.0,
+            "id": "<id:1>",
+            "name": "Perso",
+            "type": "CHECKING"
+          }
+        ],
+        "snapshotsCreated": 1,
+        "transactionsImported": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "13 POST /api/finary/import as admin"
+    }
+  ]
+}

@@ -94,7 +94,7 @@ def test_network_allocation_retries_outside_an_occupied_private_range(monkeypatc
 
 
 def test_compose_assigns_the_same_exact_address_to_caddy_and_nginx():
-    # Any other upstream would reach Tomcat from an untrusted address and merge all TLS clients.
+    # Any other upstream would reach the backend from an untrusted address and merge all TLS clients.
     caddyfile = (REPO / "docker/Caddyfile").read_text(encoding="utf-8")
     assert re.findall(r"^\s*reverse_proxy\s+(\S+)", caddyfile, re.MULTILINE) == ["app-tls:8080"]
 

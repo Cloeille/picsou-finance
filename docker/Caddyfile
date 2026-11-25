@@ -36,11 +36,11 @@
 # ─────────────────────────────────────────────────────────────────────────
 
 {$PICSOU_DOMAIN:picsou.localhost} {
-	# The app container serves Spring Boot on 8080 (SPA + /api + /actuator).
+	# The app container serves the backend on 8080 (SPA + /api + /actuator).
 	# app-tls resolves only on the dedicated Compose network, where Caddy has
-	# the exact address configured as Tomcat's trusted forwarded-address peer
+	# the exact address configured as the backend's trusted forwarded-address peer
 	# (PICSOU_PROXY_IP). Caddy sets X-Forwarded-Proto/Host/For by default and
-	# Tomcat's RemoteIpValve reads them from that one peer only.
+	# the backend reads them from that one peer only.
 	# Do NOT add `header_up X-Forwarded-For {remote_host}` here. Caddy already
 	# sets X-Forwarded-For to the real peer address and ignores whatever the
 	# client sent because `trusted_proxies` is empty. Stating it explicitly is

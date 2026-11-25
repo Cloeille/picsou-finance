@@ -22,11 +22,11 @@ The password is used only to decode the upload. It is not put in the preview cac
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/imports/homebank/` — immutable normalized source model and dependency-free file decoding using Jackson and JDK cryptography/compression.
-- `backend/src/main/java/com/picsou/imports/ImportPreviewStore.java` — shared bounded preview storage, owner binding, expiration and atomic consumption; also used by CSV import.
-- `backend/src/main/java/com/picsou/service/HomeBankImportService.java` — preview, mapping validation, account/category reuse, additive ledger import and history reconstruction.
-- `backend/src/main/java/com/picsou/controller/HomeBankImportController.java` — member-scoped, IP-throttled multipart preview and JSON confirmation endpoints.
-- `backend/src/main/java/com/picsou/dto/HomeBankImportDtos.java` — typed preview, mappings and result counters.
+- `backend-rs/src/transfer/homebank/` — immutable normalized source model and file decoding.
+- `backend-rs/src/transfer/preview_store.rs` — shared bounded preview storage, owner binding, expiration and atomic consumption; also used by CSV import.
+- `backend-rs/src/transfer/homebank/` — preview, mapping validation, account/category reuse, additive ledger import and history reconstruction.
+- `backend-rs/src/transfer/homebank/mod.rs` — member-scoped, IP-throttled multipart preview and JSON confirmation endpoints.
+- `HomeBankImportDtos.java` — typed preview, mappings and result counters.
 - `frontend/src/features/homebank/` — API calls, mutations and frontend contract.
 - `frontend/src/pages/sync/HomeBankTab.tsx` — upload, mapping, confirmation and result UI.
 

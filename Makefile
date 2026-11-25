@@ -5,14 +5,18 @@ COMPOSE  := docker compose -f docker/docker-compose.yml
 SIDECARS := $(patsubst services/%/Dockerfile,%,$(wildcard services/*-auth/Dockerfile))
 REMOTE   ?= origin
 
-.PHONY: help dev db dev-backend dev-frontend format deps test test-backend test-frontend lint-frontend unit-frontend test-e2e \
-        test-sidecars test-sidecar-base test-sidecar build desktop release
+.PHONY: help dev db dev-backend dev-frontend format deps test test-backend lint-backend unit-backend integration-backend \
+        test-frontend lint-frontend unit-frontend test-e2e test-sidecars test-sidecar-base test-sidecar build desktop release
 
 help:
 	@echo "make dev                       PostgreSQL in Docker, backend on :8080, Vite on :5173"
 	@echo "make format                    Prettier on the frontend sources"
 	@echo "make test                      backend, frontend (unit and e2e), every sidecar"
-	@echo "make test-backend [TEST=Class] backend Maven tests, or one class or method"
+	@echo "make test-backend [TEST=name]  backend: fmt, clippy, tests (PostgreSQL 16 on 127.0.0.1:55432, trust), then on SQLite"
+	@echo "make lint-backend              cargo fmt --check and clippy"
+	@echo "make unit-backend [TEST=name]  the backend's unit and doc tests"
+	@echo "make integration-backend [DB=sqlite] [SHARD=i/n]  the integration tests, optionally one shard"
+	@echo "make desktop                   the desktop app bundle (Rust, Tauri CLI, bun)"
 	@echo "make test-frontend             lint, typecheck, Vitest"
 	@echo "make lint-frontend             ESLint (zero warnings) and TypeScript"
 	@echo "make unit-frontend [SHARD=i/n] Vitest, optionally one shard (VITEST_JSON=file writes a JSON report)"
@@ -28,7 +32,7 @@ dev: db
 	$(MAKE) -j2 dev-backend dev-frontend
 
 # Reuses the container across runs; its data stays until `docker rm -f picsou-db`.
-# The probe logs in with the backend's credentials (application.yml) over TCP on the
+# The probe logs in with the backend's dev credentials (backend-rs/src/config.rs) over TCP on the
 # container's address: the socket and localhost trust any user, and pg_isready also
 # answers while the first-boot init still runs on the socket.
 # The container also holds the backend's dev secrets, generated when it is created:
@@ -63,7 +67,7 @@ dev-backend:
 	  exit 1; \
 	fi; \
 	export JWT_SECRET CRYPTO_ENCRYPTION_KEY; \
-	cd backend && exec mvn spring-boot:run -Dspring-boot.run.profiles=dev
+	cd backend-rs && SPRING_PROFILES_ACTIVE=dev exec cargo run
 
 dev-frontend: | frontend/node_modules
 	cd frontend && bun run dev
@@ -79,14 +83,27 @@ deps frontend/node_modules:
 
 test: test-backend test-frontend test-e2e test-sidecars
 
-# The suite never calls a real sidecar: any key will do. SOFIDY_PYTHON=python3 also
-# runs the Java/Python Sofidy contract test (needs `pip install -r services/base/requirements.txt`).
-# CI shards the suite with SHARD_INCLUDES or SHARD_EXCLUDES: an absolute surefire
-# includesFile or excludesFile (.github/scripts/backend_shards.py).
-test-backend: export APP_SIDECAR_API_KEY ?= test-only
-test-backend: export PYTHONPATH := $(CURDIR)/services/base
-test-backend:
-	cd backend && mvn -B test $(if $(SOFIDY_PYTHON),-Dsofidy.contract.python=$(SOFIDY_PYTHON)) $(if $(TEST),-Dtest=$(TEST)) $(if $(SHARD_INCLUDES),-Dsurefire.includesFile=$(SHARD_INCLUDES)) $(if $(SHARD_EXCLUDES),-Dsurefire.excludesFile=$(SHARD_EXCLUDES))
+# The suite creates and drops its own databases on PostgreSQL 16 at 127.0.0.1:55432 with trust
+# authentication (backend-rs/README.md), then the integration tests run again on embedded SQLite,
+# the engine of the desktop app and of docker/compose.sqlite.yml. TEST filters the test names.
+test-backend: lint-backend unit-backend
+	$(MAKE) --no-print-directory integration-backend DB=
+	$(MAKE) --no-print-directory integration-backend DB=sqlite
+
+lint-backend:
+	cd backend-rs && cargo fmt --check && cargo clippy --locked --all-targets -- -D warnings
+
+unit-backend:
+	cd backend-rs && cargo test --locked --lib --bins $(TEST) && cargo test --locked --doc $(TEST)
+
+# DB=sqlite runs on embedded SQLite, PostgreSQL otherwise. CI runs one shard per job and checks
+# their outputs together ran every test once: SHARD=k/n keeps every nth test of the binary's
+# sorted list, from the kth, so a new test needs no entry anywhere. A failed listing or an empty
+# selection stops the recipe: `--exact` with no name would run every test.
+integration-backend:
+	cd backend-rs && $(if $(SHARD),list=$$(cargo test --locked --test integration $(TEST) -- --list --format terse) \
+	  && tests=$$(printf '%s\n' "$$list" | python3 ../.github/scripts/backend_shards.py select $(SHARD)) &&) \
+	  $(if $(DB),PICSOU_TEST_DB=$(DB) )cargo test --locked --test integration $(if $(SHARD),-- --exact $$tests,$(TEST))
 
 test-frontend: lint-frontend unit-frontend
 
@@ -131,11 +148,11 @@ test-sidecar:
 
 # --- build and release -------------------------------------------------------
 
-# The desktop app for Linux (#587): the backend jar and the SPA, the JRE and PostgreSQL of the
-# Docker release (desktop/scripts/fetch_runtime.py), then the Tauri bundles. Needs Rust,
-# the Tauri CLI (cargo install tauri-cli --version '^2') and the WebKitGTK 4.1 headers.
+# The desktop app for this machine (#587): the SPA, PostgreSQL and pg_dump of the Docker release's
+# major and the sidecars (desktop/scripts/fetch_runtime.py), then the Tauri bundles, whose shell
+# links backend-rs. Needs Rust, the Tauri CLI (cargo install tauri-cli --version '^2') and, on
+# Linux, the WebKitGTK 4.1 headers.
 desktop:
-	cd backend && mvn -q package -DskipTests
 	cd frontend && bun install --frozen-lockfile && bun run build
 	python3 desktop/scripts/fetch_runtime.py
 	cd desktop/src-tauri && cargo tauri build

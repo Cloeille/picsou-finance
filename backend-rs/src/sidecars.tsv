@@ -1,0 +1,20 @@
+# Connector sidecars: Compose service, URL variable, default URL, URL under the dev profile.
+# Tab-separated. The one place where sidecar URLs are set: config.rs embeds this file, and
+# charts/picsou/sync-sidecars.sh and .github/tests/test_sidecar_workflows.py read it.
+tr-auth	TR_AUTH_URL	http://tr-auth:8001	http://127.0.0.1:8001
+bourso-auth	BOURSO_AUTH_URL	http://bourso-auth:8001	http://127.0.0.1:8004
+caisse-epargne-auth	CAISSE_EPARGNE_AUTH_URL	http://caisse-epargne-auth:8001	http://127.0.0.1:8008
+banque-populaire-auth	BANQUE_POPULAIRE_AUTH_URL	http://banque-populaire-auth:8001	http://127.0.0.1:8014
+lbp-auth	LBP_AUTH_URL	http://lbp-auth:8001	http://127.0.0.1:8015
+revolut-auth	REVOLUT_AUTH_URL	http://revolut-auth:8002	http://127.0.0.1:8010
+bourse-direct-auth	BOURSE_DIRECT_AUTH_URL	http://bourse-direct-auth:8001	http://127.0.0.1:8002
+degiro-auth	DEGIRO_AUTH_URL	http://degiro-auth:8001	http://127.0.0.1:8011
+amundi-auth	AMUNDI_AUTH_URL	http://amundi-auth:8001	http://127.0.0.1:8003
+cmes-auth	CMES_AUTH_URL	http://cmes-auth:8001	http://127.0.0.1:8009
+cic-auth	CIC_AUTH_URL	http://cic-auth:8001	http://127.0.0.1:8012
+natixis-auth	NATIXIS_AUTH_URL	http://natixis-auth:8001	http://127.0.0.1:8016
+bnp-auth	BNP_AUTH_URL	http://bnp-auth:8001	http://127.0.0.1:8017
+amex-auth	AMEX_AUTH_URL	http://amex-auth:8001	http://127.0.0.1:8013
+fortuneo-auth	FORTUNEO_AUTH_URL	http://fortuneo-auth:8001	http://127.0.0.1:8005
+corum-auth	CORUM_AUTH_URL	http://corum-auth:8001	http://127.0.0.1:8006
+sofidy-auth	SOFIDY_AUTH_URL	http://sofidy-auth:8001	http://127.0.0.1:8007

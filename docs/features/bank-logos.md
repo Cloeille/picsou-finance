@@ -111,21 +111,21 @@ Nothing is written to the database and no backend change was needed: an existing
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/model/Account.java` — `logoUrl` column
-- `backend/src/main/java/com/picsou/model/Requisition.java` — `logoUrl` + `logoBackfillAttemptedAt` columns
-- `backend/src/main/java/com/picsou/service/BankLogoResolver.java` — the catalog search and its three matching tiers, shared by the connected, manual and Banque Populaire paths
-- `backend/src/main/java/com/picsou/service/BanquePopulaireSyncService.java` — `brandingFor()`: the regional bank's name and its logo lookup
-- `backend/src/main/java/com/picsou/service/SyncService.java` — `ensureLogoUrl()` backfill, `upsertAccount()` copy logic
-- `backend/src/main/java/com/picsou/service/AccountService.java` — `refreshBankLogo()` / `bankLogoUrl()`: when a manual account re-resolves its bank's logo
-- `backend/src/main/java/com/picsou/dto/AccountRequest.java` — `institutionId`, consumed once and never stored
+- `backend-rs/src/ledger/model.rs` — `logoUrl` column
+- `backend-rs/src/sync/enable_banking/requisitions.rs` — `logoUrl` + `logoBackfillAttemptedAt` columns
+- `BankLogoResolver.java` — the catalog search and its three matching tiers, shared by the connected, manual and Banque Populaire paths
+- `backend-rs/src/connectors/banque_populaire/mod.rs` — `brandingFor()`: the regional bank's name and its logo lookup
+- `backend-rs/src/sync/enable_banking/` — `ensureLogoUrl()` backfill, `upsertAccount()` copy logic
+- `AccountService.java` — `refreshBankLogo()` / `bankLogoUrl()`: when a manual account re-resolves its bank's logo
+- `backend-rs/src/accounts/service.rs` — `institutionId`, consumed once and never stored
 - `frontend/src/components/shared/BankPicker.tsx` — the bank field: free text that also searches the catalog
-- `backend/src/main/resources/db/migration/V50__account_bank_logo.sql`
+- `backend-rs/migrations/V50__account_bank_logo.sql`
 - `frontend/src/components/shared/AccountCard.tsx` — `AccountAvatar` and `PropertyAvatar` sub-components
 - `frontend/src/components/shared/AddAccountModal.tsx` — `InstitutionLogo` (bank search list preview)
 - `frontend/src/components/ui/avatar.tsx` — shared Radix Avatar primitives
-- `backend/src/main/resources/db/migration/V75__account_logo_key.sql` — `account.logo_key` + wallet backfill
-- `backend/src/main/java/com/picsou/service/WalletSyncService.java` — `DEFAULT_LOGO_KEY`, written at account creation
-- `backend/src/main/java/com/picsou/service/AccountService.java` — `normalizeLogoKey()`: a key is swappable only where one is already stored, and `update()` keeps it when the request omits it
+- `backend-rs/migrations/V75__account_logo_key.sql` — `account.logo_key` + wallet backfill
+- `backend-rs/src/sync/wallets/` — `DEFAULT_LOGO_KEY`, written at account creation
+- `AccountService.java` — `normalizeLogoKey()`: a key is swappable only where one is already stored, and `update()` keeps it when the request omits it
 - `frontend/src/lib/provider-logos.ts` — `PROVIDER_LOGOS` + `LOGO_KEYS` maps, `providerLogoUrl()` / `logoKeyUrl()`; `HOLDING_PREFIX_LOGOS` + `bundledHoldingLogoUrl()` for provider-only fund lines (see [holding-logos.md](./holding-logos.md#bundled-marks-for-provider-only-funds))
 - `frontend/src/components/shared/LogoPicker.tsx` — the wallet's blockchain/Ledger choice
 - `frontend/src/components/shared/AccountForm.tsx` — renders the picker for accounts that carry a key
@@ -188,7 +188,7 @@ Nothing is written to the database and no backend change was needed: an existing
 
 ## Tests
 
-- `backend/src/test/java/com/picsou/service/SyncServiceTest.java` — logo resolved server-side at `initiateConnection()` by exact institution id; logo copied from `Requisition` to a new `Account`; backfill sets `Requisition.logoUrl` on resync scoped by country; backfill isn't retried once `logoBackfillAttemptedAt` is set; id match wins over a same-named institution from another country; a failed backfill lookup doesn't break the sync.
+- `SyncServiceTest.java` — logo resolved server-side at `initiateConnection()` by exact institution id; logo copied from `Requisition` to a new `Account`; backfill sets `Requisition.logoUrl` on resync scoped by country; backfill isn't retried once `logoBackfillAttemptedAt` is set; id match wins over a same-named institution from another country; a failed backfill lookup doesn't break the sync.
 - `frontend/src/components/shared/AccountCard.test.tsx` — renders the logo image when the (stubbed) image load succeeds, the color fallback when absent, falls back when the image load fails, renders the bundled asset for a provider with no `logoUrl`, and prefers a connector-supplied `logoUrl` over a bundled one. Its `MockImage` must invoke `load`/`error` listeners with an `{ currentTarget }` event — Radix's `handleLoad` reads it, and calling them bare throws inside Radix instead of failing the assertion.
 - `frontend/src/components/shared/AccountForm.test.tsx` — the picked bank and its institution id
   reach the submitted request, and a hand-typed one submits with no id. `provider` is written
@@ -198,9 +198,9 @@ Nothing is written to the database and no backend change was needed: an existing
   the catalog id, editing the name afterwards drops the id, the suggestion list closes on pick,
   and the field stays a plain editable text input when no catalog is available.
 - `frontend/src/lib/provider-logos.test.ts` — every path in `PROVIDER_LOGOS` and `LOGO_KEYS` is root-relative and exists under `frontend/public/`, the exact provider literal each connector writes (Meria, Amundi, BoursoBank, Trade Republic, CORUM, Natixis Interépargne, Louve Invest), every `HOLDING_PREFIX_LOGOS` asset exists and `bundledHoldingLogoUrl()` matches the `CORUM-LIFE-` prefix case-insensitively, every key the picker offers is mapped, plus the case-insensitive provider lookup and the `null`/unknown-key cases.
-- `backend/src/test/java/com/picsou/migration/AccountLogoKeyMigrationTest.java` — V75 against real PostgreSQL: existing wallets are backfilled with `blockchain` (including the lowercased chain segment), accounts that merely look like wallets and exchange accounts stay `NULL`, the backfilled value equals `WalletSyncService.DEFAULT_LOGO_KEY`, and a replay of the file leaves a user's `ledger` choice alone.
-- `backend/src/test/java/com/picsou/service/WalletSyncServiceTest.java` — a new wallet account is created with the default key; an existing one keeps the key the user picked across a resync.
-- `backend/src/test/java/com/picsou/service/AccountServiceTest.java` — the bank logo of a manual
+- `AccountLogoKeyMigrationTest.java` — V75 against real PostgreSQL: existing wallets are backfilled with `blockchain` (including the lowercased chain segment), accounts that merely look like wallets and exchange accounts stay `NULL`, the backfilled value equals `WalletSyncService.DEFAULT_LOGO_KEY`, and a replay of the file leaves a user's `ledger` choice alone.
+- `WalletSyncServiceTest.java` — a new wallet account is created with the default key; an existing one keeps the key the user picked across a resync.
+- `AccountServiceTest.java` — the bank logo of a manual
   account: resolved from the institution the picker sent, searched in the default country when no
   institution was picked, never looked up for a synced account, re-resolved when the bank changes,
   skipped (and kept) when nothing relevant changed, retried for an account that never got one,

@@ -1,1 +1,0 @@
-org.springframework.boot.env.EnvironmentPostProcessor=com.picsou.config.SecretBootstrap,com.picsou.config.TrustedProxyBootstrap

@@ -1,0 +1,2717 @@
+# Picsou Backend API Reference
+
+> This document is manually maintained. When adding or changing an endpoint, update this file accordingly.
+
+## Overview
+
+| Property | Value |
+|----------|-------|
+| Base URL | `/api` |
+| Content-Type | `application/json` (except multipart endpoints noted below) |
+| Authentication | JWT via HttpOnly cookies (`access_token` + `refresh_token`) |
+| Access token TTL | 15 minutes |
+| Refresh token TTL | 7 days (rotated on every use) |
+
+### Auth flow
+
+1. `POST /api/auth/login` — sends credentials, receives `access_token` + `refresh_token` as HttpOnly, SameSite=Strict cookies
+2. All subsequent requests include cookies automatically — no header needed
+3. On 401, the frontend calls `POST /api/auth/refresh` to get new tokens; the old refresh token is invalidated (rotation)
+4. `POST /api/auth/logout` clears both cookies
+
+### Rate limiting
+
+| Endpoint group | Limit |
+|---------------|-------|
+| Login (`/api/auth/login`) | 5 requests / IP / 15 min |
+| Re-authentication (`/api/auth/reauth`) | 5 attempts / user / 15 min |
+| SSO start (`/oauth2/sso/authorization/oidc`) | 30 requests / IP / 15 min |
+| Data export (`/api/me/export`) | 5 requests / user / hour |
+| Setup wizard (mutating `/api/setup/**`) | 10 requests / IP / minute |
+| Bank sync (`/api/sync/initiate`, `/complete`, `/{id}/reconnect`, `/countries`) | Throttled — each on its own bucket, keyed by `ip + endpoint` |
+| TR auth (`/api/tr/auth/initiate`) | Throttled |
+
+## Shared Enums
+
+### AccountType
+
+`LEP` · `LIVRET_A` · `LDDS` · `LIVRET_JEUNE` · `PEL` · `CEL` · `PEA` · `COMPTE_TITRES` · `CRYPTO` · `CHECKING` · `SAVINGS` · `REAL_ESTATE` · `SCPI` · `LOAN` · `EMPLOYEE_SAVINGS` · `ASSURANCE_VIE` · `PER` · `CREDIT_CARD` · `PRECIOUS_METALS` · `BROKERAGE` · `OTHER`
+
+### WealthTier
+
+`SAFETY_NET` · `REAL_ESTATE` · `EQUITY` · `CRYPTO` · `ALTERNATIVE`
+
+The investment-pyramid layer an account or holding belongs to. Distinct from the Accounts
+page's asset filters: those group accounts the way a user browses them, this one groups them
+by the role they play in a portfolio.
+
+### Chain
+
+`SOLANA` · `ETHEREUM` · `BITCOIN`
+
+### ExchangeType
+
+`BINANCE` · `KRAKEN` · `MERIA`
+
+### FinaryMappingAction
+
+`SKIP` · `MAP_EXISTING` · `CREATE_NEW`
+
+## Error Format
+
+All errors use [RFC 7807 ProblemDetail](https://datatracker.ietf.org/doc/html/rfc7807):
+
+```json
+{
+  "type": "about:blank",
+  "title": "Unauthorized",
+  "status": 401,
+  "detail": "Invalid credentials"
+}
+```
+
+Validation errors (422) include an `errors` map:
+
+```json
+{
+  "type": "about:blank",
+  "title": "Validation failed",
+  "status": 422,
+  "detail": null,
+  "errors": {
+    "name": "must not be blank",
+    "targetAmount": "must be greater than 0.01"
+  }
+}
+```
+
+| Status | When |
+|--------|------|
+| 400 | `IllegalArgumentException` — bad request logic |
+| 401 | `BadCredentialsException` — invalid credentials or missing auth |
+| 404 | `ResourceNotFoundException` — entity not found |
+| 422 | Validation failure (`@Valid`) — includes `errors` map |
+| 429 | Rate limit exceeded |
+| 502 | `SyncException` — upstream provider error |
+| 500 | Unexpected server error (message is always `"An unexpected error occurred"`) |
+
+---
+
+## Endpoints
+
+---
+
+### 1. Authentication — `/api/auth`
+
+#### `POST /api/auth/login`
+
+- **Auth:** Public
+- **Rate limit:** 5 / IP / 15 min
+
+**Request body:**
+| Field | Type | Constraints | Description |
+|-------|------|-------------|-------------|
+| `username` | `string` | @NotBlank, max 50 | |
+| `password` | `string` | @NotBlank, max 128 | |
+
+**Response `200`:**
+```json
+{ "username": "string" }
+```
+Sets `access_token` and `refresh_token` HttpOnly cookies.
+
+**Errors:** 401 (invalid credentials), 429 (rate limited)
+
+---
+
+#### `POST /api/auth/refresh`
+
+- **Auth:** Public (reads `refresh_token` cookie; also honors a valid `persistent_token` "Remember Me" cookie via `PersistentTokenAuthFilter`)
+- **Body:** none
+
+**Response `200`:**
+```json
+{ "username": "string", "role": "string", "memberId": 0, "displayName": "string" }
+```
+Rotates `access_token`/`refresh_token` (old refresh token is invalidated) whenever a valid `refresh_token` is presented, **or** when a still-valid `persistent_token` re-authenticates the request in place of a missing/invalid one (this is what lets "Remember Me" survive a tab/browser restart, since the frontend probes this endpoint on mount instead of trusting a stale client-side flag). `access_token`/`refresh_token` are reissued as **persistent cookies** (matching `persistent_token`'s remaining lifetime) only when the request actually carries a `persistent_token` owned by the same user — otherwise they're reissued as session cookies, so a non-"Remember Me" login can't outlive the browser via this endpoint. A Remember-Me `refresh_token` is bound to its persistent-session `series_id` (a `sid` claim); if that session has been revoked (`/auth/sessions`) or has passed its 90-day cap, the refresh is refused even though the JWT itself is still valid, so revoking a device actually logs it out at its next refresh.
+
+A session opened through single sign-on carries the SSO sign-in time in its tokens. Once that time is older than `SSO_SESSION_REVALIDATE_AFTER` (default 24 hours), or once SSO has been turned off, the refresh is refused with `SSO_REVALIDATE`: the auth cookies are cleared and, when the refresh came through a Remember-Me `persistent_token`, that series is revoked. The user must sign in through the IdP again.
+
+**Errors:** 401 (no refresh token and no valid persistent_token; or the presented session's series has been revoked/expired — `"Session revoked"`), 401 `"code":"SSO_REVALIDATE"` (SSO session past its revalidation window), 503 `"code":"setup_required"` (setup not complete yet)
+
+---
+
+#### `POST /api/auth/logout`
+
+- **Auth:** Public
+- **Body:** none
+
+Revokes the caller's Remember-Me series (if any) and clears `access_token`, `refresh_token`, `persistent_token`, `mfa_challenge` and `reauth_proof`.
+
+**Response `204`** — the default.
+
+**Response `200`** — only when `SSO_IDP_LOGOUT=true`, the session was opened through SSO, and the IdP discovery document advertises an `end_session_endpoint`:
+```json
+{ "endSessionUrl": "https://idp.example.com/logout?client_id=picsou&post_logout_redirect_uri=https://picsou.example.com/login" }
+```
+The frontend navigates there to end the IdP session too. No ID token is sent (Picsou never keeps IdP tokens).
+
+---
+
+#### `POST /api/auth/change-password`
+
+- **Auth:** Required
+
+**Request body:**
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `currentPassword` | `string` | @NotBlank |
+| `newPassword` | `string` | @NotBlank, min 8, max 128 |
+
+**Response `200`:**
+```json
+{ "message": "Password updated successfully" }
+```
+
+**Errors:** 401 (current password incorrect), 422 (validation)
+
+---
+
+#### `GET /api/auth/sso`
+
+- **Auth:** Public
+- **Body:** none
+
+Configuration only, never a call to the IdP. The login page uses it to decide whether to show the SSO button.
+
+**Response `200`:**
+```json
+{ "enabled": true, "providerName": "SSO" }
+```
+`enabled` is `true` only when `SSO_ISSUER_URI` and `SSO_CLIENT_ID` are set and valid. `providerName` is `SSO_PROVIDER_NAME` (default `SSO`, trimmed to 40 characters).
+
+---
+
+#### `GET /api/auth/sign-in-methods`
+
+- **Auth:** Required
+
+**Response `200`:**
+```json
+{
+  "hasPassword": true,
+  "mfaEnabled": false,
+  "identities": [
+    {
+      "id": 1,
+      "email": "alice@example.com",
+      "displayName": "Alice",
+      "createdAt": "2026-11-03T10:00:00Z",
+      "lastLoginAt": "2026-11-03T10:00:00Z",
+      "currentIssuer": true
+    }
+  ],
+  "ssoEnabled": true,
+  "providerName": "SSO",
+  "adminGroupManaged": false
+}
+```
+`identities` lists the caller's linked SSO identities, oldest first. `lastLoginAt` is omitted until the identity has signed in once. `currentIssuer` is `false` for an identity of a previous `SSO_ISSUER_URI`, which can never sign in again. `adminGroupManaged` is `true` when SSO is on and `SSO_ADMIN_GROUP` is set (admin rights then follow the group).
+
+---
+
+#### `POST /api/auth/reauth`
+
+Mints the short-lived re-authentication proof required by credential changes (link, unlink, turning password login off or on) and accepted by the data export. Requires the password and, when 2FA is enabled, the TOTP code: both factors, never just one. An account without a password re-authenticates through the IdP instead (SSO `intent=reauth`, see [Single sign-on](#1b-single-sign-on-oidc--oauth2sso)).
+
+- **Auth:** Required
+- **Rate limit:** 5 attempts / user / 15 min
+
+**Request body:**
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `password` | `string` | required, must match the account's password hash |
+| `totpCode` | `string` | required when 2FA is enabled |
+
+**Response `204`** — sets the `reauth_proof` cookie (see [Cookies](#cookies-set-by-the-sso-and-re-authentication-endpoints)).
+
+**Errors:** 401 `"code":"REAUTH_FAILED"` (missing or wrong password, missing or wrong TOTP), 429 `"code":"RATE_LIMITED"`
+
+---
+
+#### `DELETE /api/auth/password`
+
+Turns password login off. Guarded so it can never lock the account out.
+
+- **Auth:** Required, plus a valid `reauth_proof` cookie
+- **Body:** none
+
+**Response `204`** — the password hash is erased and 2FA is disabled (Picsou's TOTP only protects a password). Every other session is logged out (token version bumped, every Remember-Me series revoked); the calling browser gets fresh session-scoped `access_token` / `refresh_token` cookies and its `persistent_token` is cleared. Already without a password: `204`, nothing changes.
+
+**Errors:** 401 `"code":"REAUTH_FAILED"` (proof missing, expired or for another account), 409 `"code":"SSO_DISABLED"` (SSO is not available), 409 `"code":"IDENTITY_NOT_USED_YET"` (no identity of the current issuer has signed in yet)
+
+---
+
+#### `PUT /api/auth/password`
+
+Sets a password on an account that has none (typically an SSO-only account).
+
+- **Auth:** Required, plus a valid `reauth_proof` cookie
+
+**Request body:**
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `newPassword` | `string` | @NotBlank, min 8, max 128 |
+
+**Response `204`** — every other session is logged out; the calling browser gets fresh session-scoped `access_token` / `refresh_token` cookies (keeping its SSO sign-in time) and its `persistent_token` is cleared.
+
+**Errors:** 401 `"code":"REAUTH_FAILED"`, 409 `"code":"PASSWORD_ALREADY_SET"`, 422 (validation)
+
+---
+
+#### `DELETE /api/auth/identities/{id}`
+
+Unlinks one of the caller's own SSO identities (`id` from `GET /api/auth/sign-in-methods`).
+
+- **Auth:** Required, plus a valid `reauth_proof` cookie
+- **Body:** none
+
+**Response `204`**
+
+**Errors:** 401 `"code":"REAUTH_FAILED"`, 404 (no such identity on this account), 409 `"code":"LAST_SIGN_IN_METHOD"` (the account has no password and this is its last identity of the current issuer)
+
+---
+
+#### `DELETE /api/admin/members/{memberId}/identities`
+
+Removes every SSO identity of another member, e.g. after an IdP account was compromised. No re-authentication proof needed (like the MFA reset).
+
+- **Auth:** ADMIN
+- **Body:** none
+
+**Response `204`** — the member's identities are deleted and all their sessions are logged out (token version bumped, Remember-Me series revoked).
+
+**Errors:** 403 `"code":"SELF_UNLINK_FORBIDDEN"` (an admin targeting themselves), 403 (a non-admin caller), 404 (`"Member not found"`, or the member has no login). Self-targeting returns a ProblemDetail; the admin UI hides this action for the current member.
+
+---
+
+### 1b. Single sign-on (OIDC) — `/oauth2/sso`
+
+Present only when SSO is enabled (`SSO_ISSUER_URI` and `SSO_CLIENT_ID` set and valid). Served by its own security chain, not under `/api`. Both endpoints answer browser form POSTs with `302` redirects, never JSON. A GET to any `/oauth2/sso/**` path redirects to `/login`, and a cross-site POST gets `403` (`Cross-site request rejected`), like the API chain. State, nonce and PKCE S256 are always sent; Picsou never stores IdP tokens.
+
+#### `POST /oauth2/sso/authorization/oidc`
+
+Starts a round trip to the IdP.
+
+- **Auth:** Public for `login`, `activate` and `setup`; the `access_token` cookie for `link` and `reauth`
+- **Content-Type:** `application/x-www-form-urlencoded`
+- **Rate limit:** 30 / IP / 15 min (then `302 /login?ssoError=RATE_LIMITED`)
+
+**Form fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `intent` | `string` | `login` (default), `link`, `reauth`, `activate` or `setup`. Anything else: `302 /login?ssoError=IDP_ERROR` |
+| `redirect` | `string` | Where to land afterwards. Same-origin relative path only (starts with `/`, not `//` or `/\`, no control characters, at most 2048 characters); otherwise the intent's default: `/` (`login`, `activate`), `/settings` (`link`, `reauth`), `/setup/admin` (`setup`) |
+| `rememberMe` | `string` | `1` issues a Remember-Me `persistent_token` (`login`, `activate`) |
+| `token` | `string` | `activate` only: the invitation token |
+| `ack` | `string` | `activate` only: must be `1` (data-access warning acknowledged) |
+
+**Response `302`** to the IdP authorize endpoint. `reauth` also sends `prompt=login` and `max_age=0`. Sets the handshake `JSESSIONID` cookie. Refusals redirect without contacting the IdP:
+
+| Condition | Redirect |
+|-----------|----------|
+| IdP discovery not reachable yet, or still running for another request | the intent's error page with `ssoError=IDP_UNAVAILABLE` |
+| `login` before setup is complete | `/setup` |
+| `link` / `reauth` without a valid `access_token` | `/login` |
+| `link` without a valid `reauth_proof` | `{redirect}?ssoError=REAUTH_REQUIRED` |
+| `activate` with an unknown or expired token, a token held by an already activated account (password-reset link), or `ack` not `1` | `/activate/{token}?ssoError=ACTIVATION_INVALID` |
+| `setup` when setup is past the admin step or `SSO_ADMIN_GROUP` is not set | `/setup/admin?ssoError=SETUP_ALREADY_CLAIMED` |
+
+#### `POST /oauth2/sso/code/oidc`
+
+Completes the round trip. The IdP redirects the browser to the SPA route `/login/sso/callback` (the redirect URI to register at the IdP), which re-posts `code` and `state` here as a same-origin form POST.
+
+- **Auth:** the handshake `JSESSIONID` cookie
+- **Content-Type:** `application/x-www-form-urlencoded`
+
+**Form fields:** `code`, `state` (as returned by the IdP; `error` / `error_description` are also accepted and end the flow with `IDP_ERROR`).
+
+**Response `302`.** The handshake session is always discarded. On success, per intent:
+
+| Intent | Effect | Redirect |
+|--------|--------|----------|
+| `login` | Signs in the account linked to the identity's `(iss, sub)`. With `SSO_ADMIN_GROUP` set, a member of that group with no account gets a new ADMIN account. Admin role synced from the groups claim. Sets `access_token`, `refresh_token` (and `persistent_token` with `rememberMe=1`) | `/login/sso-complete?redirect={redirect}`, or `{redirect}` itself when it starts with `/oauth2/` |
+| `activate` | Activates the invited account and links the identity; sets session cookies like `login` | `/login/sso-complete?redirect={redirect}` |
+| `setup` | Creates the first admin from a member of `SSO_ADMIN_GROUP`; sets session-scoped cookies | `/setup/security` |
+| `link` | Links the identity to the signed-in account (needs a valid `reauth_proof`) | `{redirect}?sso=linked` |
+| `reauth` | Checks the identity is linked to the signed-in account and `auth_time` is at most 60 s older than the start; sets `reauth_proof` | `{redirect}` |
+
+Errors redirect with `ssoError={CODE}` to the page the flow came from: `/login` (`login`, keeping a non-default `redirect`), `/activate/{token}`, `/setup/admin`, or the `redirect` of a `link` / `reauth`. See [SSO error codes](#sso-error-codes).
+
+#### Cookies set by the SSO and re-authentication endpoints
+
+| Cookie | Set by | Attributes | Purpose |
+|--------|--------|------------|---------|
+| `reauth_proof` | `POST /api/auth/reauth`, SSO `reauth` callback | HttpOnly, SameSite=Lax, Path=/, Secure when secure cookies are on, Max-Age 300 (`app.jwt.reauth-proof-expiry-minutes`, default 5) | JWT (`type=reauth`, `uid`, `tv`) proving a fresh re-authentication. Valid only for the same user and token version, so a password change or logout-everywhere voids it. Cleared by logout |
+| `JSESSIONID` | `POST /oauth2/sso/authorization/oidc` | Servlet container session cookie, Path=/, HttpOnly | Holds the pending authorization request (state, nonce, PKCE verifier, intent) between start and callback. Invalidated at the callback, success or failure; the rest of the API stays stateless |
+
+#### SSO error codes
+
+`ssoError` codes arrive as a query parameter on a redirect; API codes arrive as the `code` field of a ProblemDetail body.
+
+| Code | Delivered as | Produced when |
+|------|--------------|---------------|
+| `NOT_LINKED` | `ssoError` | `login`: no account is linked to this identity and it cannot be provisioned |
+| `NOT_IN_ADMIN_GROUP` | `ssoError` | `setup`: the identity is not in `SSO_ADMIN_GROUP` |
+| `IDENTITY_IN_USE` | `ssoError` | `link` / `activate`: the identity is already linked to another account |
+| `REAUTH_REQUIRED` | `ssoError` | `link` started or completed without a valid `reauth_proof` |
+| `REAUTH_TOO_OLD` | `ssoError` | `reauth`: `auth_time` missing or older than the start minus 60 s |
+| `REAUTH_WRONG_ACCOUNT` | `ssoError` | `link` / `reauth`: the signed-in account changed during the round trip, or (`reauth`) the identity is not linked to it |
+| `ACCOUNT_INACTIVE` | `ssoError` | `login`: the linked account is deactivated |
+| `ADMIN_RECOVERY_ACTIVE` | `ssoError` | `login`: the linked account is a deactivated admin while admin recovery is on |
+| `ACTIVATION_INVALID` | `ssoError` | `activate`: unknown or expired invitation token, a token of an already activated account (a password-reset link only sets a new password), or `ack` not `1` |
+| `SETUP_ALREADY_CLAIMED` | `ssoError` | `setup`: setup is past the admin step, `SSO_ADMIN_GROUP` is unset, or another admin won the race |
+| `IDP_UNAVAILABLE` | `ssoError` | Start: the IdP discovery document could not be loaded yet |
+| `IDP_ERROR` | `ssoError` | Unknown `intent`, an error returned by the IdP, or a failed token / ID-token validation |
+| `SESSION_EXPIRED` | `ssoError` | Callback without a matching handshake session (expired, or another browser), or `link` / `reauth` whose `access_token` expired meanwhile |
+| `RATE_LIMITED` | `ssoError` and `code` | `ssoError`: SSO start rate limit (`/login`). `code`: `POST /api/auth/reauth` (429) |
+| `SSO_ADMIN_REQUIRED` | `code` | `POST /api/setup/admin` (409) while `SSO_ADMIN_GROUP` is set |
+| `IDENTITY_NOT_USED_YET` | `code` | `DELETE /api/auth/password` (409) |
+| `LAST_SIGN_IN_METHOD` | `code` | `DELETE /api/auth/identities/{id}` (409) |
+| `SELF_UNLINK_FORBIDDEN` | `code` | `DELETE /api/admin/members/{memberId}/identities` targeting the caller (403); hidden in the admin UI |
+| `PASSWORD_ALREADY_SET` | `code` | `PUT /api/auth/password` (409) |
+| `REAUTH_FAILED` | `code` | 401 from `POST /api/auth/reauth`, the proof-gated `/api/auth/password` and `/api/auth/identities/{id}` endpoints, and `POST /api/me/export`. The desktop app without its password lock has no password to ask for the account it signs in itself (the primary one, without two-factor): for that account, `POST /api/me/export` accepts the gate of the app's own window in its place. Any other account is asked for its password or code there too |
+| `SSO_REVALIDATE` | `code` | `POST /api/auth/refresh` (401) once the SSO session is older than `SSO_SESSION_REVALIDATE_AFTER` |
+| `SSO_DISABLED` | `code` | `DELETE /api/auth/password` (409) while SSO is off |
+
+---
+
+### 2. Dashboard — `/api/dashboard`
+
+#### `GET /api/dashboard`
+
+- **Auth:** Required
+- **Body:** none
+
+**Response `200` — `DashboardResponse`:**
+```json
+{
+  "totalNetWorth": 15000.00,
+  "netWorthHistory": [
+    { "date": "2025-01-01", "total": 14000.00 },
+    { "date": "2025-02-01", "total": 14500.00 }
+  ],
+  "distribution": [
+    {
+      "accountId": 1,
+      "name": "PEA",
+      "color": "#6366f1",
+      "balanceEur": 8000.00,
+      "percentage": 53.3
+    }
+  ],
+  "goalSummaries": [ /* GoalProgressResponse[] — see Goals section */ ]
+}
+```
+
+---
+
+### 3. Accounts — `/api/accounts`
+
+#### `GET /api/accounts`
+
+- **Auth:** Required
+
+**Response `200` — `AccountResponse[]`:**
+
+```json
+[
+  {
+    "id": 1,
+    "name": "PEA Boursorama",
+    "type": "PEA",
+    "provider": null,
+    "currency": "EUR",
+    "currentBalance": 8000.00,
+    "currentBalanceEur": 8000.00,
+    "lastSyncedAt": "2025-03-15T10:30:00Z",
+    "isManual": false,
+    "color": "#6366f1",
+    "ticker": null,
+    "logoUrl": null,
+    "logoKey": null,
+    "createdAt": "2024-06-01T08:00:00Z",
+    "openedAt": "2014-03-12"
+  }
+]
+```
+
+`logoUrl` is the bank logo captured from the sync provider's institution catalog (Enable
+Banking only). `logoKey` names a logo bundled with the frontend — set on on-chain wallet
+accounts, whose `provider` is a bare ticker, and settable by a client only on an account
+that already carries one; see [the feature notes](../../docs/features/bank-logos.md).
+
+`openedAt` is when the member says the wrapper was opened — omitted when they never have. It is
+**not** `createdAt`, which dates the Picsou row: a PEA opened in 2014 and typed in last month has
+a decade between the two, and the five-year tax clock runs from the former.
+
+---
+
+#### `GET /api/accounts/{id}`
+
+- **Auth:** Required
+
+**Response `200` — `AccountResponse`** (same shape as above).
+
+**Errors:** 404 (account not found)
+
+---
+
+#### `POST /api/accounts`
+
+- **Auth:** Required
+
+**Request body — `AccountRequest`:**
+| Field | Type | Constraints | Description |
+|-------|------|-------------|-------------|
+| `name` | `string` | @NotBlank, max 100 | Account name |
+| `type` | `AccountType` | @NotNull | Account type enum |
+| `provider` | `string` | max 100 | External provider name (optional) |
+| `currency` | `string` | @NotBlank, max 10 | Currency code, e.g. `"EUR"` |
+| `currentBalance` | `number` | @DecimalMin("0") | Balance in native currency |
+| `isManual` | `boolean` | | Whether manually managed |
+| `color` | `string` | Hex pattern | Display color, e.g. `"#6366f1"` |
+| `ticker` | `string` | max 20 | Ticker for price lookup (optional) |
+| `logoKey` | `string` | `^[a-z0-9-]{1,32}$` | Bundled frontend logo to show, e.g. `"ledger"` (optional). Honoured only on a `CRYPTO` account that already stores a key, i.e. an on-chain wallet — ignored on `POST` and on any other account, so a key can be swapped but never attached. Omitting it on `PUT` keeps the stored value: it is never cleared by a client that doesn't know about it |
+| `openedAt` | `string` | @PastOrPresent, ISO-8601 date | When the wrapper was opened (optional). Relevant to the types whose taxation turns on the plan's age — a PEA at five years, an assurance-vie at eight. **Omitting it on `PUT` keeps the stored value**, for the same reason as `logoKey`: the MCP `update_account` tool has no such parameter, and treating null as "clear" would erase the date on any unrelated update. It can therefore be changed but not blanked |
+
+**Response `201` — `AccountResponse`.**
+
+**Errors:** 422 (validation)
+
+---
+
+#### `PUT /api/accounts/{id}`
+
+- **Auth:** Required
+- **Body:** same `AccountRequest` as POST
+
+**Response `200` — `AccountResponse`.**
+
+**Errors:** 404, 422
+
+---
+
+#### `DELETE /api/accounts/{id}`
+
+- **Auth:** Required
+- **Body:** none
+
+**Response `204`.**
+
+**Errors:** 404
+
+---
+
+#### `PUT /api/accounts/{id}/display`
+
+Collapse one account in the account list (Tout tab). Display-only: the
+account stays in every total, budget and chart. Any readable account
+(owned or shared) can be collapsed — it only ever changes the caller's
+own view, never anyone else's. Unlike `PUT .../visibility` (`hidden`),
+which excludes the account from totals.
+
+- **Auth:** Required
+- **Body:** `{ "collapsed": true }`
+
+**Response `200` — `AccountResponse`** with `listCollapsed` overlaid.
+
+**Errors:** 400, 404
+
+---
+
+#### `PUT /api/accounts/display-order`
+
+Replace the caller's whole manual order: listed accounts take positions
+`0..n`. Rows of accounts absent from a non-empty payload are left untouched
+(a hidden account keeps its position); only an explicit empty list clears
+all positions. A null list is rejected. Any readable account (owned or
+shared) can be ordered; preferences never leak from one viewer to another.
+
+- **Auth:** Required
+- **Body:** `{ "accountIds": [3, 1] }`
+
+**Response `200` — `AccountResponse[]`** in the requested order, with
+`listPosition` overlaid.
+
+**Errors:** 400 (null list, duplicate ids), 404 (unknown or unreadable id)
+
+---
+
+#### `GET /api/accounts/{id}/holdings`
+
+- **Auth:** Required
+
+**Response `200` — `HoldingResponse[]`:**
+```json
+[
+  {
+    "ticker": "AAPL",
+    "name": "Apple Inc.",
+    "quantity": 10,
+    "averageBuyIn": 150.00,
+    "currentPrice": 195.00,
+    "quoteCurrency": "USD",
+    "currentValueEur": 1800.00,
+    "costBasisEur": 1500.00,
+    "pnlEur": 300.00,
+    "pnlPercent": 20.00,
+    "priceUpdatedAt": "2026-07-20T10:00:00Z",
+    "priceAsOf": "2026-07-20",
+    "priceStale": false
+  }
+]
+```
+
+`currentPrice` is expressed in `quoteCurrency`. `averageBuyIn`,
+`currentValueEur`, `costBasisEur` and `pnlEur` are EUR-denominated.
+
+`priceAsOf` is the day the EUR price is for, and `priceStale` is `true` when the price provider
+could not be reached and the last recorded price (up to 7 days old) was used instead. The value is
+still returned in that case — clients should display it and mark it, not hide it. Both are
+`null`/`false` when no price could be resolved at all.
+
+`priceUpdatedAt` answers a different question: it is the instant the stored price on the holding
+was last refreshed, whereas `priceAsOf` is the calendar day that price *is for*. A holding synced
+minutes ago can carry a `priceAsOf` of yesterday. It is `null` when the holding has never been
+priced — a manually entered position, or one whose ticker no provider resolves.
+
+> A crypto exchange account also exposes its per-product breakdown at
+> [`GET /api/accounts/{id}/positions`](#get-apiaccountsidpositions), documented with the crypto
+> exchange endpoints in section 9.
+
+---
+
+#### `GET /api/accounts/{id}/history`
+
+- **Auth:** Required
+
+**Query params:**
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `from` | `ISO-8601 date` | none | Start date filter |
+| `to` | `ISO-8601 date` | none | End date filter |
+
+**Response `200` — `BalanceSnapshot[]`:**
+```json
+[
+  {
+    "id": 1,
+    "date": "2025-01-15",
+    "balance": 7500.00,
+    "createdAt": "2025-01-15T10:00:00Z"
+  }
+]
+```
+
+---
+
+#### `POST /api/accounts/{id}/snapshot`
+
+- **Auth:** Required
+
+**Request body — `SnapshotRequest`:**
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `balance` | `number` | @NotNull, @DecimalMin("0") |
+| `date` | `string` | @NotNull, ISO-8601 date |
+
+**Response `201` — `BalanceSnapshot`.**
+
+**Errors:** 404, 422
+
+---
+
+#### `GET /api/accounts/{id}/transactions`
+
+- **Auth:** Required
+
+**Response `200` — `TransactionDto[]`:**
+```json
+[
+  {
+    "id": 1,
+    "date": "2025-01-15",
+    "description": "Apple Inc. - Buy",
+    "amount": -1500.00,
+    "type": "buy",
+    "category": "stock",
+    "nativeCurrency": "EUR"
+  }
+]
+```
+
+#### `POST /api/accounts/export`
+
+Builds an `.xlsx` workbook with one sheet per selected account — identity, positions, and property
+or loan detail. Every id is resolved through the member-scoped read path, so an account outside the
+caller's perimeter fails the request rather than appearing in the file.
+
+- **Auth:** Required
+- **Rate limit:** 20 per hour per user (`accountExportBuckets`)
+- **No re-authentication**, unlike `POST /api/me/export` — this is a subset the user picks, not a
+  full personal-data dump.
+
+**Request body — `AccountsExportRequest`:**
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `accountIds` | `number[]` | @NotEmpty, @Size(max = 200) |
+| `labels` | `object` | optional — column headings keyed by `LabelKey` name |
+
+`labels` carries the localized column and section headings, because the backend has no message
+bundle. Keys match the `LabelKey` enum case- and separator-insensitively (`ACCOUNT_NAME`,
+`accountName` and `account-name` are the same key); unknown keys are ignored, and any key omitted
+falls back to that column's English default. Omitting `labels` entirely yields a complete English
+workbook, which is what makes this endpoint usable from `curl` or the MCP server. See
+[the ADR](../../docs/decisions/2026-08-18-client-supplied-labels-for-xlsx-export.md).
+
+```json
+{
+  "accountIds": [1, 4, 7],
+  "labels": { "quantity": "Quantité", "averageBuyIn": "Prix de revient moyen" }
+}
+```
+
+**Response `200`** — streamed workbook:
+
+```
+Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+Content-Disposition: attachment; filename="picsou-comptes-20260818-143211.xlsx"
+```
+
+**Errors:** 404 (an id the member may not read), 422 (empty or oversized `accountIds`),
+429 (hourly quota spent)
+
+A failure that happens after the response headers are flushed cannot become a `ProblemDetail`; it
+is logged and the client receives a truncated file. See
+[the feature note](../../docs/features/account-xlsx-export.md).
+
+---
+
+#### `POST /api/accounts/{id}/valuation/refresh`
+
+Re-estimates a `REAL_ESTATE` account from open data. **Owner only** — a co-owner may read a
+property but not move its balance.
+
+- **Auth:** Required
+
+Always answers `200`. A non-`OK` `status` is not an error: it explains why no figure could be
+produced, which the UI renders as guidance.
+
+| `status` | Meaning |
+|---|---|
+| `OK` | An estimate was produced |
+| `UNSUPPORTED_AREA` | Outside coverage — Alsace-Moselle (57/67/68) and Mayotte keep the *livre foncier* registry |
+| `NOT_ESTIMABLE` | Building, land, parking or commercial: no reliable price per m² |
+| `INCOMPLETE_DATA` | Living area missing |
+| `GEOCODING_FAILED` | Address could not be resolved to an INSEE commune |
+| `NO_COMPARABLE_DATA` | Source answered with no usable sample |
+| `PROVIDER_UNAVAILABLE` | Source unreachable; the previous valuation is kept |
+
+**Response `200`:**
+```json
+{
+  "status": "OK",
+  "mode": "ESTIMATED",
+  "appliedToBalance": true,
+  "estimatedValue": 412000.00,
+  "lowValue": 362560.00,
+  "highValue": 469680.00,
+  "pricePerSqm": 4336.00,
+  "sampleSize": 1048,
+  "confidence": "HIGH",
+  "sourceYear": 2025,
+  "provider": "CEREMA_DV3F",
+  "scale": "communes",
+  "valuedAt": "2026-08-01",
+  "reindexRatio": 1.021,
+  "adjustments": [
+    { "code": "GARDEN", "factor": 0.02, "sqm": null, "amount": 8080.00 },
+    { "code": "GARAGE", "factor": null, "sqm": 12, "amount": 52032.00 }
+  ]
+}
+```
+
+#### `GET /api/accounts/{id}/ownership`
+
+Current split. Readable by co-owners.
+
+**Response `200`:**
+```json
+{
+  "shares": [
+    { "memberId": 1, "displayName": "Alice", "avatarColor": "#6366f1", "sharePercent": 50, "isOwner": true },
+    { "memberId": 2, "displayName": "Bob", "avatarColor": "#22c55e", "sharePercent": 50, "isOwner": false }
+  ],
+  "totalAssigned": 100,
+  "unassigned": 0
+}
+```
+
+#### `PUT /api/accounts/{id}/ownership`
+
+Replaces the whole split. **Owner only.** An empty `shares` array clears it, restoring the
+default where the owner holds 100%.
+
+Only `REAL_ESTATE` and `LOAN` accounts may be split. `unassigned` above zero is legitimate —
+that part is held outside Picsou and counts towards nobody's net worth.
+
+**Request:**
+```json
+{ "shares": [{ "memberId": 1, "sharePercent": 60 }, { "memberId": 2, "sharePercent": 40 }] }
+```
+
+**Errors:** `422` if the sum exceeds 100, if the owner is absent from the split, if a member
+appears twice, or if the account is not a property or a loan.
+
+---
+
+#### `GET /api/accounts/{id}/holdings/{ticker}/classification`
+
+What the classification editor opens on. Returns the member's override **and** what the providers
+inferred, as separate fields — merged into one "effective" value the form could not tell you
+whether you are confirming a guess or reading your own earlier decision.
+
+**Response `200`:**
+```json
+{
+  "ticker": "AAPL", "wealthTier": null, "sectorKey": null, "countryKey": null,
+  "inferredSectorKey": "technology", "inferredCountryKey": "US", "profileLooked": true
+}
+```
+
+`profileLooked` is false when no lookup has run for the ticker, so "no sector" reads as "not
+asked yet" rather than "unknowable". Readable-gated, not owner-gated: looking is not a write.
+
+---
+
+#### `PUT /api/accounts/{id}/holdings/{ticker}/classification`
+
+The member's own verdict on what a holding is, overriding whatever was inferred from the account
+type and the price providers. Needed because a wrapper does not determine the asset — a gold ETC
+and a bitcoin ETP both live in an ordinary brokerage account.
+
+**Body** — every field optional; null means "stop overriding this one", and the three are
+independent so correcting a sector does not drop a tier set earlier:
+```json
+{ "wealthTier": "ALTERNATIVE", "sectorKey": "basic_materials", "countryKey": "FR" }
+```
+
+**Response `200`:**
+```json
+{ "ticker": "GLD", "wealthTier": "ALTERNATIVE", "sectorKey": null, "countryKey": null }
+```
+
+Stored per `(member, ticker)` rather than per holding row, so one correction covers the same
+security in every account and survives a sync that drops and recreates the holding. Sending all
+three fields null deletes the override. Requires ownership of the account, not merely read
+access: a co-owner must not rewrite how someone else's holdings are counted.
+
+### 4. Real estate — `/api/real-estate`
+
+#### `GET /api/real-estate/summary`
+
+Property wealth, already weighted by the member's shares.
+
+**Response `200`:**
+```json
+{
+  "grossValue": 412000.00,
+  "outstandingDebt": 168400.00,
+  "netValue": 243600.00,
+  "costBasis": 368800.00,
+  "unrealizedGain": 43200.00,
+  "unrealizedGainPercent": 11.71,
+  "loanToValue": 40.87,
+  "monthlyRentalIncome": 0.00,
+  "properties": [{ "accountId": 8, "name": "Résidence principale", "sharePercent": 100, "loans": [] }]
+}
+```
+
+#### `GET /api/real-estate/{accountId}/valuations`
+
+Past estimates, newest first. Readable by co-owners.
+
+---
+
+### 5. Analysis — `/api/analysis`
+
+How the portfolio is built, rather than what it is worth. Every figure is weighted by the
+member's ownership shares, exactly like `/api/dashboard`.
+
+#### `GET /api/analysis/pyramid`
+
+The five tiers, their weight against the member's targets, and the resulting score.
+
+Built from **assets only**, never net worth — property enters net of the mortgage financing it,
+and loans are otherwise excluded.
+
+`tiers` carries the **four investment tiers only**, and their percentages sum to 100 over
+`allocatableEur`. The cushion is not among them: it is measured in euros against an absolute
+target in the `safetyNet` object, and a second line expressing the same money as a share would
+contradict it.
+
+`safetyNet.valueEur` counts **savings passbooks only** — a current account holds money already
+committed to this month, so counting it would report a buffer that is largely spent.
+`dailyCashEur` reports current-account money so it is visible; it is scored nowhere and, like the
+cushion, sits outside `allocatableEur`.
+
+Each tier line carries `targetEur` beside `targetPercent`, because a gap of "−6.36 points" is not
+something a member can act on.
+
+**Response `200`:**
+```json
+{
+  "totalAssetsEur": 341700.00,
+  "allocatableEur": 319200.00,
+  "safetyNet": {
+    "valueEur": 18200.00, "dailyCashEur": 4300.00, "targetEur": 11100.00,
+    "coverage": 1.6396, "excessEur": 7100.00, "known": true, "score": 87
+  },
+  "tiers": [
+    {
+      "tier": "EQUITY", "valueEur": 142400.00, "actualPercent": 44.61,
+      "targetPercent": 50.00, "targetEur": 159600.00, "gapPercent": -5.39,
+      "accounts": [{ "accountId": 2, "name": "PEA", "color": "#6366f1", "valueEur": 96400.00 }]
+    }
+  ],
+  "score": {
+    "global": 91, "allocation": 86, "misplacedPercent": 13.51,
+    "cryptoPenalty": 0.10, "leverageBonus": 4.28,
+    "cryptoTopTenShare": 72.50, "loanToValue": 51.40
+  }
+}
+```
+
+`allocatableEur` is `totalAssetsEur - safetyNet.valueEur - safetyNet.dailyCashEur`; current-account
+cash counts in the total and then leaves the allocation, so the four tiers divide `allocatableEur`
+and their `actualPercent` sum to 100. The figures above are one consistent portfolio — the same one
+`frontend/src/demo/data/analysis.ts` serves.
+
+`safetyNet.known` is `false` when the member has never stated their monthly expenses. The tier
+is then **unrated, not scored zero**: `safetyNet.score` is `null` and `score.global` falls back
+to the allocation score plus the modifiers. `cryptoTopTenShare` is `null` when no crypto holding
+was seen line by line — an exchange tracked as a single balance draws no penalty, because its
+composition is unknown rather than poor.
+
+#### `POST /api/analysis/security-profiles/refresh`
+
+Warms the security profiles the diversification breakdown reads from, now rather than on the
+weekly schedule. Exists because nothing warms the table on first read: a fresh install would show
+a wholly unclassified breakdown until the following Sunday.
+
+**Response `202`:**
+```json
+{ "queuedTickers": 36, "alreadyRunning": false }
+```
+
+`202`, never `200` — the scraping outlives the request by design (one or two HTTP calls per
+ticker, no pacing), so it runs on a background thread. One pass at a time across the whole
+instance: a call made while one is running returns `alreadyRunning: true` and `queuedTickers: 0`
+rather than starting a rival pass. Capped at 40 tickers, like the scheduled pass, and
+rate-limited per IP on the sync bucket since it reaches two unofficial sources.
+
+Profiles are global reference data, so the pass covers every distinct ticker in the instance
+rather than only the caller's.
+
+---
+
+#### `GET /api/analysis/diversification`
+
+How the equity sleeve spreads across sectors and regions. ETFs are looked through to their
+composition; a directly held share contributes its whole value to one sector and one country.
+
+Reads **persisted profiles only** — never the network, so a page render can never block on a
+scrape. `SchedulerService` warms the table weekly.
+
+**Response `200`:**
+```json
+{
+  "totalValueEur": 142400.00,
+  "classifiedValueEur": 131800.00,
+  "unclassifiedValueEur": 10600.00,
+  "coveragePercent": 92.56,
+  "unclassified": [
+    {
+      "ticker": "MC.PA", "name": "LVMH", "accountId": 3, "valueEur": 10600.00,
+      "sectorMissing": false, "countryMissing": true, "profileLooked": true
+    }
+  ],
+  "securities": [
+    { "ticker": "IWDA", "name": "iShares Core MSCI World", "accountId": 2, "valueEur": 84200.00 }
+  ],
+  "sectors": {
+    "score": 78, "effectiveCount": 4.68, "targetCount": 6, "basis": "MIXED",
+    "classifiedValueEur": 118600.00, "coveragePercent": 83.29,
+    "slices": [{
+      "label": "technology", "percent": 31.40, "valueEur": 37240.40, "contributorCount": 3,
+      "contributors": [{ "ticker": "IWDA", "valueEur": 26813.09, "sharePercent": 72.00 }]
+    }]
+  },
+  "countries": {
+    "score": 71, "effectiveCount": 2.14, "targetCount": 3, "basis": "MIXED",
+    "classifiedValueEur": 131800.00, "coveragePercent": 92.56,
+    "slices": [{
+      "label": "US", "percent": 62.80, "valueEur": 82770.40, "contributorCount": 4,
+      "contributors": [{ "ticker": "IWDA", "valueEur": 54628.46, "sharePercent": 66.00 }]
+    }]
+  }
+}
+```
+
+`label` is a stable key — the same vocabulary `/api/securities/{ticker}/insight` uses, translated
+client-side under `holdings.insight.sectorNames.*` / `countryNames.*`, with the raw value as the
+fallback. `score` is `min(100, 100 × N_eff / targetCount)` where `N_eff = 1/Σw²`, the effective
+number of positions: it separates 20/20/20/20/20 from 96/1/1/1/1, which counting buckets cannot.
+
+A fund's published percentages are applied **literally**: a provider that discloses 70 % of a
+fund's sectors places 70 % of the holding, and the rest lands in `unclassifiedValueEur`. Each
+`Breakdown` therefore carries its **own** `coveragePercent`, because the two axes genuinely
+diverge and the top-level figure reports the more generous of them.
+
+Each slice names the holdings behind it, largest first. Contributors are capped at twelve and
+anything under 0.5 % of the slice folds into a single entry with a `null` ticker;
+`contributorCount` reports how many there really are. Names and accounts are not repeated per
+slice — they live once in the top-level `securities` dictionary.
+
+`unclassified` lists the lines a breakdown could not fully place, biggest first, with what the
+editor needs to fix them: `accountId` because the write is account-scoped, and `profileLooked` to
+separate "never looked up" (a refresh may still resolve it) from "looked up and still unknown"
+(only a manual override can). The two axes are reported independently — a share often has a
+sector and no domicile.
+
+Both scores are computed over the **classified** part only. `coveragePercent`,
+`unclassifiedValueEur` and `unclassified` travel with them so a breakdown over part of a
+portfolio cannot be read as one over all of it. A ticker in `pendingTickers` has no profile yet —
+"not looked up", not "unknowable".
+
+`basis` is `EXPOSURE` when every contribution came from a fund look-through, `MIXED` once a
+directly held share contributed its ISIN domicile. The two are different quantities; see the
+[ADR](../../docs/decisions/2026-08-13-equity-domicile-vs-etf-exposure.md).
+
+#### `GET /api/analysis/projection?years={n}`
+
+The investable portfolio projected forward under four return assumptions, fed by the member's
+recurring investment plans. `years` is clamped to 1–40 (default 20).
+
+The base is **investable only** — the `EQUITY`, `CRYPTO` and `SAFETY_NET` tiers. Property, loans
+and alternative assets are excluded from the headline curve: a house does not compound at an
+equity rate, and including it would inflate every scenario. `baseValueEur` is returned so the
+client can state what it is projecting from rather than letting it be mistaken for net worth.
+
+The starting split comes from the **wealth pyramid**, not from account types, so the two panels of
+one screen cannot disagree about the same euro: an account is broken down line by line and manual
+overrides are honoured. Current-account money is excluded, as it is there.
+
+**Response `200`:**
+```json
+{
+  "baseValueEur": 96400.00,
+  "monthlyInflowEur": 300.00,
+  "years": 20,
+  "scenarios": [
+    {
+      "key": "REFERENCE", "annualPercent": 6.40, "riskyDelta": 0.0,
+      "points": [{ "date": "2026-08-31", "valueEur": 96400.00, "contributedEur": 96400.00 }]
+    }
+  ],
+  "allocation": [
+    {
+      "date": "2036-12-31",
+      "tiers": [
+        { "tier": "REAL_ESTATE", "valueEur": 189351.00, "percent": 57.00, "targetPercent": 75.00 },
+        { "tier": "EQUITY", "valueEur": 140000.00, "percent": 37.00, "targetPercent": 18.00 },
+        { "tier": "SAFETY_NET", "valueEur": 16101.00, "percent": 1.00, "targetPercent": null }
+      ]
+    }
+  ]
+}
+```
+
+Scenarios run prudent to optimistic (`PESSIMISTIC`, `CAUTIOUS`, `REFERENCE`, `OPTIMISTIC`) and
+are **spreads on risky assets**, not absolute rates: `riskyDelta` points are added to equity and
+crypto only, because a passbook does not have a good year. `annualPercent` is the **blended rate
+the scenario actually works out to** for this member — the same optimistic curve is 10 % for
+someone fully invested and 6 % for someone half in cash — so a client must report it rather than
+restate an assumption.
+
+Each tier earns its own rate (cash 2 %, equity and crypto 7.5 %, property and alternatives 0 %),
+and a plan is credited to the tier of the account it funds, at its own `expectedReturn` when one
+was given. Contributions are share-weighted like the base. The maths is monthly using the
+**geometric** rate `(1 + r)^(1/12) − 1` with contributions credited at month end; the points are
+yearly.
+
+`allocation[]` answers the other question: where the mix lands against the member's own targets,
+under the reference scenario only. `targetPercent` is null for `SAFETY_NET`, which is measured in
+euros against an absolute target rather than as a share.
+
+#### `GET /api/analysis/allocation-targets`
+
+The member's targets, or the shipped defaults when they have never set any. No row is created
+by reading.
+
+**Response `200`:**
+```json
+{
+  "monthlyEssentialExpenses": 1850.00, "safetyNetMonths": 6,
+  "realEstatePct": 30.00, "equityPct": 50.00, "cryptoPct": 10.00, "alternativePct": 10.00
+}
+```
+
+#### `PUT /api/analysis/allocation-targets`
+
+Replaces the whole profile. `monthlyEssentialExpenses` may be `null` — that is how a member
+clears a figure they no longer stand behind, putting the safety net back to unrated.
+
+**Errors:** `422` when the four percentages do not sum to exactly 100. The `errors` map keys
+that violation under **`summingToOneHundred`** (a derived property), not under a field name —
+cross-field validation on a record has no single field to attach to.
+
+#### `GET /api/analysis/essential-expenses/estimate`
+
+What the member's own transactions suggest they spend monthly, offered as a starting point for
+the field above. **Never stored on their behalf** — accepting it is a `PUT`.
+
+Mean monthly debits on `CHECKING` accounts over the last six *complete* months, with internal
+transfers removed by counterparty matching (a debit whose amount reappears as a credit on
+another readable account within ±3 days), investment legs dropped, and a narrow label heuristic
+as a last resort. Divided by the months actually observed, not by six.
+
+**Response `200`:**
+```json
+{ "estimate": 1912.40, "monthsObserved": 6, "excludedTransferCount": 11 }
+```
+
+`estimate` is `null` when there is no usable history — never `0`, which would be
+indistinguishable from "this member spends nothing" and would set a target of zero.
+
+---
+
+### 6. Geocoding — `/api/geocode`
+
+#### `GET /api/geocode?q={query}&limit={n}`
+
+Address suggestions, proxied to the IGN Géoplateforme so the rate limit is enforceable.
+Queries shorter than 3 characters return `[]`. Rate-limited to 60 lookups/minute per member;
+exceeding it returns `429`.
+
+---
+
+### 7. Goals — `/api/goals`
+
+Goals have a **type**: `SAVINGS_TARGET` (an amount by a deadline — what every goal was before
+2026-08-13, and still is by default) or `RECURRING_INVESTMENT` (an amount every month, no target,
+no deadline; it feeds `/api/analysis/projection`).
+
+`type` may be **omitted** from any request body and defaults to `SAVINGS_TARGET`, so payloads
+written before the field existed keep working unchanged.
+
+| Field | `SAVINGS_TARGET` | `RECURRING_INVESTMENT` |
+|---|---|---|
+| `targetAmount`, `deadline` | required | must be absent |
+| `monthlyAmount` | — | required |
+| `expectedReturn`, `startDate`, `endDate` | — | optional |
+| `allocations` | must be empty | optional |
+| `accountIds` | one or more | exactly one |
+
+`allocations` splits `monthlyAmount` across positions the funded account **already holds**:
+`[{ "ticker": "CW8", "monthlyAmount": 250.00 }, …]`. It may be omitted (read as an empty list),
+it may cover only part of the monthly amount — the remainder is simply unallocated — but it may
+never exceed it, repeat a ticker, or name a ticker the account does not hold (`400`).
+
+In the response each line carries the holding's `name` as well. **`allocations` is always present
+as an array**, empty for a savings target and for an undetailed plan — deliberately unlike every
+other nullable field here, because clients map over it.
+
+In the response, the target machinery (`targetAmount`, `deadline`, `percentComplete`,
+`monthlyNeeded`, `surplus`) is null for a recurring plan and dropped from the JSON. `monthsLeft`
+and `isOnTrack` are primitives so they still appear, as `0` and `true` — **meaningless for that
+type; discriminate on `type`, not on absence.**
+
+**Errors:** `422` for a type/field mismatch. Those rules are cross-field, so the `errors` map keys
+them under derived property names — `savingsTargetComplete`, `recurringComplete`,
+`recurringSingleAccount`, `dateRangeOrdered`, `allocationOnlyOnRecurring`,
+`allocationWithinMonthlyAmount`, `allocationTickersUnique` — not under a field name.
+`400` (not `422`) for an allocation ticker the funded account does not hold: the client picks from
+that account's own holdings, so an unknown one is a malformed request rather than a typo.
+
+The monthly calendar and the history backfill (`/months`, `/history/extend`,
+`/months/{yearMonth}` and their manual-contribution variants) apply to `SAVINGS_TARGET` only and
+answer `400` for a recurring plan: they count towards a deadline it does not have.
+
+#### `GET /api/goals`
+
+- **Auth:** Required
+
+**Response `200` — `GoalProgressResponse[]`:**
+```json
+[
+  {
+    "id": 1,
+    "name": "Vacation Fund",
+    "targetAmount": 3000.00,
+    "deadline": "2025-12-31",
+    "accounts": [ /* AccountResponse[] */ ],
+    "currentTotal": 1200.00,
+    "percentComplete": 40.0,
+    "monthsLeft": 9,
+    "monthlyNeeded": 200.00,
+    "avgMonthlyContribution": 150.00,
+    "isOnTrack": true,
+    "surplus": -50.00,
+    "allocations": []
+  }
+]
+```
+
+---
+
+#### `GET /api/goals/{id}`
+
+- **Auth:** Required
+
+**Response `200` — `GoalProgressResponse`** (same shape as above).
+
+**Errors:** 404
+
+---
+
+#### `POST /api/goals`
+
+- **Auth:** Required
+
+**Request body — `GoalRequest`:**
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `name` | `string` | @NotBlank, max 200 |
+| `type` | `string` | Optional; `SAVINGS_TARGET` (default) or `RECURRING_INVESTMENT` |
+| `targetAmount` | `number` | @DecimalMin("0.01"); required for a savings target |
+| `deadline` | `string` | @Future, ISO-8601 date; required for a savings target |
+| `monthlyAmount` | `number` | @DecimalMin("0.01"); required for a recurring plan |
+| `expectedReturn` | `number` | −100 … 100, percent per year |
+| `startDate`, `endDate` | `string` | ISO-8601 dates; `endDate` must follow `startDate` |
+| `allocations` | `object[]` | `{ ticker (max 30), monthlyAmount (≥ 0.01) }`; recurring only |
+| `accountIds` | `number[]` | @NotEmpty, list of account IDs |
+
+**Response `201` — `GoalProgressResponse`.**
+
+**Errors:** 422
+
+---
+
+#### `PUT /api/goals/{id}`
+
+- **Auth:** Required
+- **Body:** same `GoalRequest` as POST
+
+**Response `200` — `GoalProgressResponse`.**
+
+**Errors:** 404, 422
+
+---
+
+#### `DELETE /api/goals/{id}`
+
+- **Auth:** Required
+- **Body:** none
+
+**Response `204`.**
+
+**Errors:** 404
+
+---
+
+#### `GET /api/goals/{id}/months`
+
+- **Auth:** Required
+
+**Response `200` — `GoalMonthEntryResponse[]`:**
+```json
+[
+  {
+    "yearMonth": "2025-01",
+    "objective": 200.00,
+    "actual": 150.00,
+    "override": null,
+    "effective": 150.00
+  }
+]
+```
+
+---
+
+#### `PUT /api/goals/{id}/months/{yearMonth}`
+
+- **Auth:** Required
+- **Path:** `yearMonth` in format `yyyy-MM`
+
+**Request body — `GoalMonthOverrideRequest`:**
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `amount` | `number` | @NotNull, @DecimalMin("0") |
+
+**Response `200` — `GoalMonthEntryResponse`.**
+
+---
+
+#### `DELETE /api/goals/{id}/months/{yearMonth}`
+
+- **Auth:** Required
+- **Path:** `yearMonth` in format `yyyy-MM`
+
+**Response `200` — `GoalMonthEntryResponse`** (with `override: null`).
+
+---
+
+### 8. Bank Sync (Enable Banking) — `/api/sync`
+
+#### `GET /api/sync/institutions`
+
+- **Auth:** Required
+
+**Query params:**
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `query` | `string` | `""` | Search filter |
+| `country` | `string` | `"FR"` | ISO country code |
+
+**Response `200` — `InstitutionData[]`:**
+```json
+[
+  {
+    "id": "Swan::FR::business",
+    "name": "Swan",
+    "bic": "SWNBFR22",
+    "logoUrl": "https://...",
+    "country": "FR",
+    "psuType": "business"
+  }
+]
+```
+
+`id` is an opaque token encoding `name::country::psuType` — pass it back to
+`/sync/initiate` verbatim. `psuType` is `personal` or `business`; business-only
+banks (Swan and other BaaS providers) present a professional login at the
+consent step.
+
+---
+
+#### `GET /api/sync/countries`
+
+- **Auth:** Required
+- **Rate limit:** Throttled (own bucket per IP, separate from `/initiate`'s)
+
+Countries the active bank-sync provider supports, for the "which country" search filter/UI selector above — sourced from the provider (Enable Banking: `GET /application`'s `countries` field) rather than a hardcoded list. Enable Banking's result is cached in-memory for up to 6 hours.
+
+**Response `200` — `string[]`** (ISO 3166-1 alpha-2 codes, ~29 entries for Enable Banking):
+```json
+["AT", "BE", "DE", "EE", "FR"]
+```
+
+**Errors:** 429, 502
+
+---
+
+#### `POST /api/sync/initiate`
+
+- **Auth:** Required
+- **Rate limit:** Throttled
+
+**Request body:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `institutionId` | `string` | Bank identifier from `/institutions`, passed back verbatim — it encodes the bank name, country, and PSU type |
+| `institutionName` | `string` | Display name |
+
+**Response `200` — `InitiateResponse`:**
+```json
+{
+  "requisitionId": "uuid",
+  "authLink": "https://ob.nordigen.com/psd2/..."
+}
+```
+
+**Errors:** 422 (validation — both fields required), 429, 502
+
+---
+
+#### `POST /api/sync/complete`
+
+- **Auth:** Required
+- **Rate-limited:** own sync bucket
+
+Called by the SPA's `/sync/callback` page after the bank redirects the browser there.
+
+**Request body:**
+```json
+{ "code": "string (required) — OAuth authorization code", "state": "string (optional) — OAuth state nonce from the redirect" }
+```
+
+**Response `200` — `AccountResponse[]`.**
+
+**Errors:** 401 (invalid code), 422 (missing code), 429, 502
+
+---
+
+#### `GET /api/sync/status`
+
+- **Auth:** Required
+
+**Response `200` — `Requisition[]`:**
+```json
+[
+  {
+    "id": 1,
+    "requisitionId": "uuid",
+    "institutionId": "BNP Paribas::FR::personal",
+    "institutionName": "BNP Paribas",
+    "status": "LINKED",
+    "authLink": null
+  }
+]
+```
+
+`status` values: `CREATED` · `LINKED` · `EXPIRED` · `FAILED`
+
+---
+
+#### `POST /api/sync/{id}/retry`
+
+- **Auth:** Required
+
+**Response `200` — `AccountResponse[]`.**
+
+**Errors:** 404, 502
+
+---
+
+#### `DELETE /api/sync/{id}`
+
+- **Auth:** Required
+
+**Response `204`.**
+
+**Errors:** 404
+
+---
+
+### 9. Trade Republic — `/api/tr`
+
+#### `POST /api/tr/auth/initiate`
+
+- **Auth:** Required
+- **Rate limit:** Throttled
+
+**Request body:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `phoneNumber` | `string` | Phone number |
+| `pin` | `string` | Account PIN |
+
+**Response `200` — `AuthInitResponse`:**
+```json
+{ "processId": "string" }
+```
+
+**Errors:** 429, 502
+
+---
+
+#### `POST /api/tr/auth/complete`
+
+- **Auth:** Required
+
+**Request body:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `processId` | `string` | From initiate step |
+| `tan` | `string` | 2FA code from SMS |
+
+**Response `200` — `AccountResponse[]`.**
+
+**Errors:** 401, 502
+
+---
+
+#### `POST /api/tr/sync`
+
+- **Auth:** Required
+- **Body:** none
+
+**Response `200` — `AccountResponse[]`.**
+
+**Errors:** 401 (no active session), 502
+
+---
+
+#### `GET /api/tr/status`
+
+- **Auth:** Required
+
+**Response `200` — `SessionStatusResponse`:**
+```json
+{
+  "isActive": true,
+  "expiresAt": "2025-03-15T12:00:00Z"
+}
+```
+
+---
+
+#### `POST /api/tr/import`
+
+- **Auth:** Required
+- **Content-Type:** `multipart/form-data`
+- **Field:** `file` (CSV)
+
+**Response `200` — `AccountResponse[]`.**
+
+---
+
+#### `DELETE /api/tr/session`
+
+- **Auth:** Required
+- **Body:** none
+
+**Response `204`.**
+
+---
+
+### 10. Bourse Direct — `/api/bourse-direct`
+
+The connector is read-only. Authentication persists an encrypted browser
+session, then portfolio import continues asynchronously.
+
+#### `POST /api/bourse-direct/auth/initiate`
+
+- **Auth:** Required
+- **Rate limit:** Per IP
+
+**Request body:**
+```json
+{ "login": "client-id", "password": "secret" }
+```
+
+**Response `200` — `BourseDirectAuthInitResponse`:**
+```json
+{ "processId": "uuid", "mfaRequired": true, "mfaType": "OTP" }
+```
+
+When `mfaRequired` is false, the encrypted session is already stored and its
+first portfolio import is queued.
+
+---
+
+#### `POST /api/bourse-direct/auth/complete`
+
+- **Auth:** Required
+- **Rate limit:** Per IP
+
+**Request body:**
+```json
+{ "processId": "uuid", "code": "123456" }
+```
+
+**Response `200` — `BourseDirectSessionStatus`**, normally with
+`syncStatus: "QUEUED"`.
+
+---
+
+#### `POST /api/bourse-direct/sync`
+
+- **Auth:** Required
+- **Body:** none
+
+**Response `202` — `BourseDirectSessionStatus`.** An already queued or running
+job is not duplicated; its current status is returned.
+
+---
+
+#### `GET /api/bourse-direct/status`
+
+- **Auth:** Required
+
+**Response `200` — `BourseDirectSessionStatus`:**
+```json
+{
+  "isActive": true,
+  "expiresAt": null,
+  "syncStatus": "SUCCESS",
+  "lastSyncStartedAt": "2026-07-20T09:59:40Z",
+  "lastSyncCompletedAt": "2026-07-20T10:00:00Z",
+  "lastSyncError": null
+}
+```
+
+`syncStatus` is one of `IDLE`, `QUEUED`, `RUNNING`, `SUCCESS`, or `FAILED`.
+
+---
+
+#### `DELETE /api/bourse-direct/session`
+
+- **Auth:** Required
+
+**Response `204`.** Imported accounts and history are retained.
+
+Domain failures use `422` RFC 7807 responses with a stable `code` property:
+`INVALID_CREDENTIALS`, `INVALID_OTP`, `AUTH_ATTEMPT_EXPIRED`,
+`SESSION_EXPIRED`, `PORTFOLIO_INCOMPLETE`, `UPSTREAM_FORMAT_CHANGED`,
+`UPSTREAM_UNAVAILABLE`, `INVALID_DATA`, or `INTERNAL_ERROR`. Authentication
+rate limiting returns `429`.
+
+---
+
+### 10. Fortuneo — `/api/fortuneo`
+
+The connector is unofficial and read-only. Browser state is encrypted at rest,
+and a complete portfolio import runs asynchronously only after authentication.
+
+#### `POST /api/fortuneo/auth/initiate`
+
+- **Auth:** Required
+- **Rate limit:** Per IP
+
+**Request body:**
+```json
+{ "login": "client-id", "password": "secret" }
+```
+
+**Response `200` — `FortuneoAuthInitResponse`:**
+```json
+{ "processId": "uuid", "mfaRequired": true, "mfaType": "OTP" }
+```
+
+When `mfaRequired` is false, the encrypted session is already stored and its
+first portfolio import is queued.
+
+---
+
+#### `POST /api/fortuneo/auth/complete`
+
+- **Auth:** Required
+- **Rate limit:** Per IP
+
+**Request body:**
+```json
+{ "processId": "uuid", "code": "123456" }
+```
+
+**Response `200` — `FortuneoSessionStatus`**, normally with
+`syncStatus: "QUEUED"`.
+
+---
+
+#### `POST /api/fortuneo/sync`
+
+- **Auth:** Required
+- **Body:** none
+
+**Response `202` — `FortuneoSessionStatus`.** An already queued or running
+job is not duplicated; its current status is returned. A synchronous executor
+submission failure transitions the persisted job to `FAILED`.
+
+---
+
+#### `GET /api/fortuneo/status`
+
+- **Auth:** Required
+
+**Response `200` — `FortuneoSessionStatus`:**
+```json
+{
+  "isActive": true,
+  "expiresAt": null,
+  "syncStatus": "SUCCESS",
+  "lastSyncStartedAt": "2026-08-24T09:59:40Z",
+  "lastSyncCompletedAt": "2026-08-24T10:00:00Z",
+  "lastSyncError": null
+}
+```
+
+`syncStatus` is one of `IDLE`, `QUEUED`, `RUNNING`, `SUCCESS`, or `FAILED`.
+Only `FAILED` carries a non-null `lastSyncError`.
+
+---
+
+#### `DELETE /api/fortuneo/session`
+
+- **Auth:** Required
+
+**Response `204`.** Imported accounts and history are retained.
+
+Domain failures use `422` RFC 7807 responses with a stable `code` property:
+`INVALID_CREDENTIALS`, `INVALID_OTP`, `AUTH_ATTEMPT_EXPIRED`,
+`SESSION_EXPIRED`, `INVESTOR_PROFILE_REQUIRED`, `PORTFOLIO_INCOMPLETE`,
+`UPSTREAM_FORMAT_CHANGED`,
+`UPSTREAM_UNAVAILABLE`, `INVALID_DATA`, or `INTERNAL_ERROR`. Authentication
+rate limiting returns `429`.
+
+---
+
+### 11. Crypto Wallets — `/api/crypto/wallet`
+
+#### `POST /api/crypto/wallet`
+
+- **Auth:** Required
+
+**Request body:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `chain` | `Chain` | `SOLANA` · `ETHEREUM` · `BITCOIN` |
+| `address` | `string` | Wallet address |
+| `label` | `string` | Display label |
+
+**Response `200` — `AccountResponse`.**
+
+---
+
+#### `POST /api/crypto/wallet/{id}/sync`
+
+- **Auth:** Required
+- **Body:** none
+
+**Response `200` — `AccountResponse`** (updated with latest balance).
+
+---
+
+#### `GET /api/crypto/wallet`
+
+- **Auth:** Required
+
+**Response `200` — `WalletStatusResponse[]`:**
+```json
+[
+  {
+    "id": 1,
+    "chain": "ETHEREUM",
+    "address": "0x...",
+    "label": "My Wallet",
+    "lastSyncedAt": "2025-03-15T10:00:00Z"
+  }
+]
+```
+
+---
+
+#### `DELETE /api/crypto/wallet/{id}`
+
+- **Auth:** Required
+
+**Response `204`.**
+
+---
+
+### 12. Crypto Exchanges — `/api/crypto/exchange`
+
+#### `POST /api/crypto/exchange`
+
+- **Auth:** Required
+
+**Request body:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | `ExchangeType` | `BINANCE` · `KRAKEN` · `MERIA` |
+| `apiKey` | `string` | Exchange API key (required, max 200 chars) |
+| `apiSecret` | `string?` | Exchange API secret (max 300 chars). **Required** for `BINANCE` and `KRAKEN`; must be **omitted** for `MERIA`, which authenticates with a single read-only API key |
+| `apiPassphrase` | `string?` | Exchange API passphrase (max 200 characters and 347 UTF-8 bytes). Required only when the adapter uses one. Omit it for all current exchanges. |
+| `region` | `string?` | Region code (max 20 characters). Required when the adapter declares regions. The service trims and upper-cases the code. Omit it for all current exchanges. |
+
+**Response `200` — `AccountResponse`.**
+
+**Errors:**
+
+| Status | When |
+|--------|------|
+| `400` | Blank API key, missing required secret or passphrase, unexpected secret or passphrase, a passphrase beyond the UTF-8 byte limit, or a missing, unknown or unexpected region. When the adapter declares regions, region errors list the allowed codes. |
+| `422` | Bean-validation failure (`errors` map), the credentials were refused by the exchange, or the immediate sync failed |
+
+---
+
+#### `POST /api/crypto/exchange/{id}/sync`
+
+- **Auth:** Required
+- **Body:** none
+
+**Response `200` — `AccountResponse`** (updated with latest holdings).
+
+---
+
+#### `GET /api/accounts/{id}/positions`
+
+- **Auth:** Required
+
+The per-product breakdown behind an account's holdings. **Empty** for every account that has none
+(anything but a crypto exchange), in which case the client shows the flat holdings table instead.
+
+**Response `200` — `ExchangePositionResponse[]`:**
+```json
+[
+  { "product": "SPOT", "ticker": "BTC", "quantity": 0.01204, "principal": null, "interest": null,
+    "averageBuyIn": 68000.0, "currentPriceEur": 92100.0, "currentValueEur": 1108.88,
+    "costBasisEur": 818.72, "pnlEur": 290.16, "pnlPercent": 35.4,
+    "priceAsOf": "2026-08-01", "priceStale": false },
+  { "product": "STAKING", "ticker": "ATOM", "quantity": 33.154, "principal": 19.73, "interest": 13.424,
+    "averageBuyIn": 6.4, "currentPriceEur": 5.65, "currentValueEur": 187.32,
+    "costBasisEur": 212.19, "pnlEur": -24.87, "pnlPercent": -11.7,
+    "priceAsOf": "2026-07-31", "priceStale": true }
+]
+```
+
+`interest` is the yield **already included** in `quantity` (`principal + interest = quantity`), not
+an amount to add. `principal`/`interest` are null for exchanges that don't report yield, and
+`currentPriceEur`/`currentValueEur` are null for an asset with no CoinGecko mapping.
+
+`priceAsOf` / `priceStale` carry the price's freshness, as on `HoldingResponse` above: the second
+line is valued from the price recorded on 2026-07-31 because the provider did not answer.
+
+Cost basis is tracked **per asset**, not per product: `averageBuyIn` comes from the asset's
+`AccountHolding` and every line of the same asset shares it, with `costBasisEur = averageBuyIn ×
+quantity`. The per-line figures therefore still add up to the holding's own cost and P&L.
+
+---
+
+#### `GET /api/crypto/exchange/status`
+
+- **Auth:** Required
+
+Each item includes `region` when a region is stored for the connection.
+
+**Response `200` — `ExchangeStatusResponse[]`:**
+```json
+[
+  {
+    "id": 1,
+    "exchangeType": "BINANCE",
+    "status": "CONNECTED",
+    "lastSyncedAt": "2025-03-15T10:00:00Z"
+  },
+  {
+    "id": 2,
+    "exchangeType": "MERIA",
+    "status": "CONNECTED",
+    "lastSyncedAt": "2025-03-15T10:00:00Z"
+  }
+]
+```
+
+---
+
+#### `DELETE /api/crypto/exchange/{id}`
+
+- **Auth:** Required
+
+**Response `204`.**
+
+---
+
+### 13. Prices — `/api/prices`
+
+#### `GET /api/prices`
+
+- **Auth:** Required
+
+**Query params:**
+| Param | Type | Description |
+|-------|------|-------------|
+| `tickers` | `string` | Comma-separated ticker symbols, e.g. `"BTC,ETH,AAPL"` |
+
+**Response `200`:**
+```json
+{
+  "BTC": 45000.00,
+  "ETH": 3000.00,
+  "AAPL": 180.00
+}
+```
+
+Prices are in EUR. Results are cached for 15 minutes.
+
+#### `GET /api/prices/precious-metals`
+
+- **Auth:** Required
+
+The gold products a `PRECIOUS_METALS` holding can carry, in registry order. The `ticker` is the
+holding's ticker. `unit` says what its quantity counts: `GRAM` (fine grams, priced from the
+gold spot) or `COIN` (pieces, priced from the Loomis FXGS quote).
+
+**Response `200`:**
+```json
+[
+  { "ticker": "GOLD:GRAM", "name": "Gold (fine gram)", "unit": "GRAM" },
+  { "ticker": "GOLD:NAPOLEON-20F", "name": "Napoléon 20 F", "unit": "COIN" }
+]
+```
+
+---
+
+### 14. Finary — `/api/finary`
+
+Two import modes: **file-based** (XLSX upload) and **API-based** (direct sync). Both use a two-phase flow: preview then execute with account mappings.
+
+For native HomeBank iOS and desktop QIF exports, see [HomeBank history import](#homebank-history-import--apihomebankimport) below. Its account/category mappings are separate from the Finary XLSX contract.
+
+#### `POST /api/finary/preview` (file-based)
+
+- **Auth:** Required
+- **Content-Type:** `multipart/form-data`
+- **Field:** `file` (XLSX)
+
+**Response `200` — `FinaryPreviewResponse`:**
+```json
+{
+  "accounts": [
+    {
+      "finaryName": "Compte Courant",
+      "finaryInstitution": "BoursoBank",
+      "finaryCategory": "checking",
+      "suggestedType": "CHECKING",
+      "currentBalance": 2500.00,
+      "nativeCurrency": "EUR",
+      "transactionCount": 42
+    }
+  ],
+  "existingPicsouAccounts": [ /* AccountResponse[] */ ],
+  "totalTransactionCount": 128,
+  "fileToken": "server-side-token"
+}
+```
+
+---
+
+#### `POST /api/finary/import` (file-based)
+
+- **Auth:** Required
+
+**Request body — `FinaryImportRequest`:**
+```json
+{
+  "fileToken": "token-from-preview",
+  "mappings": [
+    {
+      "finaryName": "Compte Courant",
+      "finaryCategory": "checking",
+      "action": "MAP_EXISTING",
+      "targetAccountId": 5,
+      "newAccount": null
+    },
+    {
+      "finaryName": "PEA",
+      "finaryCategory": "stock",
+      "action": "CREATE_NEW",
+      "targetAccountId": null,
+      "newAccount": {
+        "name": "PEA Finary",
+        "type": "PEA",
+        "provider": "Finary",
+        "currency": "EUR",
+        "color": "#10b981"
+      }
+    }
+  ]
+}
+```
+
+`action` values: `SKIP` · `MAP_EXISTING` · `CREATE_NEW`
+
+**Response `200` — `FinaryImportResultResponse`:**
+```json
+{
+  "accountsCreated": 1,
+  "accountsMapped": 2,
+  "accountsSkipped": 0,
+  "snapshotsCreated": 3,
+  "transactionsImported": 128,
+  "importedAccounts": [
+    {
+      "id": 10,
+      "name": "PEA Finary",
+      "type": "PEA",
+      "currentBalance": 8000.00,
+      "color": "#10b981"
+    }
+  ]
+}
+```
+
+---
+
+#### `GET /api/finary/configured` (API-based)
+
+- **Auth:** Required
+
+**Response `200`:**
+```json
+true
+```
+
+Returns whether the Finary API credentials (`FINARY_EMAIL`, `FINARY_PASSWORD`) are configured.
+
+---
+
+#### `POST /api/finary/api-sync/preview` (API-based)
+
+- **Auth:** Required
+
+**Query params:**
+| Param | Type | Description |
+|-------|------|-------------|
+| `totp` | `string` | TOTP 2FA code (if enabled) |
+
+**Response `200` — `FinaryPreviewResponse`** (same shape as file-based preview, but with `syncToken` instead of `fileToken`).
+
+---
+
+#### `POST /api/finary/api-sync/execute` (API-based)
+
+- **Auth:** Required
+
+**Request body — `FinaryApiSyncExecuteRequest`:**
+```json
+{
+  "syncToken": "token-from-preview",
+  "mappings": [ /* same FinaryAccountMapping[] as file-based */ ]
+}
+```
+
+**Response `200` — `FinaryImportResultResponse`** (same shape as file-based import).
+
+---
+
+### 14b. Actual Budget import — `/api/actual/import`
+
+Two-phase, member-scoped import of an **Actual Budget** export: the budget `.zip`
+(`db.sqlite` + `metadata.json`) or a bare `db.sqlite`, recognised by signature. Scheduled
+transactions, budget envelopes and live sync with an Actual server are not part of it.
+See [Actual Budget import](../../docs/features/actual-budget-import.md).
+
+#### `POST /api/actual/import/preview`
+
+- **Auth:** Required. **Content-Type:** `multipart/form-data`, field `file` (at most 10 MB).
+- **Response `200` — `ActualBudgetImportDtos.Preview`:** `fileToken` (member-bound, single-use,
+  30-minute TTL), `currency` (the budget's `defaultCurrencyCode`, or `null` when the file has
+  none), `accounts[]` (`sourceId`, `name`, `offBudget`, `closed`, `suggestedType`, `balance`,
+  `transactionCount`, `importedAccountId` = the account an earlier import created for this
+  source, or `null`), `categories[]` (`sourceId`, `name`, `groupName`, `income`,
+  `transactionCount`), `existingAccounts[]`, `actualAccountIds[]` (the existing accounts any
+  Actual import created, which the wizard offers only to the source they were created for),
+  `existingCategories[]`,
+  `sampleTransactions[]`
+  (newest 20: `sourceId`, `accountSourceId`, `date`, `amount`, `payee`, `notes`,
+  `categorySourceId`, `kind` = `REGULAR` | `TRANSFER` | `STARTING_BALANCE`),
+  `totalTransactions`, `transferTransactions`.
+
+The whole file is validated before a token is returned; preview writes nothing.
+
+#### `POST /api/actual/import/plan`
+
+- **Auth:** Required. **Content-Type:** `application/json`, the same body as
+  `POST /api/actual/import`. **Response `200` — `Plan`:** `transactionsToAdd`,
+  `transactionsToDelete`, `transactionsToMove`, `warnings[]` (`reason`, `count`),
+  `largeDeletion` (`true` when the import would delete more than 200 rows, or more than 20 % of
+  an account's imported rows).
+
+A dry run: it runs every validation of the import and fails with the same `400`s, writes
+nothing and leaves the token usable. It does not refuse a large deletion; it reports it.
+
+#### `POST /api/actual/import`
+
+- **Auth:** Required. **Content-Type:** `application/json`. **Response `201` — `Result`.**
+
+```json
+{
+  "fileToken": "token-from-preview",
+  "currency": "EUR",
+  "accountMappings": [
+    { "sourceId": "acc-1", "action": "CREATE_NEW",
+      "newAccount": { "name": "Everyday", "type": "CHECKING", "currency": "EUR" } },
+    { "sourceId": "acc-2", "action": "MAP_EXISTING", "targetAccountId": 12 },
+    { "sourceId": "acc-3", "action": "SKIP" }
+  ],
+  "categoryMappings": [
+    { "sourceId": "cat-1", "action": "CREATE_NEW", "name": "Groceries" },
+    { "sourceId": "cat-2", "action": "MAP_EXISTING", "targetCategoryId": 40 },
+    { "sourceId": "cat-3", "action": "UNCATEGORIZED" }
+  ],
+  "acknowledgeLargeDeletion": false
+}
+```
+
+Every source account and category needs exactly one mapping. `currency` must match the
+budget's when the file records one, and every target account's. Investment, property and
+loan account types are refused (the file holds cash ledgers, and Picsou stores a loan as the
+positive amount owed). `MAP_EXISTING` categories must be active and of the same kind
+(income/expense). On a re-import, an account an Actual import created for a source account of
+this file (`externalAccountId = actual_<source id>`), mapped from that same source, follows the
+file: rows no longer in Actual are deleted, rows moved to another such account are moved.
+`MAP_EXISTING` onto an `actual_<X>` account from a source other than `X` is refused with `400`.
+Every other account (the user's) only receives new rows; rows missing or moved there are kept
+and reported as warnings. When the plan reports
+`largeDeletion`, the import is refused with `400` unless `acknowledgeLargeDeletion` is `true`
+(optional, defaults to `false`). Every touched account an Actual import created gets its balance and
+snapshots recomputed from its full ledger, whichever action maps it; accounts the user created
+keep their balance.
+
+**Result:** `accountsCreated`, `accountsMapped`, `accountsSkipped`, `categoriesCreated`,
+`transactionsImported`, `transactionsSkipped`, `transactionsDeleted`, `transactionsMoved`,
+`warnings[]` (`reason` = `KEPT_MISSING` | `KEPT_MOVED`, `count`).
+
+**Errors:** `400` (RFC 7807) for unsupported/corrupt/unsafe files (including a value over
+1 MiB, a table over its row cap, or a generated column), invalid mappings and expired
+previews — nothing is written; `429` when the shared sync/import rate limit trips.
+
+---
+
+### 15. Amundi Épargne Salariale — `/api/amundi`
+
+Read-only. Amundi gates its login behind a captcha and a mandatory second
+factor, so authentication is always interactive; it persists an encrypted
+sidecar session, then plan import continues asynchronously. One account is
+created per *dispositif* (PEE/PEG, PERCO, PER…), typed `EMPLOYEE_SAVINGS`.
+
+#### `POST /api/amundi/auth/initiate`
+
+- **Auth:** Required
+- **Rate limit:** 5 attempts per IP per 15 minutes
+
+**Request body:**
+```json
+{ "login": "identifiant", "password": "secret" }
+```
+
+**Response `200` — `AmundiAuthInitResponse`:**
+```json
+{ "processId": "uuid", "mfaRequired": true, "mfaType": "APP_PUSH" }
+```
+
+`mfaType` is `APP_PUSH` when the user must approve in the "Mon Épargne" app,
+or `SMS` when a code is texted.
+
+---
+
+#### `POST /api/amundi/auth/complete`
+
+- **Auth:** Required
+- **Rate limit:** 5 attempts per IP per 15 minutes
+
+**Request body** — `code` is omitted for an app push, since there is nothing
+for the user to type:
+```json
+{ "processId": "uuid", "code": "123456" }
+```
+
+**Response `200` — `AmundiSessionStatus`**, normally with
+`syncStatus: "QUEUED"`. For an app push the request stays open until the user
+approves on their phone, or fails with `APP_VALIDATION_TIMEOUT`.
+
+---
+
+#### `POST /api/amundi/sync`
+
+- **Auth:** Required
+- **Rate limit:** 10 requests per IP per minute (shared `syncBuckets`)
+- **Body:** none
+
+**Response `202` — `AmundiSessionStatus`.** An already queued or running job is
+not duplicated; its current status is returned.
+
+---
+
+#### `GET /api/amundi/status`
+
+- **Auth:** Required
+
+**Response `200` — `AmundiSessionStatus`:**
+```json
+{
+  "isActive": true,
+  "syncStatus": "SUCCESS",
+  "lastSyncStartedAt": "2026-08-09T09:59:40Z",
+  "lastSyncCompletedAt": "2026-08-09T10:00:00Z",
+  "lastSyncError": null
+}
+```
+
+`syncStatus` is one of `IDLE`, `QUEUED`, `RUNNING`, `SUCCESS`, or `FAILED`.
+
+---
+
+#### `DELETE /api/amundi/session`
+
+- **Auth:** Required
+
+**Response `204`.** Imported accounts and history are retained.
+
+Domain failures use `422` RFC 7807 responses with a stable `code` property:
+`INVALID_CREDENTIALS`, `CAPTCHA_BLOCKED`, `INVALID_OTP`,
+`APP_VALIDATION_TIMEOUT`, `AUTH_ATTEMPT_EXPIRED`, `SESSION_EXPIRED`,
+`PORTFOLIO_INCOMPLETE`, `UPSTREAM_FORMAT_CHANGED`, `UPSTREAM_UNAVAILABLE`,
+`INVALID_DATA`, or `INTERNAL_ERROR`. Authentication rate limiting returns `429`.
+
+---
+
+### 16. DEGIRO — `/api/degiro`
+
+The connector is read-only and **session-only**: DEGIRO's session cookie expires
+after ~30 minutes of inactivity and Picsou never stores the account's TOTP
+secret, so there is no scheduled background resync — every sync is user-initiated
+and may require reconnecting. See
+[`docs/decisions/2026-08-05-degiro-session-only-no-stored-totp.md`](../../docs/decisions/2026-08-05-degiro-session-only-no-stored-totp.md).
+
+#### `POST /api/degiro/auth/initiate`
+
+- **Auth:** Required
+- **Rate limit:** Per IP — 5 attempts / 15 min
+
+**Request body:**
+```json
+{ "username": "client-id", "password": "secret" }
+```
+
+**Response `200` — `DegiroAuthInitResponse`:**
+```json
+{ "processId": "uuid", "totpRequired": true }
+```
+
+When `totpRequired` is false, the encrypted session is already stored and a
+first portfolio import has run.
+
+---
+
+#### `POST /api/degiro/auth/complete`
+
+- **Auth:** Required
+- **Rate limit:** Per IP — 5 attempts / 15 min (anti-bruteforce on the 6-digit code)
+
+**Request body:**
+```json
+{ "processId": "uuid", "code": "123456" }
+```
+
+**Response `200` — `DegiroSessionStatus`.**
+
+---
+
+#### `POST /api/degiro/sync`
+
+- **Auth:** Required
+- **Body:** none
+
+**Response `200` — `AccountResponse`.** Synchronous: the portfolio is fetched
+with the stored session and the account is returned. Fails with `422` when the
+session has expired, and the stored status flips to `REAUTH_REQUIRED`.
+
+---
+
+#### `GET /api/degiro/status`
+
+- **Auth:** Required
+
+**Response `200` — `DegiroSessionStatus`:**
+```json
+{
+  "isActive": true,
+  "status": "ACTIVE",
+  "lastSyncedAt": "2026-08-05T10:00:00Z"
+}
+```
+
+`status` is one of `ACTIVE`, `REAUTH_REQUIRED`, or `FAILED`. `REAUTH_REQUIRED`
+is an expected, frequent state for this integration — not an error.
+
+---
+
+#### `DELETE /api/degiro/session`
+
+- **Auth:** Required
+
+**Response `204`.** Imported accounts and history are retained.
+
+Domain failures use `422` RFC 7807 responses. Unlike Bourse Direct and Amundi,
+DEGIRO does not yet set a stable `code` property — clients should treat the
+absence of a code as a generic sync failure rather than parsing `detail`.
+Authentication rate limiting returns `429`.
+
+---
+
+### 16b. SimpleFIN — `/api/simplefin`
+
+One connection per member. The member pastes a one-time setup token from SimpleFIN Bridge;
+Picsou claims it and stores the returned access URL encrypted. Only
+`https://beta-bridge.simplefin.org` (port 443) is contacted. Connect and sync share one per-IP
+limit of 6 requests per minute; over it, both return `429`. See
+[`docs/features/simplefin-sync.md`](../../docs/features/simplefin-sync.md).
+
+#### `POST /api/simplefin/connect`
+
+- **Auth:** Required
+- **Rate limit:** Per IP — 6 / min, shared with `/sync`
+
+**Request body:**
+```json
+{ "token": "base64 setup token (required, at most 4096 characters)" }
+```
+
+**Response `204`.** The access URL is stored; no sync runs yet.
+
+**Errors:** 422 (blank or oversized token, a token that is invalid, already used, or points
+outside SimpleFIN Bridge), 404 (unknown member), 429
+
+---
+
+#### `GET /api/simplefin/status`
+
+- **Auth:** Required
+
+**Response `200` — `SimplefinConnectionStatusResponse`:**
+```json
+{
+  "connected": true,
+  "connectionId": 1,
+  "status": "CONNECTED",
+  "lastSyncedAt": "2026-10-07T06:00:00Z",
+  "maskedToken": "••••ab12"
+}
+```
+
+`status` is `CONNECTED` or `ERROR` (last sync outcome). When not connected, every field but
+`connected: false` is `null`. The access URL is never returned.
+
+---
+
+#### `POST /api/simplefin/sync`
+
+- **Auth:** Required
+- **Rate limit:** Per IP — 6 / min, shared with `/connect`
+- **Body:** none
+
+**Response `200` — `AccountResponse[]`.** Balances and posted transactions of every linked
+account.
+
+**Errors:** 422 (no connection, Bridge unreachable or refusing). A revoked access carries
+`code: "SESSION_EXPIRED"`; the member connects again with a new setup token. 429
+
+---
+
+#### `DELETE /api/simplefin/connection`
+
+- **Auth:** Required
+
+**Response `204`.** Imported accounts and history are retained.
+
+---
+
+### 16c. Dividends — `/api/dividends`
+
+Read-only. Both endpoints read the stored dividend history (`dividend_source`, `dividend_event`),
+never Yahoo or Nasdaq, and are scoped to the accounts the member can read. See
+[Dividend forecast](../../docs/features/dividend-forecast.md).
+
+#### `GET /api/dividends/upcoming?horizonDays=60[&accountId=12]`
+
+- **Auth:** Required
+- `horizonDays` defaults to 60, clamped to 1..366. `accountId`, when set, keeps that account
+  only; an account the member cannot read is `404`, not an empty list.
+
+**Response `200` — `UpcomingDividendResponse[]`:** `id` (`HOLDING:accountId:ticker:exDate` or
+`SCPI:...`), `source`, `accountId`, `accountName`, `ticker`, `name`, `expectedDate`, `cadence`,
+`basis`, `quantity`, `amountPerShare`, `currency`, `amountEur` (weighted by the member's share),
+`reinvested`, `accountType`, `countsInBudget`, `exDate`, `paymentDate`, `paymentDateEstimated`,
+`amountPerShareEur`.
+
+#### `GET /api/dividends/received?days=30`
+
+- **Auth:** Required
+- `days` defaults to 30, clamped to 1..366.
+
+**Response `200` — `ReceivedDividendResponse[]`, newest first:**
+```json
+[{
+  "id": "HOLDING:21:TTE.PA:2026-10-01",
+  "transactionId": 1,
+  "accountId": 21,
+  "accountName": "TR PEA",
+  "accountType": "PEA",
+  "ticker": "TTE.PA",
+  "name": "TotalEnergies",
+  "receivedDate": "2026-10-10",
+  "amount": 59.50,
+  "currency": "EUR",
+  "exDate": "2026-10-01",
+  "amountPerShare": 0.85,
+  "countsInBudget": false
+}]
+```
+
+`id` matches the forecast line it fulfils; with no known ex-date it is
+`HOLDING:accountId:ticker:tx<transactionId>` and `exDate`/`amountPerShare` are null. A `DIVIDEND`
+row with no ticker is listed on the credited account with `ticker` null and the id
+`HOLDING:accountId::tx<transactionId>`. `accountId`
+is the account holding the line (a Trade Republic cash dividend reports the PEA); with no readable
+holder of that ticker, or several of the same provider, it stays the credited account. `amount` is
+the credit as booked, not weighted by the member's share.
+
+---
+
+### 16d. Wise jars — `/api/wise`
+
+One connection per member: a Wise personal API token, stored encrypted. Each sync reads the jars
+(`SAVINGS` balances) of every profile the token sees and keeps them as savings accounts, balance
+only. Only `https://api.wise.com` is contacted. Connect and sync share one per-IP limit of 6
+requests per minute; over it, both return `429`. See
+[`docs/features/wise-jars.md`](../../docs/features/wise-jars.md).
+
+#### `POST /api/wise/connect`
+
+- **Auth:** Required
+- **Rate limit:** Per IP — 6 / min, shared with `/sync`
+
+**Request body:**
+```json
+{ "token": "Wise personal API token (required, at most 512 characters)" }
+```
+
+**Response `200` — `AccountResponse[]`:** the imported jars. The token is stored only when Wise
+accepted it.
+
+**Errors:** 422 (blank or oversized token; malformed token, with `code: "INVALID_TOKEN"`; Wise
+refused it, with `code: "SESSION_EXPIRED"`; Wise rate limiting, with `code: "RATE_LIMITED"`; Wise
+unreachable), 404 (unknown member), 429
+
+---
+
+#### `GET /api/wise/status`
+
+- **Auth:** Required
+
+**Response `200` — `WiseConnectionStatusResponse`:**
+```json
+{
+  "connected": true,
+  "connectionId": 3,
+  "status": "CONNECTED",
+  "lastSyncedAt": "2026-11-03T08:00:00Z",
+  "maskedToken": "••••e1f0"
+}
+```
+
+Without a connection every field but `connected: false` is `null`. `status` is
+`REAUTH_REQUIRED` after Wise refused the stored token (connect again with a new one to replace it
+in place) and `ERROR` after any other failed sync.
+
+---
+
+#### `POST /api/wise/sync`
+
+- **Auth:** Required
+- **Rate limit:** Per IP — 6 / min, shared with `/connect`
+
+**Response `200` — `AccountResponse[]`:** the jars updated by this sync.
+
+**Errors:** 422 (no connection; Wise refused the token, with `code: "SESSION_EXPIRED"`, and the
+connection becomes `REAUTH_REQUIRED`; Wise rate limiting, with `code: "RATE_LIMITED"`; other
+Wise failures), 429
+
+---
+
+#### `DELETE /api/wise/connection`
+
+- **Auth:** Required
+
+**Response `204`.** The token is removed; imported jars and their history are kept.
+
+---
+
+### 17. Member profile — `/api/me/profile`
+
+The authenticated member's personal and fiscal context: age, marginal tax rate, household,
+income, savings capacity, retirement horizon, risk profile. Read by the Goals page's savings
+rate, and intended as context for exported data.
+
+**Every field is optional and nullable.** A member who has never stated anything has no row at
+all, and reading returns an all-null profile without creating one. `PUT` is a **full
+replacement**: an omitted field clears what was stored, which is how a figure is withdrawn.
+
+Two fields are derived and read-only:
+
+- `age`, from `birthDate` — the date is what is stored, since an age is wrong the morning after a
+  birthday.
+- `monthlyNetIncome` = `monthlyNetBeforeTax × (1 − withholdingTaxRate / 100)`, rounded to cents.
+  **Null unless both inputs are stated**: a blank withholding rate means "not said", not zero.
+
+`annualGrossIncome` is fiscal context and feeds nothing — gross cannot reach net without a social
+contribution rate, which this API deliberately does not ask for or assume.
+
+#### `GET /api/me/profile`
+
+- **Auth:** Required
+
+**Response `200` — `MemberProfileResponse`:**
+```json
+{
+  "birthDate": "1990-06-14",
+  "age": 36,
+  "marginalTaxRate": 30.00,
+  "householdStatus": "COUPLE",
+  "taxHouseholdParts": 2.50,
+  "dependents": 1,
+  "annualGrossIncome": 48000.00,
+  "monthlyNetBeforeTax": 2750.00,
+  "withholdingTaxRate": 7.30,
+  "monthlyNetIncome": 2549.25,
+  "monthlySavingsCapacity": 900.00,
+  "targetRetirementAge": 62,
+  "riskProfile": "DYNAMIC"
+}
+```
+
+Null fields are omitted from the JSON, as everywhere else in this API.
+
+---
+
+#### `PUT /api/me/profile`
+
+- **Auth:** Required
+
+**Request body — `MemberProfileRequest`:**
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `birthDate` | `string` | @Past, ISO-8601 date |
+| `marginalTaxRate` | `number` | 0 … 100, **percent** (30 means 30 %, not 0.30) |
+| `householdStatus` | `string` | `SINGLE` or `COUPLE` |
+| `taxHouseholdParts` | `number` | 1 … 20 |
+| `dependents` | `number` | 0 … 20 |
+| `annualGrossIncome` | `number` | ≥ 0; fiscal context, feeds nothing |
+| `monthlyNetBeforeTax` | `number` | ≥ 0; the payslip's "net à payer avant impôt" |
+| `withholdingTaxRate` | `number` | 0 … 100, percent (taux de prélèvement à la source) |
+| `monthlySavingsCapacity` | `number` | ≥ 0 |
+| `targetRetirementAge` | `number` | 40 … 90 |
+| `riskProfile` | `string` | `PRUDENT`, `BALANCED`, `DYNAMIC` or `AGGRESSIVE` |
+
+**Response `200` — `MemberProfileResponse`** (same shape as above).
+
+**Errors:** 422
+
+---
+
+### 17b. Personal data export — `/api/me/export`
+
+#### `POST /api/me/export`
+
+Streams the caller's full data as a ZIP (JSON + CSV).
+
+- **Auth:** Required, plus a re-authentication: a valid `reauth_proof` cookie, or the inline `reAuth` payload
+- **Rate limit:** 5 / user / hour
+- **Produces:** `application/zip`
+
+**Request body:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `reAuth` | `object` \| `null` | `{ "password": "...", "totpCode": "..." }`. Ignored when the request carries a valid `reauth_proof` cookie. Otherwise required: `totpCode` when 2FA is enabled, else `password` |
+| `includeBalanceSnapshots` | `boolean` | Include the balance history |
+
+**Response `200`** — `Content-Disposition: attachment; filename="picsou-export-{username}-{yyyyMMdd-HHmmss}.zip"`.
+
+**Errors:** 401 `"code":"REAUTH_FAILED"` (no valid proof and a missing or wrong inline payload), 429 (empty body)
+
+---
+
+### 18. Setup wizard — `/api/setup`
+
+Public. Only the two endpoints that single sign-on changes are listed here.
+
+#### `GET /api/setup/status`
+
+- **Auth:** Public (not rate-limited)
+
+**Response `200`:**
+```json
+{
+  "state": "PENDING_ADMIN",
+  "needsSetup": true,
+  "integrations": { "enablebanking": false },
+  "sso": { "enabled": true, "providerName": "SSO", "adminBootstrap": true }
+}
+```
+`sso.enabled` and `sso.providerName` match `GET /api/auth/sso`. `sso.adminBootstrap` is `true` whenever `SSO_ADMIN_GROUP` is set, even if the rest of the SSO configuration is invalid: the first admin must then come from that group (SSO `intent=setup`).
+
+In the desktop app (`APP_DESKTOP_MODE=true`) the response also carries `desktopMode: true`, `desktopLockEnabled` and, before setup, `legacyPostgresDetected`. When the password lock is on and the request holds the gate cookie of the app's own window, it adds `desktopUsername`, the account the lock opens: quick start derived that username from the space name, so the login form fills it in. A browser on the same machine does not receive it.
+
+#### `POST /api/setup/admin`
+
+Creates the first admin with a password.
+
+- **Auth:** Public
+- **Rate limit:** 10 / IP / minute
+
+**Request body:**
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `username` | `string` | @NotBlank, 3 to 50 characters, `[a-zA-Z0-9._-]+` |
+| `password` | `string` | @NotBlank, min 8, max 128 |
+| `displayName` | `string` | max 80 |
+| `avatarColor` | `string` | `#rrggbb` |
+
+**Response `200`:**
+```json
+{ "username": "admin", "displayName": "Admin" }
+```
+
+**Errors:** 409 `"code":"SSO_ADMIN_REQUIRED"` (refused whenever `SSO_ADMIN_GROUP` is set, checked before the completion check), 410 (setup already complete), 422 (validation), 429
+
+---
+
+### HomeBank history import — `/api/homebank/import`
+
+Two-phase, member-scoped file import from **HomeBank iOS and GNU HomeBank desktop**. Supported files are
+native `.hbk` (raw-DEFLATE JSON, schema version 3) and password-protected
+`.hbexport` (authenticated encrypted container version 1), plus desktop `.qif`.
+Desktop `.xhb`, allocations, scheduled transactions and attachments are not part
+of this endpoint. Native iOS split rows reject the whole file; QIF splits become
+individual category-bearing ledger rows after exact parent-total validation.
+
+#### `POST /api/homebank/import/preview`
+
+- **Auth:** Required; reads only the authenticated member's targets.
+- **Content-Type:** `multipart/form-data`.
+- **Fields:** `file` (required, at most 10 MiB), `password` (required only for
+  `.hbexport`), `currency` (required only for `.qif`, an explicit ISO 4217 code
+  applied to all source accounts). QIF omits currency; no default is inferred.
+  The password is used for decoding only and is not retained.
+- **Response:** `200`, `HomeBankImportDtos.Preview`.
+
+Preview fields:
+
+- `fileToken`: opaque confirmation token, member-bound, single-use, 30-minute TTL.
+- `accounts`: source accounts with `sourceId`, `name`, `institution`, `sourceType`,
+  `suggestedType`, `currency`, `initialBalance`, `balance`, `transactionCount`,
+  `closed`.
+- `categories`: source categories with `sourceId`, `name`, optional
+  `parentSourceId`, `income`, `transactionCount`.
+- `existingAccounts`: this member's `AccountResponse[]`.
+- `existingCategories`: this member's `CategoryResponse[]`.
+- `sampleTransactions`: sample source rows with `sourceId`, `accountSourceId`,
+  `date` (ISO calendar date), `amount`, `currency`, `payee`, `notes`, optional
+  `categorySourceId`, `transfer`.
+- `totalTransactions`, `forecastTransactions`: normalized ledger-row counts; QIF
+  split parts count individually without their parent. Forecast rows will
+  be skipped, not committed.
+
+The entire file is validated before a token is returned. Preview writes no
+accounts, transactions or categories. Signed amounts and currencies are not
+converted; source calendar dates are not shifted through timezones.
+
+#### `POST /api/homebank/import`
+
+- **Auth:** Required; the token must belong to this member.
+- **Content-Type:** `application/json`.
+- **Response:** `201`, `HomeBankImportDtos.Result`.
+
+Request fields:
+
+- `fileToken`: token from preview.
+- `accountMappings`: exactly one entry per source account:
+  - `sourceId` and `action`: `CREATE_NEW`, `MAP_EXISTING` or `SKIP`.
+  - `targetAccountId`: required for `MAP_EXISTING`.
+  - `newAccount`: required for `CREATE_NEW`, using `NewAccountDetails`
+    (`name`, `type`, optional `provider`/`color`, original `currency`).
+- `categoryMappings`: exactly one entry per source category:
+  - `sourceId` and `action`: `CREATE_NEW`, `MAP_EXISTING` or `UNCATEGORIZED`.
+  - `targetCategoryId`: required for `MAP_EXISTING`; the target must be an active
+    budget category owned by this member with the appropriate income/expense kind.
+  - `name`: the category name for `CREATE_NEW`.
+
+Targets must belong to the current member; existing-account currency must match
+the export. Investment account types are unsupported because the source contains
+cash history, not instrument trades. Multiple source accounts cannot map to one
+target. An existing source transaction cannot be remapped to another account:
+the import rejects that mapping rather than creating a duplicate. Archived
+source-derived category slugs must be restored or mapped differently by the
+user; import never reactivates them implicitly. All mappings are validated
+before persistence.
+Creating a child category requires its source parent to have the same
+income/expense kind. HomeBank permits mixed-kind hierarchies, but Picsou rejects
+their creation; explicitly map the child to an existing category of its own
+kind instead. Import never silently flattens the source hierarchy or changes
+the child's kind.
+
+Result fields are integer counts: `accountsCreated`, `accountsMapped`,
+`accountsSkipped`, `categoriesCreated`, `transactionsImported`,
+`transactionsSkipped`. Original-row counts exclude the synthetic opening-balance
+row of newly created accounts. Skipped transactions include forecasts, rows of
+skipped accounts and already imported source IDs.
+
+Import is additive and atomic. Repeating an export into the same targets reuses
+HomeBank-created accounts/categories and skips stable source transaction UUIDs,
+including across clear/encrypted iOS exports. QIF uses deterministic namespaced
+content IDs with occurrence discriminators because it lacks native IDs. Identical
+repeated rows remain distinct; edited identifying content imports additively as
+a new row, and account renames change source identity. QIF account definitions
+have no opening balance: new accounts start at zero plus exported ledger rows.
+Use full histories and inspect preview balances. Existing mapped accounts keep their
+provider identity, owned balance and snapshots. HomeBank-created accounts receive
+ledger-backed opening amounts and reconstructed history. Source internal-transfer
+legs and opening amounts use managed `TRANSFER` categories and do not count as
+cashflow income/expense. No extra mirror leg is generated.
+
+**Errors:** `400` RFC 7807 for invalid files/passwords, unsupported formats, invalid
+or incomplete mappings and expired/invalid previews; `404` for unavailable scoped
+resources; `429` for shared sync/import IP rate limits. Failure writes nothing;
+after database rollback a still-live preview can be retried.
+
+See [HomeBank import](../../docs/features/homebank-import.md) for decoding,
+deduplication and testing details.
+
+---
+
+### Opt-in anonymous telemetry — `/api/telemetry`
+
+Inert unless the instance sets `APP_TELEMETRY_DSN` **and** an admin consented. See
+[`docs/features/telemetry.md`](../../docs/features/telemetry.md).
+
+#### `GET /api/telemetry/config`
+
+- **Auth:** any authenticated user
+
+**Response `200`:**
+```json
+{ "enabled": false, "dsn": null, "environment": "production", "release": "dev", "available": false, "consent": "UNSET" }
+```
+`dsn` is `null` unless `enabled` (DSN configured and consent `ENABLED`).
+`available` indicates whether a valid DSN is configured; `consent` is `ENABLED`, `DISABLED` or
+`UNSET`. These fields let the consent prompt avoid loading the full admin settings response.
+
+#### `POST /api/telemetry/tunnel`
+
+- **Auth:** any authenticated user
+- **Content-Type:** `text/plain;charset=UTF-8` or `application/x-sentry-envelope` (Sentry envelope, max 200 KB)
+
+Always `204` when telemetry is not enabled (nothing is forwarded). When enabled, only `event` items
+are kept, re-scrubbed, and forwarded to the **configured** DSN host (the DSN in the incoming
+envelope header is ignored). Forward failures are swallowed (`204`).
+Forwarding is asynchronous, with a five-second timeout and at most 16 sends in flight. Pending
+sends are cancelled when consent is disabled or the application shuts down. Each authenticated
+principal is limited to 30 requests per minute before the body is read.
+
+**Errors:** 413 (body over 200 KB), 429 (principal rate limit or in-flight capacity reached;
+`Retry-After: 60`)
+
+#### `PUT /api/admin/settings/telemetry`
+
+- **Auth:** ADMIN
+
+**Request body:** `{ "enabled": true }` (`enabled` required). **Response `204`**; takes effect
+immediately (backend SDK initialised / closed in-process).
+
+**Errors:** 409 (enabling while no DSN is configured), 422
+
+`GET /api/admin/settings` additionally returns `telemetry: { "available": boolean, "consent": "ENABLED" | "DISABLED" | "UNSET" }`.

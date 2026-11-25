@@ -1,0 +1,329 @@
+{
+  "description": "Realized P&L, exchange positions and the institution logo of an account, scoped to its owner",
+  "scenario": "accounts.extras",
+  "steps": [
+    {
+      "body": {
+        "byTicker": [
+          {
+            "costBasis": 3005.00000000,
+            "name": "AAPL Inc",
+            "proceeds": 3717.50000000,
+            "quantitySold": 24.00000000,
+            "realized": 712.50000000,
+            "ticker": "AAPL",
+            "warning": true
+          },
+          {
+            "costBasis": 900.99900000,
+            "name": "MSFT Inc",
+            "proceeds": 900.99900000,
+            "quantitySold": 3.00000000,
+            "realized": 0E-8,
+            "ticker": "MSFT",
+            "warning": false
+          },
+          {
+            "costBasis": 0E-8,
+            "name": "TSLA Inc",
+            "proceeds": 100.00000000,
+            "quantitySold": 2.00000000,
+            "realized": 100.00000000,
+            "ticker": "TSLA",
+            "warning": true
+          }
+        ],
+        "currency": "EUR",
+        "lots": [
+          {
+            "avgCost": 150.25000000,
+            "date": "<month-32:first>",
+            "name": "AAPL Inc",
+            "proceeds": 717.50000000,
+            "quantity": 4.00000000,
+            "realized": 116.50000000,
+            "ticker": "AAPL"
+          },
+          {
+            "avgCost": 300.33300000,
+            "date": "<month-31:first>",
+            "name": "MSFT Inc",
+            "proceeds": 900.99900000,
+            "quantity": 3.00000000,
+            "realized": 0E-8,
+            "ticker": "MSFT"
+          },
+          {
+            "avgCost": 0,
+            "date": "<month-30:first>",
+            "name": "TSLA Inc",
+            "proceeds": 100.00000000,
+            "quantity": 2.00000000,
+            "realized": 100.00000000,
+            "ticker": "TSLA"
+          },
+          {
+            "avgCost": 150.25000000,
+            "date": "<month-29:first>",
+            "name": "AAPL Inc",
+            "proceeds": 3000.00000000,
+            "quantity": 20.00000000,
+            "realized": 596.00000000,
+            "ticker": "AAPL"
+          }
+        ],
+        "realizedTotal": 812.50000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "08 GET /api/accounts/900001/realized-pnl as admin"
+    },
+    {
+      "body": {
+        "byTicker": [],
+        "currency": "USD",
+        "lots": [],
+        "realizedTotal": 0E-8
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "09 GET /api/accounts/900002/realized-pnl as admin"
+    },
+    {
+      "body": {
+        "detail": "Account not found",
+        "instance": "/api/accounts/900006/realized-pnl",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "10 GET /api/accounts/900006/realized-pnl as admin"
+    },
+    {
+      "body": {
+        "detail": "Failed to convert 'id' with value: 'abc'",
+        "instance": "/api/accounts/abc/realized-pnl",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "11 GET /api/accounts/abc/realized-pnl as admin"
+    },
+    {
+      "body": [
+        {
+          "priceStale": false,
+          "product": "LENDING",
+          "quantity": 5.00000000,
+          "ticker": "NOPE"
+        },
+        {
+          "averageBuyIn": 20000.00000000,
+          "costBasisEur": 4000.0000000000000000,
+          "currentPriceEur": 30000.00000000,
+          "currentValueEur": 6000.0000000000000000,
+          "pnlEur": 2000.0000000000000000,
+          "pnlPercent": 50.0000,
+          "priceAsOf": "<today-1>",
+          "priceStale": true,
+          "product": "SPOT",
+          "quantity": 0.20000000,
+          "ticker": "BTC"
+        },
+        {
+          "averageBuyIn": 20000.00000000,
+          "costBasisEur": 6000.0000000000000000,
+          "currentPriceEur": 30000.00000000,
+          "currentValueEur": 9000.0000000000000000,
+          "interest": 0.05000000,
+          "pnlEur": 3000.0000000000000000,
+          "pnlPercent": 50.0000,
+          "priceAsOf": "<today-1>",
+          "priceStale": true,
+          "principal": 0.25000000,
+          "product": "STAKING",
+          "quantity": 0.30000000,
+          "ticker": "BTC"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "12 GET /api/accounts/900003/positions as admin"
+    },
+    {
+      "body": [],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "13 GET /api/accounts/900004/positions as admin"
+    },
+    {
+      "body": [],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "14 GET /api/accounts/900001/positions as admin"
+    },
+    {
+      "body": {
+        "detail": "Account not found",
+        "instance": "/api/accounts/900006/positions",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "15 GET /api/accounts/900006/positions as admin"
+    },
+    {
+      "body": null,
+      "bodyKind": "empty",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "16 GET /api/accounts/900005/institution-logo as admin"
+    },
+    {
+      "body": null,
+      "bodyKind": "empty",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "18 GET /api/accounts/900001/institution-logo as admin"
+    },
+    {
+      "body": null,
+      "bodyKind": "empty",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "19 GET /api/accounts/900006/institution-logo as admin"
+    }
+  ]
+}

@@ -118,8 +118,8 @@ describe('RuleWordPicker', () => {
   })
 
   it('constrains long IBAN tokens, pattern preview, and matching rows to prevent horizontal overflow', () => {
-    const longIban = 'FR7630004025100000012345678'
-    const fullLabel = `Incoming Transfer From De Bailliencourt (${longIban})`
+    const longIban = 'FR7600000000000000000000000'
+    const fullLabel = `Incoming Transfer From De Montclair (${longIban})`
     usePreviewRule.mockReturnValue({
       mutate: vi.fn(),
       isPending: false,

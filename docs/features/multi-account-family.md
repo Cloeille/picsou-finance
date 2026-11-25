@@ -224,16 +224,16 @@ Step 3 is critical: without it, the next request would fail because the old JWT 
 ### Key files
 
 **Backend:**
-- `backend/src/main/java/com/picsou/model/FamilyMember.java` — member profile entity
-- `backend/src/main/java/com/picsou/model/AppUser.java` — login entity (username, passwordHash, role, member FK)
-- `backend/src/main/java/com/picsou/model/SharingSettings.java` — per-resource sharing level
-- `backend/src/main/java/com/picsou/model/SharedResource.java` — individual resource sharing (MANUAL mode)
-- `backend/src/main/java/com/picsou/service/UserContext.java` — request-scoped helper, handles memberId override for admins
-- `backend/src/main/java/com/picsou/service/FamilyService.java` — member CRUD, activation tokens, sharing settings
-- `backend/src/main/java/com/picsou/service/FamilyViewService.java` — family dashboard aggregation
-- `backend/src/main/java/com/picsou/controller/FamilyController.java` — `/api/family/members` (admin-only), `/api/family/sharing`
-- `backend/src/main/java/com/picsou/controller/FamilyViewController.java` — `/api/family/dashboard`
-- `backend/src/main/java/com/picsou/controller/AuthController.java` — `/api/auth/activate/{token}`
+- `backend-rs/src/ledger/model.rs` — member profile entity
+- `backend-rs/src/auth/users.rs` — login entity (username, passwordHash, role, member FK)
+- `SharingSettings.java` — per-resource sharing level
+- `SharedResource.java` — individual resource sharing (MANUAL mode)
+- `UserContext.java` — request-scoped helper, handles memberId override for admins
+- `FamilyService.java` — member CRUD, activation tokens, sharing settings
+- `FamilyViewService.java` — family dashboard aggregation
+- `backend-rs/src/family/members.rs` — `/api/family/members` (admin-only), `/api/family/sharing`
+- `backend-rs/src/family/view.rs` — `/api/family/dashboard`
+- `backend-rs/src/setup_auth/` — `/api/auth/activate/{token}`
 
 **Frontend:**
 - `frontend/src/stores/profile-store.ts` — `activeMemberId`, `viewMode` (own/managed/family)

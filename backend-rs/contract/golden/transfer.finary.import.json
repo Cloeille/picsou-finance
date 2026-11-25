@@ -1,0 +1,382 @@
+{
+  "description": "Finary XLSX preview, then an import that maps, creates and skips accounts and rebuilds their history",
+  "scenario": "transfer.finary.import",
+  "steps": [
+    {
+      "body": {
+        "accounts": [
+          {
+            "currentBalance": 1250.5,
+            "finaryCategory": "Checkings",
+            "finaryId": "checkings_compte_courant",
+            "finaryInstitution": "Bank",
+            "finaryName": "Compte courant",
+            "nativeCurrency": "EUR",
+            "suggestedType": "CHECKING",
+            "transactionCount": 3
+          },
+          {
+            "currentBalance": -42.0,
+            "finaryCategory": "Checkings",
+            "finaryId": "checkings_joint",
+            "finaryInstitution": "Bank",
+            "finaryName": "Joint",
+            "nativeCurrency": "EUR",
+            "suggestedType": "CHECKING",
+            "transactionCount": 0
+          },
+          {
+            "currentBalance": 1.2345678E7,
+            "finaryCategory": "Savings",
+            "finaryId": "savings_livret_a",
+            "finaryInstitution": "Boursorama",
+            "finaryName": "Livret A",
+            "nativeCurrency": "EUR",
+            "suggestedType": "SAVINGS",
+            "transactionCount": 1
+          },
+          {
+            "currentBalance": 0.1,
+            "finaryCategory": "Savings",
+            "finaryId": "savings_2024",
+            "finaryInstitution": "Bank",
+            "finaryName": "2024",
+            "nativeCurrency": "EUR",
+            "suggestedType": "SAVINGS",
+            "transactionCount": 0
+          },
+          {
+            "currentBalance": 1.0E-4,
+            "finaryCategory": "Savings",
+            "finaryId": "savings_tiny",
+            "finaryInstitution": "Bank",
+            "finaryName": "Tiny",
+            "nativeCurrency": "EUR",
+            "suggestedType": "SAVINGS",
+            "transactionCount": 0
+          },
+          {
+            "currentBalance": 1234.5600000000002,
+            "finaryCategory": "Cryptos",
+            "finaryId": "cryptos_ledger",
+            "finaryInstitution": "Ledger",
+            "finaryName": "Ledger",
+            "nativeCurrency": "EUR",
+            "suggestedType": "CRYPTO",
+            "transactionCount": 0
+          }
+        ],
+        "autoMapped": false,
+        "existingPicsouAccounts": [
+          {
+            "color": "#6366f1",
+            "createdAt": "<instant>",
+            "currency": "EUR",
+            "currentBalance": 100.00000000,
+            "currentBalanceEur": 100.00000000,
+            "hidden": false,
+            "id": "<id:1>",
+            "isManual": true,
+            "listCollapsed": false,
+            "name": "Compte courant",
+            "type": "CHECKING"
+          }
+        ],
+        "fileToken": "<secret:1>",
+        "suggestedMappings": [
+          {
+            "action": "MAP_EXISTING",
+            "finaryCategory": "Checkings",
+            "finaryId": "checkings_compte_courant",
+            "finaryName": "Compte courant",
+            "targetAccountId": "<id:1>"
+          },
+          {
+            "action": "CREATE_NEW",
+            "finaryCategory": "Checkings",
+            "finaryId": "checkings_joint",
+            "finaryName": "Joint"
+          },
+          {
+            "action": "CREATE_NEW",
+            "finaryCategory": "Savings",
+            "finaryId": "savings_livret_a",
+            "finaryName": "Livret A"
+          },
+          {
+            "action": "CREATE_NEW",
+            "finaryCategory": "Savings",
+            "finaryId": "savings_2024",
+            "finaryName": "2024"
+          },
+          {
+            "action": "CREATE_NEW",
+            "finaryCategory": "Savings",
+            "finaryId": "savings_tiny",
+            "finaryName": "Tiny"
+          },
+          {
+            "action": "CREATE_NEW",
+            "finaryCategory": "Cryptos",
+            "finaryId": "cryptos_ledger",
+            "finaryName": "Ledger"
+          }
+        ],
+        "totalTransactionCount": 5
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "06 POST /api/finary/preview as admin"
+    },
+    {
+      "body": {
+        "accountsCreated": 2,
+        "accountsMapped": 1,
+        "accountsSkipped": 3,
+        "importedAccounts": [
+          {
+            "color": "#6366f1",
+            "currentBalance": 1250.5,
+            "id": "<id:1>",
+            "name": "Compte courant",
+            "type": "CHECKING"
+          },
+          {
+            "color": "#8b5cf6",
+            "currentBalance": 1.2345678E7,
+            "id": "<id:2>",
+            "name": "Livret A",
+            "type": "SAVINGS"
+          },
+          {
+            "color": "#123456",
+            "currentBalance": 1234.5600000000002,
+            "id": "<id:3>",
+            "name": "Ledger",
+            "type": "CRYPTO"
+          }
+        ],
+        "snapshotsCreated": 5,
+        "transactionsImported": 4
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "07 POST /api/finary/import as admin"
+    },
+    {
+      "body": {
+        "detail": "Preview expired or invalid -- please re-upload the file",
+        "instance": "/api/finary/import",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "08 POST /api/finary/import as admin"
+    },
+    {
+      "body": {
+        "accounts": [
+          {
+            "currentBalance": 1250.5,
+            "finaryCategory": "Checkings",
+            "finaryId": "checkings_compte_courant",
+            "finaryInstitution": "Bank",
+            "finaryName": "Compte courant",
+            "nativeCurrency": "EUR",
+            "suggestedType": "CHECKING",
+            "transactionCount": 3
+          },
+          {
+            "currentBalance": -42.0,
+            "finaryCategory": "Checkings",
+            "finaryId": "checkings_joint",
+            "finaryInstitution": "Bank",
+            "finaryName": "Joint",
+            "nativeCurrency": "EUR",
+            "suggestedType": "CHECKING",
+            "transactionCount": 0
+          },
+          {
+            "currentBalance": 1.2345678E7,
+            "finaryCategory": "Savings",
+            "finaryId": "savings_livret_a",
+            "finaryInstitution": "Boursorama",
+            "finaryName": "Livret A",
+            "nativeCurrency": "EUR",
+            "suggestedType": "SAVINGS",
+            "transactionCount": 1
+          },
+          {
+            "currentBalance": 0.1,
+            "finaryCategory": "Savings",
+            "finaryId": "savings_2024",
+            "finaryInstitution": "Bank",
+            "finaryName": "2024",
+            "nativeCurrency": "EUR",
+            "suggestedType": "SAVINGS",
+            "transactionCount": 0
+          },
+          {
+            "currentBalance": 1.0E-4,
+            "finaryCategory": "Savings",
+            "finaryId": "savings_tiny",
+            "finaryInstitution": "Bank",
+            "finaryName": "Tiny",
+            "nativeCurrency": "EUR",
+            "suggestedType": "SAVINGS",
+            "transactionCount": 0
+          },
+          {
+            "currentBalance": 1234.5600000000002,
+            "finaryCategory": "Cryptos",
+            "finaryId": "cryptos_ledger",
+            "finaryInstitution": "Ledger",
+            "finaryName": "Ledger",
+            "nativeCurrency": "EUR",
+            "suggestedType": "CRYPTO",
+            "transactionCount": 0
+          }
+        ],
+        "autoMapped": false,
+        "existingPicsouAccounts": [
+          {
+            "color": "#6366f1",
+            "createdAt": "<instant>",
+            "currency": "EUR",
+            "currentBalance": 1250.50000000,
+            "currentBalanceEur": 1250.50000000,
+            "hidden": false,
+            "id": "<id:1>",
+            "isManual": true,
+            "listCollapsed": false,
+            "name": "Compte courant",
+            "type": "CHECKING"
+          },
+          {
+            "color": "#8b5cf6",
+            "createdAt": "<instant>",
+            "currency": "EUR",
+            "currentBalance": 12345678.00000000,
+            "currentBalanceEur": 12345678.00000000,
+            "hidden": false,
+            "id": "<id:2>",
+            "isManual": true,
+            "listCollapsed": false,
+            "name": "Livret A",
+            "provider": "Boursorama",
+            "type": "SAVINGS"
+          },
+          {
+            "color": "#123456",
+            "createdAt": "<instant>",
+            "currency": "EUR",
+            "currentBalance": 1234.56000000,
+            "currentBalanceEur": 1234.56000000,
+            "hidden": false,
+            "id": "<id:3>",
+            "isManual": true,
+            "listCollapsed": false,
+            "name": "Ledger",
+            "type": "CRYPTO"
+          }
+        ],
+        "fileToken": "<secret:2>",
+        "suggestedMappings": [
+          {
+            "action": "MAP_EXISTING",
+            "finaryCategory": "Checkings",
+            "finaryId": "checkings_compte_courant",
+            "finaryName": "Compte courant",
+            "targetAccountId": "<id:1>"
+          },
+          {
+            "action": "CREATE_NEW",
+            "finaryCategory": "Checkings",
+            "finaryId": "checkings_joint",
+            "finaryName": "Joint"
+          },
+          {
+            "action": "MAP_EXISTING",
+            "finaryCategory": "Savings",
+            "finaryId": "savings_livret_a",
+            "finaryName": "Livret A",
+            "targetAccountId": "<id:2>"
+          },
+          {
+            "action": "CREATE_NEW",
+            "finaryCategory": "Savings",
+            "finaryId": "savings_2024",
+            "finaryName": "2024"
+          },
+          {
+            "action": "CREATE_NEW",
+            "finaryCategory": "Savings",
+            "finaryId": "savings_tiny",
+            "finaryName": "Tiny"
+          },
+          {
+            "action": "MAP_EXISTING",
+            "finaryCategory": "Cryptos",
+            "finaryId": "cryptos_ledger",
+            "finaryName": "Ledger",
+            "targetAccountId": "<id:3>"
+          }
+        ],
+        "totalTransactionCount": 5
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "09 POST /api/finary/preview as admin"
+    }
+  ]
+}

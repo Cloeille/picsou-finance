@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
 import type { GoalProgress } from '@/types/api'
@@ -37,22 +37,49 @@ const behindGoal: GoalProgress = {
 const mutation = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }
 vi.mock('@/features/goals/hooks', () => ({
   useGoals: () => ({ data: [behindGoal], isLoading: false, isError: false, refetch: vi.fn() }),
+  useGoal: (id: number) => ({
+    data: id === behindGoal.id ? behindGoal : undefined,
+    isLoading: false,
+  }),
   useCreateGoal: () => mutation,
   useUpdateGoal: () => mutation,
   useDeleteGoal: () => mutation,
 }))
 vi.mock('@/features/accounts/hooks', () => ({ useAccounts: () => ({ data: [] }) }))
 vi.mock('@/features/profile/hooks', () => ({ useMemberProfile: () => ({ data: undefined }) }))
+vi.mock('@/features/history/hooks', () => ({ useHistory: () => ({ data: [], isLoading: false }) }))
+vi.mock('@/components/shared/NetWorthChart', () => ({ NetWorthChart: () => null }))
 vi.mock('./SavingsRateCard', () => ({ SavingsRateCard: () => null }))
-vi.mock('./GoalDetailModal', () => ({ GoalDetailModal: () => null }))
 
 const { GoalsPage } = await import('./GoalsPage')
 
 describe('GoalsPage goal cards', () => {
-  it('shows the figures of a goal that is behind, without an on-track or behind tag', () => {
+  it('shows the goal summary without pacing figures or an on-track/behind tag', () => {
     render(<MemoryRouter><GoalsPage /></MemoryRouter>)
 
-    expect(screen.getByText('New car')).toBeInTheDocument()
-    expect(screen.queryByText(/goals\.(behind|onTrack|waiting)/)).not.toBeInTheDocument()
+    const card = screen.getByRole('button', { name: /New car/ })
+    expect(within(card).getByText('New car')).toBeInTheDocument()
+    expect(within(card).getByText(/1[,\s\u202f]000/)).toBeInTheDocument()
+    expect(within(card).getByRole('progressbar')).toBeInTheDocument()
+    expect(within(card).getByText(/10% dashboard\.achieved/)).toBeInTheDocument()
+    expect(within(card).getByText(/10[,\s\u202f]000/)).toBeInTheDocument()
+    expect(within(card).queryByText(/goals\.(behind|onTrack|waiting)/)).not.toBeInTheDocument()
+    expect(within(card).queryByText('goals.monthsLeft')).not.toBeInTheDocument()
+    expect(within(card).queryByText('goals.monthlyNeeded')).not.toBeInTheDocument()
+    expect(within(card).queryByText('goals.avgContribution')).not.toBeInTheDocument()
+  })
+
+  it('shows the pacing figures in the detail dialog opened from the card', () => {
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>)
+
+    fireEvent.click(screen.getByRole('button', { name: /New car/ }))
+
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByText('goals.monthsLeft')).toBeInTheDocument()
+    expect(within(dialog).getByText('15')).toBeInTheDocument()
+    expect(within(dialog).getByText('goals.monthlyNeeded')).toBeInTheDocument()
+    expect(within(dialog).getByText(/600/)).toBeInTheDocument()
+    expect(within(dialog).getByText('goals.avgContribution')).toBeInTheDocument()
+    expect(within(dialog).getByText(/-.*3/)).toBeInTheDocument()
   })
 })
