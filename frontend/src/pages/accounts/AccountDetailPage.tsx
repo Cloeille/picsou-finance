@@ -59,7 +59,7 @@ import {
   UploadSimple,
 } from '@phosphor-icons/react'
 import { formatLocalDate, formatNumber, formatPercent, localeFromLanguage } from '@/lib/utils'
-import { accountTypeLabelKey, CASH_ACCOUNT_TYPES, HOLDING_ACCOUNT_TYPES } from '@/lib/constants'
+import { accountTypeLabelKey, CASH_ACCOUNT_TYPES, HOLDING_ACCOUNT_TYPES, INVESTMENT_ACCOUNT_TYPES } from '@/lib/constants'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
 import type { AccountRequest, HoldingResponse, Transaction } from '@/types/api'
 
@@ -244,6 +244,11 @@ export function AccountDetailPage() {
   const isRealEstate = account?.type === 'REAL_ESTATE'
   const isScpi = account?.type === 'SCPI'
   const showHoldings = account ? HOLDING_ACCOUNT_TYPES.includes(account.type) : false
+  // Mirrors the backend: trades rebuild positions, so a synced investment account keeps its
+  // provider's; cash lines never touch a synced balance, so every other non-loan account takes them.
+  const canImportCsv = account
+    ? !isLoan && !isPeerLoan && (account.isManual || !INVESTMENT_ACCOUNT_TYPES.includes(account.type))
+    : false
   const recentSnapshots = [...(history ?? [])].reverse().slice(0, 10)
 
   // The backend owns EUR valuation and falls back atomically to the broker snapshot.
@@ -304,7 +309,7 @@ export function AccountDetailPage() {
                   {importTRMutation.isPending ? t('common.loading') : t('accounts.importCsvTR')}
                 </Button>
               )}
-              {showHoldings && (
+              {canImportCsv && (
                 <Button size="sm" variant="outline" onClick={() => setShowImport(true)}>
                   <UploadSimple className=".5 size-4" />
                   {t('import.importCsv')}
@@ -585,8 +590,8 @@ export function AccountDetailPage() {
         />
       )}
 
-      {/* Import CSV modal (investment accounts) */}
-      {account && showHoldings && (
+      {/* Import CSV modal: trades on a manual investment account, statement lines on any other */}
+      {account && canImportCsv && (
         <ImportTransactionsModal
           open={showImport}
           onOpenChange={setShowImport}

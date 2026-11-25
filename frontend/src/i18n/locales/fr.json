@@ -3321,6 +3321,9 @@
     "import": "Importer",
     "rowsImported": "{{count}} transactions importées",
     "rowsSkipped": "{{count}} lignes ignorées",
+    "rowsDuplicate": "{{count}} lignes déjà présentes sur le compte, écartées",
+    "invertSign": "Les sorties sont positives dans ce fichier (inverser chaque montant)",
+    "cashHint": "Associez soit une colonne de montant signé, soit les colonnes débit et crédit.",
     "rowLabel": "Ligne {{row}}",
     "field": {
       "date": "Date",
@@ -3331,7 +3334,10 @@
       "unitPrice": "Prix unitaire",
       "fees": "Frais",
       "currency": "Devise",
-      "amount": "Montant"
+      "amount": "Montant",
+      "description": "Libellé",
+      "debit": "Débit",
+      "credit": "Crédit"
     }
   },
   "realized": {

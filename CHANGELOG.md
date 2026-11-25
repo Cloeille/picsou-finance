@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **CSV import of bank and card statements on every account type** ([#671](https://github.com/Cloeille/picsou-finance/issues/671)).
+  The CSV import wizard now opens on a checking account, a card and every other non-investment
+  account, manual or synced, except loans. It maps the date, the label and either one signed amount
+  or separate debit and credit columns, with an option to flip the sign for card exports that list
+  purchases as positive. Lines the account already holds (same date, amount and label) are left out
+  and counted, so overlapping monthly statements import once. A manual cash ledger has its balance
+  re-anchored on its latest statement; a synced account keeps its provider balance. Investment
+  accounts keep the trade import, still on manual accounts only — see
+  `docs/features/csv-transaction-import.md`.
 - **Direct desktop downloads.** Each release now also publishes the desktop installers under
   version-less names (`Picsou-macOS-arm64.dmg`, `Picsou-Windows-x64.exe`,
   `Picsou-Linux-x64.AppImage`). The README opens with a desktop app section and one download

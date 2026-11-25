@@ -2957,6 +2957,9 @@
     "import": "Importieren",
     "rowsImported": "{{count}} Transaktionen importiert",
     "rowsSkipped": "{{count}} Zeilen übersprungen",
+    "rowsDuplicate": "{{count}} Zeilen bereits im Konto, ausgelassen",
+    "invertSign": "Ausgaben sind in dieser Datei positiv (jeden Betrag umkehren)",
+    "cashHint": "Ordnen Sie entweder eine vorzeichenbehaftete Betragsspalte oder die Soll- und Habenspalten zu.",
     "rowLabel": "Zeile {{row}}",
     "field": {
       "date": "Datum",
@@ -2967,7 +2970,10 @@
       "unitPrice": "Stückpreis",
       "fees": "Gebühren",
       "currency": "Währung",
-      "amount": "Betrag"
+      "amount": "Betrag",
+      "description": "Buchungstext",
+      "debit": "Soll",
+      "credit": "Haben"
     }
   },
   "realized": {

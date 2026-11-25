@@ -424,7 +424,7 @@ pub async fn delete_transaction(
 /// Only a manual account derives state from its rows: an investment one its holdings, a ledger
 /// one its balance and history. A valued account (SCPI, property, employee savings) keeps its
 /// valuation, and a synced one its provider's figures.
-async fn recompute_derived_state(
+pub async fn recompute_derived_state(
     conn: &mut DbHandle<'_>,
     ctx: ManualEntryContext<'_>,
     account: &Account,

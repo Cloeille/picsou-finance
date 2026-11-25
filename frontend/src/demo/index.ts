@@ -16,6 +16,7 @@ import type {
   ScpiPositionRequest,
 } from '@/types/api'
 import { mockAccounts, mockBanquePopulaireAccounts } from './data/accounts'
+import { INVESTMENT_ACCOUNT_TYPES } from '@/lib/constants'
 import {
   mockAllocationTargets,
   mockDiversification,
@@ -912,10 +913,39 @@ for (const i of [2, 3, 6]) {
     totalRows: 2,
     hasHeaderRow: true,
     dialect: { delimiter: ';', decimal: 'COMMA', dateFormat: 'dd/MM/yyyy' },
-    suggestedMapping: { date: 0, side: 1, tickerOrIsin: 2, name: null, quantity: 3, unitPrice: 4, fees: 5, currency: null, amount: null },
+    suggestedMapping: {
+      date: 0, side: 1, tickerOrIsin: 2, name: null, quantity: 3, unitPrice: 4, fees: 5, currency: null, amount: null,
+      description: null, debit: null, credit: null,
+    },
+    mode: 'TRADES',
   }))
   handlers.set(key('POST', `/accounts/${i}/transactions/import`), () => ({
-    imported: 2, skipped: 0, errors: [],
+    imported: 2, skipped: 0, errors: [], duplicates: 0,
+  }))
+}
+
+// Statement import on every other non-loan demo account: a French bank layout with debit/credit columns.
+for (const a of mockAccounts.filter(
+  a => !INVESTMENT_ACCOUNT_TYPES.includes(a.type) && a.type !== 'LOAN' && a.type !== 'PEER_LOAN',
+)) {
+  handlers.set(key('POST', `/accounts/${a.id}/transactions/import/preview`), () => ({
+    fileToken: 'demo-token',
+    detectedColumns: ['Date', 'Libellé', 'Débit', 'Crédit'],
+    sampleRows: [
+      ['02/11/2026', 'CB CARREFOUR', '45,30', ''],
+      ['03/11/2026', 'VIR SALAIRE', '', '2 100,00'],
+    ],
+    totalRows: 2,
+    hasHeaderRow: true,
+    dialect: { delimiter: ';', decimal: 'COMMA', dateFormat: 'dd/MM/yyyy' },
+    suggestedMapping: {
+      date: 0, side: null, tickerOrIsin: null, name: null, quantity: null, unitPrice: null, fees: null, currency: null,
+      amount: null, description: 1, debit: 2, credit: 3,
+    },
+    mode: 'CASH',
+  }))
+  handlers.set(key('POST', `/accounts/${a.id}/transactions/import`), () => ({
+    imported: 2, skipped: 0, errors: [], duplicates: 0,
   }))
 }
 

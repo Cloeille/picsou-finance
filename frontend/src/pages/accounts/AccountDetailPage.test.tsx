@@ -104,7 +104,12 @@ vi.mock('@/components/shared/TransactionsList', () => ({
 vi.mock('@/components/shared/AddTransactionModal', () => ({ AddTransactionModal: () => null }))
 vi.mock('@/components/shared/AccountForm', () => ({ AccountForm: () => null }))
 vi.mock('@/components/shared/ConfirmDialog', () => ({ ConfirmDialog: () => null }))
-vi.mock('@/components/shared/ImportTransactionsModal', () => ({ ImportTransactionsModal: () => null }))
+vi.mock('@/components/shared/ImportTransactionsModal', () => ({
+  ImportTransactionsModal: ({ accountId }: { accountId: number }) => (
+    <div data-testid={`import-transactions-modal-${accountId}`} />
+  ),
+}))
+vi.mock('@/components/peer-loan/PeerLoanDetailSection', () => ({ PeerLoanDetailSection: () => null }))
 vi.mock('@/components/shared/EditHoldingModal', () => ({ EditHoldingModal: () => null }))
 vi.mock('@/components/shared/MonthEndBalanceModal', () => ({ MonthEndBalanceModal: () => null }))
 
@@ -375,5 +380,59 @@ describe('AccountDetailPage savings tab query param', () => {
 
     expect(screen.getByRole('tab', { name: 'accounts.tabOverview' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('tab', { name: 'savings.configSection' })).toHaveAttribute('aria-selected', 'false')
+  })
+})
+
+describe('AccountDetailPage CSV import eligibility', () => {
+  beforeEach(() => {
+    hooks.useAccountHistory.mockReturnValue({ data: [] })
+    hooks.useHoldingsWithLivePrices.mockReturnValue({ data: [] })
+    hooks.useAccountPositions.mockReturnValue({ data: [] })
+    hooks.useAccountTransactions.mockReturnValue({ data: [] })
+    hooks.useAddTransaction.mockReturnValue(mutation())
+    hooks.useDeleteTransaction.mockReturnValue(mutation())
+    hooks.useUpdateTransaction.mockReturnValue(mutation())
+    hooks.useUpdateHolding.mockReturnValue(mutation())
+    hooks.useDeleteHolding.mockReturnValue(mutation())
+    hooks.useImportTRTransactions.mockReturnValue(mutation())
+    hooks.useHistory.mockReturnValue({ data: [] })
+    hooks.useSavingsSuggestions.mockReturnValue({ data: [] })
+    hooks.useCategories.mockReturnValue({ data: [] })
+    hooks.useCategorize.mockReturnValue(mutation())
+    hooks.useMerchantLogoUrl.mockReset().mockReturnValue(() => null)
+    hooks.useLoanSummary.mockReturnValue({ data: undefined, isLoading: false, isError: true })
+    hooks.useOwnership.mockReturnValue({ data: LOAN_OWNERSHIP, isLoading: false })
+    hooks.useUpdateOwnership.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: false })
+  })
+
+  function renderAccount(account: Account) {
+    hooks.useAccount.mockReturnValue({ data: account, isLoading: false })
+    const client = new QueryClient()
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={[`/accounts/${account.id}`]}>
+          <Routes>
+            <Route path="/accounts/:id" element={<AccountDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+  }
+
+  it.each([
+    ['LOAN', { ...LOAN_ACCOUNT, id: 7, type: 'LOAN' as const, isManual: true }],
+    ['PEER_LOAN', { ...LOAN_ACCOUNT, id: 8, name: 'Loan to friend', type: 'PEER_LOAN' as const, isManual: true }],
+    ['synced investment account', { ...PER_ACCOUNT, id: 42, type: 'PER' as const, isManual: false }],
+  ])('does not mount ImportTransactionsModal for %s', (_label, account) => {
+    renderAccount(account)
+    expect(screen.queryByTestId(`import-transactions-modal-${account.id}`)).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['synced CHECKING', { ...PER_ACCOUNT, id: 10, type: 'CHECKING' as const, isManual: false }],
+    ['manual PER', { ...PER_ACCOUNT, id: 11, type: 'PER' as const, isManual: true }],
+  ])('mounts ImportTransactionsModal for %s', (_label, account) => {
+    renderAccount(account)
+    expect(screen.getByTestId(`import-transactions-modal-${account.id}`)).toBeInTheDocument()
   })
 })
