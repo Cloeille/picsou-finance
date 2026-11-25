@@ -72,7 +72,7 @@ import type { Account } from '@/types/api'
 import { formatApiError, formatTrAuthError, isTrAttemptOverError, isTrInvalidSessionStateError, isTrSessionDeadError } from '@/lib/errors'
 import { TrAppConfirmation } from '@/components/sync/TrAppConfirmation'
 import { syncKeys } from '@/features/sync/keys'
-import { revolutErrorLabel } from '@/features/sync/revolut-phase'
+import { isRevolutReady, revolutErrorLabel } from '@/features/sync/revolut-phase'
 import { TR_AUTHENTICATOR_CODE_LENGTH, TR_PIN_MAX_LENGTH, TR_VERIFICATION_CODE_LENGTH } from '@/lib/constants'
 import type { TrAuthInitResponse } from '@/types/api'
 
@@ -173,12 +173,12 @@ const REAUTH_TAB: Partial<Record<SyncConnection['providerType'], string>> = {
  * batch filter (`isBatchSyncable`) so the two cannot disagree about who navigates:
  * - Finary is a manual two-phase import;
  * - an expired session re-authenticates through its own tab's form;
- * - Revolut without remembered credentials needs the phone+passcode form (and a mobile approval).
+ * - Revolut when not ready (`!isRevolutReady`) needs its own tab to log in.
  */
-function ownTab(c: SyncConnection, revolutRemembered: boolean): string | undefined {
+function ownTab(c: SyncConnection, revolutReady: boolean): string | undefined {
   if (c.providerType === 'finary') return 'finary'
   if (c.needsReauth && REAUTH_TAB[c.providerType]) return REAUTH_TAB[c.providerType]
-  if (c.providerType === 'revolut' && !revolutRemembered) return 'revolut'
+  if (c.providerType === 'revolut' && !revolutReady) return 'revolut'
   return undefined
 }
 
@@ -265,6 +265,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   // a Revolut connection exists even if every synced account was soft-deleted.
   const hasRevolutSession = revolutStatus?.connected === true || revolutStatus?.remembered === true
   const hasRevolutAccount = (accounts?.some(a => a.provider === 'Revolut') ?? false) || hasRevolutSession
+  const revolutReady = isRevolutReady(revolutStatus)
 
   // Mutations
   /**
@@ -554,7 +555,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
         id: REVOLUT_CONNECTION_ID,
         providerType: 'revolut',
         name: 'Revolut',
-        status: revolutStatus?.remembered ? 'active' : 'SESSION_EXPIRED',
+        status: revolutReady ? 'active' : 'SESSION_EXPIRED',
         lastSyncedAt: revolutAccount?.lastSyncedAt ?? revolutStatus?.lastSyncedAt ?? null,
       })
     }
@@ -568,7 +569,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       })
     }
     return list
-  }, [banks, exchanges, wallets, hasTrAccount, accounts, trStatus?.isActive, hasRevolutAccount, revolutStatus?.remembered, revolutStatus?.lastSyncedAt, finaryStatus, sessionProviders])
+  }, [banks, exchanges, wallets, hasTrAccount, accounts, trStatus?.isActive, hasRevolutAccount, revolutReady, revolutStatus?.lastSyncedAt, finaryStatus, sessionProviders])
 
   /**
    * Fires the in-place sync of one row. Never navigates and never closes the modal: callers
@@ -735,9 +736,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   ])
 
   // Revolut discovery job finished: surface its error, or confirm everything
-  // it found. remember=true because confirmSync clears the stored credentials otherwise — this
-  // row only syncs in place *because* the session is remembered. voluntary=false keeps accounts
-  // the user deleted from coming back.
+  // it found. Keep `remember` true only when credentials are already remembered (server mode),
+  // so a desktop WebView session stays `remember_credentials = FALSE` just like RevolutTab's
+  // quick sync. voluntary=false keeps accounts the user deleted from coming back.
   useEffect(() => {
     const running = revolutProgress.data?.running
     if (revolutPolling && prevRevolutRunningRef.current === true && running === false) {
@@ -755,7 +756,11 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
         clearSyncing()
       } else if (data && data.discovered.length > 0) {
         confirmRevolutMutation.mutate(
-          { selectedExternalIds: data.discovered.map(d => d.externalId), remember: true, voluntary: false },
+          {
+            selectedExternalIds: data.discovered.map(d => d.externalId),
+            remember: revolutStatus?.remembered === true,
+            voluntary: false,
+          },
           {
             onSuccess: () => setRowErrors(prev => {
               if (!(REVOLUT_CONNECTION_ID in prev)) return prev
@@ -784,9 +789,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       setTrAuthStep('phone')
       return
     }
-    // Rows that own a surface (expired session, Finary, unremembered Revolut) go to their tab:
+    // Rows that own a surface (expired session, Finary, unready Revolut) go to their tab:
     // those flows need multi-step forms or a mobile approval, and firing a sync would only 401.
-    const tab = ownTab(connection, revolutStatus?.remembered === true)
+    const tab = ownTab(connection, revolutReady)
     if (tab) {
       // A lapsed session with stored credentials only needs the phone confirmation: the tab
       // starts that reconnect on arrival instead of showing the login form.
@@ -796,15 +801,15 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       return
     }
     syncInPlace(connection)
-  }, [trStatus?.isActive, revolutStatus?.remembered, syncInPlace, navigate, onOpenChange])
+  }, [trStatus?.isActive, revolutReady, syncInPlace, navigate, onOpenChange])
 
   // "Sync all" only fires what a single click can actually complete in place: every row that
   // owns a surface (`ownTab`) is excluded, as is TR without a session (inline auth). Those rows
   // keep their own button. The batch calls `syncInPlace` directly, so it can never navigate.
   const isBatchSyncable = useCallback((c: SyncConnection) =>
-    !ownTab(c, revolutStatus?.remembered === true) &&
+    !ownTab(c, revolutReady) &&
     !(c.providerType === 'tr' && !trStatus?.isActive)
-  , [trStatus?.isActive, revolutStatus?.remembered])
+  , [trStatus?.isActive, revolutReady])
 
   const handleSyncAll = useCallback(() => {
     connections
@@ -940,8 +945,8 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
               const isSyncing = syncingIds.has(connection.id) || connection.running === true
               const isTr = connection.providerType === 'tr'
               const isRevolut = connection.providerType === 'revolut'
-              const revolutNeedsEnrolment = isRevolut && !revolutStatus?.remembered
-              const tab = ownTab(connection, revolutStatus?.remembered === true)
+              const revolutNeedsEnrolment = isRevolut && !revolutReady && revolutStatus?.webviewLoginSupported !== true
+              const tab = ownTab(connection, revolutReady)
               const actionTitle = tab
                 ? tab === 'finary'
                   ? t('sync.all.openFinary')

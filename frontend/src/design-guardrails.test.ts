@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import indexCss from './index.css?raw'
+import viteConfig from '../vite.config.ts?raw'
 import fr from './i18n/locales/fr.json'
 import { WHATS_NEW_RELEASES } from './lib/whats-new'
 
@@ -36,6 +37,20 @@ describe('UI & design system guardrails (see CONTRIBUTING.md & DESIGN.md)', () =
       "'Plus Jakarta Sans Variable', sans-serif",
     )
     expect(indexCss, 'Do not re-introduce Geist as the app font').not.toContain('Geist Variable')
+  })
+
+  it('lets buttons and fields inherit the word spacing of the page', () => {
+    // Plus Jakarta Sans has a narrow space, widened on html; browsers reset it on form controls.
+    expect(
+      indexCss.replace(/\s+/g, ' '),
+      'button labels and fields must keep the word spacing set on html',
+    ).toContain('button, input, select, textarea { word-spacing: inherit; }')
+  })
+
+  it('never inlines a font as a data: URI, which the Content-Security-Policy refuses', () => {
+    expect(viteConfig, 'vite.config.ts must keep fonts out of assetsInlineLimit').toMatch(
+      /assetsInlineLimit:.*woff2/,
+    )
   })
 
   it('forbids raw OS-native <select> tags (use Radix Select or NativeSelect)', () => {

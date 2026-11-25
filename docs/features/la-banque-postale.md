@@ -323,22 +323,22 @@ layer is `httpx` cookie replay.
 
 **Backend**
 
-- `adapter/LbpAdapter.java` — concrete sidecar client (no port: one
+- `backend-rs/src/connectors/lbp/sync.rs` — concrete sidecar client (no port: one
   implementation, one caller), normalized snapshot and nested records, no retry,
   redacted request bodies.
-- `adapter/sidecar/SidecarBank.java` — `LBP` declares the label, the `lbp-auth`
+- `backend-rs/src/ledger/sidecar.rs` — `LBP` declares the label, the `lbp-auth`
   service and the codes La Banque Postale may store.
-- `model/LbpSession.java`, `model/LbpSyncStatus.java`,
-  `repository/LbpSessionRepository.java`, `config/LbpSyncRecovery.java`,
-  `config/SyncExecutorConfig.java` (`lbpSyncExecutor`), migrations
+- `backend-rs/src/connectors/lbp/session.rs`, `LbpSyncStatus.java`,
+  `backend-rs/src/connectors/lbp/session.rs`, `backend-rs/src/jobs/startup.rs`,
+  `backend-rs/src/connectors/sidecar/jobs.rs` (`lbpSyncExecutor`), migrations
   `V143__lbp_session.sql` and `V144__lbp_saved_identifier.sql`.
-- `service/LbpSyncService.java` — validates the whole snapshot, then writes every
+- `backend-rs/src/connectors/lbp/sync.rs` — validates the whole snapshot, then writes every
   account and its transactions in one transaction; maps `kind` to
   `AccountType` directly, stores the optional encrypted identifier and asks
   `SavingsAutoConfigService` for the regulated-livret defaults.
-- `service/SavingsAutoConfigService.java` — creates the Livret A / LDDS / LEP
+- `backend-rs/src/wealth/savings/mod.rs` — creates the Livret A / LDDS / LEP
   savings config (rate, NET basis, legal ceiling) when the account has none.
-- `controller/LbpController.java` — `/api/lbp/auth/{initiate,keypad,complete}`,
+- `backend-rs/src/connectors/lbp/mod.rs` — `/api/lbp/auth/{initiate,keypad,complete}`,
   `/sync`, `/status`, `/session`, with strict bodies and per-IP buckets.
 - Shared-service wiring, like CIC: deleting the last `lbp_*` account clears the
   session (and the optionally remembered identifier) through

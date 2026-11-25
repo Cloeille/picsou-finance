@@ -1,5 +1,6 @@
-import { lazy, Suspense } from 'react'
+import { Suspense } from 'react'
 import { RouteFallback } from '@/components/shared/RouteFallback'
+import { lazyWithRetry as lazy } from '@/lib/chunk-reload'
 
 // Lazy-loaded page components, split out of routes.tsx so that routes.tsx can
 // stay a pure route table (a single non-component `router` export). Keeping the

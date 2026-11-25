@@ -17,7 +17,7 @@ Picsou already has a categorization rules engine, but the only way to "teach" it
 
 ### Existing engine (recap — unchanged foundations)
 
-- `CategorizationRule` (`model/CategorizationRule.java`, table from `V33__budget_foundation.sql`): `member_id`, `match_type`, `pattern`, `category_id`, `priority`, `source` (USER/AUTO), `created_at`.
+- `CategorizationRule` (`backend-rs/src/ledger/model.rs`, table from `V33__budget_foundation.sql`): `member_id`, `match_type`, `pattern`, `category_id`, `priority`, `source` (USER/AUTO), `created_at`.
 - `RuleMatchType`: `COUNTERPARTY` (exact, case-insensitive on `counterparty`) and `KEYWORD` (case-insensitive substring on `counterparty` **or** `description`).
 - Precedence (`CategorizationService`): (1) `categoryRef != null` guard — never overrides an existing category; (2) USER/AUTO rules, `priority DESC, id ASC`, first match wins; (3) brand KB fallback; (4) uncategorized.
 - Today's learn flow: `PUT /transactions/{id}/category { categoryId, createRule }` → `learnRule()` creates an **AUTO COUNTERPARTY** rule on the whole counterparty, idempotently.
@@ -43,7 +43,8 @@ Picsou already has a categorization rules engine, but the only way to "teach" it
   - **AND/OR toggle** switches between `KEYWORDS_ALL` and `KEYWORDS_ANY` match semantics live.
   - Assembles selected words into the chosen pattern and shows a **live preview list** (debounced from the dry-run endpoint) with **per-row checkboxes** for cherry-picking which transactions receive the rule on confirm. Live counter: *"Concerns N transactions."*
 - **Surface:** a polished `Dialog` on desktop, **bottom-sheet** on mobile (responsive is mandatory). The roomy surface hosts the word picker, category select, the live preview/count, and a confirm button.
-- API/hooks: extend `budgetApi`/`features/budget/hooks.ts` with `previewRule()` and reuse `createRule()`/`categorize()`.
+- API/hooks: extend `budgetApi`/`features/budget/hooks.ts` with `previewRule()` and `updateRule()`/`useUpdateRule()`, and reuse `createRule()`/`categorize()`.
+- **Managing existing rules:** existing rules are listed, created, edited, and deleted in **Budget → Manage** (`/budget/settings#rules`, `RulesCard` in `ManageTab.tsx`). Clicking a rule's edit button opens `RuleForm` pre-filled with its match type, pattern, and target category and saves via `PUT /api/categorization-rules/{id}`. From the **To categorize** tab (`CategorizeTab.tsx`), the **Automate** menu includes a **Manage rules** shortcut (available to every member) that navigates to `/budget/settings#rules` and scrolls `RulesCard` into view.
 
 ```
 InboxRow → [Create rule] button

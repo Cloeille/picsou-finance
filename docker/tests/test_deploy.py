@@ -64,7 +64,7 @@ if [[ "$args" == *"pg_restore"* ]]; then
   if [[ "${MOCK_INTERRUPT:-}" == restore ]]; then kill -TERM "$PPID"; exit 0; fi
 fi
 if [[ "$args" == *"dropdb"* && "${MOCK_FAIL:-}" == cleanup ]]; then exit 18; fi
-if [[ "$args" == *"ReleaseMigrationCli"* ]]; then
+if [[ "$args" == *"--entrypoint picsou"* ]]; then
   override=; prev=
   for arg in "$@"; do [[ $prev == -f ]] && override=$arg; prev=$arg; done
   op=${!#}; db=picsou
@@ -128,7 +128,7 @@ def run_deploy(fake_tools, tmp_path, *extra, fail=None, status="401", image="ghc
 def test_candidate_and_live_migrations_precede_pinned_app_cutover(fake_tools, tmp_path):
     result, commands, _ = run_deploy(fake_tools, tmp_path, "--profile", "tls")
     assert result.returncode == 0, f"{result.stderr}\\n{commands}"
-    cli_indices = [i for i, line in enumerate(commands) if "ReleaseMigrationCli" in line]
+    cli_indices = [i for i, line in enumerate(commands) if "<--entrypoint> <picsou>" in line]
     targets = [line for line in commands if line.startswith("migration-target")]
     recreate = next(i for i, line in enumerate(commands) if "<up>" in line and "<app>" in line)
     assert len(cli_indices) == 4
@@ -282,9 +282,8 @@ def test_probe_requires_exact_401_and_bounds_request(fake_tools, tmp_path):
 def test_cli_is_pinned_and_does_not_use_bootstrap_entrypoint(fake_tools, tmp_path):
     result, commands, _ = run_deploy(fake_tools, tmp_path)
     assert result.returncode == 0, f"{result.stderr}\\n{commands}"
-    calls = [line for line in commands if "ReleaseMigrationCli" in line]
+    calls = [line for line in commands if "<--entrypoint> <picsou>" in line]
     assert len(calls) == 4
-    assert all("--entrypoint> <java>" in line for line in calls)
     assert all("mock-password" not in line for line in calls)
     assert all("--no-deps" in line for line in calls)
     assert not any("mock-password" in line for line in commands)
@@ -300,7 +299,7 @@ def test_data_permissions_runs_with_the_candidate_image_before_the_app_is_recrea
     assert result.returncode == 0, result.stderr
     handover = next(i for i, line in enumerate(commands) if "<data-permissions>" in line)
     cutover = next(i for i, line in enumerate(commands) if "<up>" in line and "<app>" in line)
-    live_verify = max(i for i, line in enumerate(commands) if "ReleaseMigrationCli" in line)
+    live_verify = max(i for i, line in enumerate(commands) if "<--entrypoint> <picsou>" in line)
     assert live_verify < handover < cutover
     line = commands[handover]
     assert "<run>" in line and "<--rm>" in line and "<--no-deps>" in line
@@ -354,7 +353,7 @@ def test_malformed_sha256_image_is_rejected_before_compose(fake_tools, tmp_path)
 def test_extra_flags_precede_last_candidate_overlay(fake_tools, tmp_path):
     result, commands, _ = run_deploy(fake_tools, tmp_path, "--profile", "tls", "--ansi", "never", "-f", "/operator.yml")
     assert result.returncode == 0, result.stderr
-    call = next(line for line in commands if "ReleaseMigrationCli" in line)
+    call = next(line for line in commands if "<--entrypoint> <picsou>" in line)
     assert call.index("<--profile>") < call.rindex("<-f>")
     assert ".deploy-" in call.rsplit("<-f>", 1)[-1]
     assert call.index("docker-compose.yml>") < call.index("</operator.yml>") < call.rindex("<-f>")
@@ -469,7 +468,7 @@ def test_previous_app_image_is_recorded_before_any_migration(fake_tools, tmp_pat
     assert previous[0].name.removesuffix(".previous-image") == list(backup.glob("picsou-*.dump"))[0].stem
     assert "Previous app image: sha256:" in result.stdout
     recorded = next(i for i, line in enumerate(commands) if "<old-app-container>" in line)
-    first_cli = next(i for i, line in enumerate(commands) if "ReleaseMigrationCli" in line)
+    first_cli = next(i for i, line in enumerate(commands) if "<--entrypoint> <picsou>" in line)
     assert recorded < first_cli
 
 

@@ -59,15 +59,15 @@ Users often start a goal in Picsou after they've already been saving for it. The
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/service/GoalService.java` -- Business logic: CRUD, progress calculation, monthly tracking, overrides
-- `backend/src/main/java/com/picsou/controller/GoalController.java` -- REST endpoints under `/api/goals/`
-- `backend/src/main/java/com/picsou/model/Goal.java` -- JPA entity: name, targetAmount, deadline, M:N accounts, `historyStartMonth`
-- `backend/src/main/resources/db/migration/V32__goal_history_start.sql` -- adds the nullable `history_start_month` column
-- `backend/src/main/java/com/picsou/model/GoalMonthOverride.java` -- Per-month objective override (goal_id, yearMonth, amount)
-- `backend/src/main/java/com/picsou/model/GoalManualContribution.java` -- Per-month actual override (goal_id, yearMonth, amount)
-- `backend/src/main/java/com/picsou/repository/GoalRepository.java` -- `findAllWithAccounts()` for eager fetching
-- `backend/src/main/java/com/picsou/repository/GoalMonthOverrideRepository.java` -- Override lookup by goal + month
-- `backend/src/main/java/com/picsou/repository/GoalManualContributionRepository.java` -- Contribution lookup by goal + month
+- `backend-rs/src/wealth/goals/` -- Business logic: CRUD, progress calculation, monthly tracking, overrides
+- `backend-rs/src/wealth/goals/mod.rs` -- REST endpoints under `/api/goals/`
+- `backend-rs/src/wealth/goals/repo.rs` -- JPA entity: name, targetAmount, deadline, M:N accounts, `historyStartMonth`
+- `backend-rs/migrations/V32__goal_history_start.sql` -- adds the nullable `history_start_month` column
+- `GoalMonthOverride.java` -- Per-month objective override (goal_id, yearMonth, amount)
+- `GoalManualContribution.java` -- Per-month actual override (goal_id, yearMonth, amount)
+- `backend-rs/src/wealth/goals/repo.rs` -- `findAllWithAccounts()` for eager fetching
+- `backend-rs/src/wealth/goals/repo.rs` -- Override lookup by goal + month
+- `backend-rs/src/wealth/goals/repo.rs` -- Contribution lookup by goal + month
 - `frontend/src/pages/goals/GoalsPage.tsx` -- Goal list with cards, CRUD dialog, account chips
 - `frontend/src/pages/goals/GoalCalendarPage.tsx` -- Monthly calendar view with donut rings, overrides, manual contributions
 
@@ -118,7 +118,7 @@ GoalService.setMonthOverride(goalId, yearMonth, amount)
 | `null` for no history | Distinguishes "no data yet" from "zero contribution"; `isOnTrack` treats null as "benefit of the doubt" | Return zero (would mark new goals as "not on track") |
 | `liveBalanceEur()` for currentTotal | Holding accounts show real portfolio value with PnL, not stale sync-time balance | `AccountResponse.currentBalanceEur` (does not reflect live prices) |
 | `<Badge variant="secondary">` for account chips | Uses theme semantic tokens (luma preset); consistent with rest of the UI | Per-account pastel `<span>` with `style={{ background: a.color }}` |
-| No on-track / behind tag on goal cards or the goal detail (removed 2026-11-21) | The cards already show the required monthly pace next to the average contribution; the tag duplicated that comparison and read as alarming or reassuring on short histories | A coloured pill (`default` / `destructive` / `secondary`), which also put Coffre Blue on a static element |
+| No on-track / behind tag on goal cards or the goal detail (removed 2026-11-21) | The goal detail dialog already shows the required monthly pace next to the average contribution; the tag duplicated that comparison and read as alarming or reassuring on short histories | A coloured pill (`default` / `destructive` / `secondary`), which also put Coffre Blue on a static element |
 
 ## Gotchas / Pitfalls
 
@@ -138,7 +138,7 @@ GoalService.setMonthOverride(goalId, yearMonth, amount)
 ## Frontend notes
 
 - **Account chips** use `<Badge variant="secondary">` — theme-aware, no per-account color. The `ACCOUNT_COLORS` palette is still used elsewhere (ColorPicker, DistributionPie, AccountCard, FinaryTab) but not in goal cards.
-- **No pace tag**: `isOnTrack` is still computed and returned by the API and the MCP `GoalTools`, but no web screen shows it; the card shows the figures (required monthly pace, average contribution) instead.
+- **No pace tag**: `isOnTrack` is still computed and returned by the API and the MCP `GoalTools`, but no web screen shows it; the goal detail dialog shows the pacing figures (months left, required monthly pace, average contribution) instead, while the cards on `GoalsPage` stay focused on current amount, progress bar, percentage reached, and target amount.
 - **Calendar badges**: "manu." uses `variant="secondary"`, "modif." uses `variant="outline"` — no raw Tailwind color overrides.
 - **Icons**: `TrendUp`/`TrendDown` come from `@phosphor-icons/react` in the goals pages.
 - **Goal detail chart**: `GoalDetailModal` reuses the shared `NetWorthChart` with the optional `target`, `projection`, and `todayMs` props. The chart draws:

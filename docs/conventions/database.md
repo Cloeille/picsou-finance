@@ -2,23 +2,24 @@
 
 ## Schema ownership
 
-**Flyway owns the schema.** Hibernate is set to `ddl-auto: validate` only — it checks that entities match the database but never modifies it.
+**Migrations own the schema.** The backend never creates or alters a table outside a migration.
+It applies the pending migrations at startup, as Flyway did for the Java backend: same file
+naming, same checksums, same `flyway_schema_history` rows (`backend-rs/src/db/flyway.rs`).
 
-```yaml
-spring:
-  jpa:
-    hibernate:
-      ddl-auto: validate
-  flyway:
-    enabled: true
-    locations: classpath:db/migration
-```
+Two engines, two sets of migrations:
 
-**Never** use `ddl-auto: create`, `update`, or `create-drop`. Every schema change requires a new Flyway migration file.
+- **PostgreSQL**: `backend-rs/migrations/V{n}__description.sql`.
+- **SQLite** (desktop app, single-container Docker): `backend-rs/src/db/sqlite/schema.sql` is the
+  frozen baseline, equal to PostgreSQL `V1..V155`. Later changes go in
+  `backend-rs/src/db/sqlite/migrations/`
+  ([how to add one](../../backend-rs/src/db/sqlite/migrations/README.md)).
+
+A schema change needs both, and `backend-rs/src/db/schema.tsv`, the schema the release CLI
+(`picsou verify`) expects. A test keeps that file equal to what the migrations build.
 
 ## Migrations
 
-Migration files live in `backend/src/main/resources/db/migration/`.
+PostgreSQL migration files live in `backend-rs/migrations/`.
 
 ### Naming
 
@@ -83,27 +84,28 @@ Note: V8 is absent by design (skipped — never rolled into another migration). 
 
 ### Writing a new migration
 
-1. Create `V{next}__descriptive_name.sql` in `db/migration/`, where `{next}` is the next free
+1. Create `V{next}__descriptive_name.sql` in `backend-rs/migrations/`, where `{next}` is the next free
    version on an up-to-date target branch, counting `main` and every open `release/*` branch. Another open pull request may take the same number; the one
    that merges second renumbers its own, still unmerged, files after syncing with the target branch, along
    with every test or doc that names them. Keep their relative order and number them after the
    latest version on the target branch: a later migration may depend on an earlier one. A local database that
    already applied the old numbers has to be recreated, which deletes its data and encryption key
    ([how to do it safely](../../CONTRIBUTING.md#before-you-open-a-pull-request)).
-   `MigrationVersionsTest` fails on a duplicate version.
-2. Use plain SQL — no Hibernate-generated DDL.
+   The `every_migration_has_a_unique_version` test fails on a duplicate version.
+2. Use plain SQL.
 3. Include constraints, indexes, and foreign keys explicitly.
 4. For new enums, use `CREATE TYPE ... AS ENUM (...)` at the top of the file.
-5. Test by running the application (Flyway applies on startup).
+5. Add the SQLite counterpart and update `schema.tsv` (see above). `make test-backend` runs the
+   tests on both engines.
 
 **Never rename or renumber a migration that is on `main` or a release branch, or that any deployed database may have
 applied**, even to fix a version collision. Flyway resolves applied rows by version: the old row stops matching any file
 and the renamed file runs a second time. When it happened anyway (commit 2839c94 moved 1.1.0's
-V80, V81 and V86–V88 to V93–V99), the repair is a Flyway callback that rewrites those history rows
+V80, V81 and V86–V88 to V93–V99), the repair is a startup step that rewrites those history rows
 before validation, matching old version, description and checksum together. Merging main into
 1.1.0 did it again to the 1.0.x releases' V38 and V54–V64 (#265), and also edited comments in
 applied files: a comment change alters the checksum just like a SQL change. See
-`LegacyMigrationRenumberingCallback` and
+the legacy renumbering in `backend-rs/src/db/flyway.rs` and
 [the upgrade note](../features/docker-deployment.md#upgrading-a-110-install-that-applied-the-old-v80v88-numbering).
 
 Example:
@@ -119,91 +121,106 @@ CREATE TABLE goal_manual_contribution (
 );
 ```
 
-## Entities
+## Rows and queries
 
-### Base class: AuditableEntity
+A table row is a plain struct that derives `DbFromRow` (`backend-rs/src/db/`), kept next to the
+queries that read and write it:
 
-All entities with timestamps extend `AuditableEntity`:
-
-```java
-@MappedSuperclass
-@EntityListeners(AuditingEntityListener.class)
-@Getter
-public abstract class AuditableEntity {
-    @CreatedDate
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private Instant createdAt;
-
-    @LastModifiedDate
-    @Column(name = "updated_at", nullable = false)
-    private Instant updatedAt;
+```rust
+#[derive(Debug, Clone, PartialEq, crate::db::DbFromRow)]
+pub struct Account {
+    pub id: i64,
+    pub member_id: i64,
+    pub name: String,
+    #[sqlx(rename = "type")]
+    pub account_type: AccountType,
+    pub currency: String,
+    pub current_balance: Decimal,
+    pub last_synced_at: Option<DateTime<Utc>>,
+    // …
 }
 ```
 
-### Entity conventions
-
-```java
-@Entity
-@Table(name = "account")
-@Getter @Setter
-@NoArgsConstructor @AllArgsConstructor
-@Builder
-public class Account extends AuditableEntity {
-
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-
-    // Fields use @Column with explicit name, nullable, length, precision
-    @Column(nullable = false, length = 100)
-    private String name;
-
-    // PostgreSQL enums via @JdbcTypeCode + columnDefinition
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, columnDefinition = "account_type")
-    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    private AccountType type;
-
-    // Defaults via @Builder.Default
-    @Column(nullable = false)
-    @Builder.Default
-    private boolean isManual = true;
-}
-```
+Queries are SQL text with `$n` placeholders, run through `crate::db::query`, `query_as` and
+`query_scalar`. Those wrappers serve both engines: the SQLite dialect layer
+(`backend-rs/src/db/sqlite/dialect.rs`) translates the PostgreSQL syntax, so a query is written
+once.
 
 ### Key patterns
 
 | Pattern | Convention |
 |---------|-----------|
-| Lombok | `@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder` on every entity |
-| ID generation | `GenerationType.IDENTITY` (PostgreSQL sequences/serials) |
-| Monetary values | `NUMERIC(20, 8)` in SQL, `BigDecimal` in Java |
-| Timestamps | `TIMESTAMPTZ` in SQL, `Instant` in Java |
-| Dates | `DATE` in SQL, `LocalDate` in Java |
-| Enums | PostgreSQL native enums (`CREATE TYPE ... AS ENUM`) mapped via `@JdbcTypeCode(SqlTypes.NAMED_ENUM)` |
-| Defaults | `@Builder.Default` on fields, matching SQL `DEFAULT` in migration |
+| Monetary values | `NUMERIC(20, 8)` in SQL, `rust_decimal::Decimal` in Rust. `f32` and `f64` fail a test (`no_floats.rs`) |
+| Timestamps | `TIMESTAMPTZ` in SQL, `chrono::DateTime<Utc>` in Rust, taken from `state.clock`, never from the system clock |
+| Dates | `DATE` in SQL, `chrono::NaiveDate` in Rust |
+| Enums | PostgreSQL native enums (`CREATE TYPE ... AS ENUM`), a `string_enum!` type in Rust, cast in the query (`$4::account_type`) |
+| Nullable columns | `Option<T>` |
+| `created_at`, `updated_at` | set by the query, from the `now` the caller passes |
 | Foreign keys | Always `ON DELETE CASCADE` where appropriate |
 | Unique constraints | Named: `CONSTRAINT uk_{table}_{columns}` |
 | Indexes | Named: `idx_{table}_{columns}`; partial indexes with `WHERE` clause for nullable columns |
 
 ## Connection
 
-- **Database:** PostgreSQL 16
-- **Connection pool:** HikariCP (max 10 connections, 30s timeout)
-- **URL:** `jdbc:postgresql://localhost:5432/picsou` (overridden by `SPRING_DATASOURCE_URL`)
+- **PostgreSQL 16**: an sqlx pool, from `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`
+  and `SPRING_DATASOURCE_PASSWORD` (the names the Java backend read).
+- **SQLite**: `DATABASE_URL=sqlite:///path/picsou.db`. One file in WAL mode with foreign keys on;
+  writes go through one writer at a time. Opening fails (`SqliteError::WalNotEnabled`) when the
+  file cannot switch to WAL; `busy_timeout` is set first.
+- `picsou migrate`, `picsou verify` and `picsou export-sqlite` read the same configuration as the
+  server: `DATABASE_URL` or `SPRING_DATASOURCE_URL`, the user (default `picsou`) and the password
+  in the server's order (`SPRING_DATASOURCE_PASSWORD`, `POSTGRES_PASSWORD`,
+  `PICSOU_SECRETS_DIR/postgres_password`, then `picsou`), without generating a secret. `migrate`
+  and `verify` also take a SQLite file; `export-sqlite` reads PostgreSQL only. `verify` opens a
+  SQLite file the way the server does (read-write, WAL, owner-only permissions): to check a
+  read-only backup, verify a copy of it.
 
-## Jackson serialization
+### One writer on SQLite
 
-```yaml
-spring.jackson:
-  write-dates-as-timestamps: false       # ISO-8601 strings
-  default-property-inclusion: non_null   # omit null fields from JSON
-```
+`db.begin()` takes the only writer connection until the transaction commits or rolls back.
+Reads outside a transaction use the WAL reader pool and are not affected.
+
+- **Fetch first, then write.** Do the outbound calls (a bank or broker API, an ISIN lookup,
+  prices, FX rates) before `db.begin()`. Inside a transaction they keep every other write of the
+  instance waiting, and a write that waits 30 s fails with `503 DB_BUSY`.
+  - A sync fetches everything it writes first, then opens its transaction: see
+    `sync/enable_banking/service.rs` (`ask_first`) and `sync/ibkr/service.rs`.
+  - **Prices are asked ahead too.** Valuing an account inside a transaction (the day's snapshot,
+    the response) reads quotes and rates through `PriceRead`. Collect what the write is about to
+    price in a `PriceNeeds` and call `state.ledger.prices.prefetch(&needs, today)` before
+    `db.begin()`: the live price service remembers each answer, a miss included, so the same
+    lookups inside the transaction are answered from memory. A sync announces what its payload
+    brings (the currencies it converts, the tickers its accounts will hold) and the account as
+    stored (`valuation::needs_of_external`: a currency or a ticker the member edited, holdings
+    the sync leaves alone). A connector built on `SyncTemplate` returns its payload's from
+    `SyncStrategy::price_needs`, and the template adds the stored currency and ticker of the
+    member's synced accounts (`valuation::account_needs_of_member`); a handler on an existing account reads them with
+    `valuation::needs_of`.
+  - **A long read uses `db.begin_read()`**, not `db.begin()`: a read-only transaction that sees
+    the database as it was at its first read. On SQLite it is a WAL snapshot on a reader of its
+    own, with slots apart from the read pool; on PostgreSQL, a repeatable-read transaction. The
+    data export streams from one, at the pace of its download, without ever holding the writer.
+  - The test helper `tests/integration/writer_free.rs` proves a flow follows the rule: a stubbed
+    provider answers slowly, and writes made from then until the flow is done have to go through
+    (`stays_writable_while`). It says something on SQLite only, so it counts in the
+    `PICSOU_TEST_DB=sqlite` run. Add a case with every flow that calls a provider and writes.
+  - What is left to the convention: a write that prices a ticker or a currency it did not
+    announce, or whose provider was so slow that a remembered miss (60 seconds) ran out before
+    the transaction opened, asks again inside it. The write is slower; its figures are the same.
+- **A dropped request is safe.** When the future awaiting a statement is dropped (the client went
+  away, a timeout fired), a statement that had not reached the connection is skipped and a
+  `BEGIN` or `SAVEPOINT` that had is undone (`db/sqlite/mod.rs`, `run_on_writer` and
+  `open_transaction`).
+
+## JSON serialization
+
+Response types carry `#[serde_with::skip_serializing_none]` (a `null` field is omitted) and
+`#[serde(rename_all = "camelCase")]`. Dates and timestamps are ISO-8601 strings.
 
 ## Don'ts
 
-- **Never use `ddl-auto: create`, `update`, or `create-drop`** — Flyway owns every schema change.
-- **Never use `GenerationType.AUTO` or `SEQUENCE`** — always `GenerationType.IDENTITY`.
-- **Never use `Float` or `Double` for monetary values** — always `BigDecimal` / `NUMERIC(20, 8)`.
+- **Never change the schema outside a migration**, and never edit a migration that shipped.
+- **Never use `f32` or `f64` for monetary values** — always `Decimal` / `NUMERIC(20, 8)`.
+- **Never read the system clock** in a query or a handler — use `state.clock`.
 - **Never skip `ON DELETE CASCADE`** on child table FKs unless orphan rows are intentional.
 - **Never use unnamed constraints** — always `CONSTRAINT uk_{table}_{columns}` / `idx_{table}_{columns}`.

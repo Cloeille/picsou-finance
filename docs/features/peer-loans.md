@@ -344,28 +344,28 @@ not a side effect of a payment.
 
 Backend:
 
-- `backend/.../model/AccountType.java` — `PEER_LOAN`, `isLedger()` exclusion
-- `backend/.../model/PeerCounterparty.java`, `PeerLoanTerms.java`, `PeerLoanRepayment.java`,
-  `PeerLoanRepaymentKind.java`, `PeerLoanRatePeriod.java`
-- `backend/.../repository/PeerCounterpartyRepository.java`, `PeerLoanTermsRepository.java`,
-  `PeerLoanRepaymentRepository.java`
-- `backend/.../service/PeerLoanCalculator.java` — pure arithmetic (remaining, interest,
+- `backend-rs/src/ledger/model.rs` — `PEER_LOAN`, `isLedger()` exclusion
+- `PeerCounterparty.java`, `backend-rs/src/ledger/model.rs`, `backend-rs/src/ledger/model.rs`,
+  `backend-rs/src/ledger/model.rs`, `backend-rs/src/ledger/model.rs`
+- `PeerCounterpartyRepository.java`, `backend-rs/src/ledger/liabilities.rs`,
+  `backend-rs/src/ledger/liabilities.rs`
+- `backend-rs/src/ledger/peer_loans.rs` — pure arithmetic (remaining, interest,
   plan, simulation)
-- `backend/.../service/PeerLoanService.java` — terms, ledger, closure, cash legs,
+- `backend-rs/src/wealth/peer_loans/` — terms, ledger, closure, cash legs,
   creation from a transaction
-- `backend/.../controller/PeerLoanController.java`
+- `backend-rs/src/wealth/peer_loans/mod.rs`
 - `backend/.../dto/PeerLoan*.java`
-- `backend/.../service/AccountService.java` — `valuation()` branch
-- `backend/.../service/HistoryService.java` — receivable excluded from invested/PnL
-- `backend/.../service/WealthPyramidService.java` - receivable skipped
-- `backend/.../service/DashboardService.java` - receivable excluded from the allocation
+- `AccountService.java` — `valuation()` branch
+- `HistoryService.java` — receivable excluded from invested/PnL
+- `backend-rs/src/accounts/analysis/pyramid.rs` - receivable skipped
+- `backend-rs/src/accounts/dashboard.rs` - receivable excluded from the allocation
   distribution; the response also carries an `assets` list (receivable included) that the
   wealth modes, history and gross figure use
 - `frontend/src/pages/dashboard/DashboardPage.tsx` - `EXCLUDED_FINANCIAL` leaves the
   receivable out of the "financial" wealth mode (figure and curve): it counts in net and
   gross wealth only
-- `backend/.../model/AssetClass.java`, `WealthTier.java` — exhaustive switches
-- `backend/.../db/migration/V135__account_type_peer_loan.sql`,
+- `AssetClass.java`, `backend-rs/src/ledger/model.rs` — exhaustive switches
+- `backend-rs/migrations/V135__account_type_peer_loan.sql`,
   `V136__peer_loans.sql`, `V137__peer_loan_cash_leg.sql`,
   `V138__peer_loan_linked_repayment.sql`, `V139__peer_loan_rate_period.sql`,
   `V140__widen_peer_loan_rate.sql`, `V141__peer_loan_rate_no_upper_bound.sql`

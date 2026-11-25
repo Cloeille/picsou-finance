@@ -61,10 +61,10 @@ indicator, so financing a SCPI does not change a house's LTV.
 
 ### Key files
 
-- `AccountType.java` — `SCPI`, not included in `isInvestment()`
+- `backend-rs/src/ledger/model.rs` — `SCPI`, not included in `isInvestment()`
 - `ScpiPositionService.java` — writes the withdrawal value
-- `AccountController.java` — `PUT /api/accounts/{id}/scpi`
-- `RealEstateSummaryService.java` — paper line, not DVF gross
+- `backend-rs/src/accounts/service.rs` — `PUT /api/accounts/{id}/scpi`
+- `backend-rs/src/accounts/analysis/property.rs` — paper line, not DVF gross
 - `frontend/src/components/scpi/AddScpiModal.tsx` — no address, no floor area
 
 ### CORUM sync

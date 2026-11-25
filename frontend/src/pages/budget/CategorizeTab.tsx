@@ -63,6 +63,7 @@ import {
 } from '@/features/budget/hooks'
 import { useAdminSettings } from '@/features/admin/hooks'
 import { useAuthStore } from '@/stores/auth-store'
+import { selectIsAdvancedMode, useAppStore } from '@/stores/app-store'
 import { cn, formatDate, getLocale } from '@/lib/utils'
 import type { Category, RuleMatchType, UncategorizedTransaction } from '@/types/api'
 
@@ -82,7 +83,7 @@ function formatTransactionDisplay(raw: string, lang: string): { title: string; d
   const trimmed = raw.trim()
   if (!trimmed) return { title: raw, detail: null }
 
-  // Strip embedded UUIDs (e.g. "01a194ae-aa5e-7a34-8fcb-d5d7b6c1a451") and parenthesized IBANs.
+  // Strip embedded UUIDs (e.g. "00000000-0000-7000-8000-000000000001") and parenthesized IBANs.
   let cleaned = trimmed
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '')
     .replace(/\(\s*[a-z]{2}\d{2}[a-z0-9]{10,30}\s*\)/gi, '')
@@ -359,6 +360,8 @@ export function CategorizeTab() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const isAdmin = useAuthStore((s) => s.user?.role === 'ADMIN')
+  const isAdvancedMode = useAppStore(selectIsAdvancedMode)
+  const setAdvancedMode = useAppStore((s) => s.setAdvancedMode)
   const { data: txs, isLoading, isError, refetch } = useUncategorized()
   const { data: categories } = useCategories()
   const { data: settings } = useBudgetSettings()
@@ -465,12 +468,38 @@ export function CategorizeTab() {
                   <span>{t('budget.categorize.recategorize')}</span>
                 </DropdownMenuItem>
 
-                {isAdmin && (
+                <DropdownMenuItem onSelect={() => navigate('/budget/settings#rules')}>
+                  <SlidersHorizontal className="size-4" aria-hidden="true" />
+                  <span>{t('budget.categorize.manageRules')}</span>
+                </DropdownMenuItem>
+
+                {isAdmin && isAdvancedMode && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onSelect={() => navigate('/admin?tab=ai')}>
                       <GearSix className="size-4" aria-hidden="true" />
                       <span>{canRunAi ? t('budget.categorize.aiSettings') : t('budget.categorize.configureAi')}</span>
+                    </DropdownMenuItem>
+                  </>
+                )}
+
+                {isAdmin && !isAdvancedMode && aiProvider === 'none' && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="items-start"
+                      onSelect={() => {
+                        setAdvancedMode(true)
+                        navigate('/admin?tab=ai')
+                      }}
+                    >
+                      <GearSix className="mt-0.5 size-4" aria-hidden="true" />
+                      <span className="flex max-w-64 flex-col">
+                        <span>{t('budget.categorize.enableAdvancedMode')}</span>
+                        <span className="text-sm text-muted-foreground">
+                          {t('budget.categorize.enableAdvancedModeHint')}
+                        </span>
+                      </span>
                     </DropdownMenuItem>
                   </>
                 )}

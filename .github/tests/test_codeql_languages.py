@@ -18,9 +18,6 @@ ALL = codeql_languages.LANGUAGES
 
 
 class CodeqlLanguagesTest(unittest.TestCase):
-    def test_backend_only(self):
-        self.assertEqual(codeql_languages.languages(["backend/src/A.java"]), ["java-kotlin"])
-
     def test_frontend_only(self):
         self.assertEqual(
             codeql_languages.languages(["frontend/src/a.ts", ".design-sync/x.json"]),
@@ -35,12 +32,12 @@ class CodeqlLanguagesTest(unittest.TestCase):
 
     def test_unmapped_file_selects_everything(self):
         self.assertEqual(codeql_languages.languages(["Makefile"]), ALL)
-        self.assertEqual(codeql_languages.languages(["backend/A.java", "Makefile"]), ALL)
+        self.assertEqual(codeql_languages.languages(["backend-rs/src/main.rs", "frontend/a.ts"]), ALL)
 
     def test_mixed(self):
         self.assertEqual(
-            codeql_languages.languages(["backend/A.java", "frontend/a.ts", "docs/x.md"]),
-            ["java-kotlin", "javascript-typescript"],
+            codeql_languages.languages(["services/x-auth/a.py", "frontend/a.ts", "docs/x.md"]),
+            ["javascript-typescript", "python"],
         )
 
     def test_services_docker_charts_are_python(self):
@@ -67,8 +64,8 @@ class CodeqlLanguagesTest(unittest.TestCase):
 
     def test_pull_request_files_are_filtered(self):
         self.assertEqual(
-            self.run_script(FILES='["backend/A.java"]'),
-            [{"language": "java-kotlin", "build-mode": "none"}],
+            self.run_script(FILES='["frontend/a.ts"]'),
+            [{"language": "javascript-typescript", "build-mode": "none"}],
         )
         self.assertEqual(self.run_script(FILES='["docs/a.md"]'), [])
 

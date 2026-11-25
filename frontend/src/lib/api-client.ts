@@ -159,6 +159,25 @@ api.interceptors.response.use(
         notifyRefreshSubscribers()
         return api(originalRequest!)
       } catch (refreshError) {
+        const { desktopMode, desktopLockEnabled } = useAppStore.getState()
+        if (desktopMode && !desktopLockEnabled) {
+          try {
+            const res = await api.post<{
+              username: string
+              role: string
+              memberId: number
+              displayName: string
+            }>('/auth/desktop-autologin')
+            useAuthStore.getState().login({
+              ...res.data,
+              role: res.data.role as 'ADMIN' | 'MEMBER',
+            })
+            notifyRefreshSubscribers()
+            return api(originalRequest!)
+          } catch {
+            // Fall through to normal logout/login flow if lock was enabled server-side.
+          }
+        }
         // Refresh failed: the session is dead. Clear the JS-side auth flag
         // (sessionStorage) before redirecting, otherwise PublicOnly on /login
         // sees `isAuthenticated=true` and bounces back to "/", which fires

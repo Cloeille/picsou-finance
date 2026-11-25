@@ -1,0 +1,510 @@
+{
+  "description": "Budget settings and envelopes: spent from outflows and refunds, parent rollup, overlap rules, validation",
+  "scenario": "budget.envelopes",
+  "steps": [
+    {
+      "body": {
+        "aiCategorizationEnabled": false,
+        "aiConfidenceThreshold": 75,
+        "aiMode": "AUTO_HIGH_CONFIDENCE",
+        "currentCycleEnd": "<month:last>",
+        "currentCycleStart": "<month:first>",
+        "cycleStartDay": 1,
+        "logoFetchEnabled": false
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "04 GET /api/budget/settings as admin"
+    },
+    {
+      "body": {
+        "aiCategorizationEnabled": false,
+        "aiConfidenceThreshold": 80,
+        "aiMode": "SUGGEST",
+        "currentCycleEnd": "<month:last>",
+        "currentCycleStart": "<month:first>",
+        "cycleStartDay": 1,
+        "logoFetchEnabled": false
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "05 PUT /api/budget/settings as admin"
+    },
+    {
+      "body": {
+        "errors": {
+          "aiConfidenceThreshold": "must be less than or equal to 100",
+          "aiMode": "must not be null",
+          "cycleStartDay": "must be greater than or equal to 1"
+        },
+        "instance": "/api/budget/settings",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "06 PUT /api/budget/settings as admin"
+    },
+    {
+      "body": {
+        "archived": false,
+        "color": "#6366f1",
+        "id": "<id:1>",
+        "isDefault": false,
+        "kind": "EXPENSE",
+        "name": "Courses",
+        "sortOrder": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "09 POST /api/categories as admin"
+    },
+    {
+      "body": {
+        "archived": false,
+        "color": "#6366f1",
+        "id": "<id:2>",
+        "isDefault": false,
+        "kind": "EXPENSE",
+        "name": "Snacks",
+        "parentId": "<id:1>",
+        "sortOrder": 1
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "10 POST /api/categories as admin"
+    },
+    {
+      "body": {
+        "categoryColor": "#6366f1",
+        "categoryId": "<id:1>",
+        "categoryKind": "EXPENSE",
+        "categoryName": "Courses",
+        "cycleEnd": "<month:last>",
+        "cycleStart": "<month:first>",
+        "id": "<id:1>",
+        "monthlyLimit": 400,
+        "overBudget": false,
+        "percent": 0.0000,
+        "remaining": 400,
+        "rollup": true,
+        "spent": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "11 POST /api/budgets as admin"
+    },
+    {
+      "body": [
+        {
+          "categoryColor": "#6366f1",
+          "categoryId": "<id:1>",
+          "categoryKind": "EXPENSE",
+          "categoryName": "Courses",
+          "cycleEnd": "<month:last>",
+          "cycleStart": "<month:first>",
+          "id": "<id:1>",
+          "monthlyLimit": 400.00,
+          "overBudget": false,
+          "percent": 32.1400,
+          "remaining": 271.45000000,
+          "rollup": true,
+          "spent": 128.55000000
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "17 GET /api/budgets as admin"
+    },
+    {
+      "body": {
+        "categoryColor": "#6366f1",
+        "categoryId": "<id:1>",
+        "categoryKind": "EXPENSE",
+        "categoryName": "Courses",
+        "cycleEnd": "<month:last>",
+        "cycleStart": "<month:first>",
+        "id": "<id:1>",
+        "monthlyLimit": 120.5,
+        "overBudget": true,
+        "percent": 106.6800,
+        "remaining": -8.05000000,
+        "rollup": true,
+        "spent": 128.55000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "18 PUT /api/budgets/{budget} as admin"
+    },
+    {
+      "body": {
+        "detail": "This category's parent already has a budget",
+        "instance": "/api/budgets",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "19 POST /api/budgets as admin"
+    },
+    {
+      "body": {
+        "detail": "A budget already exists for this category",
+        "instance": "/api/budgets",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "20 POST /api/budgets as admin"
+    },
+    {
+      "body": {
+        "errors": {
+          "monthlyLimit": "must be greater than or equal to 0"
+        },
+        "instance": "/api/budgets",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "21 POST /api/budgets as admin"
+    },
+    {
+      "body": {
+        "detail": "Category not found",
+        "instance": "/api/budgets",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "22 POST /api/budgets as admin"
+    },
+    {
+      "body": {
+        "categories": [
+          {
+            "amount": 123.45000000,
+            "categoryId": "<id:1>",
+            "color": "#6366f1",
+            "count": 1,
+            "name": "Courses",
+            "share": 0.8600
+          },
+          {
+            "amount": 20.10000000,
+            "categoryId": "<id:2>",
+            "color": "#6366f1",
+            "count": 1,
+            "name": "Snacks",
+            "parentColor": "#6366f1",
+            "parentId": "<id:1>",
+            "parentName": "Courses",
+            "share": 0.1400
+          }
+        ],
+        "from": "<month:first>",
+        "period": "CYCLE",
+        "to": "<month:last>",
+        "totalExpense": 143.55000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "23 GET /api/spending/by-category as admin"
+    },
+    {
+      "body": null,
+      "bodyKind": "empty",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 204,
+      "step": "24 DELETE /api/budgets/{budget} as admin"
+    },
+    {
+      "body": {
+        "detail": "Budget not found",
+        "instance": "/api/budgets/<id:1>",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 404,
+      "step": "25 DELETE /api/budgets/{budget} as admin"
+    },
+    {
+      "body": {
+        "categoryColor": "#6366f1",
+        "categoryId": "<id:2>",
+        "categoryKind": "EXPENSE",
+        "categoryName": "Snacks",
+        "cycleEnd": "<month:last>",
+        "cycleStart": "<month:first>",
+        "id": "<id:2>",
+        "monthlyLimit": 0,
+        "overBudget": true,
+        "percent": 0,
+        "remaining": -20.10000000,
+        "rollup": false,
+        "spent": 20.10000000
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "26 POST /api/budgets as admin"
+    },
+    {
+      "body": {
+        "detail": "A sub-category of this category already has a budget",
+        "instance": "/api/budgets",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "27 POST /api/budgets as admin"
+    },
+    {
+      "body": [
+        {
+          "categoryColor": "#6366f1",
+          "categoryId": "<id:2>",
+          "categoryKind": "EXPENSE",
+          "categoryName": "Snacks",
+          "cycleEnd": "<month:last>",
+          "cycleStart": "<month:first>",
+          "id": "<id:2>",
+          "monthlyLimit": 0.00,
+          "overBudget": true,
+          "percent": 0,
+          "remaining": -20.10000000,
+          "rollup": false,
+          "spent": 20.10000000
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "28 GET /api/budgets as admin"
+    }
+  ]
+}

@@ -13,9 +13,8 @@ import json
 import os
 import sys
 
-LANGUAGES = ["java-kotlin", "javascript-typescript", "python", "actions"]
+LANGUAGES = ["javascript-typescript", "python", "actions"]
 PREFIXES = {
-    "backend/": ["java-kotlin"],
     "frontend/": ["javascript-typescript"],
     ".design-sync/": ["javascript-typescript"],
     "services/": ["python"],

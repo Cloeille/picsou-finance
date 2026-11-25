@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useVerifyMfa } from '@/features/mfa/hooks'
+import { useAppStore } from '@/stores/app-store'
 import { safeRedirect, isOAuthAuthorizeRedirect } from '@/lib/utils'
 import { formatApiError, getErrorStatus } from '@/lib/errors'
 import { Button } from '@/components/ui/button'
@@ -19,6 +20,7 @@ import { CircleNotch } from '@phosphor-icons/react'
  */
 export function MfaChallengePage() {
   const { t } = useTranslation()
+  const desktopMode = useAppStore((s) => s.desktopMode)
   const verify = useVerifyMfa()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -46,7 +48,7 @@ export function MfaChallengePage() {
       const status = getErrorStatus(err)
       const ax = err as { response?: unknown; message?: string }
       if (!ax.response) {
-        setError(t('auth.networkError'))
+        setError(desktopMode ? t('auth.networkErrorDesktop') : t('auth.networkError'))
       } else if (status === 401) {
         // Most likely the mfa_challenge cookie expired (default 5 minutes)
         // or the user lingered on this page. Send them back to /login.

@@ -2,7 +2,7 @@
 {{- $app := include "picsou.selectorLabels" (dict "ctx" $ "component" "app") }}
 {{- /* Sidecars carry bank logins and one-time codes: only the app may call them. */}}
 {{- range $name, $sc := .Values.sidecars }}
-{{- if $sc.enabled }}
+{{- if and $sc.enabled (not (include "picsou.sidecar.isNative" (dict "ctx" $ "name" $name))) }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

@@ -1167,6 +1167,8 @@ export interface SidecarSessionStatus {
   canReconnect?: boolean
   /** Set by providers whose login form offers to remember the credentials (CORUM). Never the credentials. */
   credentialsRemembered?: boolean
+  /** Present and true on Picsou Desktop where native OS WebView login is available. */
+  webviewLoginSupported?: boolean
 }
 
 /** `auth/initiate` answer of a sidecar provider; `MfaType` narrows the kinds of second factor it can ask for. */
@@ -1185,6 +1187,23 @@ export interface RevolutSessionStatus {
   connected: boolean
   remembered: boolean
   lastSyncedAt: string | null
+  /** Present and true on Picsou Desktop where native OS WebView login is available. */
+  webviewLoginSupported?: boolean
+}
+
+export interface RevolutWebviewStartResponse {
+  processId: string
+  status: 'WAITING_LOGIN'
+}
+
+export interface RevolutWebviewStatusResponse {
+  status: 'WAITING_LOGIN' | 'FETCHING' | 'SYNCING' | 'DONE' | 'CANCELLED' | 'FAILED'
+  errorCode?: string
+  session?: RevolutSessionStatus
+}
+
+export interface RevolutWebviewCancelResponse {
+  cancelled: boolean
 }
 
 export type BoursoSessionStatus = SidecarSessionStatusOf<BoursoErrorCode>
@@ -1412,6 +1431,23 @@ export interface BnpSessionStatus {
   lastSyncError: BnpErrorCode | null
   unsupported: BnpUnsupportedProduct[]
   unsupportedCount: number
+  /** Present and true on Picsou Desktop where native OS WebView login is available. */
+  webviewLoginSupported?: boolean
+}
+
+export interface BnpWebviewStartResponse {
+  processId: string
+  status: 'WAITING_LOGIN'
+}
+
+export interface BnpWebviewStatusResponse {
+  status: 'WAITING_LOGIN' | 'FETCHING' | 'SYNCING' | 'DONE' | 'CANCELLED' | 'FAILED'
+  errorCode?: BnpErrorCode
+  session?: BnpSessionStatus
+}
+
+export interface BnpWebviewCancelResponse {
+  cancelled: boolean
 }
 
 /**
@@ -1595,6 +1631,21 @@ export type AmexOtpMethod = 'sms' | 'email'
 
 /** `mfaType` is always `OTP` when a one-time code was sent (SMS or e-mail). */
 export type AmexAuthInitResponse = SidecarAuthInitResponse
+
+export interface AmexWebviewStartResponse {
+  processId: string
+  status: 'WAITING_LOGIN'
+}
+
+export interface AmexWebviewStatusResponse {
+  status: 'WAITING_LOGIN' | 'FETCHING' | 'SYNCING' | 'DONE' | 'CANCELLED' | 'FAILED'
+  errorCode?: AmexErrorCode
+  session?: AmexSessionStatus
+}
+
+export interface AmexWebviewCancelResponse {
+  cancelled: boolean
+}
 
 export type SofidyErrorCode =
   | 'INVALID_CREDENTIALS'

@@ -56,7 +56,7 @@ ALTER TABLE transaction
 `TransactionType` enum: `DEPOSIT`, `WITHDRAWAL`, `BUY`, `SELL`, `DIVIDEND`, `FEE`.
 
 - Cash accounts (CHECKING, SAVINGS, LEP, OTHER): use DEPOSIT / WITHDRAWAL. The `amount` field is signed (positive = deposit, negative = withdrawal).
-- Investment accounts (PEA, COMPTE_TITRES, CRYPTO): use BUY / SELL. The `amount` is signed (negative for BUY, positive for SELL, reflecting cash flow).
+- Investment accounts (PEA, COMPTE_TITRES, CRYPTO, ASSURANCE_VIE, PER, PRECIOUS_METALS, BROKERAGE): use BUY / SELL. The `amount` is signed (negative for BUY, positive for SELL, reflecting cash flow).
 
 ### Entering a position by ISIN
 
@@ -95,7 +95,7 @@ inherits the rule.
 
 ### Holdings derivation (investment accounts)
 
-`HoldingComputeService.recomputeHoldings(account)` is called after every manual transaction add, edit, or delete on a **manual** PEA, COMPTE_TITRES, or CRYPTO account. Synced investment accounts preserve provider-owned positions when manual transaction annotations change:
+`HoldingComputeService.recomputeHoldings(account)` is called after every manual transaction add, edit, or delete on a **manual** investment account (PEA, COMPTE_TITRES, CRYPTO, ASSURANCE_VIE, PER, PRECIOUS_METALS, or BROKERAGE). Synced investment accounts preserve provider-owned positions when manual transaction annotations change:
 
 1. Fetches all BUY/SELL transactions for the account, ordered by date ASC.
 2. Groups by ticker: `net quantity = Σ(BUY qty) − Σ(SELL qty)`.
@@ -139,7 +139,7 @@ Bank-synced transactions (`isManual = false`) are read-only for amount, date, an
 **Cash accounts (CHECKING, SAVINGS, LEP, OTHER):**
 - Date, DEPOSIT/WITHDRAWAL toggle, Description, Amount (always positive — toggle sets sign), Category (optional dropdown — pre-filled from existing category when editing)
 
-**Investment accounts (PEA, COMPTE_TITRES, CRYPTO):**
+**Investment accounts (PEA, COMPTE_TITRES, CRYPTO, ASSURANCE_VIE, PER, PRECIOUS_METALS, BROKERAGE):**
 - Date, BUY/SELL toggle, **Ticker ou ISIN** (a ticker like `IWDA.AS` or a 12-char ISIN like `IE00B4L5Y983`), Name (auto-filled from existing holdings when the ticker matches; otherwise resolved from the ISIN backend-side), Quantity, Price per unit, **Fees (optional, folded into the PMP)**, Total (read-only)
 
 The Transactions list groups rows by booking date. Headings stay compact for a single-year list;
@@ -156,17 +156,17 @@ After submit, `useAddTransaction` / `useDeleteTransaction` hooks invalidate the 
 
 | File | Role |
 |------|------|
-| `backend/src/main/resources/db/migration/V24__manual_transactions.sql` | Schema extension (is_manual, tx_type, ticker, quantity, price_per_unit) |
-| `backend/src/main/resources/db/migration/V36__transaction_security_name.sql` | Adds `transaction.name` (position label) |
-| `backend/src/main/java/com/picsou/model/TransactionType.java` | Enum (DEPOSIT, WITHDRAWAL, BUY, SELL, DIVIDEND, FEE) |
-| `backend/src/main/java/com/picsou/service/HoldingComputeService.java` | Derives holdings (qty, VWAP, **name**) from BUY/SELL transactions |
-| `backend/src/main/java/com/picsou/service/ManualTransactionService.java` | Orchestrates add/edit/delete + re-derivation; persists `fees`; delegates ISIN/ticker/description to `InstrumentFieldResolver` |
-| `backend/src/main/java/com/picsou/service/InstrumentFieldResolver.java` | Shared ISIN→ticker/name resolver with language-neutral persisted descriptions (reused by the CSV importer) |
-| `backend/src/main/java/com/picsou/imports/TransactionAmountCalculator.java` | Single source of truth for the signed `amount` incl. fees |
-| `backend/src/main/resources/db/migration/V53__transaction_fees.sql` | Adds `transaction.fees` (folds into the PMP) |
-| `backend/src/main/java/com/picsou/adapter/OpenFigiIsinConverter.java` | `isIsin()` detection + `resolve()` ISIN→ticker+name (shared with bank sync) |
-| `backend/src/main/java/com/picsou/controller/AccountController.java` | POST/DELETE `/accounts/{id}/transactions` |
-| `backend/src/main/java/com/picsou/repository/TransactionRepository.java` | `deleteByAccountIdAndIsManualFalse`, `sumAmountByAccountId`, `findByAccountIdAndTxTypeInOrderByDateAsc` |
+| `backend-rs/migrations/V24__manual_transactions.sql` | Schema extension (is_manual, tx_type, ticker, quantity, price_per_unit) |
+| `backend-rs/migrations/V36__transaction_security_name.sql` | Adds `transaction.name` (position label) |
+| `backend-rs/src/ledger/model.rs` | Enum (DEPOSIT, WITHDRAWAL, BUY, SELL, DIVIDEND, FEE) |
+| `backend-rs/src/ledger/holding_compute.rs` | Derives holdings (qty, VWAP, **name**) from BUY/SELL transactions |
+| `backend-rs/src/ledger/manual_transactions.rs` | Orchestrates add/edit/delete + re-derivation; persists `fees`; delegates ISIN/ticker/description to `InstrumentFieldResolver` |
+| `InstrumentFieldResolver.java` | Shared ISIN→ticker/name resolver with language-neutral persisted descriptions (reused by the CSV importer) |
+| `TransactionAmountCalculator.java` | Single source of truth for the signed `amount` incl. fees |
+| `backend-rs/migrations/V53__transaction_fees.sql` | Adds `transaction.fees` (folds into the PMP) |
+| `backend-rs/src/market/openfigi.rs` | `isIsin()` detection + `resolve()` ISIN→ticker+name (shared with bank sync) |
+| `backend-rs/src/accounts/service.rs` | POST/DELETE `/accounts/{id}/transactions` |
+| `TransactionRepository.java` | `deleteByAccountIdAndIsManualFalse`, `sumAmountByAccountId`, `findByAccountIdAndTxTypeInOrderByDateAsc` |
 | `frontend/src/components/shared/AddTransactionModal.tsx` | Account-type-aware form modal |
 | `frontend/src/components/shared/TransactionsList.tsx` | Localized transaction-type fallbacks, date grouping with unambiguous historical years, manual badge, and delete button |
 | `frontend/src/features/accounts/hooks.ts` | `useAddTransaction`, `useDeleteTransaction` |

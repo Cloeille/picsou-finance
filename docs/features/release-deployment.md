@@ -181,6 +181,14 @@ curl --silent --show-error --max-time 10 --output /dev/null \
 Inspect history with `docker compose ... exec -T db psql`, resolving credentials inside the database
 container. Do not put passwords in command arguments or print `compose config` into reports.
 
+## Desktop release assets
+
+Publishing a GitHub Release runs `.github/workflows/desktop-release.yml`, which copies each desktop
+installer to a version-less name (`Picsou-macOS-arm64.dmg`, `Picsou-Windows-x64.exe`,
+`Picsou-Linux-x64.AppImage`) before uploading so `README.md` can link to
+`/releases/latest/download/<name>`. The versioned installers and `latest.json` stay untouched for
+the in-app updater; see [Desktop app](./desktop-app.md#releases-and-updates-591).
+
 ## Tests
 
 - `python3 -m pytest docker/tests/test_deploy.py -v`: real shell script exercised against command

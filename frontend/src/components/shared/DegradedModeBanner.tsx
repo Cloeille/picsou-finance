@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useAppStore } from '@/stores/app-store'
 import { useConnectivityStore } from '@/stores/connectivity-store'
 import { WifiSlash, X } from '@phosphor-icons/react'
 
@@ -19,6 +20,7 @@ export function DegradedModeBanner() {
 
 function OfflineBanner() {
   const { t } = useTranslation()
+  const desktopMode = useAppStore((s) => s.desktopMode)
   const [dismissed, setDismissed] = useState(false)
 
   if (dismissed) return null
@@ -26,7 +28,9 @@ function OfflineBanner() {
   return (
     <div className="bg-destructive/10 border-b border-destructive/20 px-4 py-2 flex items-center justify-center gap-3">
       <WifiSlash className="size-4 text-destructive shrink-0" />
-      <p className="text-sm text-destructive font-medium">{t('error.degradedMode')}</p>
+      <p className="text-sm text-destructive font-medium">
+        {desktopMode ? t('error.degradedModeDesktop') : t('error.degradedMode')}
+      </p>
       <button
         onClick={() => setDismissed(true)}
         className="text-muted-foreground hover:text-foreground transition-colors"

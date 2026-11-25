@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
+import { useLocation, useNavigate } from 'react-router'
 import {
   Archive,
   ArrowCounterClockwise,
@@ -39,10 +39,12 @@ import {
   useUnarchiveCategory,
   useUpdateBudgetSettings,
   useUpdateCategory,
+  useUpdateRule,
 } from '@/features/budget/hooks'
 import { useAuthStore } from '@/stores/auth-store'
+import { selectIsAdvancedMode, useAppStore } from '@/stores/app-store'
 import { formatDate, formatPercent, getLocale } from '@/lib/utils'
-import type { AiCategorizationMode, Category, CategoryKind, RuleMatchType } from '@/types/api'
+import type { AiCategorizationMode, CategorizationRule, Category, CategoryKind, RuleMatchType } from '@/types/api'
 import { ColorDot } from './budget-utils'
 import { KIND_META } from './budget-meta'
 
@@ -57,6 +59,7 @@ function BudgetPreferencesCard() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const isAdmin = useAuthStore((s) => s.user?.role === 'ADMIN')
+  const isAdvancedMode = useAppStore(selectIsAdvancedMode)
   const { data, isLoading, isError, refetch } = useBudgetSettings()
   const update = useUpdateBudgetSettings()
 
@@ -147,7 +150,7 @@ function BudgetPreferencesCard() {
                   {t('budget.settings.aiTitle')}
                 </Label>
                 <div className="flex shrink-0 items-center gap-3">
-                  {isAdmin && data.aiCategorizationEnabled && (
+                  {isAdmin && isAdvancedMode && data.aiCategorizationEnabled && (
                     <Button
                       type="button"
                       size="sm"
@@ -443,31 +446,40 @@ function CategoriesCard() {
 
 // ─── Rules ───────────────────────────────────────────────────────────────────
 
-function RuleForm({ open, onOpenChange }: {
+function RuleForm({ open, onOpenChange, editing }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  editing: CategorizationRule | null
 }) {
   const { t } = useTranslation()
   const { data: categories } = useCategories()
   const createRule = useCreateRule()
+  const updateRule = useUpdateRule()
 
-  const [matchType, setMatchType] = useState<RuleMatchType>('COUNTERPARTY')
-  const [pattern, setPattern] = useState('')
-  const [categoryId, setCategoryId] = useState<number | ''>('')
+  const [matchType, setMatchType] = useState<RuleMatchType>(editing?.matchType ?? 'COUNTERPARTY')
+  const [pattern, setPattern] = useState(editing?.pattern ?? '')
+  const [categoryId, setCategoryId] = useState<number | ''>(editing?.categoryId ?? '')
+  const pending = createRule.isPending || updateRule.isPending
+  // The multi-word types come from the review picker: listed only to edit a rule that has one.
+  const matchTypes = editing && !MATCH_TYPES.includes(editing.matchType)
+    ? [...MATCH_TYPES, editing.matchType]
+    : MATCH_TYPES
 
   function submit() {
     if (pattern.trim() === '' || categoryId === '') return
-    createRule.mutate(
-      { matchType, pattern: pattern.trim(), categoryId: Number(categoryId) },
-      { onSuccess: () => onOpenChange(false) },
-    )
+    const payload = { matchType, pattern: pattern.trim(), categoryId: Number(categoryId) }
+    const onDone = { onSuccess: () => onOpenChange(false) }
+    if (editing) updateRule.mutate({ id: editing.id, data: payload }, onDone)
+    else createRule.mutate(payload, onDone)
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md" aria-describedby={undefined}>
         <DialogHeader>
-          <DialogTitle>{t('budget.rule.add')}</DialogTitle>
+          <DialogTitle>
+            {editing ? t('budget.rule.edit') : t('budget.rule.add')}
+          </DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
@@ -477,7 +489,7 @@ function RuleForm({ open, onOpenChange }: {
               value={matchType}
               onChange={(e) => setMatchType(e.target.value as RuleMatchType)}
             >
-              {MATCH_TYPES.map((m) => (
+              {matchTypes.map((m) => (
                 <option key={m} value={m}>{t(`budget.rule.match.${m.toLowerCase()}`)}</option>
               ))}
             </NativeSelect>
@@ -499,21 +511,21 @@ function RuleForm({ open, onOpenChange }: {
               onChange={(e) => setCategoryId(e.target.value === '' ? '' : Number(e.target.value))}
             >
               <option value="">{t('budget.categorize.selectCategory')}</option>
-              {(categories ?? []).filter((c) => !c.archived).map((c) => (
+              {(categories ?? []).filter((c) => !c.archived || c.id === editing?.categoryId).map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </NativeSelect>
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={createRule.isPending}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
             {t('common.cancel')}
           </Button>
           <Button
             onClick={submit}
-            disabled={createRule.isPending || pattern.trim() === '' || categoryId === ''}
+            disabled={pending || pattern.trim() === '' || categoryId === ''}
           >
-            {createRule.isPending ? t('common.loading') : t('common.save')}
+            {pending ? t('common.loading') : t('common.save')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -523,12 +535,28 @@ function RuleForm({ open, onOpenChange }: {
 
 function RulesCard() {
   const { t } = useTranslation()
+  const { hash } = useLocation()
   const { data: rules, isLoading, isError, refetch } = useRules()
   const deleteRule = useDeleteRule()
   const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState<CategorizationRule | null>(null)
+  const [formKey, setFormKey] = useState(0)
+  const cardRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (hash === '#rules') {
+      cardRef.current?.scrollIntoView({ block: 'start' })
+    }
+  }, [hash])
+
+  function open(rule: CategorizationRule | null) {
+    setEditing(rule)
+    setFormKey((k) => k + 1)
+    setFormOpen(true)
+  }
 
   return (
-    <Card>
+    <Card id="rules" ref={cardRef} className="scroll-mt-4">
       <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
         <CardTitle className="flex items-center gap-2 text-base">
           {t('budget.rule.title')}
@@ -536,7 +564,7 @@ function RulesCard() {
             <Badge variant="secondary" className="tabular-nums">{rules.length}</Badge>
           )}
         </CardTitle>
-        <Button size="sm" onClick={() => setFormOpen(true)}>
+        <Button size="sm" onClick={() => open(null)}>
           <Plus className="size-4" /> {t('budget.rule.add')}
         </Button>
       </CardHeader>
@@ -570,22 +598,31 @@ function RulesCard() {
                     </Badge>
                   )}
                 </div>
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  className="shrink-0"
-                  aria-label={t('budget.a11y.delete', { name: r.pattern })}
-                  disabled={deleteRule.isPending}
-                  onClick={() => deleteRule.mutate(r.id)}
-                >
-                  <Trash className="size-4" />
-                </Button>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    onClick={() => open(r)}
+                    aria-label={t('budget.a11y.edit', { name: r.pattern })}
+                  >
+                    <PencilSimple className="size-4" />
+                  </Button>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={t('budget.a11y.delete', { name: r.pattern })}
+                    disabled={deleteRule.isPending}
+                    onClick={() => deleteRule.mutate(r.id)}
+                  >
+                    <Trash className="size-4" />
+                  </Button>
+                </div>
               </div>
             ))}
           </div>
         )}
       </CardContent>
-      <RuleForm open={formOpen} onOpenChange={setFormOpen} />
+      <RuleForm key={formKey} open={formOpen} onOpenChange={setFormOpen} editing={editing} />
     </Card>
   )
 }

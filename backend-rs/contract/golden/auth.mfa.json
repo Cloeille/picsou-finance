@@ -1,0 +1,392 @@
+{
+  "description": "TOTP enrolment, then a login that needs the second factor",
+  "scenario": "auth.mfa",
+  "steps": [
+    {
+      "body": {
+        "enabled": false,
+        "remainingRecoveryCodes": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "04 GET /api/auth/mfa/status as admin"
+    },
+    {
+      "body": {
+        "detail": "Current password is incorrect",
+        "instance": "/api/auth/mfa/enroll/init",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "05 POST /api/auth/mfa/enroll/init as admin"
+    },
+    {
+      "body": {
+        "qrCodeDataUri": "<data-uri:image/png>",
+        "secret": "<secret:1>"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "06 POST /api/auth/mfa/enroll/init as admin"
+    },
+    {
+      "body": {
+        "detail": "Invalid verification code",
+        "instance": "/api/auth/mfa/enroll/verify",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "07 POST /api/auth/mfa/enroll/verify as admin"
+    },
+    {
+      "body": {
+        "recoveryCodes": [
+          "<secret:2>",
+          "<secret:3>",
+          "<secret:4>",
+          "<secret:5>",
+          "<secret:6>",
+          "<secret:7>",
+          "<secret:8>",
+          "<secret:9>",
+          "<secret:10>",
+          "<secret:11>"
+        ]
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "08 POST /api/auth/mfa/enroll/verify as admin"
+    },
+    {
+      "body": {
+        "enabled": true,
+        "enrolledAt": "<instant>",
+        "remainingRecoveryCodes": 10
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "09 GET /api/auth/mfa/status as admin"
+    },
+    {
+      "body": {
+        "mfaRequired": true,
+        "username": "admin"
+      },
+      "bodyKind": "json",
+      "cookies": [
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "0",
+            "path": "/",
+            "samesite": "lax"
+          },
+          "name": "access_token",
+          "value": "<empty>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "300",
+            "path": "/",
+            "samesite": "lax"
+          },
+          "name": "mfa_challenge_token",
+          "value": "<set>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "0",
+            "path": "/",
+            "samesite": "lax"
+          },
+          "name": "persistent_token",
+          "value": "<empty>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "0",
+            "path": "/",
+            "samesite": "lax"
+          },
+          "name": "refresh_token",
+          "value": "<empty>"
+        }
+      ],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "10 POST /api/auth/login as phone"
+    },
+    {
+      "body": {
+        "detail": "Authentication required",
+        "status": 401,
+        "title": "Unauthorized"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json;charset=ISO-8859-1",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401,
+      "step": "11 GET /api/accounts as phone"
+    },
+    {
+      "body": {
+        "detail": "Invalid verification code",
+        "instance": "/api/auth/mfa/verify",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "12 POST /api/auth/mfa/verify as phone"
+    },
+    {
+      "body": {
+        "displayName": "Admin",
+        "memberId": "<id:1>",
+        "role": "ADMIN",
+        "username": "admin"
+      },
+      "bodyKind": "json",
+      "cookies": [
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "900",
+            "path": "/",
+            "samesite": "lax"
+          },
+          "name": "access_token",
+          "value": "<set>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "0",
+            "path": "/",
+            "samesite": "lax"
+          },
+          "name": "mfa_challenge_token",
+          "value": "<empty>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "7775999",
+            "path": "/",
+            "samesite": "lax"
+          },
+          "name": "persistent_token",
+          "value": "<set>"
+        },
+        {
+          "attributes": {
+            "httponly": true,
+            "max-age": "604800",
+            "path": "/",
+            "samesite": "lax"
+          },
+          "name": "refresh_token",
+          "value": "<set>"
+        }
+      ],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "13 POST /api/auth/mfa/verify as phone"
+    },
+    {
+      "body": [],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "14 GET /api/accounts as phone"
+    },
+    {
+      "body": [
+        {
+          "createdAt": "<instant>",
+          "current": true,
+          "expiresAt": "<instant>",
+          "id": "<id:1>",
+          "ipPrefix": "127.0.0.",
+          "lastUsedAt": "<instant>",
+          "trustedFor2fa": true,
+          "userAgent": "picsou-contract/1"
+        }
+      ],
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "15 GET /api/auth/sessions as phone"
+    },
+    {
+      "body": {
+        "detail": "No MFA challenge in progress",
+        "instance": "/api/auth/mfa/verify",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401,
+      "step": "16 POST /api/auth/mfa/verify as stranger"
+    }
+  ]
+}

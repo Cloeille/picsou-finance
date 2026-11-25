@@ -1,6 +1,6 @@
 # Feature: CSV transaction import (investment accounts)
 
-> Last updated: 2026-08-31
+> Last updated: 2026-11-24
 
 ## Context
 
@@ -26,15 +26,15 @@ Two phases, modelled on the Finary XLSX importer but mapping **columns** into an
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/imports/csv/` — `CsvReader` (RFC-4180, configurable delimiter),
+- `backend-rs/src/transfer/csv_import/` — `CsvReader` (RFC-4180, configurable delimiter),
   `CsvDialectDetector` (delimiter/decimal/date sniffing), `CsvValueParser` (`BigDecimal`/`LocalDate`
   parsing), `CsvDialect` + `DecimalStyle`. Dependency-free; symmetric with the GDPR `CsvWriter`.
-- `backend/src/main/java/com/picsou/imports/TransactionRowMapper.java` — one row → unsaved
+- `backend-rs/src/transfer/csv_import/mod.rs` — one row → unsaved
   `Transaction`; reuses `InstrumentFieldResolver` (ISIN→ticker) and `TransactionAmountCalculator`
   (signed amount incl. fees).
-- `backend/src/main/java/com/picsou/service/TransactionImportService.java` — preview/execute + the
+- `backend-rs/src/transfer/csv_import/mod.rs` — preview/execute + the
   `fileToken` cache and its `@Scheduled` TTL sweep.
-- `backend/src/main/java/com/picsou/controller/TransactionImportController.java` —
+- `backend-rs/src/transfer/csv_import/mod.rs` —
   `POST /api/accounts/{id}/transactions/import/preview` (multipart) and
   `POST /api/accounts/{id}/transactions/import` (JSON, `201`). Member-scoped + `syncBuckets` throttle.
 - `frontend/src/components/shared/ImportTransactionsModal.tsx` — the 3-step wizard.
@@ -66,6 +66,9 @@ execute(token, mapping, dialect) ─► consume token (atomic) ─► re-parse �
 
 - **French broker exports** commonly use `;` delimiter and `,` decimals (`1 234,56`). The detector
   handles both; the user can override delimiter, decimal style, and date format in the wizard.
+- **A date format may carry a time** (`yyyy-MM-dd HH:mm:ss`, fractions, AM/PM, an offset or a
+  short zone), as the Java parser accepted: the row keeps the calendar date and the time is
+  checked, then dropped.
 - **ISINs must be resolved to tickers at import time** (`InstrumentFieldResolver`) or Yahoo pricing
   never populates and an ISIN row won't merge with the equivalent ticker row.
 - **Amount signing lives in one place** (`TransactionAmountCalculator`, mirrored in the TS modal):
