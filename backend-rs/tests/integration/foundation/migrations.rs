@@ -273,12 +273,21 @@ async fn v156_backfills_each_holding_with_the_isin_its_ticker_or_profile_knew() 
         "INSERT INTO family_member (id, display_name) VALUES (900, 'Doe');
          INSERT INTO account (id, name, type, currency, current_balance, member_id)
              VALUES (900, 'PEA', 'PEA', 'EUR', 0, 900);
+         INSERT INTO account (id, name, type, currency, current_balance, member_id)
+             VALUES (901, 'Crypto', 'CRYPTO', 'EUR', 0, 900);
          INSERT INTO security_profile (ticker, asset_type, isin) VALUES ('MULYF', 'ETF', 'LU1829219390');
          INSERT INTO security_profile (ticker, asset_type, isin) VALUES ('CW8.PA', 'ETF', 'LU1681043599');
+         INSERT INTO security_profile (ticker, asset_type, isin) VALUES ('BTC', 'ETF', 'US0000000001');
+         INSERT INTO security_profile (ticker, asset_type, isin) VALUES ('ETH', 'CRYPTO', 'XF000ETH0015');
          INSERT INTO account_holding (account_id, ticker, quantity) VALUES (900, 'MULYF', 80);
          INSERT INTO account_holding (account_id, ticker, quantity) VALUES (900, 'fr0010135103', 3);
-         INSERT INTO account_holding (account_id, ticker, quantity) VALUES (900, 'cw8.pa', 2);
-         INSERT INTO account_holding (account_id, ticker, quantity) VALUES (900, 'BTC', 1);",
+         INSERT INTO account_holding (account_id, ticker, quantity) VALUES (900, ' cw8.pa ', 2);
+         INSERT INTO account_holding (account_id, ticker, quantity) VALUES (900, 'XF000BTC0017', 1);
+         INSERT INTO account_holding (account_id, ticker, quantity) VALUES (900, 'ETH', 1);
+         INSERT INTO account_holding (account_id, ticker, quantity) VALUES (900, 'SOL', 1);
+         INSERT INTO account_holding (account_id, ticker, quantity) VALUES (901, 'BTC', 1);
+         INSERT INTO account_holding (account_id, ticker, quantity) VALUES (901, 'XF000BTC0017', 1);
+         INSERT INTO account_holding (account_id, ticker, quantity) VALUES (901, 'FR0010135103', 1);",
     )
     .execute(&mut conn)
     .await
@@ -286,18 +295,28 @@ async fn v156_backfills_each_holding_with_the_isin_its_ticker_or_profile_knew() 
 
     sqlx::raw_sql(&v156.sql).execute(&mut conn).await.unwrap();
 
-    let rows: Vec<(String, Option<String>)> =
-        sqlx::query_as("SELECT ticker, isin FROM account_holding ORDER BY ticker")
-            .fetch_all(&mut conn)
-            .await
-            .unwrap();
+    let rows: Vec<(i64, String, Option<String>)> = sqlx::query_as(
+        "SELECT account_id, ticker, isin FROM account_holding ORDER BY account_id, ticker",
+    )
+    .fetch_all(&mut conn)
+    .await
+    .unwrap();
     assert_eq!(
         rows,
         vec![
-            ("BTC".to_owned(), None),
-            ("MULYF".to_owned(), Some("LU1829219390".to_owned())),
-            ("cw8.pa".to_owned(), Some("LU1681043599".to_owned())),
-            ("fr0010135103".to_owned(), Some("FR0010135103".to_owned())),
+            (900, " cw8.pa ".to_owned(), Some("LU1681043599".to_owned())),
+            (900, "ETH".to_owned(), None),
+            (900, "MULYF".to_owned(), Some("LU1829219390".to_owned())),
+            (900, "SOL".to_owned(), None),
+            (900, "XF000BTC0017".to_owned(), None),
+            (
+                900,
+                "fr0010135103".to_owned(),
+                Some("FR0010135103".to_owned())
+            ),
+            (901, "BTC".to_owned(), None),
+            (901, "FR0010135103".to_owned(), None),
+            (901, "XF000BTC0017".to_owned(), None),
         ]
     );
 }

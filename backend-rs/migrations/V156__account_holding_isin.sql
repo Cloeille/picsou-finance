@@ -16,17 +16,25 @@ ALTER TABLE account_holding
 CREATE INDEX IF NOT EXISTS idx_account_holding_isin ON account_holding(isin) WHERE isin IS NOT NULL;
 
 -- Backfill 1: a ticker that is itself an ISIN (Amundi, CMES, Natixis use it as the key, and an
--- unresolved ISIN falls back to itself everywhere else).
-UPDATE account_holding
-SET isin = UPPER(TRIM(ticker))
-WHERE isin IS NULL
-  AND UPPER(TRIM(ticker)) ~ '^[A-Z]{2}[A-Z0-9]{9}[0-9]$';
+-- unresolved ISIN falls back to itself everywhere else). Crypto accounts and Trade Republic's
+-- XF000 crypto pseudo-ISINs are excluded.
+UPDATE account_holding h
+SET isin = UPPER(TRIM(h.ticker))
+FROM account a
+WHERE a.id = h.account_id
+  AND a.type <> 'CRYPTO'
+  AND h.isin IS NULL
+  AND UPPER(TRIM(h.ticker)) ~ '^[A-Z]{2}[A-Z0-9]{9}[0-9]$'
+  AND UPPER(TRIM(h.ticker)) NOT LIKE 'XF000%';
 
 -- Backfill 2: the ISIN a connector already recorded for this ticker. security_profile stores
--- tickers upper-cased.
+-- tickers upper-cased. Crypto accounts and Trade Republic's XF000 crypto pseudo-ISINs are excluded.
 UPDATE account_holding h
 SET isin = p.isin
-FROM security_profile p
-WHERE h.isin IS NULL
+FROM account a, security_profile p
+WHERE a.id = h.account_id
+  AND a.type <> 'CRYPTO'
+  AND h.isin IS NULL
   AND p.isin IS NOT NULL
-  AND p.ticker = UPPER(h.ticker);
+  AND p.isin NOT LIKE 'XF000%'
+  AND p.ticker = UPPER(TRIM(h.ticker));

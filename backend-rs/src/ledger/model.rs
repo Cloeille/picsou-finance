@@ -359,12 +359,14 @@ pub struct AccountHolding {
 }
 
 /// `raw` trimmed and upper-cased when it is a well-formed ISIN (two letters, nine letters or
-/// digits, one check digit), else `None`: the shape `ck_account_holding_isin` enforces, so a
-/// malformed identifier is stored as no ISIN and never fails a save.
+/// digits, one check digit) and not a Trade Republic crypto pseudo-ISIN (`XF000...`), else `None`:
+/// the shape `ck_account_holding_isin` enforces, so a malformed or synthetic identifier is stored
+/// as no ISIN and never fails a save.
 pub fn normalize_isin(raw: Option<&str>) -> Option<String> {
     let upper = raw?.trim().to_ascii_uppercase();
     let b = upper.as_bytes();
     let well_formed = b.len() == 12
+        && !upper.starts_with("XF000")
         && b[..2].iter().all(u8::is_ascii_uppercase)
         && b[2..11]
             .iter()
@@ -728,6 +730,8 @@ mod isin_tests {
             Some("FR000012027A"),
             Some("1R0000120271"),
             Some("FR0000120 71"),
+            Some("XF000BTC0017"),
+            Some(" xf000eth0015 "),
         ] {
             assert_eq!(normalize_isin(bad), None, "{bad:?}");
         }

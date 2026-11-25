@@ -582,7 +582,11 @@ async fn write_holdings(
                 name: None,
             });
         let ticker = resolved.ticker;
-        isin_by_ticker.insert(ticker.clone(), position.isin.clone());
+        if account.account_type != AccountType::Crypto
+            && let Some(isin) = normalize_isin(Some(&position.isin))
+        {
+            isin_by_ticker.entry(ticker.clone()).or_insert(isin);
+        }
         match provider_value_eur(position) {
             Some(value) => *provider_values.entry(ticker.clone()).or_default() += value,
             None => incomplete.push(ticker.clone()),
@@ -616,8 +620,11 @@ async fn write_holdings(
                 .get(&ticker)
                 .map(|v| set_scale(*v, 8, HALF_UP))
         };
+        let isin = (account.account_type != AccountType::Crypto)
+            .then(|| isin_by_ticker.get(&ticker).cloned())
+            .flatten();
         let draft = HoldingDraft {
-            isin: normalize_isin(isin_by_ticker.get(&ticker).map(String::as_str)),
+            isin,
             ticker,
             name: agg.name,
             quantity: agg.quantity,

@@ -670,28 +670,43 @@ mod tests {
                 "INSERT INTO family_member (id, display_name, is_managed) VALUES (1, 'Doe', 0);
                  INSERT INTO account (id, name, type, currency, current_balance, is_manual, member_id)
                      VALUES (10, 'PEA', 'PEA', 'EUR', '0', 1, 1);
+                 INSERT INTO account (id, name, type, currency, current_balance, is_manual, member_id)
+                     VALUES (20, 'Crypto', 'CRYPTO', 'EUR', '0', 1, 1);
                  INSERT INTO security_profile (ticker, asset_type, isin) VALUES ('MULYF', 'ETF', 'LU1829219390');
                  INSERT INTO security_profile (ticker, asset_type, isin) VALUES ('CW8.PA', 'ETF', 'LU1681043599');
+                 INSERT INTO security_profile (ticker, asset_type, isin) VALUES ('BTC', 'ETF', 'US0000000001');
+                 INSERT INTO security_profile (ticker, asset_type, isin) VALUES ('ETH', 'CRYPTO', 'XF000ETH0015');
                  INSERT INTO account_holding (account_id, ticker, quantity) VALUES (10, 'MULYF', '80');
                  INSERT INTO account_holding (account_id, ticker, quantity) VALUES (10, 'fr0010135103', '3');
-                 INSERT INTO account_holding (account_id, ticker, quantity) VALUES (10, 'cw8.pa', '2');
-                 INSERT INTO account_holding (account_id, ticker, quantity) VALUES (10, 'BTC', '1');",
+                 INSERT INTO account_holding (account_id, ticker, quantity) VALUES (10, ' cw8.pa ', '2');
+                 INSERT INTO account_holding (account_id, ticker, quantity) VALUES (10, 'XF000BTC0017', '1');
+                 INSERT INTO account_holding (account_id, ticker, quantity) VALUES (10, 'ETH', '1');
+                 INSERT INTO account_holding (account_id, ticker, quantity) VALUES (10, 'SOL', '1');
+                 INSERT INTO account_holding (account_id, ticker, quantity) VALUES (20, 'BTC', '1');
+                 INSERT INTO account_holding (account_id, ticker, quantity) VALUES (20, 'XF000BTC0017', '1');
+                 INSERT INTO account_holding (account_id, ticker, quantity) VALUES (20, 'FR0010135103', '1');",
             )?;
 
             assert_eq!(migrate_with(conn, &all)?, all.len() - 2);
 
-            let mut stmt =
-                conn.prepare("SELECT ticker, isin FROM account_holding ORDER BY ticker")?;
-            let rows: Vec<(String, Option<String>)> = stmt
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            let mut stmt = conn.prepare(
+                "SELECT account_id, ticker, isin FROM account_holding ORDER BY account_id, ticker",
+            )?;
+            let rows: Vec<(i64, String, Option<String>)> = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
                 .collect::<Result<_, _>>()?;
             assert_eq!(
                 rows,
                 vec![
-                    ("BTC".to_owned(), None),
-                    ("MULYF".to_owned(), Some("LU1829219390".to_owned())),
-                    ("cw8.pa".to_owned(), Some("LU1681043599".to_owned())),
-                    ("fr0010135103".to_owned(), Some("FR0010135103".to_owned())),
+                    (10, " cw8.pa ".to_owned(), Some("LU1681043599".to_owned())),
+                    (10, "ETH".to_owned(), None),
+                    (10, "MULYF".to_owned(), Some("LU1829219390".to_owned())),
+                    (10, "SOL".to_owned(), None),
+                    (10, "XF000BTC0017".to_owned(), None),
+                    (10, "fr0010135103".to_owned(), Some("FR0010135103".to_owned())),
+                    (20, "BTC".to_owned(), None),
+                    (20, "FR0010135103".to_owned(), None),
+                    (20, "XF000BTC0017".to_owned(), None),
                 ]
             );
             Ok(())
