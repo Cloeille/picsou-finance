@@ -1,6 +1,6 @@
 # Feature: Crédit Mutuel / CIC Épargne Salariale sync
 
-> Last updated: 2026-11-01
+> Last updated: 2026-11-25
 
 ## Context
 
@@ -8,6 +8,13 @@ Crédit Mutuel Épargne Salariale runs the saver's space for Crédit Mutuel and 
 savings (`www.creditmutuel-ere.fr`; CIC savers are sent there too). It has no public API and is
 not covered by PSD2. The `cmes-auth` sidecar reads it the way a saver's browser does, and Picsou
 imports one `EMPLOYEE_SAVINGS` account per plan (PEE, PEG, PERCOL…), with each fund as a holding.
+
+Since November 2026 the site is "Crédit Mutuel Épargne et Retraite Entreprises": the login is
+unchanged, and the saver's space moved from `/epargne-salariale/fr/epargnants/` to
+`/fr/epargnants/espace-client/epargne-salariale/`. A login lands on a dashboard common to employee
+and retirement savings (`/fr/epargnants/espace-client/tableau-de-bord/`); the logout link that
+tells a logged-in page is the one with class `ei_tpl_ident_logout`. The page header no longer
+shows the employer and the saver number.
 
 ## How it works
 
@@ -41,7 +48,10 @@ speaks HTTPS with `httpx`, on the shared `sidecar-python` base.
    which spares the confirmation for a while (90 days on the banking sites of the same platform).
    `/initiate` accepts the previous session and replays that cookie only, so a re-login with
    stored credentials completes without anyone at the phone.
-4. **Positions**: `mon-epargne/situation-financiere-detaillee/index.html` lists each plan's total
+4. **Positions**: the employee-savings dashboard (`tableau-de-bord/index.html`) gives the
+   employer, in its title "Mon épargne salariale <employer>"; a title worded otherwise gives no
+   employer, as the old header could.
+   `mon-epargne/situation-financiere-detaillee/index.html` lists each plan's total
    and each fund's value and gain percentage. Units, unit value and gain in euros are only on the
    fund's own pages: posting the page form with the fund's
    `_FID_GoFundSummary_selectedFundIndex:<n>` button lands on its "Synthèse" tab
@@ -50,20 +60,23 @@ speaks HTTPS with `httpx`, on the shared `sidecar-python` base.
    since the form carries the page state, and the button is sent with the value it was served
    with. A fund page that lands on the login or strong-authentication page reads as
    `SESSION_EXPIRED`, so the backend logs in again.
-5. **Plan ids**: `cmes_<saver number>_<label slug>-<digest>`, where the digest is the first 16
-   hex characters of the SHA-256 of the plan's full label. The id depends on the saver number
-   and that label only, never on the other plans listed beside it, so a plan keeps its id when
+5. **Plan ids**: `cmes_<label slug>-<digest>`, where the digest is the first 16
+   hex characters of the SHA-256 of the plan's full label. The id depends on that label only,
+   never on the other plans listed beside it, so a plan keeps its id when
    another plan opens or closes. The slug (40 characters at most) is for a human reading the
    table; the digest keeps apart labels that slug alike ("ACME+A" and "ACME A"). The page never
    lists one label twice, and `/positions` refuses a fetch where two plans would share an id
    (`UPSTREAM_FORMAT_CHANGED`). The site shows no plan identifier of its own: the plan rows only
-   carry positional ids.
+   carry positional ids. Builds before the move of November 2026 put the saver number after the
+   prefix (`cmes_<number>_<label slug>-<digest>`); the site no longer shows it, so the backend
+   compares ids with that number taken out (see below).
    Earlier builds used `cmes_<number>_<KIND>` (or the name slug for a plan without a kind),
    adding the name slug (`cmes_<number>_<KIND>-<name slug>`) when another plan of the same fetch
    shared the kind. That id changed as plans came and went, and "Plan d'épargne entreprise" and
    "Plan d'épargne interentreprises" could take each other's. Which of the two a plan got hung on
    the plans listed at its last old sync, which the current fetch cannot know, so each plan
-   carries `legacyExternalIds`, both ids those builds could have given it. The ids alone prove
+   carries `legacyExternalIds`, both ids those builds could have given it, without the saver
+   number (`cmes_<KIND>`, `cmes_<KIND>-<name slug>`). The ids alone prove
    nothing; the backend also checks the name (see below). The field can go once every deployment
    has synced on this version.
 
@@ -91,8 +104,13 @@ could not log in again. Rate limits per IP: `/auth/initiate` 5 per 15 min (each 
 password to the site, which locks an access after a few failures); `/auth/complete` has its own
 budget of 10 per 15 min.
 
-An account still carrying one of a plan's `legacyExternalIds` moves to the new id on the first
-sync, but only if it also carries the plan's account name ("<label> — <employer>", which every
+An account still carrying the plan's own id with the saver number
+(`cmes_<number>_<label slug>-<digest>`) moves to the new id on the first sync whatever its name:
+that id names one label exactly and a member has one CMES login, while the name carries the
+employer, read from another page since the number went away. A plan deleted under that id stays
+deleted. An account carrying one of the plan's `legacyExternalIds` once the saver number is
+taken out (`cmes_<number>_<rest>` reads `cmes_<rest>`) moves to the new id too, but only if it
+also carries the plan's account name ("<label> — <employer>", which every
 build wrote on each sync). Same row, so its snapshots and history stay with the plan, and the
 close-at-zero below does not see it as unlisted. The name check is what keeps a closed plan's
 history from passing to another plan of its family: when a PEE synced alone as `cmes_<n>_PEE`

@@ -57,20 +57,21 @@ from picsou_sidecar import configure_logging, create_app, otp_field_detail
 from pydantic import BaseModel, ConfigDict, Field
 
 from fund_parser import MY_SAVINGS_PATH_MARKER, my_savings_tab, parse_fund_identity, parse_my_savings
-from situation_parser import SituationFormatError, money_close, parse_profile, parse_situation
+from situation_parser import SituationFormatError, money_close, parse_employer, parse_situation
 
 log = configure_logging("cmes-auth", quiet=("httpx",))
 
 BASE_URL = os.environ.get("CMES_BASE_URL", "https://www.creditmutuel-ere.fr").rstrip("/")
 LOGIN_PATH = "/fr/identification/authentification.html"
-SAVER_SPACE = "/epargne-salariale/fr/epargnants"
+SAVER_SPACE = "/fr/epargnants/espace-client/epargne-salariale"
 SITUATION_PATH = f"{SAVER_SPACE}/mon-epargne/situation-financiere-detaillee/index.html"
+DASHBOARD_PATH = f"{SAVER_SPACE}/tableau-de-bord/index.html"
 
 SITE = Site(
     name="CMES",
     base_url=BASE_URL,
     login_path=LOGIN_PATH,
-    logged_in_marker="deconnexion/deconnexion.html",
+    logged_in_marker="ei_tpl_ident_logout",
     # Notices the site parks a login on until the saver acts on the real website.
     action_needed_path_markers=(
         "premiers-pas/saisir-vos-coordonnees",
@@ -134,28 +135,26 @@ def _slug(label: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")
 
 
-def plan_external_id(number: str, label: str) -> str:
-    """`cmes_<number>_<slug>-<digest>`, from the saver number and the plan's full
-    label alone: a plan keeps its id whatever other plans the page lists beside
-    it. The slug only helps a human reading the table; the digest of the exact
-    label keeps apart two labels that slug alike ("ACME+A" and "ACME A")."""
+def plan_external_id(label: str) -> str:
+    """`cmes_<slug>-<digest>`, from the plan's full label alone: a plan keeps its
+    id whatever other plans the page lists beside it. The slug only helps a
+    human reading the table; the digest of the exact label keeps apart two
+    labels that slug alike ("ACME+A" and "ACME A")."""
     digest = hashlib.sha256(label.encode()).hexdigest()[:16]
-    return f"cmes_{number}_{_slug(label)[:40].rstrip('-')}-{digest}"
+    return f"cmes_{_slug(label)[:40].rstrip('-')}-{digest}"
 
 
-def legacy_external_ids(number: str, plan: dict) -> list[str]:
-    """Every id earlier builds could have given this plan, so the backend can
-    move an account still carrying one to its new id with its history.
-
-    Those ids were `cmes_<number>_<KIND>`, with the name added when another plan
-    listed at the time shared the kind. Which one a plan got hung on plans that
-    may have opened or closed since, so both are named, and the id alone proves
-    nothing: another plan of the family may have held `cmes_<number>_<KIND>`.
-    The backend moves an account only if it also carries this plan's name.
+def legacy_external_ids(plan: dict) -> list[str]:
+    """The ids builds before the digest gave this plan, without the saver
+    number they carried (`cmes_<number>_<KIND>`, or with the name added when
+    another plan listed at the time shared the kind). The site no longer shows
+    that number, so the backend compares an account's id with the number taken
+    out, and moves it only if it also carries this plan's name: another plan of
+    the family may have held `cmes_<number>_<KIND>`.
     """
     name, kind = _slug(plan["name"]), plan["planKind"]
     slugs = [kind, f"{kind}-{name}"] if kind else [name]
-    return [f"cmes_{number}_{slug}"[:100] for slug in slugs]
+    return [f"cmes_{slug}"[:100] for slug in slugs]
 
 
 async def _situation(client: httpx.AsyncClient) -> str:
@@ -163,10 +162,9 @@ async def _situation(client: httpx.AsyncClient) -> str:
 
 
 async def _collect_plans(client: httpx.AsyncClient) -> list[PlanPayload]:
-    page = await _situation(client)
-    employer, number = parse_profile(page)
-    plans = parse_situation(page)
-    external_ids = [plan_external_id(number, plan["name"]) for plan in plans]
+    employer = parse_employer(await fetch_page(SITE, client, DASHBOARD_PATH, "Dashboard"))
+    plans = parse_situation(await _situation(client))
+    external_ids = [plan_external_id(plan["name"]) for plan in plans]
     if len(set(external_ids)) != len(external_ids):
         raise UpstreamError("UPSTREAM_FORMAT_CHANGED", "Two plans share an external id")
     payloads = []
@@ -174,7 +172,7 @@ async def _collect_plans(client: httpx.AsyncClient) -> list[PlanPayload]:
         positions = [await fetch_fund(client, fund) for fund in plan["funds"]]
         payloads.append({
             "externalId": external_id,
-            "legacyExternalIds": legacy_external_ids(number, plan),
+            "legacyExternalIds": legacy_external_ids(plan),
             "name": plan["name"],
             "planKind": plan["planKind"],
             "employer": employer,

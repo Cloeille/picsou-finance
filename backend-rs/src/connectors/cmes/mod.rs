@@ -535,7 +535,8 @@ impl SyncStrategy for Strategy {
     }
 }
 
-/// Accounts a plan inherits from an earlier identifier it reports, matched by name too.
+/// Accounts a plan inherits from an earlier identifier: its own id with the saver number,
+/// or one of its legacy ids matched by name too.
 fn inherited_accounts(
     prepared: &[PreparedPlan],
     imported: &[Account],
@@ -552,7 +553,8 @@ fn inherited_accounts(
         let claimants: Vec<&PreparedPlan> = prepared
             .iter()
             .filter(|p| {
-                p.legacy_external_ids.iter().any(|id| id == external_id) && p.name == account.name
+                is_numbered_id(p, external_id)
+                    || (is_legacy_id(p, external_id) && p.name == account.name)
             })
             .collect();
         if claimants.len() > 1 {
@@ -572,6 +574,34 @@ fn inherited_accounts(
         }
     }
     Ok(inherited)
+}
+
+// Earlier builds put the saver number after the prefix (`cmes_<number>_<rest>`); the site no
+// longer shows it, so ids are compared with it taken out.
+
+/// `plan`'s own id as builds with the saver number wrote it. It names one label exactly, and a
+/// member has one CMES login, so it needs no name check: the name carries the employer, read
+/// from another page since the number went away.
+fn is_numbered_id(plan: &PreparedPlan, external_id: &str) -> bool {
+    without_saver_number(external_id) == without_saver_number(&plan.external_id)
+}
+
+/// One of the ids builds before the digest could have given `plan`. Another plan of its family
+/// may have held it, so it counts only with the plan's name.
+fn is_legacy_id(plan: &PreparedPlan, external_id: &str) -> bool {
+    let id = without_saver_number(external_id);
+    plan.legacy_external_ids
+        .iter()
+        .any(|legacy| without_saver_number(legacy) == id)
+}
+
+fn without_saver_number(external_id: &str) -> String {
+    static NUMBERED: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^cmes_[^_]+_(.+)$").expect("static regex"));
+    match NUMBERED.captures(external_id) {
+        Some(cap) => format!("cmes_{}", &cap[1]),
+        None => external_id.to_owned(),
+    }
 }
 
 async fn upsert(
@@ -594,18 +624,21 @@ async fn upsert(
     };
     let existing =
         accounts::find_by_external_id_and_member(&mut *conn, &plan.external_id, member_id).await?;
+    let deleted = if existing.is_none() {
+        accounts::soft_deleted_external_ids(&mut *conn, member_id, PROVIDER).await?
+    } else {
+        Vec::new()
+    };
+    // A deletion under the plan's own id, numbered or not, wins over an earlier account still
+    // live; one under a legacy id counts only with the name and when nothing was inherited.
     if existing.is_none()
         && (accounts::exists_soft_deleted_by_external_id(&mut *conn, &plan.external_id, member_id)
             .await?
+            || deleted.iter().any(|(id, _)| is_numbered_id(plan, id))
             || (inherited.is_none()
-                && !plan.legacy_external_ids.is_empty()
-                && accounts::exists_soft_deleted_by_external_ids_and_name(
-                    &mut *conn,
-                    &plan.legacy_external_ids,
-                    &plan.name,
-                    member_id,
-                )
-                .await?))
+                && deleted
+                    .iter()
+                    .any(|(id, name)| is_legacy_id(plan, id) && *name == plan.name)))
     {
         tracing::info!("CMES skipped a soft-deleted account (member={member_id})");
         return Ok(());

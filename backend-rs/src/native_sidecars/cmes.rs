@@ -28,9 +28,10 @@ use super::{NativeSidecar, NativeSidecarError};
 
 pub const DEFAULT_BASE_URL: &str = "https://www.creditmutuel-ere.fr";
 pub const LOGIN_PATH: &str = "/fr/identification/authentification.html";
-pub const SAVER_SPACE: &str = "/epargne-salariale/fr/epargnants";
-pub const SITUATION_PATH: &str =
-    "/epargne-salariale/fr/epargnants/mon-epargne/situation-financiere-detaillee/index.html";
+pub const SAVER_SPACE: &str = "/fr/epargnants/espace-client/epargne-salariale";
+pub const SITUATION_PATH: &str = "/fr/epargnants/espace-client/epargne-salariale/mon-epargne/situation-financiere-detaillee/index.html";
+pub const DASHBOARD_PATH: &str =
+    "/fr/epargnants/espace-client/epargne-salariale/tableau-de-bord/index.html";
 pub const MY_SAVINGS_PATH_MARKER: &str = "epargne-sur-le-support";
 
 pub const FORMAT_CHANGED: &str = "UPSTREAM_FORMAT_CHANGED";
@@ -48,7 +49,7 @@ pub fn default_site(base_url: &str) -> Site {
         name: "CMES",
         base_url: base_url.to_owned(),
         login_path: LOGIN_PATH,
-        logged_in_marker: "deconnexion/deconnexion.html",
+        logged_in_marker: "ei_tpl_ident_logout",
         action_needed_path_markers: ACTION_NEEDED_MARKERS,
         skip_phrases: SKIP_PHRASES,
         postpone_button: None,
@@ -181,14 +182,15 @@ impl NativeCmes {
         &self,
         client: &reqwest::Client,
     ) -> Result<Vec<PlanPayload>, NativeSidecarError> {
+        let dashboard = self
+            .euro
+            .fetch_page(client, DASHBOARD_PATH, "Dashboard")
+            .await?;
+        let employer = parse_employer(&dashboard);
         let page = self.fetch_situation(client).await?;
-        let (employer, number) = parse_profile(&page).map_err(|e| e.into_sidecar_error())?;
         let plans = parse_situation(&page).map_err(|e| e.into_sidecar_error())?;
 
-        let external_ids: Vec<String> = plans
-            .iter()
-            .map(|p| plan_external_id(&number, &p.name))
-            .collect();
+        let external_ids: Vec<String> = plans.iter().map(|p| plan_external_id(&p.name)).collect();
         let unique: HashSet<&str> = external_ids.iter().map(String::as_str).collect();
         if unique.len() != external_ids.len() {
             return Err(
@@ -203,7 +205,7 @@ impl NativeCmes {
             for fund in &plan.funds {
                 positions.push(self.fetch_fund(client, fund).await?);
             }
-            let legacy = legacy_external_ids(&number, &plan.name, plan.plan_kind.as_deref());
+            let legacy = legacy_external_ids(&plan.name, plan.plan_kind.as_deref());
             let payload = PlanPayload {
                 external_id,
                 legacy_external_ids: legacy,
@@ -337,15 +339,20 @@ fn slug(label: &str) -> String {
         .to_owned()
 }
 
-pub fn plan_external_id(number: &str, label: &str) -> String {
+/// `cmes_<slug>-<digest>`, from the plan's full label alone. Earlier builds put the
+/// saver number after the prefix; the site no longer shows it, and the connector
+/// compares ids with that number taken out.
+pub fn plan_external_id(label: &str) -> String {
     let hash = Sha256::digest(label.as_bytes());
     let digest = &hex::encode(hash)[..16];
     let s = slug(label);
     let prefix = s.get(..40).unwrap_or(&s).trim_end_matches('-');
-    format!("cmes_{number}_{prefix}-{digest}")
+    format!("cmes_{prefix}-{digest}")
 }
 
-pub fn legacy_external_ids(number: &str, name: &str, plan_kind: Option<&str>) -> Vec<String> {
+/// The ids builds before the digest gave this plan (`cmes_<number>_<KIND>`, or with
+/// the name added), without the saver number.
+pub fn legacy_external_ids(name: &str, plan_kind: Option<&str>) -> Vec<String> {
     let name_slug = slug(name);
     let slugs = match plan_kind {
         Some(kind) => vec![kind.to_owned(), format!("{kind}-{name_slug}")],
@@ -353,7 +360,7 @@ pub fn legacy_external_ids(number: &str, name: &str, plan_kind: Option<&str>) ->
     };
     slugs
         .into_iter()
-        .map(|s| format!("cmes_{number}_{s}").chars().take(100).collect())
+        .map(|s| format!("cmes_{s}").chars().take(100).collect())
         .collect()
 }
 
@@ -440,12 +447,14 @@ static MONEY_RE: LazyLock<Regex> = LazyLock::new(|| {
 static PERCENT_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(?P<sign>[+-]?)\s*(?P<value>\d+(?:,\d+)?)\s*%$").expect("static regex")
 });
-static PROFILE_RE: LazyLock<Regex> = LazyLock::new(|| {
+static EMPLOYER_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r#"(?s)<p\b[^>]*class="[^"]*\bei_profil_entrep\b[^"]*"[^>]*>(?P<employer>.*?)<span>(?P<number>[^<]*)</span>"#,
+        r#"(?s)class="[^"]*\bes_dashboard\b.*?<div\b[^>]*class="[^"]*\bei_fbtitleblock__header\b[^"]*"[^>]*>(?P<title>.*?)</div>"#,
     )
     .expect("static regex")
 });
+static EMPLOYER_PREFIX_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^Mon [ée]pargne salariale\s+").expect("static regex"));
 
 static PLAN_KIND_PATTERNS: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
     vec![
@@ -593,29 +602,15 @@ fn parse_plan_table(table: &str) -> Result<SituationPlan, SituationFormatError> 
     })
 }
 
-pub fn parse_profile(page: &str) -> Result<(Option<String>, String), SituationFormatError> {
-    let cap = PROFILE_RE.captures(page).ok_or_else(|| {
-        SituationFormatError::new(FORMAT_CHANGED, "No saver number in the page header")
-    })?;
-    let number: String = html_text(&cap["number"])
-        .chars()
-        .filter(|c| c.is_alphanumeric() || *c == '_')
-        .collect();
-    if number.is_empty() {
-        return Err(SituationFormatError::new(
-            FORMAT_CHANGED,
-            "No saver number in the page header",
-        ));
-    }
-    let employer = html_text(&cap["employer"]);
-    Ok((
-        if employer.is_empty() {
-            None
-        } else {
-            Some(employer)
-        },
-        number,
-    ))
+/// The employer, from the title of the employee-savings dashboard ("Mon épargne
+/// salariale <employer>"); it only labels the accounts, so a title worded otherwise
+/// gives none rather than failing the read.
+pub fn parse_employer(page: &str) -> Option<String> {
+    let title = EMPLOYER_RE
+        .captures(page)
+        .map(|cap| html_text(&cap["title"]))?;
+    let employer = EMPLOYER_PREFIX_RE.replace(&title, "").into_owned();
+    (!employer.is_empty() && employer != title).then_some(employer)
 }
 
 pub fn parse_situation(page: &str) -> Result<Vec<SituationPlan>, SituationFormatError> {

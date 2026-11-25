@@ -280,6 +280,156 @@ async fn a_renamed_plan_inherits_its_account_and_an_unlisted_one_closes_at_zero(
     assert_eq!(count(&app, "SELECT count(*) FROM account_holding").await, 1);
 }
 
+async fn insert_account(
+    app: &picsou::testing::TestApp,
+    member_id: i64,
+    id: &str,
+    name: &str,
+    deleted: bool,
+) {
+    picsou::db::query(
+        "INSERT INTO account (member_id, name, type, provider, currency, current_balance, external_account_id, \
+         is_manual, color) VALUES ($1, $2, 'EMPLOYEE_SAVINGS', 'Crédit Mutuel Épargne Salariale', \
+         'EUR', 50, $3, false, '#000')",
+    )
+    .bind(member_id)
+    .bind(name)
+    .bind(id)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+    if deleted {
+        picsou::db::query(
+            "UPDATE account SET deleted_at = CURRENT_TIMESTAMP WHERE external_account_id = $1",
+        )
+        .bind(id)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn an_account_whose_id_carries_the_saver_number_moves_to_the_id_without_it() {
+    // The site no longer shows the saver number earlier builds put in the id, and the
+    // employer in the name now comes from another page: the id alone is enough.
+    let sidecar = MockServer::start().await;
+    answer(
+        &sidecar,
+        "/positions",
+        json!([plan("cmes_pee-0123456789abcdef", &["cmes_PEE"], "100")]),
+    )
+    .await;
+    let app = app_with_sidecar(URL, &sidecar).await;
+    let (client, member_id) = admin(&app).await;
+    insert_account(
+        &app,
+        member_id,
+        "cmes_12345_pee-0123456789abcdef",
+        "PEE — ACME SA",
+        false,
+    )
+    .await;
+
+    login(&sidecar, &app, &client).await;
+
+    let rows: Vec<(String, Decimal)> = picsou::db::query_as(
+        "SELECT external_account_id, current_balance FROM account ORDER BY id",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(rows, vec![("cmes_pee-0123456789abcdef".into(), d("100"))]);
+}
+
+#[tokio::test]
+async fn a_plan_deleted_under_its_numbered_id_is_not_imported_again() {
+    let sidecar = MockServer::start().await;
+    answer(
+        &sidecar,
+        "/positions",
+        json!([plan("cmes_pee-0123456789abcdef", &["cmes_PEE"], "100")]),
+    )
+    .await;
+    let app = app_with_sidecar(URL, &sidecar).await;
+    let (client, member_id) = admin(&app).await;
+    insert_account(&app, member_id, "cmes_12345_PEE", "PEE — ACME", true).await;
+
+    login(&sidecar, &app, &client).await;
+
+    assert_eq!(
+        count(
+            &app,
+            "SELECT count(*) FROM account WHERE deleted_at IS NULL"
+        )
+        .await,
+        0
+    );
+}
+
+#[tokio::test]
+async fn a_plan_deleted_under_its_numbered_id_stays_deleted_whatever_its_name() {
+    let sidecar = MockServer::start().await;
+    answer(
+        &sidecar,
+        "/positions",
+        json!([plan("cmes_pee-0123456789abcdef", &["cmes_PEE"], "100")]),
+    )
+    .await;
+    let app = app_with_sidecar(URL, &sidecar).await;
+    let (client, member_id) = admin(&app).await;
+    insert_account(
+        &app,
+        member_id,
+        "cmes_12345_pee-0123456789abcdef",
+        "PEE — ACME SA",
+        true,
+    )
+    .await;
+
+    login(&sidecar, &app, &client).await;
+
+    assert_eq!(
+        count(
+            &app,
+            "SELECT count(*) FROM account WHERE deleted_at IS NULL"
+        )
+        .await,
+        0
+    );
+}
+
+#[tokio::test]
+async fn a_legacy_id_under_another_name_is_not_inherited() {
+    // `cmes_<n>_PEE` may have been another plan of the family: it needs the name.
+    let sidecar = MockServer::start().await;
+    answer(
+        &sidecar,
+        "/positions",
+        json!([plan("cmes_pee-0123456789abcdef", &["cmes_PEE"], "100")]),
+    )
+    .await;
+    let app = app_with_sidecar(URL, &sidecar).await;
+    let (client, member_id) = admin(&app).await;
+    insert_account(&app, member_id, "cmes_12345_PEE", "PEE — GLOBEX", false).await;
+
+    login(&sidecar, &app, &client).await;
+
+    let rows: Vec<(String, Decimal)> = picsou::db::query_as(
+        "SELECT external_account_id, current_balance FROM account ORDER BY id",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            ("cmes_12345_PEE".into(), d("0")),
+            ("cmes_pee-0123456789abcdef".into(), d("100"))
+        ]
+    );
+}
+
 #[tokio::test]
 async fn validation_and_separate_budgets() {
     let sidecar = MockServer::start().await;
