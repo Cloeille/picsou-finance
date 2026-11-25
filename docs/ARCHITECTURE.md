@@ -101,7 +101,7 @@ frontend/src/
 Client → SyncController → SyncService → BankConnectorPort → Enable Banking
 ```
 
-Enable Banking (PSD2) is the bank connector. The connector reports each account's type; Enable Banking maps only `cash_account_type = CARD` to `CREDIT_CARD`, everything else is `CHECKING` (see `docs/features/bank-sync.md`).
+Enable Banking (PSD2) is the bank connector. The connector reports each account's type; Enable Banking maps `cash_account_type = CARD` to `CREDIT_CARD` and `SVGS` to `SAVINGS`, everything else is `CHECKING` (see `docs/features/bank-sync.md`).
 
 ### 2. Price refresh
 
