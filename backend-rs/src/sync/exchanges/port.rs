@@ -18,6 +18,24 @@ pub enum FetchError {
     Unexpected(String),
 }
 
+pub(super) fn invalid_response(exchange: ExchangeType, reason: &str) -> FetchError {
+    FetchError::Sync(format!("{exchange} returned an invalid response. {reason}"))
+}
+
+/// Some adapters sum quantities before the service can check what fits in storage.
+pub(super) fn checked_quantity_sum(
+    exchange: ExchangeType,
+    a: Decimal,
+    b: Decimal,
+) -> Result<Decimal, FetchError> {
+    a.checked_add(b).ok_or_else(|| {
+        invalid_response(
+            exchange,
+            "A position quantity is outside the supported range.",
+        )
+    })
+}
+
 #[async_trait]
 pub trait ExchangePort: Send + Sync {
     /// Whether the exchange authenticates with a key and a secret.

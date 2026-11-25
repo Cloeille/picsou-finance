@@ -9,9 +9,10 @@ use async_trait::async_trait;
 use rust_decimal::Decimal;
 use serde_json::{Map, Value};
 
-use super::model::{ExchangeCredentials, ExchangePosition, Product};
+use super::model::{ExchangeCredentials, ExchangePosition, ExchangeType, Product};
 use super::port::{
-    ExchangePort, FetchError, describe, is_blank, is_json, json_decimal, scalar_text, truncate,
+    ExchangePort, FetchError, checked_quantity_sum, describe, is_blank, is_json, json_decimal,
+    scalar_text, truncate,
 };
 use crate::AppState;
 use crate::ledger::sync_values::java_is_blank;
@@ -295,7 +296,10 @@ fn symbol_of(currency_code: Option<&str>) -> Option<String> {
 
 /// Staking or lending contracts as one position per currency. The reward is the interest
 /// already inside amount; outside [0, amount] it cannot decompose it and both halves are dropped.
-fn contract_positions(product: Product, contracts: Vec<Entry>) -> Vec<ExchangePosition> {
+fn contract_positions(
+    product: Product,
+    contracts: Vec<Entry>,
+) -> Result<Vec<ExchangePosition>, FetchError> {
     let mut by_currency: BTreeMap<String, ExchangePosition> = BTreeMap::new();
     for contract in contracts {
         let Some(symbol) = symbol_of(contract.currency_code.as_deref()) else {
@@ -311,37 +315,42 @@ fn contract_positions(product: Product, contracts: Vec<Entry>) -> Vec<ExchangePo
             product,
             symbol: symbol.clone(),
             quantity,
+            // The difference is in [0, quantity] whenever the position is decomposable.
             principal: decomposable.then(|| quantity - reward),
             interest: decomposable.then_some(reward),
         };
         match by_currency.remove(&symbol) {
             Some(existing) => {
-                by_currency.insert(symbol, merge(existing, position));
+                by_currency.insert(symbol, merge(existing, position)?);
             }
             None => {
                 by_currency.insert(symbol, position);
             }
         }
     }
-    by_currency.into_values().collect()
+    Ok(by_currency.into_values().collect())
 }
 
 /// One undecomposable side makes the merged position undecomposable.
-fn merge(a: ExchangePosition, b: ExchangePosition) -> ExchangePosition {
-    let quantity = a.quantity + b.quantity;
+fn merge(a: ExchangePosition, b: ExchangePosition) -> Result<ExchangePosition, FetchError> {
+    let sum = |left, right| checked_quantity_sum(ExchangeType::Meria, left, right);
+    let quantity = sum(a.quantity, b.quantity)?;
     let (principal, interest) = match (a.principal, b.principal) {
         (Some(pa), Some(pb)) => (
-            Some(pa + pb),
-            Some(a.interest.unwrap_or(Decimal::ZERO) + b.interest.unwrap_or(Decimal::ZERO)),
+            Some(sum(pa, pb)?),
+            Some(sum(
+                a.interest.unwrap_or(Decimal::ZERO),
+                b.interest.unwrap_or(Decimal::ZERO),
+            )?),
         ),
         _ => (None, None),
     };
-    ExchangePosition {
+    Ok(ExchangePosition {
         quantity,
         principal,
         interest,
         ..a
-    }
+    })
 }
 
 #[async_trait]
@@ -362,7 +371,8 @@ impl ExchangePort for Meria<'_> {
             };
             match wallet.quantity {
                 Some(quantity) if quantity > Decimal::ZERO => {
-                    *spot.entry(symbol).or_insert(Decimal::ZERO) += quantity;
+                    let total = spot.entry(symbol).or_insert(Decimal::ZERO);
+                    *total = checked_quantity_sum(ExchangeType::Meria, *total, quantity)?;
                 }
                 _ => {}
             }
@@ -372,9 +382,9 @@ impl ExchangePort for Meria<'_> {
             .map(|(symbol, quantity)| ExchangePosition::spot(symbol, quantity))
             .collect();
         let stakings = self.fetch("/stakings", api_key, Shape::Contract).await?;
-        positions.extend(contract_positions(Product::Staking, stakings));
+        positions.extend(contract_positions(Product::Staking, stakings)?);
         let lendings = self.fetch("/lendings", api_key, Shape::Contract).await?;
-        positions.extend(contract_positions(Product::Lending, lendings));
+        positions.extend(contract_positions(Product::Lending, lendings)?);
         tracing::info!(
             "Meria: fetched {} non-zero positions across wallets, stakings and lendings",
             positions.len()

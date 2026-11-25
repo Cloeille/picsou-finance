@@ -15,7 +15,7 @@ use crate::auth::Auth;
 use crate::db::{self, DbFromRow};
 use crate::error::AppResult;
 use crate::http::json::Path;
-use crate::ledger::decimal::{HALF_UP, divide};
+use crate::ledger::valuation::position_valuation;
 use crate::ledger::{accounts, holdings};
 use crate::routes::Routes;
 
@@ -118,14 +118,7 @@ pub async fn positions(
             let quote = quotes.get(&key);
             let price = quote.map(|q| q.price);
             let average_buy_in = unit_cost.get(&position.ticker).copied();
-            let value = price.map(|p| p * position.quantity);
-            let cost_basis = average_buy_in.map(|a| a * position.quantity);
-            let pnl = value.zip(cost_basis).map(|(v, c)| v - c);
-            // abs(): the percentage keeps the sign of the P&L itself.
-            let pnl_percent = pnl
-                .zip(cost_basis)
-                .filter(|(_, c)| !c.is_zero())
-                .map(|(p, c)| divide(p, c.abs(), 4, HALF_UP) * Decimal::ONE_HUNDRED);
+            let valued = position_valuation(id, position.quantity, price, average_buy_in);
             ExchangePositionResponse {
                 logo_url: logos.get(&key).cloned(),
                 product: position.product,
@@ -135,10 +128,10 @@ pub async fn positions(
                 interest: position.interest,
                 average_buy_in,
                 current_price_eur: price,
-                current_value_eur: value,
-                cost_basis_eur: cost_basis,
-                pnl_eur: pnl,
-                pnl_percent,
+                current_value_eur: valued.value,
+                cost_basis_eur: valued.cost_basis,
+                pnl_eur: valued.pnl,
+                pnl_percent: valued.pnl_percent,
                 price_as_of: quote.map(|q| q.as_of),
                 price_stale: quote.is_some_and(|q| !q.live),
             }
