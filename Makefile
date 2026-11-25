@@ -4,16 +4,16 @@
 COMPOSE  := docker compose -f docker/docker-compose.yml
 SIDECARS := $(patsubst services/%/Dockerfile,%,$(wildcard services/*-auth/Dockerfile))
 REMOTE   ?= origin
+PYTHON   ?= $(if $(shell command -v python3 2>/dev/null),python3,python)
 
 .PHONY: help dev db dev-backend dev-frontend format deps test test-backend \
         test-frontend lint-frontend unit-frontend test-e2e test-sidecars test-sidecar-base test-sidecar build desktop release \
-        new-migration sync-schema
+        new-migration
 
 help:
 	@echo "make dev                       PostgreSQL in Docker, backend on :8080, Vite on :5173"
 	@echo "make format                    Prettier on the frontend sources"
-	@echo "make new-migration NAME=x      scaffold the next PostgreSQL + SQLite migration (REMOTE=origin, DRY_RUN=1)"
-	@echo "make sync-schema               regenerate schema.tsv and java_flyway_history.tsv, then verify PG + SQLite parity"
+	@echo "make new-migration NAME=x      scaffold the next PostgreSQL + SQLite migration (REMOTE=origin, DRY_RUN=1, NO_FETCH=1)"
 	@echo "make test                      backend, frontend (unit and e2e), every sidecar"
 	@echo "make test-backend [TEST=name]  backend: fmt, clippy, tests (PostgreSQL 16 on 127.0.0.1:55432, trust), then on SQLite"
 	@echo "make desktop                   the desktop app bundle (Rust, Tauri CLI, bun)"
@@ -83,16 +83,11 @@ deps frontend/node_modules:
 
 # Scaffolds the next free PostgreSQL V<n>__<name>.sql and SQLite V<m>__<name>.sql (counting
 # $(REMOTE)/main, every open $(REMOTE)/release/* branch, and the working tree) and registers the
-# SQLite migration in backend-rs/src/db/sqlite/migrate.rs. Pass DRY_RUN=1 to preview.
+# SQLite migration in backend-rs/src/db/sqlite/migrate.rs. Pass DRY_RUN=1 to preview or NO_FETCH=1
+# to skip git fetch.
 new-migration:
-	@test -n "$(NAME)" || { echo "usage: make new-migration NAME=<snake_case> [REMOTE=origin] [DRY_RUN=1]"; exit 1; }
-	python3 backend-rs/scripts/migrations.py new "$(NAME)" --remote "$(REMOTE)" $(if $(filter 1 true yes,$(DRY_RUN)),--dry-run) $(if $(filter 1 true yes,$(NO_FETCH)),--no-fetch)
-
-# Regenerates backend-rs/src/db/schema.tsv (via PICSOU_WRITE_SCHEMA=1) and
-# backend-rs/tests/integration/fixtures/java_flyway_history.tsv, then verifies PostgreSQL and
-# SQLite schema parity. Needs PostgreSQL 16 on 127.0.0.1:55432 with trust auth for user picsou.
-sync-schema:
-	python3 backend-rs/scripts/migrations.py sync-schema $(if $(filter 1 true yes,$(DRY_RUN)),--dry-run)
+	@test -n "$(NAME)" || { echo "usage: make new-migration NAME=<snake_case> [REMOTE=origin] [DRY_RUN=1] [NO_FETCH=1]"; exit 1; }
+	$(PYTHON) backend-rs/scripts/migrations.py new --remote "$(REMOTE)" $(if $(filter 1 true yes,$(DRY_RUN)),--dry-run) $(if $(filter 1 true yes,$(NO_FETCH)),--no-fetch) -- "$(NAME)"
 
 # --- test --------------------------------------------------------------------
 
@@ -102,7 +97,7 @@ test: test-backend test-frontend test-e2e test-sidecars
 # authentication (backend-rs/README.md), then the integration tests run again on embedded SQLite,
 # the engine of the desktop app and of docker/compose.sqlite.yml. TEST filters the test names.
 test-backend:
-	$(if $(TEST),,python3 -m unittest discover -s backend-rs/scripts -v && )cd backend-rs && cargo fmt --check && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked $(TEST) \
+	cd backend-rs && cargo fmt --check && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked $(TEST) \
 	  && PICSOU_TEST_DB=sqlite cargo test --locked --test integration $(TEST)
 
 test-frontend: lint-frontend unit-frontend

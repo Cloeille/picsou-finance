@@ -84,11 +84,9 @@ Note: V8 is absent by design (skipped — never rolled into another migration). 
 
 ### Writing a new migration
 
-Adding a schema change is a two-command routine:
-
 1. **Scaffold both migrations:** run `make new-migration NAME=<snake_case>` (pass `REMOTE=upstream`
-   from a fork; `DRY_RUN=1` previews the computed versions without touching any file). The command
-   fetches the remote with `--prune`, computes the next free PostgreSQL `V{next}` and SQLite
+   from a fork, `DRY_RUN=1` to preview without writing, or `NO_FETCH=1` to skip `git fetch`). The
+   command fetches the remote with `--prune`, computes the next free PostgreSQL `V{next}` and SQLite
    `V{sqlite_next}` across `main`, every open `release/*` branch and the local working tree, creates
    `backend-rs/migrations/V{next}__<name>.sql` and
    `backend-rs/src/db/sqlite/migrations/V{sqlite_next}__<name>.sql` with placeholder comments, and
@@ -111,12 +109,11 @@ Adding a schema change is a two-command routine:
      `backend-rs/src/db/sqlite/migrate.rs` to `MigrationMode::TableRebuild` when altering an
      existing table beyond additive `ALTER TABLE ... ADD COLUMN`
      ([details](../../backend-rs/src/db/sqlite/migrations/README.md)).
-3. **Regenerate schema fixtures and verify parity:** run `make sync-schema` (requires the
-   PostgreSQL 16 test instance on `127.0.0.1:55432`). It rewrites
-   `backend-rs/src/db/schema.tsv` (via `PICSOU_WRITE_SCHEMA=1` and
-   `the_expected_schema_is_the_one_the_migrations_build`) and
-   `backend-rs/tests/integration/fixtures/java_flyway_history.tsv`, then verifies both PostgreSQL
-   fixtures and SQLite schema parity (`schema_parity_matches_postgresql_schema_tsv`).
+3. **Update `backend-rs/src/db/schema.tsv`:** run
+   `PICSOU_WRITE_SCHEMA=1 cargo test the_expected_schema` from `backend-rs/` (requires the
+   PostgreSQL 16 test instance on `127.0.0.1:55432`) so
+   `the_expected_schema_is_the_one_the_migrations_build` rewrites `src/db/schema.tsv` from the
+   applied migrations.
 4. Run `make test-backend` to exercise the full suite on both PostgreSQL and embedded SQLite.
 
 **Never rename or renumber a migration that is on `main` or a release branch, or that any deployed database may have

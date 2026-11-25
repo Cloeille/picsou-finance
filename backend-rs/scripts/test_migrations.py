@@ -44,7 +44,7 @@ def _git(cwd: Path, *args: str) -> str:
 
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    path.write_text(text, encoding="utf-8", newline="\n")
 
 
 def _make_git_fixture(tmp: Path) -> tuple[Path, Path]:
@@ -76,9 +76,18 @@ class NameValidationTests(unittest.TestCase):
     def test_valid_and_invalid_names(self) -> None:
         for ok in ("add_flag", "v2_column", "account_tracked_isin", "simple"):
             self.assertEqual(migrations.validate_name(ok), ok)
-        for bad in ("", "AddFlag", "add-flag", "123_start", "_leading", "trailing_", "double__under", "a/b"):
+        for bad in ("", "AddFlag", "add-flag", "-flag", "123_start", "_leading", "trailing_", "double__under", "a/b"):
             with self.subTest(bad=bad), self.assertRaises(migrations.MigrationToolError):
                 migrations.validate_name(bad)
+
+    def test_cli_rejects_leading_dash_name_after_double_dash(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _, work = _make_git_fixture(Path(tmpdir))
+            err = io.StringIO()
+            with mock.patch("sys.stderr", err):
+                rc = migrations.main(["new", "--no-fetch", "--", "-bad_name"], repo_root=work)
+            self.assertEqual(rc, 1)
+            self.assertIn("invalid migration NAME '-bad_name'", err.getvalue())
 
 
 class VersionComputationTests(unittest.TestCase):
@@ -139,6 +148,8 @@ class NewMigrationScaffoldTests(unittest.TestCase):
             sq_file = work / "backend-rs/src/db/sqlite/migrations/V5__portfolio_notes.sql"
             self.assertIn("V5__portfolio_notes.sql", pg_file.read_text(encoding="utf-8"))
             self.assertIn("V158__portfolio_notes", sq_file.read_text(encoding="utf-8"))
+            self.assertNotIn(b"\r\n", pg_file.read_bytes())
+            self.assertNotIn(b"\r\n", sq_file.read_bytes())
 
             migrate_rs = (work / migrations.SQLITE_MIGRATE_RS_REL).read_text(encoding="utf-8")
             self.assertIn('const V5_PORTFOLIO_NOTES: &str = include_str!("migrations/V5__portfolio_notes.sql");', migrate_rs)
@@ -146,14 +157,34 @@ class NewMigrationScaffoldTests(unittest.TestCase):
             self.assertIn('description: "portfolio notes",', migrate_rs)
             self.assertIn("mode: MigrationMode::Transactional,", migrate_rs)
 
-            long_name = "a_very_long_migration_name_that_wraps_past_one_hundred_columns"
-            with mock.patch("sys.stdout", io.StringIO()), mock.patch("shutil.which", return_value=None):
+    def test_registers_after_multiline_wrapped_include_str_with_real_rustfmt(self) -> None:
+        wrapped_migrate_rs = SAMPLE_MIGRATE_RS.replace(
+            'const V4_ACCOUNT_TRACKED_ISIN: &str = include_str!("migrations/V4__account_tracked_isin.sql");',
+            'const V4_ACCOUNT_TRACKED_ISIN: &str = include_str!(\n'
+            '    "migrations/V4__account_tracked_isin.sql"\n'
+            ');',
+        )
+        direct = migrations.register_sqlite_migration(wrapped_migrate_rs, 5, "after_wrapped")
+        self.assertLess(direct.index("V4_ACCOUNT_TRACKED_ISIN"), direct.index("V5_AFTER_WRAPPED"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _, work = _make_git_fixture(Path(tmpdir))
+            migrate_rs_path = work / migrations.SQLITE_MIGRATE_RS_REL
+            _write(migrate_rs_path, wrapped_migrate_rs)
+
+            long_name = "a_very_long_migration_name_that_rustfmt_wraps_across_multiple_lines"
+            with mock.patch("sys.stdout", io.StringIO()):
                 self.assertEqual(migrations.cmd_new(work, long_name, remote="origin", fetch=False), 0)
-            migrate_rs2 = (work / migrations.SQLITE_MIGRATE_RS_REL).read_text(encoding="utf-8")
-            self.assertIn(
-                f'const V6_{long_name.upper()}: &str =\n    include_str!("migrations/V6__{long_name}.sql");',
-                migrate_rs2,
-            )
+                self.assertEqual(migrations.cmd_new(work, "follow_up_change", remote="origin", fetch=False), 0)
+
+            migrate_rs = migrate_rs_path.read_text(encoding="utf-8")
+            v4_pos = migrate_rs.index("const V4_ACCOUNT_TRACKED_ISIN")
+            v5_pos = migrate_rs.index(f"const V5_{long_name.upper()}")
+            v6_pos = migrate_rs.index("const V6_FOLLOW_UP_CHANGE")
+            self.assertLess(v4_pos, v5_pos)
+            self.assertLess(v5_pos, v6_pos)
+            self.assertIn('version: "5",', migrate_rs)
+            self.assertIn('version: "6",', migrate_rs)
 
     def test_register_sqlite_migration_works_on_real_migrate_rs(self) -> None:
         real = (migrations.REPO_ROOT / migrations.SQLITE_MIGRATE_RS_REL).read_text(encoding="utf-8")
@@ -162,62 +193,6 @@ class NewMigrationScaffoldTests(unittest.TestCase):
         self.assertIn('version: "999",', updated)
         with self.assertRaises(migrations.MigrationToolError):
             migrations.register_sqlite_migration(updated, 999, "example_migration")
-
-
-class FlywayHistoryAndSyncSchemaTests(unittest.TestCase):
-    def test_flyway_checksum_and_repo_fixture_parity(self) -> None:
-        self.assertEqual(migrations.flyway_checksum("a\nb\n"), migrations.flyway_checksum("a\r\nb"))
-        self.assertEqual(migrations.flyway_checksum("\ufeffa\nb"), migrations.flyway_checksum("a\nb"))
-        actual = migrations.render_flyway_history(migrations.REPO_ROOT / migrations.PG_MIGRATIONS_REL)
-        expected = (migrations.REPO_ROOT / migrations.FLYWAY_HISTORY_REL).read_text(encoding="utf-8")
-        self.assertEqual(actual, expected)
-
-    def test_rendered_history_rejects_duplicate_versions(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            mig_dir = Path(tmpdir)
-            _write(mig_dir / "V10__first.sql", "SELECT 1;\n")
-            _write(mig_dir / "V10.0__second.sql", "SELECT 2;\n")
-            with self.assertRaises(migrations.MigrationToolError) as ctx:
-                migrations.render_flyway_history(mig_dir)
-            self.assertIn("duplicate migration version", str(ctx.exception))
-
-    def test_sync_schema_handles_rewrite_unchanged_and_error_paths(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            _write(root / migrations.PG_MIGRATIONS_REL / "V1__init.sql", "CREATE TABLE x (id INT);\n")
-            _write(root / migrations.SCHEMA_TSV_REL, "column\tx\tid\tint4\n")
-
-            # 1. schema.tsv changes on PICSOU_WRITE_SCHEMA=1 pass -> triggers full verification pass.
-            calls: list[tuple[list[str], bool]] = []
-            def rewrite_cargo(_d: Path, tests: list[str], *, write_schema: bool) -> int:
-                calls.append((tests, write_schema))
-                if write_schema:
-                    (root / migrations.SCHEMA_TSV_REL).write_text("column\tx\tid\tint4\ncolumn\tx\tn\ttext\n", encoding="utf-8")
-                    return 101
-                return 0
-            with mock.patch.object(migrations, "_run_cargo_tests", side_effect=rewrite_cargo), mock.patch("sys.stdout", io.StringIO()):
-                self.assertEqual(migrations.cmd_sync_schema(root), 0)
-            self.assertEqual(calls, [
-                ([migrations.SCHEMA_TEST], True),
-                ([migrations.SCHEMA_TEST, migrations.HISTORY_TEST, migrations.SQLITE_PARITY_TEST], False),
-            ])
-            self.assertIn("V1__init.sql", (root / migrations.FLYWAY_HISTORY_REL).read_text(encoding="utf-8"))
-
-            # 2. Failure without modifying schema.tsv propagates error immediately.
-            calls.clear()
-            err = io.StringIO()
-            with mock.patch.object(migrations, "_run_cargo_tests", side_effect=lambda _d, t, *, write_schema: (calls.append((t, write_schema)), 101)[1]), \
-                 mock.patch("sys.stdout", io.StringIO()), mock.patch("sys.stderr", err):
-                self.assertEqual(migrations.cmd_sync_schema(root), 101)
-            self.assertEqual(calls, [([migrations.SCHEMA_TEST], True)])
-            self.assertIn("127.0.0.1:55432", err.getvalue())
-
-            # 3. Unchanged schema.tsv still verifies history + SQLite parity.
-            calls.clear()
-            with mock.patch.object(migrations, "_run_cargo_tests", side_effect=lambda _d, t, *, write_schema: (calls.append((t, write_schema)), 0)[1]), \
-                 mock.patch("sys.stdout", io.StringIO()):
-                self.assertEqual(migrations.cmd_sync_schema(root), 0)
-            self.assertEqual(calls, [([migrations.SCHEMA_TEST], True), ([migrations.HISTORY_TEST, migrations.SQLITE_PARITY_TEST], False)])
 
 
 if __name__ == "__main__":
