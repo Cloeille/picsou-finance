@@ -7,7 +7,7 @@ ticker from an ISIN and pricing that ticker can land on the wrong listing: `LU18
 (Amundi Euro Stoxx Banks, 4.41 EUR) was priced through the US grey-market line `MULYF`, at
 376 EUR (#683). Epic #698 moves every holding with an ISIN to prices read by ISIN.
 
-This note covers step #700: the price source. Nothing reads it yet. Valuation switches to it in #701.
+This note covers the price sources (#700, #704). Nothing reads them yet. Valuation switches to them in #701.
 
 ## How it works
 
@@ -35,8 +35,9 @@ None of the sources goes through OpenFIGI or a ticker held on the holding.
 
 ## Technical choices
 
-- **Two sources from day one.** The justETF API is undocumented. Yahoo by ISIN covers it when
-  justETF is down, rate-limited, or has no price.
+- **Three sources in order.** The justETF API is undocumented. Yahoo by ISIN covers it when
+  justETF is down, rate-limited, or has no price. Boursorama sits third for unlisted funds (OPCVM)
+  that neither justETF nor Yahoo carries.
 - **Reference currency instead of exchange order.** `openfigi::pick_best` documents why no
   ordering of exchanges works for every Irish or Luxembourg fund. The currency of the ISIN's
   market is a property of the instrument, not a guess about which line Yahoo carries.
@@ -51,18 +52,20 @@ None of the sources goes through OpenFIGI or a ticker held on the holding.
 ## Gotchas
 
 - Yahoo FX converts a USD or GBP listing to EUR at today's rate, as everywhere else in the app.
-- Unlisted funds (OPCVM with only a daily NAV) have no price from either source. #701 values
-  them at the bank's own figure, and #704 looks for a NAV source.
+- Unlisted funds (OPCVM with only a daily NAV) have no price from justETF or Yahoo. Boursorama
+  covers those it knows and quotes in euros (#704); any remaining fund without a price takes the
+  bank's own figure once #701 wires valuation.
 - The service and sources are not constructed by `Market` yet: `IsinPriceService::standard`
-  builds the production pair when #701 wires it.
+  builds the three production sources when #701 wires it.
 
 ## Key files
 
-- `backend-rs/src/market/isin_prices.rs`: the `IsinPriceSource` trait, both sources, the service.
+- `backend-rs/src/market/isin_prices.rs`: the `IsinPriceSource` trait, all three sources, the service.
 - `backend-rs/src/market/yahoo.rs`: `YahooFinance::listing_quote` (price in the listing's own currency).
 - `backend-rs/tests/integration/market/isin_prices.rs`
 
 ## Tests
 
 `cargo test --test integration market::isin_prices`: justETF bodies captured on 2026-11-22,
-Yahoo listings stubbed, the service ordering and cache with fake sources and a fixed clock.
+Yahoo listings stubbed, Boursorama search and EOD bodies captured on 2026-11-25, and the
+service ordering and cache with fake sources and a fixed clock.

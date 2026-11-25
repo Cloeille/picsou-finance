@@ -348,6 +348,8 @@ impl IsinPriceSource for YahooIsinPriceSource {
     }
 }
 
+static SEARCH_LI: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?is)<li\b[^>]*>(.*?)</li>").expect("regex"));
 static SEARCH_ROW: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?s)href="[^"]*/cours/([^/"?]+)/".*?class="last">([^<]*)<"#).expect("regex")
 });
@@ -447,6 +449,9 @@ impl BoursoramaIsinPriceSource {
                 false,
             )
             .await?;
+        if !rows.status().is_success() {
+            return None;
+        }
         let html = rows.text().await.ok()?;
         if !quoted_in_euros(&html, &symbol) {
             tracing::debug!(
@@ -481,12 +486,12 @@ impl BoursoramaIsinPriceSource {
     }
 }
 
-/// Whether the search row linking to `symbol` shows a price in euros (`827,91 €`).
+/// Whether a search row (`<li>…</li>`) linking to `symbol` shows a price in euros (`827,91 €`).
 pub fn quoted_in_euros(search_html: &str, symbol: &str) -> bool {
-    search_html.split("<li>").any(|row| {
+    SEARCH_LI.captures_iter(search_html).any(|li| {
         SEARCH_ROW
-            .captures(row)
-            .is_some_and(|c| &c[1] == symbol && c[2].trim().ends_with('€'))
+            .captures_iter(&li[1])
+            .any(|c| &c[1] == symbol && c[2].trim().ends_with('€'))
     })
 }
 

@@ -604,6 +604,22 @@ fn a_search_row_counts_only_for_its_own_symbol_and_in_euros() {
     assert!(!quoted_in_euros(&in_pounds, "MP-829413"));
 }
 
+#[test]
+fn quoted_in_euros_does_not_bleed_into_a_following_row() {
+    let html = r#"<ul><li><a href="/bourse/opcvm/cours/MP-829413/">USD Fund</a></li><li class="alt"><a href="/bourse/opcvm/cours/MP-999999/"><span class="last">10,00 €</span></a></li></ul>"#;
+
+    assert!(!quoted_in_euros(html, "MP-829413"));
+    assert!(quoted_in_euros(html, "MP-999999"));
+}
+
+#[test]
+fn quoted_in_euros_checks_every_li_even_with_attributes() {
+    let html = r#"<ul><li class="i"><a href="/cours/MP-1/"><span class="last">5 $</span></a></li><li class="i"><a href="/cours/MP-829413/"><span class="last">827,91 €</span></a></li></ul>"#;
+
+    assert!(quoted_in_euros(html, "MP-829413"));
+    assert!(!quoted_in_euros(html, "MP-1"));
+}
+
 #[tokio::test]
 async fn boursorama_prices_an_unlisted_fund_from_its_last_daily_nav() {
     let server = MockServer::start().await;
@@ -680,4 +696,30 @@ async fn a_boursorama_403_pauses_the_source() {
     assert_eq!(source.quote(CARMIGNAC).await, None);
     assert_eq!(source.quote(CARMIGNAC).await, None);
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_boursorama_ajax_error_status_gets_no_price() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/recherche/"))
+        .respond_with(
+            ResponseTemplate::new(302)
+                .insert_header("Location", "https://www.boursorama.com/cours/MP-829413/"),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/recherche/ajax"))
+        .respond_with(ResponseTemplate::new(500).set_body_string(SEARCH_CARMIGNAC))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/bourse/action/graph/ws/GetTicksEOD"))
+        .respond_with(json_body(EOD_CARMIGNAC))
+        .expect(0)
+        .mount(&server)
+        .await;
+
+    assert_eq!(boursorama(&server).quote(CARMIGNAC).await, None);
 }
