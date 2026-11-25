@@ -68,6 +68,27 @@ MAX_REDIRECTS = 5
 # 403 and redirects to `transverse…/message.html`.
 IDENTIF = "/voscomptes/canalXHTML/identif.ea"
 LOGIN_FORM = "/wsost/OstBrokerWeb/loginform"
+# Since 2026-11 `identif.ea` lands on the `digital-authentification` Angular
+# app. It checks the password over XHR and renders the strong-authentication
+# screens in place, so the URL stays on `/connexion` until an error page
+# (`/message/<code>`) or the final redirect through `/auth/routing/...`.
+SPA_MESSAGE_PATH = "/auth/digital-authentification/message/"
+SPA_ROUTING_PATH = "/auth/routing/"
+# "Pour plus de sécurité": the old AuthentInfoAF notice, now a component. Its
+# Continuer button shows the approval screen, which creates the transaction
+# that sends the mobile notification.
+SPA_AF_NOTICE = "hj9-authentification-forte-information"
+SPA_AF_APPROVAL = "hj9-authentification-terminal-confiance"
+# SMS code, Certicode Plus and keypad re-entry: no flow implemented for them.
+SPA_AF_UNSUPPORTED = (
+    "hj9-authentification-numero-securise",
+    "hj9-authentification-certicode-plus",
+    "hj9-authentification-cvd",
+)
+# The bank's message code for a refused identifier or password, on both the
+# old `message.html?param=` page and the app's `/message/<code>` route.
+INVALID_CREDENTIALS_CODE = "0x132120c8"
+LOGGED_IN_MARKERS = ("Se déconnecter", "Mon profil")
 AUTH = "/wsost/OstBrokerWeb/auth"
 SYNTHESE_CCP = "/voscomptes/canalXHTML/comptesCommun/synthese_ccp/afficheSyntheseCCP-synthese_ccp.ea"
 SYNTHESE_EP = "/voscomptes/canalXHTML/comptesCommun/synthese_ep/afficheSyntheseEP-synthese_ep.ea"
@@ -83,6 +104,10 @@ REQUEST_TIMEOUT_SECONDS = 30.0
 # The bank's own approval page polls every 3 s and says the user has "a few minutes".
 POLL_INTERVAL_SECONDS = 3.0
 APPROVAL_TIMEOUT_SECONDS = 150.0
+APPROVAL_POLL_SECONDS = 2.0
+# The login app checks the password over XHR, then renders its next screen.
+SUBMIT_WAIT_SECONDS = 15.0
+APPROVAL_SCREEN_WAIT_SECONDS = 30.0
 PENDING_TTL_SECONDS = 300
 MAX_PENDING = 8
 # Unknown, and the bank may rotate it. A conservative value: the cookies are
@@ -942,12 +967,37 @@ class BrowserBankClient(HttpxBankClient):
                 await buttons.nth(position).click()
 
             step = "submit"
+            form_url = page.url
             await page.click("#btnConfirmer")
 
             # The page waits 500 ms then submits. Poll the driver-side URL: a
             # navigation destroys the JS context, so wait_for_function can hang.
+            # The digital-authentification app keeps the URL and renders its
+            # strong-authentication screens in place instead.
             step = "navigation"
-            url = await self._wait_for_url_change(page, page.url, 15)
+            screen, url = await self._wait_for_submit(
+                page, form_url, SUBMIT_WAIT_SECONDS, (SPA_AF_NOTICE, SPA_AF_APPROVAL, *SPA_AF_UNSUPPORTED)
+            )
+            if screen is None and urlsplit(url).path.startswith(SPA_ROUTING_PATH):
+                # A recognized device passes through the session route on its
+                # way to the client area: classify where it lands.
+                _, url = await self._wait_for_submit(page, url, SUBMIT_WAIT_SECONDS, ())
+            approval_started = False
+            if screen == SPA_AF_NOTICE:
+                step = "authent-info"
+                await page.click(f"{SPA_AF_NOTICE} button")
+                approval_started = True
+                screen, url = await self._wait_for_submit(
+                    page, url, APPROVAL_SCREEN_WAIT_SECONDS, (SPA_AF_APPROVAL, *SPA_AF_UNSUPPORTED)
+                )
+            if screen == SPA_AF_APPROVAL:
+                await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
+                log.info("La Banque Postale browser login awaits mobile approval")
+                return
+            if screen is not None:
+                log.warning("La Banque Postale unsupported strong authentication screen=%s", screen)
+                self._log_failure_page("unsupported-authentication")
+                raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
 
             # A non-trusted device first gets the AuthentInfoAF notice ("Vous
             # allez devoir vous authentifier de façon renforcée"). Its Continuer
@@ -959,7 +1009,7 @@ class BrowserBankClient(HttpxBankClient):
                 if param != "AuthentInfoAF":
                     log.warning("La Banque Postale login refused param=%s", param)
                     self._log_failure_page("login-refused")
-                    if param == "0x132120c8":
+                    if param == INVALID_CREDENTIALS_CODE:
                         raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
                     raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
                 step = "authent-info"
@@ -976,6 +1026,7 @@ class BrowserBankClient(HttpxBankClient):
             except Exception:
                 pass
             url = page.url
+            self._raise_for_spa_message(url, during_login=not approval_started)
 
             if "afficheSynthese" in url or "synthese_ccp" in url:
                 state["session_ready"] = True
@@ -1002,7 +1053,7 @@ class BrowserBankClient(HttpxBankClient):
                 body = ""
             if "formAccesCompte" in body:
                 raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
-            if "Se déconnecter" in body or "Mon profil" in body:
+            if await self._looks_logged_in(page, url):
                 state["session_ready"] = True
                 await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
                 log.info("La Banque Postale browser login ready path=%s", urlparse(url).path)
@@ -1011,6 +1062,13 @@ class BrowserBankClient(HttpxBankClient):
                 await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
                 log.info("La Banque Postale browser login awaits mobile approval")
                 return
+            # Path only, never the query or the page text: tells a submit that
+            # never left the form apart from an unknown bank page.
+            log.warning(
+                "La Banque Postale unexpected page path=%s left_form=%s",
+                _log_path(url),
+                url != form_url,
+            )
             self._log_failure_page("unexpected")
             raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
         except HTTPException:
@@ -1045,7 +1103,13 @@ class BrowserBankClient(HttpxBankClient):
                     )
                     self._log_failure_page("approval-error")
                     raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
-                await asyncio.sleep(2)
+                self._raise_for_spa_message(url, during_login=False)
+                # After the approval the app leaves `/auth/` for the client
+                # area; its landing page is not pinned.
+                if await self._looks_logged_in(page, url):
+                    return self._serialize_browser(await state["context"].cookies())
+                await asyncio.sleep(APPROVAL_POLL_SECONDS)
+            log.warning("La Banque Postale approval timed out path=%s", _log_path(page.url))
             raise HTTPException(status_code=408, detail="APP_VALIDATION_TIMEOUT")
         finally:
             await self._dispose(state)
@@ -1074,15 +1138,54 @@ class BrowserBankClient(HttpxBankClient):
         await super()._dispose(state)
 
     @staticmethod
-    async def _wait_for_url_change(page: Any, previous: str, timeout: float) -> str:
-        """Return the page URL as soon as it leaves ``previous``."""
+    async def _wait_for_submit(
+        page: Any, previous: str, timeout: float, screens: tuple[str, ...]
+    ) -> tuple[str | None, str]:
+        """Return ``(None, url)`` once the URL leaves ``previous``, or the first
+        of ``screens`` (component tags) rendered in place. On timeout the
+        screen is ``None`` and the URL unchanged."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             url = page.url
             if url != previous:
-                return url
+                return None, url
+            for screen in screens:
+                try:
+                    shown = await page.locator(screen).count()
+                except Exception:  # a navigation is replacing the document
+                    shown = 0
+                if shown:
+                    return screen, url
             await asyncio.sleep(0.5)
-        return page.url
+        return None, page.url
+
+    @staticmethod
+    def _raise_for_spa_message(url: str, during_login: bool) -> None:
+        """Fail on the app's `/message/<code>` route; a refused password is 401."""
+        path = urlsplit(url).path
+        if not path.startswith(SPA_MESSAGE_PATH):
+            return
+        code = path[len(SPA_MESSAGE_PATH):].split("/")[0]
+        if during_login:
+            log.warning("La Banque Postale login refused param=%s", code)
+            BrowserBankClient._log_failure_page("login-refused")
+            if code == INVALID_CREDENTIALS_CODE:
+                raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
+        else:
+            log.warning("La Banque Postale approval failed param=%s", code)
+            BrowserBankClient._log_failure_page("approval-error")
+        raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+
+    @staticmethod
+    async def _looks_logged_in(page: Any, url: str) -> bool:
+        """The client area: out of the `/auth/` login app, with a session marker."""
+        if "/auth/" in urlsplit(url).path:
+            return False
+        try:
+            body = await page.content()
+        except Exception:  # the page may be navigating
+            return False
+        return any(marker in body for marker in LOGGED_IN_MARKERS)
 
     @staticmethod
     async def _goto(page: Any, url: str) -> None:

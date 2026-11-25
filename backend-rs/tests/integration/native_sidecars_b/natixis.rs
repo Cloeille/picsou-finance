@@ -893,6 +893,13 @@ struct FakeState {
     authorize_html: Option<String>,
     password_status: u16,
     code_status: u16,
+    // A new device is asked to register a passkey until it puts it off ("later").
+    passkey_required: bool,
+    profile_forbidden_code: String,
+    skip_status: u16,
+    skip_honoured: bool,
+    skip_body: Option<Value>,
+    skip_device_id: Option<String>,
     token_status: u16,
     api_status: u16,
     fund_status: u16,
@@ -925,6 +932,12 @@ impl FakeState {
             authorize_html: None,
             password_status: 201,
             code_status: 201,
+            passkey_required: false,
+            profile_forbidden_code: "WEBAUTHN_REGISTRATION_REQUIRED".to_owned(),
+            skip_status: 201,
+            skip_honoured: true,
+            skip_body: None,
+            skip_device_id: None,
             token_status: 200,
             api_status: 200,
             fund_status: 200,
@@ -1064,7 +1077,25 @@ impl Respond for FakeResponder {
                 }
                 return ResponseTemplate::new(201).set_body_json(json!({ "id": VERIFICATION_ID }));
             }
-            if path == "/auth/v1/profiles/me/verifications" {
+            if method == "POST" && path == "/auth/v1/profiles/me/webauthnRegistrations/CURRENT/skip"
+            {
+                st.skip_body = serde_json::from_slice(&request.body).ok();
+                st.skip_device_id = request
+                    .headers
+                    .get("x-device-id")
+                    .and_then(|v| v.to_str().ok())
+                    .map(str::to_owned);
+                if matches!(st.skip_status, 200 | 201 | 204) && st.skip_honoured {
+                    st.passkey_required = false;
+                }
+                return ResponseTemplate::new(st.skip_status);
+            }
+            if method == "POST" && path == "/auth/v1/profiles/me/verifications" {
+                if st.passkey_required {
+                    return ResponseTemplate::new(403).set_body_json(json!({
+                        "errors": [{ "code": st.profile_forbidden_code }]
+                    }));
+                }
                 let sp = st
                     .service_provider_url
                     .clone()
@@ -2133,4 +2164,124 @@ async fn dropped_initiate_releases_reserved_pending_slot() {
         res.is_ok(),
         "second initiate must succeed once the dropped request freed its slot, got: {res:?}"
     );
+}
+
+#[tokio::test]
+async fn passkey_registration_is_put_off() {
+    for skip_status in [200_u16, 201, 204] {
+        let h = Harness::start().await;
+        {
+            let mut st = h.state.lock().unwrap();
+            st.require_sso_cookie = true;
+            st.passkey_required = true;
+            st.skip_status = skip_status;
+        }
+        let body = h
+            .login()
+            .await
+            .unwrap_or_else(|e| panic!("login failed for skip_status={skip_status}: {e:?}"));
+        let session_str = body["sessionState"].as_str().unwrap();
+        let parsed = parse_session(session_str).unwrap();
+        assert_eq!(parsed.refresh_token, REFRESH_TOKEN);
+        assert_eq!(parsed.employee_id, EMPLOYEE_ID);
+
+        let st = h.state.lock().unwrap();
+        assert_eq!(
+            st.skip_body,
+            Some(json!({ "duration": "SHORT", "reason": "BY_USER" })),
+            "unexpected skip body for skip_status={skip_status}"
+        );
+        assert_eq!(
+            st.skip_device_id.as_deref(),
+            Some(parsed.device_id.as_str()),
+            "skip request must carry the login's x-device-id"
+        );
+        let profile_calls = st
+            .requests
+            .iter()
+            .filter(|(m, p)| m == "POST" && p == "/auth/v1/profiles/me/verifications")
+            .count();
+        let skip_calls = st
+            .requests
+            .iter()
+            .filter(|(m, p)| {
+                m == "POST" && p == "/auth/v1/profiles/me/webauthnRegistrations/CURRENT/skip"
+            })
+            .count();
+        assert_eq!(profile_calls, 2, "profile check should be retried once");
+        assert_eq!(skip_calls, 1, "skip should be called once");
+    }
+}
+
+#[tokio::test]
+async fn passkey_registration_that_cannot_be_put_off() {
+    // Refused skip (403) fails immediately without retrying profile check;
+    // accepted skip (201) whose profile check still asks for registration fails after one retry.
+    for (skip_status, honoured, expected_profile_calls) in [(403_u16, true, 1), (201, false, 2)] {
+        let h = Harness::start().await;
+        {
+            let mut st = h.state.lock().unwrap();
+            st.passkey_required = true;
+            st.skip_status = skip_status;
+            st.skip_honoured = honoured;
+        }
+        assert_eq!(
+            h.login().await.unwrap_err(),
+            (
+                StatusCode::BAD_GATEWAY,
+                "UPSTREAM_FORMAT_CHANGED".to_owned()
+            ),
+            "expected UPSTREAM_FORMAT_CHANGED for skip_status={skip_status}, honoured={honoured}"
+        );
+        let st = h.state.lock().unwrap();
+        assert_eq!(
+            st.skip_body,
+            Some(json!({ "duration": "SHORT", "reason": "BY_USER" })),
+            "skip must have been attempted for skip_status={skip_status}, honoured={honoured}"
+        );
+        let profile_calls = st
+            .requests
+            .iter()
+            .filter(|(m, p)| m == "POST" && p == "/auth/v1/profiles/me/verifications")
+            .count();
+        assert_eq!(
+            profile_calls, expected_profile_calls,
+            "unexpected profile check count for skip_status={skip_status}, honoured={honoured}"
+        );
+    }
+
+    // Throttled or unavailable skip maps to RATE_LIMITED / UPSTREAM_UNAVAILABLE.
+    for (skip_status, expected) in [
+        (429_u16, (StatusCode::TOO_MANY_REQUESTS, "RATE_LIMITED")),
+        (503, (StatusCode::BAD_GATEWAY, "UPSTREAM_UNAVAILABLE")),
+    ] {
+        let h = Harness::start().await;
+        {
+            let mut st = h.state.lock().unwrap();
+            st.passkey_required = true;
+            st.skip_status = skip_status;
+        }
+        assert_eq!(
+            h.login().await.unwrap_err(),
+            (expected.0, expected.1.to_owned()),
+            "unexpected error for skip_status={skip_status}"
+        );
+        assert!(h.state.lock().unwrap().skip_body.is_some());
+    }
+
+    // An unrelated 403 on the profile check must not send a passkey skip.
+    let h = Harness::start().await;
+    {
+        let mut st = h.state.lock().unwrap();
+        st.passkey_required = true;
+        st.profile_forbidden_code = "OTHER_FORBIDDEN".to_owned();
+    }
+    assert_eq!(
+        h.login().await.unwrap_err(),
+        (
+            StatusCode::BAD_GATEWAY,
+            "UPSTREAM_FORMAT_CHANGED".to_owned()
+        )
+    );
+    assert!(h.state.lock().unwrap().skip_body.is_none());
 }

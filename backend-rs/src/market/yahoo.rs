@@ -117,6 +117,14 @@ pub struct SymbolMatch {
     pub name: Option<String>,
 }
 
+/// A listing's last price in its own trading currency, as Yahoo reports it (ListingQuote).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListingQuote {
+    pub price: Decimal,
+    pub currency: Option<String>,
+    pub as_of: Option<NaiveDate>,
+}
+
 /// The instance's Yahoo Finance client (state.market.yahoo()).
 #[derive(Debug)]
 pub struct YahooFinance {
@@ -424,6 +432,51 @@ impl YahooFinance {
                 })
             })
             .collect()
+    }
+
+    /// listingQuote: the last price of `symbol` in its own trading currency. Unlike `prices_eur`
+    /// the currency is returned rather than converted away, so a caller can check that a listing
+    /// trades in the currency it expects before trusting it. None when Yahoo has no data; a 429
+    /// arms the cooldown.
+    pub async fn listing_quote(&self, symbol: &str) -> Option<ListingQuote> {
+        if !Self::supports(symbol) {
+            return None;
+        }
+        let chart = match self
+            .fetch_chart(symbol, "range=1d&interval=1d", VERIFY_TIMEOUT)
+            .await
+        {
+            Ok(chart) => chart?,
+            Err(e) => {
+                if let YahooError::Status {
+                    status: 429,
+                    retry_after,
+                } = &e
+                {
+                    self.cooldown.arm(retry_after.as_deref());
+                }
+                tracing::debug!("Yahoo listing quote failed for {}: {e}", safe(symbol));
+                return None;
+            }
+        };
+        let meta = chart.get("meta").filter(|m| m.is_object())?;
+        let price = market_price(meta).filter(|p| *p > Decimal::ZERO)?;
+        let zone = self.clock.zone();
+        let as_of = chart
+            .get("timestamp")
+            .and_then(Value::as_array)
+            .and_then(|stamps| stamps.last())
+            .and_then(json_i64)
+            .and_then(|epoch| DateTime::from_timestamp(epoch, 0))
+            .map(|at| at.with_timezone(&zone).date_naive());
+        Some(ListingQuote {
+            price,
+            currency: meta
+                .get("currency")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            as_of,
+        })
     }
 
     /// EquityProfileProvider.fetch: the sector key (Yahoo's taxonomy, lower-cased and
