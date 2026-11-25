@@ -77,7 +77,7 @@ describe('UI & design system guardrails (see CONTRIBUTING.md & DESIGN.md)', () =
     }
     expect(
       violations,
-      'Do not use native <details>/<summary> or raw Unicode triangles. Build collapsible sections with a button and Lucide ChevronDown (see CONTRIBUTING.md).',
+      'Do not use native <details>/<summary> or raw Unicode triangles. Build collapsible sections with a button and Phosphor CaretDown (see CONTRIBUTING.md).',
     ).toEqual([])
   })
 
