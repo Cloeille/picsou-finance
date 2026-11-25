@@ -1328,7 +1328,7 @@
       "callbackDone": "Accounts synced!",
       "callbackError": "Sync error",
       "initiateError": "Connection failed",
-      "psd2ScopeNote": "Enable Banking only syncs current accounts (PSD2 limitation). For PEA, life insurance, savings: use Trade Republic, Boursobank, Finary, or add them manually.",
+      "psd2ScopeNote": "Enable Banking syncs current accounts, and savings accounts when your bank shares them. For PEA and life insurance: use Trade Republic, Boursobank, Finary, or add them manually.",
       "wiseJarsMissing": "Your Wise Jars do not come through this connection.",
       "wiseJarsConnect": "Connect the Jars",
       "wiseJarsConnected": "Your Wise Jars sync through the Wise Jars connector.",
@@ -3107,7 +3107,7 @@
         "psd2Body": "PSD2 is the EU regulation that lets licensed aggregators read your bank account with your consent. Your credentials never leave your bank.",
         "prodWarningTitle": "Create a PRODUCTION application",
         "prodWarningBody": "In your Enable Banking dashboard, make sure to choose \"Production\" when creating the application: SANDBOX only gives you access to fake test banks, not your real ones.",
-        "psd2ScopeNote": "Enable Banking only syncs current accounts (PSD2 limitation). For PEA, life insurance, savings accounts, etc.: use the dedicated integrations (Trade Republic, Boursobank, Finary) or add them manually.",
+        "psd2ScopeNote": "Enable Banking syncs current accounts, and savings accounts when the bank shares them (PSD2 scope). For PEA, life insurance, etc.: use the dedicated integrations (Trade Republic, Boursobank, Finary) or add them manually.",
         "magicLinkHint": "Enter your email on the sign-in page. Enable Banking creates your account on first sign-in and sends you a one-time sign-in link."
       },
       "creds": {

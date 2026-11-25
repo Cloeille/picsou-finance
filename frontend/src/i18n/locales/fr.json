@@ -1328,7 +1328,7 @@
       "callbackDone": "Comptes synchronisés !",
       "callbackError": "Erreur de synchronisation",
       "initiateError": "Échec de la connexion",
-      "psd2ScopeNote": "Enable Banking synchronise uniquement vos comptes courants. Pour vos PEA, assurances-vie et livrets, utilisez les intégrations dédiées ou ajoutez-les manuellement.",
+      "psd2ScopeNote": "Enable Banking synchronise vos comptes courants, et vos livrets quand votre banque les partage. Pour vos PEA et assurances-vie, utilisez les intégrations dédiées ou ajoutez-les manuellement.",
       "wiseJarsMissing": "Vos Jars Wise ne passent pas par cette connexion.",
       "wiseJarsConnect": "Connecter les Jars",
       "wiseJarsConnected": "Vos Jars Wise sont synchronisés par le connecteur Wise Jars.",
@@ -3107,7 +3107,7 @@
         "psd2Body": "PSD2 est la réglementation européenne qui permet aux agrégateurs agréés de lire vos comptes avec votre consentement. Vos identifiants ne quittent jamais votre banque.",
         "prodWarningTitle": "Créez une application en mode PRODUCTION",
         "prodWarningBody": "Dans votre tableau de bord Enable Banking, choisissez bien « Production » lors de la création de l'application : la SANDBOX ne donne accès qu'à des banques de test fictives, pas à vos vraies banques.",
-        "psd2ScopeNote": "Enable Banking synchronise uniquement vos comptes courants (limitation PSD2). Pour vos PEA, assurances-vie et livrets, utilisez les intégrations dédiées (Trade Republic, BoursoBank, Finary) ou ajoutez-les manuellement.",
+        "psd2ScopeNote": "Enable Banking synchronise vos comptes courants, et vos livrets quand la banque les partage (périmètre PSD2). Pour vos PEA et assurances-vie, utilisez les intégrations dédiées (Trade Republic, BoursoBank, Finary) ou ajoutez-les manuellement.",
         "magicLinkHint": "Saisissez votre adresse e-mail sur la page de connexion. Enable Banking crée votre compte à la première connexion et vous envoie un lien de connexion à usage unique."
       },
       "creds": {

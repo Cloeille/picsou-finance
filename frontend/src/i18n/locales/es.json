@@ -1026,7 +1026,7 @@
       "callbackDone": "¡Cuentas sincronizadas!",
       "callbackError": "Error de sincronización",
       "initiateError": "Fallo al conectar",
-      "psd2ScopeNote": "Enable Banking solo sincroniza cuentas corrientes (limitación PSD2). Para PEA, seguros de vida, ahorro: usa Trade Republic, Boursobank, Finary o añádelos manualmente.",
+      "psd2ScopeNote": "Enable Banking sincroniza cuentas corrientes y, si tu banco las comparte, cuentas de ahorro. Para PEA y seguros de vida: usa Trade Republic, Boursobank, Finary o añádelos manualmente.",
       "wiseJarsMissing": "Tus Jars de Wise no llegan por esta conexión.",
       "wiseJarsConnect": "Conectar los Jars",
       "wiseJarsConnected": "Tus Jars de Wise se sincronizan con el conector Wise Jars.",
@@ -2781,7 +2781,7 @@
         "psd2Body": "La PSD2 es la normativa europea que permite a los agregadores autorizados leer tu cuenta bancaria con tu consentimiento. Tus credenciales nunca salen de tu banco.",
         "prodWarningTitle": "Crea una aplicación en modo PRODUCTION",
         "prodWarningBody": "En tu panel de Enable Banking, asegúrate de elegir \"Production\" al crear la aplicación: SANDBOX solo da acceso a bancos de prueba ficticios, no a los tuyos reales.",
-        "psd2ScopeNote": "Enable Banking solo sincroniza cuentas corrientes (limitación PSD2). Para PEA, seguros de vida, cuentas de ahorro, etc.: usa las integraciones dedicadas (Trade Republic, Boursobank, Finary) o añádelas manualmente.",
+        "psd2ScopeNote": "Enable Banking sincroniza cuentas corrientes y, si el banco las comparte, cuentas de ahorro (alcance PSD2). Para PEA, seguros de vida, etc.: usa las integraciones dedicadas (Trade Republic, Boursobank, Finary) o añádelos manualmente.",
         "magicLinkHint": "Introduce tu correo en la página de inicio de sesión. Enable Banking crea tu cuenta al iniciar sesión por primera vez y te envía un enlace de acceso de un solo uso."
       },
       "creds": {
