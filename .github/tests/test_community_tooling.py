@@ -131,6 +131,8 @@ class StaleExternalPrsTest(unittest.TestCase):
                 with self.subTest(association=association, draft=draft):
                     self.assertEqual(stale_prs.decide(_pr(updated_at=old, author_association=association, draft=draft), self.NOW), "skip")
         self.assertEqual(stale_prs.decide(_pr(updated_at=old, author_association="NONE", user_type="Bot"), self.NOW), "skip")
+        self.assertEqual(stale_prs.decide(_pr(updated_at=old, author_association=None), self.NOW), "skip")
+        self.assertEqual(stale_prs.decide(_pr(updated_at=old, user_type="Organization"), self.NOW), "skip")
 
     def test_external_pr_and_draft_become_stale_at_60_days_and_close_after_7(self):
         for draft in (False, True):

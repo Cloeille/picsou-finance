@@ -45,9 +45,11 @@ def parse_timestamp(value):
 
 
 def is_external_human_pr(pr):
+    association = pr.get("author_association")
     return (
-        pr.get("author_association") not in MAINTAINER_ASSOCIATIONS
-        and (pr.get("user") or {}).get("type") != "Bot"
+        bool(association)
+        and association not in MAINTAINER_ASSOCIATIONS
+        and (pr.get("user") or {}).get("type") == "User"
     )
 
 
