@@ -9,6 +9,7 @@ use serde::Serialize;
 
 use super::jdecimal;
 use super::scale::{column, column_opt};
+use super::tracked_fund;
 use crate::db::{self, DbExec, DbFromRow};
 use crate::error::AppResult;
 use crate::ledger::model::{
@@ -725,6 +726,9 @@ pub async fn to_response(
         _ => {}
     }
     response.savings_config = savings_config_of(&mut *conn, account.id).await?;
+    response.tracked_ticker = tracked_fund::tracked_tickers(&mut *conn, &[account])
+        .await?
+        .remove(&account.id);
     Ok(response)
 }
 
@@ -773,6 +777,8 @@ pub async fn responses_for_viewer(
             .collect()
     };
     let mut savings_configs = savings_configs_of_accounts(&mut *conn, &all_ids).await?;
+    let account_refs: Vec<&Account> = accounts.iter().collect();
+    let mut tracked_tickers = tracked_fund::tracked_tickers(&mut *conn, &account_refs).await?;
 
     let mut out = Vec::with_capacity(accounts.len());
     for account in accounts {
@@ -814,6 +820,7 @@ pub async fn responses_for_viewer(
             _ => {}
         }
         response.savings_config = savings_configs.remove(&account.id);
+        response.tracked_ticker = tracked_tickers.remove(&account.id);
         out.push(response.with_display_prefs(prefs.get(&account.id)));
     }
     Ok(out)
