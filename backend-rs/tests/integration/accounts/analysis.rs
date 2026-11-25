@@ -748,3 +748,37 @@ async fn a_tracked_current_account_overridden_to_safety_net_is_daily_cash() {
     assert_eq!(dec(&pyramid["safetyNet"]["valueEur"]), d("0"));
     assert_eq!(dec(&tier(&pyramid, "EQUITY")["valueEur"]), d("300"));
 }
+
+#[tokio::test]
+async fn a_recurring_plan_into_a_tracked_account_grows_as_equity() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let savings = simple(&app, alice, "SAVINGS", "0").await;
+    track(&app, savings, TRACKED_ISIN).await;
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO goal (id, member_id, name, type, monthly_amount, expected_return, target_amount, deadline) VALUES \
+             (1, {alice}, 'Fund', 'RECURRING_INVESTMENT', 100, NULL, NULL, NULL); \
+             INSERT INTO goal_account (goal_id, account_id) VALUES (1, {savings})"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    let last = projection["allocation"].as_array().unwrap().last().unwrap();
+    let value = |name: &str| {
+        let t = last["tiers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["tier"] == name)
+            .unwrap_or_else(|| panic!("tier {name}"));
+        dec(&t["valueEur"])
+    };
+    assert!(
+        value("EQUITY") > d("1200"),
+        "the plan feeds the fund's tier"
+    );
+    assert_eq!(value("SAFETY_NET"), d("0"));
+}
