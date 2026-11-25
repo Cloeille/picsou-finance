@@ -58,6 +58,45 @@ async fn a_login_without_totp_stores_the_session_and_imports_at_once() {
         ("AAPL", d("4"), d("150")),
         "VWAP merge, zero line dropped"
     );
+    let isin: Option<String> = picsou::db::query_scalar("SELECT isin FROM account_holding")
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(isin, None, "a line without an ISIN stores none");
+}
+
+#[tokio::test]
+async fn a_line_with_an_isin_stores_it_upper_cased() {
+    let sidecar = MockServer::start().await;
+    answer(
+        &sidecar,
+        "/initiate",
+        json!({ "processId": "p", "totpRequired": false, "sessionBlob": "blob" }),
+    )
+    .await;
+    answer(
+        &sidecar,
+        "/portfolio",
+        json!({ "cashEur": n("0"), "positions": [
+            { "isin": "us0378331005", "symbol": "AAPL", "name": "Apple", "quantity": n("2"), "buyingPrice": n("100"), "currentPrice": n("150") }
+        ] }),
+    )
+    .await;
+    let app = app_with_sidecar(URL, &sidecar).await;
+    let (client, _) = admin(&app).await;
+
+    let response = client
+        .post("/api/degiro/auth/initiate")
+        .json(&json!({ "username": "u", "password": "p" }))
+        .send()
+        .await;
+
+    assert_eq!(response.status, 200, "{}", response.text());
+    let isin: Option<String> = picsou::db::query_scalar("SELECT isin FROM account_holding")
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(isin.as_deref(), Some("US0378331005"));
 }
 
 #[tokio::test]

@@ -16,7 +16,7 @@ use crate::connectors::sidecar::SyncError;
 use crate::connectors::sidecar::template::error;
 use crate::ledger::decimal::{HALF_UP, divide};
 use crate::ledger::holdings;
-use crate::ledger::model::HoldingDraft;
+use crate::ledger::model::{HoldingDraft, normalize_isin};
 use crate::ledger::sidecar::SidecarErrorCode;
 
 static ISIN: LazyLock<Regex> =
@@ -59,6 +59,7 @@ pub struct Prepared {
 
 struct PreparedPosition {
     ticker: String,
+    isin: String,
     name: String,
     quantity: Decimal,
     unit_price: Decimal,
@@ -184,6 +185,7 @@ pub async fn prepare(
         }
         positions.push(PreparedPosition {
             ticker,
+            isin: position.isin.clone(),
             name: position.name.clone(),
             quantity: position.quantity,
             unit_price: position.unit_price,
@@ -317,6 +319,7 @@ pub async fn apply(
         let existing = stored.remove(&position.ticker);
         let draft = HoldingDraft {
             ticker: position.ticker.clone(),
+            isin: normalize_isin(Some(&position.isin)),
             name: Some(position.name.clone()),
             quantity: position.quantity,
             average_buy_in: existing.as_ref().and_then(|h| h.average_buy_in),

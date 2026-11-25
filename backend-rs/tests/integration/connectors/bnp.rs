@@ -382,6 +382,18 @@ async fn sync_imports_products_securities_rotates_jar_adopts_verified_iban_and_c
     .unwrap();
     assert_eq!(pea_cash, Some(d("500.00")));
     assert_eq!(count(&app, "SELECT count(*) FROM account_holding").await, 2);
+    let isins: Vec<(String, Option<String>)> =
+        picsou::db::query_as("SELECT name, isin FROM account_holding ORDER BY name")
+            .fetch_all(&app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(
+        isins,
+        vec![
+            ("Action A".into(), Some("FR0000000001".into())),
+            ("Action B".into(), Some("FR0000000002".into())),
+        ]
+    );
 
     // Unlisted BNP account closed at 0; unsupported account kept intact.
     let gone_bal: Decimal =

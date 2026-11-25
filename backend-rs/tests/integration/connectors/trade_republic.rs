@@ -780,6 +780,21 @@ async fn sync_merges_duplicate_tickers_scales_bonds_splits_crypto_and_stores_the
             Some(d("600.00"))
         )
     );
+    let isins: Vec<(String, Option<String>)> = picsou::db::query_as(
+        "SELECT ticker, isin FROM account_holding WHERE account_id = $1 ORDER BY ticker",
+    )
+    .bind(securities)
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        isins,
+        vec![
+            ("DE0000000003".into(), Some("DE0000000003".into())),
+            ("IE0000000001".into(), Some("IE0000000001".into())),
+            ("IE0000000002".into(), Some("IE0000000002".into())),
+        ]
+    );
     let (crypto, name, kind, crypto_balance, _) =
         account(&app, member_id, "tr_crypto").await.unwrap();
     assert_eq!(
@@ -787,6 +802,18 @@ async fn sync_merges_duplicate_tickers_scales_bonds_splits_crypto_and_stores_the
         ("TR Crypto", "CRYPTO", d("30000.00"))
     );
     assert_eq!(holdings(&app, crypto).await[0].3, Some(d("60000")));
+    let crypto_isins: Vec<Option<String>> = picsou::db::query_scalar(
+        "SELECT isin FROM account_holding WHERE account_id = $1 ORDER BY ticker",
+    )
+    .bind(crypto)
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        crypto_isins,
+        vec![None],
+        "TR crypto pseudo-ISINs must never be stored on crypto holdings"
+    );
     let (_, pea_name, _, pea_balance, pea_cash) = account(&app, member_id, "tr_pea").await.unwrap();
     assert_eq!(
         (pea_name.as_str(), pea_balance, pea_cash),
@@ -795,6 +822,64 @@ async fn sync_merges_duplicate_tickers_scales_bonds_splits_crypto_and_stores_the
     assert_eq!(
         account(&app, member_id, "tr_cash").await.unwrap().3,
         d("55.5")
+    );
+}
+
+#[tokio::test]
+async fn duplicate_ticker_merge_keeps_the_first_valid_isin() {
+    let sidecar = MockServer::start().await;
+    let figi = MockServer::start().await;
+    let yahoo = MockServer::start().await;
+    mount_session(&sidecar, default_owner()).await;
+    fail(&sidecar, "/transactions", 503, json!({})).await;
+    Mock::given(method("POST"))
+        .and(path("/v3/mapping"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"data": [{"ticker": "TTE", "exchCode": "FP", "name": "TOTALENERGIES SE"}]}
+        ])))
+        .mount(&figi)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/TTE.PA"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"chart": {"result": [{
+                "meta": {"currency": "EUR", "regularMarketPrice": 55.2}
+            }]}})),
+        )
+        .mount(&yahoo)
+        .await;
+    let socket = securities_socket(
+        r#"A {"categories":[{"categoryType":"stocksAndETFs","positions":[
+            {"isin":"FR0000120271","netSize":"2","averageBuyIn":"50"},
+            {"isin":"TTE.PA","netSize":"3","averageBuyIn":"60"}
+        ]}]}"#,
+    );
+    let app = TestApp::builder()
+        .env(URL, sidecar.uri())
+        .env("OPENFIGI_BASE_URL", figi.uri())
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .with_admin()
+        .spawn()
+        .await;
+    let (url, _) = serve(socket).await;
+    app.state.connectors.trade_republic.set_ws_url(url);
+    let (client, member_id) = admin(&app).await;
+    store_state(&app, member_id, "plain-state", true, "IDLE").await;
+
+    let status = sync(&app, &client).await;
+
+    assert_eq!(status["syncStatus"], "SUCCESS", "{status}");
+    let (securities, ..) = account(&app, member_id, "tr_securities").await.unwrap();
+    let rows: Vec<(String, Decimal, Option<String>)> = picsou::db::query_as(
+        "SELECT ticker, quantity, isin FROM account_holding WHERE account_id = $1 ORDER BY ticker",
+    )
+    .bind(securities)
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows,
+        vec![("TTE.PA".to_owned(), d("5"), Some("FR0000120271".to_owned()))]
     );
 }
 
