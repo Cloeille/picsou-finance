@@ -10,6 +10,7 @@ import { CircleNotch, UploadSimple, CheckCircle, WarningCircle } from '@phosphor
 import type {
   ColumnMappingDto,
   CsvDialectDto,
+  TransactionImportMode,
   TransactionImportPreviewResponse,
   TransactionImportResultResponse,
 } from '@/types/api'
@@ -22,17 +23,28 @@ interface ImportTransactionsModalProps {
 }
 
 type MappingField = keyof ColumnMappingDto
-const MAPPING_FIELDS: { key: MappingField; optional: boolean }[] = [
-  { key: 'date', optional: false },
-  { key: 'side', optional: true },
-  { key: 'tickerOrIsin', optional: false },
-  { key: 'name', optional: true },
-  { key: 'quantity', optional: false },
-  { key: 'unitPrice', optional: true },
-  { key: 'fees', optional: true },
-  { key: 'currency', optional: true },
-  { key: 'amount', optional: true },
-]
+const MAPPING_FIELDS: Record<TransactionImportMode, { key: MappingField; optional: boolean }[]> = {
+  TRADES: [
+    { key: 'date', optional: false },
+    { key: 'side', optional: true },
+    { key: 'tickerOrIsin', optional: false },
+    { key: 'name', optional: true },
+    { key: 'quantity', optional: false },
+    { key: 'unitPrice', optional: true },
+    { key: 'fees', optional: true },
+    { key: 'currency', optional: true },
+    { key: 'amount', optional: true },
+  ],
+  // Either one signed amount or debit + credit, so each of the three is optional on its own.
+  CASH: [
+    { key: 'date', optional: false },
+    { key: 'description', optional: true },
+    { key: 'amount', optional: true },
+    { key: 'debit', optional: true },
+    { key: 'credit', optional: true },
+    { key: 'currency', optional: true },
+  ],
+}
 
 const SELECT_CLASS =
   'flex h-9 w-full rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring [color-scheme:light] dark:[color-scheme:dark]'
@@ -63,6 +75,7 @@ function ImportWizard({ accountId, onOpenChange }: { accountId: number; onOpenCh
   const [dialect, setDialect] = useState<CsvDialectDto | null>(null)
   const [hasHeaderRow, setHasHeaderRow] = useState(true)
   const [feesIncluded, setFeesIncluded] = useState(false)
+  const [invertSign, setInvertSign] = useState(false)
   const [result, setResult] = useState<TransactionImportResultResponse | null>(null)
 
   const previewMutation = usePreviewImport(accountId)
@@ -91,6 +104,7 @@ function ImportWizard({ accountId, onOpenChange }: { accountId: number; onOpenCh
         dialect,
         hasHeaderRow,
         feesIncludedInAmount: feesIncluded,
+        invertSign,
       })
       setResult(res)
     } catch (err) {
@@ -106,6 +120,9 @@ function ImportWizard({ accountId, onOpenChange }: { accountId: number; onOpenCh
           <CheckCircle className="size-5" />
           <span className="font-medium">{t('import.rowsImported', { count: result.imported })}</span>
         </div>
+        {result.duplicates > 0 && (
+          <p className="text-sm text-muted-foreground">{t('import.rowsDuplicate', { count: result.duplicates })}</p>
+        )}
         {result.skipped > 0 && (
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-red-500">
@@ -179,6 +196,9 @@ function ImportWizard({ accountId, onOpenChange }: { accountId: number; onOpenCh
 
   // --- Step 2: map columns & review ---
   const columns = preview.detectedColumns
+  const mode = preview.mode
+  const missingAmount = mode === 'CASH' && mapping != null
+    && mapping.amount == null && mapping.debit == null && mapping.credit == null
   const setField = (key: MappingField, value: number | null) =>
     setMapping(m => (m ? { ...m, [key]: value } : m))
 
@@ -226,8 +246,9 @@ function ImportWizard({ accountId, onOpenChange }: { accountId: number; onOpenCh
       {/* Column mapping */}
       <div>
         <p className="mb-2 text-sm font-medium">{t('import.mapColumns')}</p>
+        {mode === 'CASH' && <p className="mb-2 text-xs text-muted-foreground">{t('import.cashHint')}</p>}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {MAPPING_FIELDS.map(({ key, optional }) => (
+          {MAPPING_FIELDS[mode].map(({ key, optional }) => (
             <div key={key} className="space-y-1">
               <Label className="text-xs">
                 {t(`import.field.${key}`)}
@@ -248,10 +269,17 @@ function ImportWizard({ accountId, onOpenChange }: { accountId: number; onOpenCh
         </div>
       </div>
 
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={feesIncluded} onChange={e => setFeesIncluded(e.target.checked)} />
-        {t('import.feesIncluded')}
-      </label>
+      {mode === 'TRADES' ? (
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={feesIncluded} onChange={e => setFeesIncluded(e.target.checked)} />
+          {t('import.feesIncluded')}
+        </label>
+      ) : (
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={invertSign} onChange={e => setInvertSign(e.target.checked)} />
+          {t('import.invertSign')}
+        </label>
+      )}
 
       {/* Preview table */}
       <div>
@@ -276,7 +304,7 @@ function ImportWizard({ accountId, onOpenChange }: { accountId: number; onOpenCh
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={() => setPreview(null)}>{t('import.back')}</Button>
-        <Button type="button" onClick={handleImport} disabled={executeMutation.isPending}>
+        <Button type="button" onClick={handleImport} disabled={executeMutation.isPending || missingAmount}>
           {executeMutation.isPending && <CircleNotch className="size-4 animate-spin" />}
           {t('import.import')}
         </Button>

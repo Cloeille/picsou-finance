@@ -3316,6 +3316,9 @@
     "import": "Import",
     "rowsImported": "{{count}} transactions imported",
     "rowsSkipped": "{{count}} rows skipped",
+    "rowsDuplicate": "{{count}} lines already in the account, left out",
+    "invertSign": "Outflows are positive in this file (flip every amount)",
+    "cashHint": "Map either one signed amount column, or the debit and credit columns.",
     "rowLabel": "Row {{row}}",
     "field": {
       "date": "Date",
@@ -3326,7 +3329,10 @@
       "unitPrice": "Unit price",
       "fees": "Fees",
       "currency": "Currency",
-      "amount": "Amount"
+      "amount": "Amount",
+      "description": "Label",
+      "debit": "Debit",
+      "credit": "Credit"
     }
   },
   "realized": {

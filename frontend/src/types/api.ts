@@ -2337,7 +2337,13 @@ export interface ColumnMappingDto {
   fees: number | null
   currency: number | null
   amount: number | null
+  description: number | null
+  debit: number | null
+  credit: number | null
 }
+
+/** Picked by the account type: trades on an investment account, cash lines everywhere else. */
+export type TransactionImportMode = 'TRADES' | 'CASH'
 
 export interface TransactionImportPreviewResponse {
   fileToken: string
@@ -2347,6 +2353,7 @@ export interface TransactionImportPreviewResponse {
   hasHeaderRow: boolean
   dialect: CsvDialectDto
   suggestedMapping: ColumnMappingDto
+  mode: TransactionImportMode
 }
 
 export interface TransactionImportRequest {
@@ -2356,6 +2363,7 @@ export interface TransactionImportRequest {
   hasHeaderRow: boolean
   feesIncludedInAmount: boolean
   sideValueMap?: Record<string, string>
+  invertSign: boolean
 }
 
 export interface ImportRowError {
@@ -2367,6 +2375,8 @@ export interface TransactionImportResultResponse {
   imported: number
   skipped: number
   errors: ImportRowError[]
+  /** Cash lines the account already held, left out: not errors, not in `skipped`. */
+  duplicates: number
 }
 
 // --- Realized P&L (closed positions) ---

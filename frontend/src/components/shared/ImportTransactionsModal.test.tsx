@@ -26,7 +26,25 @@ const PREVIEW: TransactionImportPreviewResponse = {
   totalRows: 1,
   hasHeaderRow: true,
   dialect: { delimiter: ';', decimal: 'COMMA', dateFormat: 'dd/MM/yyyy' },
-  suggestedMapping: { date: 0, side: 1, tickerOrIsin: 2, name: null, quantity: 3, unitPrice: 4, fees: 5, currency: null, amount: null },
+  suggestedMapping: {
+    date: 0, side: 1, tickerOrIsin: 2, name: null, quantity: 3, unitPrice: 4, fees: 5, currency: null, amount: null,
+    description: null, debit: null, credit: null,
+  },
+  mode: 'TRADES',
+}
+
+const STATEMENT_PREVIEW: TransactionImportPreviewResponse = {
+  fileToken: 'tok-2',
+  detectedColumns: ['Date', 'Libellé', 'Débit', 'Crédit'],
+  sampleRows: [['02/11/2026', 'CB CARREFOUR', '45,30', '']],
+  totalRows: 1,
+  hasHeaderRow: true,
+  dialect: { delimiter: ';', decimal: 'COMMA', dateFormat: 'dd/MM/yyyy' },
+  suggestedMapping: {
+    date: 0, side: null, tickerOrIsin: null, name: null, quantity: null, unitPrice: null, fees: null, currency: null,
+    amount: null, description: 1, debit: 2, credit: 3,
+  },
+  mode: 'CASH',
 }
 
 function uploadFile() {
@@ -55,7 +73,7 @@ describe('ImportTransactionsModal', () => {
 
   it('sends the assembled import request and shows the result', async () => {
     previewMutate.mockResolvedValue(PREVIEW)
-    executeMutate.mockResolvedValue({ imported: 2, skipped: 0, errors: [] })
+    executeMutate.mockResolvedValue({ imported: 2, skipped: 0, errors: [], duplicates: 0 })
     render(<ImportTransactionsModal open onOpenChange={vi.fn()} accountId={2} />)
 
     uploadFile()
@@ -68,5 +86,30 @@ describe('ImportTransactionsModal', () => {
       expect.objectContaining({ fileToken: 'tok-1', hasHeaderRow: true, feesIncludedInAmount: false }),
     )
     expect(await screen.findByText('import.rowsImported')).toBeInTheDocument()
+  })
+
+  it('maps a bank statement with label, debit and credit and reports the lines already held', async () => {
+    previewMutate.mockResolvedValue(STATEMENT_PREVIEW)
+    executeMutate.mockResolvedValue({ imported: 1, skipped: 0, errors: [], duplicates: 3 })
+    render(<ImportTransactionsModal open onOpenChange={vi.fn()} accountId={9} />)
+
+    uploadFile()
+    await screen.findByText('import.mapColumns')
+
+    expect(screen.getByText('import.field.debit')).toBeInTheDocument()
+    expect(screen.getByText('import.field.credit')).toBeInTheDocument()
+    expect(screen.queryByText('import.field.tickerOrIsin')).not.toBeInTheDocument()
+    expect(screen.queryByText('import.feesIncluded')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('import.invertSign'))
+    fireEvent.click(screen.getByRole('button', { name: 'import.import' }))
+
+    await waitFor(() => expect(executeMutate).toHaveBeenCalledOnce())
+    expect(executeMutate).toHaveBeenCalledWith(expect.objectContaining({
+      fileToken: 'tok-2',
+      invertSign: true,
+      mapping: expect.objectContaining({ date: 0, description: 1, debit: 2, credit: 3 }),
+    }))
+    expect(await screen.findByText('import.rowsDuplicate')).toBeInTheDocument()
   })
 })

@@ -1,4 +1,5 @@
-//! CSV import of investment transactions (TransactionImportServiceTest, TransactionRowMapperTest).
+//! CSV import of trades and of bank and card statement lines (TransactionImportServiceTest,
+//! TransactionRowMapperTest, LedgerRowMapperTest).
 
 use picsou::ledger::model::AccountType;
 use picsou::testing::{Client, TestApp};
@@ -72,6 +73,7 @@ async fn preview_detects_the_dialect_and_mapping_then_import_writes_trades_and_h
         json!({"delimiter": ";", "decimal": "COMMA", "dateFormat": "dd/MM/yyyy"})
     );
     assert_eq!(body["hasHeaderRow"], true);
+    assert_eq!(body["mode"], "TRADES");
     assert_eq!(body["totalRows"], 3);
     assert_eq!(body["suggestedMapping"], full_mapping());
     assert_eq!(body["sampleRows"][0][5], "412,50");
@@ -84,7 +86,7 @@ async fn preview_detects_the_dialect_and_mapping_then_import_writes_trades_and_h
     assert_eq!(response.status, 201);
     assert_eq!(
         response.json(),
-        json!({"imported": 3, "skipped": 0, "errors": []})
+        json!({"imported": 3, "skipped": 0, "errors": [], "duplicates": 0})
     );
 
     let stored = rows(&app, cto.id).await;
@@ -144,7 +146,7 @@ async fn invalid_rows_are_reported_and_valid_ones_still_imported() {
     assert_eq!(response.status, 201);
     assert_eq!(
         response.json(),
-        json!({"imported": 2, "skipped": 6, "errors": [
+        json!({"imported": 2, "skipped": 6, "duplicates": 0, "errors": [
             {"rowNumber": 3, "message": "Missing date"},
             {"rowNumber": 4, "message": "Missing or non-positive quantity"},
             {"rowNumber": 5, "message": "Missing ticker/ISIN"},
@@ -185,7 +187,7 @@ async fn figures_too_large_for_a_decimal_are_reported_on_their_row() {
     assert_eq!(response.status, 201);
     assert_eq!(
         response.json(),
-        json!({"imported": 1, "skipped": 2, "errors": [
+        json!({"imported": 1, "skipped": 2, "duplicates": 0, "errors": [
             {"rowNumber": 2, "message": "Amount out of range"},
             {"rowNumber": 3, "message": "Amount out of range"},
         ]})
@@ -225,29 +227,270 @@ async fn header_only_file_has_no_data_rows_and_an_empty_file_is_refused() {
 }
 
 #[tokio::test]
-async fn accounts_must_be_owned_manual_investment_accounts() {
+async fn trades_need_an_owned_manual_investment_account_and_loans_are_refused() {
     let app = TestApp::with_admin().await;
     let client = app.login_admin().await;
     let admin = admin_member(&app).await;
-    let checking = account(&app, admin, AccountType::Checking, true).await;
     let synced = account(&app, admin, AccountType::Pea, false).await;
+    let loan = account(&app, admin, AccountType::Loan, true).await;
+    let peer_loan = account(&app, admin, AccountType::PeerLoan, true).await;
     let (_, other) = app.create_member("bob", "password-1234").await;
     let foreign = account(&app, other, AccountType::Pea, true).await;
 
-    let r = preview(&client, checking.id, CSV).await;
+    let r = preview(&client, synced.id, CSV).await;
     assert_eq!(r.status, 400);
     assert_eq!(
         r.json()["detail"],
-        "CSV transaction import is only available for investment accounts (PEA, CTO, crypto)"
+        "CSV trade import is only available for manual investment accounts"
     );
-    let r = preview(&client, synced.id, CSV).await;
-    assert_eq!(
-        r.json()["detail"],
-        "CSV transaction import is only available for manual investment accounts"
-    );
+    for refused in [&loan, &peer_loan] {
+        let r = preview(&client, refused.id, CSV).await;
+        assert_eq!(r.status, 400);
+        assert_eq!(
+            r.json()["detail"],
+            "CSV transaction import is not available for loans"
+        );
+    }
     let r = preview(&client, foreign.id, CSV).await;
     assert_eq!(r.status, 404);
     assert_eq!(r.json()["detail"], "Account not found");
+}
+
+const STATEMENT: &str = "Date;Libellé;Débit;Crédit\n\
+02/11/2024;CB CARREFOUR;45,30;\n\
+03/11/2024;VIR SALAIRE;;2 100,00\n\
+05/11/2024;CB BOULANGERIE;3,20;\n";
+
+async fn statement_import(
+    client: &Client,
+    account_id: i64,
+    content: &str,
+    invert_sign: bool,
+) -> picsou::testing::Response {
+    let body = preview(client, account_id, content).await.json();
+    let mut request = commit(&body, body["suggestedMapping"].clone());
+    request["sideValueMap"] = Value::Null;
+    request["invertSign"] = json!(invert_sign);
+    client
+        .post(&format!("/api/accounts/{account_id}/transactions/import"))
+        .json(&request)
+        .send()
+        .await
+}
+
+async fn lines(
+    app: &TestApp,
+    account_id: i64,
+) -> Vec<(String, Decimal, String, Option<String>, bool)> {
+    picsou::db::query_as(
+        "SELECT description, amount, native_currency, tx_type, is_manual FROM \"transaction\" \
+         WHERE account_id = $1 ORDER BY date, id",
+    )
+    .bind(account_id)
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap()
+}
+
+async fn balance(app: &TestApp, account_id: i64) -> Decimal {
+    picsou::db::query_scalar("SELECT current_balance FROM account WHERE id = $1")
+        .bind(account_id)
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_statement_preview_on_a_checking_account_guesses_label_debit_and_credit() {
+    let app = TestApp::with_admin().await;
+    let client = app.login_admin().await;
+    let checking = account(&app, admin_member(&app).await, AccountType::Checking, true).await;
+
+    let body = preview(&client, checking.id, STATEMENT).await.json();
+
+    assert_eq!(body["mode"], "CASH");
+    assert_eq!(
+        body["suggestedMapping"],
+        json!({"date": 0, "description": 1, "debit": 2, "credit": 3})
+    );
+    assert_eq!(body["dialect"]["decimal"], "COMMA");
+}
+
+#[tokio::test]
+async fn previews_pick_the_mode_of_the_account_type() {
+    let app = TestApp::with_admin().await;
+    let client = app.login_admin().await;
+    let admin = admin_member(&app).await;
+    for (account_type, mode) in [
+        (AccountType::Savings, "CASH"),
+        (AccountType::CreditCard, "CASH"),
+        (AccountType::Scpi, "CASH"),
+        (AccountType::Per, "TRADES"),
+    ] {
+        let target = account(&app, admin, account_type, true).await;
+        let r = preview(&client, target.id, STATEMENT).await;
+        assert_eq!(r.status, 200, "{account_type}");
+        assert_eq!(r.json()["mode"], mode, "{account_type}");
+    }
+}
+
+#[tokio::test]
+async fn a_manual_checking_gets_signed_lines_and_its_balance_from_them() {
+    let app = TestApp::with_admin().await;
+    let client = app.login_admin().await;
+    let checking = account(&app, admin_member(&app).await, AccountType::Checking, true).await;
+
+    let r = statement_import(&client, checking.id, STATEMENT, false).await;
+
+    assert_eq!(r.status, 201, "{}", r.text());
+    assert_eq!(
+        r.json(),
+        json!({"imported": 3, "skipped": 0, "errors": [], "duplicates": 0})
+    );
+    let dec = |s: &str| s.parse::<Decimal>().unwrap();
+    assert_eq!(
+        lines(&app, checking.id).await,
+        vec![
+            (
+                "CB CARREFOUR".into(),
+                dec("-45.30"),
+                "EUR".into(),
+                Some("WITHDRAWAL".into()),
+                true
+            ),
+            (
+                "VIR SALAIRE".into(),
+                dec("2100"),
+                "EUR".into(),
+                Some("DEPOSIT".into()),
+                true
+            ),
+            (
+                "CB BOULANGERIE".into(),
+                dec("-3.20"),
+                "EUR".into(),
+                Some("WITHDRAWAL".into()),
+                true
+            ),
+        ]
+    );
+    assert_eq!(balance(&app, checking.id).await, dec("2051.50"));
+}
+
+#[tokio::test]
+async fn a_synced_checking_and_an_scpi_keep_their_balance() {
+    let app = TestApp::with_admin().await;
+    let client = app.login_admin().await;
+    let admin = admin_member(&app).await;
+    for (account_type, manual) in [(AccountType::Checking, false), (AccountType::Scpi, true)] {
+        let target = account(&app, admin, account_type, manual).await;
+        picsou::db::query("UPDATE account SET current_balance = 812 WHERE id = $1")
+            .bind(target.id)
+            .execute(&app.state.db)
+            .await
+            .unwrap();
+
+        let r = statement_import(&client, target.id, STATEMENT, false).await;
+
+        assert_eq!(r.status, 201, "{account_type}");
+        assert_eq!(r.json()["imported"], 3, "{account_type}");
+        assert_eq!(lines(&app, target.id).await.len(), 3, "{account_type}");
+        assert_eq!(
+            balance(&app, target.id).await,
+            Decimal::from(812),
+            "{account_type}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn an_overlapping_statement_leaves_out_the_lines_the_account_holds() {
+    let app = TestApp::with_admin().await;
+    let client = app.login_admin().await;
+    let checking = account(&app, admin_member(&app).await, AccountType::Checking, true).await;
+    statement_import(&client, checking.id, STATEMENT, false).await;
+    let overlap = "Date;Libellé;Débit;Crédit\n\
+02/11/2024;cb  carrefour;45,30;\n\
+06/11/2024;CB PHARMACIE;12,00;\n";
+
+    let r = statement_import(&client, checking.id, overlap, false).await;
+
+    assert_eq!(
+        r.json(),
+        json!({"imported": 1, "skipped": 0, "errors": [], "duplicates": 1})
+    );
+    assert_eq!(lines(&app, checking.id).await.len(), 4);
+}
+
+#[tokio::test]
+async fn a_repeat_inside_one_statement_is_kept_and_a_second_import_of_it_is_not() {
+    let app = TestApp::with_admin().await;
+    let client = app.login_admin().await;
+    let checking = account(&app, admin_member(&app).await, AccountType::Checking, true).await;
+    let coffees = "Date;Libellé;Montant\n04/11/2024;CB CAFE;-2,50\n04/11/2024;CB CAFE;-2,50\n";
+
+    let first = statement_import(&client, checking.id, coffees, false).await;
+    let again = statement_import(&client, checking.id, coffees, false).await;
+
+    assert_eq!(first.json()["imported"], 2);
+    assert_eq!(first.json()["duplicates"], 0);
+    assert_eq!(again.json()["imported"], 0);
+    assert_eq!(again.json()["duplicates"], 2);
+    assert_eq!(lines(&app, checking.id).await.len(), 2);
+}
+
+#[tokio::test]
+async fn invert_sign_turns_positive_card_purchases_into_outflows() {
+    let app = TestApp::with_admin().await;
+    let client = app.login_admin().await;
+    let card = account(
+        &app,
+        admin_member(&app).await,
+        AccountType::CreditCard,
+        true,
+    )
+    .await;
+    let csv =
+        "Date;Description;Amount;Currency\n04/11/2024;AMAZON;19,99;eur\n05/11/2024;CAFE;1,00;€\n";
+
+    let r = statement_import(&client, card.id, csv, true).await;
+
+    assert_eq!(r.status, 201, "{}", r.text());
+    assert_eq!(r.json()["imported"], 2);
+    let stored = lines(&app, card.id).await;
+    assert_eq!(stored[0].1, "-19.99".parse::<Decimal>().unwrap());
+    assert_eq!(stored[0].2, "EUR");
+    assert_eq!(stored[1].2, "EUR");
+}
+
+#[tokio::test]
+async fn invalid_statement_lines_are_reported_by_row_and_valid_ones_still_imported() {
+    let app = TestApp::with_admin().await;
+    let client = app.login_admin().await;
+    let checking = account(&app, admin_member(&app).await, AccountType::Checking, true).await;
+    let csv = "Date;Libellé;Montant\n\
+02/11/2024;OK;-1,00\n\
+;SANS DATE;-1,00\n\
+03/11/2024;ZERO;0,00\n\
+03/11/2024;VIDE;\n\
+03/11/2024;TEXTE;abc\n\
+03/11/2024;ENORME;-1000000000000,00\n\
+32/11/2024;MAUVAISE DATE;-1,00\n";
+
+    let r = statement_import(&client, checking.id, csv, false).await;
+
+    assert_eq!(r.status, 201);
+    assert_eq!(
+        r.json(),
+        json!({"imported": 1, "skipped": 6, "duplicates": 0, "errors": [
+            {"rowNumber": 3, "message": "Missing date"},
+            {"rowNumber": 4, "message": "Amount is zero"},
+            {"rowNumber": 5, "message": "Missing amount (or debit/credit)"},
+            {"rowNumber": 6, "message": "Invalid amount 'abc'"},
+            {"rowNumber": 7, "message": "Amount is too large"},
+            {"rowNumber": 8, "message": "Invalid date '32/11/2024'"},
+        ]})
+    );
 }
 
 #[tokio::test]
@@ -361,6 +604,7 @@ async fn date_patterns_with_time_tokens_import_their_calendar_dates() {
         json!({
             "imported": 2,
             "skipped": 1,
+            "duplicates": 0,
             "errors": [{"rowNumber": 4, "message": "Invalid date '2024-03-10 25:00:00'"}],
         })
     );
@@ -406,7 +650,7 @@ async fn side_values_map_case_insensitively_and_metals_take_catalogue_tickers() 
         .await;
     assert_eq!(
         r.json(),
-        json!({"imported": 1, "skipped": 2, "errors": [
+        json!({"imported": 1, "skipped": 2, "duplicates": 0, "errors": [
             {"rowNumber": 3, "message": "'NOPE' is not a precious metals product"},
             {"rowNumber": 4, "message": "No enum constant com.picsou.model.TransactionType.NOPE"},
         ]})

@@ -6,7 +6,7 @@
 
 mod client;
 mod connection;
-mod currency;
+pub(crate) mod currency;
 mod holdings;
 mod java_uri;
 mod json;

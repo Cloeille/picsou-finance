@@ -2952,6 +2952,9 @@
     "import": "Importar",
     "rowsImported": "{{count}} transacciones importadas",
     "rowsSkipped": "{{count}} filas omitidas",
+    "rowsDuplicate": "{{count}} líneas ya presentes en la cuenta, descartadas",
+    "invertSign": "Las salidas son positivas en este archivo (invertir cada importe)",
+    "cashHint": "Asigna una columna de importe con signo, o las columnas de débito y crédito.",
     "rowLabel": "Fila {{row}}",
     "field": {
       "date": "Fecha",
@@ -2962,7 +2965,10 @@
       "unitPrice": "Precio unitario",
       "fees": "Comisiones",
       "currency": "Moneda",
-      "amount": "Importe"
+      "amount": "Importe",
+      "description": "Concepto",
+      "debit": "Débito",
+      "credit": "Crédito"
     }
   },
   "realized": {
