@@ -43,6 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the budget pages do (#697).
 - **Card labels with a glued Lemonway prefix.** A label such as `CARTE 07/11/26 LMWSNCF CONNECT`
   is now read as `Sncf Connect`, so the merchant is recognised (#691).
+- **BoursoBank: managed PEA holdings under `funds`.** A managed PEA whose trading summary returns an
+  empty `positions` list and lists its holdings under `funds` is now imported and reconciled against
+  the account valuation instead of failing with `PORTFOLIO_INCOMPLETE` (#398).
 
 ## [1.3.0] — 2026-11-24
 

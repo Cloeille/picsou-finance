@@ -529,6 +529,78 @@ class TradingSummaryTest(unittest.TestCase):
             parse_trading_summary(sections, "acc")
         self.assertEqual(raised.exception.code, INCOMPLETE)
 
+    def test_managed_pea_with_empty_positions_and_populated_funds_reconciles(self):
+        # #398: a managed/profiled PEA returns an empty `positions` section and
+        # its holding(s) in a separate `funds` list, without `gainLoss`.
+        fund = position(
+            symbol="0P0000TEST",
+            label="Managed Synthetic Fund",
+            isin="FR0010315770",
+            quantity="9",
+            amount="900.00",
+            delay=0,
+            alerts=[],
+        )
+        del fund["gainLoss"]
+        sections = summary(cash="100.00", valuation="900.00", total="1000.00", positions=[])
+        sections.append({"id": "funds", "funds": [fund]})
+
+        parsed = parse_trading_summary(sections, "acc")
+
+        self.assertEqual(parsed["cashEur"], Decimal("100.00"))
+        self.assertEqual(parsed["totalEur"], Decimal("1000.00"))
+        self.assertEqual(len(parsed["positions"]), 1)
+        line = parsed["positions"][0]
+        self.assertEqual(line["symbol"], "0P0000TEST")
+        self.assertEqual(line["isin"], "FR0010315770")
+        self.assertEqual(line["label"], "Managed Synthetic Fund")
+        self.assertEqual(line["quantity"], Decimal("9"))
+        self.assertEqual(line["currentValueEur"], Decimal("900.00"))
+        self.assertIsNone(line["pnlEur"])
+
+    def test_funds_mismatching_valuation_are_refused(self):
+        fund = position(symbol="0P0000TEST", isin="FR0010315770", amount="400.00")
+        del fund["gainLoss"]
+        sections = summary(cash="100.00", valuation="900.00", total="1000.00", positions=[])
+        sections.append({"id": "funds", "funds": [fund]})
+
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(sections, "acc")
+        self.assertEqual(raised.exception.code, INCOMPLETE)
+
+    def test_positions_and_funds_are_combined_without_double_counting(self):
+        a = position(symbol="1rTA", isin="IE00B4L5Y983", quantity="5", amount="450.00")
+        b = position(symbol="1rTB", isin="FR0000000001", quantity="5", amount="250.00")
+        c = position(symbol="0P0000TEST", isin="FR0000000002", quantity="2", amount="200.00")
+
+        # Disjoint positions + funds sections reconcile together.
+        disjoint = summary(valuation="650.00", total="750.00", positions=[a])
+        disjoint.append({"id": "funds", "funds": [c]})
+        parsed = parse_trading_summary(disjoint, "acc")
+        self.assertEqual([line["symbol"] for line in parsed["positions"]], ["1rTA", "0P0000TEST"])
+
+        # Overlapping positions + funds deduplicate the shared holding.
+        overlapping = summary(valuation="900.00", total="1000.00", positions=[a, b])
+        overlapping.append({"id": "funds", "funds": [dict(a, amount=money("450.0")), c]})
+        parsed_overlap = parse_trading_summary(overlapping, "acc")
+        self.assertEqual(
+            [line["symbol"] for line in parsed_overlap["positions"]],
+            ["1rTA", "1rTB", "0P0000TEST"],
+        )
+
+        # Identical holding repeated across positions and funds cannot fake a missing holding.
+        repeated_partial = summary(valuation="900.00", total="1000.00", positions=[a])
+        repeated_partial.append({"id": "funds", "funds": [dict(a)]})
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(repeated_partial, "acc")
+        self.assertEqual(raised.exception.code, INCOMPLETE)
+
+        # Same complete holding repeated in both lists is counted once.
+        repeated_full = summary(valuation="450.00", total="550.00", positions=[a])
+        repeated_full.append({"id": "funds", "funds": [dict(a)]})
+        parsed_full = parse_trading_summary(repeated_full, "acc")
+        self.assertEqual(len(parsed_full["positions"]), 1)
+
     def test_a_missing_valuation_field_is_refused(self):
         broken = summary()
         del broken[0]["account"]["valuation"]
@@ -626,7 +698,8 @@ class SingleFundContractTest(unittest.TestCase):
         with_cash = single_fund()
         with_cash[0]["account"]["cash"] = money("10.00")
         with_positions = single_fund() + [{"positions": [position()]}]
-        for mixed in (with_cash, with_positions):
+        with_funds = single_fund() + [{"funds": [position()]}]
+        for mixed in (with_cash, with_positions, with_funds):
             with self.assertRaises(AccountsFormatError) as raised:
                 parse_trading_summary(mixed, "acc")
             self.assertEqual(raised.exception.code, FORMAT_CHANGED)
@@ -642,7 +715,10 @@ class SingleFundContractTest(unittest.TestCase):
             self.assertEqual(raised.exception.code, FORMAT_CHANGED)
 
     def test_an_empty_positions_section_beside_a_fund_is_tolerated(self):
-        sections = single_fund() + [{"id": "positions", "positions": [], "count": 0}]
+        sections = single_fund() + [
+            {"id": "positions", "positions": [], "count": 0},
+            {"id": "funds", "funds": []},
+        ]
         parsed = parse_trading_summary(sections, "acc")
         self.assertEqual(parsed["positions"][0]["currentValueEur"], Decimal("350.00"))
 

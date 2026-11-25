@@ -666,10 +666,10 @@ def _parse_single_fund(
     # Neither reading of a mixed payload is safe: the fund could be one line among
     # the positions, or the cash a pocket beside the fund. The account fields are
     # absent from this shape, so even a null one means it changed. An empty
-    # positions section carries nothing to contradict the fund, and BoursoBank
-    # already sends those beside populated ones.
+    # positions or funds section carries nothing to contradict the fund, and
+    # BoursoBank already sends those beside populated ones.
     mixed = any(field in account for field in ("cash", "valuation", "total"))
-    if mixed or any(section.get("positions") for section in sections):
+    if mixed or any(section.get("positions") or section.get("funds") for section in sections):
         raise AccountsFormatError(
             FORMAT_CHANGED, "Trading summary mixes a fund contract and a securities account"
         )
@@ -788,10 +788,15 @@ def parse_trading_summary(payload: Any, account_id: str) -> dict[str, Any]:
             INVALID_DATA, f"Trading account {account_id[:8]}… is denominated in {currency}"
         )
 
-    # The richest positions list rather than the first: a section can carry an
+    # The richest holdings list rather than the first: a section can carry an
     # empty one, and picking that would look exactly like a cash-only account.
+    # Managed/profiled accounts return an empty `positions` list and put their
+    # holdings under `funds` (#398).
     position_lists = [
-        section["positions"] for section in sections if isinstance(section.get("positions"), list)
+        section[key]
+        for section in sections
+        for key in ("positions", "funds")
+        if isinstance(section.get(key), list)
     ]
     raw_positions = max(position_lists, key=len) if position_lists else []
 

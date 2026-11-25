@@ -1079,12 +1079,33 @@ fn trading_summary_single_fund_collisions_and_diagnostics() {
         INVALID_DATA
     );
 
-    // Mixed single-fund + cash refused.
+    // Mixed single-fund + cash or non-empty funds refused.
     let mut mixed = single_fund_summary("350.00", "3.5");
     mixed[0]["account"]["cash"] = money("10.00", Some("EUR"));
     assert_eq!(
         parse_trading_summary(&mixed, "acc").unwrap_err().code,
         FORMAT_CHANGED
+    );
+    let mut mixed_funds = single_fund_summary("350.00", "3.5");
+    mixed_funds
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "funds": [trading_position(Some("0P0000TEST"), "1", "350.00", "EUR")] }));
+    assert_eq!(
+        parse_trading_summary(&mixed_funds, "acc").unwrap_err().code,
+        FORMAT_CHANGED
+    );
+    let mut empty_funds = single_fund_summary("350.00", "3.5");
+    empty_funds
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "funds": [] }));
+    assert_eq!(
+        parse_trading_summary(&empty_funds, "acc")
+            .unwrap()
+            .positions[0]
+            .current_value_eur,
+        d("350.00")
     );
 
     // Symbol collisions.
@@ -1121,6 +1142,122 @@ fn trading_summary_single_fund_collisions_and_diagnostics() {
     assert!(!desc.contains("143088"));
     assert!(!desc.contains("PEA DOE"));
     assert!(desc.contains("positions:null"));
+}
+
+#[test]
+fn trading_summary_reconciles_managed_pea_holdings_under_funds() {
+    // #398: a managed PEA returns empty `positions` and its holding(s) in `funds`,
+    // optionally without `gainLoss`.
+    let fund = json!({
+        "symbol": "0P0000TEST",
+        "label": "Managed Synthetic Fund",
+        "isin": "FR0010315770",
+        "permalink": "/cours/0P0000TEST/",
+        "exchangeCode": "XPAR",
+        "delay": 0,
+        "quantity": { "value": "9", "decimals": 4, "currency": null },
+        "alerts": [],
+        "buyingPrice": money("80.00", Some("EUR")),
+        "currency": "EUR",
+        "amount": money("900.00", Some("EUR")),
+        "last": money("100.00", Some("EUR")),
+    });
+    let mut payload = trading_summary("100.00", "900.00", "1000.00", vec![]);
+    payload
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "id": "funds", "funds": [fund] }));
+
+    let parsed = parse_trading_summary(&payload, "acc").unwrap();
+    assert_eq!(parsed.cash_eur, d("100.00"));
+    assert_eq!(parsed.total_eur, d("1000.00"));
+    assert_eq!(parsed.positions.len(), 1);
+    assert_eq!(parsed.positions[0].symbol, "0P0000TEST");
+    assert_eq!(parsed.positions[0].isin.as_deref(), Some("FR0010315770"));
+    assert_eq!(parsed.positions[0].label, "Managed Synthetic Fund");
+    assert_eq!(parsed.positions[0].quantity, d("9"));
+    assert_eq!(parsed.positions[0].current_value_eur, d("900.00"));
+    assert_eq!(parsed.positions[0].pnl_eur, None);
+}
+
+#[test]
+fn trading_summary_refuses_funds_mismatching_valuation() {
+    let mut fund = trading_position(Some("0P0000TEST"), "4", "400.00", "EUR");
+    fund["isin"] = json!("FR0010315770");
+    fund.as_object_mut().unwrap().remove("gainLoss");
+
+    let mut payload = trading_summary("100.00", "900.00", "1000.00", vec![]);
+    payload
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "id": "funds", "funds": [fund] }));
+
+    assert_eq!(
+        parse_trading_summary(&payload, "acc").unwrap_err().code,
+        INCOMPLETE
+    );
+}
+
+#[test]
+fn trading_summary_combines_positions_and_funds_without_double_counting() {
+    let a = trading_position(Some("1rTA"), "5", "450.00", "EUR");
+    let mut b = trading_position(Some("1rTB"), "5", "250.00", "EUR");
+    b["isin"] = json!("FR0000000001");
+    let mut c = trading_position(Some("0P0000TEST"), "2", "200.00", "EUR");
+    c["isin"] = json!("FR0000000002");
+
+    // Disjoint positions + funds sections reconcile together.
+    let mut disjoint = trading_summary("100.00", "650.00", "750.00", vec![a.clone()]);
+    disjoint
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "id": "funds", "funds": [c.clone()] }));
+    let parsed = parse_trading_summary(&disjoint, "acc").unwrap();
+    let symbols: Vec<&str> = parsed.positions.iter().map(|p| p.symbol.as_str()).collect();
+    assert_eq!(symbols, vec!["1rTA", "0P0000TEST"]);
+
+    // Overlapping positions + funds deduplicate the shared holding.
+    let mut a_reformatted = a.clone();
+    a_reformatted["amount"] = money("450.0", Some("EUR"));
+    let mut overlapping = trading_summary("100.00", "900.00", "1000.00", vec![a.clone(), b]);
+    overlapping
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "id": "funds", "funds": [a_reformatted, c] }));
+    let parsed_overlap = parse_trading_summary(&overlapping, "acc").unwrap();
+    let overlap_symbols: Vec<&str> = parsed_overlap
+        .positions
+        .iter()
+        .map(|p| p.symbol.as_str())
+        .collect();
+    assert_eq!(overlap_symbols, vec!["1rTA", "1rTB", "0P0000TEST"]);
+
+    // Identical holding repeated in both lists cannot hide a missing holding.
+    let mut repeated_partial = trading_summary("100.00", "900.00", "1000.00", vec![a.clone()]);
+    repeated_partial
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "id": "funds", "funds": [a.clone()] }));
+    assert_eq!(
+        parse_trading_summary(&repeated_partial, "acc")
+            .unwrap_err()
+            .code,
+        INCOMPLETE
+    );
+
+    // Same complete holding repeated in both lists is counted once.
+    let mut repeated_full = trading_summary("100.00", "450.00", "550.00", vec![a.clone()]);
+    repeated_full
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "id": "funds", "funds": [a] }));
+    assert_eq!(
+        parse_trading_summary(&repeated_full, "acc")
+            .unwrap()
+            .positions
+            .len(),
+        1
+    );
 }
 
 // ─── Identity Selector Tests ────────────────────────────────────────────────
