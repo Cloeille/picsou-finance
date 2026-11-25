@@ -322,6 +322,10 @@ impl AccountIsinResolver for OpenFigiIsin {
     async fn resolve(&self, isin: &str) -> TickerResult {
         self.0.resolve(isin).await
     }
+
+    async fn resolve_fresh(&self, isin: &str) -> TickerResult {
+        self.0.resolve_fresh(isin).await
+    }
 }
 
 #[async_trait]

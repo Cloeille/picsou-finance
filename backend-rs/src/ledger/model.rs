@@ -306,6 +306,8 @@ pub struct Account {
     /// Revolut pockets only: the parent wallet account.
     pub parent_account_id: Option<i64>,
     pub hidden: bool,
+    /// The ISIN of the single fund the account holds, uppercase and valid; set by its member.
+    pub tracked_isin: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -326,14 +328,14 @@ pub(crate) const ACCOUNT_COLUMNS: &str = "a.id, a.member_id, a.name, a.type::tex
     a.reward_points, a.external_account_id, a.is_manual, a.color, a.iban, a.ticker, a.logo_url, a.logo_key, \
     a.institution_name, a.institution_domain, a.requisition_id, a.opened_at, a.provider_invested_eur, \
     a.provider_paid_in_eur, a.scheduled_payment_eur, a.scheduled_payment_cadence, a.deleted_at, \
-    a.parent_account_id, a.hidden, a.created_at, a.updated_at";
+    a.parent_account_id, a.hidden, a.tracked_isin, a.created_at, a.updated_at";
 
 pub(crate) const ACCOUNT_RETURNING: &str = "id, member_id, name, type::text AS type, provider, currency, \
     current_balance, cash_balance, last_synced_at, payment_due_amount, payment_due_date, card_nature, \
     reward_points, external_account_id, is_manual, color, iban, ticker, logo_url, logo_key, \
     institution_name, institution_domain, requisition_id, opened_at, provider_invested_eur, \
     provider_paid_in_eur, scheduled_payment_eur, scheduled_payment_cadence, deleted_at, \
-    parent_account_id, hidden, created_at, updated_at";
+    parent_account_id, hidden, tracked_isin, created_at, updated_at";
 
 #[derive(Debug, Clone, PartialEq, crate::db::DbFromRow)]
 pub struct AccountHolding {

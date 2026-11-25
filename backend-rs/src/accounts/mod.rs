@@ -19,6 +19,7 @@ pub mod scale;
 pub mod seams;
 pub mod security;
 pub mod service;
+pub mod tracked_fund;
 pub mod validation;
 
 pub use seams::Seams;

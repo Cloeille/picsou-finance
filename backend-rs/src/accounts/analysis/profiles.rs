@@ -117,7 +117,8 @@ impl RefreshRunner {
         self.refresher.refresh_stale(db, tickers, limit).await
     }
 
-    /// Queues a pass over every distinct held ticker of the instance (profiles are global).
+    /// Queues a pass over every distinct held ticker and tracked fund key of the instance
+    /// (profiles are global).
     pub async fn trigger(&self, db: &Db) -> sqlx::Result<Trigger> {
         if self
             .running
@@ -133,10 +134,11 @@ impl RefreshRunner {
             }
         }
         let guard = RunningGuard(self.running.clone());
-        let tickers: BTreeSet<String> = holdings::distinct_tickers(db, None)
+        let mut tickers: BTreeSet<String> = holdings::distinct_tickers(db, None)
             .await?
             .into_iter()
             .collect();
+        tickers.extend(crate::accounts::tracked_fund::profile_tickers(db).await?);
         if tickers.is_empty() {
             return Ok(Trigger::Queued(0));
         }
