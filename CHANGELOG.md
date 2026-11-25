@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and Ollama. The settings form fills the base URL of the chosen provider and suggests the models
   that the provider offers. The stored API key is now sent only to the provider and host it was
   saved for, and a change of provider without a new key clears it.
+- **Gulf currencies for accounts.** AED, SAR, QAR, KWD, BHD and OMR can now be picked when
+  creating or editing an account. Values convert to EUR like the other currencies (#718).
 
 ### Changed
 

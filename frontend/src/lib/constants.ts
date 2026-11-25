@@ -85,6 +85,7 @@ export function accountTypeLabelKey(type: AccountType): string {
 export const SUPPORTED_CURRENCIES = [
   'EUR', 'USD', 'GBP', 'CHF', 'JPY', 'CAD', 'AUD', 'CNY',
   'SEK', 'NOK', 'DKK', 'NZD', 'HKD', 'SGD', 'PLN',
+  'AED', 'SAR', 'QAR', 'KWD', 'BHD', 'OMR',
 ] as const
 
 export const ACCOUNT_COLORS = [
