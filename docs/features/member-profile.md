@@ -114,12 +114,12 @@ only exists if the two are recorded apart.
 ### Key files
 
 **Backend**
-- `model/MemberProfile.java`, `model/HouseholdStatus.java`, `model/RiskProfile.java`
-- `repository/MemberProfileRepository.java`
-- `dto/MemberProfileRequest.java` / `MemberProfileResponse.java`
-- `service/MemberProfileService.java` — modelled on `AllocationTargetService`
-- `controller/MeProfileController.java` — `GET` / `PUT /api/me/profile`
-- `db/migration/V90__member_profile.sql`
+- `MemberProfile.java`, `backend-rs/src/identity/profile.rs`, `backend-rs/src/identity/profile.rs`
+- `MemberProfileRepository.java`
+- `MemberProfileRequest.java` / `MemberProfileResponse.java`
+- `backend-rs/src/identity/profile.rs` — modelled on `AllocationTargetService`
+- `backend-rs/src/identity/profile.rs` — `GET` / `PUT /api/me/profile`
+- `backend-rs/migrations/V90__member_profile.sql`
 
 **Frontend**
 - `features/profile/{api,hooks}.ts` — `useMemberProfile`, `useSaveMemberProfile`, key `['me','profile']`

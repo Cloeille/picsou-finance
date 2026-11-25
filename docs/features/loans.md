@@ -1,6 +1,6 @@
 # Feature: Loan accounts (LOAN type)
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-24
 
 ## Sign convention
 
@@ -50,15 +50,15 @@ remaining capital from the formula. As a result, the historical balance chart sh
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/model/Debt.java` — entity (now includes `insuranceMonthly`, `fileFees`)
-- `backend/src/main/java/com/picsou/service/LoanAmortizationService.java` — formula + records
+- `backend-rs/src/ledger/loans.rs` — entity (now includes `insuranceMonthly`, `fileFees`)
+- `backend-rs/src/ledger/loans.rs` — formula + records
   (`LoanInstallment`, `LoanSummary`, `LoanScheduleResponse`)
-- `backend/src/main/java/com/picsou/service/AccountService.java`
+- `AccountService.java`
   - `liveBalanceEur` — branched for LOAN to return the (positive) remaining capital
   - `signedLiveBalanceEur` — applies the liability sign (LOAN → negative) for net-worth sums
   - `getLoanSummary(id, memberId)` — loads the Debt, validates type, delegates to amortization service
-- `backend/src/main/java/com/picsou/controller/AccountController.java` — `GET /accounts/{id}/loan-summary`
-- `backend/src/main/resources/db/migration/V27__loan_extra_fields.sql` — adds `insurance_monthly`, `file_fees`
+- `backend-rs/src/accounts/service.rs` — `GET /accounts/{id}/loan-summary`
+- `backend-rs/migrations/V27__loan_extra_fields.sql` — adds `insurance_monthly`, `file_fees`
 - `frontend/src/components/loan/LoanDetailSection.tsx` — orchestrator
   (monthly breakdown, progress, cost summary, amortization chart)
 - `frontend/src/components/shared/AccountForm.tsx` — extended form for LOAN
@@ -121,6 +121,10 @@ BalanceSnapshot persisted  →  historical balance chart steps down monthly
 - **The last installment absorbs the rounding residue.** With BigDecimal precision and scale 2,
   240 monthly capitals do not sum exactly to the borrowed amount; the service forces the
   last installment to bring `remainingBalance` to zero.
+- **A schedule has at most 1,200 installments (100 years).** Terms above that, or a negative
+  amortisation (a payment below the interest) whose balance outgrows `Decimal`, answer `400` on
+  `PUT /api/accounts/{id}/debt` and `GET /api/accounts/{id}/loan-summary` instead of building an
+  unbounded schedule or failing with a `500`.
 - **`liveBalanceEur` returns POSITIVE for LOAN; only aggregation negates.** See the
   "Sign convention" section above — the dashboard "Total liabilities" card adds the positive
   value to liabilities and subtracts liabilities from assets.

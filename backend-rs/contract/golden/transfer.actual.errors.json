@@ -1,0 +1,299 @@
+{
+  "description": "Actual Budget import refusals: unsupported file, invalid request, wrong currency, foreign mapping",
+  "scenario": "transfer.actual.errors",
+  "steps": [
+    {
+      "body": {
+        "detail": "Unsupported file: expected an Actual Budget export (.zip) or its db.sqlite",
+        "instance": "/api/actual/import/preview",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "05 POST /api/actual/import/preview as admin"
+    },
+    {
+      "body": {
+        "detail": "Not an Actual Budget database: table 'payees' is missing",
+        "instance": "/api/actual/import/preview",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "06 POST /api/actual/import/preview as admin"
+    },
+    {
+      "body": {
+        "accounts": [
+          {
+            "balance": 2957.66,
+            "closed": false,
+            "name": "Everyday",
+            "offBudget": false,
+            "sourceId": "acc-checking",
+            "suggestedType": "CHECKING",
+            "transactionCount": 6
+          },
+          {
+            "balance": 500.00,
+            "closed": false,
+            "name": "Rainy day",
+            "offBudget": true,
+            "sourceId": "acc-savings",
+            "suggestedType": "OTHER",
+            "transactionCount": 1
+          }
+        ],
+        "actualAccountIds": [],
+        "categories": [
+          {
+            "groupName": "Food",
+            "income": false,
+            "name": "Groceries",
+            "sourceId": "cat-groceries",
+            "transactionCount": 2
+          },
+          {
+            "groupName": "Food",
+            "income": false,
+            "name": "Restaurants",
+            "sourceId": "cat-restaurants",
+            "transactionCount": 1
+          },
+          {
+            "groupName": "Income",
+            "income": true,
+            "name": "Salary",
+            "sourceId": "cat-salary",
+            "transactionCount": 1
+          }
+        ],
+        "currency": "EUR",
+        "existingAccounts": [
+          {
+            "color": "#6366f1",
+            "createdAt": "<instant>",
+            "currency": "EUR",
+            "currentBalance": 12.00000000,
+            "currentBalanceEur": 12.00000000,
+            "hidden": false,
+            "id": "<id:1>",
+            "isManual": true,
+            "listCollapsed": false,
+            "name": "Courant",
+            "type": "CHECKING"
+          }
+        ],
+        "existingCategories": [],
+        "fileToken": "<secret:1>",
+        "sampleTransactions": [
+          {
+            "accountSourceId": "acc-checking",
+            "amount": 2500.00,
+            "categorySourceId": "cat-salary",
+            "date": "<month-34:last>",
+            "kind": "REGULAR",
+            "notes": "January pay",
+            "payee": "Employer",
+            "sourceId": "t-salary"
+          },
+          {
+            "accountSourceId": "acc-checking",
+            "amount": -10.00,
+            "categorySourceId": "cat-restaurants",
+            "date": "2024-01-20",
+            "kind": "REGULAR",
+            "notes": "Lunch",
+            "payee": "Market",
+            "sourceId": "t-split/2"
+          },
+          {
+            "accountSourceId": "acc-checking",
+            "amount": -20.00,
+            "categorySourceId": "cat-groceries",
+            "date": "2024-01-20",
+            "kind": "REGULAR",
+            "notes": "Weekly shop",
+            "payee": "Market",
+            "sourceId": "t-split/1"
+          },
+          {
+            "accountSourceId": "acc-savings",
+            "amount": 500.00,
+            "date": "2024-01-15",
+            "kind": "TRANSFER",
+            "payee": "Everyday",
+            "sourceId": "t-in"
+          },
+          {
+            "accountSourceId": "acc-checking",
+            "amount": -500.00,
+            "date": "2024-01-15",
+            "kind": "TRANSFER",
+            "payee": "Rainy day",
+            "sourceId": "t-out"
+          },
+          {
+            "accountSourceId": "acc-checking",
+            "amount": -12.34,
+            "categorySourceId": "cat-groceries",
+            "date": "2024-01-02",
+            "kind": "REGULAR",
+            "payee": "Market",
+            "sourceId": "t-groceries"
+          },
+          {
+            "accountSourceId": "acc-checking",
+            "amount": 1000.00,
+            "date": "<month-34:first>",
+            "kind": "STARTING_BALANCE",
+            "sourceId": "t-start"
+          }
+        ],
+        "totalTransactions": 7,
+        "transferTransactions": 3
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "07 POST /api/actual/import/preview as admin"
+    },
+    {
+      "body": {
+        "errors": {
+          "currency": "must match \"[A-Z]{3}\""
+        },
+        "instance": "/api/actual/import",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 422,
+      "step": "08 POST /api/actual/import as admin"
+    },
+    {
+      "body": {
+        "detail": "The budget currency is EUR, not USD",
+        "instance": "/api/actual/import/plan",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "09 POST /api/actual/import/plan as admin"
+    },
+    {
+      "body": {
+        "detail": "Each Actual account and category must be mapped exactly once",
+        "instance": "/api/actual/import/plan",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "10 POST /api/actual/import/plan as admin"
+    },
+    {
+      "body": {
+        "detail": "Preview expired or invalid -- please upload the file again",
+        "instance": "/api/actual/import/plan",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "11 POST /api/actual/import/plan as admin"
+    }
+  ]
+}

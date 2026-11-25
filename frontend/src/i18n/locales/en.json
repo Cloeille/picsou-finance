@@ -18,7 +18,7 @@
       "forbidden": "You don't have permission to do that.",
       "tooManyRequests": "Too many attempts. Please wait a moment and try again.",
       "serverError": "Something went wrong on our side. Please try again.",
-      "network": "Can't reach the Picsou server. Check your connection and try again."
+      "network": "Can't reach Picsou. Check your connection and try again."
     },
     "dateHint": "dd/mm/yyyy",
     "search": "Search",
@@ -68,6 +68,7 @@
     "loggingIn": "Signing in...",
     "error": "Invalid credentials",
     "networkError": "Unable to reach the server. Check the connection, then try again.",
+    "networkErrorDesktop": "Unable to reach Picsou locally. Try again in a moment or restart the app.",
     "loginGenericError": "We couldn't sign you in. Please try again.",
     "showPassword": "Show password",
     "hidePassword": "Hide password",
@@ -1353,7 +1354,7 @@
         "invalidPin": "Incorrect PIN or password.",
         "invalidTan": "The verification code is incorrect or expired. Use the latest code you received, or restart the step to receive a new one.",
         "authenticationFailed": "Trade Republic authentication failed.",
-        "serviceUnavailable": "The local Trade Republic service is unavailable. Restart the servers, then try again.",
+        "serviceUnavailable": "The local Trade Republic service is unavailable. Restart Picsou and try again.",
         "serverError": "Trade Republic server error. Please try again.",
         "phoneNumberRequired": "Phone number is required.",
         "pinRequired": "PIN or password is required.",
@@ -1397,7 +1398,10 @@
       },
       "errors": {
         "humanVerificationRequired": "Revolut is asking you to prove you are human (captcha), and Picsou cannot do that for you. Sign-in cannot continue. Try again later.",
-        "upstreamFormatChanged": "The sign-in didn't go through. Check your phone number and try again."
+        "upstreamFormatChanged": "The sign-in didn't go through. Check your phone number and try again.",
+        "authAttemptExpired": "The sign-in attempt expired. Please try again.",
+        "sessionExpired": "Your Revolut session has expired. Please reconnect.",
+        "serverError": "Unable to reach Revolut. Please try again."
       },
       "selection": {
         "title": "Choose which accounts to import",
@@ -1407,6 +1411,14 @@
         "alreadyImported": "Already imported",
         "transactions": "{{count}} transactions",
         "allImported": "All your Revolut accounts are already imported."
+      },
+      "webview": {
+        "hint": "Sign in directly on the official Revolut web app in a dedicated window. Picsou never sees your credentials.",
+        "connect": "Sign in to Revolut",
+        "reconnect": "Reconnect Revolut",
+        "waiting": "Sign in using the Revolut window that just opened…",
+        "waitingHint": "Enter your credentials and approve the sign-in on your phone directly on Revolut’s site. The window closes automatically once signed in.",
+        "fetching": "Signed in — fetching your accounts…"
       }
     },
     "ibkr": {
@@ -1853,6 +1865,7 @@
       "customerId": "Identifier",
       "rememberIdentifier": "Remember the identifier",
       "rememberIdentifierHint": "The identifier is stored encrypted on your server. The password is never saved.",
+      "rememberIdentifierHintDesktop": "The identifier is stored encrypted locally on your device. The password is never saved.",
       "connect": "Connect",
       "connecting": "Connecting…",
       "sync": "Sync",
@@ -2237,6 +2250,14 @@
         "formatChanged": "The American Express website format has changed. Your existing data has been preserved.",
         "invalidData": "American Express returned inconsistent data. Your existing data has been preserved.",
         "serverError": "Unable to reach American Express. Please try again."
+      },
+      "webview": {
+        "hint": "Sign in directly on the official American Express portal in a dedicated window. Picsou never sees your credentials.",
+        "connect": "Sign in to American Express",
+        "reconnect": "Reconnect American Express",
+        "waiting": "Sign in using the American Express window that just opened…",
+        "waitingHint": "Enter your credentials and complete two-step verification directly on American Express’s site. The window closes automatically once signed in.",
+        "fetching": "Signed in — fetching your accounts…"
       }
     },
     "fortuneo": {
@@ -2335,6 +2356,14 @@
         "cancel": "Cancel",
         "clear": "Clear",
         "validate": "Validate"
+      },
+      "webview": {
+        "hint": "Sign in directly on your bank's official portal in a dedicated window. Picsou never sees your credentials.",
+        "connect": "Sign in to {{brand}}",
+        "reconnect": "Reconnect {{brand}}",
+        "waiting": "Sign in using the {{brand}} window that just opened…",
+        "waitingHint": "Enter your credentials and approve Clé Digitale directly on the bank's site. The window closes automatically once signed in.",
+        "fetching": "Signed in — fetching your accounts…"
       }
     },
     "searchPlaceholder": "Search a bank, broker, or import...",
@@ -2694,6 +2723,7 @@
       "never2": "Names, emails, usernames or IP addresses",
       "never3": "Any identifier of a user, device or session",
       "tunnel": "Reports go through your own Picsou server, which scrubs them again before forwarding.",
+      "tunnelDesktop": "Reports are scrubbed locally on your device before anything is sent.",
       "enable": "Enable",
       "decline": "No thanks",
       "error": "Could not save your choice. Please try again."
@@ -2796,21 +2826,6 @@
         "privateKey": "the private key"
       }
     },
-    "integrations": {
-      "title": "Integrations",
-      "description": "Enable or disable data connectors",
-      "enablebanking": "Enable Banking",
-      "boursobank": "BoursoBank",
-      "boursedirect": "Bourse Direct",
-      "fortuneo": "Fortuneo",
-      "amex": "Sync your American Express cards",
-      "corum": "CORUM SCPI and life-insurance holdings",
-      "sofidy": "Sofidy SCPI holdings",
-      "traderepublic": "Trade Republic",
-      "lbp": "La Banque Postale",
-      "finary": "Finary",
-      "crypto": "Crypto"
-    },
     "members": {
       "title": "Members",
       "description": "Manage family member accounts",
@@ -2885,9 +2900,13 @@
   },
   "error": {
     "connecting": "Connecting to server...",
+    "connectingDesktop": "Starting Picsou...",
     "noConnection": "Cannot connect to server",
+    "noConnectionDesktop": "Picsou is not responding",
     "noConnectionDesc": "Make sure the server is running and try again.",
+    "noConnectionDescDesktop": "Picsou's local engine is not responding yet. Try again in a moment or restart the app.",
     "degradedMode": "No connection to server. Some features may not work.",
+    "degradedModeDesktop": "Lost connection to the local Picsou engine. Some features may be unavailable.",
     "notFound": "The page you are looking for does not exist.",
     "backToDashboard": "Back to dashboard",
     "forbidden": "You do not have permission to access this page.",
@@ -3166,6 +3185,7 @@
       "ok": "Sidecar is up and ready.",
       "downTitle": "We couldn't reach the sidecar.",
       "downHint": "Make sure the bourso-auth container is running. Docker Compose starts it by default.",
+      "downHintDesktop": "BoursoBank runs natively inside Picsou Desktop. Check your internet connection and try again.",
       "retry": "Retry",
       "continue": "Continue",
       "skip": "Skip for now"
@@ -3698,5 +3718,60 @@
     "copied": "Copied",
     "copy": "Copy",
     "cardTitle": "Discover Picsou {{version}}"
+  },
+  "desktop": {
+    "unavailable": "Not on desktop",
+    "unavailableDetail": "This bank connector is not yet available in Picsou Desktop.",
+    "onboarding": {
+      "title": "Welcome to Picsou",
+      "subtitle": "Your personal finance dashboard, stored locally on your computer.",
+      "nameLabel": "Space name",
+      "namePlaceholder": "My Space",
+      "cta": "Get started",
+      "starting": "Setting up...",
+      "error": "Could not start Picsou. Please try again.",
+      "legacyPostgresTitle": "Previous local data preserved",
+      "legacyPostgresBody": "Picsou Desktop now uses an embedded SQLite database. Starting fresh creates a new local database, and your previous data folder (postgres/) has been preserved untouched in the application data directory."
+    },
+    "emptyDashboard": {
+      "title": "Add your first account",
+      "description": "Connect a bank or create a manual account to start tracking your net worth.",
+      "cta": "Add an account"
+    },
+    "advancedMode": {
+      "title": "Advanced mode",
+      "description": "Show administration tools, MCP access keys, OAuth connected apps, and technical logs."
+    },
+    "lock": {
+      "title": "Desktop Security",
+      "description": "Protect local launches of Picsou with a password.",
+      "statusEnabled": "Password lock enabled",
+      "statusDisabled": "Direct launch without password",
+      "mfaRequiresLock": "Enable the Desktop password lock above before configuring two-factor authentication.",
+      "disableBlockedByMfa": "Disable two-factor authentication below before turning off the Desktop password lock.",
+      "usernameHint": "Local username: {{username}}",
+      "enableButton": "Enable lock",
+      "disableButton": "Disable lock",
+      "newPasswordLabel": "New password (minimum 8 characters)",
+      "confirmPasswordLabel": "Confirm password",
+      "currentPasswordLabel": "Current password",
+      "passwordTooShort": "Password must be at least 8 characters.",
+      "passwordMismatch": "Passwords do not match.",
+      "invalidPassword": "Current password is incorrect.",
+      "enableConfirm": "Enable",
+      "disableConfirm": "Disable",
+      "enabledToast": "Password lock enabled.",
+      "disabledToast": "Password lock disabled.",
+      "cancel": "Cancel"
+    },
+    "oauthLogin": {
+      "title": "Password lock required",
+      "description": "Picsou Desktop is currently unlocked. To authorize an external application (such as an MCP client) from your browser, first enable Desktop password lock in Picsou Desktop under Settings > Security.",
+      "apiTabNote": "To authorize an external OAuth or MCP application in your browser, enable Desktop password lock in Settings > Security first."
+    },
+    "autologinFailed": {
+      "title": "Could not sign you in",
+      "description": "Picsou could not open your session automatically. Quit Picsou from its tray icon, then start it again."
+    }
   }
 }

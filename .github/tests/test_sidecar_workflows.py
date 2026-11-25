@@ -20,8 +20,7 @@ CI_WORKFLOW = ROOT / ".github/workflows/ci.yml"
 CODEQL_WORKFLOW = ROOT / ".github/workflows/codeql.yml"
 APP_DOCKERFILE = ROOT / "docker/Dockerfile"
 DOCKER_COMPOSE = ROOT / "docker/docker-compose.yml"
-APPLICATION_YML = ROOT / "backend/src/main/resources/application.yml"
-APPLICATION_DEV_YML = ROOT / "backend/src/main/resources/application-dev.yml"
+SIDECAR_URLS = ROOT / "backend-rs/src/sidecars.tsv"
 BASE_DOCKERFILE = "services/base/Dockerfile"
 
 
@@ -172,18 +171,21 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
             with self.subTest(service=name):
                 self.assertEqual(services[name]["environment"]["APP_SIDECAR_API_KEY"], "${APP_SIDECAR_API_KEY:-}")
 
-    def test_every_compose_sidecar_has_a_url_in_both_spring_profiles(self):
+    def test_every_compose_sidecar_has_a_url_in_both_profiles(self):
         sidecars = {name for name in _load(DOCKER_COMPOSE)["services"] if name.endswith("-auth")}
-        default = _load(APPLICATION_YML)["app"]["sidecars"]
-        dev = _load(APPLICATION_DEV_YML)["app"]["sidecars"]
+        rows = [line.split("\t") for line in SIDECAR_URLS.read_text(encoding="utf-8").splitlines()
+                if line and not line.startswith("#")]
+        self.assertEqual({len(row) for row in rows}, {4}, "service, variable, URL, dev URL")
+        urls = {name: (variable, default, dev) for name, variable, default, dev in rows}
+        self.assertEqual(len(urls), len(rows), "one row per sidecar")
         for name in sorted(sidecars):
             with self.subTest(sidecar=name):
-                self.assertIn(name, default, "missing from application.yml")
-                self.assertIn(name, dev, "missing from application-dev.yml")
-                variable = name.upper().replace("-", "_") + "_URL"
-                self.assertRegex(default[name]["url"], rf"^\$\{{{variable}:http://{name}:\d+\}}$")
-                self.assertRegex(dev[name]["url"], rf"^\$\{{{variable}:http://127\.0\.0\.1:\d+\}}$")
-        dev_ports = [dev[name]["url"].rsplit(":", 1)[1] for name in sidecars if name in dev]
+                self.assertIn(name, urls, "missing from sidecars.tsv")
+                variable, default, dev = urls[name]
+                self.assertEqual(variable, name.upper().replace("-", "_") + "_URL")
+                self.assertRegex(default, rf"^http://{name}:\d+$")
+                self.assertRegex(dev, r"^http://127\.0\.0\.1:\d+$")
+        dev_ports = [dev.rsplit(":", 1)[1] for _, _, dev in urls.values()]
         self.assertEqual(len(dev_ports), len(set(dev_ports)), "dev ports must not collide")
 
     def test_amex_sidecar_uses_an_init_process(self):
@@ -211,6 +213,10 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         self.assertEqual(matrix[0], {
             "name": "app", "image": "Owner/repo", "context": ".",
             "dockerfile": "docker/Dockerfile", "versioned": True,
+        })
+        self.assertEqual(matrix[1], {
+            "name": "demo", "image": "Owner/repo/demo", "context": ".",
+            "dockerfile": "docker/Dockerfile.demo", "versioned": True,
         })
         for service in ("amex-auth", "degiro-auth"):
             with self.subTest(service=service):
@@ -470,7 +476,7 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
 SELECTOR = "changes"
 GATE = "ci-ok"
 PUBLISH = "docker"
-NON_BLOCKING = {"helm-chart", "desktop"}
+NON_BLOCKING = {"helm-chart", "desktop", "desktop-windows", "desktop-macos"}
 # Path filters that select no job of their own.
 HELPER_FILTERS = {"workflows", "release-deps"}
 
@@ -580,7 +586,6 @@ class CiJobSelectionTest(unittest.TestCase):
             "all": "${{ steps.filter.outcome == 'skipped' }}",
             "jobs": "${{ steps.sidecars.outputs.jobs }}",
             "sidecar-matrix": "${{ steps.sidecars.outputs.matrix }}",
-            "backend-timings-key": "${{ steps.backend-timings.outputs.cache-matched-key }}",
             "release-cases": "${{ steps.release.outputs.release-cases }}",
         })
         self.assertEqual(set(_filters(jobs)) - HELPER_FILTERS, _selectable(jobs))
@@ -624,26 +629,24 @@ class CiJobSelectionTest(unittest.TestCase):
             "docs/features/budget.md": set(),
             "CHANGELOG.md": set(),
             "frontend/src/App.tsx": {"frontend", "e2e", "release-deployment"},
-            "backend/src/main/java/com/picsou/App.java": {"backend", "release-deployment"},
-            # DesktopManifestTest reads the Java pin and the Testcontainers PostgreSQL images.
-            "backend/pom.xml": {"backend", "release-deployment", "workflow-inventory"},
-            "backend/src/test/java/com/picsou/support/PostgresContainers.java": {
-                "backend", "release-deployment", "workflow-inventory",
+            "backend-rs/src/main.rs": {
+                "backend-rs", "desktop", "desktop-windows", "desktop-macos", "release-deployment",
+            },
+            "backend-rs/migrations/V1__init_schema.sql": {
+                "backend-rs", "desktop", "desktop-windows", "desktop-macos", "release-deployment",
             },
             "docker/deploy.sh": {"docker-compose", "release-deployment"},
             ".env.example": {"workflow-inventory"},
             "docker/Dockerfile": {"docker-compose", "release-deployment", "workflow-inventory"},
             "docker/docker-compose.yml": {"docker-compose", "release-deployment", "helm-chart"} | services,
-            "backend/src/main/resources/application.yml": {
-                "backend", "helm-chart", "release-deployment", "workflow-inventory",
-            },
-            "backend/src/main/resources/application-dev.yml": {
-                "backend", "release-deployment", "workflow-inventory",
+            "backend-rs/src/sidecars.tsv": {
+                "backend-rs", "desktop", "desktop-windows", "desktop-macos", "helm-chart", "release-deployment",
+                "workflow-inventory",
             },
             "charts/picsou/values.yaml": {"helm-chart"},
-            "desktop/src-tauri/src/supervisor.rs": {"desktop"},
+            "desktop/src-tauri/src/supervisor.rs": {"desktop", "desktop-windows", "desktop-macos"},
             "charts/picsou/templates/sidecars.yaml": {"helm-chart"},
-            "services/sofidy-auth/main.py": {"sidecar:sofidy-auth", "backend", "native-sidecars"} | services,
+            "services/sofidy-auth/main.py": {"sidecar:sofidy-auth", "native-sidecars"} | services,
             "services/tr-auth/main.py": {"sidecar:tr-auth"} | services,
             "services/amex-auth/main.py": {"sidecar:amex-auth", "sidecar:amex-auth:arm64"}
             | services,
@@ -653,10 +656,10 @@ class CiJobSelectionTest(unittest.TestCase):
             | services,
             "services/new-bank-auth/main.py": services,
             "services/base/requirements.txt": sidecars
-            | {"backend", "sidecar-base", "native-sidecars"}
+            | {"sidecar-base", "native-sidecars"}
             | services,
             "services/base/picsou_sidecar/app.py": sidecars
-            | {"backend", "sidecar-base", "native-sidecars"}
+            | {"sidecar-base", "native-sidecars"}
             | services,
             ".github/workflows/ci.yml": everything,
             ".github/tests/test_sidecar_workflows.py": everything,
@@ -752,7 +755,7 @@ class CiJobSelectionTest(unittest.TestCase):
             "selected job skipped": (needs(frontend_only, e2e="skipped"), False),
             "selected job failed": (needs(frontend_only, e2e="failure"), False),
             "selected job cancelled": (needs(frontend_only, frontend="cancelled"), False),
-            "unselected job failed": (needs(frontend_only, backend="failure"), False),
+            "unselected job failed": (needs(frontend_only, **{"backend-rs": "failure"}), False),
             "selector failed": (selector_failed, False),
             "sidecar change, matrix green": (needs({"sidecar", "compose-sidecar-build"}), True),
             "sidecar selected but the matrix skipped": (
@@ -766,64 +769,10 @@ class CiJobSelectionTest(unittest.TestCase):
                 result = _gate(state)
                 self.assertEqual(result.returncode == 0, green, result.stderr)
 
-    def test_the_backend_runs_in_three_shards_that_ci_ok_checks_ran_every_class_once(self):
-        jobs = _load(CI_WORKFLOW)["jobs"]
-        backend = jobs["backend"]
-        self.assertEqual(backend["strategy"], {"fail-fast": False, "matrix": {"shard": [1, 2, 3]}})
-        run = next(step for step in backend["steps"] if "make test-backend" in step.get("run", ""))
-        self.assertEqual(run["env"], {
-            "PICSOU_REQUIRE_DOCKER_TESTS": "true",
-            "SHARD_INCLUDES": "${{ steps.shard.outputs.includes }}",
-            "SHARD_EXCLUDES": "${{ steps.shard.outputs.excludes }}",
-        })
-        select = next(step for step in backend["steps"] if step.get("id") == "shard")
-        self.assertIn("--shards ${{ strategy.job-total }} --shard ${{ matrix.shard }}", select["run"])
-        upload = next(step for step in backend["steps"] if "upload-artifact" in step.get("uses", ""))
-        self.assertEqual(upload["with"]["name"], "surefire-${{ matrix.shard }}")
-        self.assertEqual(upload["with"]["if-no-files-found"], "error")
-        # A re-run shard replaces its first attempt's reports instead of failing on the name.
-        self.assertIs(upload["with"]["overwrite"], True)
-
-        steps = jobs[GATE]["steps"]
-        self.assertEqual(steps[0]["name"], "Every selected job succeeded")
-        self.assertNotIn("if", steps[0])
-        gated = [step for step in steps if "needs.backend" in step.get("if", "")]
-        for step in gated:
-            with self.subTest(step=step["name"]):
-                self.assertIn("needs.backend.result == 'success'", step["if"])
-        self.assertLessEqual({
-            "Download the backend test reports", "Require every backend test class to run exactly once",
-            "Require the PostgreSQL tests",
-        }, {step["name"] for step in gated})
-        # One sparse checkout serves the backend and the frontend completeness checks; a second
-        # one would clean away the files the first brought in.
-        checkouts = [step for step in steps if "actions/checkout" in step.get("uses", "")]
-        self.assertEqual(len(checkouts), 1)
-        self.assertEqual(checkouts[0]["with"]["sparse-checkout"].split("\n"),
-                         ["backend/src/test/java", "frontend/src", ".github/scripts"])
-        self.assertEqual(checkouts[0]["if"], "needs.backend.result == 'success' || needs.frontend.result == 'success'")
-        self.assertLess(steps.index(checkouts[0]), min(steps.index(step) for step in gated if step is not checkouts[0]))
-        download = next(step for step in gated if "download-artifact" in step.get("uses", ""))
-        self.assertEqual(download["with"], {"pattern": "surefire-*", "path": "${{ runner.temp }}/surefire"})
-        commands = "\n".join(step.get("run", "") for step in gated)
-        self.assertIn('python3 .github/scripts/backend_shards.py --check "$RUNNER_TEMP/surefire"', commands)
-        self.assertIn("\nservice.ScpiSyncSessionPostgresTest\n", commands)
-
-        # One lookup in `changes`; the shards restore exactly that key, so a re-run splits the same.
-        lookup = next(step for step in jobs[SELECTOR]["steps"] if step.get("id") == "backend-timings")
-        self.assertIn("restore-keys", lookup["with"])
-        restore = next(step for step in backend["steps"] if "actions/cache/restore" in step.get("uses", ""))
-        self.assertEqual(restore["if"], "needs.changes.outputs.backend-timings-key != ''")
-        self.assertEqual(restore["with"]["key"], "${{ needs.changes.outputs.backend-timings-key }}")
-        self.assertNotIn("restore-keys", restore["with"])
-        save = next(step for step in steps if "actions/cache/save" in step.get("uses", ""))
-        self.assertEqual({lookup["with"]["path"], restore["with"]["path"]}, {save["with"]["path"]})
-        self.assertNotIn("PostgresTest", "\n".join(step.get("run", "") for step in backend["steps"]))
-
     def test_ci_runs_the_make_targets_contributors_run(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
         expected = {
-            "backend": "make test-backend SOFIDY_PYTHON=python3",
+            "backend-rs": "make test-backend",
             "frontend": "make lint-frontend",
             "e2e": "make test-e2e",
             "sidecar-base": "make test-sidecar-base",
@@ -834,6 +783,18 @@ class CiJobSelectionTest(unittest.TestCase):
             with self.subTest(job=job):
                 lines = [line.strip() for step in jobs[job]["steps"] for line in step.get("run", "").splitlines()]
                 self.assertIn(command, lines)
+
+    def test_the_rust_backend_is_tested_on_the_postgres_major_it_ships_with_and_gates_ci(self):
+        jobs = _load(CI_WORKFLOW)["jobs"]
+        postgres = jobs["backend-rs"]["services"]["postgres"]
+        major = json.loads(_sidecars("--desktop"))["postgres"]
+
+        self.assertEqual(postgres["image"].split(":")[1].split("-")[0], major)
+        # The harness's fixed address (backend-rs/src/testing): trust auth, user picsou.
+        self.assertEqual(postgres["ports"], ["127.0.0.1:55432:5432"])
+        self.assertEqual(postgres["env"], {"POSTGRES_USER": "picsou", "POSTGRES_HOST_AUTH_METHOD": "trust"})
+        self.assertIn("backend-rs", jobs["ci-ok"]["needs"])
+        self.assertIn("backend-rs", jobs["docker"]["needs"])
 
     def test_browserless_sidecars_run_outside_a_container_on_macos_and_windows(self):
         job = _load(CI_WORKFLOW)["jobs"]["native-sidecars"]
@@ -899,8 +860,15 @@ class JobTimeoutTest(unittest.TestCase):
     """A hung step otherwise holds a runner for GitHub's 6-hour default."""
 
     # Minutes a job may be given: about twice its slowest observed run. Per job overrides the file's cap.
-    FILE_CAP = {"ci.yml": 20, "codeql.yml": 60, "docker.yml": 30}
-    JOB_CAP = {("ci.yml", "e2e"): 30}  # bimodal: most runs take 2 min, the slow tail 9-15 min
+    FILE_CAP = {"ci.yml": 20, "codeql.yml": 60, "docker.yml": 30, "desktop-release.yml": 40}
+    JOB_CAP = {
+        ("ci.yml", "e2e"): 30,  # bimodal: most runs take 2 min, the slow tail 9-15 min
+        # Cold every run: clippy 5 min, the test build 9 min, then the suite on PostgreSQL and on SQLite.
+        ("ci.yml", "backend-rs"): 45,
+        ("ci.yml", "desktop"): 40,  # cold Rust build and tests: 19 min
+        ("ci.yml", "desktop-windows"): 40,  # cold Rust and bun builds: 25-30 min
+        ("ci.yml", "desktop-macos"): 40,  # same builds as Windows, on Apple Silicon
+    }
 
     def test_every_job_has_a_bounded_timeout(self):
         workflows = sorted((ROOT / ".github/workflows").glob("*.yml"))
@@ -1055,9 +1023,7 @@ class DesktopManifestTest(unittest.TestCase):
     def test_desktop_pins_are_read_from_the_docker_files(self):
         manifest = json.loads(_sidecars("--desktop"))
 
-        self.assertRegex(manifest["java"], r"^\d+$")
-        self.assertIn(f"eclipse-temurin:{manifest['java']}-jre",
-                      (ROOT / "docker/Dockerfile").read_text(encoding="utf-8"))
+        self.assertNotIn("java", manifest)
         self.assertRegex(manifest["postgres"], r"^\d+$")
         self.assertRegex(manifest["python"], r"^3\.\d+$")
         self.assertRegex(manifest["playwright"], r"^\d+\.\d+\.\d+$")
@@ -1073,24 +1039,13 @@ class DesktopManifestTest(unittest.TestCase):
             with self.subTest(sidecar=sidecar["service"]):
                 self.assertEqual(sidecar["desktop"], sidecar["base"] != "camoufox")
 
-    def test_backend_tests_run_on_the_postgres_major_the_desktop_bundles(self):
-        major = json.loads(_sidecars("--desktop"))["postgres"]
-        images = set()
-        for path in (ROOT / "backend/src/test").rglob("*.java"):
-            images |= set(re.findall(r'"(postgres:[^"]+)"', path.read_text(encoding="utf-8")))
-
-        self.assertTrue(images)
-        self.assertEqual({image.split(":")[1].split("-")[0] for image in images}, {major})
-
     def test_a_moved_pin_fails_loudly_instead_of_shipping_a_stale_version(self):
         good = {
-            "backend/pom.xml": "<java.version>21</java.version>\n",
             "docker/docker-compose.yml": "services:\n  db:\n    image: postgres:16-alpine\n",
             "services/base/Dockerfile": "FROM python:3.12-slim AS python\n",
             "services/base/requirements-chromium.txt": "playwright==1.64.1\n",
         }
         broken = {
-            "backend/pom.xml": "<maven.compiler.release>21</maven.compiler.release>\n",
             "docker/docker-compose.yml": "services:\n  db:\n    image: mariadb:11\n",
             "services/base/Dockerfile": "FROM debian:bookworm AS python\n",
             "services/base/requirements-chromium.txt": "playwright>=1.64\n",

@@ -401,6 +401,29 @@ sidecars:
     enabled: false
 ```
 
+### Native Rust connectors (`nativeSidecars`)
+
+Six pure-HTTP bank connectors (`bourso-auth`, `cic-auth`, `cmes-auth`,
+`degiro-auth`, `natixis-auth`, and `sofidy-auth`) are compiled natively into the
+Rust app binary. By default `nativeSidecars` stays `false` for backwards
+compatibility until the next release. Set `nativeSidecars: true` to run those
+six connectors in-process and stop deploying their deprecated Python sidecar
+pods:
+
+```yaml
+nativeSidecars: true
+```
+
+When `nativeSidecars: true`:
+
+- The app container receives `APP_NATIVE_SIDECARS="true"`.
+- No Deployment, Service, NetworkPolicy, or default `<BANK>_AUTH_URL` variable
+  is rendered for those six connectors.
+- Explicit `app.env.<BANK>_AUTH_URL` or `app.extraEnv` overrides still take
+  precedence if you want to route one of them to an external sidecar.
+- Browser-based and remaining Python sidecars (`bnp-auth`, `amex-auth`,
+  `revolut-auth`, `tr-auth`, `fortuneo-auth`, etc.) are unaffected.
+
 Sidecar Service names stay single-label (`<release>-bourso-auth`) and the app
 reaches them in its own namespace: the backend accepts plain HTTP to a sidecar
 on such a name or loopback; other hosts require HTTPS. Fullnames must start with
@@ -428,9 +451,9 @@ names never collide.
 ### Keeping up with the Compose file
 
 `sync-sidecars.sh` compares the `*-auth` services of `docker/docker-compose.yml`
-with the `sidecars` map. It reads each sidecar's URL variable and port from the
-`app.sidecars.*.url` entries of `backend/src/main/resources/application.yml` (override with
-`--app-config`; requires [yq](https://github.com/mikefarah/yq) v4):
+with the `sidecars` map. It reads each sidecar's URL variable and port from
+`backend-rs/src/sidecars.tsv` (override with `--sidecars`; requires
+[yq](https://github.com/mikefarah/yq) v4):
 
 ```bash
 charts/picsou/sync-sidecars.sh --check   # report, exit 2 on differences
@@ -513,8 +536,8 @@ The test pod uses `global.imagePullSecrets` and the app's `nodeSelector`,
   its URL in Admin → Settings.
 
 The app has a startup probe on `/actuator/health/liveness` (every 10 s, 30 failures:
-five minutes for the JVM and Flyway). Flyway runs during startup, so a database that is
-unreachable then fails startup: the JVM exits and the kubelet restarts the container, with
+five minutes for the migrations). They run during startup, so a database that is
+unreachable then fails startup: the process exits and the kubelet restarts the container, with
 back-off, until the database answers. Once the app has started, liveness uses the same
 endpoint, which ignores the database, so a later outage does not restart it, and HTTP
 readiness on `/actuator/health` holds traffic until the database is back. PostgreSQL
@@ -547,6 +570,7 @@ See [`values.yaml`](values.yaml), every key is commented. The main ones:
 | `app.enableBanking.existingSecret` | `""` | Secret holding the Enable Banking private key, mounted `0440` root:`fsGroup`; rendering fails without `app.podSecurityContext.fsGroup` |
 | `app.persistence.size` | `1Gi` | `/data` volume (generated secrets, keys) |
 | `ingress.*` / `httpRoute.*` | disabled | Exposure, TLS on the controller |
+| `nativeSidecars` | `false` | Run the 6 pure-HTTP bank connectors natively in-process (`APP_NATIVE_SIDECARS=true`) and omit their Python sidecar pods |
 | `sidecars.<name>.enabled` | `true` | Deploy this sidecar |
 | `postgresql.enabled` | `true` | Bundled single-instance PostgreSQL |
 | `postgresql.pgdata` | `/var/lib/postgresql/data/pgdata` | Data directory inside the volume; set `/var/lib/postgresql/data` for Compose root-layout imports |

@@ -88,7 +88,7 @@ It deliberately has no empty-rules early-out: the brand KB alone categorizes a r
 
 ### Merchant normalization & the knowledge base
 
-- **`MerchantNormalizer`** (`service/budget/MerchantNormalizer.java`) — a **pure, static,
+- **`MerchantNormalizer`** (`backend-rs/src/ledger/merchants.rs`) — a **pure, static,
   Spring-free** class, the single piece of intelligence behind clean names *and* brand matching.
   `normalize(counterparty, description)` strips the payment-processor wrapper (`PAYPAL *…`,
   `SUMUP *…` — keep what follows the last `*`), leading transaction-type noise (`CB`, `ACHAT`,
@@ -96,7 +96,7 @@ It deliberately has no empty-rules early-out: the brand KB alone categorizes a r
   title-cases the result. `matchKey(label)` produces a lower-cased, **accent-stripped**,
   whitespace-collapsed key so matching never depends on casing or accents
   (`MCDONALD'S → mcdonalds`). 100% unit-tested in isolation.
-- **`MerchantKnowledgeBase`** (`service/budget/MerchantKnowledgeBase.java`, `@Component`) — loads
+- **`MerchantKnowledgeBase`** (`backend-rs/src/ledger/merchants.rs`, `@Component`) — loads
   `merchant_brand` + `merchant_alias` **once** at startup into an **immutable `Snapshot`**
   published through a single `volatile` reference; `reload()` (also `@PostConstruct`) builds a new
   snapshot and swaps it atomically (a KB-version bump can call it). **Zero per-transaction I/O.**
@@ -131,7 +131,7 @@ It deliberately has no empty-rules early-out: the brand KB alone categorizes a r
 
 ### Cashflow flow diagram (Sankey)
 
-- **`CashflowFlowService`** (`service/budget/CashflowFlowService.java`) — aggregates income sources
+- **`CashflowFlowService`** (`backend-rs/src/budget/flow.rs`) — aggregates income sources
   → a central **hub** → sinks into a node/link graph, excluding `TRANSFER` from income/expense
   exactly as `CashflowService` does (so `income`/`expense`/`net` still equal the cashflow totals).
   - **Transfers are netted, never summed gross.** One query returns every `TRANSFER` leg (both
@@ -388,42 +388,42 @@ visually indistinguishable from "this brand has no logo".
 ### Key files
 
 **Foundation (ingestion + categorization)**
-- `model/Category.java` (`+ parentId` self-`@ManyToOne`, `+ slug`), `model/Transaction.java`
-  (`+ merchantLabel`, `+ merchantBrandId`), `model/CategorizationRule.java`,
-  `model/BudgetSettings.java`, `model/CategoryKind.java`
-- **New**: `model/MerchantBrand.java`, `model/MerchantAlias.java` (+ Spring Data repos)
-- `service/budget/MerchantNormalizer.java` (pure), `service/budget/MerchantKnowledgeBase.java`
+- `backend-rs/src/ledger/model.rs` (`+ parentId` self-`@ManyToOne`, `+ slug`), `Transaction.java`
+  (`+ merchantLabel`, `+ merchantBrandId`), `backend-rs/src/ledger/model.rs`,
+  `backend-rs/src/ledger/model.rs`, `backend-rs/src/ledger/model.rs`
+- **New**: `backend-rs/src/ledger/model.rs`, `backend-rs/src/ledger/model.rs` (+ Spring Data repos)
+- `backend-rs/src/ledger/merchants.rs` (pure), `backend-rs/src/ledger/merchants.rs`
   (`@Component`, in-memory snapshot)
-- `service/budget/CategorizationService.java` — `autoCategorize` (enrich → rules → brand fallback),
+- `CategorizationService.java` — `autoCategorize` (enrich → rules → brand fallback),
   `learnRule`, `recategorizeUncategorized`, `categoriesBySlug`
-- `service/budget/CategoryService.java` — CRUD + `ensureSeeded(member)` (seeds defaults + slugs);
+- `CategoryService.java` — CRUD + `ensureSeeded(member)` (seeds defaults + slugs);
   categories are archived, never deleted
-- Ingestion: `service/SyncService.java` (dedup, then `autoCategorize`),
-  `service/ManualTransactionService.java`
+- Ingestion: `backend-rs/src/sync/enable_banking/` (dedup, then `autoCategorize`),
+  `backend-rs/src/ledger/manual_transactions.rs`
 
-**Spending / flow:** `service/budget/CashflowFlowService.java`, `controller/CashflowController.java`
-(`/flow`), `controller/SpendingController.java`, DTOs `CashflowFlowResponse`,
+**Spending / flow:** `backend-rs/src/budget/flow.rs`, `CashflowController.java`
+(`/flow`), `SpendingController.java`, DTOs `CashflowFlowResponse`,
 `SpendingByCategoryResponse`, `SpendingDetailResponse`.
 
-**Recurring v2** (M3): `model/RecurringSeries.java` (+ `confidence`, `amountMin/Max`, `variable`,
-`previousAmount`, `priceChangedAt`, `autoConfirmed`); `service/budget/RecurringDetectionService.java`
-(identity/auto-confirm rewrite), `service/budget/RecurringSeriesService.java` (activity + undo +
-runtime mapping), `controller/RecurringController.java`; DTOs `RecurringSeriesResponse` (extended),
+**Recurring v2** (M3): `RecurringSeries.java` (+ `confidence`, `amountMin/Max`, `variable`,
+`previousAmount`, `priceChangedAt`, `autoConfirmed`); `backend-rs/src/budget/detection.rs`
+(identity/auto-confirm rewrite), `backend-rs/src/budget/recurring.rs` (activity + undo +
+runtime mapping), `backend-rs/src/budget/recurring.rs`; DTOs `RecurringSeriesResponse` (extended),
 **new** `RecurringActivityResponse`, `RecurringActivityType`, `RecurringRuntimeStatus`;
-`repository/RecurringSeriesRepository.java`; migration `V40__recurring_v2.sql`.
+`RecurringSeriesRepository.java`; migration `V40__recurring_v2.sql`.
 
 **Envelopes / Allocation** (pre-1.1.0 logic under the new IA; parent-envelope subtree rollup +
-overlap guard added in M4): `model/Budget.java` + `BudgetService` + `BudgetController`;
-`service/budget/CashflowService.java`; `service/budget/AllocationService.java` + `AllocationController`.
+overlap guard added in M4): `Budget.java` + `BudgetService` + `BudgetController`;
+`backend-rs/src/budget/`; `backend-rs/src/budget/allocation.rs` + `AllocationController`.
 
-**Sub-categories** (M4): `model/Category.java` (`parentId` self-FK), `service/budget/CategoryService.java`
+**Sub-categories** (M4): `backend-rs/src/ledger/model.rs` (`parentId` self-FK), `CategoryService.java`
 (tree invariants, archive cascade), `CashflowFlowService` (leaf-based annotation + parent drill),
 `BudgetService` (rollup); frontend `pages/budget/{ManageTab,SpendingPage,CategoryDetailPage,EnvelopesTab}.tsx`.
 
-**Opt-in logos** (M5): `port/MerchantLogoPort.java`, `adapter/DuckDuckGoLogoProvider.java`,
-`service/budget/MerchantLogoService.java` (TTL cache), `controller/MerchantController.java`
-(rate-limit → opt-in → fetch gates); `config/RateLimitConfig.java` (`logoBuckets`);
-`model/BudgetSettings.java` + `BudgetSettingsService`/`-Request`/`-Response` (`logoFetchEnabled`).
+**Opt-in logos** (M5): `MerchantLogoPort.java`, `DuckDuckGoLogoProvider.java`,
+`backend-rs/src/budget/logos.rs` (TTL cache), `backend-rs/src/budget/logos.rs`
+(rate-limit → opt-in → fetch gates); `backend-rs/src/http/rate_limit.rs` (`logoBuckets`);
+`backend-rs/src/ledger/model.rs` + `BudgetSettingsService`/`-Request`/`-Response` (`logoFetchEnabled`).
 
 **Frontend:** `pages/budget/BudgetLayout.tsx` (mounts `BudgetPeriodProvider`) +
 `pages/budget/BudgetPeriodContext.tsx` (`BudgetPeriodProvider` / `useBudgetPeriod()`,

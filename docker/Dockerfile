@@ -1,5 +1,5 @@
 # ============================================================
-# Picsou — Docker image (frontend + backend, one Java process)
+# Picsou — Docker image (frontend + Rust backend, one process)
 # Build context: project root (..)
 # ============================================================
 
@@ -23,19 +23,43 @@ COPY frontend/ .
 RUN bun run build
 
 # ---------- Stage 2: Build backend ----------
-FROM --platform=$BUILDPLATFORM maven:3.9-eclipse-temurin-21-alpine AS backend-build
+# Cross-compiled on the builder for the target architecture: rustc under emulation
+# would take most of an hour. The runtime stage's Debian release, so glibc matches.
+FROM --platform=$BUILDPLATFORM rust:1.99-bookworm AS backend-build
 
-WORKDIR /build/backend
+ARG TARGETARCH
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+# The cross toolchain is the one of the pinned image's Debian release: no version to pin apart.
+# hadolint ignore=DL3008
+RUN case "$TARGETARCH" in \
+      amd64) triple=x86_64-unknown-linux-gnu; gnu=x86_64-linux-gnu ;; \
+      arm64) triple=aarch64-unknown-linux-gnu; gnu=aarch64-linux-gnu ;; \
+      *) echo "unsupported architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac \
+    && if [ "$(dpkg --print-architecture)" != "$TARGETARCH" ]; then \
+      apt-get update \
+      && apt-get install -y --no-install-recommends "gcc-${gnu//_/-}" "libc6-dev-$TARGETARCH-cross" \
+      && rm -rf /var/lib/apt/lists/*; \
+    fi \
+    && rustup target add "$triple" \
+    && printf '%s\n' "$triple" > /target \
+    && printf '%s-gcc\n' "$gnu" > /linker
 
-COPY backend/pom.xml .
-RUN mvn dependency:go-offline -q
+WORKDIR /build/backend-rs
 
-COPY backend/src ./src
-RUN mvn package -DskipTests -q
+# The migrations (backend-rs/migrations) are embedded in the binary (include_dir!).
+COPY backend-rs/ .
+RUN triple=$(cat /target) && linker=$(cat /linker) \
+    && env_triple=$(tr '[:lower:]-' '[:upper:]_' <<< "$triple") \
+    && export "CARGO_TARGET_${env_triple}_LINKER=$linker" "CC_${triple//-/_}=$linker" \
+    && cargo build --release --locked --bin picsou --target "$triple" \
+    && cp "target/$triple/release/picsou" /picsou
 
 # ---------- Stage 3: Runtime ----------
-# One non-root Java process: Spring Boot serves the SPA and the API on 8080 and is PID 1.
-FROM eclipse-temurin:21-jre-jammy
+# One non-root process: the Rust backend serves the SPA and the API on 8080 and is PID 1.
+# A shell and coreutils stay: Compose's data-permissions service runs chown in this image,
+# and the Helm migration job runs the release CLI through sh.
+FROM debian:bookworm-slim
 
 RUN groupadd --gid 1000 picsou \
     && useradd --uid 1000 --gid 1000 --home-dir /app --no-create-home --shell /usr/sbin/nologin picsou \
@@ -45,21 +69,26 @@ RUN groupadd --gid 1000 picsou \
 ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
 
-# Copy built frontend; Spring Boot serves it from SPA_LOCATION
+# Copy built frontend; the backend serves it from SPA_LOCATION
 COPY --from=frontend-build /build/frontend/dist /app/spa
 ENV SPA_LOCATION=/app/spa
 
 # The app generates and persists its secrets here on first start (SecretBootstrap).
+# A folder, not a secret.
+# hadolint ignore=DL3064
 ENV PICSOU_SECRETS_DIR=/data/.secrets
 
 # Sync at startup stays off unless the operator turns it on.
 ENV APP_STARTUP_SYNC_ENABLED=false
 
-# Copy built backend
-COPY --from=backend-build /build/backend/target/*.jar /app/app.jar
+# Copy built backend; `picsou migrate|verify` is the release migration check.
+COPY --from=backend-build /picsou /usr/local/bin/picsou
 
 WORKDIR /app
 USER 1000:1000
 EXPOSE 8080
 
-ENTRYPOINT ["java", "-XX:+UseContainerSupport", "-XX:MaxRAMPercentage=75.0", "-Djava.security.egd=file:/dev/./urandom", "-jar", "/app/app.jar"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
+    CMD ["/usr/local/bin/picsou", "healthcheck"]
+
+ENTRYPOINT ["picsou"]

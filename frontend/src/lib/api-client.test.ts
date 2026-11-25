@@ -203,9 +203,28 @@ describe('api-client SSO revalidation flag', () => {
   })
 
   it.each([
+    ['get', '/desktop/lock'],
+    ['put', '/desktop/lock'],
+  ])('refreshes an expired session for %s %s and retries it', async (method, url) => {
+    const calls: string[] = []
+    let refreshed = false
+    api.defaults.adapter = async (config) => {
+      calls.push(`${config.method} ${config.url}`)
+      if (config.url === '/auth/refresh') refreshed = true
+      else if (!refreshed) return Promise.reject({ config, response: { status: 401, data: {} } })
+      return { data: { enabled: false }, status: 200, statusText: 'OK', headers: {}, config }
+    }
+
+    await expect(api.request({ method, url })).resolves.toMatchObject({ data: { enabled: false } })
+
+    expect(calls).toEqual([`${method} ${url}`, 'post /auth/refresh', `${method} ${url}`])
+  })
+
+  it.each([
     ['put', '/auth/password'],
     ['delete', '/auth/password'],
     ['delete', '/auth/identities/7'],
+    ['put', '/desktop/lock'],
   ])('hands a refused re-authentication on %s %s straight to the caller, without a refresh', async (method, url) => {
     const calls: string[] = []
     api.defaults.adapter = async (config) => {

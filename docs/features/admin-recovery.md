@@ -29,11 +29,11 @@ message as the password form), so the activation link remains the only path. See
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/config/AdminRecoveryRunner.java` — the boot-time runner
-- `backend/src/main/java/com/picsou/controller/AuthController.java#activate` — consumes the token
-- `backend/src/main/java/com/picsou/service/ActivationService.java` — shared activation sink (token cleared, `tokenVersion` bump, Remember-Me revocation, `admin.recovery.completed` audit)
-- `backend/src/main/java/com/picsou/service/SetupAuditService.java` — records the audit entries
-- `backend/src/main/resources/application.yml` — `app.admin-recovery.enabled` binding
+- `backend-rs/src/admin/recovery.rs` — the boot-time runner
+- `backend-rs/src/setup_auth/#activate` — consumes the token
+- `ActivationService.java` — shared activation sink (token cleared, `tokenVersion` bump, Remember-Me revocation, `admin.recovery.completed` audit)
+- `backend-rs/src/setup_auth/audit.rs` — records the audit entries
+- `backend-rs/src/config.rs` — reads `ADMIN_RECOVERY_ENABLED`
 - `.env.example` — `ADMIN_RECOVERY_ENABLED` variable documented
 
 ### Flow

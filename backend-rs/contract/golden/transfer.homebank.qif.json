@@ -1,0 +1,260 @@
+{
+  "description": "Desktop QIF with an explicit currency: day-first dates, splits, transfers, inferred kinds, then the import",
+  "scenario": "transfer.homebank.qif",
+  "steps": [
+    {
+      "body": {
+        "accounts": [
+          {
+            "balance": 1427.90999999,
+            "closed": false,
+            "currency": "EUR",
+            "initialBalance": 0,
+            "name": "Synthetic Checking",
+            "sourceId": "<uuid:1>",
+            "sourceType": "bank",
+            "suggestedType": "CHECKING",
+            "transactionCount": 6
+          },
+          {
+            "balance": 25.25,
+            "closed": false,
+            "currency": "EUR",
+            "initialBalance": 0,
+            "name": "Synthetic Savings",
+            "sourceId": "<uuid:2>",
+            "sourceType": "bank",
+            "suggestedType": "CHECKING",
+            "transactionCount": 1
+          }
+        ],
+        "categories": [
+          {
+            "income": true,
+            "kindInferred": false,
+            "name": "Salary",
+            "sourceId": "<uuid:3>",
+            "transactionCount": 1
+          },
+          {
+            "income": false,
+            "kindInferred": true,
+            "name": "Home",
+            "sourceId": "<uuid:4>",
+            "transactionCount": 0
+          },
+          {
+            "income": false,
+            "kindInferred": true,
+            "name": "Food",
+            "sourceId": "<uuid:5>",
+            "transactionCount": 0
+          },
+          {
+            "income": false,
+            "kindInferred": true,
+            "name": "Fresh",
+            "parentSourceId": "<uuid:5>",
+            "sourceId": "<uuid:6>",
+            "transactionCount": 2
+          },
+          {
+            "income": false,
+            "kindInferred": true,
+            "name": "Energy",
+            "parentSourceId": "<uuid:4>",
+            "sourceId": "<uuid:7>",
+            "transactionCount": 1
+          }
+        ],
+        "existingAccounts": [],
+        "existingCategories": [],
+        "fileToken": "<secret:8>",
+        "forecastTransactions": 0,
+        "sampleTransactions": [
+          {
+            "accountSourceId": "<uuid:1>",
+            "amount": -12.34000001,
+            "categorySourceId": "<uuid:6>",
+            "currency": "EUR",
+            "date": "<month-33:last>",
+            "notes": "first note",
+            "payee": "Synthetic Market",
+            "sourceId": "<uuid:9>",
+            "transfer": false
+          },
+          {
+            "accountSourceId": "<uuid:1>",
+            "amount": -10.00,
+            "categorySourceId": "<uuid:6>",
+            "currency": "EUR",
+            "date": "<month-32:first>",
+            "notes": "split note — fresh note",
+            "payee": "Synthetic Split",
+            "sourceId": "<uuid:10>",
+            "transfer": false
+          },
+          {
+            "accountSourceId": "<uuid:1>",
+            "amount": -20.00,
+            "categorySourceId": "<uuid:7>",
+            "currency": "EUR",
+            "date": "<month-32:first>",
+            "notes": "split note",
+            "payee": "Synthetic Split",
+            "sourceId": "<uuid:11>",
+            "transfer": false
+          },
+          {
+            "accountSourceId": "<uuid:1>",
+            "amount": -25.25,
+            "currency": "EUR",
+            "date": "2024-03-02",
+            "sourceId": "<uuid:12>",
+            "transfer": true
+          },
+          {
+            "accountSourceId": "<uuid:1>",
+            "amount": 1500,
+            "categorySourceId": "<uuid:3>",
+            "currency": "EUR",
+            "date": "2024-03-03",
+            "payee": "Employer",
+            "sourceId": "<uuid:13>",
+            "transfer": false
+          },
+          {
+            "accountSourceId": "<uuid:1>",
+            "amount": -4.5,
+            "currency": "EUR",
+            "date": "2024-03-13",
+            "notes": "Transfer: Elsewhere",
+            "sourceId": "<uuid:14>",
+            "transfer": false
+          },
+          {
+            "accountSourceId": "<uuid:2>",
+            "amount": 25.25,
+            "currency": "EUR",
+            "date": "2024-03-02",
+            "sourceId": "<uuid:15>",
+            "transfer": true
+          }
+        ],
+        "totalTransactions": 7
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "04 POST /api/homebank/import/preview as admin"
+    },
+    {
+      "body": {
+        "accountsCreated": 2,
+        "accountsMapped": 0,
+        "accountsSkipped": 0,
+        "categoriesCreated": 5,
+        "transactionsImported": 7,
+        "transactionsSkipped": 0
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "05 POST /api/homebank/import as admin"
+    },
+    {
+      "body": {
+        "detail": "Invalid or unsupported QIF file",
+        "instance": "/api/homebank/import/preview",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "06 POST /api/homebank/import/preview as admin"
+    },
+    {
+      "body": {
+        "detail": "Invalid or unsupported QIF file",
+        "instance": "/api/homebank/import/preview",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "07 POST /api/homebank/import/preview as admin"
+    },
+    {
+      "body": {
+        "detail": "QIF dates are ambiguous between day/month/year and month/day/year",
+        "instance": "/api/homebank/import/preview",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/problem+json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 400,
+      "step": "08 POST /api/homebank/import/preview as admin"
+    }
+  ]
+}

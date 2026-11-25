@@ -26,7 +26,7 @@ longer distinguishes "no such user" from "wrong password".
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/controller/AuthController.java` — the `dummyPasswordHash` field (built in the
+- `backend-rs/src/setup_auth/` — the `dummyPasswordHash` field (built in the
   constructor) and the unknown-user branch in `login()` that runs the decoy
   `passwordEncoder.matches(...)` before throwing.
 

@@ -41,6 +41,7 @@ import {
   useUpdateCategory,
 } from '@/features/budget/hooks'
 import { useAuthStore } from '@/stores/auth-store'
+import { selectIsAdvancedMode, useAppStore } from '@/stores/app-store'
 import { formatDate, formatPercent, getLocale } from '@/lib/utils'
 import type { AiCategorizationMode, Category, CategoryKind, RuleMatchType } from '@/types/api'
 import { ColorDot } from './budget-utils'
@@ -57,6 +58,7 @@ function BudgetPreferencesCard() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const isAdmin = useAuthStore((s) => s.user?.role === 'ADMIN')
+  const isAdvancedMode = useAppStore(selectIsAdvancedMode)
   const { data, isLoading, isError, refetch } = useBudgetSettings()
   const update = useUpdateBudgetSettings()
 
@@ -147,7 +149,7 @@ function BudgetPreferencesCard() {
                   {t('budget.settings.aiTitle')}
                 </Label>
                 <div className="flex shrink-0 items-center gap-3">
-                  {isAdmin && data.aiCategorizationEnabled && (
+                  {isAdmin && isAdvancedMode && data.aiCategorizationEnabled && (
                     <Button
                       type="button"
                       size="sm"

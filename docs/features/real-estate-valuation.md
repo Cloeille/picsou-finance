@@ -46,17 +46,17 @@ Daily snapshot job (unchanged) picks up the new balance -> gain curve for free
 ### Key files
 
 **Backend**
-- `port/GeocodingPort.java` — address → INSEE code (the join key for every price series)
-- `adapter/CeremaDv3fValuationProvider.java` — DV3F market indicators; `supports()` is how it
+- `backend-rs/src/market/geocoding.rs` — address → INSEE code (the join key for every price series)
+- `backend-rs/src/market/cerema.rs` — DV3F market indicators; `supports()` is how it
   declines an area it has no data for; nests `ValuationInput` / `ValuationResult`
-- `adapter/GeoplateformeGeocoder.java` — IGN Géoplateforme
-- `adapter/InseeBdmIndexProvider.java` — INSEE BDM, SDMX-ML, 24 h cache; the re-indexing ratio
-- `service/PropertyValuationService.java` — orchestration, persistence, balance write
-- `service/PropertyAdjustments.java` — the heuristic coefficient table
-- `service/RealEstateSummaryService.java` — gross / net / debt roll-up
-- `controller/RealEstateController.java`, `controller/GeocodingController.java`
-- `model/PropertyValuation.java`, `model/ValuationStatus.java`
-- `resources/db/migration/V66__real_estate_valuation_and_ownership.sql`
+- `backend-rs/src/market/geocoding.rs` — IGN Géoplateforme
+- `backend-rs/src/market/insee.rs` — INSEE BDM, SDMX-ML, 24 h cache; the re-indexing ratio
+- `backend-rs/src/wealth/real_estate/` — orchestration, persistence, balance write
+- `backend-rs/src/wealth/real_estate/valuation.rs` — the heuristic coefficient table
+- `backend-rs/src/accounts/analysis/property.rs` — gross / net / debt roll-up
+- `backend-rs/src/wealth/real_estate/mod.rs`, `backend-rs/src/wealth/real_estate/mod.rs`
+- `PropertyValuation.java`, `backend-rs/src/ledger/model.rs`
+- `backend-rs/migrations/V66__real_estate_valuation_and_ownership.sql`
 
 **Frontend**
 - `lib/property-icons.ts` — `PROPERTY_KIND_ICONS`, one lucide glyph per `PropertyKind`,

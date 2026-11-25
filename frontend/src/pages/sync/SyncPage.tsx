@@ -12,6 +12,9 @@ import { ScrollStrip } from '@/components/shared/ScrollStrip'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
+import { useDesktopUnavailable } from '@/features/desktop/hooks'
 import {
   ActualBudgetLogo,
   AmexLogo,
@@ -133,6 +136,7 @@ export function SyncPage() {
   })
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<SyncCategory>('all')
+  const desktopUnavailable = useDesktopUnavailable()
 
   const setTab = (next: string) => {
     setTabState(next)
@@ -148,7 +152,17 @@ export function SyncPage() {
     })
   }, [category, query, t])
 
+  // A bank the desktop app does not ship: its panel says so instead of offering a login that cannot work.
+  const unavailableOnDesktop = (
+    <Card size="sm">
+      <CardContent>
+        <p className="text-sm text-muted-foreground">{t('desktop.unavailableDetail')}</p>
+      </CardContent>
+    </Card>
+  )
+
   const renderPanel = () => {
+    if (desktopUnavailable(tab)) return unavailableOnDesktop
     switch (tab) {
       case 'banks': return <BankSyncTab onOpenWiseJars={() => setTab('wise')} />
       case 'exchanges': return <CryptoExchangeTab />
@@ -261,6 +275,7 @@ export function SyncPage() {
                 >
                   <Icon className="size-4 shrink-0" />
                   <span>{t(labelKey)}</span>
+                  {desktopUnavailable(id) && <Badge variant="secondary" className="ml-1">{t('desktop.unavailable')}</Badge>}
                 </button>
               )
             })}
@@ -295,6 +310,7 @@ export function SyncPage() {
                 >
                   <Icon className={cn('size-4 shrink-0', active ? 'text-foreground' : 'text-muted-foreground')} />
                   <span className="truncate">{t(labelKey)}</span>
+                  {desktopUnavailable(id) && <Badge variant="secondary" className="ml-1">{t('desktop.unavailable')}</Badge>}
                 </button>
               )
             })

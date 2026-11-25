@@ -79,7 +79,7 @@ app:
     # HSTS_ENABLED: "true"          # only with a publicly trusted certificate
     # APP_UPDATE_CHECK_ENABLED: "false"
     # APP_TELEMETRY_DSN: ""
-    # One exact IPv4 address Tomcat trusts for X-Forwarded-For (ADR 2026-10-31,
+    # One exact IPv4 address the backend trusts for X-Forwarded-For (ADR 2026-10-31,
     # trusted proxy client addresses). Set it only when the ingress controller
     # reaches the app from a single stable address; see the chart README.
     # PICSOU_PROXY_IP: 10.0.0.10
@@ -127,14 +127,15 @@ app:
     port: 8080
     annotations: {}
 
+  # One native process: about 10 MiB resident at rest. The limit leaves room for large imports and exports.
   resources:
     requests:
-      cpu: 200m
-      memory: 768Mi
+      cpu: 100m
+      memory: 128Mi
     limits:
-      memory: 1536Mi
+      memory: 512Mi
 
-  # The image runs one Java process as uid/gid 1000. fsGroup hands the /data volume to that group
+  # The image runs one process as uid/gid 1000. fsGroup hands the /data volume to that group
   # at mount time; OnRootMismatch skips the recursive change once ownership is right. A volume
   # whose storage driver ignores fsGroup (some NFS/CIFS) must be made writable for uid 1000
   # outside the cluster.
@@ -149,9 +150,9 @@ app:
 
   # Liveness and startup use /actuator/health/liveness, which ignores the database: once the app
   # has started, an outage must not restart it in a loop. Flyway runs during startup, so a
-  # database that is unreachable then fails startup, the JVM exits and the kubelet restarts the
+  # database that is unreachable then fails startup, the process exits and the kubelet restarts the
   # container (with back-off). Readiness uses /actuator/health, which covers the database and
-  # holds traffic back until it is up. The startup probe gives the JVM and Flyway five minutes
+  # holds traffic back until it is up. The startup probe gives the migrations five minutes
   # (30 x 10 s) before liveness starts; the kubelet restarts a container that is still not live
   # after that, as it restarts one that exits.
   startupProbe:
@@ -209,10 +210,10 @@ migrationJob:
   activeDeadlineSeconds: 1800
   resources:
     requests:
-      cpu: 100m
-      memory: 384Mi
+      cpu: 50m
+      memory: 64Mi
     limits:
-      memory: 768Mi
+      memory: 256Mi
 
 # ── Exposure ───────────────────────────────────────────────────────────────
 #
@@ -290,6 +291,13 @@ sidecarDefaults:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+
+# Run the 6 pure-HTTP bank connectors (bourso-auth, cic-auth, cmes-auth,
+# degiro-auth, natixis-auth, sofidy-auth) natively in-process in the app
+# container (sets APP_NATIVE_SIDECARS="true" and skips deploying those 6
+# deprecated Python sidecar pods). Stays false by default until the next
+# release; explicit app.env.<BANK>_AUTH_URL overrides still take precedence.
+nativeSidecars: false
 
 sidecars:
   tr-auth:

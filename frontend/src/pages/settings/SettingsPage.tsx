@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { getErrorStatus } from '@/lib/errors'
 import { cn, formatDate, getLocale } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
@@ -42,6 +43,7 @@ import { APP_VERSION } from '@/lib/app-version'
 import { PICSOU_GITHUB_URL } from '@/lib/whats-new'
 import { useInstanceStatus } from '@/features/admin/hooks'
 import { SecuritySection } from './security/SecuritySection'
+import { DesktopLockCard } from './security/DesktopLockCard'
 import { AccessKeysSection } from './sections/AccessKeysSection'
 import { ProfileSection } from './sections/ProfileSection'
 import { ConnectedAppsSection } from './sections/ConnectedAppsSection'
@@ -135,6 +137,10 @@ export function SettingsPage() {
   const setUsername = useAuthStore((s) => s.setUsername)
   const {
     demoMode,
+    desktopMode,
+    desktopLockEnabled,
+    advancedMode,
+    setAdvancedMode,
     dateFormat,
     setDateFormat,
     hideAmounts,
@@ -142,9 +148,16 @@ export function SettingsPage() {
     profilePhotos,
     setProfilePhoto,
   } = useAppStore()
+  const isAdvancedMode = !desktopMode || advancedMode
+  const effectiveTab: SettingsTab =
+    activeTab === 'api' && !isAdvancedMode ? 'appearance' : activeTab
   const [whatsNewOpen, setWhatsNewOpen] = useState(false)
   const isAdmin = user?.role === 'ADMIN'
-  const instanceStatusQuery = useInstanceStatus(activeTab === 'system' && isAdmin && !demoMode)
+  const showAdmin = isAdmin && isAdvancedMode
+  const showLogout = !desktopMode || desktopLockEnabled
+  const instanceStatusQuery = useInstanceStatus(
+    effectiveTab === 'system' && showAdmin && !demoMode,
+  )
   const displayedVersion = instanceStatusQuery.data?.currentVersion || APP_VERSION
   const availableUpdate = instanceStatusQuery.data?.update ?? null
   const photoInputRef = useRef<HTMLInputElement>(null)
@@ -261,7 +274,7 @@ export function SettingsPage() {
     { id: 'appearance', label: t('settings.tabs.appearance') },
     { id: 'profile', label: t('settings.tabs.profile') },
     { id: 'security', label: t('settings.tabs.security') },
-    { id: 'api', label: t('settings.tabs.api') },
+    ...(isAdvancedMode ? [{ id: 'api' as const, label: t('settings.tabs.api') }] : []),
     { id: 'system', label: t('settings.tabs.system') },
   ]
 
@@ -275,7 +288,7 @@ export function SettingsPage() {
         className="flex w-full flex-wrap items-center gap-1 rounded-lg border border-border/60 bg-background/80 p-1"
       >
         {tabs.map(({ id, label }) => {
-          const active = activeTab === id
+          const active = effectiveTab === id
           return (
             <button
               key={id}
@@ -296,7 +309,7 @@ export function SettingsPage() {
         })}
       </div>
 
-      {activeTab === 'appearance' && (
+      {effectiveTab === 'appearance' && (
         <div className="grid gap-4 sm:grid-cols-2">
           <Card className="rounded-xl bg-card">
             <CardHeader className="pb-3">
@@ -363,10 +376,33 @@ export function SettingsPage() {
               />
             </CardContent>
           </Card>
+
+          {desktopMode && (
+            <Card className="rounded-xl bg-card sm:col-span-2">
+              <CardContent className="flex items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <Label
+                    htmlFor="desktop-advanced-mode"
+                    className="cursor-pointer text-base font-semibold leading-none"
+                  >
+                    {t('desktop.advancedMode.title')}
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    {t('desktop.advancedMode.description')}
+                  </p>
+                </div>
+                <Switch
+                  id="desktop-advanced-mode"
+                  checked={advancedMode}
+                  onCheckedChange={setAdvancedMode}
+                />
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
-      {activeTab === 'profile' && (
+      {effectiveTab === 'profile' && (
         <div className="space-y-6">
           <SectionCard
             title={t('settings.account')}
@@ -458,12 +494,14 @@ export function SettingsPage() {
                   </div>
                 )}
               </div>
-              <div className="flex justify-end border-t border-border/60 pt-4">
-                <Button variant="destructive" onClick={handleLogout} disabled={logoutMutation.isPending}>
-                  <SignOut className="size-4" />
-                  {t('settings.logout')}
-                </Button>
-              </div>
+              {showLogout && (
+                <div className="flex justify-end border-t border-border/60 pt-4">
+                  <Button variant="destructive" onClick={handleLogout} disabled={logoutMutation.isPending}>
+                    <SignOut className="size-4" />
+                    {t('settings.logout')}
+                  </Button>
+                </div>
+              )}
             </div>
           </SectionCard>
 
@@ -476,16 +514,30 @@ export function SettingsPage() {
         </div>
       )}
 
-      {activeTab === 'security' && (
-        <SectionCard
-          title={t('settings.security')}
-          description={t('settings.securityDescription')}
-        >
-          <SecuritySection />
-        </SectionCard>
+      {effectiveTab === 'security' && (
+        <div className="space-y-6">
+          {desktopMode && isAdmin && <DesktopLockCard />}
+          {!desktopMode || desktopLockEnabled || isAdvancedMode ? (
+            <SectionCard
+              title={t('settings.security')}
+              description={t('settings.securityDescription')}
+            >
+              <SecuritySection />
+            </SectionCard>
+          ) : (
+            // No lock: sign-in methods, two-factor and trusted devices have nothing to act on,
+            // but the member's data is still theirs to take out.
+            <SectionCard
+              title={t('settings.exportTitle')}
+              description={t('settings.exportShortDesc')}
+            >
+              <SecuritySection exportOnly />
+            </SectionCard>
+          )}
+        </div>
       )}
 
-      {activeTab === 'api' && (
+      {effectiveTab === 'api' && isAdvancedMode && (
         <div className="space-y-6">
           <SectionCard
             title={t('accessKeys.sectionTitle')}
@@ -503,9 +555,9 @@ export function SettingsPage() {
         </div>
       )}
 
-      {activeTab === 'system' && (
+      {effectiveTab === 'system' && (
         <div className="space-y-6">
-          <div className={cn('grid gap-4', user?.role === 'ADMIN' && 'sm:grid-cols-2')}>
+          <div className={cn('grid gap-4', showAdmin && 'sm:grid-cols-2')}>
             <button
               type="button"
               onClick={() => navigate('/settings/family')}
@@ -521,7 +573,7 @@ export function SettingsPage() {
               <CaretRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
             </button>
 
-            {user?.role === 'ADMIN' && (
+            {showAdmin && (
               <button
                 type="button"
                 onClick={() => navigate('/admin')}
@@ -555,7 +607,7 @@ export function SettingsPage() {
                     <span className="font-semibold tabular-nums text-foreground">
                       v{displayedVersion}
                     </span>
-                    {isAdmin && instanceStatusQuery.data && (
+                    {showAdmin && instanceStatusQuery.data && (
                       availableUpdate ? (
                         <Badge className="tabular-nums">
                           {t('whatsNew.updateAvailable', { version: `v${availableUpdate.latestVersion}` })}
@@ -594,7 +646,7 @@ export function SettingsPage() {
                 >
                   {t('whatsNew.title')}
                 </Button>
-                {isAdmin && !demoMode && (
+                {showAdmin && !demoMode && (
                   <Button
                     type="button"
                     size="sm"

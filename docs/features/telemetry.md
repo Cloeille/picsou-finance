@@ -100,7 +100,7 @@ future SDK version is dropped by default.
 ## Scrubbing rules
 
 Applied identically in `frontend/src/lib/telemetry-scrub.ts` and
-`backend/.../telemetry/TelemetryScrubber.java` to every kept string:
+`backend-rs/src/admin/telemetry/scrubber.rs` to every kept string:
 
 | Pattern | Replacement |
 |---|---|

@@ -1,6 +1,6 @@
 # Feature: Crypto Tracking
 
-> Last updated: 2026-11-20
+> Last updated: 2026-11-24
 
 ## Context
 
@@ -176,7 +176,7 @@ Balances are **aggregated by symbol** before returning: ETH held on Ethereum + A
 
 ### Solana wallet adapter
 
-`SolanaWalletAdapter` calls `getBalance` on the Solana mainnet RPC (`api.mainnet-beta.solana.com`). Returns balance converted from lamports to SOL (9 decimals). It also calls `getTokenAccountsByOwner` to pick up known SPL stablecoins (USDC/EURC/USDT).
+`SolanaWalletAdapter` calls `getBalance` on the Solana mainnet RPC (`api.mainnet-beta.solana.com`). Returns balance converted from lamports to SOL (9 decimals). It also calls `getTokenAccountsByOwner` to pick up known SPL stablecoins (USDC/EURC/USDT). A wallet can own several token accounts for one mint; they are summed into one balance per symbol, as the EVM adapter does, because a holding is unique on `(account_id, ticker)` and a second entry would overwrite the first.
 
 ### JSON-RPC error handling
 
@@ -186,23 +186,23 @@ The on-chain adapters (EVM, Solana) validate the JSON-RPC envelope through `Json
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/service/CryptoExchangeSyncService.java` -- Exchange connection management, holding sync
-- `backend/src/main/java/com/picsou/service/WalletSyncService.java` -- On-chain wallet management, balance sync
-- `backend/src/main/java/com/picsou/config/CryptoEncryption.java` -- AES-256-GCM encrypt/decrypt for API secrets
-- `backend/src/main/java/com/picsou/adapter/BinanceAdapter.java` -- Binance REST API with HMAC-SHA256
-- `backend/src/main/java/com/picsou/adapter/MeriaAdapter.java` -- Meria REST API, single `API-KEY` header, wallets + stakings + lendings
-- `backend/src/main/java/com/picsou/adapter/OkxAdapter.java` -- OKX v5 signed reads and position aggregation
+- `CryptoExchangeSyncService.java` -- Exchange connection management, holding sync
+- `backend-rs/src/sync/wallets/` -- On-chain wallet management, balance sync
+- `backend-rs/src/crypto/encryption.rs` -- AES-256-GCM encrypt/decrypt for API secrets
+- `backend-rs/src/sync/exchanges/binance.rs` -- Binance REST API with HMAC-SHA256
+- `backend-rs/src/sync/exchanges/meria.rs` -- Meria REST API, single `API-KEY` header, wallets + stakings + lendings
+- `backend-rs/src/sync/exchanges/okx.rs` -- OKX v5 signed reads and position aggregation
 - `frontend/src/components/sync/CryptoExchangeForm.tsx` -- shared credential form with OKX region guidance
-- `backend/src/main/java/com/picsou/model/CryptoExchangePosition.java` -- per-product breakdown behind an exchange account's holdings
+- `CryptoExchangePosition.java` -- per-product breakdown behind an exchange account's holdings
 - `frontend/src/components/shared/PositionsByProduct.tsx` -- Spot / Staking / Lending sections on the account page
-- `backend/src/main/java/com/picsou/adapter/BitcoinWalletAdapter.java` -- Blockstream Esplora, BIP32 key derivation
-- `backend/src/main/java/com/picsou/adapter/EvmWalletAdapter.java` -- EVM multichain fan-out (native + curated ERC-20 across all enabled networks), keyless PublicNode RPCs
-- `backend/src/main/java/com/picsou/adapter/SolanaWalletAdapter.java` -- Solana mainnet RPC
-- `backend/src/main/java/com/picsou/adapter/util/JsonRpcResponse.java` -- JSON-RPC envelope validation shared by the wallet adapters
-- `backend/src/main/java/com/picsou/exception/WalletRpcException.java` -- thrown on a JSON-RPC error/missing result
-- `backend/src/main/java/com/picsou/adapter/util/BitcoinKeyUtils.java` -- BIP32 derivation, Base58Check, Bech32
-- `backend/src/main/java/com/picsou/port/CryptoExchangePort.java` -- Exchange port interface
-- `backend/src/main/java/com/picsou/port/WalletPort.java` -- Wallet port interface
+- `backend-rs/src/sync/wallets/bitcoin.rs` -- Blockstream Esplora, BIP32 key derivation
+- `backend-rs/src/sync/wallets/evm.rs` -- EVM multichain fan-out (native + curated ERC-20 across all enabled networks), keyless PublicNode RPCs
+- `backend-rs/src/sync/wallets/solana.rs` -- Solana mainnet RPC
+- `backend-rs/src/sync/wallets/rpc.rs` -- JSON-RPC envelope validation shared by the wallet adapters
+- `WalletRpcException.java` -- thrown on a JSON-RPC error/missing result
+- `backend-rs/src/sync/wallets/bitcoin_keys.rs` -- BIP32 derivation, Base58Check, Bech32
+- `backend-rs/src/sync/exchanges/` -- Exchange port interface
+- `WalletPort.java` -- Wallet port interface
 
 ### Flow
 

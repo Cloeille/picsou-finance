@@ -2,12 +2,10 @@
 
 > Last updated: 2026-10-31 (merged account attribution, provider scope, and currency-aware matching)
 
-> **Status (1.0.0).** Enable Banking is the only enabled provider. The Powens
-> adapter ships in the codebase but is **experimental and untested** —
-> `@Primary` was removed from `PowensBankConnector` so Enable Banking remains
-> injected as the canonical `BankConnectorPort` even when `POWENS_CLIENT_ID`
-> is set. Sections below referring to Powens describe the full design that
-> can be re-enabled once the adapter has been validated end-to-end.
+> **Status (1.3.0).** Enable Banking is the only provider. The Powens adapter of
+> the Java backend was experimental and untested, and was not carried over to the
+> Rust backend: the `POWENS_*` variables are ignored. Sections below referring to
+> Powens describe that earlier design, which is no longer in the code.
 
 ## Context
 
@@ -34,7 +32,7 @@ keep their status.
 
 **Enable Banking** (`EnableBankingBankConnector`): Uses the PSD2 Bank Account Data API. Auth is JWT-based (RS256 signed with an RSA private key). Sessions are created via OAuth redirect. After the user authorizes, Enable Banking populates the `session.accounts` list **asynchronously** — some ASPSPs take seconds, others hours (Boursorama). The adapter polls `GET /sessions/{id}` up to 8 times with 2-second delays (≤ 16 s total, configurable via `app.enablebanking.session-poll-attempts` / `session-poll-delay-ms`). If the session still has no accounts, it returns an empty list rather than throwing — the requisition is marked **FAILED** (preserving the session id) so the scheduler can retry the next day without going back through OAuth.
 
-**Powens** (`PowensBankConnector`) — ⚠ experimental, disabled in 1.0.0. Uses screen scraping via the Budget Insight API. Auth is an OAuth webview that handles bank selection and credential entry. The OAuth code is exchanged for a permanent access token. Gated behind `@ConditionalOnExpression` (so it only registers when `POWENS_CLIENT_ID` is set), but `@Primary` was removed for 1.0.0, so Enable Banking remains injected even when the bean is registered.
+**Powens** (`PowensBankConnector`) — ⚠ experimental in the Java backend, removed with it in 1.3.0. Used screen scraping via the Budget Insight API. Auth is an OAuth webview that handles bank selection and credential entry. The OAuth code is exchanged for a permanent access token. Gated behind `@ConditionalOnExpression` (so it only registers when `POWENS_CLIENT_ID` is set), but `@Primary` was removed for 1.0.0, so Enable Banking remains injected even when the bean is registered.
 
 ### Account-matching resilience (Enable Banking 0.16.4)
 
@@ -368,13 +366,14 @@ Known gaps (#664 follow-ups):
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/adapter/EnableBankingBankConnector.java` -- PSD2 adapter (RSA JWT, async account linking)
-- `backend/src/main/java/com/picsou/adapter/PowensBankConnector.java` -- Scraping adapter (experimental, OAuth webview; `@Primary` removed in 1.0.0)
-- `backend/src/main/java/com/picsou/port/BankConnectorPort.java` -- Port interface with `AccountData`, `InstitutionData` records, `DEFAULT_COUNTRY`, and the shared `parseInstitutionId()` static parser
-- `backend/src/main/java/com/picsou/service/SyncService.java` -- Orchestration: initiate, complete, retry, resync, type detection
-- `backend/src/main/java/com/picsou/service/RequisitionLifecycleWriter.java` -- Independent transaction checkpoints for consumed OAuth sessions and retryable failures
-- `backend/src/main/java/com/picsou/controller/SyncController.java` -- REST endpoints under `/api/sync/`
-- `backend/src/main/java/com/picsou/model/Requisition.java` -- Tracks connection lifecycle (CREATED/LINKED/FAILED)
+- `backend-rs/src/sync/enable_banking/connector.rs` -- PSD2 adapter (RSA JWT, async account linking)
+- `backend-rs/src/admin/mod.rs` (`EnableBankingCallLog`) -- In-memory log of raw Enable Banking responses, read by the admin page (see [admin-page.md](./admin-page.md#enable-banking-call-log))
+- `PowensBankConnector.java` -- Scraping adapter (experimental, OAuth webview; `@Primary` removed in 1.0.0)
+- `backend-rs/src/sync/enable_banking/entries.rs` -- Port interface with `AccountData`, `InstitutionData` records, `DEFAULT_COUNTRY`, and the shared `parseInstitutionId()` static parser
+- `backend-rs/src/sync/enable_banking/` -- Orchestration: initiate, complete, retry, resync, type detection
+- `RequisitionLifecycleWriter.java` -- Independent transaction checkpoints for consumed OAuth sessions and retryable failures
+- `backend-rs/src/sync/enable_banking/` -- REST endpoints under `/api/sync/`
+- `backend-rs/src/sync/enable_banking/requisitions.rs` -- Tracks connection lifecycle (CREATED/LINKED/FAILED)
 - `frontend/src/components/shared/BankCountrySelect.tsx` -- Country picker, populated from `GET /api/sync/countries`
 
 ### Flow
@@ -469,7 +468,7 @@ Because the text fields (Application ID + Redirect URI) live in Postgres while t
 
 ## Gotchas / Pitfalls
 
-- **Powens is disabled in 1.0.0**: `@Primary` was removed from `PowensBankConnector`, so even setting `POWENS_CLIENT_ID` will NOT activate Powens — Enable Banking stays injected. To re-enable after validating the adapter, restore `@Primary` on `PowensBankConnector` and set `POWENS_CLIENT_ID`.
+- **Powens is gone in 1.3.0**: the adapter existed only in the Java backend. Setting `POWENS_CLIENT_ID` does nothing.
 - **Enable Banking RSA key**: The private key must be PKCS8 PEM format. The `ENABLEBANKING_PRIVATE_KEY` env var can contain literal `\n` characters -- both formats are handled in `parsePem()`. The key lives on disk, **not** in the DB — see "Enable Banking configuration" above; setting only the text fields (Application ID + Redirect URI) leaves searches failing until a key is generated/imported.
 - **Local dev key path**: the `dev` Spring profile stores the generated key under `backend/.local/keys/enablebanking-private.pem` so bare-metal macOS/Linux runs do not try to create Docker's `/data/keys` directory at filesystem root.
 - **The callback URI must be HTTPS — a plain-HTTP deployment cannot sync banks.** Enable Banking rejects `http://` redirect URLs for PRODUCTION applications, and PRODUCTION is the only mode that lists real banks (see the SANDBOX pitfall above), so there is no HTTP escape hatch. Docker deployments must therefore terminate TLS: add `tls` to `COMPOSE_PROFILES` for the bundled Caddy proxy (see [docker-deployment.md](./docker-deployment.md)) or use an existing reverse proxy. Note that Enable Banking never *fetches* the callback URL — the redirect is browser-side only (`window.location.href = authLink`, then the SPA POSTs the `code`) — so a certificate from Caddy's internal CA works fine on a LAN, as long as the family's browsers trust its root.

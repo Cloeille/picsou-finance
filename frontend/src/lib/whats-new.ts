@@ -18,6 +18,46 @@ export const PICSOU_UPDATE_COMMAND = 'docker compose pull && docker compose up -
  */
 export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [
   {
+    version: '1.3.0',
+    date: '2026-11-24',
+    summary: {
+      fr: 'Nouveau moteur en Rust, Picsou Desktop, installation en un seul conteneur et corrections pour les comptes partagés.',
+      en: 'New Rust engine, Picsou Desktop, single-container install, and fixes for shared accounts.',
+      de: 'Neue Rust-Engine, Picsou Desktop, Installation in einem einzigen Container und Korrekturen für gemeinsame Konten.',
+      es: 'Nuevo motor en Rust, Picsou Desktop, instalación en un solo contenedor y correcciones para las cuentas compartidas.',
+    },
+    highlights: {
+      fr: [
+        'Nouveau moteur : le serveur de Picsou est réécrit en Rust. Il démarre plus vite et consomme moins de mémoire, et vos données ne changent pas.',
+        'Picsou Desktop : une application de bureau qui garde vos données sur votre ordinateur, avec un verrouillage par mot de passe en option.',
+        'Sur Desktop, BNP Paribas, American Express et Revolut se connectent dans une fenêtre de la banque, sans navigateur à installer.',
+        'Auto-hébergement : Picsou peut tourner dans un seul conteneur avec une base SQLite ; PostgreSQL reste pris en charge.',
+        'Corrections : cartes bancaires Enable Banking importées comme des cartes, pyramide, diversification et export Excel ouverts aux co-titulaires.',
+      ],
+      en: [
+        'New engine: the Picsou server is rewritten in Rust. It starts faster and uses less memory, and your data does not change.',
+        'Picsou Desktop: a desktop app that keeps your data on your computer, with an optional password lock.',
+        'On Desktop, BNP Paribas, American Express and Revolut sign in through a window of the bank, with no browser to install.',
+        'Self-hosting: Picsou can run in a single container on a SQLite database; PostgreSQL stays supported.',
+        'Fixes: Enable Banking cards imported as cards, and the pyramid, the diversification and the Excel export open to co-owners.',
+      ],
+      de: [
+        'Neue Engine: Der Picsou-Server ist in Rust neu geschrieben. Er startet schneller und braucht weniger Speicher, Ihre Daten bleiben unverändert.',
+        'Picsou Desktop: eine Desktop-App, die Ihre Daten auf Ihrem Computer behält, mit optionaler Passwortsperre.',
+        'Auf dem Desktop melden sich BNP Paribas, American Express und Revolut in einem Fenster der Bank an, ohne dass ein Browser installiert werden muss.',
+        'Self-Hosting: Picsou kann in einem einzigen Container mit einer SQLite-Datenbank laufen; PostgreSQL wird weiterhin unterstützt.',
+        'Korrekturen: Enable-Banking-Karten als Karten importiert, Pyramide, Diversifikation und Excel-Export auch für Mitinhaber.',
+      ],
+      es: [
+        'Nuevo motor: el servidor de Picsou está reescrito en Rust. Arranca más rápido y usa menos memoria, y tus datos no cambian.',
+        'Picsou Desktop: una aplicación de escritorio que guarda tus datos en tu ordenador, con bloqueo por contraseña opcional.',
+        'En Desktop, BNP Paribas, American Express y Revolut inician sesión en una ventana del banco, sin navegador que instalar.',
+        'Autoalojamiento: Picsou puede funcionar en un solo contenedor con una base SQLite; PostgreSQL sigue siendo compatible.',
+        'Correcciones: tarjetas de Enable Banking importadas como tarjetas, y pirámide, diversificación y exportación a Excel abiertas a los cotitulares.',
+      ],
+    },
+  },
+  {
     version: '1.2.2',
     date: '2026-11-21',
     summary: {

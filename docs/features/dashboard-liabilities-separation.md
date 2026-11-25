@@ -49,10 +49,10 @@ data-model change — but the dashboard now separates four readings: **assets**,
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/service/HistoryService.java` —
+- `HistoryService.java` —
   `buildHistory` (per-date `aggPnl` accumulator + live point `livePnl`),
   `buildPnl` (`liveNonLoanValue`, matched-holdings `rangePnl`)
-- `backend/src/main/java/com/picsou/service/DashboardService.java` —
+- `backend-rs/src/accounts/dashboard.rs` —
   `buildDistribution(accounts, divisor, …)` with per-side divisors; loan rows
   are then enriched into `LiabilityEntry(monthlyPayment, percentPaid)` via
   `DebtRepository` + `LoanAmortizationService`, and `totalMonthlyPayment` is summed

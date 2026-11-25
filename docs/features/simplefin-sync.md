@@ -60,23 +60,23 @@ characters.
 ### Key files
 
 **Backend**
-- `backend/src/main/java/com/picsou/port/SimplefinPort.java` — claim and fetch contract, account-set records, the 4096-character token limit
-- `backend/src/main/java/com/picsou/adapter/SimplefinClient.java` — claim and accounts fetch, status handling, body caps
-- `backend/src/main/java/com/picsou/adapter/SimplefinUrls.java` — token decoding, host and port allowlist, Basic auth header
-- `backend/src/main/java/com/picsou/adapter/SimplefinJson.java` — account-set parsing, pending rows dropped, error text capped, holdings rows and their completeness
-- `backend/src/main/java/com/picsou/service/SimplefinHoldings.java` — positions, sweep lines and the completeness flag
-- `backend/src/main/java/com/picsou/adapter/SimplefinTransport.java` — HTTP seam, faked in tests
-- `backend/src/main/java/com/picsou/service/SimplefinSyncService.java` — connect, sync, account upsert, status
-- `backend/src/main/java/com/picsou/service/SimplefinStatusWriter.java` — `ERROR` status in its own transaction
-- `backend/src/main/java/com/picsou/service/BankTransactionImportService.java` — `importProvided`, shared with Enable Banking
-- `backend/src/main/java/com/picsou/controller/SimplefinController.java` — `/api/simplefin`
-- `backend/src/main/java/com/picsou/dto/SimplefinConnectRequest.java`, `SimplefinConnectionStatusResponse.java`
-- `backend/src/main/java/com/picsou/model/SimplefinConnection.java`, `repository/SimplefinConnectionRepository.java`
-- `backend/src/main/java/com/picsou/config/RateLimitConfig.java` — `simplefinRequestBuckets`
-- `backend/src/main/java/com/picsou/service/MemberSyncService.java`, `service/sync/SourceSyncResult.java` — scheduled order, `NEEDS_REAUTH` mapping
-- `backend/src/main/java/com/picsou/service/SyncStatusService.java`, `mcp/tools/SyncTools.java` — MCP status and bank trigger
-- `backend/src/main/java/com/picsou/service/AccountConnectionService.java` — `sfin_` prefix for deletion cleanup
-- `backend/src/main/resources/db/migration/V113__simplefin_connection.sql`
+- `SimplefinPort.java` — claim and fetch contract, account-set records, the 4096-character token limit
+- `backend-rs/src/sync/simplefin/client.rs` — claim and accounts fetch, status handling, body caps
+- `backend-rs/src/sync/simplefin/` — token decoding, host and port allowlist, Basic auth header
+- `backend-rs/src/sync/simplefin/json.rs` — account-set parsing, pending rows dropped, error text capped, holdings rows and their completeness
+- `backend-rs/src/sync/simplefin/holdings.rs` — positions, sweep lines and the completeness flag
+- `SimplefinTransport.java` — HTTP seam, faked in tests
+- `backend-rs/src/sync/simplefin/` — connect, sync, account upsert, status
+- `SimplefinStatusWriter.java` — `ERROR` status in its own transaction
+- `backend-rs/src/ledger/bank_import.rs` — `importProvided`, shared with Enable Banking
+- `backend-rs/src/sync/simplefin/mod.rs` — `/api/simplefin`
+- `SimplefinConnectRequest.java`, `SimplefinConnectionStatusResponse.java`
+- `backend-rs/src/sync/simplefin/connection.rs`, `SimplefinConnectionRepository.java`
+- `backend-rs/src/http/rate_limit.rs` — `simplefinRequestBuckets`
+- `MemberSyncService.java`, `backend-rs/src/ledger/sidecar.rs` — scheduled order, `NEEDS_REAUTH` mapping
+- `backend-rs/src/mcp/sync_status.rs`, `backend-rs/src/mcp/tools/sync.rs` — MCP status and bank trigger
+- `backend-rs/src/accounts/connection.rs` — `sfin_` prefix for deletion cleanup
+- `backend-rs/migrations/V113__simplefin_connection.sql`
 
 **Frontend**
 - `frontend/src/components/sync/SimplefinPanel.tsx` — token form, sync, disconnect
@@ -241,7 +241,7 @@ Frontend (`make test-frontend`, `make test-e2e`):
 ## Links
 
 - ADR: [SimpleFIN beside Enable Banking](../decisions/2026-10-04-simplefin-beside-enable-banking.md)
-- API: [`/api/simplefin`](../../backend/docs/API.md#16b-simplefin--apisimplefin)
+- API: [`/api/simplefin`](../../backend-rs/docs/API.md#16b-simplefin--apisimplefin)
 - Related: [Bank sync](./bank-sync.md), [MCP server](./mcp-server.md),
   [Add account modal](./add-account-modal.md),
   [Account deletion removes its connection](../decisions/2026-08-11-account-deletion-removes-its-connection.md)

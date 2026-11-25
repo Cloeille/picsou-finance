@@ -75,10 +75,10 @@ multi-tenant in the SaaS sense.
 | CORS                               | `Access-Control-Allow-Origin` defaults to empty (no cross-origin); never combined with `*` when credentials are allowed |
 | Cookies                            | `SecureCookieProvider` sets `Secure` flag based on environment; `SameSite=Lax` for Safari/iOS compatibility             |
 | Member-scoped authorization        | Every service/controller scopes queries by `memberId` from `UserContext`; family-shared resources gated by `SharingSettings` + `SharedResource`    |
-| Rate limiting                      | Bucket4j on login (5/15 min), MFA challenge, sync endpoints, GDPR export, and password reset                            |
+| Rate limiting                      | Per-IP limits on login (5/15 min), MFA challenge, sync endpoints, GDPR export, and password reset                       |
 | Encryption at rest                 | AES-256-GCM for crypto-exchange API secrets, bank session tokens, and Finary credentials; key required at startup       |
-| SQL injection                      | JPA/Hibernate parameterized queries, no raw SQL                                                                         |
-| XSS                                | React's built-in escaping; CSP and the other security headers set by Spring Security on every response that reaches it (a 413 from the anonymous body cap, which runs first, has none) |
+| SQL injection                      | Every value is a bound parameter; no SQL text is built from request data                                                |
+| XSS                                | React's built-in escaping; CSP and the other security headers set by the backend on every response that reaches it (a 413 from the anonymous body cap, which runs first, has none) |
 | CSRF                               | `SameSite=Lax` cookies + cross-site check on cookie-authenticated state-changing requests (`Sec-Fetch-Site`/`Origin`)   |
 | Secrets                            | All credentials via environment variables or the wizard's `AppSetting` store (encrypted); never in source code          |
 | Bank credentials                   | Enable Banking tokens session-scoped and never persisted in clear; the wizard writes the PEM private key under `/data/keys` with mode `0600` (best effort); the Helm chart mounts `app.enableBanking.existingSecret` read-only, `0440` root:`fsGroup`; a key file supplied through `ENABLEBANKING_PRIVATE_KEY_PATH` keeps the permissions the operator gives it, so restrict them |
@@ -113,12 +113,7 @@ multi-tenant in the SaaS sense.
 
 ## Disabled / experimental integrations
 
-The following integrations ship in 1.0.0 but are **disabled by default** in
-the UI because they are not yet ready for production:
-
-- **Powens / Budget Insight** — `PowensBankConnector` ships in the codebase
-  but has **not** been tested end-to-end against a real Powens tenant. The
-  `@Primary` annotation was removed so Enable Banking stays injected as the
-  canonical `BankConnectorPort` even when `POWENS_CLIENT_ID` is set. Do
-  **not** enable on a production instance until the adapter has been
-  validated.
+- **Powens / Budget Insight** — the experimental adapter of the Java backend,
+  never validated end-to-end against a real Powens tenant, is not part of the
+  Rust backend (1.3.0). Enable Banking is the bank connector, and the
+  `POWENS_*` variables are ignored.

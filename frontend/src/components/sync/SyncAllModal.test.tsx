@@ -1196,4 +1196,91 @@ describe('SyncAllModal Revolut and "Sync all"', () => {
     expect(apiPost).not.toHaveBeenCalledWith('/revolut/sync/confirm', expect.anything())
     expect(navigate).not.toHaveBeenCalled()
   })
+
+  it('treats a connected Desktop WebView Revolut session as ready and syncs it with "Sync all"', async () => {
+    revolutStatus = {
+      connected: true,
+      remembered: false,
+      lastSyncedAt: '2026-11-21T12:00:00Z',
+      webviewLoginSupported: true,
+    }
+    const onOpenChange = vi.fn()
+    renderModal(onOpenChange)
+
+    const row = (await screen.findByText('Revolut')).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('sync.connectionStatus.active')).toBeInTheDocument()
+    expect(within(row).queryByText('sync.revolut.notConnected')).not.toBeInTheDocument()
+    expect(row.querySelector('.cursor-help')).toBeNull()
+
+    const syncAll = screen.getByRole('button', { name: /sync\.all\.syncAll/ })
+    await waitFor(() => expect(syncAll).toBeEnabled())
+    fireEvent.click(syncAll)
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/amundi/sync'))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/revolut/sync', {}))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/revolut/sync/confirm', {
+      selectedExternalIds: ['acc-1', 'acc-2'],
+      remember: false,
+      voluntary: false,
+    }))
+    expect(navigate).not.toHaveBeenCalled()
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+  })
+
+  it('shows Revolut as not connected without credentials tooltip on Desktop after Forget', async () => {
+    revolutStatus = {
+      connected: false,
+      remembered: false,
+      lastSyncedAt: null,
+      webviewLoginSupported: true,
+    }
+    const onOpenChange = vi.fn()
+    renderModal(onOpenChange)
+
+    const row = (await screen.findByText('Revolut')).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('sync.revolut.notConnected')).toBeInTheDocument()
+    expect(within(row).queryByText('sync.connectionStatus.active')).not.toBeInTheDocument()
+    expect(row.querySelector('.cursor-help')).toBeNull()
+
+    const syncAll = screen.getByRole('button', { name: /sync\.all\.syncAll/ })
+    await waitFor(() => expect(syncAll).toBeEnabled())
+    fireEvent.click(syncAll)
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/amundi/sync'))
+    expect(apiPost).not.toHaveBeenCalledWith('/revolut/sync', expect.anything())
+
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=revolut'))
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('keeps server-mode Revolut badge and tooltip semantics for remembered and unremembered sessions', async () => {
+    revolutStatus = REVOLUT_REMEMBERED
+    renderModal()
+
+    const rememberedRow = (await screen.findByText('Revolut')).closest('[data-slot="card"]') as HTMLElement
+    expect(within(rememberedRow).getByText('sync.connectionStatus.active')).toBeInTheDocument()
+    expect(rememberedRow.querySelector('.cursor-help')).toBeNull()
+  })
+
+  it('keeps server-mode Revolut not ready with credentials tooltip even when connected is true without webviewLoginSupported', async () => {
+    revolutStatus = { connected: true, remembered: false, lastSyncedAt: '2026-08-10T08:00:00Z' }
+    const onOpenChange = vi.fn()
+    renderModal(onOpenChange)
+
+    const row = (await screen.findByText('Revolut')).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('sync.revolut.notConnected')).toBeInTheDocument()
+    expect(row.querySelector('.cursor-help')).not.toBeNull()
+
+    const syncAll = screen.getByRole('button', { name: /sync\.all\.syncAll/ })
+    await waitFor(() => expect(syncAll).toBeEnabled())
+    fireEvent.click(syncAll)
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/amundi/sync'))
+    expect(apiPost).not.toHaveBeenCalledWith('/revolut/sync', expect.anything())
+
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=revolut'))
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
 })
