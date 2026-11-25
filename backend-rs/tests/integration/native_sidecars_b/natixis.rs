@@ -886,6 +886,13 @@ fn operations_investments_payments_and_hashing() {
 
 // ─── Wiremock End-to-End Harness (test_main.py) ─────────────────────────────
 
+struct IdpOverride {
+    path: String,
+    require_strong_header: bool,
+    status: u16,
+    body: Value,
+}
+
 struct FakeState {
     base_url: String,
     login_modes: Value,
@@ -921,6 +928,7 @@ struct FakeState {
     require_sso_cookie: bool,
     cookie_counter: usize,
     seen_complete_cookies: Vec<String>,
+    idp_override: Option<IdpOverride>,
 }
 
 impl FakeState {
@@ -959,6 +967,7 @@ impl FakeState {
             require_sso_cookie: false,
             cookie_counter: 0,
             seen_complete_cookies: Vec::new(),
+            idp_override: None,
         }
     }
 }
@@ -1031,6 +1040,13 @@ impl Respond for FakeResponder {
                     return ResponseTemplate::new(401)
                         .set_body_json(json!({ "errors": [{ "code": "missing_cookie" }] }));
                 }
+            }
+            if let Some(ov) = &st.idp_override
+                && ov.path == path
+                && (!ov.require_strong_header
+                    || request.headers.contains_key("strong-authentication"))
+            {
+                return ResponseTemplate::new(ov.status).set_body_json(ov.body.clone());
             }
             if path == "/auth/v1/authenticationModes/search" {
                 return ResponseTemplate::new(200).set_body_json(st.login_modes.clone());
@@ -2050,6 +2066,113 @@ async fn log_hygiene_never_logs_sensitive_values() {
             "sensitive value leaked into logs: {secret}"
         );
     }
+}
+
+#[tokio::test]
+async fn login_step_rejections_log_sanitized_error_codes() {
+    const MODES: &str = "authenticationModes/search";
+    const AUTH: &str = "authenticate";
+    const MFA: &str = "multiFactorsAuthenticate";
+    const SF_MODES: &str = "strongAuthenticationModes";
+    const SF: &str = "strongAuthentications";
+    const VERIFY: &str = "strongAuthentications/attempt-1/verifications";
+    const PROFILE: &str = "profiles/me/verifications";
+    const SKIP: &str = "profiles/me/webauthnRegistrations/CURRENT/skip";
+    let gw = (StatusCode::BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED");
+    let cred = (StatusCode::UNAUTHORIZED, "INVALID_CREDENTIALS");
+    let otp = (StatusCode::BAD_REQUEST, "INVALID_OTP");
+    let secret_msg = "upstream-message-must-not-be-logged";
+
+    let writer = CaptureWriter::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::WARN)
+        .with_ansi(false)
+        .with_writer(writer.clone())
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    let h = Harness::start().await;
+    let init_cases = [
+        ("login modes", MODES, 403_u16, "MODES_DENIED", cred),
+        ("password", AUTH, 403, "PW_BLOCKED", cred),
+        ("password", AUTH, 418, "PW_ODD", gw),
+        ("second factor check", MFA, 403, "MFA_DENIED", gw),
+        ("second factor modes", SF_MODES, 403, "SF_DENIED", gw),
+        ("code request", SF, 403, "OTP_OFF", gw),
+    ];
+    let complete_cases = [
+        ("code check", VERIFY, 400_u16, "invalid_code", otp),
+        ("code check", VERIFY, 202, "ODD_OK", gw),
+        ("second factor", MFA, 403, "MFA_BAD", gw),
+        ("profile check", PROFILE, 403, "PROFILE_BLOCKED", gw),
+        ("profile check", PROFILE, 418, "PROFILE_ODD", gw),
+        ("passkey registration skip", SKIP, 403, "SKIP_NO", gw),
+    ];
+
+    for (is_init, (step, suffix, up_status, up_code, (wire_status, wire_detail))) in init_cases
+        .into_iter()
+        .map(|c| (true, c))
+        .chain(complete_cases.into_iter().map(|c| (false, c)))
+    {
+        {
+            let mut st = h.state.lock().unwrap();
+            st.idp_override = None;
+            st.passkey_required = suffix == SKIP;
+            st.skip_honoured = true;
+        }
+        let pid = if is_init {
+            None
+        } else {
+            let init = h.initiate().await.unwrap();
+            Some(init["processId"].as_str().unwrap().to_owned())
+        };
+        h.state.lock().unwrap().idp_override = Some(IdpOverride {
+            path: format!("/auth/v1/{suffix}"),
+            require_strong_header: !is_init && suffix == MFA,
+            status: up_status,
+            body: json!({
+                "errors": [
+                    { "code": "bad-code", "message": secret_msg },
+                    { "code": up_code, "message": secret_msg }
+                ]
+            }),
+        });
+        writer.buf.lock().unwrap().clear();
+
+        let err = match pid {
+            Some(pid) => h
+                .sidecar
+                .call(
+                    Method::POST,
+                    "/complete",
+                    Some(json!({ "processId": pid, "code": CODE })),
+                )
+                .await
+                .unwrap_err(),
+            None => h.initiate().await.unwrap_err(),
+        };
+        assert_eq!(err, (wire_status, wire_detail.to_owned()), "step={step}");
+        let logged = String::from_utf8(writer.buf.lock().unwrap().clone()).unwrap();
+        assert!(
+            logged.contains(&format!("{step} answered {up_status} codes=[{up_code}]")),
+            "{logged}"
+        );
+        for forbidden in [secret_msg, "bad-code", EMAIL, PASSWORD, CODE, CSRF] {
+            assert!(!logged.contains(forbidden), "leaked {forbidden:?}");
+        }
+    }
+
+    // Unhonoured passkey skip logs the retried profile check's error code.
+    {
+        let mut st = h.state.lock().unwrap();
+        st.idp_override = None;
+        st.passkey_required = true;
+        st.skip_honoured = false;
+    }
+    writer.buf.lock().unwrap().clear();
+    assert_eq!(h.login().await.unwrap_err(), (gw.0, gw.1.to_owned()));
+    let logged = String::from_utf8(writer.buf.lock().unwrap().clone()).unwrap();
+    assert!(logged.contains("profile check answered 403 codes=[WEBAUTHN_REGISTRATION_REQUIRED]"));
 }
 
 #[test]
