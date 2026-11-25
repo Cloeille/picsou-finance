@@ -30,7 +30,7 @@ and `targets/camoufox/requirements.txt`):
 - `python`: Python 3.12 slim bookworm (pinned digest) and fastapi, uvicorn,
   pydantic, httpx. Used by bourso-auth, sofidy-auth, degiro-auth, cmes-auth
   and cic-auth.
-- `chromium`: `python` plus Playwright 1.64.1, its Chromium and the Chromium
+- `chromium`: `python` plus upstream Playwright, its Chromium and the Chromium
   system libraries. Used by amundi, bourse-direct, caisse-epargne, corum,
   fortuneo and tr-auth.
 - `camoufox`: `python` plus Playwright 1.64.1, Camoufox 0.4.11, pinned Firefox
