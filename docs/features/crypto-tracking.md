@@ -98,6 +98,9 @@ nesting limit and accepts ASCII digits in decimal strings, including scientific 
 rejects quantities or adapter totals outside the exact range of the backend's `Decimal` type and
 per-product quantities or per-asset totals of 10¹² or more. Duplicate JSON keys,
 trailing JSON tokens, malformed data, timeouts, transport errors and non-zero codes fail the sync.
+The Java adapter used Jackson's duplicate detection across the entire response, including fields
+Picsou does not read. Some parsers keep the first value for a repeated key and others keep the last,
+so Picsou treats the whole response as malformed.
 Diagnostics use local text and recognized codes. The adapter ignores the upstream `msg`. For
 unexpected HTTP client failures, the service logs the endpoint and failure kind. For `51024`, check
 the account's status and region on OKX.

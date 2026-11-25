@@ -418,10 +418,9 @@ fn add_balance(
     Ok(())
 }
 
-// port::parse_big_decimal rounds beyond 28 significant digits. OKX needs exact
-// quantities and sums, and must identify liabilities by sign before conversion.
 fn exact_sum(left: Decimal, right: Decimal) -> Option<Decimal> {
-    // Both quantities are nonnegative. Align their coefficients without Decimal's rounding.
+    // Decimal::checked_add can round 100 + 1e-28 to 100. Align the coefficients
+    // of both nonnegative quantities and reject sums that cannot fit exactly.
     let scale = left.scale().max(right.scale());
     let lhs = left
         .mantissa()
@@ -455,8 +454,12 @@ enum Amount {
 }
 
 fn parse_amount(text: &str) -> Option<Amount> {
-    // Check the sign before conversion. Trading totalEq only needs its sign, and a
-    // liability still needs its diagnostic even if Decimal cannot represent it exactly.
+    // Decimal::from_str_exact rejects exponents (1e-8) and excess fractional
+    // zeros (1.00000000000000000000000000000000), and accepts underscores (1_0).
+    // Decimal::from_scientific rounds 1.23456789012345678901234567891e1 and
+    // rejects 10e-29. Validate the spelling and use the adjusted scale.
+    // Trading totalEq only needs its sign, and even a liability outside
+    // Decimal's range (-1e-29) needs the negative balance diagnostic.
     let (mantissa, exponent) = match text.split_once(['e', 'E']) {
         Some((mantissa, exponent)) => (mantissa, i64::from(exponent.parse::<i32>().ok()?)),
         None => (text, 0),
@@ -784,22 +787,59 @@ mod tests {
         for (raw, expected) in [
             ("+1.25e+2", "125"),
             ("125e-2", "1.25"),
+            ("1e-8", "0.00000001"),
+            ("1E+3", "1000"),
+            ("10e-29", "0.0000000000000000000000000001"),
             (".2", "0.2"),
             ("2.", "2"),
+            ("-0", "0"),
             ("-0.00", "0"),
+            ("-0.000", "0"),
             ("1.00000000000000000000000000000000000000", "1"),
+            (
+                "1.2345678901234567890123456789",
+                "1.2345678901234567890123456789",
+            ),
+            (
+                "79228162514264337593543950335.0",
+                "79228162514264337593543950335",
+            ),
+            (
+                "792281625142643375935439503350e-1",
+                "79228162514264337593543950335",
+            ),
+            ("0e2147483647", "0"),
         ] {
             assert_eq!(
                 balance(&json!({"eq": raw}), "eq", TRADING).unwrap(),
-                expected.parse::<Decimal>().unwrap()
+                Decimal::from_str_exact(expected).unwrap(),
+                "{raw}"
             );
         }
         for raw in [
-            "1e-29", "", ".", "+", "1_0", " 1", "1 ", "1e", "1.2.3", "1e2e3", "0x01",
+            "1e-29",
+            "",
+            ".",
+            "+",
+            "1_0",
+            "-1_",
+            " 1",
+            "1 ",
+            "1e",
+            "1.2.3",
+            "1e2e3",
+            "0x1",
+            "0x01",
+            "1.23456789012345678901234567891",
+            "1.23456789012345678901234567891e1",
+            "79228162514264337593543950336",
+            "0e2147483648",
+            "0e-2147483648",
         ] {
             assert_eq!(
                 balance(&json!({"eq": raw}), "eq", TRADING),
-                Err(invalid_shape(TRADING, "eq"))
+                Err(invalid_shape(TRADING, "eq")),
+                "{raw}"
             );
         }
         assert!(matches!(
@@ -809,6 +849,24 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn trading_total_equity_can_be_nonzero_outside_the_decimal_range() {
+        let row = json!({"totalEq":"1e-29","details":[{"ccy":"COIN","eq":"1e-28"}]});
+        assert_eq!(
+            trading_balances(&[row]).unwrap(),
+            Balances::from([("COIN".into(), Decimal::new(1, 28))])
+        );
+    }
+
+    #[test]
+    fn rejects_balance_totals_that_would_round() {
+        let mut balances = Balances::from([("COIN".into(), Decimal::from(100))]);
+        assert_eq!(
+            add_balance(&mut balances, "COIN".into(), Decimal::new(1, 28), FUNDING),
+            Err(invalid_shape(FUNDING, "balance total"))
+        );
         assert!(exact_sum(Decimal::MAX, Decimal::ONE).is_none());
         assert!(exact_sum(Decimal::MAX, Decimal::new(1, 9)).is_none());
         assert_eq!(
