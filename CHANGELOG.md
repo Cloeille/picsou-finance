@@ -57,6 +57,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`GET /api/accounts/{id}/loan-summary`) now weigh monetary amounts by the viewer's ownership
   share and let co-owners open the sheet instead of answering 404, matching the dashboard
   liabilities card (#548).
+- **Crédit Mutuel Épargne Salariale syncs again.** The site, now "Crédit Mutuel Épargne et
+  Retraite Entreprises", moved the saver's space and stopped showing the saver number; every sync
+  failed with an upstream format error. Plans now take an id without that number, and an
+  account imported before moves to it with its history.
 - **Natixis Interépargne (desktop app): logins asked to register a passkey now complete.** The
   in-process Rust connector used by the desktop app (and when `APP_NATIVE_SIDECARS=true`) now puts
   off Natixis's passkey registration prompt ("later") and retries the profile check instead of
