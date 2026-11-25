@@ -204,7 +204,8 @@ pub async fn diversification(
             .await?
             .live_eur;
         let value = weigh(live, share);
-        if value.is_zero() {
+        // An overdrawn account holds no fund: it adds no negative line.
+        if value <= Decimal::ZERO {
             continue;
         }
         match value_by_ticker.iter_mut().find(|(t, _)| *t == ticker) {

@@ -844,6 +844,29 @@ async fn a_tracked_line_merges_with_a_held_line_of_the_same_ticker() {
 }
 
 #[tokio::test]
+async fn an_overdrawn_tracked_account_adds_no_line() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let savings = simple(&app, alice, "SAVINGS", "1000").await;
+    track(&app, savings, TRACKED_ISIN).await;
+    link_world_fund(&app).await;
+    // Overdrawn current accounts tracking the same fund, and another one.
+    let overdrawn = simple(&app, alice, "CHECKING", "-200").await;
+    track(&app, overdrawn, TRACKED_ISIN).await;
+    let other = simple(&app, alice, "CHECKING", "-50").await;
+    track(&app, other, "IE00B5BMR087").await;
+
+    let body = get_json(&client, "/api/analysis/diversification").await;
+    assert_eq!(num(&body["totalValueEur"]), "1000.00");
+    assert_eq!(num(&body["securities"][0]["valueEur"]), "1000.00");
+    // Only the fund itself is listed (its profile has no sectors), not the other overdraft.
+    let unclassified = body["unclassified"].as_array().unwrap();
+    assert_eq!(unclassified.len(), 1, "{unclassified:?}");
+    assert_eq!(unclassified[0]["ticker"], "IWDA.AS");
+    assert_eq!(num(&unclassified[0]["valueEur"]), "1000.00");
+}
+
+#[tokio::test]
 async fn an_unresolved_tracked_isin_is_listed_as_unclassified() {
     let app = TestApp::with_admin().await;
     let (alice, client) = signed_in(&app, "alice").await;
