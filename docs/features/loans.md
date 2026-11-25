@@ -1,6 +1,6 @@
 # Feature: Loan accounts (LOAN type)
 
-> Last updated: 2026-11-24
+> Last updated: 2026-11-25
 
 ## Sign convention
 
@@ -111,6 +111,14 @@ BalanceSnapshot persisted  →  historical balance chart steps down monthly
 
 ## Gotchas / Pitfalls
 
+- **`GET /api/accounts/{id}/loan-summary` weighs money fields by the viewer's ownership share.**
+  Co-owners can read the endpoint (`access::require_readable`) and `LoanScheduleResponse::weigh`
+  scales every monetary figure in both `summary` and `schedule` (installment, capital, interest,
+  insurance, remaining balance, fees and totals) via `access::weigh` rounded to 2 decimal places
+  (`HALF_UP`), while keeping installment counts, dates and `capitalRepaidPct` unchanged. A 100%
+  share returns the computed schedule unmodified; a 0%-share owner still reads `200` with zeroed
+  money amounts and intact progress metadata. Changing the split via `useUpdateOwnership`
+  invalidates `['loan-summary', id]` so the loan detail cards refresh immediately.
 - **A computed monthly payment includes the insurance.** `monthlyPayment` is the whole installment; the schedule subtracts `insuranceMonthly` from it before amortising. A user-entered payment already includes the insurance, a computed annuity does not, so `LoanAmortizationService` adds it when it computes the payment itself. Before that, every installment under-amortised the capital by the insurance and the last installment absorbed the shortfall. `resolveMonthlyPayment` follows the same rule, so the dashboard's liabilities card and the XLSX export's monthly total show the same installment as the loan page.
 - **A `Debt` without a start and an end date has no schedule.** `computeRemainingBalance` then answers the borrowed amount, not what is owed, so `AccountService.valuation` and `RealEstateSummaryService` check `LoanAmortizationService.hasSchedule` first and fall back to the balance stored on the loan account.
 - **Installment *i* falls *i* months after `startDate`, each clamped to its own month.** The due
@@ -154,11 +162,8 @@ BalanceSnapshot persisted  →  historical balance chart steps down monthly
 
 ## Tests
 
-- `LoanAmortizationServiceTest` — zero rate, computed monthly payment, paid installments from
-  asOf date, capitalRepaidPct, insurance split, totalCost includes fileFees, finished loan,
-  not-yet-started loan, `computeRemainingBalance`, installment dates of a loan due at month end
-- `AccountServiceDeleteTest`, `AccountDeleteUnlinksLoansPostgresTest` — deleting the linked
-  property unlinks the loan, which still reads; `UnlinkLoansFromDeletedAccountsMigrationTest`
-  — `V154` repairs only the links to deleted accounts
-- `AccountControllerLoanTest` — endpoint delegates correctly, propagates 404 (no Debt) and 400
-  (account is not LOAN)
+- `backend-rs/tests/integration/ledger/loans.rs` — schedule formula, paid installments from `asOf`,
+  insurance split, file fees, month-end due dates, overflow/term caps, and `LoanScheduleResponse::weigh`
+  (100% identity, 50%, fractional HALF_UP rounding, 0%)
+- `backend-rs/tests/integration/accounts/reads.rs` — `GET /api/accounts/{id}/loan-summary` error cases
+  and ownership-share weighting (50/50 owner & co-owner reads, stranger 404, 100% restored, 0%-share owner)
