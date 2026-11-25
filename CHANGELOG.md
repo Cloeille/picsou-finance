@@ -50,6 +50,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   4.41 EUR share) had inflated a PEA by about 30 000 EUR. The holding detail, the Excel export,
   the 24H chart and the range P&L follow the same rule. Snapshots already recorded with the wrong
   value are not rewritten. (#683)
+- **Natixis Interépargne: logins asked to register a passkey now complete.** After the password
+  and the code, Natixis can ask for a passkey to be registered. Picsou now puts it off, as the
+  "later" button of the saver space does, instead of reporting a website format change. (#686, #688)
 
 ## [1.3.0] — 2026-11-24
 

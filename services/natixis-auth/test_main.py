@@ -9,6 +9,7 @@ import base64
 import copy
 import hashlib
 import io
+import json
 import logging
 import os
 import unittest
@@ -60,6 +61,11 @@ class FakeNatixis:
         self.authorize_html = AUTHORIZE_HTML
         self.password_status = 201
         self.code_status = 201
+        # A new device is asked to register a passkey until it puts it off ("later").
+        self.passkey_required = False
+        self.skip_status = 201
+        self.skip_honoured = True
+        self.skip_body = None
         self.token_status = 200
         self.api_status = 200
         self.fund_status = 200
@@ -143,7 +149,14 @@ class FakeNatixis:
             if self.code_status != 201:
                 return httpx.Response(self.code_status, json={"errors": [{"code": "invalid_code"}]})
             return httpx.Response(201, json={"id": VERIFICATION_ID})
+        if path == "/auth/v1/profiles/me/webauthnRegistrations/CURRENT/skip":
+            self.skip_body = json.loads(request.content)
+            if self.skip_status == 201 and self.skip_honoured:
+                self.passkey_required = False
+            return httpx.Response(self.skip_status)
         if path == "/auth/v1/profiles/me/verifications":
+            if self.passkey_required:
+                return httpx.Response(403, json={"errors": [{"code": "WEBAUTHN_REGISTRATION_REQUIRED"}]})
             return httpx.Response(201, json={"saml": {
                 "encodedValue": SAML_VALUE,
                 "serviceProviderUrl": self.service_provider_url,
@@ -418,6 +431,23 @@ class ErrorCodeTest(SidecarTestCase):
     def test_no_supported_second_factor(self):
         self.fake.strong_modes["items"] = []
         self.assertDetail(self.initiate(), 501, "MFA_TYPE_UNSUPPORTED")
+
+    def test_passkey_registration_is_put_off(self):
+        self.fake.passkey_required = True
+        response = self.login()
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.fake.skip_body, {"duration": "SHORT", "reason": "BY_USER"})
+        self.assertIn("sessionState", response.json())
+
+    def test_passkey_registration_that_cannot_be_put_off(self):
+        for status, honoured in ((403, True), (201, False)):
+            with self.subTest(skip_status=status, honoured=honoured):
+                self.fake.passkey_required = True
+                self.fake.skip_status = status
+                self.fake.skip_honoured = honoured
+                self.fake.skip_body = None
+                self.assertDetail(self.login(), 502, "UPSTREAM_FORMAT_CHANGED")
+                self.assertIsNotNone(self.fake.skip_body)
 
     def test_throttled_login(self):
         self.fake.password_status = 429
