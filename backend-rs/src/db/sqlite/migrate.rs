@@ -16,6 +16,8 @@ pub const BASELINE_SCHEMA: &str = include_str!("schema.sql");
 const V2_REAL_ESTATE_ENERGY_CLASS_CHECK: &str =
     include_str!("migrations/V2__real_estate_energy_class_check.sql");
 
+const V3_ACCOUNT_HOLDING_ISIN: &str = include_str!("migrations/V3__account_holding_isin.sql");
+
 /// Metadata table tracking applied SQLite schema migrations.
 pub const HISTORY_TABLE: &str = "picsou_sqlite_migrations";
 
@@ -94,6 +96,13 @@ pub fn migrations() -> Vec<SqliteMigration> {
             sql: V2_REAL_ESTATE_ENERGY_CLASS_CHECK,
             checksum: sha256_checksum(V2_REAL_ESTATE_ENERGY_CLASS_CHECK),
             mode: MigrationMode::TableRebuild,
+        },
+        SqliteMigration {
+            version: "3",
+            description: "account_holding isin",
+            sql: V3_ACCOUNT_HOLDING_ISIN,
+            checksum: sha256_checksum(V3_ACCOUNT_HOLDING_ISIN),
+            mode: MigrationMode::Transactional,
         },
     ]
 }
@@ -649,5 +658,87 @@ mod tests {
         let integrity = db.check_integrity().expect("integrity check after V2");
         assert!(integrity.integrity_ok, "{:?}", integrity.integrity_messages);
         assert!(integrity.foreign_key_violations.is_empty());
+    }
+
+    #[test]
+    fn v3_backfills_each_holding_with_the_isin_its_ticker_or_profile_knew() {
+        let db = SqliteDb::open_in_memory().expect("open in-memory SQLite");
+        let all = migrations();
+        db.with_conn(|conn| {
+            assert_eq!(migrate_with(conn, &all[..2])?, 2);
+            conn.execute_batch(
+                "INSERT INTO family_member (id, display_name, is_managed) VALUES (1, 'Doe', 0);
+                 INSERT INTO account (id, name, type, currency, current_balance, is_manual, member_id)
+                     VALUES (10, 'PEA', 'PEA', 'EUR', '0', 1, 1);
+                 INSERT INTO account (id, name, type, currency, current_balance, is_manual, member_id)
+                     VALUES (20, 'Crypto', 'CRYPTO', 'EUR', '0', 1, 1);
+                 INSERT INTO security_profile (ticker, asset_type, isin) VALUES ('MULYF', 'ETF', 'LU1829219390');
+                 INSERT INTO security_profile (ticker, asset_type, isin) VALUES ('CW8.PA', 'ETF', 'LU1681043599');
+                 INSERT INTO security_profile (ticker, asset_type, isin) VALUES ('BTC', 'ETF', 'US0000000001');
+                 INSERT INTO security_profile (ticker, asset_type, isin) VALUES ('ETH', 'CRYPTO', 'XF000ETH0015');
+                 INSERT INTO account_holding (account_id, ticker, quantity) VALUES (10, 'MULYF', '80');
+                 INSERT INTO account_holding (account_id, ticker, quantity) VALUES (10, 'fr0010135103', '3');
+                 INSERT INTO account_holding (account_id, ticker, quantity) VALUES (10, ' cw8.pa ', '2');
+                 INSERT INTO account_holding (account_id, ticker, quantity) VALUES (10, 'XF000BTC0017', '1');
+                 INSERT INTO account_holding (account_id, ticker, quantity) VALUES (10, 'ETH', '1');
+                 INSERT INTO account_holding (account_id, ticker, quantity) VALUES (10, 'SOL', '1');
+                 INSERT INTO account_holding (account_id, ticker, quantity) VALUES (20, 'BTC', '1');
+                 INSERT INTO account_holding (account_id, ticker, quantity) VALUES (20, 'XF000BTC0017', '1');
+                 INSERT INTO account_holding (account_id, ticker, quantity) VALUES (20, 'FR0010135103', '1');",
+            )?;
+
+            assert_eq!(migrate_with(conn, &all)?, all.len() - 2);
+
+            let mut stmt = conn.prepare(
+                "SELECT account_id, ticker, isin FROM account_holding ORDER BY account_id, ticker",
+            )?;
+            let rows: Vec<(i64, String, Option<String>)> = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                .collect::<Result<_, _>>()?;
+            assert_eq!(
+                rows,
+                vec![
+                    (10, " cw8.pa ".to_owned(), Some("LU1681043599".to_owned())),
+                    (10, "ETH".to_owned(), None),
+                    (10, "MULYF".to_owned(), Some("LU1829219390".to_owned())),
+                    (10, "SOL".to_owned(), None),
+                    (10, "XF000BTC0017".to_owned(), None),
+                    (10, "fr0010135103".to_owned(), Some("FR0010135103".to_owned())),
+                    (20, "BTC".to_owned(), None),
+                    (20, "FR0010135103".to_owned(), None),
+                    (20, "XF000BTC0017".to_owned(), None),
+                ]
+            );
+            Ok(())
+        })
+        .expect("v3 backfill");
+        db.verify_schema().expect("schema parity after V3");
+    }
+
+    #[test]
+    fn v3_refuses_a_malformed_isin() {
+        let db = SqliteDb::open_in_memory().expect("open in-memory SQLite");
+        assert_eq!(db.migrate().expect("migrate"), migrations().len());
+        db.with_conn(|conn| {
+            conn.execute_batch(
+                "INSERT INTO family_member (id, display_name, is_managed) VALUES (1, 'Doe', 0);
+                 INSERT INTO account (id, name, type, currency, current_balance, is_manual, member_id)
+                     VALUES (10, 'PEA', 'PEA', 'EUR', '0', 1, 1);",
+            )?;
+            for bad in ["lu1829219390", "LU182921939A", "LU18292193", "LU1829219390X"] {
+                let err = conn
+                    .execute(
+                        "INSERT INTO account_holding (account_id, ticker, quantity, isin) VALUES (10, 'X', '1', ?1)",
+                        params![bad],
+                    )
+                    .expect_err(&format!("{bad:?} must be rejected"));
+                assert!(
+                    err.to_string().contains("CHECK constraint failed"),
+                    "{bad:?}: {err}"
+                );
+            }
+            Ok(())
+        })
+        .expect("malformed isin");
     }
 }

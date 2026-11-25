@@ -221,6 +221,11 @@ async fn complete_writes_the_portfolio_holdings_and_snapshot() {
             .await
             .unwrap();
     assert_eq!(snapshot, (d("1250"), d("1050")), "cash plus 10 x 80");
+    let isin: Option<String> = picsou::db::query_scalar("SELECT isin FROM account_holding")
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(isin.as_deref(), Some("FR0000120271"));
 }
 
 #[tokio::test]
@@ -555,6 +560,11 @@ async fn an_oversized_symbol_falls_back_to_the_isin() {
         .await
         .unwrap();
     assert_eq!(ticker, "FR0000120271");
+    let held: Option<String> = picsou::db::query_scalar("SELECT isin FROM account_holding")
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(held.as_deref(), Some("FR0000120271"), "stored upper-cased");
     let isin: String =
         picsou::db::query_scalar("SELECT isin FROM security_profile WHERE ticker = 'FR0000120271'")
             .fetch_one(&app.state.db)

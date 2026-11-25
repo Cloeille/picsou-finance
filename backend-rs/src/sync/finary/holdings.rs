@@ -16,7 +16,7 @@ use crate::ledger::decimal::{HALF_UP, divide};
 use crate::ledger::holding_dedup::{HoldingAgg, vwap_merge};
 use crate::ledger::holdings;
 use crate::ledger::instrument::is_isin;
-use crate::ledger::model::{Account, HoldingDraft};
+use crate::ledger::model::{Account, HoldingDraft, normalize_isin};
 use crate::ledger::sync_values::{java_is_blank, java_trim};
 
 pub const TICKER_MAX: usize = 100;
@@ -125,7 +125,7 @@ pub fn sanitize_ticker(raw: Option<&str>) -> Option<String> {
 async fn resolve(
     position: &Position,
     isin_lookup: &dyn IsinLookup,
-) -> (Option<String>, Option<String>) {
+) -> (Option<String>, Option<String>, Option<String>) {
     if let Some(crypto) = &position.crypto {
         let code = first_non_blank(&[crypto.code.as_deref(), crypto.symbol.as_deref()]);
         return (
@@ -135,6 +135,7 @@ async fn resolve(
                 position.id.as_deref(),
             ])),
             first_non_blank(&[crypto.name.as_deref(), code]).map(str::to_owned),
+            None,
         );
     }
     if let Some(security) = &position.security {
@@ -144,7 +145,11 @@ async fn resolve(
             let ticker = first_non_blank(&[Some(resolved.ticker.as_str()), Some(isin)]);
             let name =
                 first_non_blank(&[resolved.name.as_deref(), security.name.as_deref(), ticker]);
-            return (sanitize_ticker(ticker), name.map(str::to_owned));
+            return (
+                sanitize_ticker(ticker),
+                name.map(str::to_owned),
+                normalize_isin(Some(isin)),
+            );
         }
         let fallback = first_non_blank(&[
             isin,
@@ -156,12 +161,14 @@ async fn resolve(
         return (
             sanitize_ticker(fallback),
             first_non_blank(&[security.name.as_deref(), fallback]).map(str::to_owned),
+            normalize_isin(isin),
         );
     }
     let name = first_non_blank(&[position.name.as_deref(), position.id.as_deref()]);
     (
         sanitize_ticker(Some(&format!("FINARY_{}", name.unwrap_or("null")))),
         name.map(str::to_owned),
+        None,
     )
 }
 
@@ -199,6 +206,7 @@ fn add(a: Option<Decimal>, b: Option<Decimal>) -> Option<Decimal> {
 
 struct Line {
     agg: HoldingAgg,
+    isin: Option<String>,
     value_eur: Option<Decimal>,
     pnl_eur: Option<Decimal>,
 }
@@ -261,7 +269,7 @@ pub async fn import(
         let Some(quantity) = position.quantity.filter(|q| !q.is_zero()) else {
             continue;
         };
-        let (ticker, name) = resolve(position, isin_lookup).await;
+        let (ticker, name, isin) = resolve(position, isin_lookup).await;
         let Some(ticker) = ticker else {
             tracing::warn!(
                 "Skipping Finary position without a ticker on account {}",
@@ -288,6 +296,9 @@ pub async fn import(
         match lines.get_mut(&ticker) {
             Some(line) => {
                 line.agg = merge_lines(&line.agg, &agg);
+                if line.isin.is_none() {
+                    line.isin = isin;
+                }
                 line.value_eur = add(line.value_eur, value_eur);
                 line.pnl_eur = add(line.pnl_eur, pnl_eur);
             }
@@ -297,6 +308,7 @@ pub async fn import(
                     ticker,
                     Line {
                         agg,
+                        isin,
                         value_eur,
                         pnl_eur,
                     },
@@ -314,6 +326,7 @@ pub async fn import(
         }
         let draft = HoldingDraft {
             ticker,
+            isin: line.isin.clone(),
             name: line.agg.name.as_deref().map(|n| truncate(n, NAME_MAX)),
             quantity: line.agg.quantity,
             average_buy_in: line.agg.average_buy_in,
