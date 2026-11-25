@@ -49,6 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for the approval on the phone and completes the login on its own. An approval not given in time
   ends with "The Amex authentication attempt expired". The verify page diagnostic now logs which known
   keywords the page's headings and buttons contain, never their text.
+- **Natixis Interépargne: logins asked to register a passkey now complete.** After the password
+  and the code, Natixis can ask for a passkey to be registered. Picsou now puts it off, as the
+  "later" button of the saver space does, instead of reporting a website format change. (#686, #688)
 
 ## [1.3.0] — 2026-11-24
 
