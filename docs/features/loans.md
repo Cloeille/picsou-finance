@@ -115,7 +115,9 @@ BalanceSnapshot persisted  →  historical balance chart steps down monthly
   Co-owners can read the endpoint (`access::require_readable`) and `LoanScheduleResponse::weigh`
   scales every monetary figure in both `summary` and `schedule` (installment, capital, interest,
   insurance, remaining balance, fees and totals) via `access::weigh` rounded to 2 decimal places
-  (`HALF_UP`), while keeping installment counts, dates and `capitalRepaidPct` unchanged. A 100%
+  (`HALF_UP`), while keeping installment counts, dates and `capitalRepaidPct` unchanged. Each
+  field is weighed on its own, as the dashboard and real-estate summaries do, so weighed parts
+  can differ from a weighed total by 0.01. A 100%
   share returns the computed schedule unmodified; a 0%-share owner still reads `200` with zeroed
   money amounts and intact progress metadata. Changing the split via `useUpdateOwnership`
   invalidates `['loan-summary', id]` so the loan detail cards refresh immediately.
