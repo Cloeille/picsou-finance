@@ -31,3 +31,12 @@ class SharedBaseRuntimeTest(unittest.TestCase):
             re.findall(r"^FROM \S+ AS (\S+)$\n(.*?)(?=^FROM |\Z)", dockerfile, re.MULTILINE | re.DOTALL)
         )
         self.assertRegex(stages["chromium"], r"apt-get install[^&]*\blibatomic1\b")
+
+    def test_every_copied_requirements_file_exists_in_the_build_context(self):
+        base_dir = Path(__file__).parent
+        dockerfile = (base_dir / "Dockerfile").read_text(encoding="utf-8")
+        sources = re.findall(r"^COPY\s+(\S*requirements\S*\.txt)\s+", dockerfile, re.MULTILINE)
+        self.assertGreaterEqual(len(sources), 3)
+        for src in sources:
+            with self.subTest(src=src):
+                self.assertTrue((base_dir / src).is_file(), f"Missing Dockerfile COPY source: {src}")

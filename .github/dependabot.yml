@@ -30,20 +30,31 @@ updates:
     ignore:
       - dependency-name: typescript
         update-types: ["version-update:semver-major"]
-  # All sidecars inherit these pins; requirements-{chromium,camoufox}.txt keep
-  # browser-specific dependencies separate. Browser bumps require review
-  # of the Camoufox protocol compatibility and the image smoke tests.
+  # All sidecars inherit requirements.txt; requirements-chromium.txt keeps the
+  # Chromium Playwright pin separate from the Python base and follows upstream.
   - package-ecosystem: pip
     directory: /services/base
     schedule:
       interval: weekly
-    # Camoufox 0.5.x requires Playwright <1.63 (this target pins 1.64.1) and
-    # changes the installer that pin_camoufox.py subclasses. It is one
-    # hand-written migration (Playwright pin, pin_camoufox.py, smoke_camoufox.py
-    # in amex-auth and revolut-auth), not a version bump (see #383 and #490).
+  # Camoufox stays two levels below /services/base so Dependabot's pip file
+  # fetcher on /services/base (which also scans immediate child directories)
+  # does not pick it up alongside requirements-chromium.txt.
+  - package-ecosystem: pip
+    directory: /services/base/targets/camoufox
+    schedule:
+      interval: weekly
     ignore:
+      # Camoufox 0.5.x requires Playwright <1.63 (this target pins 1.64.1) and
+      # changes the installer that pin_camoufox.py subclasses. It is one
+      # hand-written migration (Playwright pin, pin_camoufox.py, smoke_camoufox.py
+      # in amex-auth, bnp-auth and revolut-auth), not a version bump (#383, #490).
       - dependency-name: camoufox
         versions: [">=0.5"]
+      # Playwright 1.65 sends a Juggler field (downloadOptions.legacyInterceptor)
+      # the pinned Camoufox Firefox rejects (#658, #676). Keep this target on
+      # 1.64.x while /services/base/requirements-chromium.txt follows upstream.
+      - dependency-name: playwright
+        versions: [">=1.65"]
   # Includes the digest-pinned Python base and all application/sidecar images.
   - package-ecosystem: docker
     directories:
