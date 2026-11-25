@@ -19,6 +19,7 @@ use crate::auth::Auth;
 use crate::db::{self, AsDbHandle, DbExec, DbHandle};
 use crate::error::{AppError, AppResult};
 use crate::http::json::{Errors, Json, Path, Validate, null_as_false};
+use crate::ledger::instrument::normalize_isin;
 use crate::ledger::manual_transactions::{
     self, ManualEntryContext, PeerLoanLink, PeerLoanLinkKind, TransactionRequest,
     TransactionResponse,
@@ -60,6 +61,8 @@ pub struct AccountRequest {
     pub logo_key: Option<String>,
     pub institution_id: Option<String>,
     pub opened_at: Option<NaiveDate>,
+    /// The ISIN of the single fund the account holds; blank or missing clears it.
+    pub tracked_isin: Option<String>,
 }
 
 impl ValidateAt for AccountRequest {
@@ -95,6 +98,12 @@ impl ValidateAt for AccountRequest {
                 "Currency must be a valid ISO 4217 code (e.g., EUR, USD, GBP)",
             );
         }
+        if let Some(isin) = self.tracked_isin.as_deref()
+            && !isin.trim().is_empty()
+            && normalize_isin(isin).is_none()
+        {
+            check.errors.add("trackedIsin", "must be a valid ISIN");
+        }
         check
             .decimal_min("currentBalance", self.current_balance, "0", true)
             .past_or_present("openedAt", self.opened_at);
@@ -108,6 +117,11 @@ impl AccountRequest {
 
     fn kind(&self) -> AccountType {
         self.account_type.unwrap_or(AccountType::Other)
+    }
+
+    /// The canonical tracked ISIN; None for a missing or blank one (validation refused the rest).
+    fn tracked_isin(&self) -> Option<String> {
+        self.tracked_isin.as_deref().and_then(normalize_isin)
     }
 }
 
@@ -385,6 +399,11 @@ pub async fn create(
     new.logo_url = logo_url;
     new.opened_at = req.opened_at;
     let mut account = accounts::insert(&mut tx, &new, state.clock.now()).await?;
+    // NewAccount leaves the tracked fund unset: a requested one is written onto the new row.
+    if let Some(isin) = req.tracked_isin() {
+        account.tracked_isin = Some(isin);
+        account = accounts::update(&mut tx, &account, state.clock.now()).await?;
+    }
     // Java answers with the entity it just saved: the balance keeps the scale it was sent with.
     account.current_balance = opening;
 
@@ -517,6 +536,7 @@ pub async fn update(
     if req.opened_at.is_some() {
         account.opened_at = req.opened_at;
     }
+    account.tracked_isin = req.tracked_isin();
     match account.account_type {
         AccountType::Scpi => {
             account.is_manual = true;

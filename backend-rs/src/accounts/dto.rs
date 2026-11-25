@@ -61,6 +61,9 @@ pub struct AccountResponse {
     pub card_nature: Option<CardNature>,
     pub contract: Option<AccountContractResponse>,
     pub institution: Option<InstitutionResponse>,
+    pub tracked_isin: Option<String>,
+    /// The ticker the tracked ISIN resolves to; filled in by the response builder when known.
+    pub tracked_ticker: Option<String>,
 }
 
 impl AccountResponse {
@@ -99,6 +102,8 @@ impl AccountResponse {
             card_nature: a.card_nature,
             contract: AccountContractResponse::from_account(a),
             institution: InstitutionResponse::from_account(a),
+            tracked_isin: a.tracked_isin.clone(),
+            tracked_ticker: None,
         }
     }
 
