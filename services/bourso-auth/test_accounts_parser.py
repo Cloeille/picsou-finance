@@ -567,6 +567,7 @@ class TradingSummaryTest(unittest.TestCase):
         with self.assertRaises(AccountsFormatError) as raised:
             parse_trading_summary(sections, "acc")
         self.assertEqual(raised.exception.code, INCOMPLETE)
+        self.assertIn("1 of 1 line(s)", str(raised.exception))
 
     def test_positions_and_funds_are_combined_without_double_counting(self):
         a = position(symbol="1rTA", isin="IE00B4L5Y983", quantity="5", amount="450.00")

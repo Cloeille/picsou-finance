@@ -1192,10 +1192,9 @@ fn trading_summary_refuses_funds_mismatching_valuation() {
         .unwrap()
         .push(json!({ "id": "funds", "funds": [fund] }));
 
-    assert_eq!(
-        parse_trading_summary(&payload, "acc").unwrap_err().code,
-        INCOMPLETE
-    );
+    let err = parse_trading_summary(&payload, "acc").unwrap_err();
+    assert_eq!(err.code, INCOMPLETE);
+    assert!(err.message.contains("1 of 1 line(s)"), "{}", err.message);
 }
 
 #[test]

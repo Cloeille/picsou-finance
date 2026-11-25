@@ -669,7 +669,11 @@ def _parse_single_fund(
     # positions or funds section carries nothing to contradict the fund, and
     # BoursoBank already sends those beside populated ones.
     mixed = any(field in account for field in ("cash", "valuation", "total"))
-    if mixed or any(section.get("positions") or section.get("funds") for section in sections):
+    if mixed or any(
+        section.get(key) is not None and section.get(key) != []
+        for section in sections
+        for key in ("positions", "funds")
+    ):
         raise AccountsFormatError(
             FORMAT_CHANGED, "Trading summary mixes a fund contract and a securities account"
         )

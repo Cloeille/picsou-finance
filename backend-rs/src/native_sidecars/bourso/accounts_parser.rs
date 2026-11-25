@@ -932,8 +932,7 @@ fn parse_single_fund(
         ["positions", "funds"].into_iter().any(|key| {
             section
                 .get(key)
-                .and_then(Value::as_array)
-                .is_some_and(|arr| !arr.is_empty())
+                .is_some_and(|v| !v.is_null() && v.as_array().is_none_or(|arr| !arr.is_empty()))
         })
     });
     if mixed || has_non_empty_lines {
