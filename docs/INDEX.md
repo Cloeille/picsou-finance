@@ -100,6 +100,7 @@
 | 2026-11-15 | [A Tauri desktop app built from the Docker release](./decisions/2026-11-15-desktop-app-tauri.md) | Proposed |
 | 2026-11-21 | [Rewrite the backend in Rust](./decisions/2026-11-21-rust-backend.md) | Proposed |
 | 2026-11-22 | [Dual-engine database architecture (Embedded SQLite + PostgreSQL)](./decisions/2026-11-22-sqlite-dual-engine.md) | Proposed |
+| 2026-11-24 | [A dependency cache and test shards for the Rust CI jobs](./decisions/2026-11-24-rust-ci-cache-and-shards.md) | Active |
 
 ## Feature notes
 
