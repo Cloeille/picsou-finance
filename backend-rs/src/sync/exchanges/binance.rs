@@ -137,13 +137,14 @@ impl ExchangePort for Binance<'_> {
         Ok(holdings)
     }
 
-    async fn test_connection(&self, credentials: &ExchangeCredentials) -> bool {
+    async fn test_connection(&self, credentials: &ExchangeCredentials) -> Result<bool, FetchError> {
         match self.account(credentials).await {
-            Ok(_) => true,
+            Ok(_) => Ok(true),
             Err(FetchError::Sync(message) | FetchError::Unexpected(message)) => {
                 tracing::warn!("Binance connection test failed: {message}");
-                false
+                Ok(false)
             }
+            Err(error @ FetchError::Coded { .. }) => Err(error),
         }
     }
 }

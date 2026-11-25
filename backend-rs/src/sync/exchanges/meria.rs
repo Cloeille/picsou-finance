@@ -382,7 +382,7 @@ impl ExchangePort for Meria<'_> {
         Ok(positions)
     }
 
-    async fn test_connection(&self, credentials: &ExchangeCredentials) -> bool {
+    async fn test_connection(&self, credentials: &ExchangeCredentials) -> Result<bool, FetchError> {
         // /status is documented as the key check; only the envelope flag is asserted.
         let response = match self
             .http
@@ -396,40 +396,40 @@ impl ExchangePort for Meria<'_> {
             Ok(response) => response,
             Err(e) => {
                 tracing::warn!("Meria connection test failed: {}", describe(&e));
-                return false;
+                return Ok(false);
             }
         };
         let status = response.status();
         if !status.is_success() {
             tracing::warn!("Meria connection test failed: {status} from GET /status");
-            return false;
+            return Ok(false);
         }
         let json = is_json(&response);
         let body = match read_capped_bytes(response, STATUS_MAX_RESPONSE_BYTES).await {
             Ok(body) => body,
             Err(ReadBodyError::Transport(e)) => {
                 tracing::warn!("Meria connection test failed: {}", describe(&e));
-                return false;
+                return Ok(false);
             }
             Err(ReadBodyError::TooLarge { .. }) => {
                 tracing::warn!("Meria connection test failed: unreadable body from GET /status");
-                return false;
+                return Ok(false);
             }
         };
         if is_blank(&body) {
-            return false;
+            return Ok(false);
         }
         if !json {
             tracing::warn!(
                 "Meria connection test failed: unsupported content type from GET /status"
             );
-            return false;
+            return Ok(false);
         }
         match serde_json::from_slice::<Value>(&body) {
-            Ok(body) => as_boolean(body.get("success")),
+            Ok(body) => Ok(as_boolean(body.get("success"))),
             Err(_) => {
                 tracing::warn!("Meria connection test failed: unreadable body from GET /status");
-                false
+                Ok(false)
             }
         }
     }

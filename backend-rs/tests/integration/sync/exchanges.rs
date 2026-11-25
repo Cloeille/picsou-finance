@@ -1,5 +1,7 @@
 //! Crypto exchanges: CryptoExchangeController over HTTP, Binance and Meria stubbed with wiremock.
 
+mod okx;
+
 use chrono::NaiveDate;
 use picsou::ledger::sidecar::SyncStatus;
 use picsou::sync::exchanges;

@@ -46,10 +46,12 @@ Every call must return a `success: true` envelope, or an empty body on a 2xx; an
 
 Create a read-only API key and supply its key, secret and passphrase. Choose the region where the
 key is registered. Global (okx.com) uses `https://www.okx.com`, EEA (my.okx.com) uses
-`https://eea.okx.com`, and US (app.okx.com) uses `https://us.okx.com`. Both the connection probe
-and sync use the region stored on the connection. OKX error `50119` returns `OKX_REGION_MISMATCH`
-to the frontend, which shows translated guidance when adding the connection and in the Sync all dialog. Use **Add exchange**
-to submit the credentials for the correct region and update the existing OKX connection.
+`https://eea.okx.com`, and US (app.okx.com) uses `https://us.okx.com`. The connection probe
+uses the selected region. Sync uses the region saved on the connection. For stub servers, override
+the hosts with `OKX_GLOBAL_BASE_URL`, `OKX_EEA_BASE_URL` and `OKX_US_BASE_URL`. OKX error
+`50119` returns `OKX_REGION_MISMATCH` to the frontend, which shows translated guidance when adding
+the connection and in the Sync all dialog. Use **Add exchange** to submit the credentials for the
+correct region and update the existing OKX connection.
 [OKX API FAQ](https://www.okx.com/en-eu/help/api-faq)
 
 Each GET sends `User-Agent: Picsou` and four `OK-ACCESS-*` headers. The signature is Base64 of
@@ -57,9 +59,10 @@ HMAC-SHA256 with the secret over timestamp + "GET" + path including any query. T
 uses UTC milliseconds. Skew over 30 seconds can trigger `50102`.
 [OKX v5 API reference](https://www.okx.com/docs-v5/en/)
 
-The connection test reads all six endpoints and applies the same checks as sync. This rejects
-accounts Picsou cannot value before saving the connection. A successful connection makes all six
-calls twice, first for the test and then for the immediate sync.
+The Rust adapter's `test_connection()` calls `fetch_positions()` and applies the same checks as
+sync. This rejects accounts Picsou cannot value before saving the connection. A successful connection
+makes all six calls twice, first for the test and then for the immediate sync. The service maps coded
+`FetchError` variants through `AppError::coded` on both paths.
 
 | GET endpoint | Position mapping |
 |---|---|
@@ -83,14 +86,19 @@ Redeem them to the funding account before trying again.
 [OKX ETH staking FAQ](https://www.okx.com/en-eu/help/eth-staking-faq),
 [OKX SOL staking guide](https://www.okx.com/en-eu/help/how-do-i-stake-and-redeem-oksol-crypto)
 
-The six calls run sequentially without application retries. Each requires HTTP 200, code `"0"`
-and an array in `data`. The single trading account row requires a numeric `totalEq` string, a
+The six calls run sequentially with a ten-second timeout per call. The client makes one attempt
+per endpoint and refuses redirects. Each response requires HTTP 200, code `"0"` and an array in
+`data`. The single trading account row requires a numeric `totalEq` string, a
 `details` array and at least one non-zero currency balance when `totalEq` is non-zero. Trading,
 funding and savings each return at most one row per currency. Each dedicated staking endpoint
 returns at most one total, with currency `BETH` or `OKSOL` as appropriate. Each active On-chain Earn
 order requires a unique, nonblank `ordId` and at least one investment row. Every balance row requires
-a currency and a non-negative quantity string. Duplicate JSON keys, malformed data, timeouts,
-transport errors and non-zero codes fail the sync. For `51024`, check the account's status and region
+a currency and a non-negative quantity string. The Rust adapter reads UTF-8 JSON with serde's
+nesting limit and accepts ASCII digits in decimal strings, including scientific notation. It rejects positive quantities
+or adapter totals outside the exact range of the backend's `Decimal` type. Duplicate JSON keys,
+trailing JSON tokens, malformed data, timeouts, transport errors and non-zero codes fail the sync.
+Diagnostics use local text and recognized codes. The upstream `msg` is ignored and unexpected
+HTTP client failures log only the kind. For `51024`, check the account's status and region
 on OKX.
 
 Picsou does not support exchange liabilities. A negative trading balance, for example from a
@@ -217,7 +225,7 @@ CryptoExchangeSyncService.addExchange()
 Validate the adapter's credential and region requirements (400 before any network call)
         |
         v
-CryptoExchangePort.testConnection(credentials)
+ExchangePort::test_connection(credentials)
         |
         v
 Encrypt the key and any secret or passphrase with CryptoEncryption
@@ -226,7 +234,7 @@ Encrypt the key and any secret or passphrase with CryptoEncryption
 Save CryptoExchangeSession with the chosen region, if any
         |
         v
-Decrypt on sync, then pass the credentials and stored region to CryptoExchangePort.fetchPositions()
+Decrypt on sync, then pass the credentials and stored region to ExchangePort::fetch_positions()
         |
         v
 PriceService.refreshCryptoQuotes() -- convert to EUR, crypto-only
@@ -310,17 +318,18 @@ Upsert Account (type=CRYPTO, no ticker)
 
 > BIP32 derivation has no dedicated `BitcoinKeyUtilsTest`.
 
-- `CryptoExchangeSyncServiceTest` covers credential and region validation before `testConnection`, including
-  the passphrase byte limit. It verifies passphrase encryption and replacement on reconnect and use of
-  the stored region on sync and status reads. It also covers sync failures, unsupported exchanges,
-  unpriced holdings and deleted accounts.
-- `CryptoExchangeControllerTest` checks that POST forwards the passphrase and region to the service,
-  exchange status JSON includes the stored region, and validation redacts rejected passphrases.
+- `backend-rs/tests/integration/sync/exchanges.rs` covers credential validation, sync failures,
+  unsupported exchanges, unpriced holdings and deleted accounts.
 - `CryptoExchangePositionRepositoryTest` -- the delete-then-reinsert rewrite against the real `uq_crypto_exchange_position`, the exact quantities it leaves behind, a product no longer held disappearing, and — with a second seeded account — that the bulk delete filters by account rather than emptying the table
 - `MeriaAdapterTest` -- aggregation across wallets/stakings/lendings per currency, staking counted as `amount` with accrued interest **not** added on top, a contract with no reward fields at all, a reward above the quantity or below zero reported with no decomposition at all (and a merge with one such contract staying undecomposed), symbols upper-cased under a forced Turkish locale, zero/blank entries dropped; and the all-or-nothing contract: every endpoint × {401, 403, 404, 429, 500} throws, as do `success:false` on HTTP 200, a reactor-wrapped timeout and a non-JSON (Cloudflare) body — while `data: []` **and an empty body on a 2xx** both yield an empty list without throwing. Also pins that only an `API-KEY` header is sent (no `Authorization`, no `X-MBX-APIKEY`, no `signature` query), that the secret argument is ignored, and that no message or log line contains the API key
 - `MeriaAdapterWiringTest` -- Spring picks the production constructor with and without `app.meria.base-url` set, and the production client reads a staking payload larger than the framework's default buffer (served over a real socket — the `ExchangeFunction` fixtures decode with the stub's strategies and cannot see that configuration)
-- `OkxAdapterTest` -- synthetic fixtures in `backend/src/test/resources/okx/` cover six-endpoint aggregation, per-connection routing, signing, receipt reconciliation, malformed responses and credential redaction, and that the connection test reads all six endpoints and refuses a negative trading balance (`OKX_NEGATIVE_BALANCE`) or BETH/OKSOL in Earn (`OKX_STAKING_RECEIPT_IN_EARN`) like the sync does.
-- `OkxAdapterWiringTest` -- Spring creates the adapter with the three production hosts in region order.
+- `backend-rs/src/sync/exchanges/okx.rs` tests signing with a fixed clock, strict parsing,
+  aggregation, receipt reconciliation and the three production hosts in region order.
+- `backend-rs/tests/integration/sync/exchanges/okx.rs` uses synthetic fixtures in
+  `backend-rs/tests/integration/sync/fixtures/okx/`. The tests cover exact signed requests,
+  per-connection routing, credential validation, passphrase encryption on reconnect, the stored
+  region in status responses, all-or-nothing reads and credential redaction. They assert the three
+  OKX codes on both add and sync and verify that a refused probe writes neither an account nor a session.
 - `CryptoExchangeTab.test.tsx` and `SyncAllModal.test.tsx` -- OKX region help, passphrase masking,
   submission with an explicit region, display of the stored region and translation of the three OKX
   error codes during connection, and of region mismatches during manual sync.

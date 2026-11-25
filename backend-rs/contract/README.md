@@ -40,7 +40,7 @@ The environment holds the variables `backend-rs/src/config.rs` reads, nothing is
 - `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, an empty `SPRING_DATASOURCE_PASSWORD`, `SERVER_PORT`.
 - `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` generated per instance.
 - `SECURE_COOKIES=false`, `APP_STARTUP_SYNC_ENABLED=false`, `APP_UPDATE_CHECK_ENABLED=false`, `INSTRUMENT_LOGOS_ENABLED=false`, `VALUATION_ENABLED=false`, `ADMIN_RECOVERY_ENABLED=false`, `HSTS_ENABLED=false`, `APP_TIMEZONE=Europe/Paris`, `PUBLIC_BASE_URL=http://localhost:5173`.
-- Every configurable external base URL points at the harness's stub server: `CEREMA_API_URL`, `INSEE_API_URL`, `GEOCODING_API_URL`, `MERIA_BASE_URL`, `ENABLEBANKING_BASE_URL` and the 17 `*_AUTH_URL` sidecars. The stub answers 503 to everything.
+- The harness points `CEREMA_API_URL`, `INSEE_API_URL`, `GEOCODING_API_URL`, `MERIA_BASE_URL`, `OKX_GLOBAL_BASE_URL`, `OKX_EEA_BASE_URL`, `OKX_US_BASE_URL`, `ENABLEBANKING_BASE_URL` and the 17 `*_AUTH_URL` sidecars at its stub server. The stub answers 503 to everything.
 - Hosts no variable redirects (price feeds, logos) go through the stub as an HTTP proxy (`HTTP_PROXY`, `HTTPS_PROXY`), which refuses them. A scenario never reaches the internet.
 
 The harness's cookie jar follows RFC 6265: cookies keyed by name and path, default path the request's directory, `Max-Age` before `Expires`.

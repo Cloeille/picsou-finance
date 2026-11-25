@@ -8,13 +8,15 @@ use serde_json::Value;
 use super::binance::Binance;
 use super::meria::Meria;
 use super::model::{ExchangeCredentials, ExchangePosition, ExchangeType};
+use super::okx::Okx;
 use crate::AppState;
 
-/// Why a read failed. Sync carries a user-facing message (SyncException), which the service
-/// rethrows as-is; Unexpected is anything else, logged and replaced by a generic message.
+/// Sync and Coded carry safe user-facing diagnostics. Unexpected is logged and replaced
+/// by a generic message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FetchError {
     Sync(String),
+    Coded { code: &'static str, detail: String },
     Unexpected(String),
 }
 
@@ -42,8 +44,8 @@ pub trait ExchangePort: Send + Sync {
         credentials: &ExchangeCredentials,
     ) -> Result<Vec<ExchangePosition>, FetchError>;
 
-    /// Whether these credentials can read the account; a failure is false.
-    async fn test_connection(&self, credentials: &ExchangeCredentials) -> bool;
+    /// Whether these credentials can read the account. A refusal may carry a diagnostic.
+    async fn test_connection(&self, credentials: &ExchangeCredentials) -> Result<bool, FetchError>;
 }
 
 /// The adapter of an exchange type, None for an exchange Java has no adapter for (KRAKEN).
@@ -51,6 +53,7 @@ pub fn adapter(state: &AppState, exchange: ExchangeType) -> Option<Box<dyn Excha
     match exchange {
         ExchangeType::Binance => Some(Box::new(Binance::new(state))),
         ExchangeType::Meria => Some(Box::new(Meria::new(state))),
+        ExchangeType::Okx => Some(Box::new(Okx::new(state))),
         ExchangeType::Kraken => None,
     }
 }
