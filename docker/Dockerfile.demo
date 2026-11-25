@@ -37,6 +37,12 @@ server {
         try_files $uri =404;
         add_header Cache-Control "public, max-age=31536000, immutable";
     }
+    location ~* \.webmanifest$ {
+        types { application/manifest+json webmanifest; }
+        default_type application/manifest+json;
+        try_files $uri =404;
+        add_header Cache-Control "no-cache";
+    }
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
         try_files $uri =404;
         add_header Cache-Control "no-cache";

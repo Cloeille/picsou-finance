@@ -105,7 +105,7 @@ const CATALOG: CatalogEntry[] = [
     category: 'wealth',
     icon: BitcoinLogo,
     route: '/setup/integrations/crypto',
-    keywords: 'binance meria bitcoin ethereum exchange api',
+    keywords: 'binance meria okx bitcoin ethereum exchange api',
   },
 ]
 

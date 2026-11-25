@@ -85,7 +85,9 @@ macro_rules! impl_pg_exec {
             {
                 Box::pin(async move {
                     let pg_args = args.into_pg()?;
-                    let rows = sqlx::query_with(sql, pg_args).fetch_all(self).await?;
+                    let rows = sqlx::query_with(sqlx::AssertSqlSafe(sql), pg_args)
+                        .fetch_all(self)
+                        .await?;
                     Ok(rows.into_iter().map(DbRow::Postgres).collect())
                 })
             }
@@ -100,7 +102,9 @@ macro_rules! impl_pg_exec {
             {
                 Box::pin(async move {
                     let pg_args = args.into_pg()?;
-                    let row = sqlx::query_with(sql, pg_args).fetch_optional(self).await?;
+                    let row = sqlx::query_with(sqlx::AssertSqlSafe(sql), pg_args)
+                        .fetch_optional(self)
+                        .await?;
                     Ok(row.map(DbRow::Postgres))
                 })
             }
@@ -115,7 +119,9 @@ macro_rules! impl_pg_exec {
             {
                 Box::pin(async move {
                     let pg_args = args.into_pg()?;
-                    let row = sqlx::query_with(sql, pg_args).fetch_one(self).await?;
+                    let row = sqlx::query_with(sqlx::AssertSqlSafe(sql), pg_args)
+                        .fetch_one(self)
+                        .await?;
                     Ok(DbRow::Postgres(row))
                 })
             }
@@ -130,7 +136,9 @@ macro_rules! impl_pg_exec {
             {
                 Box::pin(async move {
                     let pg_args = args.into_pg()?;
-                    let res = sqlx::query_with(sql, pg_args).execute(self).await?;
+                    let res = sqlx::query_with(sqlx::AssertSqlSafe(sql), pg_args)
+                        .execute(self)
+                        .await?;
                     Ok(DbQueryResult::new(res.rows_affected()))
                 })
             }
@@ -156,7 +164,7 @@ impl<'e, 'tx> DbExec<'e> for &'e mut Transaction<'tx, Postgres> {
     {
         Box::pin(async move {
             let pg_args = args.into_pg()?;
-            let rows = sqlx::query_with(sql, pg_args)
+            let rows = sqlx::query_with(sqlx::AssertSqlSafe(sql), pg_args)
                 .fetch_all(&mut **self)
                 .await?;
             Ok(rows.into_iter().map(DbRow::Postgres).collect())
@@ -173,7 +181,7 @@ impl<'e, 'tx> DbExec<'e> for &'e mut Transaction<'tx, Postgres> {
     {
         Box::pin(async move {
             let pg_args = args.into_pg()?;
-            let row = sqlx::query_with(sql, pg_args)
+            let row = sqlx::query_with(sqlx::AssertSqlSafe(sql), pg_args)
                 .fetch_optional(&mut **self)
                 .await?;
             Ok(row.map(DbRow::Postgres))
@@ -190,7 +198,7 @@ impl<'e, 'tx> DbExec<'e> for &'e mut Transaction<'tx, Postgres> {
     {
         Box::pin(async move {
             let pg_args = args.into_pg()?;
-            let row = sqlx::query_with(sql, pg_args)
+            let row = sqlx::query_with(sqlx::AssertSqlSafe(sql), pg_args)
                 .fetch_one(&mut **self)
                 .await?;
             Ok(DbRow::Postgres(row))
@@ -207,7 +215,9 @@ impl<'e, 'tx> DbExec<'e> for &'e mut Transaction<'tx, Postgres> {
     {
         Box::pin(async move {
             let pg_args = args.into_pg()?;
-            let res = sqlx::query_with(sql, pg_args).execute(&mut **self).await?;
+            let res = sqlx::query_with(sqlx::AssertSqlSafe(sql), pg_args)
+                .execute(&mut **self)
+                .await?;
             Ok(DbQueryResult::new(res.rows_affected()))
         })
     }

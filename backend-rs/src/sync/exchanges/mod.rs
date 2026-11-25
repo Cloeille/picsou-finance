@@ -1,9 +1,10 @@
 //! Crypto exchanges: CryptoExchangeController, CryptoExchangeSyncService and the exchange
-//! adapters (Binance, Meria; KRAKEN is listed but, as in Java, has no adapter).
+//! adapters (Binance, Meria, OKX; KRAKEN is listed though it has no adapter).
 
 mod binance;
 mod meria;
 pub mod model;
+mod okx;
 pub mod port;
 pub mod seams;
 pub mod service;
@@ -41,6 +42,9 @@ pub fn register(routes: &mut Routes) {
 
 /// The exchange sync's cross-track seams, held as state.sync.exchanges.
 pub struct Hooks {
+    /// OKX's own client: it refuses redirects, so the signed headers never leave the selected
+    /// regional host, and it never retries.
+    okx_http: reqwest::Client,
     /// AccountService.toResponse (track T2).
     pub accounts: Arc<dyn AccountResponder>,
     /// CryptoLogoService.getLogoUrls (track T4).
@@ -50,6 +54,7 @@ pub struct Hooks {
 impl Hooks {
     pub fn new() -> Self {
         Self {
+            okx_http: okx::http_client(),
             accounts: Arc::new(LedgerAccountResponder),
             logos: Arc::new(NoCryptoLogos),
         }

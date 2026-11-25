@@ -1,6 +1,6 @@
 # Feature: Bank Sync
 
-> Last updated: 2026-10-31 (merged account attribution, provider scope, and currency-aware matching)
+> Last updated: 2026-11-25 (one-click broken bank connector issue reporting; savings accounts from `cash_account_type` `SVGS`)
 
 > **Status (1.3.0).** Enable Banking is the only provider. The Powens adapter of
 > the Java backend was experimental and untested, and was not carried over to the
@@ -333,13 +333,22 @@ Every public method of `EnableBankingBankConnector` maps **all** provider failur
 
 `SchedulerService.dailyBankSync()` calls `SyncService.retryAllFailed(memberId)` (after `resyncAll`) for every member. It finds all FAILED requisitions and calls `retrySync()` for each — which re-polls the Enable Banking session. If accounts are now populated, the requisition transitions to LINKED and accounts are upserted. If not, it stays FAILED and is retried again the next day. Enable Banking sessions are valid for 90 days (`valid_until`), so there is ample time for banks that take hours to asynchronously populate accounts (observed: Boursorama ~4 h+).
 
+### Reporting a broken bank connector
+
+When a sidecar connector (`SidecarSessionPanel`, `BpceSessionPanel`, `BoursoPanel`, `FortuneoPanel`, `LbpPanel`, `BnpPanel`, `DegiroPanel`, `TradeRepublicTab`/`TradeRepublicLogin`, `RevolutTab`/`RevolutWizard`) or Enable Banking (`BankSyncTab`, `BankWizard`) displays a connector/server sync failure (excluding local client-side validation or CSV import errors), a **Report this problem** action (`ReportConnectorIssueButton`) lets the user file a GitHub issue with one click and no telemetry server.
+
+- Before opening GitHub, a dialog shows the exact `title` and `body` text that will be prefilled. Picsou sends nothing itself; the primary action is a plain `target="_blank"` link to `https://github.com/Cloeille/picsou-finance/issues/new` with `title` and `body` query parameters (no `.github/ISSUE_TEMPLATE` exists on `release/1.4.0`).
+- Only four strictly allowlisted technical fields are included (`frontend/src/lib/connector-report.ts`): the canonical connector id (e.g. `bourso`, `enable-banking`), the typed error code (from the `SidecarErrorCode` / typed connector code allowlist, falling back to `UNKNOWN` or `SYNC_FAILED`), the frontend build version (`APP_VERSION`), and the runtime (`desktop` or `web`). Any free-text bank error message, account name, institution name, amount, IBAN, or username is excluded.
+- The action is hidden in demo mode.
+
 ### Account type detection
 
-The connector reports the type in `AccountData.type`. Enable Banking maps only the ISO 20022
-`cash_account_type` `CARD` to `CREDIT_CARD`; every other value (`CACC`, `SVGS`, `LOAN`…) and
-every Powens account stay `CHECKING`. Mapping the other codes would retype accounts for every
-Enable Banking user and is a separate change. There is no `detectType()`: the dual-bank-providers
-ADR describes an earlier intent.
+The connector reports the type in `AccountData.type`. Enable Banking maps the ISO 20022
+`cash_account_type` `CARD` to `CREDIT_CARD` and `SVGS` to `SAVINGS` (a passbook; Wise sends it
+for each jar), both case-insensitive. Every other value (`CACC`, `LOAN`, `TRAS`…), a missing one
+and every Powens account stay `CHECKING`. `SVGS` is read on every balance path, the fallback
+(shared-list) one included: unlike a card's, a savings account's balance needs no sign
+convention. There is no `detectType()`: the dual-bank-providers ADR describes an earlier intent.
 
 A card's nature comes from its `details` token, case-insensitive: `immediat_debit` is
 `IMMEDIATE_DEBIT`, `delayed_debit` is `DEFERRED_DEBIT`, anything else leaves it unknown. Enable
@@ -350,6 +359,19 @@ card when the bank says `CARD` and fills in an unknown card nature. A type other
 and a known nature are never changed; `CHECKING` cannot be told apart from the old default, so a
 card the user set back to it by hand is upgraded again. Accounts are never turned back from a card
 into `CHECKING`.
+
+`SyncService.refreshSavingsType()` (`refresh_savings_type`) does the same for savings: a
+still-`CHECKING` account the bank declares `SVGS` becomes `SAVINGS`, any other stored type is the
+user's choice and is kept, and a savings account set back to `CHECKING` by hand is upgraded
+again. An account the bank stops declaring `SVGS` is never turned back into `CHECKING`.
+
+Known gaps:
+- **A Wise jar invested in stocks is typed `SAVINGS`.** Enable Banking sends it as `SVGS` with its
+  market value and nothing that tells it from a cash jar, so it lands in the safety net. Only the
+  Wise API says a jar is invested (#685).
+- **A bank that sends `SVGS` for a current account** gets it typed `SAVINGS`, and it stays so on
+  every sync even after the user sets it back to `CHECKING`; its debits then leave the expense
+  analysis, which reads `CHECKING` accounts only. Setting another type (e.g. `OTHER`) sticks.
 
 Known gaps (#664 follow-ups):
 - **Immediate-debit purchases count twice in the budget.** Boursorama lists each purchase both on
@@ -444,7 +466,7 @@ connection or import accounts into Picsou.
 Two pitfalls cost real users a lot of time during 1.0.0 testing — both are surfaced in the wizard now (`EBStep1Explain`, `EBStep2Credentials`):
 
 - **PRODUCTION vs SANDBOX**: The Enable Banking developer dashboard defaults to SANDBOX, which only exposes fictitious test banks. A user who creates a SANDBOX application will reach the bank picker, see a list of unfamiliar test banks, and never find their real one. The wizard now shows a warning encart on step 1 and forces the user to tick a "my application is in PRODUCTION mode" checkbox before submitting credentials on step 3.
-- **PSD2 scope is current accounts only (`CACC`)**: PSD2 standardises consent for cash accounts. PEA, Assurance Vie, Livret A, and other savings/investment products are out of scope — Enable Banking has no API for them. This is a permanent product limitation, not a Picsou bug. Users should be directed to the dedicated integrations (Trade Republic, BoursoBank sidecar, Finary) or manual entry. The wizard surfaces this on step 1, and `BankSyncTab` repeats the note above the connection list.
+- **PSD2 scope is cash accounts**: PSD2 standardises consent for payment accounts (`CACC`). A bank may also share savings accounts (`SVGS`, such as a passbook), which are imported too (their type: see [account type detection](#account-type-detection)); whether it does depends on the bank. PEA, Assurance Vie and other investment products are out of scope — Enable Banking has no API for them. This is a permanent product limitation, not a Picsou bug. Users should be directed to the dedicated integrations (Trade Republic, BoursoBank sidecar, Finary) or manual entry. The wizard surfaces this on step 1, and `BankSyncTab` repeats the note above the connection list: current accounts, and savings accounts when the bank shares them.
 
 ## Enable Banking configuration: the configured pieces
 
@@ -508,6 +530,7 @@ Because the text fields (Application ID + Redirect URI) live in Postgres while t
 - `EnableBankingBankConnectorTest` -- JWT build / institution search against a mocked provider, plus the pure catalog helpers: `resolvePsuType` (business-only banks, the Swan regression), `toInstitutions` (composite id, de-duplication, country fallback) and `parseInstitutionId` (three-segment, legacy two-segment, unexpected PSU segment)
 - `BankConnectorPortTest` -- `parseInstitutionId` cases (name+country, three-segment id with a PSU type, blank country segment, no separator, name containing `"::"`, `null` input)
 - `SyncControllerTest` -- `GET /countries` returns the service result; rate-limit-exceeded returns 429 without calling the service; `/countries` and `/initiate` use independent buckets
+- `ReportConnectorIssueButton.test.tsx` (frontend) -- prefilled GitHub URL contains only connector id, typed error code, app version, and runtime; free-text bank errors and PII are dropped; dialog shows exact prefilled text with no network calls; hidden in demo mode; wired on sidecar panels and Enable Banking failed rows
 - `BankCountrySelect.test.tsx` (frontend) -- loading fallback (no error shown), live options with default-country-first ordering, `onChange` on selection, visible error on a failed fetch with no prior data, visible error on an empty-but-successful response, error suppressed when stale-but-real data is still shown during a failed background refetch, snap-to-first-available when the current value isn't in the loaded list
 - `InstitutionSearch.test.tsx` (frontend) -- the not-configured notice replaces the countries error and the search error (admin link, member wording), and a transient countries error is rendered full-width
 - `AdminControllerTest` -- `getSettings` reads the resolved provider; `updateEnableBanking` delegates the 2-arg writer

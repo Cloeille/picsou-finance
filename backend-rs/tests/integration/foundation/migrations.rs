@@ -2,7 +2,8 @@ use picsou::db::flyway;
 use picsou::testing::{DB_USER, TestDatabase, fresh_database};
 use sqlx::{Connection, PgConnection, Row};
 
-/// flyway_schema_history of an empty database migrated by the Java 1.1.0 jar (Flyway 11).
+/// flyway_schema_history of an empty database migrated by the Java 1.1.0 jar (Flyway 11), followed
+/// by the rows Flyway writes for the migrations added since (V156 onwards).
 const JAVA_HISTORY: &str = include_str!("../fixtures/java_flyway_history.tsv");
 
 async fn connect(database: &TestDatabase) -> PgConnection {
@@ -293,7 +294,10 @@ async fn v156_backfills_each_holding_with_the_isin_its_ticker_or_profile_knew() 
     .await
     .unwrap();
 
-    sqlx::raw_sql(&v156.sql).execute(&mut conn).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(v156.sql.as_str()))
+        .execute(&mut conn)
+        .await
+        .unwrap();
 
     let rows: Vec<(i64, String, Option<String>)> = sqlx::query_as(
         "SELECT account_id, ticker, isin FROM account_holding ORDER BY account_id, ticker",

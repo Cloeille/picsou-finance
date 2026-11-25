@@ -84,19 +84,37 @@ Note: V8 is absent by design (skipped — never rolled into another migration). 
 
 ### Writing a new migration
 
-1. Create `V{next}__descriptive_name.sql` in `backend-rs/migrations/`, where `{next}` is the next free
-   version on an up-to-date target branch, counting `main` and every open `release/*` branch. Another open pull request may take the same number; the one
-   that merges second renumbers its own, still unmerged, files after syncing with the target branch, along
-   with every test or doc that names them. Keep their relative order and number them after the
-   latest version on the target branch: a later migration may depend on an earlier one. A local database that
-   already applied the old numbers has to be recreated, which deletes its data and encryption key
-   ([how to do it safely](../../CONTRIBUTING.md#before-you-open-a-pull-request)).
-   The `every_migration_has_a_unique_version` test fails on a duplicate version.
-2. Use plain SQL.
-3. Include constraints, indexes, and foreign keys explicitly.
-4. For new enums, use `CREATE TYPE ... AS ENUM (...)` at the top of the file.
-5. Add the SQLite counterpart and update `schema.tsv` (see above). `make test-backend` runs the
-   tests on both engines.
+1. **Scaffold both migrations:** run `make new-migration NAME=<snake_case>` (pass `REMOTE=upstream`
+   from a fork, `DRY_RUN=1` to preview without writing, or `NO_FETCH=1` to skip `git fetch`). The
+   command fetches the remote with `--prune`, computes the next free PostgreSQL `V{next}` and SQLite
+   `V{sqlite_next}` across `main`, every open `release/*` branch and the local working tree, creates
+   `backend-rs/migrations/V{next}__<name>.sql` and
+   `backend-rs/src/db/sqlite/migrations/V{sqlite_next}__<name>.sql` with placeholder comments, and
+   registers the SQLite file in `backend-rs/src/db/sqlite/migrate.rs` (defaulting to
+   `MigrationMode::Transactional`).
+   - Another open pull request may still pick the same number before merge; the one that merges
+     second renumbers its own, still unmerged, files after syncing with the target branch, along
+     with every test or doc that names them. Keep their relative order and number them after the
+     latest version on the target branch: a later migration may depend on an earlier one. A local
+     database that already applied the old numbers has to be recreated, which deletes its data and
+     encryption key ([how to do it safely](../../CONTRIBUTING.md#before-you-open-a-pull-request)).
+     The `every_migration_has_a_unique_version` test fails on a duplicate version.
+2. **Write the SQL in both files:**
+   - PostgreSQL (`backend-rs/migrations/V{next}__<name>.sql`): plain SQL, explicit constraints,
+     indexes and foreign keys, `CREATE TYPE ... AS ENUM (...)` at the top for new enums, and
+     `IF NOT EXISTS` / `IF EXISTS` where practical so an unmerged migration stays replayable if
+     renumbered.
+   - SQLite (`backend-rs/src/db/sqlite/migrations/V{sqlite_next}__<name>.sql`): store `NUMERIC`
+     columns as `TEXT` (never `REAL`, `FLOAT` or `DOUBLE`), and switch the entry in
+     `backend-rs/src/db/sqlite/migrate.rs` to `MigrationMode::TableRebuild` when altering an
+     existing table beyond additive `ALTER TABLE ... ADD COLUMN`
+     ([details](../../backend-rs/src/db/sqlite/migrations/README.md)).
+3. **Update `backend-rs/src/db/schema.tsv`:** run
+   `PICSOU_WRITE_SCHEMA=1 cargo test the_expected_schema` from `backend-rs/` (requires the
+   PostgreSQL 16 test instance on `127.0.0.1:55432`) so
+   `the_expected_schema_is_the_one_the_migrations_build` rewrites `src/db/schema.tsv` from the
+   applied migrations.
+4. Run `make test-backend` to exercise the full suite on both PostgreSQL and embedded SQLite.
 
 **Never rename or renumber a migration that is on `main` or a release branch, or that any deployed database may have
 applied**, even to fix a version collision. Flyway resolves applied rows by version: the old row stops matching any file

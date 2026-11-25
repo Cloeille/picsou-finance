@@ -75,6 +75,24 @@ async fn dashboard_leaves_hidden_and_child_accounts_out_of_the_totals() {
 }
 
 #[tokio::test]
+async fn dashboard_totals_ignore_the_tracked_fund() {
+    let app = TestApp::with_admin().await;
+    let me = admin_member(&app).await;
+    let jar = account(&app, me, "Actions en EUR", "SAVINGS", "1000").await;
+    let admin = app.login_admin().await;
+    let before = admin.get("/api/dashboard").send().await.json();
+    assert_eq!(num(&before["totalNetWorth"]), "1000.00000000");
+    exec(
+        &app,
+        &format!("UPDATE account SET tracked_isin = 'IE00B4L5Y983' WHERE id = {jar}"),
+    )
+    .await;
+    let after = admin.get("/api/dashboard").send().await.json();
+    assert_eq!(after["totalNetWorth"], before["totalNetWorth"]);
+    assert_eq!(after["assets"], before["assets"]);
+}
+
+#[tokio::test]
 async fn dashboard_range_changes_only_the_history() {
     let app = TestApp::with_admin().await;
     let me = admin_member(&app).await;

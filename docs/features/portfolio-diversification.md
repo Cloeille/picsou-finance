@@ -1,6 +1,6 @@
 # Feature: Portfolio diversification (sector + geography)
 
-> Last updated: 2026-11-24
+> Last updated: 2026-11-25
 
 ## Context
 
@@ -63,6 +63,13 @@ precedence: the member's `holding_classification.wealth_tier` first, then the pr
 `providerWealthTier`. A line with neither stays in. This keeps the SCPI units of a
 [CORUM Life](./corum-life.md) contract, which the pyramid counts as property, out of the
 "unclassified equity" list, and a line the member moved to another tier out of the breakdown.
+
+An account without holdings that declares a [tracked fund](./tracked-fund.md), whatever its
+type, adds **one** line: keyed on the ticker linked to its ISIN (the ISIN until one is linked),
+valued at its share-weighted EUR live value. It is added after the held lines, so a held line on
+the same ticker merges with it and names it; otherwise the UI shows the ticker. The same equity
+filter applies: an override to a non-equity tier removes it. An unlinked ISIN has no profile and
+lands in the unclassified list. Hidden accounts are not filtered out, as for held lines.
 
 Per ticker, in order: manual override → ETF look-through → single-share profile → unclassified.
 
@@ -128,8 +135,8 @@ discipline as the `Others` remainder in the holding modal and `Valuation.anyPric
 ### Never fetching on the read path
 
 `security_profile` is a durable, global cache; `SchedulerService.refreshSecurityProfiles()` warms
-it weekly. The breakdown reads rows and nothing else. See the
-[ADR](../decisions/2026-08-13-persisted-security-profiles.md).
+it weekly, over the held tickers and the [tracked fund](./tracked-fund.md) keys. The breakdown
+reads rows and nothing else. See the [ADR](../decisions/2026-08-13-persisted-security-profiles.md).
 
 ### Correcting a line by hand
 
@@ -165,6 +172,7 @@ and "deliberately unclassified" cannot diverge.
 - `backend-rs/src/market/boursorama.rs` — symbol resolution, shared with the composition provider
 - `backend-rs/src/accounts/analysis/profiles.rs` — `load` (read) vs `refresh` (network)
 - `backend-rs/src/accounts/analysis/diversification.rs` — the roll-up
+- `backend-rs/src/accounts/tracked_fund.rs` — the key of an account tracking a fund
 - `backend-rs/src/accounts/classification.rs` — the manual override
 - `backend-rs/migrations/V84__security_profile.sql`
 - `backend-rs/src/accounts/analysis/profiles.rs` — the on-demand pass
@@ -182,6 +190,7 @@ and "deliberately unclassified" cannot diverge.
 GET /api/analysis/diversification
   └─ PortfolioDiversificationService
        ├─ readable EQUITY accounts → lines (not tiered elsewhere) → weigh once → value by ticker
+       ├─ tracked fund accounts (no holdings) → one line on the linked ticker ▸ ISIN
        ├─ SecurityProfileService.load(tickers)          one query, no network
        └─ per ticker: override ▸ ETF slices (applied literally) ▸ share profile ▸ unclassified
             └─ N_eff per axis, coverage + the unplaced lines reported
@@ -248,6 +257,8 @@ PUT /api/accounts/{id}/holdings/{ticker}/classification
   renormalised, override per field, unclassified reported not renormalised, same ticker twice,
   shares applied once, `N_eff` on concentrated vs even portfolios, `EXPOSURE` vs `MIXED`, a line
   the provider files as real estate left out, the member's tier beating the provider's
+- `tests/integration/accounts/analysis.rs` — a tracked account as one line spread by its profile,
+  merged with a held line, unclassified while unlinked, left out when overridden out of equity
 - `DiversificationSection.test.tsx`, `e2e/analysis.spec.ts`
 
 ## Links
@@ -256,6 +267,7 @@ PUT /api/accounts/{id}/holdings/{ticker}/classification
 - ADR: [Persisted security profiles](../decisions/2026-08-13-persisted-security-profiles.md)
 - Related: [Security Insight](./security-insight.md) — the per-ETF composition this builds on
 - Related: [Wealth pyramid](./wealth-pyramid.md) — the same Analysis page, and the same override row
+- Related: [Tracked fund](./tracked-fund.md) — an account without lines counted as the fund it holds
 
 ## Co-owned accounts
 
