@@ -8,6 +8,7 @@ side of getting a change merged.
 - GNU Make, Docker
 - Rust stable with `rustfmt` and `clippy` (the backend, `backend-rs/`, and the desktop shell).
 - [Bun](https://bun.sh) (frontend)
+- Python 3 (only for `make new-migration`)
 
 ## Commands
 
@@ -17,6 +18,7 @@ green `make test-…` locally is the CI job. `make help` lists them.
 | Command | What it does |
 |---|---|
 | `make dev` | PostgreSQL in Docker on `127.0.0.1:5432` (container `picsou-db` with user, password and database `picsou`, kept between runs), the backend on http://localhost:8080 (`cargo run` in `backend-rs` with the `dev` profile, with the `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` generated when `picsou-db` is created and stored in it, so every checkout decrypts the same data; exported values win; a `picsou-db` created by hand before `make dev` holds none, so export the `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` you ran it with) and Vite on https://localhost:5173 (proxies `/api/*` to the backend). Ctrl-C stops both processes. |
+| `make new-migration NAME=x` | Scaffolds the next free PostgreSQL (`backend-rs/migrations/V<n>__x.sql`) and SQLite (`backend-rs/src/db/sqlite/migrations/V<m>__x.sql`) migration across `main`, every open `release/*` branch and the working tree, and registers the SQLite file in `backend-rs/src/db/sqlite/migrate.rs`. Pass `REMOTE=upstream` from a fork, `DRY_RUN=1` to preview, or `NO_FETCH=1` to skip `git fetch`. |
 | `make test` | Every suite below, in order. |
 | `make test-backend` | The backend: `cargo fmt --check`, `clippy -D warnings`, then every test (`TEST=routes` filters by name), then the integration tests again on embedded SQLite. The PostgreSQL tests create and drop their own databases on PostgreSQL 16 at `127.0.0.1:55432`, user `picsou`, trust authentication; for example `docker run -d --name picsou-test-db -p 127.0.0.1:55432:5432 -e POSTGRES_USER=picsou -e POSTGRES_HOST_AUTH_METHOD=trust postgres:16-alpine`. |
 | `make test-frontend` | ESLint (zero warnings), TypeScript, Vitest. |
