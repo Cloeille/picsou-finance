@@ -13,13 +13,14 @@ use super::math::{jmin, percent_of, rounded_int, scale2};
 use super::profiles::{self, ProfileSlice};
 use crate::accounts::classification::{HoldingClassification, overrides_of};
 use crate::accounts::holdings::holdings_of;
+use crate::accounts::tracked_fund;
 use crate::db::AsDbHandle;
 use crate::error::AppResult;
 use crate::ledger::access::{self, weigh};
 use crate::ledger::decimal::{HALF_UP, divide, set_scale};
-use crate::ledger::holdings;
 use crate::ledger::model::WealthTier;
 use crate::ledger::prices::PriceRead;
+use crate::ledger::{holdings, valuation};
 
 const SCALE: u32 = 8;
 const MAX_CONTRIBUTORS_PER_SLICE: usize = 12;
@@ -189,6 +190,32 @@ pub async fn diversification(
             });
             total += value;
         }
+    }
+    // An account holding one declared fund, without lines, is one line of that fund, after the
+    // held lines so that a held line of the same ticker names it.
+    let tracked = tracked_fund::keys(&mut *conn, &accounts.iter().collect::<Vec<_>>()).await?;
+    for account in accounts.iter().filter(|a| tracked.contains_key(&a.id)) {
+        let ticker = tracked[&account.id].clone();
+        if !is_equity_line(overrides.get(&ticker), None) {
+            continue;
+        }
+        let share = shares.get(&account.id).copied().unwrap_or_default();
+        let live = valuation::valuation(&mut *conn, prices, account, today)
+            .await?
+            .live_eur;
+        let value = weigh(live, share);
+        if value.is_zero() {
+            continue;
+        }
+        match value_by_ticker.iter_mut().find(|(t, _)| *t == ticker) {
+            Some((_, v)) => *v += value,
+            None => value_by_ticker.push((ticker.clone(), value)),
+        }
+        origins.entry(ticker).or_insert(Origin {
+            account_id: account.id,
+            name: None,
+        });
+        total += value;
     }
 
     let loaded = profiles::load(
