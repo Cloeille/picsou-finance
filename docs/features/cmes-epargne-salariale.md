@@ -111,7 +111,8 @@ that id names one label exactly and a member has one CMES login, while the name 
 employer, read from another page since the number went away. A plan deleted under that id stays
 deleted, unless a live account carries the same id under another saver number. An account
 carrying one of the plan's `legacyExternalIds` once the saver number is taken out
-(`cmes_<number>_<rest>` reads `cmes_<rest>`) moves to the new id too, but only if its name
+(`cmes_<number>_<rest>` reads `cmes_<rest>`; the number runs to the last `_`, since what follows
+it never holds one) moves to the new id too, but only if its name
 carries the plan's label (the part of "<label> — <employer>" before the dash: the employer may
 be worded otherwise since it moved page). Those builds cut the id, number included, at 100
 characters; such an id is compared as a prefix. Same row, so its snapshots and history stay with the plan, and the
@@ -126,8 +127,9 @@ plan starts a new account, splitting its history rather than risking another pla
 whose account was soft-deleted under its new id, or under an earlier id with its label, is not
 imported again. A deletion under the new id wins even when an earlier account still matches:
 an upgrade that found two old accounts moves one and leaves the other at zero, and deleting the
-moved one must not let the other bring the plan back. That leftover account stays as it is (or
-closes at zero) with the unlisted plans.
+moved one must not let the other bring the plan back. That leftover account closes at zero with
+the unlisted plans, as does any earlier account a plan matched but did not take over (it has an
+account under its new id already).
 
 Without the saver number, two CMES logins of one member (one replacing the other) whose plans
 share a label also share their ids: the second login's plan takes over the first one's account.

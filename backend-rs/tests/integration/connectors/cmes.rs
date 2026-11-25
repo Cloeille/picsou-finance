@@ -502,8 +502,38 @@ async fn a_deletion_under_the_numbered_id_wins_over_a_live_legacy_account() {
         ],
     )
     .await;
-    // Nothing is imported again, and the legacy account is left as it was.
-    assert_eq!(rows, vec![("cmes_12345_PEE".into(), d("50"))]);
+    // Nothing is imported again, and the legacy account closes at zero.
+    assert_eq!(rows, vec![("cmes_12345_PEE".into(), d("0"))]);
+}
+
+#[tokio::test]
+async fn a_saver_number_holding_an_underscore_is_taken_out_whole() {
+    let rows = sync_one_plan(
+        &["cmes_PEE"],
+        &[("cmes_12345_01_pee-0123456789abcdef", "PEE — ACME", false)],
+    )
+    .await;
+    assert_eq!(rows, vec![("cmes_pee-0123456789abcdef".into(), d("100"))]);
+}
+
+#[tokio::test]
+async fn an_earlier_account_a_plan_does_not_use_closes_at_zero() {
+    // The plan already has its account under the new id: the numbered one is stale.
+    let rows = sync_one_plan(
+        &["cmes_PEE"],
+        &[
+            ("cmes_pee-0123456789abcdef", "PEE — ACME", false),
+            ("cmes_12345_pee-0123456789abcdef", "PEE — ACME", false),
+        ],
+    )
+    .await;
+    assert_eq!(
+        rows,
+        vec![
+            ("cmes_pee-0123456789abcdef".into(), d("100")),
+            ("cmes_12345_pee-0123456789abcdef".into(), d("0"))
+        ]
+    );
 }
 
 #[tokio::test]

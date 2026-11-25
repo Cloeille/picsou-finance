@@ -494,27 +494,35 @@ impl SyncStrategy for Strategy {
         let imported =
             accounts::find_all_by_member_and_provider(&mut *conn, job.member_id, PROVIDER).await?;
         let mut inherited = inherited_accounts(prepared, &imported)?;
-        let inherited_ids: HashSet<i64> = inherited.values().map(|a| a.id).collect();
         let deleted =
             accounts::soft_deleted_external_ids(&mut *conn, job.member_id, PROVIDER).await?;
+        // Only an account a plan actually took over is spared the close at zero: one a plan
+        // matched but did not use (it has an account under its new id already, or stays
+        // deleted) closes with the unlisted plans instead of keeping a stale balance.
+        let mut moved: HashSet<i64> = HashSet::new();
         for plan in prepared {
-            upsert(
+            let earlier = inherited.remove(&plan.external_id);
+            let earlier_id = earlier.as_ref().map(|a| a.id);
+            let used = upsert(
                 state,
                 conn,
                 plan,
-                inherited.remove(&plan.external_id),
+                earlier,
                 &deleted,
                 job.member_id,
                 synced_at,
             )
             .await?;
+            if used {
+                moved.extend(earlier_id);
+            }
         }
         close_unlisted_plans(
             state,
             conn,
             prepared,
             &imported,
-            &inherited_ids,
+            &moved,
             job.member_id,
             synced_at,
         )
@@ -609,9 +617,11 @@ fn same_label(left: &str, right: &str) -> bool {
     label(left) == label(right)
 }
 
+/// The saver number may hold `_` (earlier builds kept it); what follows it never does (a
+/// kind, a slug or a digest), so the number runs to the last `_`.
 fn without_saver_number(external_id: &str) -> String {
     static NUMBERED: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"^cmes_[^_]+_(.+)$").expect("static regex"));
+        LazyLock::new(|| Regex::new(r"^cmes_.+_([^_]+)$").expect("static regex"));
     match NUMBERED.captures(external_id) {
         Some(cap) => format!("cmes_{}", &cap[1]),
         None => external_id.to_owned(),
@@ -626,7 +636,7 @@ async fn upsert(
     deleted: &[(String, String)],
     member_id: i64,
     synced_at: DateTime<Utc>,
-) -> JobResult<()> {
+) -> JobResult<bool> {
     let data = PortfolioAccount {
         external_id: &plan.external_id,
         name: &plan.name,
@@ -656,8 +666,9 @@ async fn upsert(
                     .any(|(id, name)| is_legacy_id(plan, id) && same_label(name, &plan.name))))
     {
         tracing::info!("CMES skipped a soft-deleted account (member={member_id})");
-        return Ok(());
+        return Ok(false);
     }
+    let used_inherited = existing.is_none() && inherited.is_some();
     let saved = match existing.or(inherited) {
         Some(account) => portfolio::refresh(state, conn, account, &data, synced_at).await?,
         None => portfolio::create(state, conn, member_id, &data, synced_at).await?,
@@ -670,7 +681,8 @@ async fn upsert(
         plan.balance_eur,
         plan.invested_amount_eur,
     )
-    .await
+    .await?;
+    Ok(used_inherited)
 }
 
 /// A plan CMES stopped listing is closed at zero rather than left at its last balance.
@@ -679,7 +691,7 @@ async fn close_unlisted_plans(
     conn: &mut DbHandle<'_>,
     prepared: &[PreparedPlan],
     imported: &[Account],
-    inherited_ids: &HashSet<i64>,
+    moved: &HashSet<i64>,
     member_id: i64,
     synced_at: DateTime<Utc>,
 ) -> JobResult<()> {
@@ -690,7 +702,7 @@ async fn close_unlisted_plans(
         };
         if !external_id.starts_with(EXTERNAL_ID_PREFIX)
             || listed.contains(external_id)
-            || inherited_ids.contains(&account.id)
+            || moved.contains(&account.id)
             || account.current_balance.is_zero()
         {
             continue;
