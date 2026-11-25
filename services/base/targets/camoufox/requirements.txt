@@ -1,0 +1,15 @@
+# Installed on top of services/base/requirements.txt in the `camoufox` target only.
+# Review Playwright with the Firefox release pinned in pin_camoufox.py.
+# Run smoke_camoufox.py in the derived sidecars before accepting browser bumps.
+# Lives two levels below services/base/ so Dependabot's /services/base pip entry
+# (which also scans immediate subdirectories) does not scan this file alongside
+# requirements-chromium.txt.
+# Camoufox 0.5.x needs a coordinated installer and fingerprint migration.
+# Versions 0.5.8 and 0.5.9 require Playwright <1.63, while this target pins
+# 1.64.1; .github/dependabot.yml ignores camoufox >= 0.5 and playwright >= 1.65
+# in /services/base/targets/camoufox until that migration.
+# Playwright 1.65 sends a Juggler field (downloadOptions.legacyInterceptor) the
+# pinned Firefox rejects, so smoke_camoufox.py fails: this target stays on 1.64.1
+# while the chromium target (services/base/requirements-chromium.txt) moves on.
+camoufox[geoip]==0.4.11
+playwright==1.64.1

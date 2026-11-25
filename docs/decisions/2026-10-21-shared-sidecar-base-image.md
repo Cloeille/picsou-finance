@@ -4,6 +4,7 @@
 > Status: ✅ Active
 > Amended: 2026-10-31 — shared Camoufox target for AMEX and Revolut (#330).
 > Amended: 2026-11-01 — Playwright 1.64.1 for both browser targets (#386).
+> Amended: 2026-11-25 — Camoufox requirements moved to `services/base/targets/camoufox/requirements.txt` with its own Dependabot `pip` entry ignoring `playwright >= 1.65` while Chromium follows upstream.
 
 ## Context
 
@@ -24,12 +25,12 @@ copy of each.
 
 `services/base/Dockerfile` builds three targets from one common pin set
 (`services/base/requirements.txt`, plus browser-specific `requirements-chromium.txt`
-and `requirements-camoufox.txt`):
+and `targets/camoufox/requirements.txt`):
 
 - `python`: Python 3.12 slim bookworm (pinned digest) and fastapi, uvicorn,
   pydantic, httpx. Used by bourso-auth, sofidy-auth, degiro-auth, cmes-auth
   and cic-auth.
-- `chromium`: `python` plus Playwright 1.64.1, its Chromium and the Chromium
+- `chromium`: `python` plus upstream Playwright, its Chromium and the Chromium
   system libraries. Used by amundi, bourse-direct, caisse-epargne, corum,
   fortuneo and tr-auth.
 - `camoufox`: `python` plus Playwright 1.64.1, Camoufox 0.4.11, pinned Firefox
@@ -132,7 +133,11 @@ one network policy per bank.
 
 ## Dependency update coverage
 
-Dependabot checks Maven in /backend, bun in /frontend, all shared pip requirements
-in /services/base, GitHub Actions, every Dockerfile directory, and Compose image references weekly. Updates
+Dependabot checks Cargo in `/backend-rs` and `/desktop/src-tauri`, bun in `/frontend`,
+shared and Chromium pip requirements in `/services/base`, Camoufox pip requirements in
+`/services/base/targets/camoufox` (two levels below `/services/base` so Dependabot's
+pip fetcher on `/services/base`, which scans immediate subdirectories, does not pick it
+up; it ignores `camoufox >= 0.5` and `playwright >= 1.65` while Chromium follows upstream),
+GitHub Actions, every Dockerfile directory, and Compose image references weekly. Updates
 use the default branch. Camoufox/Playwright bumps still require compatibility
 review and passing browser smoke tests.
