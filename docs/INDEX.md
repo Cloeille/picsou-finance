@@ -144,6 +144,7 @@
 | American Express France credit-card sidecar | 2026-10-31 | [amex-sidecar.md](./features/amex-sidecar.md) |
 | Trade Republic — Holdings deduplication | 2026-05-18 | [trade-republic-holding-deduplication.md](./features/trade-republic-holding-deduplication.md) |
 | ISIN → Ticker conversion | 2026-08-10 | [ISIN_TO_TICKER_CONVERSION.md](./features/ISIN_TO_TICKER_CONVERSION.md) |
+| Pricing by ISIN | 2026-11-22 | [isin-pricing.md](./features/isin-pricing.md) |
 | Encryption at rest | 2026-04-08 | [encryption-at-rest.md](./features/encryption-at-rest.md) |
 | Crypto tracking | 2026-08-11 | [crypto-tracking.md](./features/crypto-tracking.md) |
 | Wealth pyramid (Analysis) | 2026-11-05 | [wealth-pyramid.md](./features/wealth-pyramid.md) |

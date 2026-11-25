@@ -7,6 +7,7 @@ pub mod cooldown;
 pub mod geocoding;
 pub mod insee;
 pub mod instrument_logos;
+pub mod isin_prices;
 pub mod justetf;
 pub mod metals;
 pub mod nasdaq;

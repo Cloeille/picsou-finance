@@ -1076,12 +1076,11 @@ impl NativeNatixis {
         Ok(())
     }
 
-    async fn finish_login(
+    async fn profile_check(
         &self,
         client: &reqwest::Client,
-        state: &LoginState,
-    ) -> Result<FinishedLogin, NatixisError> {
-        let headers = self.idp_headers(&state.csrf, &state.device_id)?;
+        headers: HeaderMap,
+    ) -> Result<reqwest::Response, NatixisError> {
         let profile_url = format!(
             "{}/auth/v1/profiles/me/verifications",
             self.inner.config.idp_base
@@ -1092,8 +1091,51 @@ impl NativeNatixis {
             .send()
             .await
             .map_err(|err| classify_transport("profile check", &err))?;
+        check_upstream(response.status(), "profile check")?;
+        Ok(response)
+    }
+
+    async fn finish_login(
+        &self,
+        client: &reqwest::Client,
+        state: &LoginState,
+    ) -> Result<FinishedLogin, NatixisError> {
+        let headers = self.idp_headers(&state.csrf, &state.device_id)?;
+        let mut response = self.profile_check(client, headers.clone()).await?;
+        if response.status() == StatusCode::FORBIDDEN {
+            let codes = error_codes(response).await;
+            if !codes.iter().any(|c| c == "WEBAUTHN_REGISTRATION_REQUIRED") {
+                return Err(NatixisError::format_changed("profile check answered 403"));
+            }
+            // Natixis can ask a new device to register a passkey; the saver space's "later" button
+            // puts that off. Picsou does the same: no key is created and the account is unchanged.
+            // Registering a passkey of its own is ruled out, since a passkey signs in without the
+            // code: Picsou would hold a full login credential.
+            let skip_url = format!(
+                "{}/auth/v1/profiles/me/webauthnRegistrations/CURRENT/skip",
+                self.inner.config.idp_base
+            );
+            let skip = client
+                .post(&skip_url)
+                .headers(headers.clone())
+                .json(&json!({ "duration": "SHORT", "reason": "BY_USER" }))
+                .send()
+                .await
+                .map_err(|err| classify_transport("passkey registration skip", &err))?;
+            let skip_status = skip.status();
+            check_upstream(skip_status, "passkey registration skip")?;
+            if !matches!(
+                skip_status,
+                StatusCode::OK | StatusCode::CREATED | StatusCode::NO_CONTENT
+            ) {
+                return Err(NatixisError::format_changed(format!(
+                    "passkey registration skip answered {}",
+                    skip_status.as_u16()
+                )));
+            }
+            response = self.profile_check(client, headers).await?;
+        }
         let status = response.status();
-        check_upstream(status, "profile check")?;
         if !matches!(status, StatusCode::OK | StatusCode::CREATED) {
             return Err(NatixisError::format_changed(format!(
                 "profile check answered {}",

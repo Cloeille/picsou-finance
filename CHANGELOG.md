@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and Ollama. The settings form fills the base URL of the chosen provider and suggests the models
   that the provider offers. The stored API key is now sent only to the provider and host it was
   saved for, and a change of provider without a new key clears it.
+- **Gulf currencies for accounts.** AED, SAR, QAR, KWD, BHD and OMR can now be picked when
+  creating or editing an account. Values convert to EUR like the other currencies (#718).
 
 ### Changed
 
@@ -36,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Natixis Interépargne (desktop app): logins asked to register a passkey now complete.** The
+  in-process Rust connector used by the desktop app (and when `APP_NATIVE_SIDECARS=true`) now puts
+  off Natixis's passkey registration prompt ("later") and retries the profile check instead of
+  failing with an upstream format error (#686, #688).
 - **Manual PER and life insurance accounts.** A manual PER or life insurance account now offers the
   buy and sell form, so a fund position can be entered without a detour through a securities
   account.
@@ -49,6 +55,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for the approval on the phone and completes the login on its own. An approval not given in time
   ends with "The Amex authentication attempt expired". The verify page diagnostic now logs which known
   keywords the page's headings and buttons contain, never their text.
+- **La Banque Postale sign-in works again.** The bank moved its login to a new page that shows the
+  "Pour plus de sécurité" step without changing the address, so the connector never pressed
+  *Continuer*: no notification reached the phone, and the connection failed after the keypad as
+  "temporarily unavailable". The connector now continues that step and waits for the approval on
+  the phone, and a refused password is reported as such. A login that asks for an SMS code or
+  Certicode Plus still fails, with the screen named in the sidecar log.
 - **Natixis Interépargne: logins asked to register a passkey now complete.** After the password
   and the code, Natixis can ask for a passkey to be registered. Picsou now puts it off, as the
   "later" button of the saver space does, instead of reporting a website format change. (#686, #688)
