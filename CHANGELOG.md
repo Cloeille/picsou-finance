@@ -46,6 +46,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BoursoBank: managed PEA holdings under `funds`.** A managed PEA whose trading summary returns an
   empty `positions` list and lists its holdings under `funds` is now imported and reconciled against
   the account valuation instead of failing with `PORTFOLIO_INCOMPLETE` (#398).
+- **Natixis Interépargne: logins asked to register a passkey now complete.** After the password
+  and the code, Natixis can ask for a passkey to be registered. Picsou now puts it off, as the
+  "later" button of the saver space does, instead of reporting a website format change. (#686, #688)
 
 ## [1.3.0] — 2026-11-24
 
