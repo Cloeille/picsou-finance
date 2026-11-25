@@ -35,8 +35,8 @@ Rules carried over from #700:
 - The quote must be in EUR (the row shows `€`). Anything else gets no price.
 - Cache, timeout and a pause on 429 or 403, as for justETF.
 
-`BoursoramaClient` already exists for composition and equity profiles, so no new host or
-dependency is added.
+`Boursorama` (`backend-rs/src/market/boursorama.rs`) already exists for ETF composition, so no
+new host or dependency is added.
 
 ## Alternatives considered
 
@@ -75,7 +75,8 @@ history, for French unlisted funds. It is already a dependency of the app.
 
 ## Follow-up
 
-The adapter (`BoursoramaIsinPriceSource`, `@Order(300)`) is its own PR, once #700 has landed:
-it implements `IsinPriceSourcePort`, which #700 adds.
+The adapter (`BoursoramaIsinPriceSource`, ordered third in `IsinPriceService` after justETF and
+Yahoo) is its own PR, once #700 (#712) has landed: it implements the `IsinPriceSource` trait
+proposed in `backend-rs/src/market/isin_prices.rs`.
 
 Refs #704, #698
