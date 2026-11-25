@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Branded iOS and PWA home-screen icon and web app manifest.** Added `apple-touch-icon.png`
+  (180×180), 192×192 and 512×512 PNG icons (including a full-bleed maskable icon), and
+  `manifest.webmanifest` wired into `index.html`, so saving Picsou to an iOS or Android home
+  screen shows the Picsou icon and title instead of a generic placeholder. (#438)
+
 ### Fixed
 
 - **Enable Banking: savings accounts are imported as savings.** An account the bank declares as
